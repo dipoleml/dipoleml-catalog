@@ -1,0 +1,16 @@
+{
+  "name": "ultralytics-branding",
+  "displayName": "Ultralytics Branding",
+  "version": "1.0.0",
+  "description": "Ultralytics brand guidelines (colors, Archivo font, naming, tone) for presentations, documents, marketing emails, social posts, and web designs.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Fcakyon"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/fcakyon/claude-codex-settings",
+  "repository": "https://github.com/fcakyon/claude-codex-settings",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

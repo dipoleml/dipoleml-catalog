@@ -1,0 +1,16 @@
+{
+  "name": "understanding-ladder",
+  "displayName": "Understanding Ladder",
+  "version": "0.1.0",
+  "description": "Karpathy's understanding ladder as agent skills: understanding-ladder picks text / diagram / interactive HTML / video storyboard by content type; plain-chinese spells out rung-1 rules for Chinese.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Changwenc"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/ChangWenC/understanding-ladder",
+  "repository": "https://github.com/ChangWenC/understanding-ladder",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

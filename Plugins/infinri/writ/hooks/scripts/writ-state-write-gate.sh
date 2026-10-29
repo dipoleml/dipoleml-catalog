@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# Session-state write gate: the grant store is off limits to the agent.
+#
+# Gate state (mode, approved gates, the manual-testing grant) lives in the session
+# cache. If the agent could write there it could approve its own gates, so this
+# denies any Write/Edit whose target lands in that directory. Unconditional and
+# server-independent, the same shape as the credential deny in the Bash write gate,
+# because a gate the agent can edit is not a gate.
+#
+# The Bash side is covered by writ-bash-write-gate.sh.
+#
+# Hook type: PreToolUse (matcher: Write|Edit|NotebookEdit)
+# Exit: always 0 (deny via emit_deny JSON).
+
+set -euo pipefail
+
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+WRIT_DIR="$(cd "$HOOK_DIR/../.." && pwd)"
+source "$WRIT_DIR/bin/lib/common.sh"
+hook_instrument "writ-state-write-gate"
+
+load_hook_env
+FILE="$HOOK_FILE_PATH"
+[ -z "$FILE" ] && exit 0
+
+PROTECTED_DIR="${WRIT_CACHE_DIR:-$_WRIT_STATE_ROOT/session}"
+# Every earlier release kept state in the install's own var/session, and
+# bin/lib/writ_state_migrate.py carries caches OUT of it at SessionStart, so a cache forged
+# there would be carried in. It stays protected for as long as the migration reads it.
+LEGACY_DIR="$WRIT_DIR/var/session"
+POINTER_FILE="/tmp/writ-current-session"
+# The APPROVAL CREDENTIAL. Its binding is three lines of text and no component records
+# elsewhere what was minted, so an agent able to write this file can blank line 2 and turn
+# a genuine phase approval into the empty-gate credential the promotion route accepts,
+# keeping the authentic secret on line 1. That is a three-byte edit, not a forgery. The
+# session id is not known here (the target is whatever the tool named), so the match is on
+# the mint's fixed prefix rather than one session's path.
+TOKEN_PREFIX="/tmp/writ-gate-token-"
+
+VERDICT=$(WRIT_TGT="$FILE" WRIT_DIR_PROT="$PROTECTED_DIR" WRIT_DIR_LEGACY="$LEGACY_DIR" WRIT_PTR="$POINTER_FILE" \
+    WRIT_TOK_PREFIX="$TOKEN_PREFIX" python3 <<'PY'
+import os
+
+target = os.environ.get('WRIT_TGT', '')
+protected_dirs = [d for d in (os.environ.get('WRIT_DIR_PROT', ''),
+                              os.environ.get('WRIT_DIR_LEGACY', '')) if d]
+pointer = os.environ.get('WRIT_PTR', '')
+token_prefix = os.environ.get('WRIT_TOK_PREFIX', '')
+# A session cache or grant by NAME, in any directory. The migration also reads the var/session
+# of every sibling plugin version, and naming the files is simpler and tighter than listing
+# directories. bin/lib/writ-session.py does not match: its name continues with ".py", not "-".
+STATE_FILE_PREFIXES = ('writ-session-', 'writ-grant-')
+
+# realpath both sides so a symlink or a ../ walk cannot slip past the prefix test.
+def canon(path):
+    try:
+        return os.path.realpath(os.path.abspath(path))
+    except Exception:
+        return os.path.abspath(path)
+
+t = canon(target)
+
+if t == canon(pointer):
+    print('pointer')
+elif any(t == canon(d) or t.startswith(canon(d) + os.sep) for d in protected_dirs):
+    print('state')
+elif os.path.basename(t).startswith(STATE_FILE_PREFIXES):
+    print('state')
+elif token_prefix and os.path.basename(t).startswith(os.path.basename(token_prefix)):
+    # Compared on the BASENAME because canon() resolves /tmp through any symlink the
+    # platform uses (macOS makes it /private/tmp), which a prefix test on the full path
+    # would then miss. The basename carries the whole discriminator.
+    print('token')
+PY
+) || true
+
+if [ -n "$VERDICT" ]; then
+    REASON="[ENF-GATE-STATE] Refusing this write: '$FILE' is Writ gate state. Approvals, mode and the manual-testing grant are recorded there, so the agent does not get to edit them. A manual-testing bypass is minted only from the user's own words, so ask the user to reply \"manual test approved\"."
+    log_gate_decision "state-write" "deny" "$REASON" "$FILE"
+    emit_deny "$REASON"
+fi
+
+exit 0

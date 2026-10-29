@@ -1,0 +1,15 @@
+{
+  "name": "ai-governance-legal-uk",
+  "version": "1.0.0",
+  "description": "UK AI governance legal workflows: use case triage against your registry, AI impact assessments across UK regulatory regimes (ICO AI guidance, UK GDPR / DPA 2018, CMA AI guidance, FCA AI requirements, Online Safety Act 2023, DSIT pro-innovation framework, EU AI Act for UK companies selling to the EU). Covers England & Wales, Scotland, and Northern Ireland, with EU AI Act cross-border obligations for UK companies with EU exposure.",
+  "author": {
+    "name": "uk-agents"
+  },
+  "homepage": "https://bouch.dev/products/uk-legal-plugins/ai-governance-legal-uk",
+  "repository": "https://github.com/uk-agents/uk-legal-plugins",
+  "license": "MIT",
+  "displayName": "AI Governance Legal UK",
+  "category": "legal",
+  "keywords": ["uk-law", "legal", "ai-governance", "ai-regulation", "uk-gdpr", "dpa-2018", "online-safety-act", "ai-impact-assessment"],
+  "tags": ["ai", "governance", "uk-law", "legal"]
+}

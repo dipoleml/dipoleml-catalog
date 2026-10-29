@@ -1,0 +1,108 @@
+{
+  "schema": 1,
+  "cell_id": "021-config-policy-booleans--citadel-calibrated-support-route",
+  "order": 21,
+  "scenario_id": "config-policy-booleans",
+  "task_class": "config-migration",
+  "risk": "low",
+  "policy_id": "citadel-calibrated-support-route",
+  "repetition": 1,
+  "route": {
+    "initial_tier": "local",
+    "escalation_tier": "cloud",
+    "reason_code": "CALIBRATED_SUPPORTED_LOCAL_THEN_VERIFY"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "local",
+      "started_at": "2026-08-02T01:11:38.304Z",
+      "duration_ms": 4671,
+      "output_text": "{\n  \"files\": {\n    \"config/policy.json\": \"{\\\"schema\\\":2,\\\"policy\\\":\\\"bounded\\\",\\\"require_verifier\\\":true,\\\"allow_retry\\\":false}\"\n  }\n}",
+      "output_digest": "sha256:b6f154b873f1b8754378f8edfe1cd617c9788f62480f73ff7620ddf711bf3107",
+      "verification": {
+        "status": "passed",
+        "code": null,
+        "changed_paths": [
+          "config/policy.json"
+        ],
+        "applied_file_digests": {
+          "config/policy.json": "sha256:242ff1e89aa82685bf4c61a20b0977144eb8f055bed774148efd25aa57612477"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 0,
+          "signal": null,
+          "stdout": "",
+          "stderr": "",
+          "error": null
+        },
+        "patch_digest": "sha256:2261d1fc0f4d1abb223b0196dc3f559cad097181d58a361061ddf48ad6d468ab"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "ollama-chat",
+        "requested_model": "qwen2.5-coder:3b",
+        "canonical_model": "qwen2.5-coder:3b",
+        "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+        "response_digest": "sha256:b7b84e0d02bc6f53fce15d708ff57f919d5eabe0a4bc3824c4b0d7abe576179e",
+        "error": null
+      },
+      "usage": {
+        "input_tokens": 165,
+        "output_tokens": 37,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0
+      },
+      "economics": {
+        "comparison_cost": {
+          "status": "derived-comparison",
+          "total_usd": 0.000029201,
+          "source": "measured_gpu_energy_plus_frozen_residual_amortization"
+        },
+        "provider_reported_equivalent_cost": {
+          "status": "known",
+          "amount_usd": 0,
+          "source": "self_hosted_ollama"
+        },
+        "local_gpu_energy": {
+          "status": "measured",
+          "energy_kwh": 0.00008113,
+          "samples": 10,
+          "average_watts": 62.528
+        },
+        "actual_subscription_cash": {
+          "status": "not-applicable",
+          "amount_usd": 0
+        }
+      }
+    }
+  ],
+  "status": "passed",
+  "final_verification": {
+    "status": "passed",
+    "code": null,
+    "changed_paths": [
+      "config/policy.json"
+    ],
+    "applied_file_digests": {
+      "config/policy.json": "sha256:242ff1e89aa82685bf4c61a20b0977144eb8f055bed774148efd25aa57612477"
+    },
+    "verifier": {
+      "command": "node verifier.js",
+      "status": 0,
+      "signal": null,
+      "stdout": "",
+      "stderr": "",
+      "error": null
+    },
+    "patch_digest": "sha256:2261d1fc0f4d1abb223b0196dc3f559cad097181d58a361061ddf48ad6d468ab"
+  },
+  "previous_cell_digest": "sha256:56e85d24d034598a6a25eee0cc855edaf67c00a28783b6fbd44080b3698e2e27",
+  "receipt_digest": "sha256:5dd7ae9a39ea554d9bba3448ede004b2632e05d55bc2d67ca86cefabeabfc802",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:e2ba77ab5a3965de20f6f92cf3b211d016df2954e7257510911ef84a4fe2c588",
+    "signature": "bpMA6EtQUx99wDknW1ouwqZHEvnYxwcM6qTahYSTSccyG062dNg+jHGU/+G9pkN09P07zW6ZqeQrXlH8iLrPDQ=="
+  }
+}

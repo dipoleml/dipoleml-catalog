@@ -1,0 +1,16 @@
+{
+  "name": "winnow",
+  "displayName": "Winnow",
+  "version": "0.5.2",
+  "description": "A calibrated context sieve for DipoleML. Every large tool result is judged by a System One model before it enters context; irrelevant blocks are replaced with a summary and a recall key.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Ghalebdweikat"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/GhalebDweikat/winnow",
+  "repository": "https://github.com/GhalebDweikat/winnow",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,16 @@
+{
+  "name": "telegram",
+  "displayName": "Telegram",
+  "version": "0.0.7",
+  "description": "Telegram channel for DipoleML — messaging bridge with built-in access control. Manage pairing, allowlists, and policy via /telegram:access.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Anthropic"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/anthropics/claude-plugins-official",
+  "repository": "https://github.com/anthropics/claude-plugins-official",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

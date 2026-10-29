@@ -1,0 +1,16 @@
+{
+  "name": "cc-safety-net",
+  "displayName": "CC Safety Net",
+  "version": "2.7.0",
+  "description": "Block destructive commands and secret access",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Kenryu42"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/kenryu42/cc-safety-net",
+  "repository": "https://github.com/kenryu42/cc-safety-net",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

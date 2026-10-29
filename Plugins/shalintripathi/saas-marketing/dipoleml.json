@@ -1,0 +1,124 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.shalintripathi.saas-marketing",
+  "type": "plugin",
+  "name": "Saas Marketing",
+  "slug": "saas-marketing",
+  "vendor": "shalintripathi",
+  "description": "AI marketing agents for DipoleML: a B2B SaaS marketing team as a plugin. 90 agents in 17 disciplines, CATALYST orchestrator, 19 skills and a Campaign Board mod. SEO/AEO/GEO, content, paid, social, email, ABM, PLG, PMM, pricing, sales/presales, partners, analytics. Missing facts come back as [NEEDS INPUT], never invented. Also works in Cursor.",
+  "version": "1.4.1",
+  "homepage": "https://github.com/shalintripathi/saas-marketing-agents",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "aeo",
+    "ai-marketing",
+    "ai-marketing-agent",
+    "b2b-marketing",
+    "b2b-saas",
+    "claude-code-plugin",
+    "claude-code-skills",
+    "claude-plugin",
+    "claude-skills"
+  ],
+  "tags": [
+    "aeo",
+    "ai-agents",
+    "ai-marketing",
+    "ai-marketing-agent",
+    "b2b-marketing",
+    "b2b-saas",
+    "claude",
+    "claude-code",
+    "claude-code-plugin",
+    "claude-code-skills",
+    "claude-plugin",
+    "claude-skills",
+    "gtm",
+    "marketing",
+    "marketing-agents",
+    "marketing-skills",
+    "saas",
+    "saas-marketing",
+    "seo",
+    "subagents"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "shalintripathi",
+    "brandName": "shalintripathi",
+    "source": "https://github.com/shalintripathi.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:14:49Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "shalintripathi/saas-marketing-agents",
+    "url": "https://github.com/shalintripathi/saas-marketing-agents",
+    "commit": "a0efd9dc84fc98d0e1dc69e7662a1d099c7c37c6",
+    "path": "plugins/saas-marketing",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 29,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:50:12Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Saas Marketing | AI marketing agents for Claude Code: a B2B SaaS marketing team as a plugin. 90 agents in 17 disciplines, CATALYST orchestrator, 19 skills and a Campaign Board mod. SEO/AEO/GEO, content, paid, social, email, ABM, PLG, PMM, pricing, sales/presales, partners, analytics. Missing facts come back as [NEEDS INPUT], never invented. Also works in Cursor.",
+        "after": "Saas Marketing | AI marketing agents for DipoleML: a B2B SaaS marketing team as a plugin. 90 agents in 17 disciplines, CATALYST orchestrator, 19 skills and a Campaign Board mod. SEO/AEO/GEO, content, paid, social, email, ABM, PLG, PMM, pricing, sales/presales, partners, analytics. Missing facts come back as [NEEDS INPUT], never invented. Also works in Cursor.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

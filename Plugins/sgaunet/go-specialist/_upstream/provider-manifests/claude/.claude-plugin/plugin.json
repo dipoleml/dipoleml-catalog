@@ -1,0 +1,20 @@
+{
+  "name": "go-specialist",
+  "version": "0.23.0",
+  "description": "Master Go 1.25+ development with modern patterns, advanced concurrency, performance optimization, and production-ready microservices. Skills: gen-forgejo-dir, gen-github-dir, gen-gitlab-ci, gen-goreleaser, gen-linter, gen-taskfiles, go-blackbox, go-bulma, go-structure, go-tdd, go-tool. MCP: context7",
+  "keywords": [
+    "go",
+    "golang",
+    "goreleaser",
+    "golangci-lint",
+    "go-tool",
+    "testing"
+  ],
+  "author": {
+    "name": "Sylvain",
+    "email": "1552102+sgaunet@users.noreply.github.com"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/sgaunet/claude-plugins",
+  "homepage": "https://github.com/sgaunet/claude-plugins#readme"
+}

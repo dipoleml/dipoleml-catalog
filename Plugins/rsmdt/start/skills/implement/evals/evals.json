@@ -1,0 +1,30 @@
+{
+  "skill_name": "implement",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Implement spec 005 — a single-slice rate-limit middleware. specify-plan has authored the tracker: an implement-phase root task with one slice task (type: slice, its body is the code brief) and two scenario child tasks (type: scenario) under it. plan.md exists with threshold and max_iterations in its frontmatter.",
+      "expected_output": "Reads the task graph structure, discovers the service config, then authors and runs one dynamic workflow that loops each slice through code→eval.",
+      "expectations": [
+        "Invoked specify-meta to resolve the spec directory and specId",
+        "Read the task graph via task.js graph --spec 005 — identifying the implement-phase root, its slice task, and the slice's scenario count — without opening any slice or scenario body",
+        "Read plan.md only for its threshold/max_iterations frontmatter",
+        "Discovered the service startCommand, servicePort, and healthPath from the project instructions or package.json",
+        "Called the Workflow tool with an inline script it authored (no scriptPath), whose meta is a pure literal",
+        "The script's code agent reads only the slice task and its eval agent reads only the scenario child tasks",
+        "The script gates completion on business and technical satisfaction each clearing the threshold",
+        "Did NOT implement code directly, run the code/eval loop outside the workflow, or author/modify any specification artifact"
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "Implement spec 099 which does not exist / has no specification directory or tracker.",
+      "expected_output": "Error: no specification found; suggest running specify first.",
+      "expectations": [
+        "Reported that no specification directory or tracker was found for spec 099",
+        "Suggested running the specify skill first",
+        "Did NOT fabricate tasks or launch a workflow"
+      ]
+    }
+  ]
+}

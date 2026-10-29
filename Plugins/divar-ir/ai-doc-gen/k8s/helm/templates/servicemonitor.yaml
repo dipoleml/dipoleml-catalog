@@ -1,0 +1,18 @@
+{{- if .Values.serviceMonitor.create -}}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "DOCUMENTER.fullname" . }}
+  labels:
+    {{- include "DOCUMENTER.labels" . | nindent 4 }}
+  {{- range $key,$val := .Values.serviceMonitor.labels }}
+    {{ $key }}: {{ $val | quote }}
+  {{- end }}
+spec:
+  endpoints:
+    - path: {{ .Values.serviceMonitor.metricsPath }}
+      port: {{ .Values.serviceMonitor.portName }}
+  selector:
+    matchLabels:
+      {{- include "DOCUMENTER.selectorLabels" . | nindent 6 }}
+{{- end }}

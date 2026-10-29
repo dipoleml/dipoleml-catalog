@@ -1,0 +1,353 @@
+package main
+
+import (
+	"bytes"
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/url"
+	"os"
+	"path/filepath"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+)
+
+const analyticsBatchSize = 20
+const analyticsFlushInterval = 5 * time.Second
+
+var analyticsEnabled atomic.Bool
+var analyticsTransport string
+var installationID string
+var telemetryEmail atomic.Pointer[string]
+var analyticsCh chan AnalyticsEvent
+
+// setTelemetryEmail and telemetryEmailValue give telemetryEmail atomic
+// read/write: it's written by the login opt-in handler and read on every
+// tool call, and the HTTP transport (mcp_http.go) serves those concurrently.
+func setTelemetryEmail(email string) {
+	telemetryEmail.Store(&email)
+}
+
+func telemetryEmailValue() string {
+	if v := telemetryEmail.Load(); v != nil {
+		return *v
+	}
+	return ""
+}
+
+// analyticsFlushCh lets stopAnalytics ask the sender goroutine to drain and
+// flush synchronously before process exit, avoiding the loss of events that
+// would otherwise still be sitting in analyticsCh or the sender's local batch.
+var analyticsFlushCh chan chan struct{}
+
+// analyticsEndpoint and analyticsConvID are set from telemetryConfig during initAnalytics.
+var analyticsEndpoint string
+var analyticsConvID int
+
+// teleCfg is the resolved telemetry config, loaded once in initAnalytics.
+// The feedback handler reads FeedbackEndpoint/FeedbackConvID from it.
+var teleCfg telemetryConfig
+
+// AnalyticsEvent holds telemetry data for a single tool call.
+type AnalyticsEvent struct {
+	Ts             string `json:"ts"`
+	Product        string `json:"product"` // "corezoid" — distinguishes this plugin's events from simulator-ai-plugin's in the shared ingest process
+	Tool           string `json:"tool"`
+	DurationMs     int64  `json:"duration_ms"`
+	IsError        bool   `json:"is_error"`
+	ErrorType      string `json:"error_type,omitempty"`
+	APIURL         string `json:"api_url,omitempty"`
+	Transport      string `json:"transport"`
+	ServerVersion  string `json:"server_version"`
+	InstallationID string `json:"installation_id"`
+	UserEmail      string `json:"user_email,omitempty"`
+	ClientName     string `json:"client_name,omitempty"`
+	ClientVersion  string `json:"client_version,omitempty"`
+}
+
+// userPreferences holds user-level opt-in settings persisted in ~/.corezoid/preferences.json.
+type userPreferences struct {
+	TelemetryEmail      string `json:"telemetry_email,omitempty"`
+	TelemetryEmailAsked bool   `json:"telemetry_email_asked,omitempty"`
+}
+
+func preferencesFilePath() (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".corezoid", "preferences.json"), nil
+}
+
+func loadUserPreferences() userPreferences {
+	path, err := preferencesFilePath()
+	if err != nil {
+		return userPreferences{}
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return userPreferences{}
+	}
+	var p userPreferences
+	_ = json.Unmarshal(data, &p)
+	return p
+}
+
+func saveUserPreferences(p userPreferences) error {
+	path, err := preferencesFilePath()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(p, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0600)
+}
+
+// errorTypeRouterMiss marks a call that named a domain router but no usable
+// action — no action at all, an unknown one, or arguments outside args. It is
+// its own error_type because it measures something no other value does: how
+// often a model cannot reach an action from the one-line summary that replaced
+// the action's own tool entry.
+const errorTypeRouterMiss = "router_miss"
+
+// classifyError maps an error result string to one of the fixed error_type enum values.
+// It never returns free-form text — only the predefined enum values.
+func classifyError(result string) string {
+	lower := strings.ToLower(result)
+	switch {
+	case strings.Contains(lower, "auth") || strings.Contains(lower, "token") ||
+		strings.Contains(lower, "unauthorized") || strings.Contains(lower, "forbidden"):
+		return "auth_error"
+	case strings.Contains(lower, "validation") || strings.Contains(lower, "invalid") ||
+		strings.Contains(lower, "lint"):
+		return "validation_error"
+	case strings.Contains(lower, "not found") || strings.Contains(lower, "404"):
+		return "not_found"
+	case strings.Contains(lower, "api") || strings.Contains(lower, "http") ||
+		strings.Contains(lower, "request") || strings.Contains(lower, "fetch"):
+		return "api_error"
+	default:
+		return "unknown"
+	}
+}
+
+// hostnameOnly strips scheme, path, and query from a URL, returning just the host.
+func hostnameOnly(rawURL string) string {
+	if rawURL == "" {
+		return ""
+	}
+	if !strings.Contains(rawURL, "://") {
+		rawURL = "https://" + rawURL
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	return u.Hostname()
+}
+
+// loadOrCreateInstallationID reads ~/.corezoid/installation_id or generates and
+// persists a fresh UUID v4. Falls back to an in-memory UUID if the file cannot be written.
+func loadOrCreateInstallationID() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return generateUUIDv4()
+	}
+	dir := filepath.Join(home, ".corezoid")
+	path := filepath.Join(dir, "installation_id")
+
+	if data, err := os.ReadFile(path); err == nil {
+		if id := strings.TrimSpace(string(data)); len(id) == 36 {
+			return id
+		}
+	}
+
+	id := generateUUIDv4()
+	if err := os.MkdirAll(dir, 0700); err == nil {
+		_ = os.WriteFile(path, []byte(id+"\n"), 0600)
+	}
+	return id
+}
+
+// generateUUIDv4 produces a random UUID v4 using crypto/rand.
+func generateUUIDv4() string {
+	var b [16]byte
+	_, _ = rand.Read(b[:])
+	b[6] = (b[6] & 0x0f) | 0x40
+	b[8] = (b[8] & 0x3f) | 0x80
+	return fmt.Sprintf("%s-%s-%s-%s-%s",
+		hex.EncodeToString(b[0:4]),
+		hex.EncodeToString(b[4:6]),
+		hex.EncodeToString(b[6:8]),
+		hex.EncodeToString(b[8:10]),
+		hex.EncodeToString(b[10:16]),
+	)
+}
+
+// initAnalytics loads the installation ID and starts the background sender if
+// COREZOID_ANALYTICS=true. Must be called after loadConfig() and before the
+// MCP server starts accepting requests.
+func initAnalytics() {
+	teleCfg = loadTelemetryConfig()
+	analyticsEndpoint = teleCfg.AnalyticsEndpoint
+	analyticsConvID = teleCfg.AnalyticsConvID
+
+	if os.Getenv("COREZOID_ANALYTICS_DISABLED") != "" {
+		return
+	}
+	installationID = loadOrCreateInstallationID()
+	prefs := loadUserPreferences()
+	setTelemetryEmail(prefs.TelemetryEmail)
+	analyticsCh = make(chan AnalyticsEvent, 100)
+	analyticsFlushCh = make(chan chan struct{})
+	analyticsEnabled.Store(true)
+	go runAnalyticsSender()
+	logger.Debug("analytics: enabled, installation_id=%s transport=%s has_email=%v", installationID, analyticsTransport, telemetryEmailValue() != "")
+}
+
+// emitAnalyticsEvent enqueues an event for async delivery.
+// Non-blocking: events are dropped silently when the channel is full.
+func emitAnalyticsEvent(e AnalyticsEvent) {
+	if !analyticsEnabled.Load() {
+		return
+	}
+	select {
+	case analyticsCh <- e:
+	default:
+	}
+}
+
+// runAnalyticsSender drains analyticsCh and flushes batches every 5 s or 20
+// events, until asked to flush for shutdown via analyticsFlushCh, at which
+// point it sends whatever remains and returns — stopAnalytics is only ever
+// called right before process exit, so there's no more work for it to do.
+func runAnalyticsSender() {
+	ticker := time.NewTicker(analyticsFlushInterval)
+	defer ticker.Stop()
+
+	batch := make([]AnalyticsEvent, 0, analyticsBatchSize)
+
+	flush := func() {
+		if len(batch) == 0 {
+			return
+		}
+		sendBatch(batch)
+		batch = batch[:0]
+	}
+
+	for {
+		select {
+		case e := <-analyticsCh:
+			batch = append(batch, e)
+			if len(batch) >= analyticsBatchSize {
+				flush()
+			}
+		case <-ticker.C:
+			flush()
+		case done := <-analyticsFlushCh:
+			// Drain whatever is already queued before flushing, so events
+			// emitted right before shutdown aren't left behind in the channel.
+		drain:
+			for {
+				select {
+				case e := <-analyticsCh:
+					batch = append(batch, e)
+				default:
+					break drain
+				}
+			}
+			flush()
+			close(done)
+			return
+		}
+	}
+}
+
+// stopAnalyticsOnce ensures the flush-and-stop sequence below runs exactly
+// once. main.go calls stopAnalytics() from up to three places (a deferred
+// call, the SIGINT/SIGTERM handler goroutine, and the HTTP-server-error
+// path), and a signal can arrive concurrently with either of the others. The
+// sender goroutine exits after its first flush, so a second call would find
+// no receiver on analyticsFlushCh and block out its full timeout for nothing.
+var stopAnalyticsOnce sync.Once
+
+// stopAnalytics flushes any events queued in the channel or buffered in the
+// sender's in-memory batch, sending them synchronously, then stops the sender
+// goroutine for good. Safe to call more than once or concurrently — only the
+// first call does any work — and safe to call even if analytics was never
+// enabled. Bounded by short timeouts so a wedged network call or dead
+// goroutine can never hang shutdown.
+func stopAnalytics() {
+	stopAnalyticsOnce.Do(func() {
+		if !analyticsEnabled.Load() {
+			return
+		}
+		done := make(chan struct{})
+		select {
+		case analyticsFlushCh <- done:
+			select {
+			case <-done:
+			case <-time.After(6 * time.Second):
+			}
+		case <-time.After(1 * time.Second):
+		}
+	})
+}
+
+type analyticsOp struct {
+	Type   string         `json:"type"`
+	Obj    string         `json:"obj"`
+	ConvID int            `json:"conv_id"`
+	Ref    string         `json:"ref"`
+	Data   AnalyticsEvent `json:"data"`
+}
+
+// sendBatch POSTs events to the analytics endpoint using the Corezoid ops API.
+// Failures are logged at DEBUG level only — never surfaced to the user.
+func sendBatch(events []AnalyticsEvent) {
+	ops := make([]analyticsOp, len(events))
+	for i, e := range events {
+		ops[i] = analyticsOp{
+			Type:   "create",
+			Obj:    "task",
+			ConvID: analyticsConvID,
+			Ref:    fmt.Sprintf("%s-%s-%d", e.InstallationID, e.Ts, i),
+			Data:   e,
+		}
+	}
+	payload := map[string]any{"ops": ops}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		logger.Debug("analytics: marshal error: %v", err)
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, analyticsEndpoint, bytes.NewReader(data))
+	if err != nil {
+		logger.Debug("analytics: build request error: %v", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	setCorezoidOrigin(req, analyticsEndpoint)
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		logger.Debug("analytics: send error: %v", err)
+		return
+	}
+	defer resp.Body.Close()
+	logger.Debug("analytics: sent %d events, status=%d", len(events), resp.StatusCode)
+}

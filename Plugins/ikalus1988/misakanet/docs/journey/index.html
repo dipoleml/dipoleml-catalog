@@ -1,0 +1,733 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MisakaNet — Newcomer Journey</title>
+<!-- design-tokens:start -->
+<style id="misaka-design-tokens">
+/*
+ * The design system's tokens — ONE source for every hand-written page (#3541, batch V).
+ *
+ * Why this file exists: the site currently holds two products. The homepage has an identity
+ * (Orbitron, a cyan glow, a grid), and the other hand-written pages are GitHub's default dark
+ * theme — copied in from somewhere else. Fourteen pages, fourteen sets of hardcoded colours,
+ * radii, shadows and font stacks. Nothing is *wrong* with them; they are simply not one site,
+ * and every future change has to be made fourteen times.
+ *
+ * This block changes nothing on its own: no page references these names yet. That is deliberate
+ * — batch W is the batch that replaces hardcoded values with these names, and a batch that
+ * changed the rendering as well as the vocabulary would make a visual regression impossible to
+ * attribute. So this file is the vocabulary, and the gate below keeps it the only copy of it.
+ *
+ * Every value below is measured, not chosen for taste: the text colours were picked for their
+ * WCAG contrast ratio against --bg-0 (15.95:1, 7.67:1, 4.14:1), and the two accent colours
+ * for theirs (12.79:1 and 5.21:1). If a value changes here, the ratios change with it, so the
+ * numbers in the comments are part of the contract.
+ *
+ * Maintained by scripts/sync_design_tokens.py — `--check` fails when a page drifts from this
+ * file, the same way the shared nav row is kept honest.
+ */
+:root {
+  /* ── 底与面：3 档（收编 GitHub 习惯色，不再各页自定义）── */
+  --bg-0: #070b15;   /* 页面底 */
+  --bg-1: #0d1424;   /* 卡片 / 面 */
+  --bg-2: #161b22;   /* 浮层 / 代码块 */
+
+  /* ── 文字：3 档（对比度已实测）── */
+  --fg-1: #e2e8f0;   /* 15.95:1 on --bg-0 */
+  --fg-2: #94a3b8;   /*  7.67:1 on --bg-0 */
+  --fg-3: #64748b;   /*  仅限 ≥16px 或非文本装饰（4.14:1，正文禁用）*/
+
+  /* ── 品牌与语义 ── */
+  --accent:   #00e5ff;  /* 12.79:1 — 品牌 / 链接（首页既有 --cyan）*/
+  --accent-2: #ff0080;  /*  5.21:1 — 次级强调，限量使用 */
+  --ok:       #22c55e;  /*  8.63:1 */
+  --warn:     #f0c040;
+  --danger:   #ef4444;  /*  5.23:1 */
+  --line:        rgba(148,163,184,.14);
+  --line-strong: rgba(0,229,255,.28);
+
+  /* ── 字体：4 族（不换字体家族，只把 5 套声明收敛成 token）── */
+  /* `--font-ui` 是**系统栈**，不是 Inter：十三个手写页面今天用的是
+     `-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`，而 Inter 只在首页被
+     加载。#3541 的风险第 1 条写着"若 onload 不触发会静默回退……只有像素对比能抓到"，所以
+     **本单不换字体家族**：把 `--font-ui` 写成 Inter 开头，等于让这十三个页面在没加载 Inter
+     的情况下用 CJK 字体渲染拉丁字母——那是一次静默的排版退化。
+     首页的 Inter 因此单列为 `--font-brand`：两个族都是"不动"的，只是各归其位。── */
+  --font-ui:      -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', sans-serif;
+  --font-brand:   'Inter','PingFang SC','Microsoft YaHei','Noto Sans SC',sans-serif;
+  --font-display: 'Orbitron', var(--font-brand);      /* 仅品牌层 */
+  --font-cn:      'Ma Shan Zheng','Noto Sans SC',cursive; /* 仅首页副标 */
+  --font-mono:    'JetBrains Mono',ui-monospace,monospace;
+
+  /* ── 字阶：10 档，rem 基准 16 ── */
+  --fs-3xs:.6875rem; --fs-2xs:.75rem; --fs-xs:.8125rem; --fs-sm:.875rem;
+  --fs-md:1rem;     --fs-lg:1.125rem; --fs-xl:1.3125rem; --fs-2xl:1.5rem;
+  --fs-3xl:1.875rem;--fs-4xl:2.375rem;
+  /* 品牌层的字号（首页的标识组合）。它们不属于 UI 字阶：按 #3541 的 px 规则向上取整，52px 和
+     48px 恰好不动，但 22px 会变成 24px、36px 会变成 38px——那会把首页的标识撑宽 41px，
+     而首页的头部本来就比视口宽（§118.9 的既有 bug），再撑就没有余地了。
+     #3541 说"首页那套签名不是要改掉的东西，它是资产"，所以这一层保留原尺寸，
+     并由像素对比守住：改这里的数会立刻在 header 的宽度上被看见。── */
+  --fs-display:3.25rem;      /* 52px — .logo-title */
+  --fs-display-sm:3rem;      /* 48px — .logo-cn */
+  --fs-display-md:2.25rem;   /* 36px — 窄屏下的 .logo-title / .logo-cn */
+  --fs-tagline:1.375rem;     /* 22px — .logo-tagline */
+
+  /* ── 间距：4px 基准，8 档 ── */
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px;
+  --sp-5:24px; --sp-6:32px; --sp-7:40px; --sp-8:48px;
+
+  /* ── 圆角：3 档（现状 14 种）── */
+  --r-sm:6px; --r-md:10px; --r-lg:16px;
+  /* 胶囊形不是"圆角档位"，是形状：现状的 50% 与 999px 是同一种东西的两种写法。
+     它单列一个 token，而不是混进三档里——把它塞进 --r-lg 会让胶囊变成圆角矩形。── */
+  --r-pill:999px;
+
+  /* ── 动效：2 档 + 1 个 easing（现状 5 种时长）── */
+  --t-fast:150ms; --t-base:250ms; --ease:cubic-bezier(.2,.8,.2,1);
+
+  /* ── 阴影：2 档（现状 31 处）── */
+  --sh-1:0 1px 2px rgba(0,0,0,.35);
+  --sh-2:0 12px 32px rgba(0,0,0,.45);
+}
+
+/* ── 图标：一套 Lucide 线性图标（Y 批）── */
+/* The icon set is Lucide, inlined as SVG; the *shapes* live in `scripts/site_icons.py` and the
+   *style* lives here, for the same reason the tokens live here and not in each page: one source,
+   copied into every page, gated by a script. An emoji could not do this job — it is a coloured
+   bitmap chosen by the platform, so the same markup renders three different icons in three
+   browsers and none of them is `--accent`.
+
+   `1em` makes an icon the size of the text it sits in, which is exactly what an emoji was.
+   `non-scaling-stroke` keeps the line one hairline wide at every size instead of letting it
+   thicken as the icon grows — a scaled-up drawing looks like a scaled-up drawing, and this is a
+   set of UI glyphs, not artwork. Lucide draws at 24px with a 2px stroke; at the 14px of a drawer
+   row that would be 1.17px, and at the 30px of the register panel 2.5px, so the stroke is set
+   once, here, at 1.5px, and every icon inherits it.
+
+   The markup carries no width/height/stroke attributes at all: the attributes would be forty
+   copies of a decision this block already makes. */
+.ico {
+  width: 1em;
+  height: 1em;
+  display: inline-block;
+  vertical-align: -0.125em;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+/* ── The footer shell（Z 批）────────────────────────────────────────────────
+   The footer is the one navigation every page shares, and until batch Z it was
+   six shells wearing six spellings: `footer {}` on some pages and `.footer {}`
+   on others, a cyan-tinted top border on the homepage and a grey one on the
+   rest, four different `margin-top` values, and six pages with no footer at all
+   — which meant six pages the reader could not leave except with the back
+   button.
+
+   So the shell lives here, beside the icons, for the same reason: one source,
+   copied into every page, and `scripts/sync_design_tokens.py --check` fails when
+   a page drifts from it. A page may still add its *own* footer content (the
+   homepage's link row and wordmark), but the shell around it is not the page's
+   to decide. */
+.footer {
+  margin-top: var(--sp-7);
+  padding: var(--sp-5) 0;
+  border-top: 1px solid var(--line);
+  text-align: center;
+  color: var(--fg-2);
+  font-size: var(--fs-xs);
+  line-height: 1.8;
+}
+.footer a { color: var(--accent); text-decoration: none; }
+.footer a:hover { text-decoration: underline; }
+.site-links { margin: 0 0 var(--sp-2); }
+</style>
+<!-- design-tokens:end -->
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: var(--font-ui);
+    background: var(--bg-0);
+    color: #c9d1d9;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 2rem 1rem;
+  }
+  h1 {
+    font-size: var(--fs-2xl);
+    font-weight: 600;
+    color: var(--accent);
+    margin-bottom: 0.25rem;
+  }
+  .subtitle {
+    color: #8b949e;
+    font-size: var(--fs-sm);
+    margin-bottom: 2rem;
+  }
+  .container {
+    max-width: 720px;
+    width: 100%;
+  }
+  .progress-bar {
+    display: flex;
+    justify-content: space-between;
+    margin-bottom: 2rem;
+    padding: 0 0.5rem;
+  }
+  .step-dot {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 0.4rem;
+    flex: 1;
+    position: relative;
+  }
+  .step-dot::after {
+    content: '';
+    position: absolute;
+    top: 12px;
+    left: 50%;
+    width: 100%;
+    height: 2px;
+    background: #21262d;
+    z-index: 0;
+  }
+  .step-dot:last-child::after { display: none; }
+  .step-dot.active::after { background: var(--accent); }
+  .step-dot.done::after { background: #3fb950; }
+  .dot {
+    width: 24px; height: 24px;
+    border-radius: var(--r-pill);
+    background: #21262d;
+    border: 2px solid #30363d;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: var(--fs-3xs);
+    z-index: 1;
+    transition: all var(--t-base);
+  }
+  .step-dot.active .dot { border-color: var(--accent); background: #1f3a5f; }
+  .step-dot.done .dot { border-color: #3fb950; background: #1a4a2a; }
+  .dot-label {
+    font-size: var(--fs-3xs);
+    color: #8b949e;
+    text-align: center;
+    white-space: nowrap;
+  }
+  .step-dot.active .dot-label { color: var(--accent); }
+  .step-dot.done .dot-label { color: #3fb950; }
+
+  .card {
+    background: var(--bg-2);
+    border: 1px solid #30363d;
+    border-radius: var(--r-md);
+    padding: 1.5rem;
+    margin-bottom: 1rem;
+    min-height: 200px;
+    position: relative;
+  }
+  .card-header {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 1rem;
+    padding-bottom: 0.75rem;
+    border-bottom: 1px solid #21262d;
+  }
+  .card-header .icon {
+    width: 32px; height: 32px;
+    border-radius: var(--r-pill);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: var(--fs-md);
+    flex-shrink: 0;
+  }
+  .icon-gh { background: #333; }
+  .icon-bot { background: #1f3a5f; }
+  .icon-user { background: #1a4a2a; }
+  .icon-ci { background: #5a3e1a; }
+  .card-header .name { font-weight: 600; font-size: var(--fs-sm); }
+  .card-header .tag {
+    font-size: var(--fs-3xs);
+    padding: 0.15rem 0.5rem;
+    border-radius: var(--r-md);
+    background: #21262d;
+    color: #8b949e;
+    margin-left: auto;
+  }
+  .card-body { font-size: var(--fs-sm); line-height: 1.6; color: #c9d1d9; }
+  .card-body .highlight { color: var(--accent); }
+  .card-body .success { color: #3fb950; }
+  .card-body .warn { color: #d29922; }
+  .card-body .error { color: #f85149; }
+  .card-body code {
+    background: var(--bg-0);
+    padding: 0.1rem 0.3rem;
+    border-radius: var(--r-sm);
+    font-size: var(--fs-xs);
+    color: #ffa657;
+  }
+  .card-body pre {
+    background: var(--bg-0);
+    padding: 0.75rem;
+    border-radius: var(--r-sm);
+    border: 1px solid #21262d;
+    overflow-x: auto;
+    font-size: var(--fs-2xs);
+    line-height: 1.5;
+    margin: 0.5rem 0;
+  }
+  .card-body pre .comment { color: #8b949e; }
+  .card-body pre .cmd { color: #ffa657; }
+  .card-body pre .out { color: #7ee787; }
+  .card-body pre .err { color: #f85149; }
+
+  .terminal-line { display: block; }
+  .check-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0;
+    border-bottom: 1px solid #21262d;
+  }
+  .check-row:last-child { border-bottom: none; }
+  .check-row .status {
+    width: 20px; height: 20px;
+    border-radius: var(--r-pill);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: var(--fs-3xs);
+    flex-shrink: 0;
+  }
+  .status-pass { background: #1a4a2a; color: #3fb950; }
+  .status-fail { background: #4a1a1a; color: #f85149; }
+  .status-pending { background: #3a2a1a; color: #d29922; }
+
+  .btn {
+    padding: 0.6rem 1.5rem;
+    border-radius: var(--r-sm);
+    border: 1px solid #30363d;
+    background: #21262d;
+    color: #c9d1d9;
+    font-size: var(--fs-sm);
+    cursor: pointer;
+    transition: all var(--t-fast);
+    margin-top: 1rem;
+  }
+  .btn:hover { background: #30363d; border-color: var(--accent); }
+  .btn-primary { background: #238636; border-color: #2ea043; color: #fff; }
+  .btn-primary:hover { background: #2ea043; }
+
+  .controls { display: flex; gap: 0.5rem; justify-content: center; margin-top: 1.5rem; flex-wrap: wrap; }
+  .hidden { display: none; }
+  .fade-in { animation: fadeIn 0.5s ease; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+  .log {
+    background: var(--bg-0);
+    border: 1px solid #21262d;
+    border-radius: var(--r-sm);
+    padding: 0.75rem;
+    font-size: var(--fs-2xs);
+    font-family: var(--font-mono);
+    max-height: 200px;
+    overflow-y: auto;
+    margin-top: 1rem;
+  }
+  .log .line { padding: 0.1rem 0; color: #8b949e; }
+  .log .line.info { color: var(--accent); }
+  .log .line.ok { color: #3fb950; }
+  .log .line.err { color: #f85149; }
+  .log .line.warn { color: #d29922; }
+  .log .line.audit { color: #79c0ff; }
+  .log .line.scan { color: var(--accent-2); }
+  .log .line.merge { color: #ffa657; }
+
+  .ring-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.15rem 0.6rem;
+    border-radius: var(--r-md);
+    font-size: var(--fs-3xs);
+    font-weight: 600;
+    margin-left: 0.5rem;
+  }
+  /* The `.ring-1/2/3` trio used to live here. Nothing on the page carries those classes — the
+     journey diagram is drawn by the step dots — so two thirds of the ramp was dead CSS, and one
+     of the three was the site's last violet. Batch Z deleted it rather than recolouring it: a
+     rule no element can reach is not a colour scheme, it is a second copy of one. */
+
+  .badge {
+    display: inline-block;
+    padding: 0.2rem 0.5rem;
+    border-radius: var(--r-md);
+    font-size: var(--fs-3xs);
+    margin-right: 0.3rem;
+  }
+  .badge-green { background: #1a4a2a; color: #3fb950; }
+  .badge-red { background: #4a1a1a; color: #f85149; }
+  .badge-blue { background: #1f3a5f; color: var(--accent); }
+  .badge-yellow { background: #3a2a1a; color: #d29922; }
+
+  .node-graph {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    flex-wrap: wrap;
+    margin: 1rem 0;
+  }
+  .node-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid #30363d;
+    border-radius: var(--r-sm);
+    background: var(--bg-0);
+    font-size: var(--fs-2xs);
+  }
+  .node-item .num { font-size: var(--fs-3xs); color: #8b949e; }
+  .arrow { color: #30363d; font-size: var(--fs-lg); }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></svg> MisakaNet Newcomer Journey</h1>
+  <p class="subtitle" style="margin-bottom:0.5rem;">Understand → Search → Use → Feedback → Optional Contribution</p>
+  <div style="text-align:center;margin-bottom:0.75rem;">
+    <span style="display:inline-block;padding:0.2rem 0.8rem;border:1px solid #30363d;border-radius:var(--r-md);font-size:var(--fs-3xs);color:#8b949e;background:var(--bg-0);">No GitHub account needed. No PR required.</span>
+  </div>
+
+  <div class="progress-bar" id="progressBar"></div>
+  <div id="cardArea" class="card fade-in"></div>
+  <div id="logArea" class="log hidden"></div>
+  <div class="controls" id="controls"></div>
+
+  <footer class="footer">
+<!-- site-links:start -->
+<nav class="site-links" aria-label="Site links">
+  <a href="/">Home</a> ·
+  <a href="/search/">Search lessons</a> ·
+  <a href="/install/">Install</a> ·
+  <a href="/start">Start</a>
+</nav>
+<!-- site-links:end -->
+  </footer>
+</div>
+
+<script>
+const STEPS = [
+  { id: 'understand', label: 'Understand', icon: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>' },
+  { id: 'search', label: 'Search', icon: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>' },
+  { id: 'use', label: 'Use', icon: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></svg>' },
+  { id: 'feedback', label: 'Feedback', icon: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>' },
+  { id: 'contribute', label: 'Contribute', icon: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></svg>' },
+];
+
+let currentStep = -1;
+let autoMode = false;
+let autoTimer = null;
+
+function renderProgress() {
+  const bar = document.getElementById('progressBar');
+  bar.innerHTML = STEPS.map((s, i) => `
+    <div class="step-dot ${i < currentStep ? 'done' : i === currentStep ? 'active' : ''}">
+      <div class="dot">${i < currentStep ? '✓' : i === currentStep ? s.icon : ''}</div>
+      <div class="dot-label">${s.label}</div>
+    </div>
+  `).join('');
+}
+
+function addLog(msg, type = 'auto') {
+  const area = document.getElementById('logArea');
+  area.classList.remove('hidden');
+  const div = document.createElement('div');
+  if (type === 'auto') {
+    if (/Audit|审计|Score|coverage/i.test(msg)) type = 'audit';
+    else if (/Scan|扫描|discover|发现/i.test(msg)) type = 'scan';
+    else if (/Merge|合并|merged/i.test(msg)) type = 'merge';
+    else if (/✅|pass|Success|成功|ok/i.test(msg)) type = 'ok';
+    else if (/❌|fail|Error|error|missing|blocked/i.test(msg)) type = 'err';
+    else if (/⚠️|warn|WARN/i.test(msg)) type = 'warn';
+    else type = 'info';
+  }
+  div.className = `line ${type}`;
+  div.textContent = msg;
+  area.appendChild(div);
+  area.scrollTop = area.scrollHeight;
+}
+
+function clearLog() {
+  const area = document.getElementById('logArea');
+  area.innerHTML = '';
+  area.classList.add('hidden');
+}
+
+function renderStep(idx) {
+  const card = document.getElementById('cardArea');
+  card.classList.remove('fade-in');
+  void card.offsetWidth;
+  card.classList.add('fade-in');
+  currentStep = idx;
+  renderProgress();
+  updateControls();
+
+  const s = STEPS[idx];
+  switch (s.id) {
+    case 'understand': renderUnderstand(card); break;
+    case 'search': renderSearch(card); break;
+    case 'use': renderUse(card); break;
+    case 'feedback': renderFeedback(card); break;
+    case 'contribute': renderContribute(card); break;
+  }
+}
+
+function renderUnderstand(card) {
+  addLog('Visiting MisakaNet for the first time...');
+  setTimeout(() => addLog('Reading README: what is MisakaNet?'), 300);
+  setTimeout(() => addLog('Lesson ≠ Skill — lessons are failure memories for agents'), 600);
+  card.innerHTML = `
+    <div class="card-header">
+      <div class="icon"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg></div>
+      <div class="name">Understand MisakaNet</div>
+      <span class="tag">Step 1</span>
+    </div>
+    <div class="card-body">
+      <p>MisakaNet is a <span class="highlight">shared failure-memory layer</span> for developers and agents.</p>
+      <div style="background:var(--bg-0);border:1px solid #30363d;border-radius:var(--r-sm);padding:1rem;margin:0.75rem 0;">
+        <div style="display:flex;gap:1rem;flex-wrap:wrap;">
+          <div style="flex:1;min-width:200px;">
+            <div style="font-weight:600;color:var(--accent);margin-bottom:0.5rem;"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></svg> Lesson</div>
+            <div style="color:#8b949e;font-size:var(--fs-sm);">
+              Failure experience / debugging knowledge<br>
+              <span style="color:#3fb950;">Helps agents avoid repeating known failures</span>
+            </div>
+          </div>
+          <div style="flex:1;min-width:200px;">
+            <div style="font-weight:600;color:#d29922;margin-bottom:0.5rem;"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg> Skill</div>
+            <div style="color:#8b949e;font-size:var(--fs-sm);">
+              Executable capability / workflow / tool<br>
+              <span style="color:#8b949e;">Helps agents complete tasks</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p style="color:#8b949e;font-size:var(--fs-sm);">You don't need to understand everything. Just know: <span style="color:#c9d1d9;">when something breaks, search here first.</span></p>
+    </div>
+  `;
+}
+
+function renderSearch(card) {
+  addLog('Opening search page...');
+  setTimeout(() => addLog('Searching: "GitHub token 401"'), 400);
+  setTimeout(() => addLog('Found: github-401-credential-lookup (score: 0.89)'), 800);
+  card.innerHTML = `
+    <div class="card-header">
+      <div class="icon"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg></div>
+      <div class="name">Search for a Lesson</div>
+      <span class="tag">Step 2</span>
+    </div>
+    <div class="card-body">
+      <p style="margin-bottom:0.5rem;">Via <span class="highlight">HTTP MCP</span> (no GitHub account, no Bearer for search):</p>
+      <pre><span class="cmd">curl -sS -X POST https://misakanet.org/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"misakanet_search","arguments":{"query":"GitHub token 401","top":3}}}'</span>
+
+<span class="out">📋 lessons/  (2 matches)</span>
+<span class="out">──────────────────────────────────────────────────</span>
+<span class="out">  [core]    github-401-credential-lookup       0.89   🟢 high/actionable</span>
+<span class="out">            Fix: check ~/.git-credentials before asking for a new PAT.</span>
+
+<span class="out">  [contrib] github-api-rate-limit-handling     0.71   🟢 high/actionable</span>
+<span class="out">            Fix: use conditional requests with ETag headers.</span></pre>
+      <p style="color:#8b949e;font-size:var(--fs-xs);margin:0.5rem 0;">Or locally: <code>python3 search_knowledge.py "GitHub token 401"</code> · Or on the web: <a href="https://misakanet.org/search/?q=GitHub%20token%20401" style="color:var(--accent);">misakanet.org/search</a></p>
+      <div style="margin-top:0.75rem;display:flex;gap:0.5rem;flex-wrap:wrap;">
+        <a href="https://misakanet.org/search/?q=GitHub%20token%20401" target="_blank" style="display:inline-flex;align-items:center;gap:0.3rem;padding:0.4rem 0.8rem;border:1px solid #238636;border-radius:var(--r-sm);color:#3fb950;text-decoration:none;font-size:var(--fs-sm);background:var(--bg-0);">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg> Open Search Page →
+        </a>
+        <a href="http-mcp/" style="display:inline-flex;align-items:center;gap:0.3rem;padding:0.4rem 0.8rem;border:1px solid #30363d;border-radius:var(--r-sm);color:#c9d1d9;text-decoration:none;font-size:var(--fs-sm);background:var(--bg-0);">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/></svg> HTTP MCP Journey →
+        </a>
+      </div>
+    </div>
+  `;
+}
+
+function renderUse(card) {
+  addLog('Reading lesson: github-401-credential-lookup...');
+  setTimeout(() => addLog('Applying fix: check local credentials first'), 400);
+  setTimeout(() => addLog('Problem resolved without opening an issue'), 700);
+  card.innerHTML = `
+    <div class="card-header">
+      <div class="icon"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 7v14"/><path d="M3 18a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h5a4 4 0 0 1 4 4 4 4 0 0 1 4-4h5a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1h-6a3 3 0 0 0-3 3 3 3 0 0 0-3-3z"/></svg></div>
+      <div class="name">Use the Lesson</div>
+      <span class="tag">Step 3</span>
+    </div>
+    <div class="card-body">
+      <p>You found a matching lesson. Read it and apply the fix:</p>
+      <div style="background:var(--bg-0);border:1px solid #30363d;border-radius:var(--r-sm);padding:1rem;margin:0.75rem 0;">
+        <div style="font-weight:600;color:var(--accent);">github-401-credential-lookup</div>
+        <div style="color:#8b949e;font-size:var(--fs-sm);margin-top:0.5rem;">
+          <strong>Problem:</strong> GitHub API returns 401 Bad credentials<br>
+          <strong>Root cause:</strong> Agent asks for new PAT instead of checking local credentials<br>
+          <strong>Fix:</strong> Check ~/.git-credentials, ~/.netrc, gh auth status first
+        </div>
+      </div>
+      <p style="color:#8b949e;font-size:var(--fs-sm);">
+        If the lesson helped: great, you're done.<br>
+        If it didn't: tell us — that's feedback.
+      </p>
+    </div>
+  `;
+}
+
+function renderFeedback(card) {
+  addLog('Opening feedback path...');
+  setTimeout(() => addLog('Best: submit via HTTP MCP intake — no account needed'), 400);
+  card.innerHTML = `
+    <div class="card-header">
+      <div class="icon"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg></div>
+      <div class="name">Send Feedback / Report a Bug</div>
+      <span class="tag">Step 4</span>
+    </div>
+    <div class="card-body">
+      <p>No GitHub account. No PR. Submit a redacted failure case via <span class="highlight">HTTP MCP intake</span> — it creates a GitHub issue automatically:</p>
+      <pre><span class="cmd">curl -sS -X POST https://misakanet.org/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"misakanet_submit_intake","arguments":{"kind":"missing_lesson","problem":"SHORT REDACTED PROBLEM","error":"OPTIONAL REDACTED ERROR","what_tried":"OPTIONAL","fix":"OPTIONAL","verification":"OPTIONAL","source":"journey"}}}'</span>
+
+<span class="out">✓ issue created: [Intake] ... (needs-ac)</span></pre>
+      <p style="color:#8b949e;font-size:var(--fs-xs);margin:0.5rem 0;">Anonymous clients do not need <code>initialize</code> or a Bearer token. Server redacts secrets and guards against spam/duplicates.</p>
+      <div style="display:flex;gap:0.75rem;flex-wrap:wrap;margin:0.75rem 0;">
+        <a href="mailto:bot@misakanet.org" style="flex:1;min-width:150px;display:flex;flex-direction:column;gap:0.3rem;padding:0.75rem;border:1px solid #30363d;border-radius:var(--r-sm);color:#c9d1d9;text-decoration:none;background:var(--bg-0);">
+          <span style="font-weight:600;"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg> Email</span>
+          <span style="color:#8b949e;font-size:var(--fs-2xs);">bot@misakanet.org</span>
+        </a>
+        <a href="https://github.com/Ikalus1988/MisakaNet/issues/510" target="_blank" style="flex:1;min-width:150px;display:flex;flex-direction:column;gap:0.3rem;padding:0.75rem;border:1px solid #30363d;border-radius:var(--r-sm);color:#c9d1d9;text-decoration:none;background:var(--bg-0);">
+          <span style="font-weight:600;"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 16v-2.38C4 11.5 2.97 10.5 3 8c.03-2.72 1.49-6 4.5-6C9.37 2 10 3.8 10 5.5c0 3.11-2 5.66-2 8.68V16a2 2 0 1 1-4 0Z"/><path d="M20 20v-2.38c0-2.12 1.03-3.12 1-5.62-.03-2.72-1.49-6-4.5-6C14.63 6 14 7.8 14 9.5c0 3.11 2 5.66 2 8.68V20a2 2 0 1 0 4 0Z"/><path d="M16 17h4"/><path d="M4 13h4"/></svg> Journey Report</span>
+          <span style="color:#8b949e;font-size:var(--fs-2xs);">#510</span>
+        </a>
+        <a href="http-mcp/" style="flex:1;min-width:150px;display:flex;flex-direction:column;gap:0.3rem;padding:0.75rem;border:1px solid #238636;border-radius:var(--r-sm);color:#3fb950;text-decoration:none;background:var(--bg-0);">
+          <span style="font-weight:600;"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/></svg> HTTP MCP Journey</span>
+          <span style="color:#8b949e;font-size:var(--fs-2xs);">Full search/read/intake guide</span>
+        </a>
+      </div>
+      <p style="color:#8b949e;font-size:var(--fs-sm);">
+        Negative feedback is welcome. "I don't understand X" is more useful than "everything is fine."
+      </p>
+    </div>
+  `;
+}
+
+function renderContribute(card) {
+  addLog('Optional: contributing to MisakaNet...');
+  setTimeout(() => addLog('Many ways to contribute — PR is just one of them'), 400);
+  card.innerHTML = `
+    <div class="card-header">
+      <div class="icon"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z"/><path d="m21.854 2.147-10.94 10.939"/></svg></div>
+      <div class="name">Contribute (Optional)</div>
+      <span class="tag">Step 5</span>
+    </div>
+    <div class="card-body">
+      <p>PR is optional. There are many ways to contribute:</p>
+      <div style="background:var(--bg-0);border:1px solid #30363d;border-radius:var(--r-sm);padding:1rem;margin:0.75rem 0;">
+        <div style="display:flex;flex-direction:column;gap:0.5rem;">
+          <div><span style="color:#3fb950;">✓</span> Report friction via email</div>
+          <div><span style="color:#3fb950;">✓</span> Write a journey report</div>
+          <div><span style="color:#3fb950;">✓</span> Share a debugging story</div>
+          <div><span style="color:#3fb950;">✓</span> Submit a lesson candidate via HTTP MCP intake</div>
+          <div><span style="color:#3fb950;">✓</span> Fix a typo in docs</div>
+          <div><span style="color:var(--accent);">○</span> Open a PR (only if you want to maintain a diff)</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:0.5rem;flex-wrap:wrap;margin-top:0.75rem;">
+        <a href="http-mcp/" style="display:inline-flex;align-items:center;gap:0.3rem;padding:0.4rem 0.8rem;border:1px solid #30363d;border-radius:var(--r-sm);color:#c9d1d9;text-decoration:none;font-size:var(--fs-sm);background:var(--bg-0);">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22v-5"/><path d="M9 8V2"/><path d="M15 8V2"/><path d="M18 8v5a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4V8Z"/></svg> HTTP MCP Journey
+        </a>
+        <a href="https://github.com/Ikalus1988/MisakaNet/labels/good%20first%20issue" target="_blank" style="display:inline-flex;align-items:center;gap:0.3rem;padding:0.4rem 0.8rem;border:1px solid #30363d;border-radius:var(--r-sm);color:#c9d1d9;text-decoration:none;font-size:var(--fs-sm);background:var(--bg-0);">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/></svg> Good First Issues
+        </a>
+        <a href="https://github.com/Ikalus1988/MisakaNet/labels/bounty" target="_blank" style="display:inline-flex;align-items:center;gap:0.3rem;padding:0.4rem 0.8rem;border:1px solid #30363d;border-radius:var(--r-sm);color:#c9d1d9;text-decoration:none;font-size:var(--fs-sm);background:var(--bg-0);">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><circle cx="8" cy="8" r="6"/><path d="M18.09 10.37A6 6 0 1 1 10.34 18"/><path d="M7 6h1v4"/><path d="m16.71 13.88.7.71-2.82 2.82"/></svg> Bounties
+        </a>
+        <a href="../label-system.md" style="display:inline-flex;align-items:center;gap:0.3rem;padding:0.4rem 0.8rem;border:1px solid #30363d;border-radius:var(--r-sm);color:#c9d1d9;text-decoration:none;font-size:var(--fs-sm);background:var(--bg-0);">
+          <svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><rect width="8" height="4" x="8" y="2" rx="1" ry="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/><path d="M12 11h4"/><path d="M12 16h4"/><path d="M8 11h.01"/><path d="M8 16h.01"/></svg> Label System
+        </a>
+      </div>
+    </div>
+  `;
+}
+
+function updateControls() {
+  const c = document.getElementById('controls');
+  const isLast = currentStep === STEPS.length - 1;
+  const isFirst = currentStep === 0;
+  c.innerHTML = `
+    <button class="btn" onclick="goStep(-1)" ${isFirst ? 'disabled style="opacity:0.4"' : ''}>← Back</button>
+    ${!autoMode ?
+      `<button class="btn" onclick="toggleAuto()">▶ Auto Play</button>` :
+      `<button class="btn btn-primary" onclick="toggleAuto()">⏸ Pause</button>`
+    }
+    <button class="btn btn-primary" onclick="goStep(1)" ${isLast ? 'disabled style="opacity:0.5"' : ''}>Next →</button>
+    ${isLast ? '<button class="btn" onclick="resetJourney()"><svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/><path d="M8 16H3v5"/></svg> Restart</button>' : ''}
+  `;
+}
+
+function goStep(dir) {
+  if (autoMode && dir > 0) { stopAuto(); }
+  const next = currentStep + dir;
+  if (next < 0 || next >= STEPS.length) return;
+  clearLog();
+  renderStep(next);
+}
+
+function toggleAuto() {
+  if (autoMode) { stopAuto(); }
+  else { startAuto(); }
+}
+
+function startAuto() {
+  autoMode = true;
+  updateControls();
+  if (currentStep >= STEPS.length - 1) { resetJourney(); return; }
+  clearLog();
+  renderStep(currentStep + 1);
+  autoTimer = setTimeout(() => {
+    if (currentStep < STEPS.length - 1 && autoMode) startAuto();
+    else stopAuto();
+  }, 3000);
+}
+
+function stopAuto() {
+  autoMode = false;
+  if (autoTimer) { clearTimeout(autoTimer); autoTimer = null; }
+  updateControls();
+}
+
+function resetJourney() {
+  stopAuto();
+  clearLog();
+  renderStep(0);
+}
+
+// Init
+renderStep(0);
+</script>
+</body>
+</html>

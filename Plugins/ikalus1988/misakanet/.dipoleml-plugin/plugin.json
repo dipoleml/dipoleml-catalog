@@ -1,0 +1,16 @@
+{
+  "name": "misakanet",
+  "displayName": "Misakanet",
+  "version": "2.50.1",
+  "description": "Failure-memory network for AI coding agents: search evidence-rated failure lessons before re-debugging, and turn new failures into shared knowledge.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Ikalus1988"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://misakanet.org",
+  "repository": "https://github.com/Ikalus1988/MisakaNet",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "frozen_at": "2026-07-30",
+  "scenario_count": 10,
+  "scenario_set_id": "optimizer-scenarios-sha256:602e496906f3a293203750602234ba88a55a86b9e4f54f32239264098dcebe5b",
+  "executor_set_id": "optimizer-executors-sha256:8eb2367e150c75864573e8369a481e4a13be331b8544291563ab9cf9b457d4cb",
+  "metric_set_id": "optimizer-metrics-sha256:bedffbda2b18d725610b0f294a8273ef908237fd957bf9e51a5af4885b123e4f",
+  "policies": ["always-frontier", "always-cheap", "prompt-only", "adaptive"],
+  "repetitions": 3,
+  "holdout_scenario_ids": [
+    "citadel-short-executor-proof",
+    "p-limit-short-clear-queue",
+    "nanoid-size-consistency",
+    "citadel-safety-model-proof"
+  ],
+  "selection_policy": "Scenario manifests, metrics, policy definitions, repetitions, and holdouts are frozen before actual runs. A precommitted future drand round selects one frozen holdout after the runner is public and before the matrix runs.",
+  "pricing_snapshot_digest": "sha256:25b513c37e29469432a02426ef9fee93c190489cfada0548ae6c3376ec4b5ae1",
+  "calibration_plan_digest": "sha256:e47c3c6d59156fed2952af8ed7bafc54dea12dfa186f7ea02d600d362be00ba9",
+  "calibration_record_digest": "sha256:007953799c8422a61cca18abd28f54433d12f3fa63e8fdaf6fbf1fc8a498282c",
+  "calibration_forensics_digest": "sha256:7fd0b97c28e1510c8c5cd7666578a98f6d430875c77cf58e282e6064902d09b2",
+  "diagnostic_pilot_forensics_digest": "sha256:e7c23deb5337cc5622d6149fe4420afd3d2b4cb898267824bb0ab8e3b7ac839c",
+  "external_scenario": {
+    "scenario_id": "citadel-short-executor-proof",
+    "selection_method": "drand-public-beacon",
+    "selection_record_digest": "sha256:234e805981ef070475960905f65243fa01fbfffa7b7e7babf39ee3dc982f3de1",
+    "selected_at": "2026-07-30",
+    "selection_source": "https://api.drand.sh/public/6333716"
+  },
+  "external_reproduction_digest": null,
+  "attestation_public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA449Pa1w6WakDXkDDacrA3/CX2fcT6NzS2NlhkvkoNGI=\n-----END PUBLIC KEY-----\n"
+}

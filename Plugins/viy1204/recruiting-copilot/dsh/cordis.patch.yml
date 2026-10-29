@@ -1,0 +1,46 @@
+# recruiting-copilot —— DeepSeek Harness profile bundle patch
+#
+# 安装方式：dsh plugin --profile <name> add <本仓库 git URL>
+# （例如 web 界面：dsh plugin --profile web add git+https://github.com/Viy1204/recruiting-copilot.git）
+#
+# 作用：
+# 1. 启用宿主的 skill-filesystem 行（web/headless 等内置 profile 默认把它
+#    disabled，因为 preset 各自负责 per-agent 的 skill 发现；注释里写明
+#    "deployment-level providers —— repository plugins, a host skill-filesystem
+#    row —— register into its global layer"，我们正是这个用法）。
+# 2. 把本包内的 skills/ 目录注册为 customSkillDirs，使 7 个招聘 skill 出现在
+#    该 profile 下所有 agent 的全局 skill 层。
+# 3. 挂载本包自身（host 插件 + 客户端面板）：host 侧通过 CDP 把 boss-cli /
+#    liepin-cli 的浏览器镜像成 JPEG 帧并暴露 /plugins/recruiting-view/* 路由；
+#    客户端侧把右侧实时浏览器面板注册进 shell.overlay 插槽。
+#
+# 说明：bundle 安装进 profile 目录后位于 node_modules/recruiting-copilot，
+# 因此用 ctx.baseUrl（= profile 目录）解析出本包 skills/ 的绝对路径；
+# 表达式已兼容 Windows（盘符）与 POSIX。id 目标行由 dsh-base 插入，name 作
+# 防御性校验。
+- id: skill-filesystem
+  name: '@deepseek-ai/dsh-skill-filesystem'
+  disabled: false
+  config:
+    customSkillDirs:
+      - !!js decodeURIComponent(new URL('node_modules/recruiting-copilot/skills', ctx.baseUrl).pathname).replace(/^\/+([A-Za-z]:)/, '$1')
+
+# 本包作为 cordis 插件 + 客户端模块挂载。headless 等无 webServer 的 profile
+# 下 host 插件自动降级（只注册 skill），客户端面板仅 web profile 有意义。
+- insert:
+    - id: recruiting-copilot
+      name: 'recruiting-copilot'
+      config:
+        # 两个 CLI 各占一个固定 CDP 调试端口，浏览器跨命令常驻，所以面板能一直连着。
+        # 端口可分别用 BOSS_BROWSER_REMOTE_DEBUGGING_PORT /
+        # LIEPIN_BROWSER_REMOTE_DEBUGGING_PORT 覆盖；改了这里也要跟着改。
+        # 其余字段（homeUrl / userDataDir）从 lib/index.js 的 DEFAULT_SOURCES 补。
+        sources:
+          - name: boss
+            port: 53470
+            match: zhipin\.com
+          - name: liepin
+            port: 53471
+            match: liepin\.com
+        frameIntervalMs: 1000
+        jpegQuality: 60

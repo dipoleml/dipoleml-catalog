@@ -1,0 +1,13 @@
+Citadel starts with slash do. Describe an engineering outcome, and Citadel chooses the smallest operating lane that can carry it. Longer work gains repository state, recovery, coordination, bounded execution, and a concrete next action around Claude Code or Codex.
+
+The research begins where orchestration ends. A smaller model is not cheaper when it fails, verification forces a retry, or the operation hides cost. Citadel binds the declared route to observed execution, a model-external verdict, separate cost lenses, and a signed receipt. Failures remain visible.
+
+Six prospective studies tested that contract. The first was timeout-sensitive. The second matched baseline completion but used fifteen point seven percent more GPU energy after escalation. The third preserved artifact and path integrity, yet missed its economic gate. Citadel kept all three failures public.
+
+The first Claude-plus-local calibration gave both policies twelve of twelve verified completions and avoided four Claude calls. But unsupported local attempts forced recovery. Its twenty-eight point four percent comparison-cost reduction missed the frozen thirty percent gate, so Citadel rejected it.
+
+A separately frozen hybrid v2 used twelve new tasks and a narrower support envelope. Always-Claude and Citadel again verified twelve of twelve. Citadel made eight local attempts, recovered once, and reduced Claude calls from twelve to five. Provider-reported plus locally modeled comparison cost fell from six point four cents to three point nine cents: thirty-eight point seven percent. Every frozen gate passed.
+
+The boundary matters. These were author-selected synthetic tasks on one workstation and one model pair. Claude Code's returned cost is comparison telemetry, not Seth's subscription bill. Whole-system energy and actual cash remain unknown.
+
+Sentient funding buys the external validity still missing: independently selected production tasks across repositories, agent stacks, models, tools, and hardware, plus a learned operation-value policy. The public method and every negative result remain available whether broader savings pass or fail.

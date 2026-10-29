@@ -1,0 +1,149 @@
+# Claude Octopus - Git Ignore
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Editor directories and files
+.idea/
+.vscode/
+.serena/
+*.swp
+*.swo
+*~
+
+# Node.js
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+!mcp-server/dist/
+downloads/
+eggs/
+.eggs/
+lib/
+!scripts/lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+venv/
+.env
+
+# Test and coverage
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+
+# Logs
+*.log
+logs/
+
+# Runtime data
+*.pid
+*.seed
+*.pid.lock
+
+# Generated Codex skills (build artifact from scripts/build-codex-skills.sh)
+.codex/skills/
+
+# Workspace data (generated at runtime)
+# Note: The actual workspace is at ~/.claude-octopus/
+# These are just in case someone runs from the repo directory
+.claude-octopus/
+results/
+.parallel-agents/
+
+# Auto-memory preferences written by hooks/session-end.sh / read by
+# hooks/session-start-memory.sh when CLAUDE_PROJECT_DIR resolves to this repo
+# (e.g. developing on the plugin itself). Per-machine session state, not a
+# shared artifact.
+/memory/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.temp
+
+# Development directory
+.dev/
+
+# Development working files (should not be in the public repository)
+docs/IMPLEMENTATION-PLAN*.md
+docs/plans/
+docs/research/
+docs/roadmaps/
+docs/superpowers/plans/
+docs/superpowers/specs/
+docs/FEATURE-GAP.md
+docs/monthly-agent-review.md
+.claude/DEVELOPMENT.md
+.claude/claude-octopus.local.md
+.claude/settings.json
+AI_AGENT_HANDOFF.md
+GOALS.md
+RTK.md
+
+# Development working files (root-level only, not skills/*/SKILL.md)
+/skill.md
+
+# Progress tracking and working files (should be in scratchpad, not plugin dir)
+PHASE*_PROGRESS.md
+PHASE*_COMPLETE.md
+*_PROGRESS.md
+*_TODO.md
+*_NOTES.md
+scratch_*.md
+temp_*.md
+
+# Harness-local session handoff read back by skill-resume. It is per-machine,
+# per-run state, never a shared artifact, and a committed copy would point every
+# checkout at one machine's half-finished workflow.
+.octo-continue.md
+WIP_*.md
+
+# Test artifacts (from test infrastructure)
+tests/tmp/
+tests/**/*.log
+test-results*.xml
+/tmp/test_*.log
+
+# Coverage reports
+coverage-report.txt
+coverage-report.html
+*.bak
+
+# Environment & secrets
+.env.local
+.env.*.local
+*.key
+*.pem
+.tmp.*
+.claude/settings.local.json
+
+# AgentOps session artifacts (auto-added by ao init)
+.agents/
+
+# Beads / Dolt files (added by bd init)
+.beads/
+.dolt/
+*.db
+.beads-credential-key

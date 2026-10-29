@@ -1,0 +1,322 @@
+package pull
+
+import (
+	"bufio"
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
+
+	diagv1 "buf.build/gen/go/tldiagramcom/diagram/protocolbuffers/go/diag/v1"
+	"connectrpc.com/connect"
+	"github.com/google/uuid"
+	assets "github.com/mertcikla/tld/v2"
+	"github.com/mertcikla/tld/v2/internal/client"
+	"github.com/mertcikla/tld/v2/internal/cmdutil"
+	"github.com/mertcikla/tld/v2/internal/exec"
+	"github.com/mertcikla/tld/v2/internal/store"
+	"github.com/mertcikla/tld/v2/internal/term"
+	"github.com/mertcikla/tld/v2/internal/workspace"
+	"github.com/spf13/cobra"
+	"golang.org/x/sync/errgroup"
+)
+
+func NewPullCmd(wdir *string) *cobra.Command {
+	var force bool
+	var dryRun bool
+	var target string
+	var dataDir string
+
+	c := &cobra.Command{
+		Use:   "pull",
+		Short: "Pull the current server state into local YAML files",
+		Long: `Pull downloads the current diagram state from the server and refreshes
+the local YAML cache. Use this after making changes in the frontend UI.
+
+Resource IDs and the deletion baseline belong to the selected database or
+cloud server/workspace. A new target does not inherit another target's IDs
+or treat that target's resources as deleted.
+
+If you have local hand-edits, tld pull will warn you before overwriting
+them. Use --force to skip the prompt.`,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			target, dataDir = cmdutil.TargetOverrides(cmd, target, dataDir)
+			if !cmdutil.WorkspaceConfigured(cmd, *wdir) && !cmd.Flags().Changed("workspace") {
+				return cmdutil.WithHint(
+					errors.New("no workspace to write"),
+					"Run 'tld init' first, or pass --workspace <dir> (or --yaml) to export the database into YAML files.",
+				)
+			}
+			ws, err := cmdutil.LoadWorkspace(*wdir)
+			if err != nil {
+				return err
+			}
+
+			resolvedTarget, err := exec.ResolveTarget(ws.Config, target)
+			if err != nil {
+				return err
+			}
+
+			if resolvedTarget == exec.TargetRemote {
+				if err := cmdutil.EnsureAPIKey(ws.Config.APIKey); err != nil {
+					return err
+				}
+
+				targetOrg := ws.Config.WorkspaceID
+				if targetOrg == "" {
+					return cmdutil.WorkspaceIDRequired("org-id required in .tld.yaml")
+				}
+			}
+
+			key, err := exec.CacheTarget(ws.Config, target, dataDir)
+			if err != nil {
+				return err
+			}
+			lockFile, err := workspace.BindTarget(ws, key)
+			if err != nil {
+				return fmt.Errorf("load lock file: %w", err)
+			}
+
+			// Detect local changes if we have a previous hash to compare against
+			if !force && lockFile != nil && lockFile.WorkspaceHash != "" {
+				currentHash, err := workspace.CalculateWorkspaceHash(*wdir)
+				if err != nil {
+					return fmt.Errorf("calculate hash: %w", err)
+				}
+				if currentHash != lockFile.WorkspaceHash && !dryRun {
+					if cmdutil.WantsJSONFromCmd(cmd) {
+						return cmdutil.WithCode(errors.New("local workspace has unapplied edits"), "local_changes", "Run 'tld sync' to apply them, or review 'tld pull --dry-run' and use --force to discard them.")
+					}
+					term.Warn(cmd.OutOrStdout(), "Local workspace has uncommitted changes. Pull will overwrite them.")
+					_, _ = fmt.Fprint(cmd.OutOrStdout(), "  Continue? [yes/no]: ")
+					scanner := bufio.NewScanner(cmd.InOrStdin())
+					if !scanner.Scan() {
+						return errors.New("aborted")
+					}
+					answer := strings.TrimSpace(strings.ToLower(scanner.Text()))
+					if answer != "yes" && answer != "y" {
+						term.Infof(cmd.OutOrStdout(), "Pull cancelled.")
+						return nil
+					}
+				}
+			}
+
+			var exportResp *diagv1.ExportOrganizationResponse
+			if resolvedTarget == exec.TargetRemote {
+				c := client.New(ws.Config.ServerURL, ws.Config.APIKey, false)
+				resp, err := c.ExportWorkspace(cmd.Context(), connect.NewRequest(&diagv1.ExportOrganizationRequest{
+					OrgId: ws.Config.WorkspaceID,
+				}))
+				if err != nil {
+					return cmdutil.WithUnauthorizedHint("pull failed", err)
+				}
+				exportResp = resp.Msg
+			} else {
+				resolvedDataDir, err := workspace.ResolveDataDir(&ws.Config, dataDir)
+				if err != nil {
+					return err
+				}
+				appStore, err := store.OpenLocal(cmd.Context(), &ws.Config, resolvedDataDir, assets.FS)
+				if err != nil {
+					return err
+				}
+				defer func() { _ = appStore.Close() }()
+				adapter := store.NewAPIAdapter(appStore)
+				exportResp, err = exportLocalWorkspace(cmd.Context(), adapter)
+				if err != nil {
+					return fmt.Errorf("pull local failed: %w", err)
+				}
+			}
+
+			newWS := cmdutil.ConvertExportResponse(ws, exportResp)
+
+			// Metadata recorded at the last sync, used to tell resources
+			// deleted on the target from new local ones.
+			lastSyncMeta := &workspace.Meta{
+				Elements:   make(map[string]*workspace.ResourceMetadata),
+				Views:      make(map[string]*workspace.ResourceMetadata),
+				Connectors: make(map[string]*workspace.ResourceMetadata),
+			}
+			if lockFile != nil && lockFile.Metadata != nil {
+				lastSyncMeta = lockFile.Metadata
+			}
+
+			if dryRun {
+				if cmdutil.WantsJSONFromCmd(cmd) {
+					plan, err := workspace.PlanMergeWorkspace(*wdir, newWS, lastSyncMeta, ws.Meta)
+					if err != nil {
+						return err
+					}
+					return cmdutil.WriteJSON(cmd.OutOrStdout(), cmdutil.CompactFromCmd(cmd), cmdutil.JSONOutput{Command: "pull", Status: "ok", DryRun: true, Summary: map[string]int{"elements": len(newWS.Elements), "views": cmdutil.CountViews(newWS), "connectors": len(newWS.Connectors)}, Extra: map[string]any{"merge": plan}})
+				}
+				term.Infof(cmd.OutOrStdout(), "Would pull: %d elements, %d diagrams, %d connectors",
+					len(newWS.Elements), cmdutil.CountViews(newWS), len(newWS.Connectors))
+				if !force {
+					plan, err := workspace.PlanMergeWorkspace(*wdir, newWS, lastSyncMeta, ws.Meta)
+					if err != nil {
+						return fmt.Errorf("plan merge: %w", err)
+					}
+					reportPlannedDeletions(cmd, plan)
+				}
+				return nil
+			}
+
+			if force {
+				if err := workspace.Save(newWS); err != nil {
+					return fmt.Errorf("force save workspace: %w", err)
+				}
+			} else {
+				plan, err := workspace.PlanMergeWorkspace(*wdir, newWS, lastSyncMeta, ws.Meta)
+				if err != nil {
+					return fmt.Errorf("plan merge: %w", err)
+				}
+				if err := guardMassDeletion(resolvedTarget, plan); err != nil {
+					return err
+				}
+				if _, err := workspace.MergeWorkspace(*wdir, newWS, lastSyncMeta, ws.Meta); err != nil {
+					return fmt.Errorf("merge workspace: %w", err)
+				}
+			}
+
+			hash, err := workspace.CalculateWorkspaceHash(*wdir)
+			if err != nil {
+				return fmt.Errorf("calculate hash: %w", err)
+			}
+			if lockFile == nil {
+				lockFile = &workspace.LockFile{Version: "v1"}
+			}
+			versionID := fmt.Sprintf("pull-%s", time.Now().UTC().Format(time.RFC3339))
+			workspace.UpdateLockFile(lockFile, versionID, "pull", &workspace.ResourceCounts{
+				Elements:   len(newWS.Elements),
+				Views:      cmdutil.CountViews(newWS),
+				Connectors: len(newWS.Connectors),
+			}, hash, nil, newWS.Meta)
+			lockFile.Resources.Elements = len(newWS.Elements)
+			lockFile.Resources.Views = cmdutil.CountViews(newWS)
+			lockFile.Resources.Connectors = len(newWS.Connectors)
+			if err := workspace.WriteLockFile(*wdir, lockFile); err != nil {
+				return fmt.Errorf("write lock file: %w", err)
+			}
+
+			if cmdutil.WantsJSONFromCmd(cmd) {
+				return cmdutil.WriteJSON(cmd.OutOrStdout(), cmdutil.CompactFromCmd(cmd), cmdutil.JSONOutput{Command: "pull", Status: "ok", Summary: map[string]int{"elements": len(newWS.Elements), "views": cmdutil.CountViews(newWS), "connectors": len(newWS.Connectors)}})
+			}
+			term.Successf(cmd.OutOrStdout(), "Pulled %d elements, %d diagrams, %d connectors",
+				len(newWS.Elements), cmdutil.CountViews(newWS), len(newWS.Connectors))
+
+			return nil
+		},
+	}
+
+	c.Flags().BoolVar(&force, "force", false, "overwrite local changes without prompting")
+	c.Flags().BoolVar(&dryRun, "dry-run", false, "show what would be pulled without writing")
+	c.Flags().StringVar(&target, "target", "", "pull target: auto, local, or remote")
+	c.Flags().StringVar(&dataDir, "data-dir", "", "data directory for local target state")
+	return c
+}
+
+// guardMassDeletion refuses a non-force pull that would drop a large share of
+// the resources the target previously knew about. That is almost always a wrong
+// or empty target (stale org-id, fresh --data-dir, or a database.driver
+// mismatch) rather than an intentional mass delete, so abort before writing.
+func guardMassDeletion(target string, plan *workspace.MergeResult) error {
+	deletedElements := len(plan.DeletedElements)
+	deletedConnectors := len(plan.DeletedConnectors)
+	if !deletesMost(deletedElements, plan.TrackedElements) && !deletesMost(deletedConnectors, plan.TrackedConnectors) {
+		return nil
+	}
+	return cmdutil.WithHint(
+		fmt.Errorf("refusing to pull: target %q is missing %d of %d tracked elements and %d of %d tracked connectors",
+			exec.TargetDisplayName(target), deletedElements, plan.TrackedElements, deletedConnectors, plan.TrackedConnectors),
+		"The target looks wrong or empty. Check --target/--data-dir and org_id, or re-run with --force to overwrite the local cache.",
+	)
+}
+
+// deletesMost reports whether a deletion removes at least half of the tracked
+// resources. Any deletion at all counts when the target tracked one resource.
+func deletesMost(deleted, tracked int) bool {
+	return deleted > 0 && deleted*2 >= tracked
+}
+
+// reportPlannedDeletions lists the local resources a merge would remove so
+// --dry-run surfaces destructive pulls instead of only printing counts.
+func reportPlannedDeletions(cmd *cobra.Command, plan *workspace.MergeResult) {
+	if len(plan.DeletedElements) == 0 && len(plan.DeletedConnectors) == 0 {
+		return
+	}
+	term.Warn(cmd.OutOrStdout(), fmt.Sprintf("Would delete %d elements and %d connectors missing from the target:",
+		len(plan.DeletedElements), len(plan.DeletedConnectors)))
+	for _, ref := range plan.DeletedElements {
+		term.Infof(cmd.OutOrStdout(), "  - element %s", ref)
+	}
+	for _, ref := range plan.DeletedConnectors {
+		term.Infof(cmd.OutOrStdout(), "  - connector %s", ref)
+	}
+}
+
+func exportLocalWorkspace(ctx context.Context, adapter *store.APIAdapter) (*diagv1.ExportOrganizationResponse, error) {
+	var (
+		views      []*diagv1.View
+		elements   []*diagv1.Element
+		placements []*diagv1.PlacedElement
+		connectors []*diagv1.Connector
+		layers     []*diagv1.ViewLayer
+	)
+
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() error { var e error; views, e = adapter.ListViews(gctx, uuid.Nil); return e })
+	g.Go(func() error {
+		var e error
+		elements, _, e = adapter.ListElements(gctx, uuid.Nil, 0, 0, "")
+		return e
+	})
+	g.Go(func() error { var e error; placements, e = adapter.ListAllPlacements(gctx, uuid.Nil); return e })
+	g.Go(func() error { var e error; connectors, e = adapter.ListAllConnectors(gctx, uuid.Nil); return e })
+	g.Go(func() error { var e error; layers, e = adapter.ListAllViewLayers(gctx, uuid.Nil); return e })
+
+	if err := g.Wait(); err != nil {
+		return nil, fmt.Errorf("local export query: %w", err)
+	}
+
+	// Convert PlacedElement → ElementPlacement for export format
+	exportPlacements := make([]*diagv1.ElementPlacement, 0, len(placements))
+	for _, p := range placements {
+		exportPlacements = append(exportPlacements, &diagv1.ElementPlacement{
+			Id:        p.Id,
+			ViewId:    p.ViewId,
+			ElementId: p.ElementId,
+			PositionX: p.PositionX,
+			PositionY: p.PositionY,
+		})
+	}
+
+	elementToChildView := make(map[int32]*diagv1.View, len(views))
+	for _, v := range views {
+		if v.OwnerElementId != nil {
+			elementToChildView[*v.OwnerElementId] = v
+		}
+	}
+	navigations := make([]*diagv1.ElementNavigation, 0)
+	for _, p := range placements {
+		childView, ok := elementToChildView[p.ElementId]
+		if !ok {
+			continue
+		}
+		navigations = append(navigations, &diagv1.ElementNavigation{
+			Id:         p.Id,
+			ElementId:  p.ElementId,
+			FromViewId: p.ViewId,
+			ToViewId:   childView.Id,
+		})
+	}
+
+	return &diagv1.ExportOrganizationResponse{
+		Views:       views,
+		Elements:    elements,
+		Navigations: navigations,
+		Placements:  exportPlacements,
+		Connectors:  connectors,
+		Layers:      layers,
+	}, nil
+}

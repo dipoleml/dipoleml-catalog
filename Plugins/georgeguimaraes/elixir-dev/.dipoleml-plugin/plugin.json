@@ -1,0 +1,16 @@
+{
+  "name": "elixir-dev",
+  "displayName": "Elixir Dev",
+  "version": "3.0.0",
+  "description": "Development guidance for Elixir, Phoenix, Ecto, OTP, and Oban",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Georgeguimaraes"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/georgeguimaraes/elixir-agent-tools",
+  "repository": "https://github.com/georgeguimaraes/elixir-agent-tools",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

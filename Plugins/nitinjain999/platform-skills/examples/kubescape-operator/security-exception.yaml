@@ -1,0 +1,24 @@
+# In-cluster exception (accepted risk) with an owner, a reason and an expiry.
+# Requires capabilities.riskAcceptance: enable on the operator. The CLI also
+# reads these during a cluster scan, with no extra flag.
+#
+# A file exception (--exceptions) wins over this resource for the same
+# control and resource.
+apiVersion: kubescape.io/v1beta1
+kind: SecurityException
+metadata:
+  name: payments-api-unsigned-image-until-2026-12-31
+  namespace: payments
+spec:
+  reason: >-
+    podinfo is a third-party image we cannot sign; it is pulled through the
+    internal mirror and pinned by tag. Revisit when the mirror re-signs images (PLAT-412).
+  author: platform-team@example.com
+  expiresAt: "2026-12-31T23:59:59Z"   # checked at scan time; afterwards the control fails again
+  match:
+    resources:
+      - kind: Deployment
+        name: payments-api
+  posture:
+    - controlID: C-0237     # Check if signature exists
+      action: ignore        # ignore = suppress; alert_only = keep reporting it

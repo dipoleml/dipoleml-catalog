@@ -1,0 +1,19 @@
+---
+description: Review local changes (read-only) / 以只读模式审查本地改动
+allowed-tools: ["Bash"]
+---
+
+Run a DeepSeek Harness code review of the local changes. The bridge resolves the target automatically: dirty working tree → uncommitted changes; clean tree → branch diff against the default base.
+
+```bash
+node "${CLAUDE_PLUGIN_ROOT}/scripts/dsh-bridge.mjs" review "$ARGUMENTS"
+```
+
+Argument handling:
+- Free text becomes the review focus (e.g. `/dsh:review concurrency in the session store`).
+- `--base <ref>` reviews the branch diff against that ref; `--scope working-tree|branch` forces a side.
+- `--model <name>` / `--effort low|high|max` select the model for this run (defaults: `deepseek-v4-pro` at effort `max`). `low` is in the official schema; `medium` is not. A vision id does not attach Claude chat images.
+- `--mode minimal|standard|anchored-standard` selects the agent mode (default `standard` — full toolset from request #1. `minimal` is two tools for the whole run; the diff travels inside the prompt, and bash still covers ad-hoc digging. `anchored-standard` starts on the Minimal pair then restores the full catalog after the first tool call or assistant reply).
+- `--background` queues the review and returns a run id; check it later with `/dsh:runs`.
+
+The run is read-only and can take several minutes; prefer `--background` when the user wants to keep working. Present the review output verbatim, then add your own judgement only if the user asks.

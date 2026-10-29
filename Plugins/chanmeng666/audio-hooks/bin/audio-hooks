@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# audio-hooks — portable shell wrapper around audio-hooks.py
+#
+# This wrapper exists because Git Bash on Windows does not interpret
+# Python shebangs the way Linux/macOS do. A Bash wrapper works on every
+# platform Git Bash and Bash run on. The wrapper:
+#
+#   1. Resolves the script's own directory (handles symlinks).
+#   2. Locates Python (prefers python3, falls back to python, then py).
+#   3. Exec's the canonical entry point at audio-hooks.py with all args.
+#
+# Output is whatever audio-hooks.py prints — JSON to stdout, nothing else.
+# Exit code is whatever audio-hooks.py returns.
+
+set -e
+
+# Resolve script directory (POSIX-portable, handles symlinks)
+SOURCE="${BASH_SOURCE[0]:-$0}"
+while [ -h "$SOURCE" ]; do
+    DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
+    SOURCE="$(readlink "$SOURCE")"
+    [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
+
+PYTHON_ENTRY="$SCRIPT_DIR/audio-hooks.py"
+
+if [ ! -f "$PYTHON_ENTRY" ]; then
+    printf '{"ok":false,"error":{"code":"INTERNAL_ERROR","message":"audio-hooks.py not found at %s"}}\n' "$PYTHON_ENTRY"
+    exit 1
+fi
+
+# Locate a working Python interpreter.
+#
+# We can't just `command -v python3` because Windows ships a Microsoft Store
+# stub at WindowsApps\python3.exe that responds to `command -v` but exits 49
+# with no output when invoked (it's a placeholder that opens the Store).
+# Probe each candidate with a fast no-op import to verify it actually works.
+for candidate in python3 python py; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+        if "$candidate" -c "import sys" >/dev/null 2>&1; then
+            exec "$candidate" "$PYTHON_ENTRY" "$@"
+        fi
+    fi
+done
+
+printf '{"ok":false,"error":{"code":"PYTHON_NOT_FOUND","message":"No working Python interpreter found in PATH (tried python3, python, py).","hint":"Install Python 3.6 or later. On Windows, disable the Microsoft Store python3.exe stub via Settings > Apps > App execution aliases."}}\n'
+exit 1

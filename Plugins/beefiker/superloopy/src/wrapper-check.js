@@ -1,0 +1,192 @@
+// Advisory doctor check: does the installed `superloopy` bin wrapper still point at the
+// current version? On Codex marketplace installs the wrapper embeds an ABSOLUTE path into a
+// versioned cache dir (.../superloopy/<version>/src/cli.js), and it is only rewritten when the
+// new version's SessionStart bootstrap re-runs the installer. So right after an upgrade the
+// plugin list can read 0.7.1 while the wrapper still runs the 0.7.0 cache — or points at a
+// pruned cache that no longer exists.
+//
+// This check SURFACES staleness as a suggestion, never a requirement: a stale, split, foreign, or
+// recoverable wrapper is ok:true (informational), so `superloopy doctor` never fails just because
+// a newer version is available. The one exception is a dangling wrapper with no live fallback:
+// the `superloopy` command itself cannot run, so the check fails. It is no-throw and
+// dependency-injectable.
+
+import { existsSync as fsExistsSync, readFileSync as fsReadFileSync, readdirSync as fsReaddirSync, statSync as fsStatSync } from "node:fs";
+import { basename, dirname, join, resolve } from "node:path";
+import { binShimSupportsSiblingFallback, parseBinShimCliPath } from "./agents.js";
+import { compareVersions, parseVersion } from "./auto-update-plan.js";
+
+function informational(message, extra = {}) {
+  return { ok: true, informational: true, message, ...extra };
+}
+
+// Returns a doctor-shaped { ok, message, ... } result: informational ok:true, except ok:false for
+// a dangling wrapper with no live fallback. Never throws.
+export function checkWrapper(options = {}) {
+  try {
+    const env = options.env !== null && typeof options.env === "object" ? options.env : process.env;
+    const platform = options.platform ?? process.platform;
+    const fs = options.fs ?? { existsSync: fsExistsSync, readFileSync: fsReadFileSync, readdirSync: fsReaddirSync, statSync: fsStatSync };
+
+    const located = locateWrapper(env, platform, fs);
+    if (located === null) {
+      return informational("no Superloopy bin wrapper on PATH (Claude Code, checkout, or not installed) - wrapper currency not tracked", { found: false });
+    }
+    const cliPath = located.content === null ? null : parseBinShimCliPath(located.content, platform);
+    if (cliPath === null) {
+      // Something other than our generated shim owns the `superloopy` name that resolves first
+      // on PATH (a package-manager or checkout shim). That is what the shell actually runs, so
+      // report it rather than a generated shim later on PATH the user never invokes.
+      return informational(`the \`superloopy\` that resolves first on PATH (${located.path}) is not a Superloopy-generated wrapper - currency not tracked`, { found: true, recognized: false });
+    }
+    if (!fs.existsSync(cliPath)) {
+      // The `superloopy` command IS this broken wrapper, so never tell the user to run it. Point
+      // at a surviving sibling cli.js if one exists; otherwise let the bootstrap re-point it.
+      const live = newestLiveSiblingCli(cliPath, fs);
+      if (live && binShimSupportsSiblingFallback(located.content, platform)) {
+        return informational(
+          `bin wrapper at ${located.path} points at ${cliPath}, which no longer exists, but this wrapper can fall back to the live sibling CLI at ${live}. Re-run \`node "${live}" bin install --force\` when convenient to refresh the embedded target.`,
+          { found: true, recovered: true, wrapperPath: located.path, cliPath, resolvedCliPath: live }
+        );
+      }
+      const repair = live
+        ? `run \`node "${live}" bin install --force\` to re-point it`
+        : "re-approve the Modified hooks and start a new Codex session so the installer re-points it";
+      // Not advisory: the `superloopy` command on PATH exits "CLI target not found", so every
+      // `superloopy loop ...` a skill runs fails. Doctor must not report the install healthy.
+      return {
+        ok: false,
+        message: `bin wrapper at ${located.path} points at ${cliPath}, which no longer exists (a marketplace upgrade likely pruned that cached version). The \`superloopy\` command will not run until re-pointed: ${repair}.`,
+        found: true,
+        dangling: true,
+        wrapperPath: located.path,
+        cliPath
+      };
+    }
+    const diagnosedRoot = typeof options.diagnosedRoot === "string" ? resolve(options.diagnosedRoot) : null;
+    const wrapperRoot = resolve(dirname(dirname(cliPath)));
+    if (diagnosedRoot !== null && wrapperRoot !== diagnosedRoot) {
+      const diagnosedCli = join(diagnosedRoot, "src", "cli.js");
+      return informational(
+        `bin wrapper at ${located.path} runs ${cliPath}, which belongs to a different Superloopy root than the diagnosed plugin at ${diagnosedRoot}. Run \`node "${diagnosedCli}" bin install --force\` and restart Codex to remove the split-brain command path.`,
+        {
+          found: true,
+          warning: true,
+          splitBrain: true,
+          wrapperPath: located.path,
+          cliPath,
+          diagnosedRoot
+        }
+      );
+    }
+    const currency = evaluateWrapperCurrency(cliPath, fs);
+    if (currency.state === "stale") {
+      return informational(
+        `bin wrapper runs superloopy v${currency.wrapperVersion} but v${currency.latestVersion} is installed. Upgrading is optional; to run the newer version, re-approve the Modified hooks and start a new Codex session, or run \`node "${currency.latestCliPath}" bin install --force\`.`,
+        { found: true, stale: true, wrapperPath: located.path, wrapperVersion: currency.wrapperVersion, latestVersion: currency.latestVersion }
+      );
+    }
+    if (currency.state === "untracked") {
+      return informational(`bin wrapper points at a local checkout (${cliPath}); version currency is not tracked for checkout installs`, { found: true });
+    }
+    return informational(`bin wrapper is current (superloopy v${currency.wrapperVersion})`, { found: true, wrapperVersion: currency.wrapperVersion });
+  } catch {
+    return informational("wrapper currency check could not complete");
+  }
+}
+
+// Find the wrapper the shell would actually run: the FIRST PATH entry holding a runnable file
+// named `superloopy` (or `superloopy.cmd`), regardless of its content. On POSIX the shell skips
+// entries that are not executable regular files, so this does too; otherwise a stale,
+// non-executable leftover would hide the command that really runs. Returns { path, content }
+// (content is null when unreadable) or null when no such file is on PATH. The caller decides
+// whether that resolved file is one of our generated shims — scanning past it to a later
+// generated shim would report on a command the user never invokes.
+function locateWrapper(env, platform, fs) {
+  const wrapperName = platform === "win32" ? "superloopy.cmd" : "superloopy";
+  const rawPath = typeof env.PATH === "string" ? env.PATH : typeof env.Path === "string" ? env.Path : "";
+  const sep = platform === "win32" ? ";" : ":";
+  for (const entry of rawPath.split(sep)) {
+    const dir = entry.trim().replace(/^"|"$/gu, "");
+    if (dir.length === 0) continue;
+    const candidate = join(dir, wrapperName);
+    if (!isRunnable(candidate, platform, fs)) continue;
+    let content = null;
+    try {
+      content = fs.readFileSync(candidate, "utf8");
+    } catch {
+      content = null;
+    }
+    return { path: candidate, content };
+  }
+  return null;
+}
+
+// Windows runs a `.cmd` by extension, so existence is enough there.
+function isRunnable(candidate, platform, fs) {
+  try {
+    if (platform === "win32") return fs.existsSync(candidate);
+    const stat = fs.statSync(candidate);
+    return stat.isFile() && (stat.mode & 0o111) !== 0;
+  } catch {
+    return false;
+  }
+}
+
+// Given a wrapper's (possibly missing) cli.js, find the newest sibling version dir under the
+// same .../superloopy container whose src/cli.js still exists — a live CLI the repair command
+// can actually invoke. Returns the cli.js path or null when the whole container is gone.
+function newestLiveSiblingCli(cliPath, fs) {
+  const container = dirname(dirname(dirname(cliPath))); // .../superloopy
+  let names;
+  try {
+    names = fs.readdirSync(container);
+  } catch {
+    return null;
+  }
+  let bestCli = null;
+  let bestVersion = null;
+  for (const name of names) {
+    const parsed = parseVersion(name);
+    if (parsed === null) continue;
+    const cli = join(container, name, "src", "cli.js");
+    if (!fs.existsSync(cli)) continue;
+    if (bestVersion === null || compareVersions(parsed, bestVersion) > 0) {
+      bestVersion = parsed;
+      bestCli = cli;
+    }
+  }
+  return bestCli;
+}
+
+// Decide currency from the versioned-cache layout .../superloopy/<version>/src/cli.js: compare
+// the wrapper's version dir against the newest sibling version dir that still has a cli.js.
+// Returns { state: "current"|"stale"|"untracked", wrapperVersion?, latestVersion?, latestCliPath? }.
+export function evaluateWrapperCurrency(cliPath, fs = { existsSync: fsExistsSync, readdirSync: fsReaddirSync }) {
+  const versionRoot = dirname(dirname(cliPath)); // .../superloopy/<version>
+  const container = dirname(versionRoot); // .../superloopy
+  const wrapperName = basename(versionRoot);
+  const wrapperVersion = parseVersion(wrapperName);
+  if (wrapperVersion === null) return { state: "untracked" };
+  let names;
+  try {
+    names = fs.readdirSync(container);
+  } catch {
+    return { state: "current", wrapperVersion: wrapperName };
+  }
+  let bestVersion = wrapperVersion;
+  let bestName = wrapperName;
+  for (const name of names) {
+    const parsed = parseVersion(name);
+    if (parsed === null) continue;
+    if (!fs.existsSync(join(container, name, "src", "cli.js"))) continue;
+    if (compareVersions(parsed, bestVersion) > 0) {
+      bestVersion = parsed;
+      bestName = name;
+    }
+  }
+  if (compareVersions(bestVersion, wrapperVersion) > 0) {
+    return { state: "stale", wrapperVersion: wrapperName, latestVersion: bestName, latestCliPath: join(container, bestName, "src", "cli.js") };
+  }
+  return { state: "current", wrapperVersion: wrapperName };
+}

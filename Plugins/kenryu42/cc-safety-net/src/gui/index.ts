@@ -1,0 +1,926 @@
+import { spawn } from 'node:child_process';
+import { randomBytes } from 'node:crypto';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
+import { dirname, join } from 'node:path';
+import { Writable } from 'node:stream';
+import { parseCommandArgs } from '@/cli/args';
+import { getActivitySummary } from '@/cli/doctor/activity';
+import { checkForUpdates } from '@/cli/doctor/updates';
+import { type RunInstallCommandOptions, runInstallCommand } from '@/cli/install/index';
+import { createProcessEnvironment, type Environment } from '@/core/environment';
+import { atomicWriteFile } from '@/core/io/atomic-write';
+import {
+  bindPolicyFilesystemScope,
+  getPolicyFilesystemTargetForPath,
+  writePolicyFileAtomic,
+} from '@/core/io/safe-read';
+import {
+  buildProjectPolicyFileValue,
+  diffPolicyRows,
+  readPolicyJson,
+  readRuntimeUserBaseline,
+} from '@/core/policy/diff';
+import { mergeProjectPolicy } from '@/core/policy/merge';
+import {
+  getProjectPolicyPath,
+  getUserRulesDir,
+  projectPolicyIsUserPolicy,
+  type RulesPolicyOptions,
+} from '@/core/policy/paths';
+import { readRetentionDays } from '@/core/policy/retention';
+import { loadRulesPolicy } from '@/core/policy/scope-policy';
+import {
+  createPolicySnapshot,
+  describeConfigState,
+  loadPolicySnapshot,
+} from '@/core/policy/snapshot';
+import {
+  createPolicyPreview,
+  DEFAULT_GUI_POLICY,
+  normalizeGuiPolicy,
+  normalizeSafety,
+  projectPolicyProjection,
+  resolveSecretDisabledRules,
+} from '@/core/policy/store';
+import {
+  previewUserPolicyForGui,
+  readUserPolicyForGui,
+  repairUserPolicyForGui,
+  writeUserPolicyFromGui,
+} from '@/core/policy/store-gui';
+import { getUserPolicyDiagnostics } from '@/core/policy/user-policy-diagnostics';
+import { DESTRUCTIVE_COMMAND_RULE_METADATA } from '@/core/rules/destructive';
+import { SECRET_PROTECTION_RULE_METADATA } from '@/core/rules/secret';
+import { type ExplainResult, explainCommand } from '@/gate/explain';
+import { getIntegrationDisplayName, installIntegrationMetadata } from '@/hosts/catalog';
+import { detectAllHooks } from '@/hosts/detect/index';
+import type { SystemInfo, UpdateInfo } from '@/hosts/doctor-types';
+import { INSTALL_TARGETS, type InstallAction, type InstallTarget } from '@/hosts/install/targets';
+import { detect as detectOpenCode } from '@/hosts/opencode/detect';
+import { getPackageVersion, getSystemInfo, type VersionFetcher } from '@/hosts/system-info';
+import { getActivityFeed } from './activity';
+import {
+  type ChooseDirectoryResult,
+  chooseDirectory,
+  isDirectoryPickerAvailable,
+} from './choose-directory';
+import {
+  applyPreferenceUpdate,
+  type GuiPreferences,
+  parseGuiPreferences,
+  parsePreferenceUpdate,
+} from './frontend/preferences';
+import { renderPolicyGuiHtml } from './page';
+
+const REPO = 'kenryu42/cc-safety-net';
+const REPO_URL = `https://github.com/${REPO}`;
+const STAR_TIMEOUT_MS = 10_000;
+const DEFAULT_ACTIVITY_DAYS = 7;
+type StarCountFetch = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+
+/** @internal */
+export interface StarContext {
+  starCount: number | null;
+  blockedTotal: number;
+}
+
+interface IntegrationsStatus {
+  targets: {
+    target: InstallTarget;
+    label: string;
+    version: string | null;
+    status: 'active' | 'disabled' | 'not-installed' | 'not-inspected';
+  }[];
+  system: { version: string; nodeVersion: string | null; platform: string };
+}
+
+interface HealthStatus {
+  update: { latestVersion: string | null; updateAvailable: boolean };
+}
+
+/** @internal */
+export interface PolicyGuiServer {
+  origin: string;
+  token: string;
+  url: string;
+  close: () => Promise<void>;
+}
+
+interface ProjectDraftSession {
+  dir: string | null;
+  revision: number;
+}
+
+const STALE_DRAFT_REVISION =
+  'The project draft directory changed; reload the draft before applying.';
+
+const PROJECT_AUDIT_REJECTION =
+  'audit settings are user scope only; remove the audit section from a project proposal';
+
+interface PolicyGuiServerOptions extends Partial<RulesPolicyOptions> {
+  chooseDirectory?: () => Promise<ChooseDirectoryResult>;
+  starRepo?: () => Promise<{ ok: boolean }>;
+  fetchStarContext?: () => Promise<StarContext>;
+  fetchIntegrations?: () => Promise<IntegrationsStatus>;
+  fetchHealth?: () => Promise<HealthStatus>;
+  runIntegration?: (
+    action: InstallAction,
+    target: InstallTarget,
+  ) => Promise<{ ok: boolean; output: string }>;
+  activityLogsDir?: string;
+  buildDocument?: () => Promise<string>;
+}
+
+interface RunGuiCommandOptions
+  extends Pick<PolicyGuiServerOptions, 'buildDocument'>, Partial<RulesPolicyOptions> {
+  openBrowser?: (url: string) => Promise<void> | void;
+  keepAlive?: boolean;
+  log?: (message: string) => void;
+  error?: (message: string) => void;
+}
+
+export async function runGuiCommand(
+  args: readonly string[],
+  options: RunGuiCommandOptions = {},
+): Promise<number> {
+  const parsed = parseCommandArgs({ label: 'gui', booleans: { noOpen: ['--no-open'] } }, args);
+  const log = options.log ?? console.log;
+  const error = options.error ?? console.error;
+  if (parsed.errors.length > 0) {
+    for (const message of parsed.errors) error(message);
+    error('Usage: cc-safety-net gui [--no-open]');
+    return 1;
+  }
+
+  const server = await createPolicyGuiServer(createProcessEnvironment, options);
+  log(`CC Safety Net policy GUI: ${server.url}`);
+
+  if (!parsed.flags.noOpen) {
+    try {
+      await (options.openBrowser ?? openBrowser)(server.url);
+    } catch (openError) {
+      error(
+        `Failed to open browser: ${openError instanceof Error ? openError.message : String(openError)}`,
+      );
+      error(`Open this URL manually: ${server.url}`);
+    }
+  }
+
+  if (options.keepAlive === false) {
+    await server.close();
+    return 0;
+  }
+
+  await waitForShutdown(server);
+  return 0;
+}
+
+/** @internal */
+export async function createPolicyGuiServer(
+  createEnvironment: () => Environment,
+  options: PolicyGuiServerOptions = {},
+): Promise<PolicyGuiServer> {
+  const token = randomBytes(24).toString('base64url');
+
+  const session: ProjectDraftSession = { dir: null, revision: 0 };
+  const server = createServer((request, response) => {
+    void handleRequest(createEnvironment, request, response, token, options, session);
+  });
+
+  await new Promise<void>((resolve, reject) => {
+    server.once('error', reject);
+    server.listen(0, '127.0.0.1', () => {
+      server.off('error', reject);
+      resolve();
+    });
+  });
+
+  const address = server.address() as { port: number };
+  const origin = `http://127.0.0.1:${address.port}`;
+  return {
+    origin,
+    token,
+    url: `${origin}/?token=${encodeURIComponent(token)}`,
+    close: () => closeServer(server),
+  };
+}
+
+async function handleRequest(
+  createEnvironment: () => Environment,
+  request: IncomingMessage,
+  response: ServerResponse,
+  token: string,
+  options: PolicyGuiServerOptions,
+  session: ProjectDraftSession,
+): Promise<void> {
+  const environment = createEnvironment();
+  const url = new URL(request.url ?? '/', 'http://127.0.0.1');
+  if (request.method === 'GET' && url.pathname === '/favicon.ico') {
+    response.writeHead(204, { 'cache-control': 'no-store' });
+    response.end();
+    return;
+  }
+
+  if (!requestHasValidToken(request, url, token)) {
+    sendJson(response, 403, { error: 'Forbidden' });
+    return;
+  }
+
+  if (request.method === 'GET' && url.pathname === '/') {
+    const preferences = readGuiPreferences(guiPreferencesPath(environment, options));
+    await Promise.resolve(options.buildDocument?.()).then(
+      (document) => sendHtml(response, renderPolicyGuiHtml({ token, preferences }, document)),
+      (buildError: unknown) =>
+        sendJson(response, 500, {
+          error: buildError instanceof Error ? buildError.message : String(buildError),
+        }),
+    );
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/preferences') {
+    const body = await readJsonBody(request);
+    if (!body.ok) {
+      sendJson(response, body.status, { errors: [body.error] });
+      return;
+    }
+    const update = parsePreferenceUpdate(body.value);
+    if (!update) {
+      sendJson(response, 400, {
+        errors: ['preferences accept only language (en, ja, zh-CN) and theme (auto, light, dark)'],
+      });
+      return;
+    }
+    const path = guiPreferencesPath(environment, options);
+    const preferences = applyPreferenceUpdate(readGuiPreferences(path), update);
+    const writeError = writeGuiPreferences(path, preferences);
+    sendJson(
+      response,
+      writeError ? 500 : 200,
+      writeError ? { errors: [writeError] } : { preferences },
+    );
+    return;
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/policy') {
+    const result = readUserPolicyForGui(environment, options);
+    const snapshot = loadPolicySnapshot(environment, loaderOptions(options));
+    sendJson(response, 200, {
+      ...result,
+      configState: describeConfigState(snapshot),
+
+      ...(snapshot.policyScopes
+        ? {
+            projectPolicy: {
+              path: getProjectPolicyPath(options.cwd ?? process.cwd()),
+              weakenings: snapshot.policyScopes.weakeningsIgnored
+                ? []
+                : snapshot.policyScopes.weakenings,
+            },
+          }
+        : {}),
+      destructiveCommandRules: DESTRUCTIVE_COMMAND_RULE_METADATA,
+      secretPatterns: SECRET_PROTECTION_RULE_METADATA,
+      version: getPackageVersion(),
+      preview:
+        result.errors.length > 0 ? null : createPolicyPreview(result.policy, environment.env),
+    });
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/policy/preview') {
+    const body = await readJsonBody(request);
+    if (!body.ok) {
+      sendJson(response, body.status, { errors: [body.error] });
+      return;
+    }
+    const result = previewUserPolicyForGui(environment, body.value);
+    sendJson(response, result.errors.length > 0 ? 400 : 200, result);
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/policy/explain') {
+    const body = await readJsonBody(request);
+    if (!body.ok) {
+      sendJson(response, body.status, { errors: [body.error] });
+      return;
+    }
+    const payload = body.value as { command?: unknown; policy?: unknown } | null;
+    if (payload === null || typeof payload.command !== 'string') {
+      sendJson(response, 400, { errors: ['command must be a string'] });
+      return;
+    }
+    const errors = getUserPolicyDiagnostics(payload.policy, environment.home);
+    if (errors.length > 0) {
+      sendJson(response, 400, { errors });
+      return;
+    }
+    sendJson(
+      response,
+      200,
+      explainDraftCommand(environment, payload.command, payload.policy, options),
+    );
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/policy') {
+    const body = await readJsonBody(request);
+    if (!body.ok) {
+      sendJson(response, body.status, { errors: [body.error] });
+      return;
+    }
+    const result = writeUserPolicyFromGui(environment, body.value, options);
+    sendJson(response, result.errors.length > 0 ? 400 : 200, result);
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/reset') {
+    sendJson(response, 200, writeUserPolicyFromGui(environment, DEFAULT_GUI_POLICY, options));
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/repair') {
+    sendJson(response, 200, repairUserPolicyForGui(environment, options));
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/policy/project/choose-directory') {
+    const picked = await (options.chooseDirectory ?? chooseDirectory)();
+    if ('path' in picked) {
+      session.dir = picked.path;
+      session.revision += 1;
+    }
+    sendJson(response, 200, {
+      cancelled: 'cancelled' in picked,
+      ...('error' in picked ? { error: picked.error } : {}),
+    });
+    return;
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/policy/project') {
+    const dir = resolveDraftProjectDir(session, options);
+    const refusal = userPolicyDraftRefusal(environment, dir, options);
+    const current = refusal
+      ? { projection: {}, diagnostics: [refusal] }
+      : readProjectPolicyFile(dir, environment.home);
+
+    const user = readRuntimeUserBaseline(environment, options);
+    sendJson(response, 200, {
+      path: getProjectPolicyPath(dir),
+      revision: session.revision,
+      baseline: user.baseline,
+      userPolicyDiagnostics: user.diagnostics,
+      projection: current.projection,
+      projectionDiagnostics: current.diagnostics,
+      canPickDirectory: isDirectoryPickerAvailable(process.platform, process.env),
+    });
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/policy/project/diff') {
+    const draft = await readProjectDraft(environment, request, response, session, options);
+    if (!draft) return;
+    const current = readProjectPolicyFile(draft.dir, environment.home);
+    const baseline = readRuntimeUserBaseline(environment, options).baseline;
+
+    const proposed = mergeProjectPolicy(
+      baseline,
+      projectPolicyProjection(draft.proposal, environment.home).policy,
+    );
+    sendJson(response, 200, {
+      rows: diffPolicyRows(
+        mergeProjectPolicy(baseline, current.projection).policy,
+        proposed.policy,
+        false,
+      ),
+      weakenings: proposed.weakenings,
+      existingFileDiagnostics: current.diagnostics,
+    });
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/policy/project/apply') {
+    const draft = await readProjectDraft(environment, request, response, session, options);
+    if (!draft) return;
+    const written = writeProjectPolicy(draft.dir, draft.proposal, environment.home);
+    sendJson(response, written.errors.length > 0 ? 500 : 200, written);
+    return;
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/activity') {
+    const retentionDays = readRetentionDays(environment, options);
+    const days = parseActivityDays(url.searchParams.get('days'), retentionDays);
+    if (days === null) {
+      sendJson(response, 400, {
+        error: `days must be an integer between 1 and ${retentionDays}`,
+      });
+      return;
+    }
+    sendJson(response, 200, getActivityFeed(environment, days, options.activityLogsDir));
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/rules/choose-directory') {
+    sendJson(response, 200, await chooseDirectory());
+    return;
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/rules') {
+    const policy = loadRulesPolicy(environment, loaderOptions(options));
+    const enforcedByName = new Map(policy.rules.map((rule) => [rule.name, rule]));
+    sendJson(response, 200, {
+      projectPath: options.cwd ?? process.cwd(),
+      canPickDirectory: isDirectoryPickerAvailable(process.platform, process.env),
+      rulebooks: policy.rulebooks.map((rulebook) => ({
+        source: rulebook.source,
+        spec: rulebook.spec,
+        name: rulebook.name,
+        version: rulebook.version,
+
+        rules: rulebook.rules.flatMap((ruleName) => {
+          const rule = enforcedByName.get(ruleName);
+          if (!rule) return [];
+          return [
+            {
+              name: rule.name,
+              command: rule.command,
+              subcommand: rule.subcommand,
+              block_args: rule.block_args,
+              reason: rule.reason,
+            },
+          ];
+        }),
+      })),
+      errors: policy.errors,
+      warnings: policy.warnings,
+    });
+    return;
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/star/context') {
+    sendJson(
+      response,
+      200,
+      await (
+        options.fetchStarContext ??
+        (() => fetchStarContext(environment, { logsDir: options.activityLogsDir }))
+      )(),
+    );
+    return;
+  }
+
+  if (request.method === 'POST' && url.pathname === '/api/star') {
+    const result = await (options.starRepo ?? starRepo)();
+    sendJson(response, 200, result.ok ? { ok: true } : { ok: false, fallbackUrl: REPO_URL });
+    return;
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/integrations') {
+    sendJson(
+      response,
+      200,
+      await (options.fetchIntegrations ?? (() => fetchIntegrations(environment)))(),
+    );
+    return;
+  }
+
+  if (request.method === 'GET' && url.pathname === '/api/health') {
+    sendJson(response, 200, await (options.fetchHealth ?? fetchHealth)());
+    return;
+  }
+
+  if (
+    request.method === 'POST' &&
+    (url.pathname === '/api/install' || url.pathname === '/api/uninstall')
+  ) {
+    const body = await readJsonBody(request);
+    if (!body.ok) {
+      sendJson(response, body.status, { errors: [body.error] });
+      return;
+    }
+    const target = (body.value as { target?: unknown } | null)?.target;
+    if (typeof target !== 'string' || !INSTALL_TARGETS.some((entry) => entry.target === target)) {
+      sendJson(response, 400, { error: 'unknown target' });
+      return;
+    }
+    const action = url.pathname === '/api/install' ? 'install' : 'uninstall';
+    sendJson(
+      response,
+      200,
+      await (options.runIntegration ?? runIntegration)(action, target as InstallTarget),
+    );
+    return;
+  }
+
+  sendJson(response, 404, { error: 'Not found' });
+}
+
+function guiPreferencesPath(environment: Environment, options: PolicyGuiServerOptions): string {
+  return join(dirname(getUserRulesDir(environment, options)), 'gui.json');
+}
+
+function readGuiPreferences(path: string): GuiPreferences {
+  if (!existsSync(path)) return {};
+  try {
+    return parseGuiPreferences(JSON.parse(readFileSync(path, 'utf-8')) as unknown);
+  } catch {
+    return {};
+  }
+}
+
+function writeGuiPreferences(path: string, preferences: GuiPreferences): string | null {
+  try {
+    mkdirSync(dirname(path), { recursive: true });
+    atomicWriteFile(path, `${JSON.stringify(preferences, null, 2)}\n`);
+    return null;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+}
+
+function loaderOptions(options: PolicyGuiServerOptions): RulesPolicyOptions {
+  return { ...options, cwd: options.cwd ?? process.cwd() };
+}
+
+function resolveDraftProjectDir(
+  session: ProjectDraftSession,
+  options: PolicyGuiServerOptions,
+): string {
+  return session.dir ?? options.cwd ?? process.cwd();
+}
+
+function userPolicyDraftRefusal(
+  environment: Environment,
+  dir: string,
+  options: PolicyGuiServerOptions,
+): string | null {
+  if (!projectPolicyIsUserPolicy(environment, { ...options, cwd: dir })) return null;
+  return `${getProjectPolicyPath(dir)} is the user policy, not a project policy; choose a project directory, or run the GUI from one`;
+}
+
+function readProjectPolicyFile(dir: string, home: string) {
+  const path = getProjectPolicyPath(dir);
+  const file = existsSync(path) ? readPolicyJson(path) : { value: undefined, errors: [] };
+  const projection = projectPolicyProjection(file.value, home);
+  return {
+    projection: projection.policy,
+    diagnostics: [...file.errors, ...projection.diagnostics],
+  };
+}
+
+async function readProjectDraft(
+  environment: Environment,
+  request: IncomingMessage,
+  response: ServerResponse,
+  session: ProjectDraftSession,
+  options: PolicyGuiServerOptions,
+): Promise<{ dir: string; proposal: unknown } | null> {
+  const dir = resolveDraftProjectDir(session, options);
+  const revision = session.revision;
+  const body = await readJsonBody(request);
+  if (!body.ok) {
+    sendJson(response, body.status, { errors: [body.error] });
+    return null;
+  }
+  const payload = body.value as { proposal?: unknown; revision?: unknown } | null;
+
+  if (typeof payload?.revision !== 'number') {
+    sendJson(response, 400, { errors: ['revision must be a number'] });
+    return null;
+  }
+  if (payload.revision !== revision) {
+    sendJson(response, 409, { errors: [STALE_DRAFT_REVISION] });
+    return null;
+  }
+  const refusal = userPolicyDraftRefusal(environment, dir, options);
+  if (refusal) {
+    sendJson(response, 400, { errors: [refusal] });
+    return null;
+  }
+  const errors = getProjectProposalErrors(payload.proposal, environment.home);
+  if (errors.length > 0) {
+    sendJson(response, 400, { errors });
+    return null;
+  }
+  return { dir, proposal: payload.proposal };
+}
+
+function getProjectProposalErrors(proposal: unknown, home: string): string[] {
+  const errors = getUserPolicyDiagnostics(proposal, home);
+  if (errors.length > 0) return errors;
+  return (proposal as { audit?: unknown } | null)?.audit === undefined
+    ? []
+    : [PROJECT_AUDIT_REJECTION];
+}
+
+function writeProjectPolicy(
+  dir: string,
+  proposal: unknown,
+  home: string,
+): { path: string; errors: string[] } {
+  const path = getProjectPolicyPath(dir);
+  const value = buildProjectPolicyFileValue(proposal, normalizeGuiPolicy(proposal, home));
+  try {
+    writePolicyFileAtomic(
+      getPolicyFilesystemTargetForPath(bindPolicyFilesystemScope(dir, 'project policy'), path),
+      `${JSON.stringify(value, null, 2)}\n`,
+    );
+    return { path, errors: [] };
+  } catch (error) {
+    return { path, errors: [error instanceof Error ? error.message : String(error)] };
+  }
+}
+
+function explainDraftCommand(
+  environment: Environment,
+  command: string,
+  policy: unknown,
+  options: PolicyGuiServerOptions,
+): ExplainResult {
+  const draft = normalizeGuiPolicy(policy, environment.home);
+  const diskSnapshot = loadPolicySnapshot(environment, loaderOptions(options));
+  const snapshot = createPolicySnapshot({
+    rules: diskSnapshot.policy.rules,
+    transparentWrappers: diskSnapshot.policy.transparentWrappers,
+    commandTools: diskSnapshot.policy.commandTools,
+    safety: normalizeSafety(draft.safety),
+    worktreeMode: draft.workflow.worktree_mode,
+    destructiveCommandProtectionEnabled: draft.destructive_command_protection.enabled,
+    destructiveCommandRuleOverrides: draft.destructive_command_protection.overrides,
+    destructiveCommandAllowPaths: draft.destructive_command_protection.allow_paths,
+    secretProtection: {
+      enabled: draft.secret_protection.enabled,
+      disabledRules: resolveSecretDisabledRules(draft.secret_protection.overrides),
+      denyPaths: draft.secret_protection.deny_paths,
+      allowPaths: draft.secret_protection.allow_paths,
+    },
+  });
+  return explainCommand(
+    command,
+    {
+      policySnapshot: snapshot,
+      cwd: options.cwd,
+      userConfigDir: options.userConfigDir,
+    },
+    environment,
+  );
+}
+
+function parseActivityDays(raw: string | null, retentionDays: number): number | null {
+  if (raw === null) return Math.min(DEFAULT_ACTIVITY_DAYS, retentionDays);
+  const days = Number(raw);
+  if (!Number.isInteger(days) || days < 1 || days > retentionDays) return null;
+  return days;
+}
+
+function requestHasValidToken(request: IncomingMessage, url: URL, token: string): boolean {
+  if (url.searchParams.get('token') !== token) return false;
+  if (request.method !== 'POST') return true;
+  return request.headers['x-cc-safety-net-token'] === token;
+}
+
+const MAX_JSON_BODY_BYTES = 1_048_576;
+
+async function readJsonBody(
+  request: IncomingMessage,
+): Promise<{ ok: true; value: unknown } | { ok: false; status: 400 | 413; error: string }> {
+  const chunks: Buffer[] = [];
+  let bytes = 0;
+  for await (const chunk of request) {
+    const buffer = chunk as Buffer;
+    bytes += buffer.byteLength;
+    if (bytes > MAX_JSON_BODY_BYTES) {
+      return { ok: false, status: 413, error: 'Request body is too large' };
+    }
+    chunks.push(buffer);
+  }
+  try {
+    return { ok: true, value: JSON.parse(Buffer.concat(chunks).toString('utf-8') || '{}') };
+  } catch (error) {
+    return {
+      ok: false,
+      status: 400,
+      error: `Invalid JSON: ${error instanceof Error ? error.message : String(error)}`,
+    };
+  }
+}
+
+function sendHtml(response: ServerResponse, html: string): void {
+  response.writeHead(200, {
+    'content-type': 'text/html; charset=utf-8',
+    'cache-control': 'no-store',
+  });
+  response.end(html);
+}
+
+function sendJson(response: ServerResponse, status: number, body: unknown): void {
+  response.writeHead(status, {
+    'content-type': 'application/json; charset=utf-8',
+    'cache-control': 'no-store',
+  });
+  response.end(JSON.stringify(body));
+}
+
+function closeServer(server: Server): Promise<void> {
+  return new Promise((resolve, reject) => {
+    server.close((error) => (error ? reject(error) : resolve()));
+  });
+}
+
+function waitForShutdown(server: PolicyGuiServer): Promise<void> {
+  return new Promise((resolve) => {
+    const cleanup = () => {
+      process.off('SIGINT', shutdown);
+      process.off('SIGTERM', shutdown);
+    };
+    const shutdown = () => {
+      cleanup();
+      void server.close().then(resolve);
+    };
+    process.once('SIGINT', shutdown);
+    process.once('SIGTERM', shutdown);
+  });
+}
+
+function openBrowser(url: string): Promise<void> {
+  const command =
+    process.platform === 'darwin' ? 'open' : process.platform === 'win32' ? 'cmd' : 'xdg-open';
+  const args = process.platform === 'win32' ? ['/c', 'start', '', url] : [url];
+  return new Promise((resolve, reject) => {
+    const child = spawn(command, args, { detached: true, stdio: 'ignore' });
+    const handleError = (error: Error) => {
+      child.off('spawn', handleSpawn);
+      reject(error);
+    };
+    const handleSpawn = () => {
+      child.off('error', handleError);
+      child.unref();
+      resolve();
+    };
+    child.once('error', handleError);
+    child.once('spawn', handleSpawn);
+  });
+}
+
+/** @internal */
+export async function starRepo(
+  command = 'gh',
+  timeoutMs = STAR_TIMEOUT_MS,
+): Promise<{ ok: boolean }> {
+  return {
+    ok:
+      (await runGhCommand(command, ['api', '-X', 'PUT', `/user/starred/${REPO}`], timeoutMs)) === 0,
+  };
+}
+
+/** @internal */
+export async function fetchIntegrations(
+  environment: Environment,
+  probe: { fetcher?: VersionFetcher } = {},
+): Promise<IntegrationsStatus> {
+  const systemInfo = await getSystemInfo(
+    (openCodeVersion) =>
+      detectOpenCode({ environment, cwd: process.cwd(), openCodeVersion }).status !== 'n/a',
+    probe.fetcher,
+  );
+  const hookStatuses = detectHooksFromSystemInfo(environment, systemInfo);
+  return {
+    targets: installIntegrationMetadata.map((meta) => {
+      const hook = hookStatuses.find((status) => status.platform === meta.id);
+      return {
+        target: meta.id,
+        label: getIntegrationDisplayName(meta.id),
+        version: systemInfo.versions[meta.id] ?? null,
+        status: hook?.configured
+          ? 'active'
+          : hook?.detected
+            ? 'disabled'
+            : hook?.inspectionStatus === 'not-inspected'
+              ? 'not-inspected'
+              : 'not-installed',
+      } as const;
+    }),
+    system: {
+      version: systemInfo.version,
+      nodeVersion: systemInfo.nodeVersion,
+      platform: systemInfo.platform,
+    },
+  };
+}
+
+function detectHooksFromSystemInfo(environment: Environment, systemInfo: SystemInfo) {
+  return detectAllHooks(environment, process.cwd(), {
+    ampPluginListOutput: systemInfo.ampPluginListOutput,
+    codexPluginListOutput: systemInfo.codexPluginListOutput,
+    copilotCliVersion: systemInfo.versions['copilot-cli'],
+    openCodeVersion: systemInfo.versions.opencode,
+    openCodePluginListOutput: systemInfo.openCodePluginListOutput,
+  });
+}
+
+/** @internal */
+export async function fetchHealth(
+  probe: { checkUpdates?: () => Promise<UpdateInfo> } = {},
+): Promise<HealthStatus> {
+  const update = await (probe.checkUpdates ?? checkForUpdates)();
+  return {
+    update: {
+      latestVersion: update.latestVersion ?? null,
+      updateAvailable: update.updateAvailable,
+    },
+  };
+}
+
+let integrationActionQueue: Promise<unknown> = Promise.resolve();
+
+/** @internal */
+export function runIntegration(
+  action: InstallAction,
+  target: InstallTarget,
+  overrides: RunInstallCommandOptions = {},
+): Promise<{ ok: boolean; output: string }> {
+  const run = async () => {
+    const lines: string[] = [];
+    const originalLog = console.log;
+    const originalError = console.error;
+    console.log = (...args: unknown[]) => lines.push(args.map(String).join(' '));
+    console.error = console.log;
+    try {
+      const exitCode = await runInstallCommand(action, [], {
+        selectTargets: async () => [target],
+        output: new Writable({
+          write(chunk, _encoding, callback) {
+            lines.push(String(chunk).replace(/\n$/, ''));
+            callback();
+          },
+        }) as unknown as NodeJS.WriteStream,
+        ...overrides,
+      });
+      return { ok: exitCode === 0, output: lines.join('\n') };
+    } finally {
+      console.log = originalLog;
+      console.error = originalError;
+    }
+  };
+  const result = integrationActionQueue.then(run);
+  integrationActionQueue = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
+/** @internal */
+export async function fetchStarContext(
+  environment: Environment,
+  options: { logsDir?: string; fetchRepo?: StarCountFetch } = {},
+): Promise<StarContext> {
+  const [starCount, blockedTotal] = await Promise.all([
+    fetchStarCount(options.fetchRepo),
+    Promise.resolve(
+      getActivitySummary(environment, readRetentionDays(environment), options.logsDir).totalBlocked,
+    ),
+  ]);
+  return { starCount, blockedTotal };
+}
+
+function runGhCommand(
+  command: string,
+  args: readonly string[],
+  timeoutMs: number,
+): Promise<number | null> {
+  return new Promise((resolve) => {
+    const child = spawn(command, args, {
+      stdio: 'ignore',
+      windowsHide: true,
+    });
+    let settled = false;
+    const timeout = setTimeout(() => {
+      child.kill();
+      finish(null);
+    }, timeoutMs);
+    const finish = (code: number | null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      resolve(code);
+    };
+    child.once('error', () => finish(null));
+    child.once('close', finish);
+  });
+}
+
+async function fetchStarCount(fetchRepo: StarCountFetch = fetch): Promise<number | null> {
+  try {
+    const response = await fetchRepo(`https://api.github.com/repos/${REPO}`, {
+      headers: { accept: 'application/vnd.github+json' },
+      signal: AbortSignal.timeout(STAR_TIMEOUT_MS),
+    });
+    if (!response.ok) return null;
+    const body = (await response.json()) as { stargazers_count?: unknown };
+    return typeof body.stargazers_count === 'number' ? body.stargazers_count : null;
+  } catch {
+    return null;
+  }
+}

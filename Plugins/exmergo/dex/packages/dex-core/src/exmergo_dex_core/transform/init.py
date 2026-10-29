@@ -1,0 +1,1163 @@
+"""dbt project bootstrap: the deterministic skeleton behind `transform init`.
+
+Bootstrap is engine work, not agent freehand, because the generated
+``profiles.yml`` is safety-relevant: it defines the build targets, and the
+dev-target-only invariant depends on its shape. dex-owned init guarantees a
+single ``dev`` default, never a prod-named target, and never a persisted secret,
+identically on every agent surface.
+
+Init is strictly additive: it refuses to run where any dbt project already
+exists, so propose-don't-impose holds by construction. And unlike the read-only
+commands, it never falls back to a default connector: the connector is baked
+into the generated profile's ``type:``, and a silent DuckDB default in a
+warehouse shop would produce a project that parses and builds locally yet is
+wrong. The caller must resolve the connector explicitly before calling in.
+
+Per-connector profile rendering sits behind a small dispatch so cloud renderers
+can slot in alongside their dbt adapters without touching the command; every
+shipped connector renders.
+"""
+
+from __future__ import annotations
+
+import os
+import re
+from collections.abc import Callable
+from pathlib import Path
+from typing import Any
+
+import yaml
+from pydantic import BaseModel, Field
+
+from ..config import (
+    CONFIG_FILE,
+    BigQueryTarget,
+    DatabricksTarget,
+    DexConfig,
+    DuckDBTarget,
+    SnowflakeTarget,
+    load_config,
+    save_config,
+)
+from ..config_document import ABSENT, ConfigDocument
+from ..dbt_project import (
+    PROFILES_FILE,
+    PROJECT_FILE,
+    discover_projects,
+    write_project_file,
+)
+from ..diffs import file_diff
+from ..errors import DexError
+from ..storage import DEX_DIR
+
+VALID_CONNECTORS = (
+    "duckdb",
+    "snowflake",
+    "bigquery",
+    "databricks",
+    "postgres",
+    "redshift",
+    "clickhouse",
+    "trino",
+)
+
+
+class InitError(DexError):
+    pass
+
+
+class InitResult(BaseModel):
+    project_name: str
+    # Relative to the repo root; also what gets pinned as dbt_project_dir.
+    project_dir: str
+    connector: str
+    # The duckdb warehouse path as written to config: relative when the
+    # warehouse is inside the repo, absolute when it is not.
+    warehouse_path: str | None = None
+    created: list[str] = Field(default_factory=list)
+    diffs: list[dict[str, Any]] = Field(default_factory=list)
+
+
+def sanitize_project_name(raw: str) -> str:
+    """Reduce free-form input to a valid dbt project name (lowercase,
+    underscores, no leading digit)."""
+
+    name = re.sub(r"[^a-z0-9_]+", "_", (raw or "").lower()).strip("_")
+    if not name:
+        raise InitError(
+            "transform init needs a project name, e.g. `transform init analytics`"
+        )
+    if name[0].isdigit():
+        name = f"_{name}"
+    return name
+
+
+def init_project(
+    name: str,
+    connector: str,
+    *,
+    path: str | None = None,
+    repo_root: Path | str = ".",
+    layered_schemas: bool = False,
+    in_place: bool = False,
+) -> InitResult:
+    """Render a fresh dbt project skeleton and record the choices in config.
+
+    Creates ``<name>/dbt_project.yml``, ``models/staging/`` and ``models/marts/``
+    (kept non-empty with ``.gitkeep``), and a project-local ``profiles.yml`` with
+    a single ``dev`` target; then writes ``connector``, ``dbt_project_dir``, and
+    ``dbt_target: dev`` back to ``.dex/config.yml`` so the choice is explicit
+    once and ambient for every later command. Everything written is returned as
+    reviewable diffs.
+
+    ``layered_schemas`` additionally scaffolds ``models/intermediate/``, the
+    shipped ``generate_schema_name`` macro override, and per-folder ``+schema:``
+    config, so each layer builds into its own ``<layer>_<target name>`` schema
+    instead of one shared dev namespace.
+    """
+
+    root = Path(repo_root)
+    if connector not in VALID_CONNECTORS:
+        raise InitError(
+            f"unknown connector '{connector}'; valid connectors: "
+            + ", ".join(VALID_CONNECTORS)
+        )
+    render_profile = _PROFILE_RENDERERS.get(connector)
+    if render_profile is None:
+        raise InitError(
+            f"connector '{connector}' is not yet supported for init; run "
+            "`transform init <name> --connector "
+            + "|".join(c for c in VALID_CONNECTORS if c in _PROFILE_RENDERERS)
+            + "`"
+        )
+
+    # ``.`` or --in-place scaffolds at the run root using the directory name.
+    if name.strip() in {".", "./"}:
+        in_place = True
+        name = root.resolve().name
+    project_name = sanitize_project_name(name)
+    project_prefix = "" if in_place else f"{project_name}/"
+    project_dir = "." if in_place else project_name
+    existing = discover_projects(root)
+    if existing:
+        raise InitError(
+            "a dbt project already exists ("
+            + ", ".join(str(p / PROJECT_FILE) for p in existing)
+            + "); init is strictly additive and never touches an existing project"
+        )
+
+    config = load_config(root) or DexConfig()
+    from ..connect import assert_deployment_supported
+    from ..errors import ConfigurationError
+
+    try:
+        # Before anything is rendered: a profile for a deployment dex refuses
+        # would hand dbt a target the guard can never see.
+        assert_deployment_supported(connector, config)
+    except ConfigurationError as exc:
+        raise InitError(str(exc)) from exc
+    profiles_text = render_profile(project_name, path, config, root, project_dir)
+
+    files: dict[str, str] = {
+        f"{project_prefix}{PROJECT_FILE}": _project_yaml(
+            project_name, layered_schemas=layered_schemas
+        ),
+        f"{project_prefix}{PROFILES_FILE}": profiles_text,
+        f"{project_prefix}models/staging/.gitkeep": "",
+        f"{project_prefix}models/marts/.gitkeep": "",
+    }
+    if layered_schemas:
+        from .scaffold import macro_edit
+
+        files[f"{project_prefix}models/intermediate/.gitkeep"] = ""
+        files[f"{project_prefix}macros/generate_schema_name.sql"] = macro_edit(
+            "generate_schema_name", "macros"
+        ).new_content
+    collisions = sorted(rel for rel in files if (root / rel).exists())
+    if collisions:
+        raise InitError(
+            "refusing to overwrite existing files: "
+            + ", ".join(collisions)
+            + "; init only creates, never replaces"
+        )
+
+    config.connector = connector
+    config.dbt_project_dir = project_dir
+    config.dbt_target = "dev"
+
+    config_rel = f"{DEX_DIR}/{CONFIG_FILE}"
+    config_path = root / config_rel
+    old_config = (
+        config_path.read_text(encoding="utf-8") if config_path.is_file() else None
+    )
+
+    diffs = [file_diff(rel, None, content) for rel, content in files.items()]
+    for rel, content in files.items():
+        write_project_file(root / rel, content)
+    _persist_init_config(config, root, config_path, old_config)
+    diffs.append(
+        file_diff(config_rel, old_config, config_path.read_text(encoding="utf-8"))
+    )
+
+    created = list(files) + ([config_rel] if old_config is None else [])
+    return InitResult(
+        project_name=project_name,
+        project_dir=project_dir,
+        connector=connector,
+        warehouse_path=(
+            config.duckdb.path if connector == "duckdb" and config.duckdb else None
+        ),
+        created=created,
+        diffs=diffs,
+    )
+
+
+# Attributes init writes back onto an existing connector block. A model
+# default the profile never assigned stays off this list, so loading the file
+# cannot grow it (``clickhouse.deployment``, ``trino.deployment``).
+_INIT_CONFIG_FIELDS: dict[str, tuple[str, ...]] = {
+    "duckdb": ("path",),
+    "bigquery": ("project", "dev_dataset", "location"),
+    "snowflake": ("dev_database", "dev_schema"),
+    "databricks": ("dev_catalog", "dev_schema"),
+    "postgres": ("dev_schema",),
+    "redshift": ("dev_schema",),
+    "clickhouse": ("dev_database",),
+    "trino": ("dev_schema",),
+}
+
+
+def _persist_init_config(
+    config: DexConfig,
+    root: Path,
+    config_path: Path,
+    old_config: str | None,
+) -> None:
+    """Write the keys ``init`` sets into ``.dex/config.yml``.
+
+    A repo with no config keeps ``save_config``: there is nothing to preserve. A
+    repo that already has one is amended through ``ConfigDocument`` (the same
+    in-place editor ``dex config set`` uses), so comments, key order, unread
+    keys, and explicit nulls survive. Only the keys ``init`` itself changes are
+    touched. Those are the project pointers and the connector fields named in
+    ``_INIT_CONFIG_FIELDS``.
+    """
+
+    if old_config is None:
+        save_config(config, root)
+        return
+
+    document = ConfigDocument.read(config_path)
+    amendments: list[tuple[str, Any]] = [
+        ("connector", config.connector),
+        ("dbt_project_dir", config.dbt_project_dir),
+        ("dbt_target", config.dbt_target),
+    ]
+    block = getattr(config, config.connector, None)
+    if block is not None:
+        for field in _INIT_CONFIG_FIELDS[config.connector]:
+            value = getattr(block, field)
+            if value is not None:
+                amendments.append((f"{config.connector}.{field}", value))
+    for key, value in amendments:
+        if value is None:
+            continue
+        current = document.written(key)
+        if current is not ABSENT and current == value:
+            continue
+        document = document.with_value(key, value)
+    document.write(config_path)
+
+
+# --- per-connector profile renderers -------------------------------------------
+
+
+def _duckdb_profile(
+    project_name: str,
+    path: str | None,
+    config: DexConfig,
+    root: Path,
+    project_dir: str = ".",
+) -> str:
+    """A single dbt-duckdb ``dev`` target wired to the warehouse dex already
+    knows. Also records the resolved path in ``config.duckdb`` so later commands
+    inherit it.
+
+    A warehouse inside the repo is written repo-relative in ``.dex/config.yml``
+    and project-relative in ``profiles.yml``, so the committed files carry no
+    absolute path and still resolve to the same file everywhere: connect.py
+    resolves config paths against the repo root, and dbt resolves profile paths
+    against its cwd, the project dir. A warehouse outside the repo keeps an
+    absolute path in both, because a relative one could not reach it."""
+
+    raw = path or (config.duckdb.path if config.duckdb else None)
+    if not raw:
+        raise InitError(
+            "no DuckDB warehouse path to wire the dev target to: pass --path "
+            "<warehouse.duckdb> or set duckdb.path in .dex/config.yml "
+            "(`explore map --path ...` is the usual first step)"
+        )
+    warehouse = Path(raw)
+    if not warehouse.is_absolute():
+        warehouse = (root / warehouse).resolve()
+
+    # An absolute path keeps the target unambiguous, but only when the warehouse
+    # lives outside the repo: an in-repo one is portable as a relative path, and
+    # an absolute one leaks the author's home directory into committed files.
+    config_path = str(warehouse)
+    profile_path = str(warehouse)
+    root_resolved = root.resolve()
+    if warehouse.is_relative_to(root_resolved):
+        # Forward slashes on every platform, so a repo committed on one OS
+        # resolves identically on another.
+        config_path = warehouse.relative_to(root_resolved).as_posix()
+        profile_path = _relative_to_project(warehouse, root_resolved / project_dir)
+    config.duckdb = DuckDBTarget(path=config_path)
+    return yaml.safe_dump(
+        {
+            project_name: {
+                "target": "dev",
+                "outputs": {"dev": {"type": "duckdb", "path": profile_path}},
+            }
+        },
+        sort_keys=False,
+    )
+
+
+def _relative_to_project(warehouse: Path, project_dir: Path) -> str:
+    """Express an absolute warehouse path relative to the dbt project dir, the
+    cwd dbt runs with, with forward slashes on every platform. ``relpath`` (not
+    ``Path.relative_to``) so a warehouse next to the project dir still gets a
+    portable ``../`` form. Falls back to the absolute path when no relative form
+    exists (a different Windows drive)."""
+
+    try:
+        return Path(os.path.relpath(warehouse, project_dir.resolve())).as_posix()
+    except ValueError:
+        return str(warehouse)
+
+
+_DEFAULT_BQ_DEV_DATASET = "dbt_dev"
+
+
+def _bigquery_profile(
+    project_name: str,
+    path: str | None,
+    config: DexConfig,
+    root: Path,
+    project_dir: str = ".",
+) -> str:
+    """A single dbt-bigquery ``dev`` target authenticated by ADC (method:
+    oauth), so no secret is ever rendered. Writes go to a dedicated dev
+    dataset, never to the source datasets dex reads from."""
+
+    target = config.bigquery or BigQueryTarget()
+    gcp_project = _resolve_init_project(target, root)
+    if not gcp_project:
+        raise InitError(
+            "no GCP project to wire the dev target to: set bigquery.project in "
+            ".dex/config.yml, or run `gcloud config set project <id>` (dex "
+            "discovers Application Default Credentials; it never asks for keys)"
+        )
+    dev_dataset = target.dev_dataset or _DEFAULT_BQ_DEV_DATASET
+    source_datasets = {entry.split(".")[-1] for entry in target.datasets}
+    if dev_dataset in source_datasets:
+        raise InitError(
+            f"dev_dataset '{dev_dataset}' is also a source dataset in "
+            "bigquery.datasets; dbt builds must write to a dataset dex does "
+            "not read from (set bigquery.dev_dataset to a dedicated one)"
+        )
+
+    target.project = gcp_project
+    target.dev_dataset = dev_dataset
+    config.bigquery = target
+
+    output: dict[str, Any] = {
+        "type": "bigquery",
+        "method": "oauth",
+        "project": gcp_project,
+        "dataset": dev_dataset,
+        "threads": 4,
+        "priority": "interactive",
+    }
+    if target.location:
+        output["location"] = target.location
+    if config.budget.ceiling is not None:
+        # Server-side per-statement cap: `transform build` prices the build
+        # upfront by dry-running each compiled node, but a per-statement estimate
+        # can still under-count, so this cap is the binding backstop that a build
+        # statement cannot scan past regardless of the estimate.
+        output["maximum_bytes_billed"] = int(config.budget.ceiling)
+    return yaml.safe_dump(
+        {project_name: {"target": "dev", "outputs": {"dev": output}}},
+        sort_keys=False,
+    )
+
+
+def _resolve_init_project(target: BigQueryTarget, root: Path) -> str | None:
+    """The connect-time resolution chain, minus the hard ADC requirement: init
+    only renders config, so absent credentials degrade to "not found" rather
+    than an auth error."""
+
+    from ..connect import (
+        CredentialDiscoveryError,
+        _default_credentials,
+        resolve_bigquery_project,
+    )
+
+    try:
+        _credentials, adc_project, _principal = _default_credentials()
+    except CredentialDiscoveryError:
+        adc_project = None
+    return resolve_bigquery_project(target, os.environ, adc_project, repo_root=root)
+
+
+_DEFAULT_SF_DEV_SCHEMA = "DBT_DEV"
+
+
+def _snowflake_profile(
+    project_name: str,
+    path: str | None,
+    config: DexConfig,
+    root: Path,
+    project_dir: str = ".",
+) -> str:
+    """A single dbt-snowflake ``dev`` target from the discovered connection,
+    with no secret ever rendered: key-pair auth becomes a ``private_key_path``
+    (a path, not a key), SSO stays ``externalbrowser``, and a password-based
+    connection renders an ``env_var`` reference. Writes go to a dedicated dev
+    database.schema, never to a source scope, on the pinned warehouse only."""
+
+    from ..connect import CredentialDiscoveryError, resolve_snowflake_connection
+
+    target = config.snowflake or SnowflakeTarget()
+    try:
+        params, _method = resolve_snowflake_connection(target, os.environ, root)
+    except CredentialDiscoveryError as exc:
+        raise InitError(str(exc)) from exc
+
+    if not target.warehouse:
+        raise InitError(
+            "no warehouse pinned: set snowflake.warehouse in .dex/config.yml "
+            "(dbt builds run only on the pinned warehouse, never a "
+            "connection default)"
+        )
+    dev_database = target.dev_database or params.get("database")
+    if not dev_database:
+        raise InitError(
+            "no dev database to write to: set snowflake.dev_database in "
+            ".dex/config.yml (a scratch database the role can write; source "
+            "databases stay read-only)"
+        )
+    dev_schema = target.dev_schema or _DEFAULT_SF_DEV_SCHEMA
+    dev_scope = f"{dev_database}.{dev_schema}".upper()
+    source_scopes = {entry.upper() for entry in target.databases}
+    if dev_scope in source_scopes:
+        raise InitError(
+            f"dev target '{dev_scope}' is also a source scope in "
+            "snowflake.databases; dbt builds must write where dex does not "
+            "read (set snowflake.dev_database/dev_schema to a dedicated pair)"
+        )
+
+    target.dev_database = str(dev_database)
+    target.dev_schema = dev_schema
+    config.snowflake = target
+
+    output: dict[str, Any] = {
+        "type": "snowflake",
+        "account": str(params["account"]),
+        "user": str(params.get("user", "")),
+        "role": str(params["role"]) if params.get("role") else None,
+        "warehouse": target.warehouse,
+        "database": str(dev_database),
+        "schema": dev_schema,
+        # One thread keeps the smallest warehouse from parallel bursts; the
+        # per-model runtime is the guarded quantity on compute-time billing.
+        "threads": 1,
+        "query_tag": "dex",
+    }
+    output = {k: v for k, v in output.items() if v is not None}
+
+    private_key = params.get("private_key_file") or params.get("private_key_path")
+    authenticator = str(params.get("authenticator", "")).upper()
+    if private_key:
+        output["private_key_path"] = str(private_key)
+    elif authenticator == "EXTERNALBROWSER":
+        output["authenticator"] = "externalbrowser"
+    elif authenticator == "WORKLOAD_IDENTITY" or (
+        params.get("token") and not params.get("password")
+    ):
+        # Stable dbt-snowflake cannot authenticate via workload identity or a
+        # raw OIDC token (support is upstream but unreleased), so a rendered
+        # profile would fail every build with an opaque auth error. Refuse
+        # with the working alternatives instead.
+        raise InitError(
+            "the discovered Snowflake connection authenticates via workload "
+            "identity, which dbt-snowflake does not support yet; for dbt "
+            "builds use a key-pair or SSO connection (snow connection add "
+            "with --private-key-file or --authenticator externalbrowser) and "
+            "pin it via snowflake.connection_name in .dex/config.yml"
+        )
+    else:
+        # Never persist a password or token: the profile reads it from the
+        # environment at dbt runtime instead (a Jinja reference, not a value).
+        output["password"] = "{{ env_var('SNOWFLAKE_PASSWORD') }}"  # noqa: S105
+    return yaml.safe_dump(
+        {project_name: {"target": "dev", "outputs": {"dev": output}}},
+        sort_keys=False,
+    )
+
+
+_DEFAULT_DBX_DEV_SCHEMA = "dbt_dev"
+
+
+def _databricks_profile(
+    project_name: str,
+    path: str | None,
+    config: DexConfig,
+    root: Path,
+    project_dir: str = ".",
+) -> str:
+    """A single dbt-databricks ``dev`` target from the discovered connection,
+    with no secret ever rendered: a user OAuth connection stays
+    ``auth_type: oauth`` (dbt runs its own browser flow against the same
+    workspace), OAuth M2M renders the client ID with the secret as an
+    ``env_var`` reference, and a token-based connection (a PAT, or CI's
+    exchanged OIDC token) reads ``DATABRICKS_TOKEN`` at runtime. Writes go to
+    a dedicated dev catalog.schema, never to a source scope, on the pinned
+    warehouse only."""
+
+    from ..connect import (
+        CredentialDiscoveryError,
+        _databricks_hostname,
+        resolve_databricks_connection,
+    )
+
+    target = config.databricks or DatabricksTarget()
+    try:
+        sdk_config, method = resolve_databricks_connection(target, os.environ, root)
+    except CredentialDiscoveryError as exc:
+        raise InitError(str(exc)) from exc
+
+    if not target.warehouse:
+        raise InitError(
+            "no warehouse pinned: set databricks.warehouse in .dex/config.yml "
+            "(dbt builds run only on the pinned SQL warehouse)"
+        )
+    if not target.dev_catalog:
+        raise InitError(
+            "no dev catalog to write to: set databricks.dev_catalog in "
+            ".dex/config.yml (a catalog the principal can write; source "
+            "catalogs stay read-only)"
+        )
+    dev_schema = target.dev_schema or _DEFAULT_DBX_DEV_SCHEMA
+    dev_catalog = str(target.dev_catalog).lower()
+    dev_scope = f"{dev_catalog}.{dev_schema.lower()}"
+    source_scopes = {entry.lower() for entry in target.catalogs}
+    if dev_scope in source_scopes or dev_catalog in source_scopes:
+        raise InitError(
+            f"dev target '{dev_scope}' overlaps a source scope in "
+            "databricks.catalogs; dbt builds must write where dex does not "
+            "read (set databricks.dev_catalog/dev_schema to a dedicated pair)"
+        )
+
+    target.dev_catalog = dev_catalog
+    target.dev_schema = dev_schema
+    config.databricks = target
+
+    from ..adapters.databricks import warehouse_http_path
+
+    output: dict[str, Any] = {
+        "type": "databricks",
+        "host": _databricks_hostname(sdk_config.host),
+        "http_path": warehouse_http_path(str(target.warehouse)),
+        "catalog": dev_catalog,
+        "schema": dev_schema,
+        # One thread keeps the pinned warehouse from parallel bursts; the
+        # per-model runtime is the guarded quantity on compute-time billing.
+        "threads": 1,
+        # dbt-databricks parses this as a JSON object of tag key-values.
+        "query_tags": '{"application": "dex"}',
+    }
+    if config.budget.ceiling is not None:
+        # Server-side cap per statement dbt runs; the engine cannot dry-run a
+        # dbt build, so this is the binding cost control for `transform build`
+        # (the maximum_bytes_billed analogue, in warehouse-seconds).
+        output["session_properties"] = {
+            "STATEMENT_TIMEOUT": max(int(config.budget.ceiling), 1)
+        }
+
+    kind = method.rsplit(":", 1)[-1]
+    if kind == "oauth_user":
+        output["auth_type"] = "oauth"
+    elif kind == "oauth_m2m":
+        # The client ID is an identifier; the secret stays an env reference,
+        # read at dbt runtime, never a rendered value.
+        output["auth_type"] = "oauth"
+        client_id = getattr(sdk_config, "client_id", None)
+        if client_id:
+            output["client_id"] = str(client_id)
+        output["client_secret"] = "{{ env_var('DATABRICKS_CLIENT_SECRET') }}"  # noqa: S105
+    else:
+        # PATs and CI's exchanged OIDC token both arrive as DATABRICKS_TOKEN:
+        # a Jinja reference, not a value.
+        output["token"] = "{{ env_var('DATABRICKS_TOKEN') }}"  # noqa: S105
+    return yaml.safe_dump(
+        {project_name: {"target": "dev", "outputs": {"dev": output}}},
+        sort_keys=False,
+    )
+
+
+_DEFAULT_PG_DEV_SCHEMA = "dbt_dev"
+
+
+def _postgres_profile(
+    project_name: str,
+    path: str | None,
+    config: DexConfig,
+    root: Path,
+    project_dir: str = ".",
+) -> str:
+    """A single dbt-postgres ``dev`` target from the discovered connection,
+    with no secret ever rendered: the password is an ``env_var`` reference
+    (``PGPASSWORD``, empty default so ``~/.pgpass`` and peer auth still apply
+    at dbt runtime). Writes go to a dedicated dev schema, never to a source
+    schema dex reads from."""
+
+    from ..config import PostgresTarget
+    from ..connect import CredentialDiscoveryError, resolve_postgres_connection
+
+    target = config.postgres or PostgresTarget()
+    try:
+        _params, method = resolve_postgres_connection(target, os.environ, root)
+    except CredentialDiscoveryError as exc:
+        raise InitError(str(exc)) from exc
+
+    fields = _pg_connection_fields(target, method)
+    host = fields.get("host")
+    dbname = fields.get("dbname")
+    user = fields.get("user")
+    if not host or not dbname or not user:
+        missing = ", ".join(
+            name
+            for name, value in (("host", host), ("dbname", dbname), ("user", user))
+            if not value
+        )
+        raise InitError(
+            f"the discovered Postgres connection does not name {missing}, "
+            "which dbt-postgres requires; export DATABASE_URL with them (or "
+            "PGHOST/PGDATABASE/PGUSER), or complete the pg_service.conf entry"
+        )
+
+    dev_schema = target.dev_schema or _DEFAULT_PG_DEV_SCHEMA
+    if dev_schema in set(target.schemas):
+        raise InitError(
+            f"dev_schema '{dev_schema}' is also a source schema in "
+            "postgres.schemas; dbt builds must write where dex does not read "
+            "(set postgres.dev_schema to a dedicated schema)"
+        )
+
+    target.dev_schema = dev_schema
+    config.postgres = target
+
+    output: dict[str, Any] = {
+        "type": "postgres",
+        "host": str(host),
+        "port": int(fields.get("port") or 5432),
+        "user": str(user),
+        # Never persist a password: the profile reads it from the environment
+        # at dbt runtime (a Jinja reference, not a value); the empty default
+        # keeps ~/.pgpass and peer auth working when no variable is set.
+        "password": "{{ env_var('PGPASSWORD', '') }}",
+        "dbname": str(dbname),
+        "schema": dev_schema,
+        # One thread keeps the operational database from parallel bursts; the
+        # per-statement load is the guarded quantity on db-load gating.
+        "threads": 1,
+        "connect_timeout": 10,
+    }
+    if fields.get("sslmode"):
+        output["sslmode"] = str(fields["sslmode"])
+    return yaml.safe_dump(
+        {project_name: {"target": "dev", "outputs": {"dev": output}}},
+        sort_keys=False,
+    )
+
+
+def _pg_connection_fields(target: Any, method: str) -> dict:
+    """The non-secret connection fields of the source that won discovery, for
+    rendering into the profile. Values stay inside the engine except the ones
+    deliberately rendered (host/port/user/dbname/sslmode)."""
+
+    from ..connect import _pg_service_params, _pg_url_params
+
+    env = os.environ
+    source = method.split(":", 1)[0]
+    if source == "config_service" and target.service:
+        return _pg_service_params(target.service, env) or {}
+    if source == "database_url":
+        return _pg_url_params(env.get("DATABASE_URL", ""))
+    if source == "environment":
+        if env.get("PGSERVICE"):
+            return _pg_service_params(env["PGSERVICE"], env) or {}
+        return {
+            key: env[var]
+            for var, key in (
+                ("PGHOST", "host"),
+                ("PGPORT", "port"),
+                ("PGDATABASE", "dbname"),
+                ("PGUSER", "user"),
+                ("PGSSLMODE", "sslmode"),
+            )
+            if env.get(var)
+        }
+    if source == "config_target":
+        return {
+            key: value
+            for key, value in (
+                ("host", target.host),
+                ("port", target.port),
+                ("dbname", target.dbname),
+                ("user", target.user),
+            )
+            if value is not None
+        }
+    from ..connect import _postgres_from_dbt_profiles
+
+    return _postgres_from_dbt_profiles(".") or {}
+
+
+_DEFAULT_REDSHIFT_DEV_SCHEMA = "dbt_dev"
+
+
+def _redshift_profile(
+    project_name: str,
+    path: str | None,
+    config: DexConfig,
+    root: Path,
+    project_dir: str = ".",
+) -> str:
+    """A single dbt-redshift ``dev`` target from the discovered connection,
+    with no secret ever rendered. IAM discovery renders ``method: iam`` (the
+    endpoint resolved from the workgroup, temporary credentials minted by the
+    dbt adapter at runtime); password discovery renders an ``env_var``
+    reference (``REDSHIFT_PASSWORD``), never a value. Writes go to a
+    dedicated dev schema, never to a source schema dex reads from."""
+
+    from ..config import RedshiftTarget
+    from ..connect import CredentialDiscoveryError, resolve_redshift_connection
+
+    target = config.redshift or RedshiftTarget()
+    try:
+        params, method, _compute = resolve_redshift_connection(target, os.environ, root)
+    except CredentialDiscoveryError as exc:
+        raise InitError(str(exc)) from exc
+
+    dev_schema = target.dev_schema or _DEFAULT_REDSHIFT_DEV_SCHEMA
+    if dev_schema in set(target.schemas):
+        raise InitError(
+            f"dev_schema '{dev_schema}' is also a source schema in "
+            "redshift.schemas; dbt builds must write where dex does not read "
+            "(set redshift.dev_schema to a dedicated schema)"
+        )
+
+    target.dev_schema = dev_schema
+    config.redshift = target
+
+    source = method.split(":", 1)[0]
+    output: dict[str, Any] = {"type": "redshift"}
+    if source == "iam_serverless":
+        output.update(
+            {
+                "method": "iam",
+                "host": str(params["host"]),
+                "port": int(params.get("port") or 5439),
+                # Serverless IAM derives the database user from the caller's
+                # identity; dbt-redshift still requires the field, and the
+                # sentinel keeps it honest about where identity comes from.
+                "user": str(target.user or "iam"),
+                "dbname": str(params["database"]),
+            }
+        )
+        if target.aws_profile:
+            output["iam_profile"] = str(target.aws_profile)
+        if target.region:
+            output["region"] = str(target.region)
+    elif source == "iam_cluster":
+        if not target.host:
+            raise InitError(
+                "dbt-redshift needs the cluster endpoint host alongside "
+                "cluster_identifier; set redshift.host in .dex/config.yml"
+            )
+        output.update(
+            {
+                "method": "iam",
+                "cluster_id": str(target.cluster_identifier),
+                "host": str(target.host),
+                "port": int(target.port or 5439),
+                "user": str(params["db_user"]),
+                "dbname": str(params["database"]),
+            }
+        )
+        if target.aws_profile:
+            output["iam_profile"] = str(target.aws_profile)
+        if target.region:
+            output["region"] = str(target.region)
+    else:
+        host = params.get("host")
+        dbname = params.get("database")
+        user = params.get("user")
+        if not host or not dbname or not user:
+            missing = ", ".join(
+                name
+                for name, value in (("host", host), ("dbname", dbname), ("user", user))
+                if not value
+            )
+            raise InitError(
+                f"the discovered Redshift connection does not name {missing}, "
+                "which dbt-redshift requires; export REDSHIFT_HOST/"
+                "REDSHIFT_DATABASE/REDSHIFT_USER, or complete redshift.host/"
+                "dbname/user in .dex/config.yml"
+            )
+        output.update(
+            {
+                "host": str(host),
+                "port": int(params.get("port") or 5439),
+                "user": str(user),
+                # Never persist a password: the profile reads it from the
+                # environment at dbt runtime (a Jinja reference, not a value).
+                "password": "{{ env_var('REDSHIFT_PASSWORD') }}",
+                "dbname": str(dbname),
+            }
+        )
+    output.update(
+        {
+            "schema": dev_schema,
+            # One thread keeps the workgroup from parallel bursts; compute
+            # seconds are the guarded quantity on compute-time gating.
+            "threads": 1,
+            "connect_timeout": 10,
+        }
+    )
+    return yaml.safe_dump(
+        {project_name: {"target": "dev", "outputs": {"dev": output}}},
+        sort_keys=False,
+    )
+
+
+DEFAULT_CH_DEV_DATABASE = "dbt_dev"
+
+# The env var `transform build` winds down to the remaining budget, referenced
+# from the rendered profile so dex can tighten the cap per invocation without
+# rewriting the file. The literal defaults are what a hand-run `dbt build`
+# outside dex gets, and they are real caps rather than 0: in ClickHouse 0 means
+# *no limit* on both settings, so a zero default would render a profile that
+# silently removes the backstop the moment anyone runs dbt directly.
+CH_MAX_EXECUTION_TIME_ENV = "DEX_CLICKHOUSE_MAX_EXECUTION_TIME"
+CH_MAX_BYTES_TO_READ_ENV = "DEX_CLICKHOUSE_MAX_BYTES_TO_READ"
+_CH_DEFAULT_MAX_EXECUTION_TIME = "300"
+_CH_DEFAULT_MAX_BYTES_TO_READ = "100000000000"
+
+# Trino's build cap rides the profile's session_properties, the same structural
+# parallel. The literal defaults are real caps for a hand-run `dbt build`: on
+# Trino '0s' is not "unlimited", it fails every statement at once.
+TRINO_QUERY_MAX_RUN_TIME_ENV = "DEX_TRINO_QUERY_MAX_RUN_TIME"
+TRINO_QUERY_MAX_SCAN_BYTES_ENV = "DEX_TRINO_QUERY_MAX_SCAN_PHYSICAL_BYTES"
+_TRINO_DEFAULT_QUERY_MAX_RUN_TIME = "300s"
+_TRINO_DEFAULT_QUERY_MAX_SCAN_BYTES = "100GB"
+
+#: Where a dex-rendered profile carries the env_var references `transform build`
+#: fills from the confirmed budget, per connector: the target's key and the
+#: variables it must reference. Only connectors whose cap rides the profile are
+#: listed. Postgres's cap rides the dbt subprocess's PGOPTIONS, which nothing in
+#: a profile can remove, so it has no entry and is always capped.
+#: ``dev_target.missing_cap_references`` reads profiles against this table, and
+#: the dev-target warning, the guarded-execution report and the build's cap note
+#: all ask it, so the three can never disagree about whether a build was capped.
+BUILD_CAP_REFERENCES: dict[str, tuple[str, tuple[str, ...]]] = {
+    "clickhouse": (
+        "custom_settings",
+        (CH_MAX_EXECUTION_TIME_ENV, CH_MAX_BYTES_TO_READ_ENV),
+    ),
+    "trino": (
+        "session_properties",
+        (TRINO_QUERY_MAX_RUN_TIME_ENV, TRINO_QUERY_MAX_SCAN_BYTES_ENV),
+    ),
+}
+
+
+def _env_ref(name: str, default: str) -> str:
+    """An ``env_var`` reference with a literal default, as dbt renders it.
+
+    Built by concatenation, not by an f-string: ``}}`` is an escape for a single
+    ``}`` inside an f-string, so the Jinja close would silently become one brace
+    and dbt would read the whole thing as a literal string. That renders a
+    profile which parses, applies, and caps nothing.
+    """
+
+    return "{{ env_var('" + name + "', '" + default + "') }}"
+
+
+def trino_session_properties() -> dict[str, Any]:
+    """The ``session_properties`` block a dex-rendered Trino profile carries.
+
+    dbt-trino sends each entry as a session property on every statement it
+    issues, CTAS included, so these are the build's server-side caps. Shared
+    with the dev-target preflight through ``BUILD_CAP_REFERENCES``.
+    """
+
+    return {
+        "query_max_run_time": _env_ref(
+            TRINO_QUERY_MAX_RUN_TIME_ENV, _TRINO_DEFAULT_QUERY_MAX_RUN_TIME
+        ),
+        "query_max_scan_physical_bytes": _env_ref(
+            TRINO_QUERY_MAX_SCAN_BYTES_ENV, _TRINO_DEFAULT_QUERY_MAX_SCAN_BYTES
+        ),
+    }
+
+
+def clickhouse_custom_settings() -> dict[str, Any]:
+    """The `custom_settings` block a dex-rendered ClickHouse profile carries.
+
+    Shared with the dev-target preflight, which reads the profile back and
+    warns when these references are absent: a hand-written profile is welcome,
+    but one dex cannot tighten is a build with no server-side cap, and the
+    caller sizing a budget has to be told which of the two they have.
+    """
+
+    return {
+        "max_execution_time": _env_ref(
+            CH_MAX_EXECUTION_TIME_ENV, _CH_DEFAULT_MAX_EXECUTION_TIME
+        ),
+        "timeout_overflow_mode": "throw",
+        "max_bytes_to_read": _env_ref(
+            CH_MAX_BYTES_TO_READ_ENV, _CH_DEFAULT_MAX_BYTES_TO_READ
+        ),
+        "read_overflow_mode": "throw",
+    }
+
+
+def _clickhouse_connection_fields(params: dict, target: Any) -> dict:
+    """The non-secret connection parts of whatever won discovery.
+
+    A DSN is one string to dex and four fields to dbt, so it is parsed rather
+    than refused. Values stay inside the engine except the ones rendered into
+    the profile, and the password is never among them.
+    """
+
+    fields: dict[str, Any] = {
+        key: params[key]
+        for key in ("host", "port", "username", "secure")
+        if params.get(key) is not None
+    }
+    dsn = params.get("dsn")
+    if dsn:
+        from urllib.parse import urlsplit
+
+        parsed = urlsplit(dsn)
+        fields.setdefault("host", parsed.hostname)
+        if parsed.port:
+            fields.setdefault("port", parsed.port)
+        if parsed.username:
+            fields.setdefault("username", parsed.username)
+        fields.setdefault("secure", parsed.scheme in ("https", "clickhouses"))
+    fields.setdefault("host", target.host)
+    fields.setdefault("port", target.port)
+    fields.setdefault("username", target.user)
+    if target.secure is not None:
+        fields.setdefault("secure", target.secure)
+    return {k: v for k, v in fields.items() if v is not None}
+
+
+def _clickhouse_profile(
+    project_name: str,
+    path: str | None,
+    config: DexConfig,
+    root: Path,
+    project_dir: str = ".",
+) -> str:
+    """A single dbt-clickhouse ``dev`` target from the discovered connection,
+    with no secret ever rendered: the password is an ``env_var`` reference
+    (``CLICKHOUSE_PASSWORD``, empty default so a passwordless local server
+    still works at dbt runtime).
+
+    dbt-clickhouse has no ``database`` key: its ``schema`` *is* the ClickHouse
+    database, which is the same two-part-namespace fact the adapter encodes.
+    Writes go to a dedicated dev database, never to a source database dex
+    reads from.
+    """
+
+    from ..config import ClickHouseTarget
+    from ..connect import CredentialDiscoveryError, resolve_clickhouse_connection
+
+    target = config.clickhouse or ClickHouseTarget()
+    try:
+        params, _method = resolve_clickhouse_connection(target, os.environ, root)
+    except CredentialDiscoveryError as exc:
+        raise InitError(str(exc)) from exc
+
+    # dbt-clickhouse wants the parts spelled out, while dex is happy with a DSN,
+    # so a DSN-discovered connection is split here rather than refused: making
+    # the user restate coordinates they already gave once is the kind of
+    # friction that gets worked around with a hand-edited profile.
+    fields = _clickhouse_connection_fields(params, target)
+    host = fields.get("host")
+    if not host:
+        raise InitError(
+            "the discovered ClickHouse connection does not name a host, which "
+            "dbt-clickhouse requires; set CLICKHOUSE_HOST or commit "
+            "clickhouse.host in .dex/config.yml"
+        )
+
+    dev_database = target.dev_database or DEFAULT_CH_DEV_DATABASE
+    if dev_database in set(target.databases):
+        raise InitError(
+            f"dev_database '{dev_database}' is also a source database in "
+            "clickhouse.databases; dbt builds must write where dex does not "
+            "read (set clickhouse.dev_database to a dedicated database)"
+        )
+
+    target.dev_database = dev_database
+    config.clickhouse = target
+
+    output: dict[str, Any] = {
+        "type": "clickhouse",
+        "host": str(host),
+        "port": int(fields.get("port") or 8123),
+        "user": str(fields.get("username") or "default"),
+        # Never persist a password: the profile reads it from the environment
+        # at dbt runtime (a Jinja reference, not a value).
+        "password": "{{ env_var('CLICKHOUSE_PASSWORD', '') }}",
+        # dbt-clickhouse's `schema` is the ClickHouse database.
+        "schema": dev_database,
+        "secure": bool(fields.get("secure") or False),
+        # One thread keeps a shared analytical server from parallel bursts; the
+        # per-statement load is the guarded quantity on db-load gating.
+        "threads": 1,
+        "connect_timeout": 10,
+        "custom_settings": clickhouse_custom_settings(),
+    }
+    return yaml.safe_dump(
+        {project_name: {"target": "dev", "outputs": {"dev": output}}},
+        sort_keys=False,
+    )
+
+
+DEFAULT_TRINO_DEV_SCHEMA = "dbt_dev"
+
+
+def _trino_profile(
+    project_name: str,
+    path: str | None,
+    config: DexConfig,
+    root: Path,
+    project_dir: str = ".",
+) -> str:
+    """A single dbt-trino ``dev`` target from the discovered connection, with no
+    secret ever rendered.
+
+    The method follows what discovery found: ``none`` for a cluster that needs
+    no credential, ``ldap`` (dbt-trino's name for password auth) with the
+    password read from ``TRINO_PASSWORD``, or ``jwt`` with the token read from
+    ``TRINO_JWT_TOKEN``, both as ``env_var`` references. The user is an
+    ``env_var`` reference too, defaulting to the discovered one: dex usually
+    reads as a read-only identity, and ``TRINO_USER`` is how the dbt identity
+    that writes the dev schema differs from it without editing the file.
+
+    dbt-trino's ``database`` is the Trino catalog. dbt creates the dev schema
+    but never the catalog, so ``trino.dev_catalog`` must name one that exists
+    and accepts writes; there is no safe default for it.
+    """
+
+    from ..config import TrinoTarget
+    from ..connect import CredentialDiscoveryError, resolve_trino_connection
+
+    target = config.trino or TrinoTarget()
+    try:
+        params, _method, _warnings = resolve_trino_connection(target, os.environ, root)
+    except CredentialDiscoveryError as exc:
+        raise InitError(str(exc)) from exc
+    if not target.dev_catalog:
+        raise InitError(
+            "trino.dev_catalog is not set in .dex/config.yml: dbt builds into a "
+            "catalog it cannot create, so name a writable one (an iceberg, hive "
+            "or delta_lake catalog), e.g. `dex config set trino.dev_catalog lake`"
+        )
+    dev_schema = target.dev_schema or DEFAULT_TRINO_DEV_SCHEMA
+    dev = f"{target.dev_catalog}.{dev_schema}".lower()
+    if any(dev == entry.strip().lower() for entry in target.catalogs):
+        raise InitError(
+            f"the dev target {dev} is also a source in trino.catalogs; dbt builds "
+            "must write where dex does not read (set trino.dev_schema to a "
+            "dedicated schema)"
+        )
+
+    target.dev_schema = dev_schema
+    config.trino = target
+
+    output: dict[str, Any] = {"type": "trino"}
+    if params.get("jwt_token") is not None:
+        output["method"] = "jwt"
+        output["jwt_token"] = "{{ env_var('TRINO_JWT_TOKEN') }}"  # noqa: S105
+    elif params.get("password") is not None:
+        output["method"] = "ldap"
+        output["password"] = "{{ env_var('TRINO_PASSWORD') }}"  # noqa: S105
+    else:
+        output["method"] = "none"
+    output.update(
+        {
+            "user": _env_ref("TRINO_USER", str(params["user"])),
+            "host": str(params["host"]),
+            "port": int(params["port"]),
+            "http_scheme": str(params["http_scheme"]),
+            # dbt-trino hands the client verify=None when cert is unset, which
+            # turns TLS certificate checking off for the identity whose
+            # password or token this profile sends. Explicit, so dbt verifies
+            # as dex's own client does.
+            "cert": True,
+            "database": target.dev_catalog,
+            "schema": dev_schema,
+            # One thread keeps a shared cluster from parallel bursts; the
+            # per-statement load is the guarded quantity on db-load gating.
+            "threads": 1,
+            "session_properties": trino_session_properties(),
+        }
+    )
+    return yaml.safe_dump(
+        {project_name: {"target": "dev", "outputs": {"dev": output}}},
+        sort_keys=False,
+    )
+
+
+_PROFILE_RENDERERS: dict[
+    str, Callable[[str, str | None, DexConfig, Path, str], str]
+] = {
+    "duckdb": _duckdb_profile,
+    "bigquery": _bigquery_profile,
+    "snowflake": _snowflake_profile,
+    "databricks": _databricks_profile,
+    "postgres": _postgres_profile,
+    "redshift": _redshift_profile,
+    "clickhouse": _clickhouse_profile,
+    "trino": _trino_profile,
+}
+
+
+def _project_yaml(project_name: str, *, layered_schemas: bool = False) -> str:
+    doc: dict[str, Any] = {
+        "name": project_name,
+        "version": "1.0.0",
+        "profile": project_name,
+        "model-paths": ["models"],
+    }
+    if layered_schemas:
+        # The +schema values are the bare layer names; the scaffolded
+        # generate_schema_name override composes the final name as
+        # <layer>_<target name>, so a dev build lands in staging_dev and so on.
+        doc["models"] = {
+            project_name: {
+                layer: {"+schema": layer}
+                for layer in ("staging", "intermediate", "marts")
+            }
+        }
+    return yaml.safe_dump(doc, sort_keys=False)

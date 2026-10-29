@@ -1,0 +1,16 @@
+.DS_Store
+node_modules/
+.worktrees/
+.superloopy/
+.claude/scheduled_tasks.lock
+.wrangler/
+coverage/
+build/
+docs/plans/
+docs/specs/
+*.log
+.codex-marketplace-install.json
+site/.astro/
+site/dist/
+web-superloopy/.astro/
+web-superloopy/dist/

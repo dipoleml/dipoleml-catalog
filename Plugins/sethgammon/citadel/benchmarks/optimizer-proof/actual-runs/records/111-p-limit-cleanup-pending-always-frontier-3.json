@@ -1,0 +1,69 @@
+{
+  "schema": 1,
+  "evidence_kind": "actual-run",
+  "scenario_set_id": "optimizer-scenarios-sha256:602e496906f3a293203750602234ba88a55a86b9e4f54f32239264098dcebe5b",
+  "metric_set_id": "optimizer-metrics-sha256:bedffbda2b18d725610b0f294a8273ef908237fd957bf9e51a5af4885b123e4f",
+  "scenario_id": "p-limit-cleanup-pending",
+  "category": "cleanup",
+  "holdout": false,
+  "policy_id": "always-frontier",
+  "repetition": 3,
+  "decision_id": "sha256:f43893f4dc106d84fda4207f750cc76de903fb8ec63733dd5a9d8c6b61a435d1",
+  "selected_profile_id": "claude-frontier",
+  "observed_profile_id": "claude-frontier",
+  "requested_model": "claude-opus-5",
+  "observed_model": "claude-opus-5",
+  "model_proof_status": "passed",
+  "started_at": "2026-07-31T05:29:43.510Z",
+  "duration_ms": 561809,
+  "outcome": "passed",
+  "verified": true,
+  "attempts": 1,
+  "human_interventions": 0,
+  "topology": "sequential-recovery",
+  "cost": {
+    "status": "known",
+    "amount_usd": 1.495821,
+    "provenance": "tool_reported",
+    "source": "citadel_optimizer_runner",
+    "source_ref": "summed_attempts:1",
+    "pricing_snapshot_digest": null,
+    "components": [
+      {
+        "kind": "model",
+        "amount_usd": 1.4958207999999997,
+        "source": "attempt_1:claude total_cost_usd"
+      }
+    ]
+  },
+  "artifact_paths": [
+    "index.js"
+  ],
+  "verification_receipts": [
+    {
+      "attempt": 1,
+      "profile_id": "claude-frontier",
+      "status": "passed",
+      "exit_code": 0,
+      "timed_out": false,
+      "output_digest": "sha256:302afce0e4d47c2861b8d638cad29f35a0bcff72e8d8b94e6dca5d951b366475",
+      "output_excerpt": "[stdout]\n\n  √ throws on invalid concurrency argument\n  √ clearQueue\n  √ accepts additional arguments\n  √ continues after sync throw\n  √ runs all tasks asynchronously\n  √ non-promise returning function\n  √ map accepts an iterable (set)\n  √ map accepts an iterable (array iterator)\n  √ map\n  √ propagates async execution context properly\n  √ shared context with a limited provider helper\n  √ map passes index and preserves order with concurrency\n  √ map works when detached from the limit\n  √ clearQueue rejects pending promises when enabled (112ms)\n  √ accepts options object (125ms)\n  √ does not ignore errors (128ms)\n  √ change concurrency to bigger value (183ms)\n  √ change concurrency to smaller value (244ms)\n  √ concurrency: 1 (644ms)\n  √ limitFunction() (2.5s)\n  √ concurrency: 4 (2.7s)\n  √ activeCount and pendingCount properties (3s)\n  ─\n\n  22 tests passed\n\n[stderr]\n",
+      "output_truncated": false,
+      "patch_exit_code": 0,
+      "patch_digest": "sha256:ed5fbaf7ac2cafa782347562898dfb42c6649456cc489875f68bd8e240dc721f",
+      "patch_excerpt": "diff --git a/index.js b/index.js\nindex 5ecd392..309e64b 100644\n--- a/index.js\n+++ b/index.js\n@@ -81,8 +81,14 @@ export default function pLimit(concurrency) {\n \t\t\t\t\treturn;\n \t\t\t\t}\n \n-\t\t\t\tconst abortError = AbortSignal.abort().reason;\n-\n+\t\t\t\t// A plain `Error` is used rather than `AbortSignal.abort().reason`, as a\n+\t\t\t\t// `DOMException` is not a native error and is therefore rejected by\n+\t\t\t\t// `instanceof`-style checks in assertion libraries and error serializers.\n+\t\t\t\tconst abortError = new Error('The queue was cleared');\n+\t\t\t\tabortError.name = 'AbortError';\n+\n+\t\t\t\t// Draining the queue rejects each pending promise exactly once and releases\n+\t\t\t\t// its entry. Already running functions are not in the queue, so they finish.\n \t\t\t\twhile (queue.size > 0) {\n \t\t\t\t\tqueue.dequeue().reject(abortError);\n \t\t\t\t}\ndiff --git a/test.js b/test.js\nindex e303a46..f15f0a9 100644\n--- a/test.js\n+++ b/test.js\n@@ -1,4 +1,3 @@\n-import process from 'node:process';\n import {AsyncLocalStorage} from 'node:async_hooks';\n import {setTimeout as delay} from 'node:timers/promises';\n import test from 'ava';\n@@ -193,10 +192,7 @@ test('clearQueue', async t => {\n \tt.is(limit.pendingCount, 0);\n });\n \n-// Node.js 20 has a bug where DOMException is not properly handled by AVA's `throwsAsync`.\n-const testClearQueueRejects = process.versions.node.startsWith('20.') ? test.skip : test;\n-\n-testClearQueueRejects('clearQueue rejects pending promises when enabled', async t => {\n+test('clearQueue rejects pending promises when enabled', async t => {\n \tconst limit = pLimit({concurrency: 1, rejectOnClear: true});\n \n \tconst runningPromise = limit(() => delay(100));\n",
+      "patch_truncated": false,
+      "changed_paths": [
+        "index.js",
+        "test.js"
+      ]
+    }
+  ],
+  "receipt_status": "verified",
+  "adversarial_result": "detected",
+  "failure_code": null,
+  "attestation": {
+    "algorithm": "ed25519",
+    "signature_base64": "NROcXYolD1aiBI4xIDeBQac1KcJkXfAgsATdinMOxqsrErKLiUjsqFsmYOghyNzRQLV0+tCMDPO2ndZ5RKT+Aw=="
+  }
+}

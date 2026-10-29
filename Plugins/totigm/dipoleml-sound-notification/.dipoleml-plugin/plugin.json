@@ -1,0 +1,16 @@
+{
+  "name": "dipoleml-sound-notification",
+  "displayName": "DipoleML Sound Notification",
+  "version": "1.0.0",
+  "description": "Plays different sounds when DipoleML finishes a task vs needs your input. Cross-platform.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Totigm"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/totigm/claude-sound-notification",
+  "repository": "https://github.com/totigm/claude-sound-notification",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

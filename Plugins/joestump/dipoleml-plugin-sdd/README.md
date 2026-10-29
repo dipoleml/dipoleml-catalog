@@ -1,0 +1,555 @@
+# claude-plugin-sdd
+
+A Claude Code plugin for architecture governance: ADRs, specifications, sprint planning, parallel implementation, code review, and documentation generation.
+
+The skills are written in the open Agent Skills format and are harness-portable: they also run under Codex CLI, OpenCode, and Crush. Two things differ off Claude Code. Claude Code-specific tool names in the skill bodies denote capabilities, with per-harness mappings and fallbacks; and on a harness with no command layer the skills are reached by description rather than by a `/sdd:` command. Both are defined in [references/harness-compat.md](references/harness-compat.md).
+
+## Skills
+
+The **Invoke** column is Claude Code's command form. Where your harness has no command layer, describe the task instead ("create an ADR for our queue choice", "pick up issue 64 and implement it"): each skill's description is written to be recognized from what you are trying to do. See [Running Without a Plugin Layer](#running-without-a-plugin-layer-crush-codex-cli-opencode).
+
+| Skill | Invoke | Description |
+|-------|--------|-------------|
+| **PRD** | `/sdd:prd [capability or client]` | Create a Product Requirements Document for a client-facing capability, produced grill-first (optional; precedes the ADR) |
+| **ADR** | `/sdd:adr [description] [--quick] [--review]` | Create an ADR using MADR format with Mermaid diagrams; `--quick` for single-option decisions |
+| **Spec** | `/sdd:spec [capability] [--review]` | Create spec.md + design.md with RFC 2119 requirements and Mermaid diagrams |
+| **Init** | `/sdd:init` | Set up CLAUDE.md with architecture context for design-aware sessions |
+| **Prime** | `/sdd:prime [topic]` | Load ADR and spec context into the session, optionally filtered by topic |
+| **Check** | `/sdd:check [target]` | Quick-check code against ADRs and specs for drift |
+| **Audit** | `/sdd:audit [scope] [--review] [--scrum]` | Comprehensive drift audit; use `--scrum` for team-triaged findings grouped into prioritized remediation themes |
+| **Docs** | `/sdd:docs [project name]` | Generate docs with scaffold/integration modes and manifest-based upgrades |
+| **List** | `/sdd:list [prd\|adr\|spec\|all]` | List all PRDs, ADRs, and specs with their status |
+| **Discover** | `/sdd:discover [scope]` | Discover implicit architecture from an existing codebase |
+| **Plan** | `/sdd:plan [spec-name or SPEC-XXXX] [--scrum] [--review] [--project <name>] [--no-projects] [--branch-prefix <prefix>] [--no-branches]` | Break a spec into trackable issues; use `--scrum` for a full team-groomed ceremony with spec audit, multi-agent grooming, and automatic organize + enrich |
+| **Organize** | `/sdd:organize [SPEC-XXXX or spec-name] [--project <name>] [--dry-run]` | Retroactively group existing issues into tracker-native projects |
+| **Enrich** | `/sdd:enrich [SPEC-XXXX or spec-name] [--branch-prefix <prefix>] [--dry-run]` | Add branch naming and PR conventions to existing issue bodies |
+| **Triage** | `/sdd:triage [SPEC-XXXX \| #N \| --all] [--dry-run] [--size-only]` | Give each open issue a verdict, close stale ones only on evidence from `main`, and apply exactly one `size/*` label |
+| **Work** | `/sdd:work [SPEC-XXXX \| issue numbers \| (empty = propose from backlog)] [--max-agents N] [--draft] [--dry-run] [--no-tests] [--module <name>]` | Pick up tracker issues and implement them in parallel using git worktrees |
+| **Review** | `/sdd:review [SPEC-XXXX or PR numbers] [--pairs N] [--no-merge] [--dry-run] [--module <name>]` | Review and merge PRs using reviewer-responder agent pairs |
+| **Respond** | `/sdd:respond [PR numbers or URL \| (empty = infer from current branch)] [--reply-only] [--fix-only] [--no-push] [--dry-run] [--module <name>]` | Address review feedback on a PR: make the code fixes, push, and reply to each thread |
+| **Status** | `/sdd:status [ID] [status]` | Change the status of an ADR or spec |
+| **Graph** | `/sdd:graph <verb> [<artifact-id>] [--scope <subtree>] [--module <name>] [--table\|--mermaid\|--json]` | Build and query the artifact graph: `validate`, `impact`, `ancestors`, `chain`, `orphans`, `cycles`, `backfill`. ASCII DAG default; `--json` is the stable contract for downstream consumers |
+
+## Install
+
+Add to your project's `.claude/settings.json`:
+
+```json
+{
+  "extraKnownMarketplaces": {
+    "claude-plugin-sdd": {
+      "source": {
+        "source": "github",
+        "repo": "joestump/claude-plugin-sdd"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "sdd@claude-plugin-sdd": true
+  }
+}
+```
+
+Then restart Claude Code. The plugin's skills will be available as `/sdd:init`, `/sdd:prime`, `/sdd:prd`, `/sdd:adr`, `/sdd:spec`, `/sdd:plan`, `/sdd:organize`, `/sdd:enrich`, `/sdd:triage`, `/sdd:work`, `/sdd:review`, `/sdd:respond`, `/sdd:check`, `/sdd:audit`, `/sdd:discover`, `/sdd:docs`, `/sdd:list`, `/sdd:status`, `/sdd:graph`, `/sdd:index`, `/sdd:search`, and `/sdd:report-friction`.
+
+## Running Without a Plugin Layer (Crush, Codex CLI, OpenCode)
+
+These harnesses load Agent Skills from directories you configure. They have no plugin system, no slash-command layer, and no argument substitution, so the `/sdd:{name}` forms above do not exist there. Install by pointing the harness at a checkout of this repo:
+
+```sh
+git clone https://github.com/joestump/claude-plugin-sdd ~/.config/crush/skills-ext/claude-plugin-sdd
+```
+
+Then add the plugin's `skills/` directory to the harness's skill path list. For Crush, in `crush.json`:
+
+```json
+{
+  "skills_paths": ["/home/YOU/.config/crush/skills-ext/claude-plugin-sdd/skills"]
+}
+```
+
+Restart the harness (skills are read at startup, so a `git pull` needs a restart too), then invoke by describing the task. Three differences worth knowing:
+
+- **Invocation is by description.** Typing `/sdd:work` matches nothing, because there is no command layer to receive it. Say what you want done.
+- **Arguments arrive in the prompt, not by substitution.** There is no equivalent of `/sdd:work SPEC-0003 --max-agents 4`; each skill reads the spec or issue number and any `--flags` from the request itself, and otherwise follows its documented no-argument path.
+- **`allowed-tools` and `argument-hint` frontmatter is informational only.** Approvals live in your harness's own permission config. And a skill listed under Crush's `options.disabled_skills` will not trigger from any phrasing: check that list before concluding a skill is broken.
+
+Keep the whole plugin directory in place. `references/` and `templates/` resolve relative to the skill's own location, so a skill copied out on its own cannot load its references.
+
+## Configuration
+
+All configuration lives in your project's `CLAUDE.md` under a `### SDD Configuration` section. No separate JSON config files are needed -- skills read and write configuration as markdown, keeping everything in one place.
+
+Run `/sdd:init` to set up the initial configuration, or add it manually:
+
+```markdown
+### SDD Configuration
+
+#### Tracker
+- **Type**: github
+- **Owner**: your-org
+- **Repo**: your-project
+
+#### Branch Conventions
+- **Enabled**: true
+- **Prefix**: feature
+- **Epic Prefix**: epic
+- **Slug Max Length**: 50
+
+#### PR Conventions
+- **Enabled**: true
+- **Close Keyword**: Closes
+- **Ref Keyword**: Part of
+- **Include Spec Reference**: true
+
+#### Worktrees
+- **Base Dir**: .claude/worktrees/
+- **Max Agents**: 4
+- **Auto Cleanup**: false
+- **PR Mode**: ready
+
+#### Review
+- **Max Pairs**: 2
+- **Merge Strategy**: squash
+- **Auto Cleanup**: false
+
+#### Constitution
+- **Enabled**: true
+- **Path**: docs/constitution.md
+
+#### Projects
+- **Default Mode**: per-epic
+- **Views**: All Work, Board, Roadmap
+- **Columns**: Todo, In Progress, In Review, Done
+- **Iteration Weeks**: 2
+```
+
+All sections and keys are optional. Missing keys use sensible defaults. The tracker preference is saved automatically when you first use `/sdd:plan`.
+
+### Parallel Agent Tuning
+
+Two additional top-level keys control parallel agent behavior:
+
+```markdown
+## SDD Configuration
+
+- **Max parallel agents**: 4
+- **Hotspot threshold**: 50%
+```
+
+- **Max parallel agents**: Caps the number of concurrent worker agents in `/sdd:work` (CLI flag `--max-agents` overrides).
+- **Hotspot threshold**: Percentage of recent PRs a file must appear in to be classified as a merge-conflict hotspot (used by `/sdd:plan` to serialize stories touching hot files).
+
+## Project Constitution
+
+A constitution is your project's standing owner decisions: the calls you would otherwise make one ticket at a time. ADRs record decisions about a design, and specs record requirements; neither is the short list of default answers an agent should consult before stopping to ask you something.
+
+Without one, an ambiguous ticket stops for a person even when the answer has been the same every time. With one, `/sdd:work` and `/sdd:respond` apply the rule instead of stopping, `/sdd:review` checks that the citation is honest, `/sdd:check` flags a rule that now contradicts the ADR or spec behind it, and `/sdd:status` tells you which rules cite an artifact before you retire it.
+
+Adopt it by copying [`templates/constitution-example.md`](templates/constitution-example.md) to `docs/constitution.md`:
+
+```markdown
+## Rules
+
+### Rule 1 — Ambiguity resolves to no match
+- **Decision**: When it is unclear whether existing code already satisfies a requirement, treat it as no match and implement the requirement.
+
+### Rule 2 — Main's design wins
+- **Decision**: When a task conflicts with a design already on the default branch, follow the default branch and record the conflict in the PR body instead of stopping.
+
+## Always ask the owner
+- Anything that widens who or what can read project data
+```
+
+Then an agent that would have stopped writes, in the PR body and its reply to the reviewer:
+
+```markdown
+### Owner Rules Applied
+
+- Owner rule applied: Rule 1 — Ambiguity resolves to no match
+```
+
+Three things are worth knowing before you write rules:
+
+- **Rules are decisions, never procedures.** The file holds no commands and no instructions to the agent; the lint rejects a constitution containing a code block. Whoever can edit a file the whole pipeline reads as decisions can otherwise reach every unattended run.
+- **`## Always ask the owner` outranks every rule.** It exists for the decisions you want to make in person no matter how well a rule seems to fit.
+- **No constitution, no change.** Nothing prompts you to create one, and no output mentions it. Rules resolve ambiguous scope only: they never resolve a budget, a lockfile, failing CI, or a dependency cycle.
+
+Full format, matching, citation and findings rules: [`references/constitution.md`](references/constitution.md). The design record is [ADR-0037](docs/adrs/ADR-0037-sdd-constitution-standing-owner-rules.md).
+
+## Development
+
+Clone the repo and run Claude Code from the project directory:
+
+```bash
+git clone https://github.com/joestump/claude-plugin-sdd.git
+cd claude-plugin-sdd
+claude
+```
+
+The `.claude/settings.json` in this repo registers the local directory as a marketplace and enables the plugin automatically. Any changes to skills or templates are picked up on the next Claude Code launch.
+
+### Tests and linting
+
+```bash
+make check
+```
+
+| Target | What it does |
+|--------|--------------|
+| `make check` | `test` + `lint` + `scan` -- run this before pushing |
+| `make test` | Docs-site build-script unit tests (`node --test`), then a full docs-site build |
+| `make lint` | Structural validation (`scripts/check-structure.sh`) plus a docs-site TypeScript typecheck |
+| `make scan` | Secret scanning (`scripts/gitleaks-scan.sh`) over git history and the working tree |
+| `make install` | `npm ci` in `docs-site/` (the other targets do this on demand) |
+| `make dev` | Run the docs site locally with live content reload |
+
+`scripts/check-structure.sh` validates what can be checked without an LLM: every tracked JSON file parses, `.claude-plugin/plugin.json` carries its required fields and a semver version, no duplicate plugin manifest has reappeared, every `skills/<name>/SKILL.md` has frontmatter whose `name` matches its directory and a non-empty `description`, `skills/_index.json` is bidirectionally consistent with `skills/`, the eval definitions under `evals/` are well-formed and reference skills that exist, every tracked constitution parses and holds decisions rather than procedures, and no component under `templates/` or `docs-site/src` uses a bare `JSX.Element` annotation. It also runs `shellcheck` when it is installed.
+
+The skill evals themselves are graded by an LLM and run only in CI ([`skill-evals.yml`](.github/workflows/skill-evals.yml)) -- `make test` does not invoke them. See [`evals/README.md`](evals/README.md) for running individual eval prompts locally with `claude -p`.
+
+`scripts/gitleaks-scan.sh` runs [gitleaks](https://github.com/gitleaks/gitleaks) twice: over git history, where a hit means the credential is already published and must be rotated rather than merely deleted, and over the working tree, so an uncommitted secret is caught before it becomes the first case. Findings are always redacted -- the rule and file are enough to act on, and the value would otherwise land in CI logs. Install it with `brew install gitleaks`; the script fails loudly if it is missing rather than reporting a clean scan it never ran.
+
+[`ci.yml`](.github/workflows/ci.yml) runs `make lint`, `make test`, and `make scan` as separately-named jobs on every pull request and on pushes to `main`, so local and CI cannot drift. Keep new checks in the `Makefile` rather than inlining them into the workflow.
+
+## What It Does
+
+### `/sdd:prd` -- Product Requirements Documents
+
+Captures product intent for a **client-facing** capability, before any engineering decision is made (per [ADR-0036](docs/adrs/ADR-0036-prd-as-optional-pre-adr-product-intent.md) / SPEC-0037):
+
+- Sequential numbering: `PRD-0001`, `PRD-0002`, etc.
+- Stored in `docs/prds/` — its own directory, because one PRD often governs several specs
+- **Grill-first**: the skill maps the request as a design tree and works the question frontier in rounds before drafting a line, exploring facts from the repository and reserving only decisions for you. The Q&A trail becomes the PRD's clarification log — for client work, the visible evidence of the interrogation behind the document
+- **Success criteria in [EARS](https://alistairmavin.com/ears/) syntax**, so each one is a check an execution agent can run rather than an aspiration
+- **Blast radius / touch points**: every existing surface the capability touches, each framed as a collision question and confirmed against the codebase
+- Status gates `draft → client-review → approved → shipped`, **enforced** by `/sdd:check` and `/sdd:audit`
+- `governs:` edges into the ADRs and specs it produces, so `/sdd:graph` walks PRD → ADR → spec → code
+
+**PRDs are optional and client-facing-only.** Most ADRs are pure engineering decisions with no product intent upstream, and the absence of a PRD is never reported as a finding.
+
+### `/sdd:adr` -- Architecture Decision Records
+
+Creates ADRs using [MADR](https://adr.github.io/madr/) format:
+- Sequential numbering: `ADR-0001`, `ADR-0002`, etc.
+- Stored in `docs/adrs/`
+- Mermaid architecture diagrams included by default
+- `--quick` writes a lightweight ADR (context, decision, one-line alternative, consequences — no options matrix, no diagram) for decisions whose only honest alternative is "don't"; the skill offers it itself when drafting finds a single viable option
+- YAML frontmatter with status, date, decision-makers (and `tier: quick` for lightweight ADRs)
+- Single-agent by default; add `--review` for team-based drafting with architect review
+- Offers to add an Architecture Context section to your CLAUDE.md on first use
+- After writing, suggests formalizing the decision into a spec with `/sdd:spec`
+
+### `/sdd:spec` -- Specifications
+
+Creates paired spec.md + design.md using [OpenSpec](https://github.com/Fission-AI/OpenSpec):
+- Spec numbering: `SPEC-0001`, `SPEC-0002`, etc.
+- Requirements in [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119) format (MUST, SHALL, MAY, etc.)
+- Scenarios with `####` headings and WHEN/THEN format
+- **Security by default**: Web-facing specs include mandatory security sections (authentication, authorization, input validation, CSRF protection). Auth is required unless explicitly opted out.
+- **Frontend quality standards**: Specs for UI components include accessibility requirements (WCAG compliance, keyboard navigation, screen reader support) and test scaffolding expectations
+- Mermaid architecture diagrams required in design.md
+- Stored in `docs/openspec/specs/{capability-name}/`
+- Single-agent by default; add `--review` for team-based drafting with architect review
+- After writing the spec, suggests running `/sdd:plan SPEC-XXXX` to break requirements into trackable issues
+
+### `/sdd:plan` -- Sprint Planning
+
+Breaks an existing specification into trackable work items in your issue tracker:
+- Accepts a spec name or SPEC number (e.g., `/sdd:plan web-dashboard` or `/sdd:plan SPEC-0003`)
+- Lists available specs interactively if no argument provided
+- Detects available issue trackers:
+  - [Beads](https://github.com/steveyegge/beads), GitHub (`gh` CLI), GitLab (MCP or `glab` CLI), Gitea (`tea` CLI), Jira (MCP), Linear (MCP)
+  - Saves tracker preference to CLAUDE.md so you're not re-prompted
+- Groups requirements into 3-4 story-sized issues by functional area (targeting 200-500 line PRs) with task checklists for each requirement
+- **Foundation story detection**: Analyzes requirements to identify shared types, packages, and helpers needed by 2+ stories. Extracts them into dedicated `foundation`-labeled stories that merge before feature work begins, preventing duplicate implementations
+- **Hotspot analysis**: Scans recent git history to identify files modified by a high percentage of PRs. Stories touching hotspot files are serialized rather than parallelized to prevent merge conflicts
+- Creates an epic for the spec and stories as children with acceptance criteria referencing spec/requirement numbers
+- Sets up dependency relationships between stories (including foundation → feature dependencies)
+- Project grouping: creates tracker-native projects for each epic (or a single combined project with `--project`). Projects are automatically linked to the repository so they appear in the repo's Projects tab. Skip with `--no-projects`.
+- Workspace enrichment: GitHub Projects get descriptions, READMEs, Sprint iteration fields, and named views; Gitea gets milestones and board columns
+- Branch naming: adds `### Branch` sections to issue bodies with `feature/{issue-number}-{slug}` naming convention. Customize prefix with `--branch-prefix`, skip with `--no-branches`.
+- PR conventions: adds `### PR Convention` sections with tracker-specific close keywords (e.g., `Closes #N` for GitHub)
+- Auto-creates labels with try-then-create pattern when missing
+- Falls back to generating `tasks.md` when no tracker is available (per ADR-0007)
+- Single-agent by default; add `--review` for team-based planning with reviewer
+
+### `/sdd:organize` -- Organize and Enrich Project Workspaces
+
+Retroactively organizes issues and enriches project workspaces with a three-tier intervention model:
+- **Tier (a) Leave as-is**: Assess project state and report — no changes made
+- **Tier (b) Restructure workspace**: Add/fix project structure (views, README, columns, iterations, milestones) without touching issues
+- **Tier (c) Complete refactor**: All tier (b) changes plus re-group issues, fix labels, create dependency links, add branch/PR sections
+- GitHub enrichment: project description, README, Sprint iteration field, named views (All Work, Board, Roadmap)
+- Gitea enrichment: milestones for epics, board columns (Todo/In Progress/In Review/Done), native dependency links
+- Auto-creates labels with try-then-create pattern when missing (epic=#6E40C9, story=#1D76DB, spec=#0E8A16)
+- Graceful degradation: skips unsupported features and reports, never fails
+- Use `--dry-run` to preview without modifying
+- No `--review` support (utility skill)
+
+### `/sdd:enrich` -- Enrich Issues with Workflow Conventions
+
+Retroactively adds branch naming and PR convention sections to existing issue bodies:
+- Finds issues referencing a spec in your tracker
+- Appends `### Branch` sections with `feature/{issue-number}-{slug}` naming
+- Appends `### PR Convention` sections with tracker-specific close keywords
+- Skips issues that already have these sections (idempotent)
+- Use `--dry-run` to preview without modifying
+- Custom branch prefix via `--branch-prefix`
+- Adds a `size/*` label to issues that lack one (never changes an existing size)
+- No `--review` support (utility skill)
+
+### `/sdd:triage` -- Triage and Size Issues
+
+Decides whether each open issue is still real, then how big it is:
+- Verdicts: `OK`, `STALE`, `SUPERSEDED`, `DUP`, `BLOCKED`, `HUMAN`, `BOT` — bot-managed dashboards are never sized or closed
+- Closes only on evidence from the current code on `main` — a merged PR's `Closes #N` is not evidence, and neither is age — and posts that evidence before every close
+- Catches the reverse case too: issues fixed by a PR that never used a closing keyword
+- Narrows partly-done issues instead of closing them
+- Applies exactly one `size/S` / `size/M` / `size/L` / `size/XL` label: the weakest model that can carry the issue end to end. `/sdd:plan`, `/sdd:organize` and `/sdd:enrich` use the same ladder
+- Model anchors are overridable under `#### Sizing` in the SDD configuration
+- Use `--dry-run` to preview, `--size-only` to skip verdicts
+
+### `/sdd:work` -- Parallel Issue Implementation
+
+Picks up tracker issues and implements them in parallel using git worktrees:
+- **No spec required**: run `/sdd:work` with no arguments to analyze the backlog, get a proposed batch of issues (biased toward unblocking dependencies and feature work), and approve before starting
+- Accepts a spec number (`SPEC-0003`) to work all open issues for that spec, or specific issue numbers (`42 43 47`)
+- Reads spec.md, design.md, and referenced ADRs to give workers full architecture context when a spec is available; workers rely on issue body and codebase context alone when there is no spec
+- Detects tracker using CLAUDE.md preference, then auto-detection
+- Filters issues: skips epics and issues without `### Branch` sections (suggests `/sdd:enrich`)
+- Extracts branch names and PR conventions from issue bodies
+- Creates isolated git worktrees for each issue with deterministic branch names
+- Uses `TeamCreate` to spawn coordinated parallel worker agents (default 4, configurable with `--max-agents` or CLAUDE.md `max-parallel-agents`). Excess stories are queued and started as active agents complete.
+- **Issue lifecycle labels**: Tracks work through `queued` → `in-progress` → `in-review` → `merged` states with automatic label transitions and dependency enforcement (blocked issues wait until dependencies reach `merged`)
+- **Pre-flight PR awareness**: Before dispatching workers, builds a sibling PR manifest showing files being modified and shared types available from other PRs. Workers broadcast live updates (file claims, type creations) via `SendMessage` to prevent duplicate code and file conflicts.
+- **Design document isolation**: Workers are forbidden from modifying spec files, ADR files, or root CLAUDE.md in feature PRs. Deferred updates are batched into a single post-merge design docs PR.
+- **Topological merge ordering**: After all PRs are ready, computes optimal merge order based on file overlap analysis. Isolated PRs merge first, dependent PRs rebase and merge in tier order. Offers PR stacking for direct dependencies and auto-rebases after each merge.
+- Workers implement changes, leave file-level `// Governing:` comments (per ADR-0020) when spec context is available, run tests, commit, push, and create PRs
+- Workers assess PR size before opening: comments-only or trivially small changes (<30 lines) are bundled with additional queued issues rather than opened as standalone PRs; the lead assigns more work to the same worktree until the PR is meaningful
+- Regular (non-draft) PRs by default; use `--draft` for draft PRs
+- `--dry-run` previews what would happen without doing anything
+- `--no-tests` skips test execution in workers
+- `--module <name>` resolves artifact paths for a specific module in workspace mode
+- Failed issues preserve their worktrees for manual pickup
+- Falls back to single-agent sequential mode if team creation fails
+- Configurable via CLAUDE.md `### SDD Configuration` section (worktrees, parallelism, hotspot threshold)
+
+### `/sdd:review` -- PR Review and Merge
+
+Reviews and merges PRs produced by `/sdd:work` using reviewer-responder agent pairs:
+- Discovers open PRs by spec number or explicit PR numbers
+- Organizes agents into reviewer-responder pairs (default 2 pairs, configurable with `--pairs`)
+- **Conflict-marker CI gate**: Before any review logic, scans all PR files for unresolved merge conflict markers (`<<<<<<<` and `>>>>>>>` anywhere; `=======` only between such a pair, so Markdown setext underlines don't false-positive). PRs with conflict markers are rejected immediately with file paths and line numbers — zero tolerance across all file types.
+- Verifies all CI/CD status checks (GitHub Actions, Gitea Actions, GitLab CI) are green before reviewing — PRs with failing checks are skipped
+- Reviewers check diffs against spec acceptance criteria and ADR compliance (not just style)
+- Responders address feedback by pushing fix commits and replying to review comments
+- Re-verifies CI after responder pushes fixes — never merges with failing checks
+- Exactly one review-response round per PR to bound compute
+- Approved PRs are merged automatically (squash by default); use `--no-merge` to skip
+- Automatically closes parent epics when all child stories have been merged
+- Reuses existing worktrees from `/sdd:work` when available
+- Adaptive pair count: reduces to 1 pair for small batches
+- `--dry-run` previews which PRs would be reviewed without taking action
+- `--module <name>` resolves artifact paths for a specific module in workspace mode
+- Configurable via CLAUDE.md `### SDD Configuration` section (max_pairs, merge_strategy, auto_cleanup)
+- Falls back to single-agent sequential mode if team creation fails
+
+### `/sdd:respond` -- Address PR Review Feedback
+
+Works through review feedback that already exists on a PR — the author-driven counterpart to `/sdd:review` (which is reviewer-driven). Use it when a human or external reviewer leaves comments on your PR:
+- Targets a PR by number or URL, or infers it from the current git branch
+- Gathers the full feedback surface: review threads and line comments, requested-changes reviews, top-level comments, and **failing CI** (failing-check logs are treated as feedback too)
+- Loads governing spec/ADRs (when inferable) and triages each item as `fix`, `reply`, `reject`, or `defer`
+- Makes the code fixes on the PR branch (reusing `/sdd:work` worktrees when present), runs tests, commits, and pushes
+- Replies to each thread explaining how it was addressed; resolves threads where supported
+- **Declines** changes that would violate a governing spec/ADR, with a cited explanation, instead of complying blindly
+- **Captures deferred feedback as tracked issues** via the tracker's issue API (not `/sdd:plan`), linked back to the PR/thread; suppress with `--no-defer-issues`
+- Never merges — responding is not approving; merge stays with `/sdd:review` or you
+- One bounded round per invocation; offers to watch the PR until CI is green via `subscribe_pr_activity`
+- `--reply-only` / `--fix-only` / `--no-push` scope the actions; `--dry-run` previews the plan; `--module <name>` for workspace mode
+
+### `/sdd:init` -- Initialize SDD Plugin
+
+Sets up your project's `CLAUDE.md` with architecture context and configures permissions:
+- Creates `CLAUDE.md` if it doesn't exist, or updates the existing one
+- Adds an `## Architecture Context` section with references to `docs/adrs/`, `docs/openspec/specs/`, and `docs/prds/`
+- Adds a `### SDD Configuration` section for CLAUDE.md-native configuration (tracker, branches, worktrees, review settings)
+- **Permission auto-configuration**: Updates `.claude/settings.json` to allowlist the tools needed by each skill (Bash, Read, Write, Edit, etc.) so permission prompts don't interrupt automated workflows
+- Detects workspace mode (multi-module projects, git submodules) and configures module declarations
+- Includes a skills reference table and a note about `/sdd:prime`
+- Idempotent -- safe to re-run without duplicating content
+
+### `/sdd:prime` -- Prime Architecture Context
+
+Loads existing ADRs and specs into the session for architecture-aware responses:
+- Summarizes all ADRs (title, status, key decision) and specs (title, status, requirement counts)
+- Optional topic argument for semantic filtering (e.g., `/sdd:prime security` surfaces auth, encryption, access control decisions)
+- Suggests `/sdd:init` if CLAUDE.md hasn't been set up yet
+- Read-only -- never modifies any files
+
+### `/sdd:check` -- Quick Drift Check
+
+Fast, focused drift check on a specific target:
+- Target can be a file path, directory, `ADR-XXXX`, or `SPEC-XXXX`
+- Checks 3 drift categories: code vs. spec, code vs. ADR, ADR vs. spec
+- Produces a concise findings table with severity levels (critical, warning, info)
+- Always single-agent (no `--review` support)
+- Suggests `/sdd:audit` for deeper analysis when warranted
+
+### `/sdd:audit` -- Comprehensive Design Audit
+
+Deep audit of design artifact alignment across the project:
+- Covers all 6 drift categories: code vs. spec, code vs. ADR, ADR vs. spec, coverage gaps, stale artifacts, policy violations
+- Produces a structured report with categorized findings and summary matrix
+- Prioritized recommended actions ordered by severity
+- Single-agent by default; add `--review` for team-based auditing with auditor and reviewer agents
+
+### `/sdd:discover` -- Codebase Discovery
+
+Reverse-engineers implicit architectural decisions and spec-worthy subsystems from an existing codebase:
+- Analyzes dependencies, architectural patterns, project structure, and infrastructure configuration
+- Uses parallel exploration agents for fast analysis of large codebases
+- Produces a suggestion report with confidence levels (High/Medium/Low) and evidence citations
+- Includes ready-to-use `/sdd:adr` and `/sdd:spec` commands for each suggestion
+- Reads existing ADRs and specs to avoid suggesting duplicates
+- Optional scope argument to limit analysis to a subdirectory or domain
+- Read-only -- never creates files; you choose what to formalize
+
+### `/sdd:docs` -- Docusaurus Documentation Site
+
+Transforms your ADRs and specs into a polished doc site with two modes:
+
+**Scaffold mode** (default when no existing site): Creates a standalone `docs-site/` with its own Docusaurus installation.
+
+**Integration mode** (when an existing Docusaurus site is detected): Generates a `sync-spec-docs` build-time plugin into the existing site's `plugins/` directory, copies React components and CSS, and registers everything automatically. The plugin runs the same transforms at build time and watches for source changes during development.
+
+**Upgrade lifecycle**: Re-running `/sdd:docs` on an already-configured project triggers a safe upgrade flow:
+- A `.sdd-docs.json` manifest tracks plugin version, mode, site directory, and SHA-256 checksums of all managed files
+- Unchanged files are updated silently to the latest template version
+- Modified files prompt you with a diff and three choices: accept new version, keep yours, or opt out of future upgrades for that file
+- Missing files are re-created from templates
+- Files marked `managed: false` are permanently skipped
+
+Features (both modes):
+- RFC 2119 keyword highlighting (color-coded MUST/SHALL/MAY)
+- Cross-reference linking (ADR-0001 and SPEC-NNN become clickable links)
+- Mermaid diagram rendering
+- Status/Date/Domain badge components
+- Requirement box components with anchor links
+- Consequence keyword highlighting (Good/Bad/Neutral)
+- Dark mode support
+- Auto-generated sidebars
+- Separate spec/design pages with expandable sidebar categories
+- Specs overview index with linked table of all specifications
+
+### `/sdd:list` -- List Decisions and Specs
+
+Lists all ADRs and specs with their status, date, and title. Filter by type with `adr`, `spec`, or `all`.
+
+### `/sdd:status` -- Update Status
+
+Changes the status of an ADR or spec. Valid statuses:
+- **ADR**: proposed, accepted, deprecated, superseded
+- **Spec**: draft, review, approved, implemented, deprecated
+
+## Project Structure
+
+### Scaffold mode (new docs site)
+
+```
+your-project/
+├── .sdd-docs.json            # Upgrade manifest (version, checksums)
+├── docs/
+│   ├── prds/                    # PRDs (created by /sdd:prd; optional)
+│   │   └── PRD-0001-short-title.md
+│   ├── adrs/                    # ADRs (created by /sdd:adr)
+│   │   ├── ADR-0001-short-title.md
+│   │   └── ADR-0002-short-title.md
+│   └── openspec/specs/          # Specs (created by /sdd:spec)
+│       └── capability-name/
+│           ├── spec.md
+│           └── design.md
+├── docs-site/                   # Docusaurus site (created by /sdd:docs)
+│   ├── package.json
+│   ├── docusaurus.config.ts
+│   ├── scripts/                 # Build-time transforms
+│   └── src/                     # Components, CSS, data
+└── docs-generated/              # Build artifact (generated by docs-site build)
+    ├── index.mdx
+    ├── decisions/               # Transformed ADRs
+    └── specs/                   # Transformed specs
+        ├── index.mdx            # Overview table with links
+        ├── capability-name/     # Expandable sidebar category
+        │   ├── _category_.json
+        │   ├── spec.mdx
+        │   └── design.mdx
+        └── single-doc-spec.mdx  # Leaf item (no design.md)
+```
+
+### Integration mode (existing Docusaurus site)
+
+```
+your-project/
+├── .sdd-docs.json            # Upgrade manifest (version, checksums)
+├── docs/
+│   ├── adrs/                    # ADRs (canonical source)
+│   └── openspec/specs/          # Specs (canonical source)
+└── website/                     # Your existing Docusaurus site
+    ├── docusaurus.config.ts     # Plugin registered here
+    ├── plugins/
+    │   └── sync-spec-docs/    # Generated by /sdd:docs
+    │       ├── index.js         # Docusaurus plugin entry
+    │       └── lib/             # Transform scripts
+    ├── src/
+    │   ├── components/
+    │   │   └── design-docs/     # Badge and layout components
+    │   ├── css/
+    │   │   └── design-docs.css  # Design-specific styles
+    │   └── theme/
+    │       └── MDXComponents.tsx # Component registration (merged)
+    └── docs/
+        └── architecture/        # Generated at build time (gitignored)
+            ├── index.mdx
+            ├── decisions/       # Transformed ADRs
+            └── specs/           # Transformed specs
+                ├── index.mdx    # Overview table with links
+                └── ...          # Same structure as scaffold
+```
+
+## Workflow
+
+1. **Setup**: `/sdd:init` to configure CLAUDE.md with architecture context
+2. **Discover**: `/sdd:discover` to find implicit decisions in an existing codebase
+3. **Prime**: `/sdd:prime` at the start of each session (or `/sdd:prime security` for a focused topic)
+4. **Capture intent** (client-facing work only): `/sdd:prd Client portal approvals` — the agent grills you to convergence, then writes a PRD you can send for sign-off. Skip this for pure engineering decisions
+5. **Decide**: `/sdd:adr We need to choose a web framework for the admin dashboard`
+6. **Review**: `/sdd:list adr` to see all decisions, `/sdd:status ADR-0001 accepted` to approve
+7. **Specify**: `/sdd:spec Convert ADR-0001 to a spec` — the agent writes requirements and offers to plan a sprint
+8. **Plan**: `/sdd:plan SPEC-0001` — break the spec into epics, tasks, and sub-tasks in Beads, GitHub, GitLab, Gitea, Jira, or Linear with acceptance criteria referencing spec/requirement numbers
+9. **Organize & Enrich** (retroactive): `/sdd:organize SPEC-0001` to group issues into projects, `/sdd:enrich SPEC-0001` to add branch and PR conventions
+10. **Build**: `/sdd:work SPEC-0001` (spec-scoped) or `/sdd:work` (propose from backlog) to implement issues in parallel using git worktrees, or `/sdd:prime` then manually work through issues
+11. **Review**: `/sdd:review SPEC-0001` to review and merge PRs with spec-aware feedback, or `--no-merge` for review-only
+12. **Check**: `/sdd:check src/auth/` to quick-check for drift while coding
+13. **Audit**: `/sdd:audit --review` for a comprehensive design review
+14. **Document**: `/sdd:docs` to generate or upgrade the docs site
+
+For thorough team review on critical decisions, add `--review`:
+- `/sdd:adr Choose a database --review`
+- `/sdd:spec authentication-service --review`
+- `/sdd:audit --review`
+
+## CLAUDE.md Integration
+
+Run `/sdd:init` to set up your project's CLAUDE.md with architecture context. This adds references to `docs/adrs/`, `docs/openspec/specs/`, and `docs/prds/`, a plugin skills table, and a note about `/sdd:prime`:
+
+```markdown
+## Architecture Context
+- Architecture Decision Records are in `docs/adrs/`
+- Specifications are in `docs/openspec/specs/`
+- Product Requirements Documents are in `docs/prds/`
+```
+
+## License
+
+MIT

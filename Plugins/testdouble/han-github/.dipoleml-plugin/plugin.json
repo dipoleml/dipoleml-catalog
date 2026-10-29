@@ -1,0 +1,16 @@
+{
+  "name": "han-github",
+  "displayName": "Han GitHub",
+  "version": "2.3.2",
+  "description": "Github specific extensions to the Han plugin for agentic planning and coding. Provides skills to post code reviews as PR comments, update a PR description with a consistent format, etc.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Testdouble"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/testdouble/han",
+  "repository": "https://github.com/testdouble/han",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

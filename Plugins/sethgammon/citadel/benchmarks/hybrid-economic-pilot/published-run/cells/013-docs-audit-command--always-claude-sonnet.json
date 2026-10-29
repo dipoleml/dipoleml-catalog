@@ -1,0 +1,111 @@
+{
+  "schema": 1,
+  "cell_id": "013-docs-audit-command--always-claude-sonnet",
+  "order": 13,
+  "scenario_id": "docs-audit-command",
+  "task_class": "documentation-consistency",
+  "risk": "low",
+  "policy_id": "always-claude-sonnet",
+  "repetition": 1,
+  "route": {
+    "initial_tier": "cloud",
+    "escalation_tier": null,
+    "reason_code": "BASELINE_ALWAYS_CLAUDE"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "cloud",
+      "started_at": "2026-08-02T00:57:03.595Z",
+      "duration_ms": 4345,
+      "output_text": "{\"files\":{\"GETTING_STARTED.md\":\"# Verify an operation\\n\\nRun `citadel operation audit` after the operation completes.\\nThis check does not ask the model to grade itself.\\n\"}}",
+      "output_digest": "sha256:4e8bb7be2c5f0f97cfea8342f3de62e3d7dc614f20148da3feca3be1a290e386",
+      "verification": {
+        "status": "passed",
+        "code": null,
+        "changed_paths": [
+          "GETTING_STARTED.md"
+        ],
+        "applied_file_digests": {
+          "GETTING_STARTED.md": "sha256:2cc06954236013b175cfe66056045e5f529638e2e8669e9ae47970dd79791231"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 0,
+          "signal": null,
+          "stdout": "",
+          "stderr": "",
+          "error": null
+        },
+        "patch_digest": "sha256:4a7b7e70e4994416e78f3d7d7f91e268526094ec2ebf93b52fcbd108a25914a6"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "claude-code-print",
+        "requested_model": "sonnet",
+        "canonical_model": "claude-sonnet-5",
+        "cli_version": "2.1.219",
+        "response_digest": "sha256:effde8833de1b846c7955252ebd6e734b16425d33da87607ca235f8aa4f0e62b",
+        "exit_status": 0,
+        "terminal_reason": "completed",
+        "error": null
+      },
+      "usage": {
+        "input_tokens": 428,
+        "output_tokens": 72,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0
+      },
+      "economics": {
+        "comparison_cost": {
+          "status": "provider-reported-equivalent",
+          "total_usd": 0.002364,
+          "source": "claude_code_total_cost_usd"
+        },
+        "provider_reported_equivalent_cost": {
+          "status": "provider-reported-equivalent",
+          "amount_usd": 0.002364,
+          "source": "claude_code_total_cost_usd"
+        },
+        "local_gpu_energy": {
+          "status": "not-applicable",
+          "energy_kwh": 0,
+          "samples": 0,
+          "average_watts": null
+        },
+        "actual_subscription_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "pro_subscription_cost_not_allocated_per_request"
+        }
+      }
+    }
+  ],
+  "status": "passed",
+  "final_verification": {
+    "status": "passed",
+    "code": null,
+    "changed_paths": [
+      "GETTING_STARTED.md"
+    ],
+    "applied_file_digests": {
+      "GETTING_STARTED.md": "sha256:2cc06954236013b175cfe66056045e5f529638e2e8669e9ae47970dd79791231"
+    },
+    "verifier": {
+      "command": "node verifier.js",
+      "status": 0,
+      "signal": null,
+      "stdout": "",
+      "stderr": "",
+      "error": null
+    },
+    "patch_digest": "sha256:4a7b7e70e4994416e78f3d7d7f91e268526094ec2ebf93b52fcbd108a25914a6"
+  },
+  "previous_cell_digest": "sha256:f0ba50d9a0bce3ededc8afcfcb36c5feb4ed45a0f04b0ce4da91c61ad585c80f",
+  "receipt_digest": "sha256:5807b426e29f4dfff3078bf40ad5cddfbb53574095d01bf27dfd384c08c8e9b8",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:cafce14efb4c7810772751099b847e30bdc2bdd3b983010cc3544d6e93faf427",
+    "signature": "vPKyj/qmtDYKqHGT5VAd2t0fMRWVJRjBzGbfa5H/6Cy+zwi8WT6CC1L07tuKzLhRL/vM/SNgUmHJTogZkYs7Bg=="
+  }
+}

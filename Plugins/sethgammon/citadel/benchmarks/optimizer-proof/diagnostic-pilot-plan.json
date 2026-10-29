@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "kind": "citadel_optimizer_diagnostic_pilot_plan",
+  "purpose": "verification_path_diagnostic_not_performance_evidence",
+  "scenario_set_id": "optimizer-scenarios-sha256:1269928412c49b9405293a0cbf814d6e62ab50988579f0fbdb1353b4c17df2b2",
+  "scenario_id": "p-limit-cleanup-pending",
+  "profile_ids": [
+    "claude-frontier",
+    "codex-frontier"
+  ],
+  "policy_id": "prompt-only",
+  "total_runs": 2,
+  "access_basis": "subscription",
+  "quota_budget": {
+    "max_cli_runs": 2,
+    "max_model_runtime_minutes": 80
+  },
+  "approval_status": "completed",
+  "quota_acknowledged": true,
+  "approved_by": "Seth Gammon",
+  "approved_at": "2026-07-30T18:05:04.067Z",
+  "record_digest": "sha256:3ec28ceb8612a9e611d29886d54245819d7015de17d98db09a0d246151667e3b"
+}

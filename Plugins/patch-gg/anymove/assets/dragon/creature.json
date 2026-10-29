@@ -1,0 +1,21 @@
+{
+  "name": "dragon",
+  "noun": "dragon",
+  "prep": {"length_m": 3.0, "rotz_deg": 0, "axis": "y"},
+  "layout": {"W_FRONT": 640, "W_SIDE": 640, "M_PER_PX": 0.006875, "GROUND_V": 630},
+  "paint": {
+    "FL": {"color": "#F53CD1", "bones": ["upperarm_L", "forearm_L", "metacarpus_L", "fpaw_L"]},
+    "FR": {"color": "#2F6BFF", "bones": ["upperarm_R", "forearm_R", "metacarpus_R", "fpaw_R"]},
+    "HL": {"color": "#FFD21F", "bones": ["thigh_L", "shin_L", "metatarsus_L", "hpaw_L"]},
+    "HR": {"color": "#19D3E0", "bones": ["thigh_R", "shin_R", "metatarsus_R", "hpaw_R"]},
+    "WL": {"color": "#FF7A1A", "bones": ["wing_arm_L", "wing_fore_L", "finger1_L", "finger2_L", "finger3_L"]},
+    "WR": {"color": "#2BD94A", "bones": ["wing_arm_R", "wing_fore_R", "finger1_R", "finger2_R", "finger3_R"]}
+  },
+  "feet": ["fpaw_L", "fpaw_R", "hpaw_L", "hpaw_R"],
+  "describe": "a dark charcoal dragon with bone-coloured horns and claws",
+  "colour_code": "front-left leg pink, front-right leg blue, hind-left leg yellow, hind-right leg cyan, left wing orange, right wing green",
+  "count": "Exactly four legs, two wings, one tail, one head.",
+  "flank": "flank",
+  "limbs": "limbs",
+  "camera": {"cam": "-5.4,-6.0,1.4", "target": "0,-0.3,1.5", "lens": 32}
+}

@@ -1,0 +1,16 @@
+{
+  "name": "flow-next",
+  "displayName": "Flow Next",
+  "version": "9.3.3",
+  "description": "Zero-dependency, spec-driven agentic SDLC: durable specs, context-fit plans, re-anchored workers, adversarial cross-model review, and receipts. Includes 21 subagents, 26 commands, 29 skills.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Gmickel"
+  },
+  "license": "MIT",
+  "homepage": "https://flow-next.dev",
+  "repository": "https://github.com/gmickel/flow-next",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,68 @@
+# Integration And Live Proof
+
+## Choose The Right Verification Depth
+
+TDD starts with unit or focused behavior tests, but it does not end there when
+the risk profile is higher.
+
+Think in layers:
+- unit tests prove local behavior
+- integration tests prove boundary wiring
+- E2E or live harness proof proves the system truth the user cares about
+
+## When Unit Tests Are Enough
+
+Unit or focused component tests are usually enough for:
+- pure logic
+- isolated validation
+- presentational UI behavior
+- small refactors with unchanged boundaries
+
+## When To Escalate To Integration Tests
+
+Escalate when the change crosses a real boundary:
+- route to service
+- service to database
+- UI to API
+- queue producer to consumer
+- cache or background side effects
+
+The test should exercise the real collaboration, not just the local branch.
+
+## When To Escalate To E2E Or Live Harness Proof
+
+Escalate beyond integration when the user or accepted plan needs confidence in:
+- seeded workflows
+- browser flows
+- real API calls
+- background job orchestration
+- cross-service side effects
+- load or stress behavior
+
+At that point, unit tests are necessary but not sufficient.
+
+## Live-Proof Triggers
+
+Treat these as strong signals:
+- "production-like"
+- "real data"
+- "real API calls"
+- "connect all the dots"
+- "seed the database"
+- "stress test"
+
+When these appear, do not claim the work is verified with unit tests alone.
+
+## Coordination With CC10X Live Verification
+
+If the plan requires live proof:
+- follow the plan's `### Live Verification Strategy` and the harness manifest it names
+
+Building the harness itself is NOT this agent's job. When a change needs a test
+environment that does not yet exist — services provisioned, isolated data, E2E
+scripts spanning services, UI automation — that is the QA route
+(`skills/cc10x-router/references/qa-workflow.md`), which owns
+`qa-harness-builder`. Report the need; do not build it inside a BUILD phase.
+
+The TDD cycle still matters. Live proof is the outer confidence ring, not a
+replacement for test-first discipline.

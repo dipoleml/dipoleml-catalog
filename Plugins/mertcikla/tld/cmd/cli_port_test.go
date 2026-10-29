@@ -1,0 +1,115 @@
+package cmd_test
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/mertcikla/tld/v2/cmd/version"
+
+	"github.com/mertcikla/tld/v2/cmd"
+)
+
+func TestRootCmd_VersionFlagMatchesCurrentVersion(t *testing.T) {
+	stdout, _, err := cmd.RunCmd(t, ".", "--version")
+	if err != nil {
+		t.Fatalf("root --version: %v", err)
+	}
+	if strings.TrimSpace(stdout) != "tld version "+version.Version {
+		t.Fatalf("unexpected version output %q", stdout)
+	}
+}
+
+func TestAddCmd_HelpIncludesRefFlag(t *testing.T) {
+	stdout, _, err := cmd.RunCmd(t, ".", "add", "--help")
+	if err != nil {
+		t.Fatalf("add --help: %v", err)
+	}
+	if !strings.Contains(stdout, "Add or update an element") {
+		t.Fatalf("help output missing add summary:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "--ref") {
+		t.Fatalf("help output missing --ref:\n%s", stdout)
+	}
+}
+
+func TestAddCmd_RefOverridesGeneratedSlug(t *testing.T) {
+	dir := t.TempDir()
+	cmd.MustInitWorkspace(t, dir)
+
+	_, _, err := cmd.RunCmd(t, dir, "add", "System Overview", "--ref", "system-root", "--kind", "workspace")
+	if err != nil {
+		t.Fatalf("add: %v", err)
+	}
+
+	elements, err := os.ReadFile(filepath.Join(dir, ".tld", "elements.yaml"))
+	if err != nil {
+		t.Fatalf("read elements.yaml: %v", err)
+	}
+	content := string(elements)
+	if !strings.Contains(content, "system-root:") {
+		t.Fatalf("elements.yaml missing explicit ref:\n%s", content)
+	}
+	if !strings.Contains(content, "name: System Overview") {
+		t.Fatalf("elements.yaml missing element name:\n%s", content)
+	}
+	if strings.Contains(content, "system-overview:") {
+		t.Fatalf("elements.yaml should not include slugified fallback ref:\n%s", content)
+	}
+}
+
+func TestAddCmd_InvalidRefFails(t *testing.T) {
+	dir := t.TempDir()
+	cmd.MustInitWorkspace(t, dir)
+
+	_, _, err := cmd.RunCmd(t, dir, "add", "API", "--ref", "Bad:Ref")
+	if err == nil {
+		t.Fatal("expected invalid ref error")
+	}
+	if !strings.Contains(err.Error(), "invalid ref") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestAddCmd_EmptySlugFails(t *testing.T) {
+	dir := t.TempDir()
+	cmd.MustInitWorkspace(t, dir)
+
+	_, _, err := cmd.RunCmd(t, dir, "add", "!!!")
+	if err == nil {
+		t.Fatal("expected empty slug error")
+	}
+	if !strings.Contains(err.Error(), "could not generate a valid reference") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestAddCmd_MissingParentFails(t *testing.T) {
+	dir := t.TempDir()
+	cmd.MustInitWorkspace(t, dir)
+
+	_, _, err := cmd.RunCmd(t, dir, "add", "API", "--ref", "api", "--parent", "missing")
+	if err == nil {
+		t.Fatal("expected missing parent error")
+	}
+	if !strings.Contains(err.Error(), `parent ref "missing" not found`) {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestConnectCmd_HelpHidesStyleFlag(t *testing.T) {
+	stdout, _, err := cmd.RunCmd(t, ".", "connect", "--help")
+	if err != nil {
+		t.Fatalf("connect --help: %v", err)
+	}
+	if !strings.Contains(stdout, "--direction") {
+		t.Fatalf("connect help missing --direction:\n%s", stdout)
+	}
+	if strings.Contains(stdout, "--style") {
+		t.Fatalf("connect help should hide --style:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "--view") {
+		t.Fatalf("connect help should include --view:\n%s", stdout)
+	}
+}

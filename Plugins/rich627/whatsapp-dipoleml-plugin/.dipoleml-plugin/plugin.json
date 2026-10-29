@@ -1,0 +1,16 @@
+{
+  "name": "whatsapp-dipoleml-plugin",
+  "displayName": "WhatsApp DipoleML Plugin",
+  "version": "0.33.1",
+  "description": "WhatsApp channel for DipoleML — choose linked-device messaging or official Cloud API, with built-in access control.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Rich627"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/Rich627/whatsapp-claude-plugin",
+  "repository": "https://github.com/Rich627/whatsapp-claude-plugin",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

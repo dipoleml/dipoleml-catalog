@@ -1,0 +1,945 @@
+# Changelog
+
+## 5.1.1 — 2026-10-22
+
+- **Directory submission: the live-line mod is out for now.** Any plugin with a
+  mod is held by the directory for manual review, which kept 5.x from being
+  listed. `hooks/meter.ts` and `/cco-meter` are removed; everything else is
+  unchanged. The mod returns as an update once the plugin is listed (the live
+  version keeps serving while an update is reviewed). `src/meter-core.js` and its
+  tests stay; the last version with the line is v5.1.0.
+- Dropped `displayName`, `documentationUrl` and `supportUrl` from `plugin.json`
+  (not fields Claude Code reads).
+
+## 5.1.0 — 2026-10-22
+
+- **The live line forecasts your limit.** When the last half hour's pace
+  would use up a plan limit before it resets, the line says so:
+  `5h 62% (full in ~35m)`. It stays silent when there is too little history,
+  the pace is flat, the limit resets first, or it is more than 3 hours away.
+  The pace is kept in memory only.
+- **`/cco wrapped`: your week in one screen.** Spend, sessions, the busiest
+  day, the three priciest projects, the priciest session and one tip, read
+  from your local transcripts (`--days N` changes the window). Nothing
+  leaves the machine.
+
+## 5.0.4 — 2026-10-22
+
+- **`npm test` no longer fails on a stray `.DS_Store`.** Four tests listed `skills/`,
+  `agents/` or `skills/cco/commands/` without skipping dotfiles, so macOS
+  Finder files turned the suite red. Tests only; nothing changes for users.
+
+## 5.0.3 — 2026-10-22
+
+- **Directory scan: dropped the `icon` field from `plugin.json`.** The scan
+  treated `./assets/icon.png` as an image the plugin's code could run
+  (`UNREAD_ASSET_REFERENCED`) and held the version for a reviewer. Claude Code
+  ignores the field at load time, so nothing changes for users. The file stays
+  in `assets/`.
+
+## 5.0.2 — 2026-10-17
+
+- **The live line shows up as soon as a session starts.** Before the first
+  reply there is no context figure, and the meter hid itself, so turning it
+  on in a fresh session looked like it did nothing. It now reads
+  `ctx after the first reply · 7d 94%` with whatever limits are known, and
+  fills in after the first reply. A session that has cost $0 doesn't show
+  `$0.00`.
+
+## 5.0.1 — 2026-10-17
+
+Fixes from the first live run of 5.0.0.
+
+- **`/cco-meter on` and `/cco-meter off` do what they say.** The command
+  ignored its argument and toggled, so `/cco-meter on` turned a showing line
+  off. A bare `/cco-meter` still toggles.
+- **The line no longer says its name twice.** Claude Code already prefixes it
+  with `context-optimizer:`, so it now reads
+  `context-optimizer: ctx 73K/1M 7% · $0.19 · 5h 0% · 7d 94% · cache 60m`.
+- **`/cco` shows the real session from the first message.** The board learned
+  where the transcript was only after the first tool call, so early on it
+  showed 0 tokens, $0 and the default model while the line showed the real
+  figures. Each prompt now records the transcript and its latest usage.
+
+## 5.0.0 — 2026-10-17
+
+The directory showed 870 installs and 61 active users. Most installs come from
+claude.ai chat, where 23 of the 27 skills could only say "needs Claude Code",
+and in Claude Code the plugin mostly worked out of sight. 5.0 is built around
+what people see and use.
+
+### A live meter in Claude Code
+
+One dim line under the prompt, updated after every reply and every minute:
+context fill against the model's window, the session's cost, the plan's
+5-hour and weekly limits, and the minutes until the prompt cache goes cold.
+It learns from the first request after a pause whether the cache lasts 5
+minutes or an hour. It toasts once when context passes 70%, a limit passes
+80%, or the cache went cold on a large context. `/cco-meter` hides it. The
+figures come from Claude Code itself (`$.session.usage()` and each request's
+usage); it reads no files and sends nothing. It is a plugin mod
+(hooks/meter.ts), wired through `modules` in hooks.json, with its logic in
+src/meter-core.js.
+
+### One `/cco` command
+
+The 24 Claude Code skills (`/cco-audit`, `/cco-task`, `/cco-pack`, …) are now
+subcommands of one: `/cco audit`, `/cco task`, `/cco pack`. `/cco` alone is
+the board and `/cco help` the menu. Each command's instructions moved to
+skills/cco/commands/ and load only when that command runs. smart-loader folded
+into `/cco pack`. Every script stays pre-approved by its own path only.
+
+### Skills for chat and Cowork
+
+- **`doc-digest`**: a long document, PDF, transcript or log becomes a digest
+  with a section map and references, at about a tenth of the size, with the
+  options to keep going from it, start a new chat with it, or put it in a
+  Project.
+- **`project-context`**: background the user keeps retyping becomes Project
+  instructions and a file list (or a lean `CLAUDE.md` in Claude Code).
+- **`fresh-start`** now states what the handoff saves.
+
+Six skills in all, five of them script-free; the listing Claude carries in
+every conversation shrank to match.
+
+### Smaller and clearer
+
+- The README is a 265-line product page instead of 1,147 lines of release
+  notes; those live here.
+- Unused images are gone; the plugin is 1.1 MB instead of 1.9 MB.
+- The landing page shows the meter and the new skills.
+
+### Upgrading
+
+Commands moved: `/cco-audit` is `/cco audit`, and so on. Nothing else to do:
+data in `~/.claude-context-optimizer/` and config keys are unchanged.
+
+## 4.23.2 — 2026-10-17
+
+Nothing in the plugin reads the environment or can reach the network any
+more. The directory held 4.22.0 to 4.23.1 for a reviewer over exactly that.
+
+- **No environment variables.** The plugin reads none. Settings that came
+  from the environment now live in `~/.claude-context-optimizer/config.json`:
+  `"orchestrate": false` turns off the session-start policy, `"quiet": true`
+  hides the donation line and the prompt coach, and `thresholds.staleTimeMs`
+  is the only stale-time setting. `/cco-task` takes the project from the
+  current directory. `/cco-doctor` starts the hook by Node's absolute path
+  with nothing but a throwaway home directory.
+- **Scout reads the project only.** `context-optimizer:scout` has Read, Grep
+  and Glob; the web tools are gone. Claude still fetches web pages itself
+  when you ask. `/cco-audit` counts only file reads and searches as
+  delegatable.
+- **The HTML report is one offline file.** `/cco-export html` drew its charts
+  with a script from a CDN; they are inline SVG now, and the page has no
+  script at all. Donation addresses are plain selectable text.
+- `/cco-task` stores a project under its real path, so the task restored
+  after `/compact` is found even when the project path goes through a
+  symlink (macOS temp dirs, a symlinked checkout).
+- Tests fail if code reads the environment, if anything in `src/` makes a
+  network request, or if a subagent gets a web tool.
+
+## 4.23.1 — 2026-10-17
+
+`/cco-doctor` and the end-to-end tests start child processes with a minimal,
+fixed set of variables instead of a copy of the user's.
+
+## 4.23.0 — 2026-10-17
+
+The directory dashboard showed where the installs come from: 56% from
+claude.ai chat, 24% from Cowork, 20% from Claude Code. Chat loads a plugin's
+skills only, with no hooks, no subagents and no local scripts, so most people
+who installed CCO got almost nothing from it. This release gives every
+surface something that works.
+
+### Skills that work everywhere (no scripts)
+
+- **`fresh-start`** writes a compact handoff (goal, decisions, state, next
+  step, facts not to lose) so work continues in a new conversation. Claude
+  offers it when a conversation grows long or the user hits limits. In Claude
+  Code it points to `/compact` instead.
+- **`token-check`** estimates the tokens in a text, a file or the
+  conversation, explains that everything in a conversation is re-sent with
+  every message, and lists the cheapest ways to cut.
+- **`sharpen-prompt`** rewrites a vague request into a precise prompt, or asks
+  the one question it can't answer.
+
+### Fewer dead ends outside Claude Code
+
+- Every skill that runs a local script now says up front that it needs Claude
+  Code (or Cowork on your computer), and in chat offers `fresh-start` or
+  `token-check` instead of failing. `/cco-orchestrate` notes that its
+  subagents don't load in chat.
+
+### Directory listing
+
+- The README, which the directory shows as the listing description, opens
+  with what each surface gets. Bundled images now use Markdown syntax instead
+  of HTML `<img>`, which the directory's checklist holds for a reviewer.
+- `plugin.json` sets `displayName: "Context Optimizer (CCO)"`, search
+  keywords, and the directory listing fields: `icon` (a new 512×512 brand
+  icon; the listing showed the author's avatar), `homepage`,
+  `documentationUrl`, `supportUrl` and `privacyPolicyUrl`.
+
+## 4.22.0 — 2026-10-17
+
+We checked, on real transcripts, whether CCO saves anything. Read dedup works,
+but in the sessions we measured Claude almost never re-read an unchanged file.
+The money was elsewhere: ~60% of a long Opus session's cost is cache reads,
+because every request re-reads the whole context. This release goes after that.
+
+### Orchestrator: Haiku subagents
+
+- **`agents/scout.md`** (`context-optimizer:scout`): a read-only explorer
+  (Read, Grep, Glob, WebFetch, WebSearch) on `model: haiku` with
+  `omitClaudeMd: true`. It answers in under 250 words with `path:line`
+  evidence, so only the answer enters the main context.
+- **`agents/runner.md`** (`context-optimizer:runner`): runs test, build and lint
+  commands on Haiku and returns pass/fail plus the failing items.
+- **A cost policy at SessionStart**, about 90 tokens, once per conversation:
+  it tells the main model when to use them. It is not repeated on resume or
+  fork. Turn it off with `"orchestrate": false` in config. It counts as CCO
+  overhead in NET savings.
+- **`/cco-orchestrate <task>`**: a playbook for whole tasks. Scouts in
+  parallel, the main model plans and edits, the runner verifies.
+- **The delegation advisor** and the big-Bash-result tip now name these agents.
+- Checked live in Claude Code 2.1.302: the plugin registers both agents, and a
+  scout lookup ran on `claude-haiku-5-5` (Grep, then a 25-line Read) for $0.005.
+
+### `/cco-audit`: does CCO save anything?
+
+`src/audit.js` reads `~/.claude/projects/**.jsonl` (main sessions and subagent
+runs, deduplicated across a session's continued files) and reports:
+
+- the spend split into cache reads, cache writes and output, with average and
+  peak context and the fixed-overhead share;
+- what CCO verifiably saved: each read-cache refusal in the transcript, priced
+  at one cache write plus a cache read for every later request;
+- repeated reads that still went through, via Read or Bash `cat`/`sed`;
+- three bigger levers, estimated on the same sessions: compacting at a
+  threshold (simulated), delegating exploration to Haiku, and every 10K less of
+  fixed overhead;
+- subagent spend by model.
+
+### Pricing
+
+- Haiku 5.5 (`claude-haiku-5-5`) was priced as Haiku 4.5, at $1/$5. It is
+  $0.10/$0.50, and $0.50/$2.50 per request whose prompt exceeds 100K. Those
+  requests are now priced as their own segment. Haiku 5.5 is the current Haiku
+  for `/cco-doctor` and the ROI tables.
+
+### Rename, finished
+
+- Both marketplaces carry `"renames": {"claude-context-optimizer":
+  "context-optimizer"}`. Checked with the CLI: Claude Code moves an existing
+  install to the new name on its next start, with no reinstall.
+
+## 4.21.0 — 2026-10-17
+
+**The plugin is renamed to `context-optimizer`.** Claude Code 2.1.302 rejects
+third-party plugin names that start with `claude-`, `anthropic-` or
+`cc-plugin-`, so `claude plugin validate` failed on `claude-context-optimizer`
+for both the plugin and its marketplaces. Installing still worked, but the
+plugin could not pass a directory review.
+
+- To upgrade an existing install, uninstall once and install again. A plugin's
+  id comes from its name, so `plugin update` can't cross the rename:
+  `claude plugin uninstall claude-context-optimizer@cco`, then
+  `claude plugin install context-optimizer@cco` (or `@egorfedorov-plugins`).
+- Kept as they were: the commands (`/cco`, `/cco-*`), the data directory
+  `~/.claude-context-optimizer/`, the repository URL and the npm package name.
+- `sync-version --check` (in CI) and `/cco-doctor` reject a reserved plugin
+  name. `sync-version` now finds marketplace entries by plugin name rather
+  than npm name, and warns when the external marketplace has no entry for it.
+
+## 4.20.0 — 2026-10-17
+
+The hooks now do what the README says they do. Most of CCO's advice never
+reached anyone, and on Linux the read dedup never ran.
+
+### Advice was invisible
+
+Claude Code ignores a hook's stderr when it exits 0 (it goes to the debug log),
+and reads stdout only when it is one JSON object. Budget warnings, cache-break
+costs, the delegation advisor, ContextShield tips and the session summary were
+all printed to stderr, so neither Claude nor the user saw them. They are now
+delivered in the hook's JSON:
+
+- **To Claude** (`additionalContext`): advice that changes what Claude does
+  next — big tool results, the delegation advisor, ContextShield's waste
+  history, files that went unused in past sessions, task state after
+  `/compact`.
+- **To the user** (`systemMessage`, costs no context): budget thresholds,
+  cache-break costs, context-rot warnings, `/compact` prompts, CLAUDE.md size,
+  `.contextignore` suggestions.
+- **Session recap.** SessionEnd output reaches no one, and SessionEnd hooks
+  share a 1.5 s budget. SessionEnd now only records the session; the next
+  session in that project prices it and shows the verdict. The old summary also
+  priced whichever session was newest, not the one that ended.
+
+The notice ledger still caps advisory output per session, and only what
+reaches Claude counts as CCO overhead in NET savings. The prompt coach's
+injections now count too.
+
+### Read dedup
+
+- **Repeated reads were never blocked under dash.** The read cache told the
+  main loop and subagents apart by `process.ppid`. Claude Code runs hooks with
+  `sh -c`; under dash (Debian, Ubuntu, most CI and cloud machines) that parent
+  is a fresh shell per call, so every read looked like the first.
+- **Subagents get their own cache.** Contexts are keyed by the hook input's
+  `agent_id`. A subagent's first read of a file always goes through, and line
+  ranges are tracked per context, so a subagent is never refused a range only
+  the main loop has read.
+- **No dead ends.** If Claude repeats a read right after a refusal (its copy
+  was cleared from context, for example), the read goes through and the
+  refusal's claimed savings are taken back.
+- **Honest re-read size.** A full read of an 830-line file was booked as the
+  Read tool's 2000-line default (~20K tokens instead of ~8.5K).
+- Refusals use `permissionDecision: "deny"` instead of the deprecated
+  top-level `decision: "block"`. Claude Code shows every refusal as a "hook
+  error", so the message now says outright that the re-read was skipped and
+  that Claude should use the copy it already has. It shows a file map only
+  when the file has structure to map.
+- Checked live in Claude Code 2.1.302. Claude Code does not skip unchanged
+  re-reads on its own: without CCO, the second Read of a file returns the
+  whole file again.
+
+### One process per event
+
+`hooks.json` runs a single dispatcher, `src/hook.js`, instead of one Node
+process per feature. PostToolUse goes from ~109 ms to ~64 ms per tool call.
+Calls are serialized per session: Claude runs tools in parallel, and parallel
+hooks used to lose each other's writes (8 parallel reads booked 5).
+
+### Subagents
+
+- Tool output inside a subagent no longer counts toward the main context
+  budget or its `/compact` suggestions. `/cco` shows it on its own line.
+- Subagent reads are not booked as waste and don't trip the delegation
+  advisor.
+
+### Less noise and context
+
+- 17 user-invoked skills (`/cco`, `/cco-report`, `/cco-config`, …) are marked
+  `disable-model-invocation`, so their descriptions no longer load into every
+  request. The skill listing drops from ~2.9K to ~0.9K characters. The five
+  skills Claude uses mid-task stay listed.
+- A file's waste history is no longer repeated after the read when
+  ContextShield already flagged it before. ContextShield's "load these files
+  together" tip is gone: it asked Claude to read more on a guess.
+
+### Checks
+
+- `/cco-doctor` runs the real hook through `sh -c` and confirms read dedup
+  and subagent isolation work on this machine.
+- New end-to-end tests run every `hooks.json` command the way Claude Code
+  does. CI covers Node 18–24 on Ubuntu (dash) and macOS (bash) and runs the
+  doctor.
+- SessionStart restores task state after `fork` too, not only `resume` and
+  `compact`.
+
+## 4.12.1 — 2026-09-30
+
+Directory review fixes. Nothing changes in what the plugin measures.
+
+- **No broad shell pre-approval.** Every skill's `allowed-tools` named plain
+  `Bash`, which pre-approved any command. Each skill now pre-approves only its
+  own scripts, e.g. `Bash(node ${CLAUDE_PLUGIN_ROOT}/src/roi.js:*)`. The steps
+  that used `cat`/`ls`/`du`/`find`/`node -e` now use Read/Glob or a plugin script
+  (new `tracker.js prune`). `/cco-config`, `/cco-patterns` and `/cco-tools`
+  called `node src/...` relative to the project and failed outside the plugin
+  dir; they use `${CLAUDE_PLUGIN_ROOT}` now.
+- **No pre-approved writes.** `/cco-budget` and `/cco-templates` dropped `Write`
+  from `allowed-tools`; saving config or a template asks the user.
+- **`~/.claude.json` is no longer read.** It holds account data next to the MCP
+  config. `/cco-overhead mcp` now takes server names from the session
+  (`--servers a,b`) plus the project's `./.mcp.json`. Removal commands for
+  session-supplied servers omit `-s <scope>`.
+
+## 4.12.0 — 2026-09-30
+
+Honest numbers. Three places where `/cco` and the session summary reported
+more than was true.
+
+### Session cost was counted ~2× (transcript duplicates)
+
+Claude Code writes one transcript line per content block (thinking, text, each
+tool call) and repeats the message's full `usage` on every one. The economics
+parser summed lines, so a turn with three blocks was billed three times. On the
+session this release was built in: 247 "turns" and **$17.43** before, 114 turns
+and **$7.72** after. Usage is now counted once per `message.id`.
+
+The same duplicates produced **phantom cache breaks**: the first copy set the
+cached prefix, and the next copies of the same turn read "less than half" of it.
+The "2 breaks (−$0.69)" shown on a fresh session were not real.
+
+### Per-model and fast-mode pricing
+
+Usage is grouped by `{ model, speed }` and each segment priced at its own rate
+(`computeSessionCost`), so sessions that switch `/model` are no longer billed
+entirely at the last model's price, and `usage.speed: "fast"` turns bill at 2×
+(Opus 5.5 fast = $8/$40). A cache break that coincides with a model switch is
+flagged, and `/cco` says so: caches are per model. The generic break hint now
+names the session's real TTL (1 hour, not 5 minutes).
+
+### "CCO saved $X" no longer claims the prompt cache
+
+The session-summary headline added Claude Code's own prompt-cache savings to
+what CCO saved (read dedup/blocking) — $87 "saved by CCO" on a session where
+CCO's part was near zero. The headline is now CCO's savings only; the prompt
+cache keeps its own line.
+
+### "Wasted" reads in read-only sessions
+
+A file read and never edited counted as waste. In a session that edits nothing
+(explain, review, Q&A), reading *is* the work, so those sessions no longer
+record any waste. (Raised by a reader: "reading a file and not subsequently
+editing it doesn't necessarily mean it had no value.")
+
+
+## 4.11.0 — 2026-09-30
+
+### Opus 5.5 and Sonnet 5.5
+
+`claude-opus-5-5` matched the `opus-5` regex (`5\b` before `-5`) and was billed
+at $5/$25 with 0.1× cache reads. Opus 5.5 is $4/$20 and reads cache at $0.20/M
+(0.05×); on a cache-read-heavy session that overstated spend by ~50%.
+`claude-sonnet-5-5` was labelled `sonnet-5` (same price).
+
+| key | $/M in / out | cache read | window |
+|---|---|---|---|
+| `opus-5.5` (new default fallback) | **4 / 20** | **0.05×** | 1M |
+| `sonnet-5.5` | 2 / 10 | 0.1× | 1M |
+
+- `CURRENT_MODELS` (Haiku 4.5, Sonnet 5.5, Opus 5.5, Fable 5.1) drives the ROI,
+  digest and `/cco-report` comparisons instead of the old generic
+  `haiku`/`sonnet`/`opus` rows (Sonnet 4.6 prices) and 17 aliases.
+- Export and the CLAUDE.md analyzer price at Opus 5.5.
+- The benchmark prices cache breaks from the plugin's own table (Opus 5.5, 1h
+  TTL: 2× write vs 0.05× read) instead of a hardcoded $5 and 5-minute rates.
+- `/cco-doctor` warns when the configured fallback model isn't current.
+
+### Data retention
+
+Six per-session folders grew forever (~96MB, 7K+ files after a few months).
+`pruneOldData()` runs at most once a day on SessionStart: 90 days for
+`sessions/`, `summaries/`, `prompts/`; 14 days for `budget/`, `read-cache/`,
+`notices/`. `/cco-clean --prune` runs it on demand. `prunePatterns()` now drops
+projects idle for 180 days (patterns.json held 162 projects ≈ 10MB, parsed on
+every Read by the shield).
+
+### Fixes
+
+- Context shield: `findProjectForPath` returned the first prefix match, so a
+  file in `repo/games/x` got `repo`'s waste history, and `/rx` matched `/r`.
+  Now the deepest root on a `/` boundary wins.
+- ROI and digest tables: model column widened for "Sonnet 5.5".
+- README Privacy section now lists everything stored and run (prompt previews,
+  transcript usage numbers, local `git`).
+
+
+## 4.10.0 — 2026-09-02
+
+Three things: the price table catches up with the Claude 5 lineup, the cache
+math catches up with the 1-hour TTL Claude Code actually uses, and tasks gain a
+bounded execution state that survives `/compact` — the piece of Google/Purdue's
+SKILL.state that a plugin can honestly apply.
+
+### Claude 5 lineup: Fable 5.1, Opus 5, Sonnet 5
+
+`claude-fable-5-1` and `claude-opus-5` are what sessions report today, and
+neither had a pricing row. Fable/Mythos sessions were priced at the Opus tier
+("until Anthropic announces") — they cost twice that. Sonnet 5 was priced as
+Sonnet 4.6; it is cheaper.
+
+| key | $/M in / out | cache read | window |
+|---|---|---|---|
+| `fable-5.1` (alias `fable`), Mythos 5.1 | 10 / 50 | **0.025×** | 1M |
+| `fable-5`, Mythos 5 | 10 / 50 | 0.1× | 1M |
+| `opus-5` (alias `opus`, new default fallback) | 5 / 25 | 0.1× | 1M |
+| `sonnet-5` | **2 / 10** | 0.1× | 1M |
+
+`normalizeModelId` now tells Fable 5.1 from Fable 5 (they share a per-token
+price but not a cache-read rate) and Opus 5 from Opus 4.5. Per-model
+`cacheRead` overrides flow through `getCacheRates()`; every dollar figure in
+`/cco`, the budget hook and `/cco-overhead` reads from it.
+
+### 1-hour cache TTL: writes at 2×, breaks after an hour
+
+Every recent transcript here carries
+`usage.cache_creation.ephemeral_1h_input_tokens` — Claude Code keeps the
+prompt cache alive for an hour on these sessions. CCO priced every write at the
+5-minute 1.25× rate (real: 2×) and told you the cache "went cold (5-min TTL)"
+after any 5-minute pause, when it had 55 minutes left. Both were wrong in the
+direction of a number we could not defend.
+
+- `parseEconomicsFromLines` splits the 1h share of cache writes; the session
+  bill prices it at 2×.
+- The budget hook reads the session's TTL from the transcript. On 1h sessions
+  the cache-break guard waits 60 minutes and names the right TTL and the right
+  (write − read) cost when it does fire.
+- `/cco-overhead` prices the baseline write at the TTL the latest session used.
+
+### Task execution state (SKILL.state, where it applies)
+
+SKILL.state replaces the agent's growing history with instructions + a
+structured state + the latest observation, so the prompt is O(1) in the step
+count (Google/Purdue report ~50× fewer tokens and higher accuracy on 200-step
+tasks). A Claude Code plugin cannot replace the harness's history — and with
+prompt caching, replayed history costs 0.1× (0.025× on Fable 5.1), so the
+dollar headline does not transfer. What does transfer is the moment history is
+*replaced*: `/compact`. Its summary is free-form and lossy; a bounded state is
+exact.
+
+- `/cco-task patch '{"key": value, "gone": null}'` — SKILL.state-style patch
+  semantics on the active task; `state` prints it. Capped at 4,000 chars
+  (~1K tokens) so it never grows with the task; over the cap the patch is
+  rejected with instructions to prune.
+- The SessionStart hook re-injects the active task's state after `compact`
+  and on `resume` — never on a fresh start — as an authoritative block.
+- The skill documents state discipline (facts to continue, not a log) and
+  recommends the state as the delegation brief for subagents.
+
+### Tests
+296 → 311: lineup prices and ids, cache rates per model/TTL, 1h split in the
+economics parser, TTL-aware break guard, state patching/cap/rehydration gating.
+
+## 4.9.2 — 2026-08-10
+
+Three modules that shape what Claude reads, what you share, and what you
+believe about your spend had no tests. Writing them found four defects.
+
+### Security: exported HTML reports executed hostile file names
+
+`/cco-export html` builds a report the module itself describes as being "for
+sharing" — and interpolated file and project names straight into markup:
+
+```js
+`<td><code>${basename(f.fullPath)}</code></td>`     // a name can be a tag
+labels: ${JSON.stringify(projects.map(([n]) => n))} // inside <script>
+```
+
+`JSON.stringify` does not escape `</script>`, so a project directory named
+`</script><script>…` closed the block and everything after it parsed as markup.
+Both were confirmed with a proof-of-concept report before fixing. Reaching them
+means opening a repo whose file or directory names are hostile, exporting, and
+sending the report to someone — a plausible chain for a shared artifact.
+
+All interpolated names now go through `escapeHtml`, every in-`<script>` payload
+through `jsonForScript`, and markdown cells through `escapeMarkdownCell`.
+
+### `/cco-pack` could propose another project's source (#59)
+
+`findHistoricallyUseful` always folds in the `_global` patterns bucket, which
+spans every project on the machine and stores absolute paths — so a file from
+an unrelated repo passed `existsSync` and every other filter. On real data
+here, **64 of 98** historic candidates lived outside the project, one ranking
+8th by confidence. Candidates are now scoped to the tracked root owning `cwd`,
+using boundary-aware containment (`/a/bc` is no longer "inside" `/a/b`).
+
+### `/cco-roi` credited tracked sessions for a number they did not produce
+
+When sessions existed but none had recorded a file read — a fresh install, the
+same shape as #53 — the report fell back to a hardcoded 35% waste while still
+labelling itself `N sessions (last 30 days)`. It now names the estimate as an
+estimate, marks the derived figures `(assumed)`, and warns that the whole
+projection rests on them. Wording that claimed CCO had already "blocked" those
+tokens now says they were identified as waste.
+
+### `NaN%` in `/cco-pack`
+
+`capUsedPercent` divided by a cap that is `0` whenever `packBudgetPercent` is
+configured to `0` (#39). It now reports no percentage rather than `NaN`.
+
+### Importing a module no longer runs its CLI
+
+`src/export.js` and `src/roi.js` executed their CLI at import time — importing
+`export.js` wrote a report into the user's exports directory. Both are guarded
+with the existing `isMainModule` helper.
+
+### Tests
+275 → 295. New coverage for smart-pack (path scoping, source priority,
+relevance caps, budget arithmetic), export (escaping in all three formats) and
+roi (provenance, fallbacks, table integrity).
+
+## 4.9.1 — 2026-08-10
+
+### Fix: `/cco-overhead mcp` told fresh installs to delete working MCP servers (#53)
+
+Reported by [@harvest316](https://github.com/harvest316), with the root cause,
+the on-disk verification, and the fix already in the report.
+
+On a fresh install the audit reported **every** configured MCP server as
+`0 calls` and printed a ready-to-run `claude mcp remove` for each — including
+servers in active, heavy use. The skill then offered to execute them.
+
+The cold-start guard existed but asked the wrong question: it counted session
+*files* (`sessions >= 5`), not whether a single `mcp__*` call had ever been
+observed. A handful of short sessions cleared the bar while carrying zero MCP
+evidence, so a tracker that had been running for twenty minutes rendered a
+confident "last 30 days" verdict.
+
+- New `haveMcpEvidence(usage, sessions)`: a server may be judged unused only
+  when the tracker has recorded **at least one MCP call somewhere**. Zero
+  observed calls is absence of evidence, not evidence of absence.
+- Unobserved servers now render `? not observed — no data yet, not a verdict`
+  instead of `✖ 0 calls`, and **no removal command is printed at all**.
+- The header states the **real observed span** ("last 3 day(s) observed")
+  instead of a fixed "last 30 days" the data may not cover.
+- `cco-overhead` skill: never suggest removing a `? not observed` server, and
+  never construct a `claude mcp remove` the report did not print.
+
+The asymmetry is the point — a genuinely unused server and one the tracker
+never watched look identical in the data, and only one is safe to remove.
+Failing closed costs the user nothing; failing open costs working config.
+
+### Docs
+- README: Awesome Claude Code badge (#54).
+
+## 4.9.0 — 2026-08-05
+
+### Self-learning tool costs (#38)
+MCP and Agent token costs were hardcoded constants (`mcp__*` ≈ 200 in,
+`Agent` ≈ 500). Real results vary by orders of magnitude, so on MCP-heavy
+sessions the budget meter was guessing at its own biggest line item.
+
+- New `src/tool-costs.js` + `tool-costs.json`: PostToolUse already measured the
+  real `tool_response` size — it now records a per-tool rolling average and
+  hands it back to the estimator.
+- An **EMA** (α=0.25), not a flat mean, so a tool that genuinely gets more
+  expensive is tracked rather than averaged away. `max` and `total` are kept
+  alongside for the report.
+- Holds off until **3 samples**, so one freak 200K response can't become "the
+  estimate". Table is capped at 200 tools, least-observed pruned first.
+- Applies only to guessed tools. `Read`/`Edit`/`Write` derive their estimate
+  from real arguments (file size, string lengths) — an average would be
+  strictly worse than what can be computed.
+- New `/cco-tools` shows the learned table sorted by total spend, which is
+  usually the honest answer to "where does my context actually go".
+- Writes are file-locked; a failed learn never fails the hook.
+
+### Cross-project / team pattern sharing (#37)
+Patterns were locked to one machine, so a teammate's fresh clone started blind
+and re-learned the same lessons by wasting the same tokens.
+
+- New `src/patterns-share.js` + `/cco-patterns export|import|show`.
+- The digest carries **relative paths and counts only** — no file contents, no
+  absolute paths, no home directory. Unrelativizable entries are dropped and
+  the count reported. Paths that merely share a prefix with the root
+  (`/p/proj-secret` vs `/p/proj`) are correctly treated as outside.
+- `auditDigest()` runs before writing **and on import** — a digest is rejected,
+  never sanitized, if it carries absolute paths, traversal, or string values
+  where only counts belong.
+- Imported data is stored in `proj.imported`, a **separate prior that never
+  touches local counts**. `confidence` means "sessions *I* observed this in";
+  blending in someone else's would make the user's own numbers a lie. Merges
+  take the stronger signal, so importing twice is a no-op.
+- Wired to a real consumer: on a first read with no local history, the tracker
+  surfaces the shared verdict, labelled as shared. Local evidence always wins.
+- This repo now ships its own `.cco/patterns.digest.json` as a live example.
+
+### Tests
+238 → 274. Heavy emphasis on the privacy boundary (path relativization,
+prefix-sibling rejection, traversal, digest audit) and on the invariant that
+imported data can never override a local observation.
+
+
+## 4.8.0 — 2026-08-05
+
+### Per-language token estimation (#35)
+The headline "tokens saved" figure was built on a single constant:
+`AVG_CHARS_PER_LINE = 35`, applied to every file type. Chars-per-line is what
+turns an observed line count into a token estimate, so a flat value biased the
+central metric per file.
+
+- New `CHARS_PER_LINE` map, **measured over 6,344 real source files** rather
+  than guessed. The measurement contradicted the issue's own estimates: `.json`
+  is 38.8 chars/line (not 18–22) and `.md` is 35.8 (not 45–60).
+- The corrections that matter: `.svg` averages **100.5** chars/line — nearly 3x
+  the old assumption, so generated SVG was massively under-counted. `.css` is
+  **25.3** and `.txt` **27.8** (over-counted); `.ts` is **44** and `.sql` **46**
+  (under-counted).
+- Applies to the big-file size shortcut in `getFileLines` too, so a 5MB SVG is
+  no longer counted as if its lines were 35 chars long.
+- Overridable per extension via `config.charsPerLine`.
+- This is complementary to the existing self-calibration, not redundant: the
+  EMA factor corrects *aggregate session* drift and cannot fix *per-file* bias.
+
+### Tunable thresholds + `/cco-config` (#39)
+Eleven behavior knobs were hardcoded across four modules. They are now
+`thresholds` in `config.json`, with a new `/cco-config show|get|set|reset`.
+
+- Every value is range-validated. An out-of-range or misspelled entry is
+  ignored in favour of the default and flagged with `!` in the table — a typo
+  can never make a hook behave wildly.
+- Covers re-read warning points, Read-Cache staleness (tokens/files/time),
+  prompt-coach length bands, and the `/cco-pack` budget cap.
+- `CCO_STALE_TIME_MS` still overrides `staleTimeMs` for one-off experiments.
+
+### Decision logic under test (#36)
+The formatters had coverage; the logic that decides what reaches Claude's
+context did not. Extracted the pure decision cores out of `main()` bodies that
+read stdin and call `process.exit`, then covered them:
+
+- `budget.js` — `selectWarnings` (each threshold fires exactly once, ascending
+  on a jump, boundary-inclusive), `shouldWarnCacheBreak`, `shouldWarnContextRot`,
+  `buildCompactRecommendation`.
+- `read-cache.js` — `checkStaleness` is now exported with injectable clock and
+  thresholds; table-driven tests over token/file/time displacement.
+- `tracker.js` — `aggregateSessionFiles` and `buildCoOccurrence` extracted;
+  `finalizeSession` now calls them instead of duplicating the logic inline.
+
+Writing these caught that a *deliberate re-read scores as useful*, not waste —
+worth pinning, since it directly shapes the reported waste percentage.
+
+### CI: version drift can't ship again
+`.claude-plugin/marketplace.json` silently sat at 4.3.0 through the 4.5.0 and
+4.6.0 releases. `sync-version.js --check` writes nothing and exits non-zero on
+any drift between `package.json`, `plugin.json`, `marketplace.json` and the
+docs badge; CI runs it on every push and PR.
+
+### Tests
+183 → 238.
+
+
+## 4.7.0 — 2026-08-05
+
+### Windows: the path handling was wrong everywhere it mattered
+CCO assumed POSIX. On Windows that silently degraded four separate features —
+none of them loudly enough to look broken.
+
+- **`/cco-overhead` finds transcripts again** (#46). `projectTranscriptDir()`
+  munged only `/` and `.`, so a Windows cwd kept its `\`, `:` and spaces and
+  produced a malformed lookup path
+  (`~\.claude\projects\C:\Program Files\Git`). Claude Code names that folder
+  `C--Program-Files-Git`; the encoding now matches. This also un-breaks the
+  CLAUDE.md / MEMORY.md itemization, which had been lumping everything into
+  the "system prompt & tools (unattributed)" line.
+- **`.contextignore` matches CRLF files** (#33). Patterns were parsed with
+  `split('\n')`, leaving a trailing `\r` on every line of a Windows-authored
+  file — so *no pattern ever matched* and the whole ignore list was inert.
+  Now `split(/\r?\n/)`.
+- **Glob matching understands backslashes** (#33). Paths are normalized to `/`
+  before matching, so `C:\proj\dist\a.js` matches `dist/**`.
+- **`getProjectRoot()` walks up correctly** (#33). The parent-directory step
+  was a `/`-only regex that never terminated properly on `C:\`; it now uses
+  `path.dirname`.
+- **`displayPath()` shortens Windows paths.** Splitting on `/` treated
+  `C:\a\b\c\file.ts` as one segment, so nothing was truncated and raw absolute
+  paths leaked into every report.
+- New `toPosixPath()` helper in `src/utils.js` — one normalization point at the
+  boundary instead of two separator dialects in every matcher.
+
+### Docs
+- `CONTRIBUTING.md` (#40) — setup, the release checklist, and the platform
+  rules above, so the POSIX assumption doesn't creep back in.
+
+### Tests
+175 → 183. Covers the Windows transcript-folder encoding, CRLF/LF parse
+equivalence, backslash path display, and `toPosixPath`.
+
+
+## 4.6.0 — 2026-07-06
+
+### /cco-overhead mcp — observation → the exact removal command
+- New `overhead.js mcp` subcommand: audits 30 days of tracked `mcp__*` calls
+  against every configured MCP server (user / local / project scope) and
+  prints per-server verdicts. Servers never called get the exact
+  `claude mcp remove "<name>" -s <scope>` fix; the skill offers to run it.
+  Verdicts hold off until 5+ tracked sessions of evidence.
+
+### Benchmark: dollar-leak economics
+- `benchmark/run.js` now prices the cache-break guard's value: one avoided
+  break on 150K context = $0.86; at 3 breaks/day that is ~$57/month (150K ctx)
+  to ~$152/month (400K ctx). Written to `results.json` as
+  `cacheBreakEconomics`.
+
+### README/landing
+- Session-summary screenshot with the
+  "★ CCO saved $654.36 — 86%" headline, embedded in the README v4.5 section.
+
+
+## 4.5.0 — 2026-07-06
+
+### Model auto-detection — works with fable / opus / sonnet / haiku, no config
+- The budget hook now reads the session's REAL model id from the transcript
+  (`message.model`) and stores it in budget state. Window size, pricing, the
+  dashboard header, and Read-Cache staleness thresholds all follow the model
+  the session actually runs on — switching `/model` mid-day no longer
+  miscalibrates anything. `config.model` is only the fallback.
+- New `normalizeModelId()` maps raw API ids (`claude-fable-5`,
+  `claude-opus-4-8[1m]`, dated haiku ids…) to the pricing table; added Claude 5
+  family entries (fable/mythos at the Opus tier until pricing is published).
+
+### Ground-truth tool accounting (Bash/MCP no longer invisible)
+- `Bash` added to the tracker/budget hook matcher — shell output was the
+  biggest untracked context consumer.
+- PostToolUse now measures the ACTUAL `tool_response` size instead of
+  stat-based guessing, for every tool. Waste attribution and /compact
+  recommendations get real numbers.
+- Big-result nudge: any single tool result ≥10K tokens emits a one-line fix
+  ("pipe through tail/grep", "read with offset/limit") — the #1 avoidable burn.
+
+### Context-rot warning (quality, not capacity)
+- On 1M-window models, a one-shot critical notice fires at ~350K context:
+  intelligence degrades in the ~300-400K "dumb zone" long before budget-%
+  warnings would trigger. Suggests a focused /compact or a fresh session.
+
+### Cache-break guard (the biggest remaining dollar leak)
+- The budget hook timestamps every event; when work resumes after a ≥5-min
+  pause with ≥20K warm context, it names the real cost of the break that just
+  happened (context × input rate × (1.25 write − 0.1 read)) and teaches the
+  habit: batch pauses, /compact before stepping away.
+
+### Observation → rule: .contextignore suggestions in the hook path
+- The shield's historical waste knowledge (files read-but-unused in 3+
+  sessions) now surfaces automatically once per session when the recurring
+  waste is ≥30K tokens, with the exact `/cco-shield apply` fix. Previously
+  this intelligence was only visible if you manually ran the CLI.
+
+### CLAUDE.md size nudge at SessionStart
+- Memory files load into every prompt — the most expensive place for bloat.
+  If project + user CLAUDE.md together exceed 200 lines, a one-shot notice
+  points at `/cco-claudemd`.
+
+### Savings headline on the session-end summary
+- `dashboard.js summary` now leads with the one number people remember:
+  `★ CCO saved $X this session — Y% of what it would have cost.`
+  (read-cache savings + prompt-cache economics vs the uncached price).
+
+### Fixes
+- Removed duplicated hook registrations guidance: plugin hooks.json is the
+  single source; running CCO hooks from both settings.json and the plugin
+  double-counted every stat and spawned 3 extra node processes per tool call.
+
+## 4.3.0 — 2026-07-04
+
+### Prompt Coach stops grading conversation (trust fix)
+- New classifier (`classifyPrompt`): prompts are `chat` / `question` / `task`.
+  Conversational replies ("спасибо, всё ок") are no longer graded F with
+  "name the file you want changed" advice injected into context — the coach
+  now coaches only actual work requests. Questions are graded for history but
+  never coached.
+- **Russian language support**: strong/vague verbs, unbounded phrases, success
+  hints, and interrogatives. Also fixes a latent bug: JS `\b` is ASCII-only,
+  so Cyrillic verb matching silently never worked.
+- Follow-up leniency: short mid-session prompts lean on loaded context and are
+  no longer coached unless truly unbounded.
+
+### Cache economics — the real billing lever (`/cco`)
+- Session cost is now priced at **real prompt-cache rates** (reads 10%, writes
+  125% of input) from exact transcript usage, instead of pricing every token
+  at the full input rate (which overstated cost up to ~10×).
+- New **Cache line** on the `/cco` board: hit rate, $ saved vs uncached, and
+  **cache breaks** — moments the warm cache went cold (>5 min pause, mid-session
+  CLAUDE.md edit, model switch) and the whole context was re-written at 1.25×.
+  The session summary calls out breaks with their extra cost.
+
+### NEW `/cco-overhead` — session baseline audit
+- Measures the fixed context every session starts with (system prompt, tools,
+  MCP, agents, CLAUDE.md, memory) from ground-truth transcript usage: latest,
+  average across recent sessions, % of budget, and $ per session.
+- Itemizes locally measurable sources (project/global CLAUDE.md, memory index,
+  agent definitions) and flags the unattributed remainder with concrete
+  recommendations. Baseline trims repay in EVERY session.
+
+### `/cco-shield suggest|apply` — close the waste loop
+- `suggest` turns files wasted in 3+ sessions into ready `.contextignore`
+  patterns (with per-session savings); `apply` appends them, deduped against
+  existing rules. Observation → permanent rule.
+
+### Self-calibrating estimates
+- At session end, the real/estimated token ratio is EMA'd into config
+  (clamped 0.5–2×) and the budget hook multiplies its input estimates by it.
+  The chars-per-token heuristic now learns each codebase's actual drift.
+
+### Delegation advisor
+- 12+ consecutive Read/Grep/Glob calls with no edits and 20K+ tokens pinned in
+  main context now triggers a one-per-session suggestion to delegate broad
+  exploration to a subagent (whose context is discarded — only the conclusion
+  returns). Resets on any edit or Agent call.
+
+### Tests
+- 150 → 170: prompt classification (ru/en), cache-break detection, cache-aware
+  cost math, baseline parsing, ignore suggestions, calibration EMA, streak
+  advisor.
+
+## 4.2.0 — 2026-07-04
+
+### Real token counts (ground truth)
+- **New `src/transcript-usage.js`**: the budget hook now reads exact API token
+  usage from the Claude Code session transcript (`transcript_path` on every
+  hook event) instead of relying only on the chars-per-token heuristic. Budget
+  % and the `/cco` board show real context usage when available; estimation
+  remains the fallback. Real numbers print without the `~` prefix.
+
+### Fixed
+- `/cco-digest` printed `$NaN` for every row of the cost table (multiplied
+  tokens by the `MODEL_COSTS` object instead of a rate) — same class as the
+  earlier roi/report fixes. Also deduped alias rows and fixed column alignment.
+- `/cco-export` (HTML) and `/cco-claudemd` overstated costs **3×** — they still
+  hardcoded the legacy `$15/M` Opus price instead of `MODEL_COSTS` ($5/M).
+- `benchmark/run.js` passed file *contents* where `parseFileStructure()` expects
+  a *path*, so every digest-based scenario measured an empty structure —
+  published savings were fabricated. Fixed and `results.json` regenerated
+  (honest total: 63%).
+- `/cco-roi` printed `Infinityx` at 100% waste (division by zero) — clamped.
+- Race between tracker and budget hooks: both ran in parallel on the same
+  PostToolUse matcher and did read-modify-write on the shared notice ledger,
+  breaking the noise cap and undercounting overhead in NET savings. The hooks
+  are now serialized in a single command (same for SessionEnd tracker →
+  dashboard).
+- Concurrent session finalization clobbered `global-stats.json` /
+  `patterns.json` (last-writer-wins) — now serialized with an atomic
+  mkdir-based file lock (stale locks stolen after 5s).
+- prompt-coach rewrote its whole prompt log on every prompt (O(n²), crash
+  could truncate history) — now a true `appendFileSync`.
+- Legacy read-cache entries without `ranges`/`lines` threw and silently
+  disabled caching for that file — fields are now defaulted.
+- Session summaries showed UTC as if it were wall-clock time — now local.
+
+### Performance
+- `getFileLines()` no longer slurps multi-MB files on the hook hot path just to
+  count lines (>1MB files are estimated from size).
+- Read token estimates are capped by the file's real size and use the
+  extension-aware ratio (a 475-line file now counts ~4.9K tokens, not 18.9K).
+- Unbounded per-session state capped: budget `filesLoaded` (500, coldest
+  evicted), tracker search log (last 300; totals unaffected).
+
+### Honesty
+- The "Session pulse" line now goes through the notice ledger: it respects the
+  per-session noise cap and its tokens count as overhead in NET savings.
+
+### Docs & packaging
+- README: added missing `/cco-roi`, `cco-replay`, and four `src/` files to the
+  docs; fixed stale `v4.0.0` strings here and in `docs/index.html`.
+- `sync-version.js` now also syncs `marketplace.json` and the `docs/index.html`
+  footer, so version drift can't recur.
+- Removed the junk `CHANGELOG-notes.md` and the empty `hooks/scripts/` dir.
+- Note: hook commands use POSIX shell syntax (`payload=$(cat)`); on Windows
+  they require Git Bash / WSL.
+
+### Tests
+- 139 → 150: regressions for the `$NaN` class, size-aware Read estimates,
+  large-file line estimation, transcript usage parsing, file-lock exclusivity
+  and stale-steal, tracker search-cap and tool counting.
+
+## 4.1.0
+
+- Silent-by-default hooks: advisory output gated by a per-session notice
+  ledger (cap 4), only actionable messages reach context.
+- Honest NET savings: `/cco` reports cache savings minus the optimizer's own
+  injected tokens; re-reads credited by real file size.
+- Big-file map-then-load: first full read of a >1500-line file returns its
+  structural map once; read again to load fully (`bigFileDigest` config).
+
+## 4.0.0
+
+- Opus 4.8 aware: default model `opus-4.8`, corrected pricing ($5/$25, full 1M
+  context at standard price — the fictional "1M surcharge" removed).
+- Context Control Center (`/cco`): budget, $ spent, savings, waste, prompt
+  grade, active task, and ready-to-run actions on one screen.
+- Per-task tracking (`/cco-task`), session-end auto-report, `/cco-doctor`.
+
+Earlier history: see git log.

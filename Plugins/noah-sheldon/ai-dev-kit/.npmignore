@@ -1,0 +1,7 @@
+.github/
+tests/
+docs/
+examples/
+*.test.js
+*.test.mjs
+*.test.cjs

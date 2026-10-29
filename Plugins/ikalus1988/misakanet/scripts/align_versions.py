@@ -1,0 +1,440 @@
+#!/usr/bin/env python3
+"""Version alignment for MisakaNet's multi-channel version lines (audit T2.1).
+
+MisakaNet deliberately runs THREE version channels, and their clocks are not
+the same (see docs/maintenance.md → 版本通道):
+
+* registry line  — server.json/glama.json ``version`` (MCP-registry listing
+  version; currently 2.29.x). Bumped together with the repo release tags, the
+  docs that advertise them (API.md header, JOIN.md) and the agent-discovery
+  cards under docs/.well-known/ (they declare the *server* version; their
+  ``supportedInterfaces.protocolVersion`` is a different fact and is left alone).
+* source line    — pyproject.toml + package.json + .codex-plugin/plugin.json +
+  .release-please-manifest (the repo's own release line). Since **2026-09-30**
+  release-please owns all of these (owner decision D1 = A): `package.json` and
+  the Codex plugin manifest are declared in `release-please-config.json`'s
+  `extra-files` through the json updater, so a release PR moves them with
+  everything else. Before that they moved on their own cadence and sat at 2.38.0
+  while the manifest said 2.39.0 — the drift a reader reported as "one page, two
+  version numbers" (intake #2486).
+* pypi channel   — the version actually on pypi.org. server.json's pypi
+  packages[] entry tracks the source line (== pyproject) as the *next* pypi
+  version.
+
+Usage:
+  python3 scripts/align_versions.py --check
+      Print every declared version + pass/fail against the policy below.
+      Exit 1 when a policy invariant breaks (CI / release gate).
+  python3 scripts/align_versions.py --source 2.24.0
+      Move the source line by hand: pyproject.toml, package.json,
+      .codex-plugin/plugin.json, .release-please-manifest.json ("."), the CLI,
+      the worker's serverInfo, README npm claims. **Not the release path any
+      more** — release-please writes these files in the release PR (2026-09-30);
+      this is the deliberate-incident path (see `npm_bundle_floor`).
+  python3 scripts/align_versions.py --registry 2.28.0
+      Bump the registry line: server.json + glama.json + API.md + JOIN.md
+      + the docs/.well-known cards' server version.
+
+Policy invariants (mirrored by tests/test_version_consistency.py):
+  R1 registry pair equal:        server.json.version == glama.json.version
+  R2 npm-bundle never ahead:     package.json <= manifest "."
+  R3 pypi-source equal:          server.json pypi-package.version == pyproject
+  R4 lag allowed:                pyproject <= manifest
+  R5 docs never ahead:           API.md / JOIN.md / README claims
+  R6 cards equal registry:       docs/.well-known/*.json server version
+                                 <= max(registry, manifest)
+  R7 plugin manifest == npm:     .codex-plugin/plugin.json == package.json
+
+There is deliberately **no floor** on the npm bundle line: moving backwards is
+reported by `--check` as an advisory and never fails, because a deliberate
+rollback and a typo look identical from the version number alone
+(`npm_bundle_floor`, 2026-09-29). That decision survives the 2026-09-30 change
+even though its setting did: release-please moves this line forward only, so a
+backwards move is now *always* a hand action — which makes the advisory a report
+about people rather than about cadence, and no more of a gate.
+
+The **equality** of the npm line with the manifest (the relation R2 only bounds
+from above, because the channel used to lag) is asserted in
+tests/test_version_consistency.py::test_the_npm_bundle_line_is_release_owned_and_carries_the_manifest_version,
+where the writer is checked at the same time as the value.
+"""
+from __future__ import annotations
+
+import json
+import subprocess
+import re
+import sys
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+SEMVER = re.compile(r"^\d+\.\d+\.\d+$")
+
+
+# Agent-discovery documents: what crawlers and MCP clients read before the site.
+# Nothing wrote their top-level ``version``, so it sat at 2.16.0 while the
+# registry listing reached 2.29.0 — the same "one fact, no writer" defect as the
+# lesson counts (handoff-2026-09-12). They belong to the registry line.
+WELL_KNOWN_CARDS = (
+    "docs/.well-known/agent.json",
+    "docs/.well-known/agent-card.json",
+    "docs/.well-known/mcp.json",
+    # Served live at https://misakanet.org/.well-known/glama.json and found on
+    # 2026-09-12 three releases behind (2.27.1) with a stale lesson count: it was
+    # declared nowhere, so nothing maintained it.
+    "docs/.well-known/glama.json",
+)
+
+
+def _read_json(rel: str) -> dict:
+    return json.loads((REPO / rel).read_text(encoding="utf-8"))
+
+
+def _write_json(rel: str, data: dict) -> None:
+    (REPO / rel).write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+
+
+
+def _bump_card_version(rel: str, version: str) -> None:
+    """Set a well-known card's top-level ``version`` without reformatting it.
+
+    ``_write_json`` re-serialises the whole document, which turns a one-character
+    version bump into a 46-line diff. Try a surgical edit first and accept it only
+    if the result parses to exactly the intended document; otherwise fall back.
+    """
+    path = REPO / rel
+    before = _read_json(rel)
+    if "version" not in before:
+        return
+    expected = dict(before)
+    expected["version"] = version
+    text = path.read_text(encoding="utf-8")
+    edited, hits = re.subn(r'(?m)^(\s*"version"\s*:\s*")[^"]*(")',
+                           rf"\g<1>{version}\g<2>", text, count=1)
+    if hits:
+        try:
+            if json.loads(edited) == expected:
+                path.write_text(edited, encoding="utf-8")
+                return
+        except json.JSONDecodeError:
+            pass
+    _write_json(rel, expected)
+
+
+def _ver(raw: str) -> tuple[int, int, int]:
+    raw = raw.strip().lstrip("v")
+    assert SEMVER.match(raw), f"not X.Y.Z: {raw!r}"
+    return tuple(int(p) for p in raw.split("."))
+
+
+def locations() -> dict[str, str]:
+    server = _read_json("server.json")
+    pypi = next(p for p in server["packages"] if p.get("registryType") == "pypi")
+    api = (REPO / "API.md").read_text(encoding="utf-8")
+    api_v = re.search(r"\*\*Version:\*\*\s*([0-9.]+)", api)
+    join = (REPO / "JOIN.md").read_text(encoding="utf-8")
+    join_v = re.search(r"MisakaNet v?([0-9.]+)", join)
+    readme = (REPO / "README.md").read_text(encoding="utf-8")
+    readme_claims = sorted(set(re.findall(r"misakanet(?:@| == )([0-9.]+)", readme)))
+    manifest = _read_json(".release-please-manifest.json")
+    pyproject_v = re.search(
+        r'^version\s*=\s*"([^"]+)"',
+        (REPO / "pyproject.toml").read_text(encoding="utf-8"),
+        re.M,
+    ).group(1)
+    cli = (REPO / "scripts" / "misakanet_cli.py").read_text(encoding="utf-8")
+    cli_version = re.search(r'(?m)^VERSION\s*=\s*"([0-9.]+)"', cli)
+    worker = (REPO / "workers" / "register-proxy-sw.js").read_text(encoding="utf-8")
+    mcp_serverinfo = re.search(
+        r'version:\s*env\.MCP_VERSION\s*\|\|\s*"([0-9.]+)"', worker)
+    return {
+        # The CLI's self-reported version. It read 2.17.0 while the package was 2.30.2 (2026-09-18
+        # review, 意见 2) because no rule looked at it — a value nobody writes is a value that
+        # drifts, which is 模式 10 in the defect register.
+        "scripts/misakanet_cli.py": cli_version.group(1) if cli_version else "",
+        # The version every MCP client reads in `initialize.serverInfo.version`. Nothing wrote it
+        # before 2026-09-18: it sat at 2.27.1 through six releases while this file's other targets
+        # moved, because a value with no writer is a value with no owner (see the defect register,
+        # 模式 2/模式 10, and issue #1820).
+        "workers/register-proxy-sw.js (serverInfo)": mcp_serverinfo.group(1) if mcp_serverinfo else "",
+        "server.json (registry)": str(server["version"]),
+        "glama.json (registry)": str(_read_json("glama.json")["version"]),
+        "pyproject.toml": pyproject_v,
+        "package.json": str(_read_json("package.json")["version"]),
+        '.release-please-manifest.json (".")': str(manifest["."]),
+        "server.json pypi-package": str(pypi["version"]),
+        "API.md header": api_v.group(1) if api_v else "",
+        "JOIN.md version": join_v.group(1) if join_v else "",
+        "README misakanet@ claims": ", ".join(readme_claims),
+        ".codex-plugin/plugin.json": str(_read_json(".codex-plugin/plugin.json").get("version", "")),
+        # The site badge. Nothing checked it before 2026-09-12, which is exactly
+        # how a release step whose `sed` interpolates an empty VERSION can rewrite
+        # it to a bare "v" and still pass every gate.
+        "docs/index.html (badge)": _docs_badge(),
+        "docs/.well-known cards": ", ".join(
+            sorted({str(_read_json(rel).get("version", "")) for rel in WELL_KNOWN_CARDS})),
+    }
+
+
+
+DOCS_BADGE = "docs/index.html"
+
+
+def _docs_badge() -> str:
+    """The single `>vX.Y.Z<` string in the site page, or "" when it is malformed."""
+    try:
+        text = (REPO / DOCS_BADGE).read_text(encoding="utf-8")
+    except OSError:
+        return ""
+    found = re.findall(r">v(\d+\.\d+\.\d+)<", text)
+    return found[0] if len(found) == 1 else ""
+
+
+def npm_bundle_floor(root: Path | None = None) -> tuple[str, str]:
+    """Advisory (never a failure): did the npm bundle line move *backwards*?
+
+    R2 bounds this line from **above** only — ``package.json <= manifest``. Nothing bounds it from below,
+    and the owner's decision (2026-09-29) is that it stays that way: a version number moves backwards for
+    two reasons that are indistinguishable from the number itself —
+
+    * a hand-edit, or an older artifact getting published (a mistake), and
+    * a deliberate rollback because the published version is broken (legitimate, and urgent).
+
+    A hard floor would block the second exactly when it is most needed, so this reports and never fails.
+    The previous value comes from git history: the most recent committed ``package.json`` whose version
+    differs from today's. A shallow checkout cannot answer that, and says so instead of reporting "ok" —
+    a check that passes when it could not run is the shape this repository keeps removing.
+
+    **Still meaningful after 2026-09-30**, when release-please took ownership of this line (D1 = A), and
+    the reason changed rather than disappeared: the old rationale had two halves — "the npm channel
+    publishes on its own cadence and lags" and "a hand edit or a rollback looks the same" — and the first
+    half is gone (release-please moves the line only forward, with the release PR). So a backwards move
+    now *always* means a person moved it, which is precisely what this reports: a hand edit or a
+    deliberate rollback. The owner's decision not to gate on it is untouched by that, so it stays an
+    advisory.
+    """
+    directory = Path(root) if root else REPO
+    # Read from `directory`, not from `REPO`: the parameter exists so a scratch repository can be
+    # used to demonstrate the failure mode, and a check that reads one tree while inspecting another
+    # is a check nobody can drive.
+    try:
+        current = str(json.loads((directory / "package.json").read_text(encoding="utf-8")).get("version", ""))
+    except (OSError, json.JSONDecodeError):
+        return "unverified", "package.json is missing or unreadable"
+    if not current:
+        return "unverified", "package.json has no version"
+    try:
+        listing = subprocess.run(["git", "-C", str(directory), "log", "--format=%H", "-n", "50",
+                                  "--", "package.json"],
+                                 capture_output=True, text=True, check=True).stdout.split()
+    except (subprocess.CalledProcessError, FileNotFoundError) as error:
+        return "unverified", f"git history unavailable ({type(error).__name__})"
+    if not listing:
+        return "unverified", "package.json has no committed history (shallow checkout, or a new file)"
+    for sha in listing:
+        try:
+            blob = subprocess.run(["git", "-C", str(directory), "show", f"{sha}:package.json"],
+                                  capture_output=True, text=True, check=True).stdout
+        except subprocess.CalledProcessError:
+            continue
+        try:
+            previous = str(json.loads(blob).get("version", ""))
+        except json.JSONDecodeError:
+            continue
+        if previous and previous != current:
+            return ("backwards", f"{previous} → {current}") if _ver(previous) > _ver(current) \
+                else ("ok", f"{previous} → {current}")
+    # History exists and never differs: no backwards move *within the commits we could see*, which is a
+    # bounded claim and says so. (Only a checkout with no history at all is `unverified`.)
+    return "ok", f"unchanged across {len(listing)} committed version(s)"
+
+
+def check() -> int:
+    loc = locations()
+    registry = loc["server.json (registry)"]
+    source = loc["package.json"]
+    manifest = loc['.release-please-manifest.json (".")']
+    pyproject = loc["pyproject.toml"]
+    pypi_entry = loc["server.json pypi-package"]
+    manifest_v = _ver(manifest)
+    ceiling = max(_ver(registry), manifest_v)
+
+    print("— version lines —")
+    for label, value in loc.items():
+        print(f"  {label}: {value}")
+
+    # Advisory, not a policy: printed, never collected into `problems`. See `npm_bundle_floor`.
+    floor_status, floor_detail = npm_bundle_floor()
+    if floor_status == "backwards":
+        print(f"  ⚠️  advisory — the npm bundle line moved backwards ({floor_detail}). R2 has no floor by "
+              "design, because a rollback is sometimes the right answer; if this was not deliberate, "
+              "restore the previous value. Since 2026-09-30 release-please moves this line forward only, "
+              "so a backwards move is a hand action by construction.")
+    elif floor_status == "unverified":
+        print(f"  ·  npm bundle floor not checked: {floor_detail}")
+    else:
+        print(f"  ·  npm bundle line did not move backwards ({floor_detail})")
+
+    # Informational, same reason as the advisory: `package.json`/`plugin.json` are release-please-owned
+    # since 2026-09-30, so a *lag* is no longer the channel's own cadence (R2 still allows it) but a
+    # release step that missed them. The equality itself is a test, not a policy here — this line exists
+    # so `--check` says which of the two readings of a lag applies.
+    if source != manifest:
+        print(f"  ·  note — the npm bundle line ({source}) is not the manifest version ({manifest}); "
+              "release-please owns both since 2026-09-30, so that lag means a release step missed "
+              "package.json/.codex-plugin/plugin.json (tests/test_version_consistency.py gates it)")
+
+    problems = []
+    badge = loc["docs/index.html (badge)"]
+    if not badge:
+        problems.append(
+            f"R8 {DOCS_BADGE} must carry exactly one `vX.Y.Z` badge (found none or several) — "
+            "a release step that interpolates an empty version rewrites it to a bare `v`")
+    elif badge != manifest:
+        problems.append(f"R8 site badge drifted: {DOCS_BADGE}=v{badge} manifest={manifest}")
+    # R8: same rule for the CLI's own version string.
+    if loc["scripts/misakanet_cli.py"] != loc["pyproject.toml"]:
+        problems.append(
+            "R8 misakanet_cli.py VERSION drifted: "
+            f"cli={loc['scripts/misakanet_cli.py'] or '(none)'} pyproject={loc['pyproject.toml']}")
+
+    # R7: the value MCP clients read must equal the source of truth, like everything else here.
+    if loc["workers/register-proxy-sw.js (serverInfo)"] != loc["pyproject.toml"]:
+        problems.append(
+            "R7 MCP serverInfo drifted: "
+            f"worker={loc['workers/register-proxy-sw.js (serverInfo)'] or '(none)'} "
+            f"pyproject={loc['pyproject.toml']}")
+
+    glama = loc["glama.json (registry)"]
+    if registry != glama:
+        problems.append(f"R1 registry pair drifted: server={registry} glama={glama}")
+    plugin_version = loc[".codex-plugin/plugin.json"]
+    if plugin_version and plugin_version != source:
+        problems.append(
+            f"R7 codex plugin manifest drifted: .codex-plugin/plugin.json={plugin_version} "
+            f"package.json={source}")
+    if _ver(source) > manifest_v:
+        problems.append(
+            f"R2 npm-bundle ahead of release line: package.json={source} > "
+            f"manifest={manifest}"
+        )
+    if pyproject != pypi_entry:
+        problems.append(f"R3 pypi-source drifted: pyproject={pyproject} pypi-entry={pypi_entry}")
+    if _ver(pyproject) > manifest_v:
+        problems.append(f"R4 pyproject ahead of manifest: {pyproject} > {manifest}")
+    for label in ("API.md header", "JOIN.md version"):
+        if loc[label] and _ver(loc[label]) > ceiling:
+            problems.append(f"R5 {label} claims {loc[label]} newer than max({registry},{manifest})")
+    for rel in WELL_KNOWN_CARDS:
+        card = str(_read_json(rel).get("version", ""))
+        if card != registry:
+            problems.append(f"R6 {rel} declares server version {card or '(none)'} != registry {registry}")
+    for claim in loc["README misakanet@ claims"].split(","):
+        c = claim.strip()
+        if c and _ver(c) > manifest_v:
+            problems.append(f"R5 README claims {c} newer than release line {manifest}")
+
+    for p in problems:
+        print(f"  ❌ {p}")
+    if problems:
+        print(f"\n{len(problems)} problem(s): run --source / --registry to align")
+    else:
+        print("\nOK — all version invariants hold")
+    return 0 if not problems else 1
+
+
+def bump_source(version: str) -> None:
+    """Move the source line by hand — the incident path, not the release path.
+
+    Since 2026-09-30 release-please writes all of these files in the release PR (`package.json` and
+    `.codex-plugin/plugin.json` through `extra-files`, pyproject/the manifest through the python release
+    type), so this function is what the *deliberate rollback* or an emergency hand-fix uses — see
+    `npm_bundle_floor` for why that path stays open. Running it as part of a normal release would fight
+    the release PR and re-introduce the two-writer shape D1 = A removed.
+    """
+    assert SEMVER.match(version), version
+    py = REPO / "pyproject.toml"
+    text = re.sub(r'(?m)^version\s*=\s*"[^"]+"', f'version = "{version}"',
+                  py.read_text(encoding="utf-8"))
+    py.write_text(text, encoding="utf-8")
+    pkg = _read_json("package.json")
+    pkg["version"] = version
+    _write_json("package.json", pkg)
+    # The Codex plugin manifest ships with the npm bundle, so it belongs to this
+    # line; nothing wrote it before, which is how it reached 2.28.1 independently
+    # (2026-09-12).
+    _bump_card_version(".codex-plugin/plugin.json", version)
+    man = _read_json(".release-please-manifest.json")
+    man["."] = version
+    _write_json(".release-please-manifest.json", man)
+    cli = REPO / "scripts" / "misakanet_cli.py"
+    text = cli.read_text(encoding="utf-8")
+    updated = re.sub(r'(?m)^(VERSION\s*=\s*")[0-9.]+(")', rf"\g<1>{version}\g<2>", text)
+    if updated != text:
+        cli.write_text(updated, encoding="utf-8")
+        print(f"  scripts/misakanet_cli.py VERSION -> {version}")
+    worker = REPO / "workers" / "register-proxy-sw.js"
+    text = worker.read_text(encoding="utf-8")
+    updated = re.sub(r'(version:\s*env\.MCP_VERSION\s*\|\|\s*")[0-9.]+(")',
+                     rf"\g<1>{version}\g<2>", text)
+    if updated != text:
+        worker.write_text(updated, encoding="utf-8")
+        print(f"  workers/register-proxy-sw.js serverInfo -> {version}")
+    for rel in ("README.md", "README.zh-CN.md"):
+        p = REPO / rel
+        if not p.exists():
+            continue
+        text = re.sub(
+            r"(misakanet(?:@| == ))\d+\.\d+\.\d+",
+            rf"\g<1>{version}",
+            p.read_text(encoding="utf-8"),
+        )
+        p.write_text(text, encoding="utf-8")
+    print(f"source line bumped to {version}: pyproject, package.json, manifest, README npm claims")
+
+
+def bump_registry(version: str) -> None:
+    assert SEMVER.match(version), version
+    server = _read_json("server.json")
+    server["version"] = version
+    # The pypi packages[] entry advertises the repo's release line as the
+    # installable pypi version; release-please moves pyproject/manifest to the
+    # same number, so keep R3 (entry == pyproject) satisfied in one step.
+    for pkg in server.get("packages", []):
+        if pkg.get("registryType") == "pypi":
+            pkg["version"] = version
+    _write_json("server.json", server)
+    glama = _read_json("glama.json")
+    glama["version"] = version
+    _write_json("glama.json", glama)
+    api = REPO / "API.md"
+    text = re.sub(r"(\*\*Version:\*\*\s*)[0-9.]+", rf"\g<1>{version}",
+                  api.read_text(encoding="utf-8"))
+    api.write_text(text, encoding="utf-8")
+    join = REPO / "JOIN.md"
+    text = re.sub(r"(MisakaNet v?)[0-9.]+", rf"\g<1>{version}",
+                  join.read_text(encoding="utf-8"))
+    join.write_text(text, encoding="utf-8")
+    for rel in WELL_KNOWN_CARDS:
+        _bump_card_version(rel, version)
+    print(f"registry line bumped to {version}: server.json(+pypi entry), glama.json, API.md, JOIN.md, "
+          f"{len(WELL_KNOWN_CARDS)} well-known cards")
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = sys.argv[1:] if argv is None else argv
+    if "--check" in args:
+        return check()
+    if "--source" in args:
+        v = args[args.index("--source") + 1]
+        bump_source(v)
+        return check()
+    if "--registry" in args:
+        v = args[args.index("--registry") + 1]
+        bump_registry(v)
+        return check()
+    print(__doc__)
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

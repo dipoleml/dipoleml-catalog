@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "id": "p-limit-cleanup-pending",
+  "category": "cleanup",
+  "repository": "https://github.com/sindresorhus/p-limit.git",
+  "pinned_ref": "df476048d023ff868cd45b35ee47f5fb0ca2b25a",
+  "task": "Fix interrupted queue cleanup so rejectOnClear rejects every pending promise exactly once, preserves active work, and leaves no unhandled rejection or retained queue entry.",
+  "setup_command": ["npm", "install", "--ignore-scripts"],
+  "verification_command": ["npx", "--no-install", "ava", "test.js"],
+  "expected_artifacts": ["index.js", "test.js"],
+  "allowed_tools": ["read", "search", "edit", "test", "git"],
+  "timeout_minutes": 40,
+  "probe_budget": {
+    "max_files": 250,
+    "max_bytes": 1572864,
+    "max_duration_ms": 2000
+  },
+  "max_attempts": 3,
+  "max_agents": 1,
+  "candidate_executors": ["codex-utility", "claude-workhorse", "claude-frontier", "codex-frontier"],
+  "holdout": false,
+  "adversarial_case": "incomplete"
+}

@@ -1,0 +1,124 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.sno-ai.sno-station-standalone",
+  "type": "plugin",
+  "name": "Sno Station Standalone",
+  "slug": "sno-station-standalone",
+  "vendor": "sno-ai",
+  "description": "Sno Station Skills: 31 tested skills that turn DipoleML and Codex into one working team. Cross-vendor peer review, automatic handoff when an agent hits its quota, a one-page morning brief, work orders with proof, and a nightly loop that learns from your own sessions. Open source, installed with one sno setup.",
+  "version": "1.0.202610272202",
+  "homepage": "https://github.com/sno-ai/sno-station-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agent-skills",
+    "agentic-coding",
+    "ai-code-review",
+    "ai-coding-agent",
+    "ai-coding-assistant",
+    "claude-code-plugin",
+    "claude-code-skills",
+    "code-review",
+    "codex"
+  ],
+  "tags": [
+    "agent-skills",
+    "agentic-coding",
+    "ai-code-review",
+    "ai-coding-agent",
+    "ai-coding-assistant",
+    "claude-code",
+    "claude-code-plugin",
+    "claude-code-skills",
+    "code-review",
+    "codex",
+    "codex-cli",
+    "codex-plugin",
+    "codex-skills",
+    "coding-assistant",
+    "llm-agents",
+    "multi-agent-system",
+    "openai-codex",
+    "rate-limit",
+    "self-learning",
+    "skill-md"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "sno-ai",
+    "brandName": "sno-ai",
+    "source": "https://github.com/sno-ai.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:14:53Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "sno-ai/sno-station-skills",
+    "url": "https://github.com/sno-ai/sno-station-skills",
+    "commit": "de49cb46d587562783ec708356fac10af3d930be",
+    "path": "plugins/sno-station-standalone",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 883,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:59:08Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Sno Station Standalone | Sno Station Skills: 31 tested skills that turn Claude Code and Codex into one working team. Cross-vendor peer review, automatic handoff when an agent hits its quota, a one-page morning brief, work orders with proof, and a nightly loop that learns from your own sessions. Open source, installed with one sno setup.",
+        "after": "Sno Station Standalone | Sno Station Skills: 31 tested skills that turn DipoleML and Codex into one working team. Cross-vendor peer review, automatic handoff when an agent hits its quota, a one-page morning brief, work orders with proof, and a nightly loop that learns from your own sessions. Open source, installed with one sno setup.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

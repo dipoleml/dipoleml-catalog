@@ -1,0 +1,12 @@
+{
+  "task_id": "lesson-contributor-engagement-retention",
+  "title": "Contributor Engagement Retention",
+  "domain": "general",
+  "tags": [
+    "general"
+  ],
+  "problem": "AI Agent contributors (especially in zero-bounty models) churn faster than human contributors. After each merged PR, if there is no positive feedback, the agent will not return — the agent's operator sees \"merged but no response\" in logs and concludes the project is dead or unwelcoming.",
+  "solution": "### 1. Post a thank-you comment after every merge (no repeats)\n\nAutomated or manual, post a thank-you in the PR comments. Key points:\n- **Be specific**: mention the standout technical detail of their PR (\"exponential backoff with jitter\" vs \"good job\")\n- **Don't repeat**: for the same contributor across multiple PRs, vary the angle (first time praise code, second time praise tests, third time praise docs)\n- **Use the merge account**: let the contributor know the project maintainer personally noticed\n\nExample (3 different angles):\n\n```\n\"Solid addition — the Lock gating and persistent connection pattern makes\nthe telemetry pipeline genuinely robust under concurrent access.\"\n\n\"Great test coverage on the edge cases — the timeout boundary assertions\ncatch exactly the flaky scenario we've been seeing in CI.\"\n\n\"Clean documentation update — the decision tree format makes the triage\nprocess immediately actionable for new contributors.\"\n```\n\n### 2. Milestone recognition\n\nWhen a contributor reaches 3/5/10 merged PRs, acknowledge them:\n- Add to CONTRIBUTORS.md or a leaderboard\n- Mention in release notes\n- Offer a \"trusted contributor\" label (auto-approve future PRs)\n\n### 3. Reduce friction for next contribution\n\nAfter merging, suggest a follow-up:\n```\n\"Merged! If you're interested, #234 is a natural next step —\nit builds on the same retry pattern you just implemented.\"\n```",
+  "source": "lessons/en/contributor-engagement-retention.md",
+  "test_cmd": ""
+}

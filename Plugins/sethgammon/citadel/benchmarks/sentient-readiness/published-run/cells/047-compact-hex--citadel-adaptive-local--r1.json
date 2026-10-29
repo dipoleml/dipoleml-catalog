@@ -1,0 +1,119 @@
+{
+  "schema": 1,
+  "cell_id": "047-compact-hex--citadel-adaptive-local--r1",
+  "order": 47,
+  "scenario_id": "compact-hex",
+  "policy_id": "citadel-adaptive-local",
+  "repetition": 1,
+  "route": {
+    "initial_tier": "cheap",
+    "escalation_tier": "strong",
+    "features": {
+      "word_count": 13,
+      "constraint_count": 0,
+      "reasoning_count": 0,
+      "structure_count": 0,
+      "difficulty_score": 0.01625
+    },
+    "reason_code": "ADAPTIVE_COMPACT_LOCAL"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "cheap",
+      "started_at": "2026-08-01T03:09:25.140Z",
+      "duration_ms": 5194,
+      "output_text": "{\n  \"answer\": 42\n}",
+      "output_digest": "sha256:37e4909920a2456830be3248e6f5d6e9de541592a89d8c53be3475fad1416ec5",
+      "answer": 42,
+      "verification": {
+        "status": "passed",
+        "verifier_id": "exact-answer-v1",
+        "answer_digest": "sha256:73475cb40a568e8da8a045ced110137e159f890ac4da883b6b17dc651b3a8049",
+        "failure_code": null
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "ollama-chat",
+        "requested_model": "qwen2.5-coder:3b",
+        "observed_model": "qwen2.5-coder:3b",
+        "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+        "done_reason": "stop",
+        "response_digest": "sha256:b4e7b9967fd9e87aba6cebcad92dd775c2648d5101f92ccc10ddfb3c92f225ff",
+        "error": null
+      },
+      "usage": {
+        "prompt_tokens": 61,
+        "completion_tokens": 11,
+        "total_tokens": 72,
+        "provider_total_duration_ns": 5191916800
+      },
+      "economics": {
+        "provider_invoice": {
+          "status": "known",
+          "amount_usd": 0,
+          "source": "self_hosted_ollama_no_per_request_invoice"
+        },
+        "gpu_energy": {
+          "status": "measured",
+          "energy_kwh": 0.000075914,
+          "samples": 11,
+          "average_watts": 52.616364
+        },
+        "comparison_cost": {
+          "status": "derived-comparison",
+          "total_usd": 0.000029611,
+          "components": [
+            {
+              "kind": "gpu_electricity",
+              "status": "derived-comparison",
+              "amount_usd": 0.000015183,
+              "energy_kwh": 0.000075914,
+              "rate_usd_per_kwh": 0.2,
+              "source": "nvidia_smi_energy_times_frozen_scenario_rate"
+            },
+            {
+              "kind": "gpu_amortization",
+              "status": "derived-comparison",
+              "amount_usd": 0.000014428,
+              "residual_value_usd": 100,
+              "useful_compute_hours": 10000,
+              "source": "duration_times_frozen_residual_value_scenario"
+            },
+            {
+              "kind": "provider_invoice",
+              "status": "known",
+              "amount_usd": 0,
+              "source": "self_hosted_ollama_no_per_request_invoice"
+            },
+            {
+              "kind": "cpu_memory_storage_display_energy",
+              "status": "unknown",
+              "amount_usd": null,
+              "source": "not_measured"
+            }
+          ]
+        },
+        "actual_end_to_end_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "whole_system_energy_and_actual_utility_rate_not_observed"
+        }
+      }
+    }
+  ],
+  "status": "passed",
+  "final_verification": {
+    "status": "passed",
+    "verifier_id": "exact-answer-v1",
+    "answer_digest": "sha256:73475cb40a568e8da8a045ced110137e159f890ac4da883b6b17dc651b3a8049",
+    "failure_code": null
+  },
+  "previous_cell_digest": "sha256:9e1876b8a94bbcc24de4306498d321308c729bc70a479d4d7d11120a6a73ba57",
+  "receipt_digest": "sha256:e77cbee7f52a5434aef98355ed2b2ac3bb7f87cbfeeb5fda7191efb23c6565fc",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:ef55e9b6b17831658519c533b7ad467f8dc86de9ed3aa38a0c5f96513cbf37b7",
+    "signature": "qZw0n8NcLG96fkoRiqP1lLlyzn55lHCiB6EZW/6s1KPcLkFWo/e6VDwVa/T0dLAL/OzV1fAvc67z7IWBIMZYAw=="
+  }
+}

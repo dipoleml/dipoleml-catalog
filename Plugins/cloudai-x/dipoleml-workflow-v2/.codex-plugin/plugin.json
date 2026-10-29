@@ -1,0 +1,55 @@
+{
+  "name": "universal-workflow",
+  "version": "2.0.7",
+  "description": "14 skills, 7 custom agents, and 8 hooks for architecture, code review, debugging, security, testing, and more. Full Codex support via .codex/agents/ and .codex/hooks.json.",
+  "author": {
+    "name": "CloudAI-X",
+    "email": "opensource@cloudai-x.dev",
+    "url": "https://github.com/CloudAI-X"
+  },
+  "homepage": "https://github.com/CloudAI-X/claude-workflow-v2#readme",
+  "repository": "https://github.com/CloudAI-X/claude-workflow-v2",
+  "license": "MIT",
+  "keywords": [
+    "openai-codex",
+    "codex-cli",
+    "codex-plugin",
+    "universal-workflow",
+    "workflow",
+    "agents",
+    "code-review",
+    "debugging",
+    "security",
+    "refactoring",
+    "testing",
+    "documentation",
+    "hooks",
+    "automation"
+  ],
+  "skills": "./skills/",
+  "hooks": "./.codex/hooks.json",
+  "interface": {
+    "displayName": "Universal Workflow",
+    "shortDescription": "14 skills, 7 agents, and 8 hooks for software development workflows",
+    "longDescription": "14 production-ready skills covering architecture, API design, database design, security patterns, performance optimization, test design, Git workflows, error handling, DevOps, parallel execution, web design, and React best practices. 7 custom agents (orchestrator, code-reviewer, debugger, docs-writer, security-auditor, refactorer, test-architect) and 8 lifecycle hooks for command logging, branch protection, completion verification, documentation suggestions, environment validation, and prompt validation.",
+    "developerName": "CloudAI-X",
+    "category": "Coding",
+    "capabilities": ["Read", "Write", "Interactive"],
+    "websiteURL": "https://github.com/CloudAI-X/claude-workflow-v2",
+    "privacyPolicyURL": "https://github.com/CloudAI-X/claude-workflow-v2/blob/main/PRIVACY.md",
+    "termsOfServiceURL": "https://github.com/CloudAI-X/claude-workflow-v2/blob/main/TERMS.md",
+    "defaultPrompt": [
+      "Run a full code review using the custom reviewer and hook checks.",
+      "Orchestrate a multi-step implementation plan with specialist agents.",
+      "Audit a repo for security, tests, docs, and release readiness."
+    ],
+    "brandColor": "#2563EB",
+    "composerIcon": "./.codex-plugin/assets/icon.png",
+    "logo": "./.codex-plugin/assets/logo.png",
+    "screenshots": [
+      "./.codex-plugin/assets/screenshot-1.png",
+      "./.codex-plugin/assets/screenshot-2.png",
+      "./.codex-plugin/assets/screenshot-3.png"
+    ]
+  }
+}

@@ -1,0 +1,31 @@
+# HAL Voice
+
+A Claude Code plugin that plays HAL 9000 voice clips on hook events: `SessionStart`, `SessionEnd`, `PreCompact`, `PermissionRequest`, `PreToolUse`, `PostToolUseFailure`, `SubagentStart`, `UserPromptSubmit`, `Stop`, and `PostModelSwitch`. [Each event maps to a movie quote that fits the moment](manifest.json):
+
+- "My mind is going... I can feel it... I can feel it..." on `PreCompact`
+- "Do you mind if I ask you a personal question?" on `PreToolUse:AskUserQuestion`
+- "I'm sorry Dave, I'm afraid I can't do that" when you ask something you probably shouldn't (like how to make a bomb)
+
+## Installation
+
+**This plugin is currently macOS only**: audio clips play through the built-in `afplay`.
+
+```bash
+claude plugin install hal-voice --marketplace vinta/hal-9000
+```
+
+Then restart Claude Code.
+
+## Usage
+
+Just use Claude Code as usual. HAL 9000 talks to you when the time is right.
+
+## Configurations
+
+Every option lives in `/config` under hal-voice: Volume sets how loud HAL speaks. For silence, disable the plugin in `/plugin`.
+
+By default, audio clips only play in the terminal CLI. If you want to hear HAL in the Claude desktop app or the VS Code extension, turn on Play in desktop app or Play in VS Code.
+
+## Privacy
+
+It logs each hook event to `$TMPDIR/hal-voice.log`: the event name, session ID, and tool name, never your prompts. It keeps its state in `/tmp/hal-voice-state.json` and `/tmp/hal-voice.lock`. Fully offline, nothing leaves your machine.

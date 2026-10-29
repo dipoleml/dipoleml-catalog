@@ -1,0 +1,122 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.nahumlitvin.prismantis",
+  "type": "plugin",
+  "name": "Prismantis",
+  "slug": "prismantis",
+  "vendor": "nahumlitvin",
+  "description": "Colorful, themeable DipoleML replies: tables, code, diagrams, charts and tool rows in 15 themes, with copy buttons. A DipoleML mod.",
+  "version": "0.36.0",
+  "homepage": "https://github.com/NahumLitvin/prismantis",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "claude-code-mod",
+    "claude-code-plugin",
+    "markdown",
+    "mermaid",
+    "terminal",
+    "theme"
+  ],
+  "tags": [
+    "claude-code",
+    "claude-code-mod",
+    "claude-code-plugin",
+    "markdown",
+    "mermaid",
+    "terminal",
+    "theme"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "nahumlitvin",
+    "brandName": "nahumlitvin",
+    "source": "https://github.com/NahumLitvin.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:14:11Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "NahumLitvin/prismantis",
+    "url": "https://github.com/NahumLitvin/prismantis",
+    "commit": "ed085d7c7d649241025a739d398f00c2d3b0c9a9",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 234,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:01:47Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Prismantis | Colorful, themeable Claude Code replies: tables, code, diagrams, charts and tool rows in 15 themes, with copy buttons. A Claude Code mod.",
+        "after": "Prismantis | Colorful, themeable DipoleML replies: tables, code, diagrams, charts and tool rows in 15 themes, with copy buttons. A DipoleML mod.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Colorful, themeable rendering for Claude Code replies: tables, headings, code, numbers, paths and links.",
+        "after": "Colorful, themeable rendering for DipoleML replies: tables, headings, code, numbers, paths and links.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [
+      "IMPORTANT"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

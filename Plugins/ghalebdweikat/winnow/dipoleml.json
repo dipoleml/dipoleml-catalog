@@ -1,0 +1,133 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.ghalebdweikat.winnow",
+  "type": "plugin",
+  "name": "Winnow",
+  "slug": "winnow",
+  "vendor": "ghalebdweikat",
+  "description": "A calibrated context sieve for DipoleML: every tool result is judged by a System One model before it enters context.",
+  "version": "0.5.2",
+  "homepage": "https://github.com/GhalebDweikat/winnow",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "claude-code-plugin",
+    "context-management",
+    "jev",
+    "llm-agents",
+    "typesafe"
+  ],
+  "tags": [
+    "claude-code",
+    "claude-code-plugin",
+    "context-management",
+    "jev",
+    "llm-agents",
+    "typesafe"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "ghalebdweikat",
+    "brandName": "ghalebdweikat",
+    "source": "https://github.com/GhalebDweikat.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:13:07Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "GhalebDweikat/winnow",
+    "url": "https://github.com/GhalebDweikat/winnow",
+    "commit": "4547a81b88ac59a902bad7b0006137c7d4147aeb",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 115,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:03:51Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Winnow | A calibrated context sieve for Claude Code: every tool result is judged by a System One model before it enters context.",
+        "after": "Winnow | A calibrated context sieve for DipoleML: every tool result is judged by a System One model before it enters context.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "A calibrated context sieve for Claude Code. Every large tool result is judged by a System One model before it enters context; irrelevant blocks are replaced with a summary and a recall key.",
+        "after": "A calibrated context sieve for DipoleML. Every large tool result is judged by a System One model before it enters context; irrelevant blocks are replaced with a summary and a recall key.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "-q",
+        "--project",
+        "${DIPOLEML_PLUGIN_ROOT}/sidecar",
+        "python",
+        "-m",
+        "winnow",
+        "mcp"
+      ]
+    },
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [
+      "TYPESAFE_API_KEY",
+      "ANTHROPIC_API_KEY",
+      "WINNOW_PORT"
+    ],
+    "credentials": [
+      "TYPESAFE_API_KEY",
+      "ANTHROPIC_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative. Upstream plugin scripts may reference CLAUDE_PLUGIN_ROOT; the DipoleML loader must set it as an alias for DIPOLEML_PLUGIN_ROOT.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

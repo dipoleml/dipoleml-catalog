@@ -1,0 +1,131 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.gmickel.flow-next",
+  "type": "plugin",
+  "name": "Flow Next",
+  "slug": "flow-next",
+  "vendor": "gmickel",
+  "description": "Faster than your agent alone. And better. A workflow plugin that takes a bug, idea or ticket to a verified pull request: specs, cross-model review by risk, live QA, receipts in your repo. DipoleML · Codex · Cursor · Droid · Grok Build · OpenCode · Muse Code.",
+  "version": "9.3.3",
+  "homepage": "https://github.com/gmickel/flow-next",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agentic-workflow",
+    "ai-workflow",
+    "anthropic",
+    "autonomous-agent",
+    "claude-code-plugin",
+    "cli",
+    "code-review",
+    "codex",
+    "execution"
+  ],
+  "tags": [
+    "agentic-workflow",
+    "ai-agent",
+    "ai-workflow",
+    "anthropic",
+    "autonomous-agent",
+    "claude-code",
+    "claude-code-plugin",
+    "cli",
+    "code-review",
+    "codex",
+    "execution",
+    "factory-droid",
+    "marketplace",
+    "muse-code",
+    "openai-codex",
+    "planning",
+    "plugin",
+    "sdlc",
+    "spec-driven-development",
+    "workflow"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "gmickel",
+    "brandName": "gmickel",
+    "source": "https://github.com/gmickel.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:13:08Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "gmickel/flow-next",
+    "url": "https://github.com/gmickel/flow-next",
+    "commit": "6c84c23f0edb5332c632bef154ae9489a96733a9",
+    "path": "plugins/flow-next",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 713,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:59:37Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude,cursor",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".cursor-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/cursor/.cursor-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Flow Next | Faster than your agent alone. And better. A workflow plugin that takes a bug, idea or ticket to a verified pull request: specs, cross-model review by risk, live QA, receipts in your repo. Claude Code · Codex · Cursor · Droid · Grok Build · OpenCode · Muse Code.",
+        "after": "Flow Next | Faster than your agent alone. And better. A workflow plugin that takes a bug, idea or ticket to a verified pull request: specs, cross-model review by risk, live QA, receipts in your repo. DipoleML · Codex · Cursor · Droid · Grok Build · OpenCode · Muse Code.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude",
+      "cursor"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

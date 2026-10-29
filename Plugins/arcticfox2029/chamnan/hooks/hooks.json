@@ -1,0 +1,115 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/chamnan_session_start.py\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/chamnan_scratch_watch.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/chamnan_agent_result.py\""
+          }
+        ]
+      },
+      {
+        "_comment": "A shell command that exits non-zero is a tool call that SUCCEEDED and reported a failure, so it arrives here and never on PostToolUseFailure. chamnan_tool_failed.py was taught to read an exit code and stayed registered on the failure event alone, which made that whole branch unreachable: logs/failures.jsonl was empty on a day full of failing commands. The --post flag is not read by the hook; it is there because Claude Code deduplicates hooks by the RAW command string before ${CLAUDE_PLUGIN_ROOT} expands, so the same path under two events would silently drop one of them.",
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/chamnan_tool_failed.py\" --post"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "_comment": "Claude Code gives a SessionEnd hook max(1500 ms, min(largest declared timeout x 1000, 60000 ms)) unless CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS is set. With no timeout declared this hook got 1.5 s, and measured on the Lumin-App repository chamnan_session_end.py takes 0.83-1.17 s (median 0.94) at load 10.9 and 6.3 s median under other work, most of it _marks() reading ~1,281 workspace files, so the host could kill it and lose the end-of-session digest. 10 s is far above the measurement and well under the 60 s cap. (R36 acc2, 2026-09-30)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/chamnan_session_end.py\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/chamnan_skill_pointer.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Read|Edit|Write|NotebookEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/chamnan_file_pointer.py\""
+          }
+        ]
+      },
+      {
+        "matcher": "Read|Bash|Grep|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/chamnan_bulk_read_notice.py\""
+          }
+        ]
+      },
+      {
+        "_comment": "chamnan-guard scans a staged diff for anything shaped like a secret. It worked and had never once run: nothing called it, its own --strict mode was documented as being for a hook somebody opted into, and no config key existed to opt in with. This is that hook. It warns and never blocks, which is the command's own default.",
+        "matcher": "Bash|PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/chamnan_commit_guard.py\""
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/chamnan_subagent_start.py\""
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"${CLAUDE_PLUGIN_ROOT}/hooks/chamnan_tool_failed.py\""
+          }
+        ]
+      }
+    ]
+  }
+}

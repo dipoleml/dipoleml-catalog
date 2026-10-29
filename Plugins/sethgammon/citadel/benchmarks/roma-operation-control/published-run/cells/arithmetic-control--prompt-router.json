@@ -1,0 +1,102 @@
+{
+  "schema": 1,
+  "run_id": "sha256:daa2e179a7ed7347c532732e791862d36230a679b3eaad2f2732f627643562a4",
+  "freeze_id": "sha256:f1ecf932261ceac604978952c42cdb8ec14032b795bffd1848fae90e9572ded5",
+  "scenario_id": "arithmetic-control",
+  "policy_id": "prompt-router",
+  "route": {
+    "target": "open-local",
+    "features": {
+      "word_count": 29,
+      "constraint_count": 1,
+      "reasoning_count": 0,
+      "structure_count": 0,
+      "difficulty_score": 0.06625
+    },
+    "reason_code": "PROMPT_SCORE_LOCAL"
+  },
+  "attempts": [
+    {
+      "receipt": {
+        "schema": 1,
+        "receipt_id": "sha256:0ab91537da1cefc10fd544d9df015a8a2916c2424c05d74d0ac457f7f2375d91",
+        "scenario_id": "arithmetic-control",
+        "policy_id": "prompt-router",
+        "attempt": 1,
+        "plan_id": null,
+        "observation_digest": null,
+        "output_digest": "sha256:ac5dd8f334e7a706537a960045c3b195f6d83c05202d6538ea18f27fbd58fce6",
+        "started_at": "2026-07-31T19:32:42.236Z",
+        "duration_ms": 6639,
+        "completion": {
+          "status": "failed",
+          "verifier_id": "json-answer-v1",
+          "answer_digest": "sha256:eb3be230bbd2844b1f5d8f2e4fab9ffba8ab22cfeeb69c4c1361993ba4f377b9",
+          "failure_code": "ANSWER_DIGEST_MISMATCH"
+        },
+        "control": {
+          "status": "verified",
+          "mismatch_codes": [],
+          "module_exercise": []
+        },
+        "execution_evidence": {
+          "status": "verified",
+          "runtime": "ollama-chat",
+          "requested_model": "qwen2.5-coder:3b",
+          "observed_model": "qwen2.5-coder:3b",
+          "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+          "done_reason": "stop",
+          "error": null
+        },
+        "cost": {
+          "status": "unknown",
+          "total_usd": null,
+          "reason": "electricity_rate_cpu_energy_and_hardware_amortization_unmeasured",
+          "components": [
+            {
+              "kind": "provider_invoice",
+              "status": "known",
+              "amount_usd": 0,
+              "source": "self_hosted_ollama_no_per_request_invoice"
+            },
+            {
+              "kind": "gpu_energy",
+              "status": "measured_nonmonetary",
+              "amount_usd": null,
+              "energy_kwh": 0.000126375,
+              "samples": 13,
+              "source": "nvidia_smi_power_draw_integration"
+            },
+            {
+              "kind": "cpu_and_system_energy",
+              "status": "unknown",
+              "amount_usd": null,
+              "source": "not_measured"
+            },
+            {
+              "kind": "hardware_amortization",
+              "status": "unknown",
+              "amount_usd": null,
+              "source": "not_allocated"
+            }
+          ],
+          "duration_ms": 6639,
+          "usage": {
+            "prompt_tokens": 87,
+            "completion_tokens": 132,
+            "total_tokens": 219,
+            "provider_total_duration_ns": 6626373400
+          },
+          "setup_costs_included": false
+        },
+        "adversarial_result": null
+      },
+      "plan": null,
+      "observation": null,
+      "output_text": "To solve this problem, we need to perform the following steps:\n\n1. Calculate \\(17 \\times 23\\).\n2. Calculate \\(19 \\times 11\\).\n3. Subtract the result of step 2 from the result of step 1.\n\nLet's do these calculations step by step:\n\n1. \\(17 \\times 23 = 401\\)\n2. \\(19 \\times 11 = 209\\)\n3. \\(401 - 209 = 192\\)\n\nTherefore, the final answer is {\"answer\": 192}.",
+      "raw_execution": {
+        "response_digest": "sha256:3a5bac4b47d33f32b98670f1c20f877f5874e97b46b6a6b40a0ce7c39db7397a"
+      }
+    }
+  ]
+}

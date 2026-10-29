@@ -1,0 +1,27 @@
+The following project files have been loaded via additionalDirectories:
+
+== index.md ==
+type: Index — Sales Knowledge Base
+Tables: orders (transaction records), customers (customer profiles)
+Metrics: wau (weekly active users), revenue (net revenue)
+Log: 2026-06-29 added customers table
+
+== tables/orders.md ==
+BigQuery Table — one row per completed order.
+Columns: order_id STRING, customer_id STRING, created_at TIMESTAMP,
+  total_cents INT64 (order total before refunds), status STRING (pending/confirmed/shipped/done)
+Join to customers on customer_id.
+
+== tables/customers.md ==
+BigQuery Table — one row per registered account.
+Columns: customer_id STRING, email STRING, country STRING, created_at TIMESTAMP
+
+== metrics/wau.md ==
+Metric — COUNT(DISTINCT user_id) WHERE session_date >= CURRENT_DATE - 7
+Excludes email LIKE '%@acme.com'. Rolling 7-day window.
+
+== metrics/revenue.md ==
+Metric — SUM(total_cents - refund_cents) / 100 WHERE status = 'done'
+Denominated in USD. Excludes test orders.
+
+Answer this question based on the project files above: {{question}}

@@ -1,0 +1,8 @@
+Short and direct:
+- understand the task
+- identify the critical path
+- list only the next concrete steps
+- stop when clarification is required
+
+Return a concise plan with risks and dependencies.
+

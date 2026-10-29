@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="Citadel's evaluator-facing evidence index: 240 signed prospective comparison cells, a bounded hybrid economic result, cross-stack conformance, fresh-clone onboarding, and exact claim boundaries." />
+<meta name="theme-color" content="#06111f" />
+  <link rel="canonical" href="https://sethgammon.github.io/Citadel/evidence.html" />
+  <link rel="manifest" href="site.webmanifest" />
+  <meta property="og:type" content="website" />
+  <meta property="og:site_name" content="Citadel" />
+  <meta property="og:title" content="Citadel Evidence | Inspect every claim boundary" />
+  <meta property="og:description" content="Two frozen 72-cell studies, signed receipts, retained failures, reproducible verification, and no savings claim where the gates failed." />
+  <meta property="og:url" content="https://sethgammon.github.io/Citadel/evidence.html" />
+  <meta property="og:image" content="https://sethgammon.github.io/Citadel/assets/citadel-social-preview.png" />
+  <meta property="og:image:width" content="1200" />
+  <meta property="og:image:height" content="630" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <meta name="twitter:image" content="https://sethgammon.github.io/Citadel/assets/citadel-social-preview.png" />
+  <title>Citadel Evidence | Inspect every claim boundary</title>
+<style>
+    .evidence-shell { width: var(--site-shell); margin: 0 auto; }
+    .evidence-hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.25fr) minmax(330px, .75fr);
+      gap: 70px;
+      align-items: center;
+      min-height: 640px;
+      padding: 86px 0 74px;
+    }
+    .evidence-hero h1 { margin: 20px 0 22px; max-width: 920px; font-size: clamp(58px, 7vw, 94px); line-height: .94; letter-spacing: -.065em; }
+    .evidence-hero h1 span { color: var(--site-cyan); }
+    .evidence-lede { max-width: 790px; color: var(--site-muted); font-size: clamp(18px, 2vw, 22px); line-height: 1.65; }
+    .evidence-lede strong { color: var(--site-text); }
+    .result-card { padding: 28px; border: 1px solid var(--site-line-strong); border-radius: 20px; background: linear-gradient(145deg, rgba(17, 28, 41, .96), rgba(13, 20, 31, .86)); box-shadow: var(--site-shadow); }
+    .result-card .status { display: inline-flex; padding: 7px 10px; border: 1px solid rgba(255, 198, 109, .44); border-radius: 999px; color: var(--site-amber); background: rgba(255, 198, 109, .08); font: 750 11px/1 var(--site-mono); letter-spacing: .12em; text-transform: uppercase; }
+    .result-card h2 { margin: 20px 0 12px; font-size: 32px; line-height: 1.08; letter-spacing: -.035em; }
+    .result-card p { margin: 0; color: var(--site-muted); line-height: 1.65; }
+    .result-metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; margin-top: 24px; overflow: hidden; border: 1px solid var(--site-line); border-radius: 13px; background: var(--site-line); }
+    .result-metric { padding: 16px; background: var(--site-surface); }
+    .result-metric strong { display: block; color: var(--site-text); font: 750 20px/1 var(--site-mono); }
+    .result-metric span { display: block; margin-top: 7px; color: var(--site-dim); font: 12px/1.35 var(--site-mono); }
+    .evidence-section { padding: 88px 0; border-top: 1px solid rgba(53, 81, 108, .52); }
+    .evidence-heading { display: grid; grid-template-columns: minmax(0, .9fr) minmax(320px, .75fr); gap: 70px; align-items: end; margin-bottom: 34px; }
+    .evidence-heading h2 { margin: 12px 0 0; max-width: 700px; font-size: clamp(38px, 5vw, 62px); line-height: 1; letter-spacing: -.05em; }
+    .evidence-heading p { margin: 0; color: var(--site-muted); font-size: 17px; line-height: 1.65; }
+    .comparison-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    .comparison-card { position: relative; overflow: hidden; padding: 30px; border: 1px solid var(--site-line); border-radius: 18px; background: rgba(13, 20, 31, .9); }
+    .comparison-card::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--site-cyan); }
+    .comparison-card.negative::before { background: var(--site-amber); }
+    .comparison-card small { color: var(--site-cyan); font: 750 11px/1 var(--site-mono); letter-spacing: .12em; text-transform: uppercase; }
+    .comparison-card.negative small { color: var(--site-amber); }
+    .comparison-card h3 { margin: 16px 0 8px; font-size: 27px; letter-spacing: -.025em; }
+    .comparison-card > p { margin: 0; color: var(--site-muted); line-height: 1.65; }
+    .comparison-card.wide { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(360px, .85fr); column-gap: 44px; align-items: start; }
+    .comparison-card.wide > small, .comparison-card.wide > h3, .comparison-card.wide > p, .comparison-card.wide > a { grid-column: 1; }
+    .comparison-card.wide .metric-list { grid-column: 2; grid-row: 1 / span 4; align-self: center; margin: 0; }
+    #comparisons { padding: 58px 0; }
+    #comparisons .evidence-heading { margin-bottom: 24px; }
+    #comparisons .comparison-card { padding: 24px 28px; }
+    #comparisons .comparison-card h3 { margin-top: 13px; font-size: 25px; }
+    #comparisons .comparison-card > p { line-height: 1.52; }
+    #comparisons .metric-list { margin: 18px 0; }
+    .metric-list { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin: 24px 0; }
+    .metric-list div { padding: 15px; border: 1px solid var(--site-line); border-radius: 11px; background: rgba(7, 11, 18, .55); }
+    .metric-list strong { display: block; color: var(--site-text); font: 750 17px/1 var(--site-mono); }
+    .metric-list span { display: block; margin-top: 7px; color: var(--site-dim); font: 11px/1.35 var(--site-mono); }
+    .evidence-ledger { display: grid; gap: 1px; overflow: hidden; border: 1px solid var(--site-line); border-radius: 18px; background: var(--site-line); }
+    .evidence-row { display: grid; grid-template-columns: 150px minmax(190px, .8fr) minmax(0, 1.4fr) 140px; gap: 22px; align-items: center; padding: 23px 24px; background: rgba(13, 20, 31, .96); }
+    .evidence-row:hover { background: rgba(17, 28, 41, .98); }
+    .evidence-id { color: var(--site-cyan); font: 750 11px/1.35 var(--site-mono); letter-spacing: .1em; }
+    .evidence-row h3 { margin: 0; font-size: 17px; }
+    .evidence-row p { margin: 0; color: var(--site-muted); font-size: 14px; line-height: 1.55; }
+    .evidence-state { justify-self: end; color: var(--site-green); font: 750 11px/1.3 var(--site-mono); text-align: right; text-transform: uppercase; }
+    .evidence-state.failed { color: var(--site-amber); }
+    .boundary-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    .boundary-card { padding: 28px; border: 1px solid var(--site-line); border-radius: 17px; background: rgba(13, 20, 31, .84); }
+    .boundary-card h3 { margin: 0 0 18px; font-size: 23px; }
+    .boundary-card ul { display: grid; gap: 12px; margin: 0; padding: 0; list-style: none; }
+    .boundary-card li { position: relative; padding-left: 22px; color: var(--site-muted); line-height: 1.55; }
+    .boundary-card li::before { content: "+"; position: absolute; left: 0; color: var(--site-green); font-family: var(--site-mono); }
+    .boundary-card.open li::before { content: "?"; color: var(--site-amber); }
+    .reproduce { display: grid; grid-template-columns: minmax(0, 1fr) minmax(360px, .85fr); gap: 30px; padding: 32px; border: 1px solid var(--site-line-strong); border-radius: 20px; background: linear-gradient(145deg, rgba(13, 20, 31, .96), rgba(10, 17, 27, .9)); }
+    .reproduce h3 { margin: 10px 0; font-size: 31px; }
+    .reproduce p { color: var(--site-muted); line-height: 1.65; }
+    .command-block { margin: 0; padding: 24px; overflow-x: auto; border: 1px solid var(--site-line); border-radius: 13px; color: var(--site-green); background: #05080d; font: 13px/1.85 var(--site-mono); }
+    .funded-target { display: grid; grid-template-columns: 1.1fr .9fr; gap: 32px; padding: 36px; border: 1px solid rgba(69, 221, 255, .36); border-radius: 22px; background: linear-gradient(135deg, rgba(69, 221, 255, .09), rgba(180, 149, 255, .055)); }
+    .funded-target h2 { margin: 12px 0; font-size: clamp(36px, 5vw, 58px); letter-spacing: -.05em; line-height: 1; }
+    .funded-target p { color: var(--site-muted); line-height: 1.7; }
+    .target-numbers { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-content: center; }
+    .target-numbers div { padding: 24px; border: 1px solid var(--site-line-strong); border-radius: 14px; background: rgba(7, 11, 18, .62); }
+    .target-numbers strong { display: block; color: var(--site-cyan); font: 750 34px/1 var(--site-mono); }
+    .target-numbers span { display: block; margin-top: 10px; color: var(--site-muted); font-size: 13px; line-height: 1.45; }
+    .target-numbers div:first-child { grid-column: 1 / -1; }
+    .evidence-footer { padding: 32px 0 48px; color: var(--site-dim); font: 12px/1.5 var(--site-mono); }
+    @media (max-width: 920px) {
+      .evidence-hero, .evidence-heading, .reproduce, .funded-target { grid-template-columns: 1fr; }
+      .evidence-hero { gap: 34px; min-height: 0; padding: 70px 0; }
+      .comparison-grid, .boundary-grid { grid-template-columns: 1fr; }
+      .comparison-card.wide { grid-column: auto; display: block; }
+      .comparison-card.wide .metric-list { margin: 24px 0; }
+      .evidence-row { grid-template-columns: 110px 1fr; }
+      .evidence-row p { grid-column: 1 / -1; }
+      .evidence-state { grid-column: 2; grid-row: 2; }
+    }
+    @media (max-width: 620px) {
+      .evidence-hero h1 { font-size: clamp(48px, 15vw, 68px); }
+      .metric-list { grid-template-columns: 1fr; }
+      .evidence-row { grid-template-columns: 1fr; gap: 10px; }
+      .evidence-state { grid-column: 1; grid-row: auto; justify-self: start; text-align: left; }
+      .target-numbers { grid-template-columns: 1fr; }
+      .target-numbers div:first-child { grid-column: auto; }
+      .reproduce, .funded-target { padding: 24px; }
+    }
+  </style>
+<link rel="stylesheet" href="site-system.css?v=20260803-1" />
+</head>
+<body class="site-page site-evidence">
+  <a class="site-skip-link" href="#main-content">Skip to content</a>
+  <div class="site-scroll-progress" aria-hidden="true"><span></span></div>
+  <nav class="site-nav" aria-label="Primary navigation">
+    <div class="site-nav-inner">
+      <a class="site-brand" href="index.html"><span class="site-brand-mark">C</span><span>Citadel</span></a>
+      <div class="site-nav-links">
+        <a class="site-nav-link" href="index.html#product-story">How it works</a>
+        <a class="site-nav-link" href="evidence.html" aria-current="page">Evidence</a>
+        <a class="site-nav-link" href="operation-control.html">Operation Control</a>
+        <a class="site-nav-link" href="optimizer.html">Optimizer</a>
+        <a class="site-nav-link" href="research.html">Research</a>
+      </div>
+      <div class="site-nav-actions">
+        <a class="site-nav-github" href="https://github.com/SethGammon/Citadel">GitHub</a>
+        <a class="site-nav-cta" href="#reproduce">Verify</a>
+        <button class="site-nav-toggle" type="button" data-site-nav-toggle aria-expanded="false" aria-controls="site-nav-mobile">Menu</button>
+      </div>
+    </div>
+    <div class="site-nav-mobile" id="site-nav-mobile" data-site-nav-mobile hidden>
+      <a class="site-nav-link" href="index.html">Product overview</a>
+      <a class="site-nav-link" href="#comparisons">Local studies</a>
+      <a class="site-nav-link" href="#ledger">Evidence ledger</a>
+      <a class="site-nav-link" href="#boundaries">Claim boundary</a>
+      <a class="site-nav-link" href="#reproduce">Reproduce</a>
+      <a class="site-nav-link" href="research.html">Research program</a>
+    </div>
+  </nav>
+
+  <main class="evidence-shell" id="main-content" tabindex="-1">
+    <header class="evidence-hero">
+      <div>
+        <div class="site-kicker">Evaluator evidence index</div>
+        <h1>Inspect the claim.<br /><span>Then try to break it.</span></h1>
+        <p class="evidence-lede">Citadel binds an operation's declared route to what actually ran, its measured and modeled cost lenses, and whether a deterministic verifier outside the routed model accepted the outcome. <strong>Failed policies stay failed. Unknown cost stays unknown.</strong></p>
+        <div class="site-button-row" style="margin-top:30px;">
+          <a class="site-button primary" href="#comparisons">See the six comparative studies</a>
+          <a class="site-button" href="https://github.com/SethGammon/Citadel/blob/main/docs/EVIDENCE_MANIFEST.md">Open generated manifest</a>
+          <a class="site-button" href="walkthrough.html">Watch the two-minute walkthrough</a>
+        </div>
+      </div>
+      <aside class="result-card" aria-label="Latest research result">
+        <span class="status">Latest diagnostic · baseline invalid</span>
+        <h2>Outside-authored work exposed the bottleneck.</h2>
+        <p>Across sixteen untouched evaluation repositories, direct Claude verified 2/16 and the sealed Qwen-first controller verified 3/16. The controller used 1.26% less comparison cost, but a 12.5% baseline cannot support a quality-preservation or savings claim.</p>
+        <div class="result-metrics">
+          <div class="result-metric"><strong>3/16</strong><span>controller verified</span></div>
+          <div class="result-metric"><strong>2/16</strong><span>direct Claude verified</span></div>
+          <div class="result-metric"><strong>1.26%</strong><span>lower comparison cost</span></div>
+          <div class="result-metric"><strong>32/32</strong><span>official verdicts published</span></div>
+        </div>
+      </aside>
+    </header>
+
+    <section class="evidence-section" id="comparisons">
+      <div class="evidence-heading">
+        <div><div class="site-kicker">Six separately frozen studies</div><h2>The failures changed the policy.</h2></div>
+        <p>Local studies exposed timeout, escalation, and baseline-validity defects. A calibrated synthetic support envelope passed. The outside-authored follow-up then showed that the retrieval/edit substrate and strong baseline were not ready.</p>
+      </div>
+      <div class="comparison-grid">
+        <article class="comparison-card">
+          <small>V1 · adaptive local</small>
+          <h3>More verified cells; savings not robust.</h3>
+          <p>Across 12 tasks × 2 policies × 3 timing repetitions, adaptive recorded 27/36 verified cells versus 24/36. Its frozen aggregate missed both 30% gates, and excluding one matched 60-second baseline timeout reverses all three economic comparisons.</p>
+          <div class="metric-list">
+            <div><strong>27/36</strong><span>adaptive verified</span></div>
+            <div><strong>+3.5%</strong><span>GPU energy in sensitivity</span></div>
+            <div><strong>+5.4%</strong><span>modeled GPU cost in sensitivity</span></div>
+          </div>
+          <a class="site-button" href="https://github.com/SethGammon/Citadel/blob/main/benchmarks/sentient-readiness/published-run/REPORT.md">Method + signed result</a>
+        </article>
+        <article class="comparison-card negative">
+          <small>V2 · capability profile</small>
+          <h3>Same cell completion, economic regression.</h3>
+          <p>Twelve new exact instances, mostly from task templates already seen in v1, routed work to 1.5B, 3B, or 7B. Model-external verification matched the baseline cell completion at higher measured GPU energy and modeled GPU cost.</p>
+          <div class="metric-list">
+            <div><strong>24/36</strong><span>both policies verified</span></div>
+            <div><strong>+15.7%</strong><span>GPU energy</span></div>
+            <div><strong>12</strong><span>strong escalations</span></div>
+          </div>
+          <a class="site-button" href="https://github.com/SethGammon/Citadel/blob/main/benchmarks/sentient-readiness-v2/published-run/REPORT.md">Signed result</a>
+          <a class="site-button" href="https://github.com/SethGammon/Citadel/blob/main/benchmarks/sentient-readiness-v2/CORRIGENDUM.md">Required disclosure</a>
+        </article>
+        <article class="comparison-card negative wide">
+          <small>V3 · repository operations</small>
+          <h3>Artifact integrity passed; economics failed.</h3>
+          <p>Six fixture repositories × 2 policies × 2 timing repetitions. Both policies verified 6/12 cells. Citadel used 7.1% less measured GPU energy, below the frozen 20% gate, and 13.2% more tokens.</p>
+          <div class="metric-list">
+            <div><strong>6/12</strong><span>both policies verified</span></div>
+            <div><strong>0</strong><span>false passes or path violations</span></div>
+            <div><strong>Failed</strong><span>frozen evidence result</span></div>
+          </div>
+          <a class="site-button" href="https://github.com/SethGammon/Citadel/blob/main/benchmarks/representative-operation-pilot-v2/published-run/REPORT.md">Method + signed result</a>
+        </article>
+        <article class="comparison-card negative">
+          <small>V4 · hybrid calibration</small>
+          <h3>Quality valid; economic gate missed narrowly.</h3>
+          <p>Both policies verified 12/12 fresh tasks. The risk-only policy avoided four Claude calls but made four unsupported local attempts, reducing comparison cost 28.4% against a frozen 30% gate.</p>
+          <div class="metric-list">
+            <div><strong>12/12</strong><span>both policies verified</span></div>
+            <div><strong>28.4%</strong><span>comparison-cost reduction</span></div>
+            <div><strong>Failed</strong><span>frozen economic result</span></div>
+          </div>
+          <a class="site-button" href="https://github.com/SethGammon/Citadel/blob/main/benchmarks/hybrid-economic-pilot/published-run/REPORT.md">Calibration report</a>
+        </article>
+        <article class="comparison-card wide">
+          <small>V5 · calibrated hybrid v2</small>
+          <h3>Same verified outcomes; bounded economic gate passed.</h3>
+          <p>Twelve new tasks, a valid Claude Sonnet 5 baseline, and a preregistered support envelope. Citadel used eight local attempts, recovered once, reduced Claude calls from twelve to five, and reduced comparison cost 38.7%.</p>
+          <div class="metric-list">
+            <div><strong>12/12</strong><span>both policies verified</span></div>
+            <div><strong>38.7%</strong><span>comparison-cost reduction</span></div>
+            <div><strong>Passed</strong><span>every frozen gate</span></div>
+          </div>
+          <a class="site-button" href="https://github.com/SethGammon/Citadel/blob/main/benchmarks/hybrid-economic-pilot-v2/published-run/REPORT.md">Passed method + signed result</a>
+        </article>
+        <article class="comparison-card negative wide">
+          <small>V6 · outside-authored public holdout</small>
+          <h3>Evidence sequence passed; optimization claim did not.</h3>
+          <p>Twenty-four distinct repositories supplied eight calibration and sixteen untouched evaluation tasks. Routes were published before calls. Qwen verified 1/16, direct Claude 2/16, and the Qwen-first controller 3/16 at 1.26% lower comparison cost. The baseline was too weak for a general result.</p>
+          <div class="metric-list">
+            <div><strong>24</strong><span>distinct repositories</span></div>
+            <div><strong>32/32</strong><span>official verdicts</span></div>
+            <div><strong>Invalid</strong><span>strong-baseline claim</span></div>
+          </div>
+          <a class="site-button" href="https://github.com/SethGammon/Citadel/blob/main/benchmarks/public-holdout-pilot/REPORT.md">Final report</a>
+          <a class="site-button" href="https://github.com/SethGammon/Citadel/blob/main/benchmarks/public-holdout-pilot/VALIDATION.md">Validation</a>
+        </article>
+      </div>
+    </section>
+
+    <section class="evidence-section" id="ledger">
+      <div class="evidence-heading">
+        <div><div class="site-kicker">Evidence ladder</div><h2>One index. No scavenger hunt.</h2></div>
+        <p>Each artifact answers a different question. The state at right is the gate's actual outcome, not a maturity badge.</p>
+      </div>
+      <div class="evidence-ledger">
+        <a class="evidence-row" href="https://github.com/SethGammon/Citadel/blob/main/benchmarks/operation-control-v2/REPORT.md">
+          <span class="evidence-id">01 / HISTORY</span><h3>120-cell operation matrix</h3><p>All 120 signed cells preserve 33 verified, 51 failed, and 36 unknown outcomes; 84 cells reached a model and 36 remained setup-unknown.</p><span class="evidence-state">Integrity passed</span>
+        </a>
+        <a class="evidence-row" href="https://github.com/SethGammon/Citadel/blob/main/benchmarks/roma-operation-control/published-run/REPORT.md">
+          <span class="evidence-id">02 / ROMA</span><h3>Sentient stack binding</h3><p>A pinned recursive stack consumed the operation contract; control evidence passed and the efficiency hypothesis failed.</p><span class="evidence-state failed">Policy failed</span>
+        </a>
+        <a class="evidence-row" href="https://github.com/SethGammon/Citadel/blob/main/benchmarks/operation-control-v2/prospective/RESULTS.md">
+          <span class="evidence-id">03 / RUNTIME</span><h3>Prospective Claude operation</h3><p>Requested and observed model/topology matched, the public clone changed as required, and a deterministic repository verifier outside the model passed.</p><span class="evidence-state">Integration passed</span>
+        </a>
+        <a class="evidence-row" href="https://github.com/SethGammon/Citadel/blob/main/benchmarks/sentient-readiness/published-run/REPORT.md">
+          <span class="evidence-id">04 / LOCAL V1</span><h3>Adaptive local calibration</h3><p>12 tasks × 2 policies × 3 timing repetitions; 27/36 versus 24/36 verified cells; frozen economic gates failed and timeout sensitivity reversed the economic direction.</p><span class="evidence-state failed">Gate failed</span>
+        </a>
+        <a class="evidence-row" href="https://github.com/SethGammon/Citadel/blob/main/benchmarks/sentient-readiness-v2/published-run/REPORT.md">
+          <span class="evidence-id">05 / LOCAL V2</span><h3>Capability-profile follow-up</h3><p>12 exact task instances × 2 policies × 3 timing repetitions; matched baseline cell completion; verifier escalation made measured GPU economics worse.</p><span class="evidence-state failed">Policy regressed</span>
+        </a>
+        <a class="evidence-row" href="https://github.com/SethGammon/Citadel/blob/main/benchmarks/representative-operation-pilot-v2/published-run/REPORT.md">
+          <span class="evidence-id">06 / REPOSITORY</span><h3>Representative fixture shakedown</h3><p>Six artifact-producing tasks × 2 policies × 2 timing repetitions; both policies verified 6/12 cells; integrity gates passed and economic gates failed.</p><span class="evidence-state failed">Gate failed</span>
+        </a>
+        <a class="evidence-row" href="https://github.com/SethGammon/Citadel/blob/main/benchmarks/hybrid-economic-pilot/published-run/REPORT.md">
+          <span class="evidence-id">07 / HYBRID CAL</span><h3>Claude plus local calibration</h3><p>Both policies verified 12/12 fresh tasks; four Claude calls were avoided; 28.4% comparison-cost reduction missed the frozen 30% gate.</p><span class="evidence-state failed">Gate missed</span>
+        </a>
+        <a class="evidence-row" href="https://github.com/SethGammon/Citadel/blob/main/benchmarks/hybrid-economic-pilot-v2/published-run/REPORT.md">
+          <span class="evidence-id">08 / HYBRID V2</span><h3>Calibrated support envelope</h3><p>Both policies verified 12/12 new tasks; Citadel reduced Claude calls from twelve to five and comparison cost 38.7% with every gate passed.</p><span class="evidence-state">All gates passed</span>
+        </a>
+        <a class="evidence-row" href="https://github.com/SethGammon/Citadel/blob/main/benchmarks/fresh-clone-onboarding/REPORT.md">
+          <span class="evidence-id">09 / ONBOARD</span><h3>Fresh-clone governed path</h3><p>Five unattended engineering stages completed from a clean local clone in 28.17 seconds; the nested doctor command exited zero but reported semantic health as unknown.</p><span class="evidence-state">5 stages completed</span>
+        </a>
+        <a class="evidence-row" href="https://github.com/SethGammon/Citadel/blob/main/benchmarks/public-holdout-pilot/REPORT.md">
+          <span class="evidence-id">10 / PUBLIC HOLDOUT</span><h3>Outside-authored route diagnostic</h3><p>24 distinct repositories, 16 sealed evaluation routes, 32 official verdicts; direct Claude 2/16 and controller 3/16. Baseline validity failed for a general claim.</p><span class="evidence-state failed">Baseline invalid</span>
+        </a>
+      </div>
+    </section>
+
+    <section class="evidence-section" id="boundaries">
+      <div class="evidence-heading">
+        <div><div class="site-kicker">Claim boundary</div><h2>What the work permits us to say.</h2></div>
+        <p>Citadel is not presented as a universally best-in-class model router. It now demonstrates a narrower, useful result: an operation policy can be controlled, observed, graded outside the routed model, rejected when it fails, and accepted when it preserves verified outcomes while clearing a frozen economic gate.</p>
+      </div>
+      <div class="boundary-grid">
+        <article class="boundary-card">
+          <h3>Demonstrated</h3>
+          <ul>
+            <li>One contract has external-stack adoption evidence in ROMA and contract-layer runtime coverage in Claude Code and Ollama.</li>
+            <li>Requested and observed runtime identity can be reconciled.</li>
+            <li>Deterministic verification outside the routed model rejects failed and adversarial answers.</li>
+            <li>Signed chains preserve every passed, failed, and unknown cell.</li>
+            <li>A plausible policy can be shown to cost more before deployment.</li>
+            <li>On twelve author-selected tasks inside a declared support envelope, Citadel preserved 12/12 verified outcomes while reducing Claude calls from twelve to five and comparison cost by 38.7%.</li>
+            <li>On 24 distinct outside-authored repositories, Citadel sealed routes before model calls and published all 32 official evaluation verdicts.</li>
+            <li>The outside-authored result rejected its own optimization headline because direct Claude verified only 2/16, despite the controller's 3/16 and 1.26% lower comparison cost.</li>
+            <li>Repository changes can be checked for exact artifacts and allowed-path boundaries without trusting the model's own report.</li>
+          </ul>
+        </article>
+        <article class="boundary-card open">
+          <h3>Still open</h3>
+          <ul>
+            <li>Thirty percent lower actual end-to-end cash cost across outside-authored production tasks with a valid strong baseline.</li>
+            <li>Generalization across repositories, agent stacks, model families, and hardware.</li>
+            <li>Actual cash accounting where subscription allocation or whole-system energy is absent.</li>
+            <li>Learned operation-value prediction that prices likely escalation and recovery.</li>
+            <li>Equivalent prospective actual-run evidence for every supported adapter.</li>
+          </ul>
+        </article>
+      </div>
+    </section>
+
+    <section class="evidence-section" id="reproduce">
+      <div class="reproduce">
+        <div>
+          <div class="site-kicker">Offline verification</div>
+          <h3>Recompute the proof without asking a model.</h3>
+          <p>This command runs seventeen offline checks across the retained failed calibrations, the passed hybrid result, the public holdout, routes, exact-answer verdicts, model identity, cost derivations, source bindings, artifact digests, receipt chains, Ed25519 signatures, public claims, the application package, and the site story.</p>
+          <a class="site-button" href="https://github.com/SethGammon/Citadel/blob/main/docs/grants/EVALUATOR_START_HERE.md">Evaluator guide</a>
+        </div>
+        <pre class="command-block"><code>npm run grant:verify</code></pre>
+      </div>
+    </section>
+
+    <section class="evidence-section">
+      <div class="funded-target">
+        <div>
+          <div class="site-kicker">What the Sentient grant buys</div>
+          <h2>Learn operation value, then test it in public.</h2>
+          <p>Funding expands the controller from frozen local pilots to multiple open agent stacks, task categories, model families, hardware profiles, tool routes, and complete cost lenses. The method and negative results remain public either way. Frontier must first verify at least 80% overall and 70% in every frozen task stratum, or the comparison is invalid.</p>
+          <div class="site-button-row" style="margin-top:24px;">
+            <a class="site-button primary" href="research.html">Read the research program</a>
+            <a class="site-button" href="https://github.com/SethGammon/Citadel/blob/main/docs/grants/SENTIENT_OPTIMIZER_APPLICATION_DRAFT.md">Read the application draft</a>
+          </div>
+        </div>
+        <div class="target-numbers">
+          <div><strong>&ge;80%</strong><span>absolute verified completion</span></div>
+          <div><strong>&ge;95%</strong><span>of a valid frontier baseline</span></div>
+          <div><strong>&ge;30%</strong><span>lower measured end-to-end cost</span></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="evidence-shell evidence-footer">Citadel public evidence · observed 2026-08-03 · outside-authored baseline invalid · zero adversarial false passes · generalization remains open.</footer>
+  <script src="site-system.js?v=20260803-1"></script>
+</body>
+</html>

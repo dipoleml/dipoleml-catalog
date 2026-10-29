@@ -1,0 +1,15 @@
+{
+  "name": "regulatory-legal-uk",
+  "version": "1.0.0",
+  "description": "Watches UK regulatory feeds (FCA, ICO, CMA, Ofcom, PRA, HSE, MHRA, HM Treasury, GOV.UK consultations, legislation.gov.uk), diffs new rules against your policy library, tracks consultation response deadlines and open gaps, and writes the digest your team reads Monday morning. Jurisdiction: England & Wales, Scotland, Northern Ireland.",
+  "author": {
+    "name": "uk-agents"
+  },
+  "homepage": "https://bouch.dev/products/uk-legal-plugins/regulatory-legal-uk",
+  "repository": "https://github.com/uk-agents/uk-legal-plugins",
+  "license": "MIT",
+  "displayName": "Regulatory Legal UK",
+  "category": "legal",
+  "keywords": ["uk-law", "legal", "fca", "ico", "cma", "ofcom", "pra", "regulatory-feeds", "policy-diff", "hmrc"],
+  "tags": ["regulatory", "compliance", "uk-law", "legal"]
+}

@@ -1,0 +1,16 @@
+{
+  "name": "vibe-engineering",
+  "displayName": "Vibe Engineering",
+  "version": "2.3.0",
+  "description": "33 engineering discipline skills for DipoleML, OpenAI Codex & Gemini CLI — research, quality gates, reward-hacking checks, testing patterns, deployment, gap analysis, spec sync, and more. Extracted from real-world development.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Ash1794"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/ash1794/vibe-engineering",
+  "repository": "https://github.com/ash1794/vibe-engineering",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

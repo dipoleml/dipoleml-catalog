@@ -1,0 +1,122 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.justi.dipoleml-code-project-boundary",
+  "type": "plugin",
+  "name": "DipoleML Project Boundary",
+  "slug": "dipoleml-code-project-boundary",
+  "vendor": "justi",
+  "description": "DipoleML plugin: scope-aware protection — allows destructive ops (rm, mv, chmod) within project, blocks them outside. Built for dangerouslySkipPermissions mode.",
+  "version": "1.11.0",
+  "homepage": "https://github.com/justi/claude-code-project-boundary",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "claude-code-plugin",
+    "cli-safety",
+    "dangerously-skip-permissions",
+    "destructive-commands",
+    "developer-tools",
+    "project-boundary",
+    "safety"
+  ],
+  "tags": [
+    "claude-code",
+    "claude-code-plugin",
+    "cli-safety",
+    "dangerously-skip-permissions",
+    "destructive-commands",
+    "developer-tools",
+    "project-boundary",
+    "safety"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "justi",
+    "brandName": "justi",
+    "source": "https://github.com/justi.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:13:36Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "justi/claude-code-project-boundary",
+    "url": "https://github.com/justi/claude-code-project-boundary",
+    "commit": "07c5250ec55434c97d3fed48ed29da193c7663a5",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 90,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:49:20Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Claude Code Project Boundary | Claude Code plugin: scope-aware protection — allows destructive ops (rm, mv, chmod) within project, blocks them outside. Built for dangerouslySkipPermissions mode.",
+        "after": "DipoleML Project Boundary | DipoleML plugin: scope-aware protection — allows destructive ops (rm, mv, chmod) within project, blocks them outside. Built for dangerouslySkipPermissions mode.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "claude-code-project-boundary",
+        "after": "dipoleml-code-project-boundary",
+        "reason": "provider token neutralized in slug/id"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "_comment": [
+    "TOOL: shipped code, blank templates, documentation and public reference rules.",
+    "FIXTURE: generated synthetic inputs; exact reproduction required.",
+    "DATA: all real-run inputs and outputs; physically absent here and versioned in a PRIVATE companion."
+  ],
+  "_audited": "2026-09-22: live paths include cycle criteria, inventory, quotes, documents, inbox state, feedback and model evaluation receipts. tools/runtime_paths.py confines writes to the private companion by path; tools/check_repository.py enforces physical absence in addition to pinned fleet guards.",
+  "data": [
+    "cycles/",
+    "inbox/",
+    "audits/",
+    "eval/model-runs/",
+    "diagnostics/",
+    ".firecrawl/",
+    ".playwright-mcp/",
+    "dealer_pdfs/",
+    "scratch/",
+    "runs/",
+    "car_buying_*/",
+    "dossiers/",
+    "retention.json",
+    "research-runs/"
+  ],
+  "data_sealed": [
+    "examples/market_en.png",
+    "examples/market_cn.png",
+    "skills/orchestrator/assets/feedback_log.md",
+    "dealer_outreach_tracker.md",
+    "manual_followup_queue.md",
+    "*_negotiation_prep.md",
+    "*_dossier.html",
+    "*_dossier.pdf"
+  ],
+  "fixture": [
+    "retention.json.example",
+    "examples/01_used_outback_ct_cash.md",
+    "examples/02_new_rav4_hybrid_pa_financing.md",
+    "examples/03_used_crv_ca_trade.md",
+    "examples/04_new_ioniq5_ev_tx_cash.md",
+    "examples/05_used_f150_il_finance_trade.md",
+    "examples/06_lease_glc_ny.md",
+    "examples/07_private_party_civic_nj.md",
+    "examples/08_cpo_grand_cherokee_stellantis_tx.md",
+    "examples/09_alaska_pickup.md",
+    "skills/orchestrator/assets/dossier_config_template.yaml",
+    "skills/orchestrator/assets/dossier_config_template_cn.yaml",
+    "skills/orchestrator/assets/dossier_config_template_es.yaml",
+    "skills/orchestrator/assets/research_report_config_template.json"
+  ],
+  "tool": [
+    "docs/superpowers/plans/*",
+    "docs/diagrams/*"
+  ],
+  "_tool_reasons": {
+    "docs/superpowers/plans/*": "Implementation plans for the tool, containing no actual purchase or user records."
+  },
+  "_readme_diagrams": "TOOL: docs/diagrams/ contains generic workflow drawings, rendered PNGs and their render script; no buyer records or live purchase evidence.",
+  "_data_home": "tools/runtime_paths.py delegates discovery to the installed fleet_guards.runtime companion resolver and checks destinations by path only; PRIVATE publication is enforced at commit time by the fleet-guards checks the .githooks shims run. Set BUY_ME_A_CAR_CONFIG to an initialized private companion; no repository or unversioned fallback."
+}

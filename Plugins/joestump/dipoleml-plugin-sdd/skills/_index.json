@@ -1,0 +1,10 @@
+{
+  "Creating Artifacts": ["prd", "adr", "spec"],
+  "Sprint Planning": ["plan", "organize", "enrich", "triage"],
+  "Implementation": ["work", "review", "respond"],
+  "Drift Detection": ["check", "audit"],
+  "Discovery": ["discover", "search"],
+  "Documentation": ["docs", "graph", "index"],
+  "Session Management": ["init", "prime"],
+  "Lifecycle Management": ["list", "status", "report-friction"]
+}

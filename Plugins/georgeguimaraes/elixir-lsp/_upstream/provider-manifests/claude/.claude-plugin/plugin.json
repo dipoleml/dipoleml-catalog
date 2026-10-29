@@ -1,0 +1,23 @@
+{
+  "name": "elixir-lsp",
+  "version": "2.1.1",
+  "description": "Elixir Language Server integration for Claude Code",
+  "author": {
+    "name": "George Guimaraes"
+  },
+  "homepage": "https://github.com/georgeguimaraes/elixir-agent-tools",
+  "license": "Apache-2.0",
+  "keywords": ["elixir", "lsp", "language-server", "phoenix", "heex"],
+  "lspServers": {
+    "expert": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/expert-wrapper",
+      "args": [],
+      "extensionToLanguage": {
+        ".ex": "elixir",
+        ".exs": "elixir",
+        ".heex": "heex",
+        ".leex": "leex"
+      }
+    }
+  }
+}

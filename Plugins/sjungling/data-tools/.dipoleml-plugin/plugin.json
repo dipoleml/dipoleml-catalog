@@ -1,0 +1,16 @@
+{
+  "name": "data-tools",
+  "displayName": "Data Tools",
+  "version": "2.1.0",
+  "description": "Skills for working with structured data using SQLite and other data tools during complex workflows and debugging",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Sjungling"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/sjungling/sjungling-claude-plugins",
+  "repository": "https://github.com/sjungling/sjungling-claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

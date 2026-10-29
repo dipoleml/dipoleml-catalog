@@ -1,0 +1,16 @@
+{
+  "name": "metaschema-tools",
+  "displayName": "Metaschema Tools",
+  "version": "0.1.0",
+  "description": "Commands and MCP servers for metaschema-java CLI integration",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Metaschema Framework"
+  },
+  "license": "CC0-1.0",
+  "homepage": "https://github.com/metaschema-framework/claude-plugins",
+  "repository": "https://github.com/metaschema-framework/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

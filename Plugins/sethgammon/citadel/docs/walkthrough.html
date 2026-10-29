@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="A two-minute narrated walkthrough of Citadel's product path, bounded synthetic result, and latest outside-authored baseline failure." />
+<meta name="theme-color" content="#06111f" />
+  <link rel="canonical" href="https://sethgammon.github.io/Citadel/walkthrough.html" />
+  <meta property="og:type" content="video.other" />
+  <meta property="og:site_name" content="Citadel" />
+  <meta property="og:title" content="Citadel | Two-minute evidence walkthrough" />
+  <meta property="og:description" content="Start with /do, inspect the bounded synthetic pass, then see the outside-authored diagnostic that invalidated its strong baseline." />
+  <meta property="og:url" content="https://sethgammon.github.io/Citadel/walkthrough.html" />
+  <meta property="og:image" content="https://sethgammon.github.io/Citadel/assets/citadel-social-preview.png" />
+  <meta name="twitter:card" content="summary_large_image" />
+  <title>Citadel | Two-minute evidence walkthrough</title>
+<style>
+    .walkthrough-shell { width: var(--site-shell); margin: 0 auto; }
+    .walkthrough-hero { padding: 86px 0 54px; text-align: center; }
+    .walkthrough-hero h1 { margin: 18px auto; max-width: 980px; font-size: clamp(48px, 7vw, 86px); line-height: .98; letter-spacing: -.06em; }
+    .walkthrough-hero h1 span { color: var(--site-cyan); }
+    .walkthrough-hero p { max-width: 760px; margin: 0 auto; color: var(--site-muted); font-size: 19px; line-height: 1.65; }
+    .video-frame { overflow: hidden; border: 1px solid var(--site-line-strong); border-radius: 20px; background: #020408; box-shadow: var(--site-shadow); }
+    .video-frame video { display: block; width: 100%; aspect-ratio: 16 / 9; background: #020408; }
+    .video-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; padding: 18px 20px; color: var(--site-dim); font: 12px/1.5 var(--site-mono); }
+    .verification-demo { padding-top: 72px; }
+    .verification-demo header { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, .7fr); gap: 48px; align-items: end; margin-bottom: 24px; }
+    .verification-demo h2 { margin: 12px 0 0; font-size: clamp(34px, 5vw, 56px); letter-spacing: -.05em; }
+    .verification-demo p { margin: 0; color: var(--site-muted); font-size: 16px; line-height: 1.7; }
+    .transcript { display: grid; grid-template-columns: minmax(220px, .55fr) minmax(0, 1.45fr); gap: 60px; padding: 82px 0; }
+    .transcript h2 { margin: 12px 0; font-size: 42px; letter-spacing: -.045em; }
+    .transcript-copy { color: var(--site-muted); font-size: 17px; line-height: 1.75; }
+    .transcript-lede { margin: 0 0 20px; color: var(--site-text); font-size: 19px; line-height: 1.65; }
+    .transcript-disclosure { overflow: hidden; border: 1px solid var(--site-line); border-radius: 16px; background: var(--site-panel); box-shadow: var(--site-inset), 0 14px 34px rgba(0, 8, 27, .2); }
+    .transcript-disclosure summary { display: flex; min-height: 68px; align-items: center; justify-content: space-between; gap: 18px; padding: 18px 20px; color: var(--site-text); cursor: pointer; font-weight: 750; list-style: none; }
+    .transcript-disclosure summary::-webkit-details-marker { display: none; }
+    .transcript-disclosure summary small { color: var(--site-dim); font: 11px/1.4 var(--site-mono); }
+    .transcript-disclosure summary::after { content: "+"; display: grid; flex: 0 0 30px; width: 30px; height: 30px; place-items: center; border: 1px solid var(--site-line-strong); border-radius: 50%; color: var(--site-cyan); font: 700 19px/1 var(--site-mono); }
+    .transcript-disclosure[open] summary { border-bottom: 1px solid var(--site-line); }
+    .transcript-disclosure[open] summary::after { content: "-"; }
+    .transcript-body { padding: 22px 20px 8px; }
+    .transcript-body p { margin: 0 0 18px; }
+    .walkthrough-footer { padding: 28px 0 48px; border-top: 1px solid var(--site-line); color: var(--site-dim); font: 12px/1.5 var(--site-mono); }
+    @media (max-width: 900px) { .transcript, .verification-demo header { grid-template-columns: 1fr; gap: 24px; } .walkthrough-hero { padding-top: 64px; } }
+    @media (max-width: 520px) { .transcript { padding: 64px 0; } .transcript h2 { font-size: 36px; } .transcript-disclosure summary { align-items: flex-start; } .transcript-disclosure summary small { display: none; } }
+  </style>
+<link rel="stylesheet" href="site-system.css?v=20260803-1" />
+</head>
+<body class="site-page site-walkthrough">
+  <a class="site-skip-link" href="#main-content">Skip to content</a>
+  <div class="site-scroll-progress" aria-hidden="true"><span></span></div>
+  <nav class="site-nav" aria-label="Primary navigation">
+    <div class="site-nav-inner">
+      <a class="site-brand" href="index.html"><span class="site-brand-mark">C</span><span>Citadel</span></a>
+      <div class="site-nav-links">
+        <a class="site-nav-link" href="index.html">Product</a>
+        <a class="site-nav-link" href="evidence.html">Evidence</a>
+        <a class="site-nav-link" href="optimizer.html">Optimizer</a>
+        <a class="site-nav-link" href="research.html">Research</a>
+        <a class="site-nav-link" href="walkthrough.html" aria-current="page">Walkthrough</a>
+      </div>
+      <div class="site-nav-actions">
+        <a class="site-nav-github" href="https://github.com/SethGammon/Citadel">GitHub</a>
+        <a class="site-nav-cta" href="evidence.html#reproduce">Verify</a>
+        <button class="site-nav-toggle" type="button" data-site-nav-toggle aria-expanded="false" aria-controls="site-nav-mobile">Menu</button>
+      </div>
+    </div>
+    <div class="site-nav-mobile" id="site-nav-mobile" data-site-nav-mobile hidden>
+      <a class="site-nav-link" href="index.html">Product overview</a>
+      <a class="site-nav-link" href="evidence.html">Evidence index</a>
+      <a class="site-nav-link" href="optimizer.html">Optimizer</a>
+      <a class="site-nav-link" href="research.html">Research program</a>
+    </div>
+  </nav>
+
+  <main class="walkthrough-shell" id="main-content" tabindex="-1">
+    <header class="walkthrough-hero">
+      <div class="site-kicker">Two-minute evaluator walkthrough</div>
+      <h1>Start with the product.<br /><span>End with the falsifiable claim.</span></h1>
+      <p>The full Citadel case in one short pass: progressive first use, operation evidence, six separately frozen studies, and the bounded result Sentient funding would generalize.</p>
+    </header>
+
+    <section class="video-frame" aria-label="Citadel application walkthrough video">
+      <video controls preload="metadata" poster="assets/application/02-evidence-hero.png">
+        <source src="assets/application/citadel-sentient-walkthrough.mp4" type="video/mp4" />
+        <track kind="captions" srclang="en" label="English" src="assets/application/citadel-sentient-walkthrough.vtt" default />
+        Your browser does not support embedded video. Read the transcript below or <a href="assets/application/citadel-sentient-walkthrough.mp4">download the MP4</a>.
+      </video>
+      <div class="video-meta"><span>02:00 · 1920 × 1080 · H.264 + AAC</span><span>Generated narration · transcript below</span></div>
+    </section>
+
+    <section class="verification-demo" aria-labelledby="verification-demo-title">
+      <header>
+        <div><div class="site-kicker">Recorded real output</div><h2 id="verification-demo-title">Watch the evidence reproduce.</h2></div>
+        <p>This 42-second supplement is rendered from commands actually executed in the release checkout. The committed JSON retains every output line, exit code, output digest, and source revision.</p>
+      </header>
+      <div class="video-frame">
+        <video controls preload="metadata" poster="assets/application/02-evidence-hero.png" aria-describedby="verification-demo-description">
+          <source src="assets/application/citadel-live-verification-demo.mp4" type="video/mp4" />
+          Your browser does not support embedded video. <a href="assets/application/citadel-live-verification-demo.mp4">Download the MP4</a> or inspect the output transcript.
+        </video>
+        <div class="video-meta" id="verification-demo-description"><span>00:42 · 1920 × 1080 · silent terminal capture</span><span><a href="assets/application/live-verification-output.json">Exact output + SHA-256 digests</a></span></div>
+      </div>
+    </section>
+
+    <section class="transcript">
+      <div><div class="site-kicker">Accessible transcript</div><h2>The argument, in plain language.</h2><a class="site-button" href="assets/application/walkthrough-narration.txt">Download text</a></div>
+      <div class="transcript-copy">
+        <p class="transcript-lede">Citadel starts with <code>/do</code>, then adds durable operation control only when the work needs it. The research case asks whether the complete operation—not merely one model call—can be made cheaper without hiding failure.</p>
+        <details class="transcript-disclosure">
+          <summary><span>Read the complete transcript</span><small>Four parts · about two minutes</small></summary>
+          <div class="transcript-body">
+            <p>Citadel starts with one command: <code>/do</code>. You describe the engineering outcome, and Citadel chooses the smallest operating lane that can carry it. When work lasts longer, Citadel adds repository state, recovery, coordination, bounded execution, and a concrete next action around Claude Code or Codex.</p>
+            <p>The research question begins where ordinary orchestration ends. A smaller model is not cheaper if its answer fails, the verifier forces a retry, or the operation hides part of its cost. Citadel binds the declared route to observed execution, a verdict outside the routed model, cost lenses, and a signed receipt.</p>
+            <p>Earlier prospective studies tested that contract. Three local calibrations failed or missed their gates and remain public. A first Claude-plus-local policy preserved 12/12 outcomes but reduced comparison cost only 28.4%, missing its frozen 30% gate. A separately frozen hybrid v2 used twelve new synthetic tasks, preserved 12/12 outcomes for both policies, reduced Claude calls from twelve to five, and reduced comparison cost 38.7% with every frozen gate passed.</p>
+            <p>The later public holdout is the current result. It used 24 distinct outside-authored repositories, sealed sixteen evaluation routes before model calls, and published all 32 official verdicts. Direct Claude verified 2/16 and the controller 3/16 at 1.26% lower comparison cost. Because the baseline passed only 12.5%, Citadel does not call that useful quality preservation or savings. Sentient funding buys the retrieval, edit protocol, valid baseline, broader stacks, models, tools, hardware, complete cost, and learned operation-value policy still missing. The public gate remains at least 80% absolute verified completion, at least 95% of a valid frontier baseline, and at least 30% lower measured end-to-end cost; frontier must first clear 80% overall and 70% in every frozen task stratum.</p>
+          </div>
+        </details>
+      </div>
+    </section>
+  </main>
+  <footer class="walkthrough-shell walkthrough-footer">Synthetic narration is disclosed · source transcript and rebuild script are committed · evidence is reproducible outside the routed models.</footer>
+  <script src="site-system.js?v=20260803-1"></script>
+</body>
+</html>

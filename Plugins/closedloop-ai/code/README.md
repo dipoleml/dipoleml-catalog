@@ -1,0 +1,596 @@
+# code Plugin
+
+The `code` plugin implements **ClosedLoop**, an autonomous software development framework that orchestrates Claude agents through a structured, multi-phase workflow. Given a requirements document (PRD), ClosedLoop plans, implements, tests, and validates code changes across one or more repositories — iterating until the work is complete.
+
+The plugin provides the orchestrator prompt, all specialized subagents, a hook system for session management and learning capture, skills for deterministic caching and validation, schemas for data contracts, and Python utilities used throughout the workflow.
+
+## Installation And Ownership
+
+Install and enable both `code` and `closedloop-core` from the ClosedLoop marketplace in Claude Code or Codex. The Claude Code manifest declares `closedloop-core` as a dependency; Codex installations must also include it so shared skill invocations resolve.
+
+`code` owns the planning and implementation framework described below. `closedloop-core` owns the shared `plan-structure`, `decision-table`, `closedloop-intel`, `workflow-code-review`, and `mermaid-visualizer` skills. Invoke them by skill name in Codex (for example, `$decision-table`) or through the `closedloop-core` namespace in Claude Code (for example, `/closedloop-core:decision-table`). Vibe sessions, handoff, ticket automation, guided manual QA, measurement discipline, and PR monitoring belong to the separate `vibe` plugin.
+
+---
+
+## Key Features
+
+- **Plan-first workflow**: Generates a structured `plan.json` from a PRD, pauses for human review, then proceeds to implementation
+- **Multi-phase orchestration**: Sequenced phases covering pre-exploration, planning, critic review, implementation, code review, visual QA, and validation
+- **Loop agents**: Key agents (plan-draft-writer, implementation-subagent, etc.) self-validate and iterate until quality gates pass
+- **Caching layer**: Skills for critic, build, and cross-repo caches eliminate redundant expensive agent calls
+- **Self-learning system**: Agents capture learnings into pending JSON files; hooks inject relevant past patterns into new agent contexts. The hooks are enabled by setting `CLOSEDLOOP_SELF_LEARNING=true` in the environment.
+- **Cross-repo coordination**: Discovers peer repositories, identifies missing capabilities, and generates cross-repo PRDs
+- **Visual QA**: Playwright-based browser automation agent validates UI changes against documented requirements
+- **Plan amendment**: The `/code:amend-plan` command supports natural conversation to modify an approved plan after implementation has started
+
+---
+
+## Architecture Overview
+
+```mermaid
+graph TD
+    User["/code:code [workdir]"] --> Setup["setup-closedloop.sh"]
+    Setup --> Orch[Orchestrator]
+    Orch --> P09["Phase 0.9: Pre-exploration"]
+    P09 --> P1["Phase 1: Planning"]
+    P1 --> Review{Human Review}
+    Review -->|approved| P13["Phase 1.3: Simple Mode Evaluation"]
+    P13 --> P14["Phase 1.4: Cross-repo Coordination"]
+    P14 --> P25["Phase 2.5: Critic Validation"]
+    P25 --> P26["Phase 2.6: Plan Refinement"]
+    P26 --> P27["Phase 2.7: Plan Finalization"]
+    P27 --> P28["Phase 2.8: Plan Completion"]
+    P28 --> P3["Phase 3: Implementation"]
+    P3 --> P4["Phase 4: Code Simplification"]
+    P4 --> P5["Phase 5: Testing & Code Review"]
+    P5 --> P55["Phase 5.5: Behavioral Verification"]
+    P55 --> P6["Phase 6: Visual Inspection"]
+    P6 --> P7["Phase 7: Logging & Completion"]
+
+    style Review fill:#fff3e0
+    style P25 fill:#e1f5fe
+    style P3 fill:#e8f5e9
+    style P5 fill:#fce4ec
+    style P55 fill:#ede7f6
+```
+
+The orchestrator never reads project files directly. All file operations are delegated to subagents, keeping the orchestrator's context lean for coordination work.
+
+State is maintained in `$CLOSEDLOOP_WORKDIR/state.json` at each phase transition so external UIs can display progress.
+
+---
+
+## Commands
+
+### `/code:code`
+
+**Description:** Begin a ClosedLoop coding session.
+
+**Usage:**
+```
+/code:code [working-directory] [--prompt <name>] [--prd <requirements-file>]
+```
+
+- `working-directory`: Path to the work directory containing the PRD (defaults to current directory)
+- `--prompt <name>`: Select an alternate orchestrator prompt (`prompts/<name>.md`). Defaults to `prompt`.
+- `--prd <file>`: Explicitly specify the requirements file (auto-detected if omitted)
+
+**What it does:**
+1. Runs `setup-closedloop.sh` to write config and establish the session
+2. Loads the orchestrator prompt specified by `CLOSEDLOOP_PROMPT_FILE`
+3. The orchestrator coordinates all phases until completion or a hard stop requiring user input
+
+### `/code:create-plan`
+
+**Description:** Create an implementation plan (planning only).
+
+**Usage:**
+```
+/code:create-plan [working-directory] [--prd <requirements-file>] [--plan <plan-file>] [--add-dir <path>]
+```
+
+- `working-directory`: Path to the work directory containing the PRD (defaults to current directory)
+- `--prd <file>`: Explicitly specify the requirements file (auto-detected if omitted)
+- `--plan <file>`: Target plan file
+- `--add-dir <path>`: Additional directory to make available to the session
+
+**What it does:**
+
+Runs `setup-closedloop.sh` with the `plan-prompt` orchestrator prompt (`prompts/plan-prompt.md`) for a single-shot, in-session planning run. The orchestrator runs PLAN ONLY (phases 0.9–2.8), delegating all project file reading to subagents. When the plan is finalized (`plan.json` + `plan.md` ready and validated), it writes `state.json` with `status: COMPLETED`, outputs `<promise>PLAN_COMPLETE</promise>`, and stops without proceeding to implementation.
+
+### `/code:execute-implementation`
+
+**Description:** Execute an implementation plan (implementation only).
+
+**Usage:**
+```
+/code:execute-implementation [working-directory] [--add-dir <path>] [--review-cycles <n>]
+```
+
+- `working-directory`: Path to the work directory containing `plan.json` (defaults to current directory)
+- `--add-dir <path>`: Additional directory to make available to the session
+- `--review-cycles <n>`: Number of in-session review rounds
+
+**What it does:**
+
+Runs `setup-closedloop.sh` with the `execute-prompt` orchestrator prompt (`prompts/execute-prompt.md`) for a single-shot, in-session implementation run. The orchestrator runs IMPLEMENTATION ONLY (phases 3–7 plus in-session review rounds) and requires an existing `plan.json` — if none exists it HARD STOPS and points to `/code:create-plan`, never drafting a plan itself. When implementation is genuinely finished (all tasks complete, build validation passes), it writes `state.json` with `status: COMPLETED` and outputs `<promise>IMPLEMENTATION_COMPLETE</promise>`. If tasks remain or validation fails, it ends without the promise so a re-invocation resumes the remaining work.
+
+### `/code:amend-plan`
+
+**Description:** Discuss and apply amendments to a `plan.json` implementation plan.
+
+**Usage:**
+```
+/code:amend-plan --workdir [path] --message "<text>" [--state-file [path]]
+```
+
+- `--workdir <path>`: Work directory containing `plan.json` (defaults to `$CLOSEDLOOP_WORKDIR` or `.closedloop-ai/work`)
+- `--message <text>`: The user's message (required)
+- `--state-file <path>`: Path to the amend session state file (defaults to `{workdir}/amend-session.json`)
+
+**What it does:**
+
+Supports four intent types:
+- **Directives**: "don't remove X", "change Y to Z" — applies changes after safety analysis
+- **Questions**: "what do you think about..." — discusses without making changes
+- **Confirmations**: "yes", "go ahead" — applies previously discussed pending changes
+- **Unstructured input**: Meeting notes or Slack threads — delegates to `amend-extractor` agent to extract structured changes
+
+Conversation state is persisted across GitHub workflow runs via `amend_state.py`. After applying changes, records an amendment entry in `plan.json` and deletes the session file.
+
+### `/code:plan-with-codex`
+
+**Description:** Iterative plan refinement debate between Claude and Codex.
+
+**Usage:**
+```
+/code:plan-with-codex [--max-rounds N] [--plan-file PATH] [--codex-model MODEL] <prompt>
+```
+
+- `--max-rounds N`: Maximum debate rounds (default: 15)
+- `--plan-file PATH`: Output plan file (default: `./debate-plan.md`)
+- `--codex-model MODEL`: Codex model for reviews (default: `gpt-5.3-codex`)
+- `<prompt>`: Description of what to plan (required; can also be read from a `{stem}.prompt` sidecar file)
+
+**What it does:**
+
+1. Launches `code:plan-agent` to create an initial plan from the prompt, writing it to `--plan-file`
+2. Presents open questions to the user and resolves them via the plan-agent before proceeding
+3. Presents the plan for user review and applies any requested changes
+4. Enters a fully automated debate loop: Codex reviews the plan via the `code:codex-review` skill, Claude revises per feedback, and the loop continues until `VERDICT:APPROVED` or max rounds are reached
+5. Reports the final outcome and cleans up sidecar state files
+
+Supports resuming mid-session via a `{stem}.state` sidecar file that tracks the current round and Codex session ID.
+
+### `/code:design-inventory`
+
+**Description:** Run the Claude Design to ClosedLoop pipeline.
+
+**Usage:**
+```
+/code:design-inventory <export.zip> [--repo <path>] [--workdir <path>]
+/code:design-inventory --tickets <workdir> --review-doc <FEA-slug> --project <PRO-slug> [--repo <path>]
+```
+
+**What it does:**
+
+Activates the `code:design-inventory` skill with the given arguments. The first form runs Stage A (inventory a design export zip into schema-validated findings and publish a platform Design Review document); the `--tickets` form runs Stage C (derive decisions from the human-edited review document and generate DRAFT feature tickets).
+
+---
+
+## Agents
+
+### Planning Agents
+
+**`plan-draft-writer`** (model: opus)
+Creates high-level implementation plan drafts from PRDs. Investigates the codebase, extracts requirements, and produces a `plan.json` and `plan.md` for human review. Enforces strict scope discipline — every task must trace to a PRD section. Produces no code snippets in drafts. Runs as a loop agent (max 10 iterations) validated by `validate-plan.sh`.
+
+**`plan-writer`** (model: sonnet)
+Modifies existing plans in three modes: **Merge Mode** (reconciles critic feedback), **Finalize Mode** (enriches tasks with implementation details, code patterns, and integration points), and **Addressed Gaps** (converts resolved gaps into concrete tasks). Does not create plans from scratch. Runs as a loop agent (max 5 iterations).
+
+**`plan-validator`** (model: sonnet)
+Validates `plan.json` structure: JSON parsing, schema validation, task checkbox format, required section presence, JSON-to-markdown sync, and semantic consistency (storage/query alignment, task-architecture contradictions). Returns structured JSON for orchestrator consumption. Runs as a loop agent; only required for semantic checks after plan modification — structural checks use the `plan-validate` skill instead.
+
+**`plan-evaluator`** (model: sonnet)
+Evaluates whether a plan qualifies for **simple mode** (skipping critics, cross-repo coordination, and finalization) using six threshold signals: PRD word count, acceptance criteria count, task count, open question count, forbidden complexity terms, and cross-repo keywords. If not simple, selects which critic agents to run based on `critic-gates.json` configuration.
+
+**`plan-importer`** (model: sonnet)
+Imports an external markdown plan into the ClosedLoop `plan.json` format. Reads a source markdown plan, normalizes headings and task lines to ClosedLoop conventions, derives acceptance criteria, populates all JSON arrays, writes `plan.json` and `plan.md`, validates the result via `validate_plan.py`, and writes a completion marker. Runs as a loop agent with up to 3 validation retries.
+
+**`answered-questions-subagent`** (model: haiku)
+Processes the `answeredQuestions` array from `plan.json` and incorporates answers into the relevant task descriptions. Removes processed questions from both the structured array and the markdown content field.
+
+### Implementation Agents
+
+**`pre-explorer`** (model: haiku)
+Performs targeted codebase exploration before plan drafting. Produces three output files — `requirements-extract.json`, `code-map.json`, and `investigation-log.md` — so the planning agent can skip mechanical discovery and focus on architecture.
+
+**`verification-subagent`** (model: sonnet)
+Checks whether a plan task has already been implemented. Reads relevant source files and verifies every specific requirement. Returns `VERIFIED` or `NOT_IMPLEMENTED` with a list of missing requirements and relevant file paths for the implementation agent.
+
+**`implementation-subagent`** (model: sonnet)
+Implements missing requirements for a single plan task. Reads source files, checks for existing utilities before creating new ones, and passes four self-verification gates: re-reading modified files, per-requirement evidence, integration checks, and static analysis. Runs as a loop agent (max 4 iterations). Appends to `visual-requirements.md` if UI changes are made.
+
+**`build-validator`** (model: haiku)
+Discovers and runs project-specific validation commands (test, lint, typecheck, build, pre-commit hooks) across any project type (Node.js, Python, Rust, Go, Android, Makefile). Attempts auto-fix for lint failures. Caches discovered commands as learnings. Returns `VALIDATION_PASSED`, `VALIDATION_FAILED`, or `NO_VALIDATION`.
+
+**`code-reviewer`** (model: sonnet)
+Reviews code changes for security vulnerabilities, correctness bugs, type safety issues, performance problems, and DRY violations. Operates on git diffs, applying a strict evidence standard: Critical/High findings require concrete proof, not speculation. Checks multi-tenant authorization on data-access endpoints. Runs as a loop agent (max 5 iterations) — only exits when no Critical/High findings remain.
+
+**`behavior-verifier`** (model: sonnet)
+Verifies that final code aligns with the intended behavior captured in the decision-table artifact. Activates `$decision-table` in Codex or `/closedloop-core:decision-table` in Claude Code in verification-only mode, appends verification/adversarial findings to the artifact, and returns a structured verdict (`ALIGNED` or `MISALIGNED` with typed `<drift_rows>` JSON: `code_drift`, `test_drift`, `plan_ambiguity`) for orchestrator routing in Phase 5.5. Read-and-report only; never modifies code or tests. Drift remediation is owned by the orchestrator. Runs as a loop agent (max 3 iterations).
+
+### Cross-Repo Agents
+
+**`cross-repo-coordinator`** (model: haiku)
+Discovers peer repositories via workspace configuration or sibling directory scanning. Identifies capabilities needed from each peer based on plan task content. Writes `.cross-repo-needs.json` and returns a `CAPABILITIES_LIST` for the orchestrator to iterate over.
+
+**`generic-discovery`** (model: haiku)
+Searches a peer repository to verify whether a specific capability exists (endpoint, model, component, service). Reads the peer's `CLAUDE.md` for directory conventions before searching. Caches results to `.discovery-cache/{peer-name}.json`.
+
+**`repo-coordinator`** (model: haiku)
+Discovers peer repositories and maps them to the appropriate discovery agent type (e.g., `code:backend-discovery`, `code:generic-discovery`).
+
+**`cross-repo-prd-writer`** (model: sonnet)
+Generates PRD documents for capabilities that need to be built in peer repositories. Reads discovery cache results, identifies missing capabilities, and creates `cross-repo-prd-{peer-name}.md` files. Updates `plan.json` with `[CROSS-REPO: {peer}]` tags.
+
+**`api-spec-writer`** (model: sonnet)
+Generates `api-requirements.md` from an approved plan. Extracts tasks requiring backend APIs and produces endpoint specifications with request/response TypeScript interfaces, error codes, auth requirements, and traceability to task IDs and acceptance criteria.
+
+### Support Agents
+
+
+**`visual-qa-subagent`** (model: sonnet)
+Performs visual QA using Playwright browser automation. Reads test steps exclusively from `visual-requirements.md` — never from source code. Returns `SUCCESS`, `FAILURE`, `AUTH_REQUIRED`, `BLOCKED`, or `INCOMPLETE_DOCS`. Maintains `visual-qa-memory.md` throughout the session.
+
+**`dev-environment`** (model: haiku)
+Introspects workspace repositories to determine how to start development servers. Reads `.workspace-repos.json` from cross-repo-coordinator and produces `.dev-environment.json` with start commands and health checks for each target (web, iOS, Android, API).
+
+**`learning-capture`** (model: sonnet)
+Processes pending learning JSON files from `.learnings/pending/`. Classifies each as `closedloop` (tooling improvements) or `organization` (project-specific patterns), assigns categories (mistake, pattern, convention, insight), and writes structured session output.
+
+**`amend-extractor`** (model: sonnet)
+Extracts actionable plan amendments from unstructured input (meeting notes, Slack threads, email). Returns structured JSON with `extracted_changes`, `unclear_items`, and `no_action_items`. Used by the `amend-plan` command when input cannot be classified as a directive, question, or confirmation.
+
+**`code-review-guidelines`**
+Provides language-specific review patterns and edge case guidance for the `code-reviewer` agent.
+
+**`plan-agent`** (model: opus)
+Software architect agent for creating and revising implementation plans. Explores the codebase, designs a plan grounded in existing patterns, and writes it directly to a specified file on disk. Used by the `plan-with-codex` command; resumed across debate rounds via `SendMessage` to apply Codex feedback without losing architectural context.
+
+**`design-unit-analyst`** (model: sonnet)
+Per-design-unit state-vs-spec analyst for the `design-inventory` pipeline. Analyzes one design unit (screen, region, component, or flow) from a Claude Design export against the current web-ui codebase, classifies divergences (visual, behavioral, component reuse, backend gap, token drift), and writes a schema-validated `findings.json`. Read-only with respect to both codebases; never implements changes.
+
+---
+
+## Skills
+
+Skills are reusable, invocable units of functionality available to orchestrators and agents via the `Skill` tool.
+
+
+
+### `plan-validate`
+
+Deterministic `plan.json` validation via Python script. Replaces most `plan-validator` agent calls for structural checks. Validates JSON parsing, schema fields, task checkbox format (`- [ ]` / `- [x]`), all 10 required section headers, and JSON-to-markdown sync. Returns the same output format as the plan-validator agent. Invoked with `Skill(skill="code:plan-validate")`.
+
+### `critic-cache`
+
+Checks whether critic reviews are still valid before Phase 2.5 by hashing `plan.json` and `critic-gates.json`. Returns `CRITIC_CACHE_HIT` (skip critics, existing reviews are valid) or `CRITIC_CACHE_MISS` (run critics). Prevents redundant Sonnet agent launches when the plan has not changed since the last critic run.
+
+### `build-status-cache`
+
+Skips the Phase 7 final build check when no code has changed since Phase 5 build passed. Hashes `git diff HEAD` output, compares to the hash stored after Phase 5, and returns `BUILD_CACHE_HIT` or `BUILD_CACHE_MISS`. Invoked with `Skill(skill="code:build-status-cache")`.
+
+### `cross-repo-cache`
+
+Checks whether cross-repo coordinator results can be reused by comparing peer repository git HEAD hashes to stored hashes. Returns `CROSS_REPO_CACHE_HIT` with the cached status or `CROSS_REPO_CACHE_MISS`. Prevents redundant cross-repo discovery when peers have not changed.
+
+
+### `plan-editing-conventions`
+
+Documents conventions for editing `plan.json` content fields — task format, structured array sync rules, complexity labeling (S/M/L), and the requirement to use `\n` escape sequences rather than literal newlines in JSON strings. Used by the `amend-plan` command.
+
+### `extract-plan-md`
+
+Syncs `plan.md` with `plan.json` after any edit. Runs the `extract.py` script which reads the `content` field from `plan.json` and writes it to `plan.md` in the same directory. Must be used after every `plan.json` modification.
+
+### `closedloop-env`
+
+Provides ClosedLoop environment paths to agents by reading `.closedloop-ai/env`. Returns `CLOSEDLOOP_WORKDIR`, `CLAUDE_PLUGIN_ROOT`, `CLOSEDLOOP_PRD_FILE`, and `CLOSEDLOOP_MAX_ITERATIONS`. Used by agents that need to construct file paths dynamically.
+
+### `prd-creator`
+
+Conversational PRD drafting skill for PMs. Supports four workflow modes: **Discovery** (guided problem/persona/metrics exploration), **Draft** (generates PRD from `assets/prd-template.md`), **Story Expansion** (adds Given/When/Then acceptance criteria to user stories), and **Epic Generation** (groups stories into sprint-sized epics). Uses consistent ID conventions (US-###, AC-###.#, Q-###) for traceability through the Symphony pipeline. Includes healthcare-specific story patterns and event instrumentation references. Invoked automatically when users mention PRDs, feature ideas, sprint planning, or story breakdowns.
+
+### `find-plugin-file`
+
+Dynamically locates files within the Claude Code plugins cache directory (`~/.claude/plugins/cache/closedloop-ai/`). Resolves the latest plugin version automatically. Used by commands that need to reference plugin tool scripts without hardcoding version-specific paths.
+
+### `iterative-retrieval`
+
+A 4-phase protocol for orchestrators to refine subagent queries through follow-up questions. Phases: Initial Dispatch, Sufficiency Evaluation (4-question checklist), Refinement Request (continue via SendMessage with targeted follow-ups), and Loop (up to 3 cycles). Used when initial subagent responses may miss important adjacent context.
+
+### `orchestrator-sequences`
+
+Single source of truth for the two reusable orchestration procedures shared by all three orchestrator prompts (`prompt.md`, `plan-prompt.md`, `execute-prompt.md`), which each load standalone and cannot reference one another at runtime. **`PLAN_VALIDATION_SEQUENCE`** runs full plan validation — activate `code:plan-validate` for structural checks, route `FORMAT_ISSUES` to `plan-writer`, then run `plan-validator` in semantic-only mode. **`AWAITING_USER_SEQUENCE`** standardizes every hard-stop: write `state.json` with `AWAITING_USER` status first, then emit the prompt's completion promise (`PLAN_COMPLETE`, `IMPLEMENTATION_COMPLETE`, or `COMPLETE`), tell the user what to do, and hard stop.
+
+### `codex-review`
+
+Runs Codex to review a plan file and returns structured feedback with a verdict. Called once per debate round by the `plan-with-codex` command via `debate-loop.sh`. Supports session resume across rounds using a Codex thread ID. Returns `VERDICT:APPROVED` or `VERDICT:NEEDS_CHANGES` plus a `CODEX_SESSION` token. Emits `CODEX_FAILED` or `CODEX_EMPTY` tokens on error so the orchestrator can ask the user to retry or abort.
+
+
+### `design-inventory`
+
+Staged pipeline for inventorying a Claude Design export into reviewable findings, a human decision gate, and DRAFT ticket generation. Stage A extracts the zip, runs parallel `design-unit-analyst` agents per unit (screens, regions, standalone components) from per-unit context packs, emits schema-validated findings (each with a recommended action), and publishes a platform "Design Review" Feature document with inline images. Stage B is the human editing that document - delete a section to decline, edit a line to amend, leave to accept - with survival judged from heading-line id anchors. Stage C derives decisions from the edited document and generates DRAFT feature tickets grouped per screen (UI plus optional API, with BLOCKS edges) and workdir-only design packs, only for accepted units. Invoked via the `code:design-inventory` skill when users request a design handoff, design inventory, or ticket generation from a design review. Scripts are TypeScript under `tools/design-inventory/src/` with built `dist/` bundles committed to `skills/design-inventory/scripts/dist/`.
+
+
+
+
+---
+
+## Hooks
+
+Hooks are shell scripts that fire at Claude Code lifecycle events. Registered in `hooks/hooks.json`, one command per event. PreToolUse and SubagentStop each register one event script that runs that event's handler scripts below through `dispatch.sh`, which merges their results into one output.
+
+### `pre-tool-use.sh` and `subagent-stop.sh` (PreToolUse, SubagentStop)
+
+The registered commands for those two events. `pre-tool-use.sh` runs `pretooluse-hook.sh` for Read, Bash, Write and Edit, then `pre-tool-use-hook.sh` for every tool. `subagent-stop.sh` runs `loop-stop-hook.sh`, then `subagent-stop-hook.sh`. `dispatch.sh` passes a single handler's output through unchanged; when several produce JSON it keeps the strongest permission decision (deny, defer, ask, allow) or a block, with every reason, context and system message joined.
+
+### `session-start-hook.sh` (SessionStart)
+
+Creates a PID-to-session-ID mapping file at `.closedloop-ai/pid-{PPID}.session`. This mapping allows `setup-closedloop.sh` — which runs as a child process — to discover the session ID by walking up the process tree. Essential for associating a work directory with a session.
+
+### `session-end-hook.sh` (SessionEnd)
+
+Cleans up session-level artifacts: removes the session workdir mapping file, cleans up stale PID-to-session mappings (processes that no longer exist), removes session-specific files older than 24 hours, and cleans up orphaned `.agent-types` directories.
+
+### `user-prompt-expansion-hook.sh` (UserPromptExpansion, matches create-plan/execute-implementation)
+
+Initializes native PLAN/EXECUTE perf metadata for the `/code:create-plan` and `/code:execute-implementation` commands. Resolves the session `config.env` from the command's workdir, documented `command_args`, legacy argument fields, or `cwd`; derives a `CLOSEDLOOP_COMMAND` value (`PLAN` or `EXECUTE`); assigns or reuses a `CLOSEDLOOP_RUN_ID`; sets `CLOSEDLOOP_ITERATION=0`; persists those values back into `config.env`; and invokes `record_run.sh` so the in-session run is attributable in `perf.jsonl`. It parses `config.env` as data rather than sourcing shell, and fails open on every error so prompt expansion never blocks the user command.
+
+### `subagent-start-hook.sh` (SubagentStart)
+
+Runs when any subagent starts. Performs three tasks:
+
+1. **Loop agent state creation**: If the agent type appears in `loop-agents.json`, creates the initial state file in `{WORKDIR}/.closedloop-ai/` if it does not already exist.
+2. **Agent type tracking**: Writes the agent type, short name, and start timestamp to `.agent-types/{agent_id}` so the stop hook can track timing and type.
+3. **Learning injection**: Reads `~/.closedloop-ai/learnings/org-patterns.toon`, filters patterns matching the agent's name, sorts by category priority (mistake > convention > pattern > insight) and confidence, and injects up to 15 patterns into the agent's context via `additionalContext`. Also injects environment variables (`CLOSEDLOOP_WORKDIR`, `CLAUDE_PLUGIN_ROOT`, etc.) into every agent's context.
+
+### `subagent-stop-hook.sh` (SubagentStop handler)
+
+Runs when any subagent exits. Performs:
+
+1. **Learning acknowledgment verification**: Checks whether the agent output contains `LEARNINGS_ACKNOWLEDGED`. For agents listed in `loop-agents.json` learning_agents, blocks the agent (forces it to retry) if acknowledgment is missing, up to `max_retries` times.
+2. **Learning capture enforcement**: For learning agents, checks whether a pending learning file was written. Blocks the agent with `LEARNING CAPTURE REQUIRED` if not, up to `max_retries` times.
+3. **Outcome logging**: Records which injected patterns were applied or merely injected to `outcomes.log` for success rate computation.
+4. **Performance instrumentation**: Computes agent wall-clock duration from start timestamp and appends a timing event to `perf.jsonl`.
+
+### `loop-stop-hook.sh` (SubagentStop handler, runs before subagent-stop-hook)
+
+Implements the validation loop for agents registered in `loop-agents.json`. When an agent exits:
+
+1. Reads the loop state file (`{WORKDIR}/.closedloop-ai/{state_file_suffix}`)
+2. Checks whether the agent output contains the expected completion promise (e.g., `<promise>PLAN_VALIDATED</promise>`)
+3. If the promise is present, optionally runs a validation script (e.g., `validate-plan.sh`)
+4. If validation passes, allows the agent to exit (returns nothing)
+5. If validation fails or the promise is absent, increments the iteration counter and blocks the agent with feedback to continue
+
+### `pretooluse-hook.sh` (PreToolUse handler, for Read/Bash/Write/Edit)
+
+Injects tool-specific learnings just before tool execution. Filters `org-patterns.toon` by tool type (Bash patterns get build/test tags; Write/Edit patterns get language-specific tags based on file extension). Injects up to 10 matching patterns as `additionalContext`. Also auto-allows tool calls targeting `.closedloop-ai/` workspace paths without prompting.
+
+### `pre-tool-use-hook.sh` (PreToolUse handler, every tool)
+
+Writes per-tool-call sentinel files to `{WORKDIR}/.tool-calls/` so post-tool handling can compute duration and attribution. After resolving the session workdir, it hydrates persisted native run metadata from `.closedloop-ai/config.env` so `tool` and `spawn` rows share the same run id, command, and iteration as the native command. Emits `spawn` perf events for `Agent` tool calls. Runs after `pretooluse-hook.sh` in `pre-tool-use.sh` and is designed to fail open.
+
+### `post-tool-use-hook.sh` (PostToolUse)
+
+Reads sentinels written by `pre-tool-use-hook.sh`, computes tool-call duration, appends `tool` events to `perf.jsonl`, and emits additional `skill` events for `Skill` tool calls. Deletes the sentinel after successful emission and fails open on internal errors.
+
+### `plan-review.sh` (not currently registered in `hooks.json`)
+
+Triggers when Claude exits plan mode to get a second opinion via Codex. Extracts plan content from `tool_response.plan`, sends it to Codex (`gpt-5.3-codex-spark`) for review, and injects the feedback as `additionalContext` so Claude sees Codex's concerns inline. Exits silently if no plan content is present or Codex returns empty. Debug logs kept in `.closedloop-ai/plan-review-logs/` (max 15 files). This script exists in `hooks/` but is not wired into `hooks.json` -- it would require a PostToolUse entry matching ExitPlanMode to activate.
+
+### `validate-plan.sh` (validation script, not a hook directly)
+
+Used by `loop-stop-hook.sh` as the validation script for `plan-draft-writer` and `plan-writer` loop agents. Checks: plan.json exists, contains a valid `content` field, has an `## Open Questions` section, uses checkbox task format, has no TODO/TBD placeholders, and warns on unjustified new file creation or code duplication patterns. Outputs `VALIDATION: PASS` or `VALIDATION: FAIL` with issue details.
+
+---
+
+## Schemas
+
+### `plan-schema.json`
+
+Defines the structure of `plan.json` implementation plans.
+
+**Top-level required fields:**
+- `content` (string): Full markdown plan with escaped newlines
+- `acceptanceCriteria` (array): Items with `id` (AC-###), `criterion`, `source`
+- `pendingTasks` (array): Tasks not yet completed, items with `id` (T-#.#), `description`, `acceptanceCriteria`
+- `completedTasks` (array): Tasks marked complete (same item structure)
+- `openQuestions` (array): Items with `id` (Q-###), `question`, optional `recommendedAnswer` and `blockingTask`
+- `answeredQuestions` (array): Items with `id`, `question`, `answer`
+- `gaps` (array): Items with `id` (GAP-###), `description`, `addressed` (boolean), optional `resolution`
+
+**Optional fields:**
+- `manualTasks` (array): Tasks requiring human action, same structure as pendingTasks
+- `amendments` (array): History of applied plan amendments with `timestamp`, `changes`, and `conversation`
+
+### `review-delta.schema.json`
+
+Defines the structure of critic review output files (`reviews/*.review.json`). Each review contains `items` or `review_items` arrays where each finding has an `anchor_id`, `severity` (blocking/major/minor), `rationale`, optional `proposed_change` (with `op`, `target`, `path`, `value`), `ac_refs`, `files`, and `tags`.
+
+### `code-map.schema.json`
+
+Defines the structure of `code-map.json` produced by the `pre-explorer` agent. Required fields: `feature`, `scope`, `files` (array of `{path, role, confidence, neighbors}`), `modules`, `platforms`, `parity_risk` (boolean), `parity_reasons`. File roles: `route`, `screen`, `component`, `hook`, `service`, `util`, `test`, `config`.
+
+---
+
+## Scripts
+
+### `setup-closedloop.sh`
+
+Initializes a ClosedLoop session. Parses arguments (`--prd`, `--max-iterations`, `--prompt`, positional workdir), auto-detects the PRD file by checking common patterns (`prd.md`, `prd.pdf`, `requirements.md`, etc.), establishes the session-to-workdir mapping, validates the prompt name, and writes `{WORKDIR}/.closedloop-ai/config.env` with all environment variables.
+
+### `setup-loop.sh`
+
+Sets up a ClosedLoop loop with initial configuration and state.
+
+### `discover-repos.sh`
+
+Discovers peer repositories for cross-repo orchestration by checking the `CLAUDE_WORKSPACE_REPOS` environment variable, scanning sibling directories for `.closedloop-ai/.repo-identity.json` files, or detecting monorepo structures. Returns JSON describing the current repo and all discovered peers.
+
+### `install-dependencies.sh`
+
+Installs required Python dependencies for the plugin's tools.
+
+### `debate-loop.sh`
+
+Shell harness for the Codex debate loop used by the `plan-with-codex` command. Drives the round-by-round interaction between the `code:plan-agent` and Codex, maintaining state in sidecar files alongside the plan file.
+
+### `stamp_critic_cache.sh`
+
+Stamps the critic cache after Phase 2.5 reviews complete. Hashes `plan.json` (and `critic-gates.json` when present) and writes the hash to `{WORKDIR}/reviews/.plan-hash` so subsequent runs can skip critics via the `code:critic-cache` skill.
+
+### `stamp_cross_repo_cache.sh`
+
+Stamps the cross-repo cache after Phase 1.4 coordinator completes. Hashes peer-repo HEADs from `.workspace-repos.json` (falling back to `.cross-repo-needs.json`) and writes to `{WORKDIR}/.cross-repo-hash` so subsequent runs skip cross-repo discovery via the `code:cross-repo-cache` skill.
+
+### `closedloop_env.sh`
+
+Shared library (sourced, not executed) that hydrates `CLOSEDLOOP_*` environment variables from a session `config.env`. Exposes `load_closedloop_env <config-file>`, which parses the file line-by-line for the allowlisted keys (`CLOSEDLOOP_WORKDIR`, `CLOSEDLOOP_RUN_ID`, `CLOSEDLOOP_ITERATION`, `CLOSEDLOOP_COMMAND`) rather than sourcing it — so a malformed or hostile `config.env` can never execute arbitrary shell — and lets any pre-existing non-empty value take precedence (the environment is the source of truth; `config.env` is the fallback). No-op when the config file is absent. Single source of truth for native telemetry scripts and hooks that need persisted run metadata.
+
+### `record_iteration.sh`
+
+Appends a single synthetic `iteration` event to `perf.jsonl` for native (in-session) command runs. Hydrates run context via `closedloop_env.sh`, derives `status`/`claude_exit_code` from `state.json` (`error`/`1` when `state.json` is missing or has not reached `COMPLETED`, otherwise `ok`/`0`), computes duration from the matching `run` event's `started_at`, and emits a JSON line with `event`, `run_id`, `iteration`, `started_at`, `ended_at`, `duration_s`, `claude_exit_code`, `status`, and `command` fields.
+
+### `record_native_iteration_once.sh`
+
+Idempotent wrapper around `record_iteration.sh` for native terminal paths. Fingerprints the current terminal `state.json` snapshot and records an iteration only when that snapshot has not already been recorded, allowing shared hard-stop and completion prompt paths to call it defensively without duplicate `iteration` rows.
+
+### `record_phase.sh`
+
+Appends a phase event to `perf.jsonl` from the current `state.json`. Called by the orchestrator after every `state.json` write so downstream analysis scripts can derive per-phase wall-clock timings. Reads `phase`, `status`, and `startSha` from `state.json` and emits a JSON line with `event`, `run_id`, `iteration`, `phase`, `status`, `start_sha`, and `started_at` fields. Exits silently if `state.json` does not exist or contains no phase.
+
+### `record_run.sh`
+
+Appends a single `run` event to `perf.jsonl` once per run, capturing `command`, `repo`, `branch`, `run_id`, and `started_at` so every perf event can be attributed to the slash command that launched the run. Emitted unconditionally and fails open (exits 0) on any error so the caller is unaffected. Reads `CLOSEDLOOP_COMMAND` and `CLOSEDLOOP_RUN_ID` from the environment.
+
+### `loop-agents.json`
+
+Configuration file (not a script) defining which agents participate in the validation loop. Each entry specifies: `validation_script`, `max_iterations`, `promise` (expected completion string), `state_file_suffix`, and `verification_criteria`. Also defines `learning_agents` — the subset of agents that must both acknowledge injected learnings and capture new learnings before stopping.
+
+---
+
+## Python Tools
+
+Located in `tools/python/`.
+
+### `amend_state.py`
+
+CLI state manager for the `amend-plan` command. Persists conversation state across GitHub workflow runs in an `amend-session.json` file. Commands:
+
+- `load`: Load or create session state
+- `add-message`: Append a user or assistant message to the conversation history
+- `add-change`: Track a pending plan change (with optional task ID)
+- `clear-changes`: Remove all pending changes
+- `apply`: Record the amendment in `plan.json` (adds to the `amendments` array), clear old review files, and delete the session file
+- `context`: Print current session state for debugging
+
+### `count_tokens.py`
+
+Counts tokens in a file or stdin using the Anthropic API's token counting endpoint. Outputs JSON: `{"input_tokens": N}`. Requires `ANTHROPIC_API_KEY`.
+
+### `stream_formatter.py`
+
+Formats Claude stream-JSON output (from `claude --output-format stream-json`) into human-readable terminal output with ANSI colors. Accumulates per-model token usage from assistant events and prints a summary at exit in the format the harness expects.
+
+### `requirements.txt`
+
+Python dependencies: `pyyaml>=6.0`, `tree-sitter>=0.20.0` (optional, for AST parsing in learning tools).
+
+---
+
+## Usage
+
+### Starting a session
+
+1. Create a work directory and place your PRD inside it:
+   ```
+   mkdir .closedloop-ai/work
+   cp requirements.md .closedloop-ai/work/prd.md
+   ```
+
+2. Start the session:
+   ```
+   /code:code .closedloop-ai/work
+   ```
+
+3. ClosedLoop will run the pre-explorer, then create a plan. It pauses after plan creation with:
+   ```
+   Plan created. Review it at .closedloop-ai/work/plan.md. Run /code:code .closedloop-ai/work when ready to continue.
+   ```
+
+4. Review `plan.md`, add answers to open questions if needed, then continue:
+   ```
+   /code:code .closedloop-ai/work
+   ```
+
+5. The orchestrator proceeds through critic review, implementation, testing, and validation.
+
+### Answering open questions
+
+Edit `plan.json` and change `openQuestions` entries to `answeredQuestions` with an `answer` field. The orchestrator processes them at Phase 1.2 on the next run.
+
+### Amending the plan during implementation
+
+```
+/code:amend-plan --message "for T-1.2, don't remove the legacy compatibility check"
+```
+
+### Session state file
+
+`$CLOSEDLOOP_WORKDIR/state.json` is updated at every phase transition. External monitoring tools poll this file to display progress. Format:
+```json
+{"phase": "Phase 3: Implementation", "status": "IN_PROGRESS", "task": {"id": "T-2.1", "description": "...", "current": 3, "total": 8}, "timestamp": "..."}
+```
+
+Possible status values: `IN_PROGRESS`, `AWAITING_USER`, `COMPLETED`.
+
+### Environment variables
+
+The following variables are injected into every agent context via `subagent-start-hook.sh`:
+
+| Variable | Description |
+|---|---|
+| `CLOSEDLOOP_WORKDIR` | Absolute path to the work directory |
+| `CLAUDE_PLUGIN_ROOT` | Absolute path to the plugin installation directory |
+| `CLOSEDLOOP_PRD_FILE` | Path to the requirements file |
+| `CLOSEDLOOP_MAX_ITERATIONS` | Maximum loop iterations (default: 10) |
+| `CLOSEDLOOP_AGENT_ID` | The current agent's unique ID |
+
+### Working directory structure
+
+After a full run, the work directory will contain:
+
+```
+{WORKDIR}/
+  prd.md                     # Your requirements
+  plan.json                  # Structured implementation plan
+  plan.md                    # Human-readable plan (synced from plan.json)
+  plan-evaluation.json       # Simple mode evaluation results
+  investigation-log.md       # Codebase exploration findings (from pre-explorer)
+  requirements-extract.json  # PRD extraction (from pre-explorer)
+  code-map.json              # Codebase file map (from pre-explorer)
+  state.json                 # Current phase/status for monitoring
+  log.md                     # Change log appended each phase
+  perf.jsonl                 # Phase, iteration, pipeline_step, and agent timing events
+  reviews/                   # Critic review files (*.review.json)
+  .closedloop-ai/config.env   # Session environment variables
+  .learnings/                # Self-learning artifacts
+    pending/                 # Unprocessed learning JSON files
+    outcomes.log             # Pattern application outcomes
+    acknowledgments.log      # Learning acknowledgment audit trail
+  .agent-types/              # Agent start time tracking (cleaned on session end)
+  .discovery-cache/          # Cross-repo discovery results
+```

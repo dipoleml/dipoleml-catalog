@@ -1,0 +1,69 @@
+"""Profile the retrieval pipeline hot path with pyinstrument.
+
+Runs 100 queries and prints a tree showing where time is spent.
+"""
+
+import asyncio
+import sys
+import time
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from pyinstrument import Profiler
+
+from writ.config import get_neo4j_password, get_neo4j_uri, get_neo4j_user
+from writ.graph.db import Neo4jConnection
+from writ.retrieval.pipeline import build_pipeline
+from writ.shared.percentile import percentile
+
+QUERIES = [
+    "controller SQL query",
+    "dependency injection",
+    "plugin observer",
+    "error handling try catch",
+    "unit test isolation",
+    "named bind parameters",
+    "async event loop blocking",
+    "security authorization",
+    "performance optimization",
+    "magic number constant",
+]
+ITERATIONS = 10  # 10 x 10 queries = 100 total
+
+
+async def main():
+    db = Neo4jConnection(get_neo4j_uri(), get_neo4j_user(), get_neo4j_password())
+    print("Building pipeline...")
+    pipeline = await build_pipeline(db)
+
+    # Warmup
+    for q in QUERIES:
+        pipeline.query(q)
+
+    # Profile
+    profiler = Profiler()
+    latencies = []
+
+    profiler.start()
+    for _ in range(ITERATIONS):
+        for q in QUERIES:
+            start = time.perf_counter()
+            pipeline.query(q)
+            elapsed = (time.perf_counter() - start) * 1000
+            latencies.append(elapsed)
+    profiler.stop()
+
+    latencies.sort()
+    p50 = percentile(latencies, 50)
+    p95 = percentile(latencies, 95)
+    p99 = percentile(latencies, 99)
+    print(f"\nLatency: p50={p50:.2f}ms, p95={p95:.2f}ms, p99={p99:.2f}ms")
+    print(f"Total queries: {len(latencies)}\n")
+
+    profiler.print()
+
+    await db.close()
+
+
+asyncio.run(main())

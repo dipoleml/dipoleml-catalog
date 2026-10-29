@@ -1,0 +1,40 @@
+{
+  "name": "claude-context-optimizer",
+  "version": "5.1.1",
+  "description": "See what Claude costs you and spend less of it. In chat: hand a long chat over to a new one, digest long documents, set up Projects, check tokens, sharpen prompts. In Claude Code: Haiku 5.5 subagents for reading and test runs; /cco audit of your own transcripts. Local, no telemetry.",
+  "type": "module",
+  "main": "src/tracker.js",
+  "bin": {
+    "cco-tracker": "src/tracker.js",
+    "cco-report": "src/report.js"
+  },
+  "files": [
+    "src/",
+    "agents/",
+    "skills/",
+    "hooks/",
+    "benchmark/",
+    ".claude-plugin/"
+  ],
+  "keywords": [
+    "claude-code",
+    "plugin",
+    "claude-5",
+    "fable-5.1",
+    "claude-sonnet-5.5",
+    "claude-opus-5.5",
+    "context-optimization",
+    "token-tracking",
+    "prompt-caching",
+    "skills"
+  ],
+  "scripts": {
+    "test": "node --test tests/test.js",
+    "test:engine": "claude plugin test .",
+    "benchmark": "node benchmark/run.js",
+    "doctor": "node src/doctor.js",
+    "sync-version": "node scripts/sync-version.js",
+    "prepublishOnly": "npm run sync-version && npm test"
+  },
+  "license": "MIT"
+}

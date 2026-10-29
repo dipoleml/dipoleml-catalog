@@ -1,0 +1,16 @@
+{
+  "name": "cws-featured-badge-skill",
+  "displayName": "Cws Featured Badge Skill",
+  "version": "1.0.0",
+  "description": "Audit any Chrome extension against Chrome Web Store Featured-badge and Established Publisher badge criteria, and produce a prioritized fix plan to qualify.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Divyamrastogi"
+  },
+  "license": "MIT",
+  "homepage": "https://javascriptbit.com/cws-featured-badge/",
+  "repository": "https://github.com/divyamrastogi/cws-featured-badge-skill",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

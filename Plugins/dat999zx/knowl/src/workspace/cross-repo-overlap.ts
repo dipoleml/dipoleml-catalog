@@ -1,0 +1,111 @@
+import { rankKnowledge } from '../store/agent-query.js';
+import { checkKnowledgeConflict } from '../store/conflicts.js';
+import { sameSubjectTitle } from '../store/knowledge-writer.js';
+import { openPeerStore } from '../store/store-handle.js';
+import type { ActiveWorkspace } from './resolve.js';
+
+export type CrossRepoOverlap = {
+  repo: string;
+  id: string;
+  title: string;
+  kind: 'conflict' | 'duplicate';
+  /** The peer shares this repo's `kin` group: same lineage, diverged conventions. */
+  kin?: boolean;
+  /** The peer's recorded role, so the advisory can say what the other repo is. */
+  role?: string;
+};
+
+export type OverlapSubject = {
+  category: string;
+  title: string;
+  content: string;
+  reasoning?: string | null;
+  tags?: string[] | null;
+  conflictKey?: string | null;
+  conflictScope?: Record<string, unknown> | null;
+  conflictExclusive?: boolean;
+};
+
+/** Per peer, per write. Bounded because this runs on every knowledge write in a workspace. */
+const PEER_CANDIDATES = 3;
+
+/**
+ * Kin peers are checked wider.
+ *
+ * Two repos of the same lineage hold genuinely overlapping subjects with diverged conventions,
+ * so a same-subject item is likelier to exist and likelier to matter. The matcher itself is
+ * deliberately untouched: loosening `sameSubjectTitle` for kin would surface near-miss titles
+ * on every write in a kin pair, and the decision here was to look wider, not to match looser.
+ */
+const KIN_PEER_CANDIDATES = 6;
+
+/**
+ * What the linked repos already say about this subject.
+ *
+ * Reports only. The colliding item belongs to another repo, and only that repo can retire it --
+ * a write here silently superseding it is the failure a single owner per item exists to
+ * prevent, and `assertOwnedItem` already refuses it on the update path. Detection is the part
+ * federation could not do: duplicate and conflict checks only ever looked in the writing repo's
+ * own database, so two linked repos could hold contradictory active knowledge and nothing
+ * noticed.
+ *
+ * Bounded and never fatal: a handful of candidates per peer, an unreadable peer skipped rather
+ * than raised, and any failure degrading to "no report" rather than a failed write. Outside a
+ * workspace it costs one null check.
+ */
+export async function findCrossRepoOverlap(input: {
+  workspace: ActiveWorkspace | null;
+  item: OverlapSubject;
+}): Promise<CrossRepoOverlap[]> {
+  const workspace = input.workspace;
+  if (!workspace || workspace.peers.length === 0) return [];
+
+  const query = [
+    input.item.title,
+    input.item.content,
+    input.item.reasoning ?? '',
+    ...(input.item.tags ?? []),
+  ].join(' ');
+
+  const found: CrossRepoOverlap[] = [];
+  const selfKin = workspace.manifest.repos.find(entry => entry.name === workspace.repo)?.kin;
+
+  for (const peer of workspace.peers) {
+    if (!peer.present) continue;
+    const isKin = Boolean(selfKin && peer.kin === selfKin);
+    try {
+      const store = await openPeerStore(peer.databasePath);
+
+      // An exclusive key held by another repo is a genuine contradiction, not a near miss.
+      // `visibility` goes into the query rather than being checked on the way out: a peer's
+      // private row must not be read into this process at all. The key fields only: the writers
+      // hand in their whole input, and its `supersedes` names a local row, not a peer's answer.
+      const { conflictKey, conflictScope, conflictExclusive } = input.item;
+      const conflicts = await checkKnowledgeConflict({ conflictKey, conflictScope, conflictExclusive, visibility: 'workspace' }, store);
+      for (const conflict of conflicts) {
+        found.push({ repo: peer.name, id: conflict.id, title: conflict.title, kind: 'conflict', kin: isKin, role: peer.role });
+      }
+
+      // The same ranker the local duplicate check uses, pointed at the peer.
+      const candidates = await rankKnowledge('local', {
+        query,
+        status: 'active',
+        visibility: 'workspace',
+        limit: isKin ? KIN_PEER_CANDIDATES : PEER_CANDIDATES,
+      }, store);
+
+      for (const candidate of candidates) {
+        if (found.some(entry => entry.id === candidate.id)) continue;
+        // The local matcher, reused rather than restated. A second title comparison here
+        // would be the duplication this whole change removes, and the two would drift the
+        // moment either is tuned.
+        if (!sameSubjectTitle(input.item, candidate)) continue;
+        found.push({ repo: peer.name, id: candidate.id, title: candidate.title, kind: 'duplicate', kin: isKin, role: peer.role });
+      }
+    } catch {
+      // A peer that cannot be read must never fail the write it was consulted for.
+    }
+  }
+
+  return found;
+}

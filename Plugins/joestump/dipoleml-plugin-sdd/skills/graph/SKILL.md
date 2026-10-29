@@ -1,0 +1,321 @@
+---
+name: graph
+description: Build and query the SDD artifact graph. Use when the user wants to validate frontmatter edges, find impact/ancestors/chain for an ADR or spec, detect orphans or cycles, or backfill edges from prose. Currently supports validate / impact / ancestors / chain / orphans / cycles, with workspace-mode aggregation; backfill lands in Story 7.
+allowed-tools: Bash, Read, Glob, Grep, Task
+argument-hint: "<verb> [<artifact-id>] [--scope <subtree>] [--module <name>] [--table | --mermaid | --json]"
+---
+
+<!-- Governing: ADR-0023 (Frontmatter DAG and /sdd:graph Skill), SPEC-0018 REQ "Graph Construction", SPEC-0018 REQ "Graph Validation" -->
+
+# /sdd:graph — Artifact Graph Skill
+
+> **Harness portability.** This skill runs on any agent harness that loads Agent Skills — Claude Code, Codex CLI, OpenCode, Crush. Tool names used below (`AskUserQuestion`, `Task`, `TeamCreate`, `SendMessage`, `TaskCreate`, `ToolSearch`, `mcp__*`, `${CLAUDE_PLUGIN_ROOT}`) denote *capabilities*, not hard requirements: map each to your harness's equivalent or use the documented fallback per `${CLAUDE_PLUGIN_ROOT}/references/harness-compat.md`. References to `CLAUDE.md` mean the project memory file (`CLAUDE.md`, `AGENTS.md`, or `CRUSH.md`) per harness-compat § "Project Memory File". A citation of the form `shared-patterns.md § "Section"` names one `##` heading in that file — load only that section (see its "How to Read This File" note), never the whole file. **Invocation and arguments.** Where your harness has no command layer (Crush, Codex CLI, OpenCode) this skill is reached from its `description`, not a slash command: the `/sdd:{name}` form below is Claude Code namespacing. `$ARGUMENTS` means whatever arrived with the invocation: take the target and any `--flags` from the request that triggered this skill, and when neither is present follow this skill's documented no-argument path instead of reporting missing arguments (harness-compat § "Invocation and Arguments").
+
+You are running `/sdd:graph`. This skill builds an in-memory directed graph of the project's ADRs, specs, and governed source files, then answers queries against it.
+
+This skill differs from other SDD skills: instead of orchestrating Claude through markdown instructions, it delegates the deterministic build/validate/traverse work to a Python helper at `lib/graph.py` in this skill's directory. The output of the helper is the contract — JSON output (Story 6) is the stable shape any future MCP would consume. Markdown is reserved for orchestration and review UX (e.g., the `backfill` mode's accept/edit/reject in Story 7).
+
+## Process
+
+<!-- Governing: ADR-0016 (Workspace Mode), SPEC-0014 REQ "Artifact Path Resolution" -->
+
+0. **Resolve artifact paths**: Follow the **Artifact Path Resolution** pattern from `${CLAUDE_PLUGIN_ROOT}/references/shared-patterns.md` § "Artifact Path Resolution" to determine the ADR, spec, and PRD directories. The resolved ADR directory is `{adr-dir}`, spec directory is `{spec-dir}`, and PRD directory is `{prd-dir}` (default `docs/prds/`, per ADR-0036). PRDs are optional — a project with no PRD directory builds exactly the graph it did before PRDs existed.
+
+   In Story 2 the helper accepts a single root and a single ADR/spec dir per invocation. Workspace-mode aggregation (multiple modules, `[module]/ID` prefixes) lands in Story 5.
+
+1. **Parse the verb and flags from `$ARGUMENTS`**.
+
+   Currently supported: `validate`, `impact <id>`, `ancestors <id>`, `chain <id>`, `orphans`, `cycles`. Backfill (`backfill`) is recognized at the argparse layer and returns a clear "not yet implemented (planned for Story 7)" message with exit code 2.
+
+   Traversal verbs require an artifact ID argument (e.g., `ADR-0023`, `SPEC-0018`, or `[api]/SPEC-0001` in workspace aggregate mode). If the ID is unknown, the helper exits 1 and suggests closest matches.
+
+   The `--module <name>` flag scopes a workspace-mode invocation to a single module: the helper builds only that module's graph with unprefixed IDs. Without `--module` in a workspace project, the helper aggregates all modules with `[module]/ID` prefixes. On single-module projects (no `.gitmodules` and no `### Workspace Modules` table), `--module` is rejected with a clear error.
+
+2. **Locate the helper script**.
+
+   The helper lives at `{skill-dir}/lib/graph.py`, where `{skill-dir}` is the absolute path to this skill's directory (the `Base directory for this skill` line in the skill invocation header). The helper is invoked via `python3` and reads from the project root passed via `--root`.
+
+3. **Invoke the helper**.
+
+   For `validate`:
+
+   ```bash
+   python3 {skill-dir}/lib/graph.py validate --root {project-root} [--adr-dir DIR] [--spec-dir DIR] [--prd-dir DIR]
+   ```
+
+   For traversal verbs:
+
+   ```bash
+   python3 {skill-dir}/lib/graph.py impact {ARTIFACT-ID} --root {project-root}
+   python3 {skill-dir}/lib/graph.py ancestors {ARTIFACT-ID} --root {project-root}
+   python3 {skill-dir}/lib/graph.py chain {ARTIFACT-ID} --root {project-root}
+   ```
+
+   - `{project-root}` is the working directory (typically `.`).
+   - `{adr-dir}`, `{spec-dir}`, and `{prd-dir}` are passed only if Step 0 resolved a non-default location (e.g., a workspace module). For a single-module project, omit them and the helper defaults to `docs/adrs/`, `docs/openspec/specs/`, and `docs/prds/` under the root.
+   - Traversal verbs refuse to run if validation has hard errors. Run `validate` first if the user reports unexpected output.
+
+4. **Present the helper's stdout to the user verbatim**.
+
+   The helper emits markdown directly. Do not reformat or summarize unless the user asks.
+
+5. **Surface the helper's exit code**.
+
+   - Exit `0`: graph validates clean (no hard errors). Warnings, if any, are visible in the output.
+   - Exit `1`: hard errors. The graph is not queryable until they are fixed. Do not proceed to other verbs.
+   - Exit `2`: invocation error (bad arguments, missing root). This is a skill bug — surface it as such.
+
+## Workspace mode
+
+Per SPEC-0014 § "Workspace Detection," the helper auto-detects workspace mode:
+
+1. Look for `.gitmodules` in the project root (parses `[submodule "name"]` and `path =` entries).
+2. Fall back to a `### Workspace Modules` table in the project-root `CLAUDE.md` (Module / Root columns).
+3. Otherwise treat the project as single-module.
+
+For each discovered module, the helper resolves ADR/spec paths via the **Artifact Path Resolution** pattern (reads the module's `CLAUDE.md` for declarations, falls back to `docs/adrs/` and `docs/openspec/specs/`).
+
+**Aggregate mode** (no `--module` in a workspace): the helper builds each module's graph independently, prefixes every node ID with `[module]/`, and merges into a single graph. Cross-module edges authored as `requires: ["[shared]/SPEC-0001"]` resolve against the merged graph; cycle detection and ID resolution operate over the full aggregate so cross-module cycles are caught.
+
+**Module-scoped mode** (`--module foo`): the helper builds only that module's graph with unprefixed IDs. Cross-module references in that module's frontmatter become unresolved-ID hard errors — this is intentional (use aggregate mode if you want cross-module behavior).
+
+**Single-module mode** (no workspace detected): the helper operates on the project root with unprefixed IDs, identical to pre-Story-5 behavior.
+
+## Verbs
+
+### `validate`
+
+Builds the graph and reports diagnostics. No ID argument required.
+
+### `impact <id>`
+
+Renders a top-down ASCII DAG: queried artifact at the top, dependents flowing below via derived inverse edges. Direct dependents (one hop) are immediate children; transitive dependents are nested. Each edge is labeled with its derived inverse type and a `(derived)` annotation; the connector uses a dashed arrow `─ ─►`. Default edge types for the source/target kind pair are unlabeled to reduce visual noise (e.g., `governs` for ADR→spec, `implements` for spec→ADR).
+
+### `ancestors <id>`
+
+Renders ancestor paths in a single contiguous diagram with the queried artifact at the bottom (per SPEC-0018 § Layout rules). Each enumerated leaf-to-target path is rendered as a top-down chain (most-distant ancestor first, edge labels and `┆` continuation glyphs flowing down), separated by a blank line from the next path, with the queried artifact appearing exactly once at the bottom. The vertical connector uses the dashed glyph `┆` because the visual flow is the inverse of the authored relationship; edge labels reflect the derived inverse type with the `(derived)` annotation.
+
+The vertical-stack approximation of multi-parent fan-in (vs. a side-by-side merging Y) is a tractable ASCII-only rendering — multi-parent inputs read as a sequence of independent ancestor paths feeding into the shared queried node.
+
+### `chain <id>`
+
+Single contiguous bidirectional diagram: ancestors above (rendered as top-down chains with the target's title suppressed at the bottom of each), the queried artifact in the middle (rendered once as `<title> (queried)`), and impact below (rendered as a top-down indented tree). The two regions are visually joined by a single `│` continuation through the queried node — no markdown subheadings, no `▼` glyphs.
+
+### `orphans`
+
+Surfaces five categories of orphan as flat markdown tables (default for flat results per SPEC-0018):
+
+1. **Source files without governing artifacts** — non-markdown source files in the project tree that contain no `Governing:` comment at all. Discovered by a dedicated walk so these files do not become graph nodes (they remain invisible to traversal queries) but DO surface here. The walk uses the same exclusions as the graph builder (`.git`, `node_modules`, `vendor`, build/cache dirs, `docs/`, `skills/`, `references/`, etc.). Markdown files are skipped — they participate via frontmatter (ADRs, specs) or are out of scope for v1 (READMEs, ad-hoc docs).
+2. **Source files with unrecognized governing comments** — files that DO contain a `Governing:` marker but from which the parser could read no `ADR-XXXX` / `SPEC-XXXX` ID: an issue-only reference (`// Governing: #24`), or a comment opener the parser does not accept. Each row carries the reason. These are listed apart from category 1 because the fix is the opposite — reformat the comment the file already has, do not add another. The same files also surface as `governing-unrecognized` warnings in `validate`.
+3. **Specs with no implementing code** — specs that no source file's governing comment references.
+4. **ADRs with no implementing spec** — ADRs that no spec declares `implements:` against.
+5. **Approved or shipped PRDs governing no artifact** — PRDs that have committed to a downstream artifact but declare no resolvable `governs:` target (SPEC-0037). Status gates the category deliberately: a `draft` or `client-review` PRD with an empty `governs:` list is a document still being interrogated, not a defect, and is never listed. Nor is the *absence* of a PRD ever reported — per ADR-0036 an ADR without an upstream PRD is the normal case, not a finding.
+
+Optional `--scope <subtree>` restricts categories 1 and 2 to source files under the given path. Categories 3, 4, and 5 always cover the full graph.
+
+**How governing comments are read.** The helper scans the first 4096 bytes of each file for every line matching `<opener> Governing: ...` or `<opener> Implements: ...` — openers are `//`, `#`, `<!--`, `*` (JSDoc / block-comment continuation), and `/*` — and unions the artifact IDs across all of them. The canonical two-line block (`Governing:` + `Implements:`) and a repo that keeps an issue-style line above the artifact-style one are therefore both credited correctly; the first `Governing:` line no longer decides the file's fate on its own.
+
+**Operator-facing framing.** A spec is flagged whenever no `Governing:` comment in source code references it; comment-less code is invisible by design (per SPEC-0018 § "Files without governing comments"). For repos that haven't yet attached governing comments to source code, expect every spec and ADR to be flagged. The output includes a one-line preamble explaining this so first-time readers know the verb is working as intended, not reporting a real catastrophe.
+
+### `cycles`
+
+Lists any cycles detected during validation. Note: traversal/diagnostic verbs only run after validation passes (the hard-error gate in `main()`), so this verb's output in v1 is always "No cycles detected." The verb exists for tooling that wants to confirm cycle-freeness without running full validation.
+
+### `backfill`
+
+Parses prose in `## Related`, `## More Information`, `## Overview`, `## Decision Outcome`, and `## Consequences` sections to propose frontmatter edges, then writes only what the user explicitly accepts.
+
+**Sub-commands** (selected by mutually-exclusive flags):
+
+| Flag | Behavior |
+|------|----------|
+| (none) | Print proposals as a markdown report. Read-only — nothing is written. |
+| `--apply <ID> [<ID>...]` | Write the proposed edges for the listed artifacts to their frontmatter. Existing edge fields are merged (deduped) rather than overwritten. |
+| `--reject <ID> [<ID>...]` | Record rejections in `.sdd-graph-backfill-skip`. Skipped proposals stay hidden until `--reset`. |
+| `--reset` | Delete the skip file so previously-rejected proposals re-appear in `propose`. |
+
+**Heuristics** for inferring edge types from prose:
+
+| Prose pattern | Inferred field | Notes |
+|---------------|----------------|-------|
+| "supersedes X" / "replaces X" | `supersedes` | hard replacement |
+| "extends X" / "modifies X" / "builds on X" | `extends` | builds-without-replacing |
+| "enables X" / "unblocks X" | `enables` | downstream-unlocking |
+| Bare ADR ref in `## More Information` / `## Related` (no qualifying verb) | `related` | weak association |
+| ADR mentions SPEC in `## Decision Outcome` / `## Consequences` | `governs` | code path the decision shapes |
+| Spec's `## Overview` mentions ADR | `implements` | spec realizes the decision |
+| Spec's `## Overview` mentions another spec | `requires` | capability dependency |
+
+**Rejection memory.** `.sdd-graph-backfill-skip` (line-delimited `node_id|field|target_id` records) is operational state, not configuration — it MAY be `.gitignore`d if you don't want rejection decisions versioned. The file is ASCII-safe and conflict-resilient (no merge churn within a single sorted record set).
+
+**Orchestration.** When the user runs `/sdd:graph backfill`, the skill should:
+
+1. Run `python3 {skill-dir}/lib/graph.py backfill` (read-only) to enumerate proposals.
+2. For each artifact in the report, present the proposal to the user via `AskUserQuestion` with options Accept / Edit / Reject.
+3. On Accept: run `python3 {skill-dir}/lib/graph.py backfill --apply <ID>`.
+4. On Edit: use `Read` + `Edit` to modify the artifact's frontmatter directly. Do NOT use `--apply` for the edited proposal — write exactly what the user agreed to.
+5. On Reject: run `python3 {skill-dir}/lib/graph.py backfill --reject <ID>`.
+6. After the loop, run `validate` to confirm the resulting graph still passes.
+
+The helper enforces SPEC-0018 REQ "Backfill Mode" guarantees: nothing is written without `--apply`, and `--reject` is the only path that mutates the skip file.
+
+## Output formats
+
+Per SPEC-0018 § Output Formats, the helper supports four output formats. Defaults are shape-aware: hierarchical results (`chain`, `impact`, `ancestors`) default to ASCII DAG; flat results (`orphans`, `cycles`) default to markdown table. Format flags are mutually exclusive.
+
+| Flag | Format | Use case |
+|------|--------|----------|
+| (none) | Shape-default | Terminal viewing — ASCII DAG for hierarchical, markdown table for flat |
+| `--table` | Markdown table | Force tabular output on hierarchical verbs (columns: ID, Type, Edge, Authored) |
+| `--mermaid` | Mermaid flowchart | Visual format for embedding in docs / PR descriptions. Authored edges = `-->`; derived edges = `-.->` |
+| `--json` | Versioned JSON | Machine consumption — the contract for any future MCP, IDE plugin, or dashboard |
+
+### JSON schema
+
+Every JSON response includes a top-level `schema_version` field. The current version is `"1"`. Breaking changes require a new schema version and a versioned addendum to SPEC-0018 § Output Formats.
+
+**Traversal verbs** (`impact`, `ancestors`, `chain`):
+
+Each result entry's `edges[]` describes the relationship FROM the result TO the traversal subgraph (the queried artifact and any other visited node) — not the reverse. A result with both an authored `implements` edge and a derived `governed-by` edge to the queried artifact would emit both edges; a result with only one direction emits only that one.
+
+```json
+{
+  "schema_version": "1",
+  "query": {"verb": "impact", "id": "ADR-0023"},
+  "results": [
+    {
+      "id": "SPEC-0018",
+      "type": "spec",
+      "module": null,
+      "title": "SPEC-0018: Artifact Graph",
+      "edges": [
+        {"type": "implements", "target": "ADR-0023", "derived": false}
+      ]
+    }
+  ]
+}
+```
+
+**Error envelope** (any JSON-mode failure):
+
+```json
+{
+  "schema_version": "1",
+  "query": {"verb": "impact", "id": "ADR-9999"},
+  "error": {
+    "code": "unknown-artifact",
+    "message": "unknown artifact `ADR-9999`",
+    "suggestions": ["ADR-0023", "ADR-0022", "ADR-0021"]
+  }
+}
+```
+
+Distinguishable from success responses by the presence of a top-level `error` field instead of `results`. Other error codes: `graph-has-errors` (validation failed; see `validate --json` for details).
+
+**Diagnostic verb `orphans`**:
+
+```json
+{
+  "schema_version": "1",
+  "query": {"verb": "orphans"},
+  "results": {
+    "code_files_without_governing": [...],
+    "code_files_with_unrecognized_governing": [{"file": "...", "reason": "..."}, ...],
+    "specs_without_implementing_code": [...],
+    "adrs_without_implementing_spec": [...]
+  }
+}
+```
+
+**Diagnostic verb `cycles`**:
+
+```json
+{
+  "schema_version": "1",
+  "query": {"verb": "cycles"},
+  "results": []
+}
+```
+
+**`validate`**:
+
+```json
+{
+  "schema_version": "1",
+  "query": {"verb": "validate"},
+  "results": {
+    "nodes": 41,
+    "authored_edges": 2,
+    "derived_edges": 2,
+    "diagnostics": []
+  }
+}
+```
+
+JSON output uses `sort_keys=True` and `indent=2` for byte-identical reproducibility. Each entry is fully self-describing — consumers do not need to re-read markdown to interpret the result.
+
+## What `validate` reports
+
+Per SPEC-0018 REQ "Graph Validation", three classes of finding:
+
+| Finding | Severity | Trigger |
+|---------|----------|---------|
+| Unresolved ID | error | An edge references an artifact ID that has no node in the graph |
+| Cycle | error | A cycle exists in any acyclic edge type (`supersedes`, `extends`, `enables`, `governs`, `implements`, `requires`) |
+| Status inconsistency | warning | An ADR/spec is `supersedes`-targeted but the target's status is not `superseded` (ADR) or `deprecated` (ADR/spec) |
+
+The helper also reports authoring-time mistakes that are not in the canonical spec but are useful in practice:
+
+| Finding | Severity | Trigger |
+|---------|----------|---------|
+| Authored derived field | warning | Frontmatter declares a derived field (`governed-by`, `implemented-by`, etc.) that should be computed, not authored |
+| Schema misuse | warning | A spec declares an ADR-only field, or an ADR declares a spec-only field |
+| Malformed edge list | error | An edge field is not a list, or contains a non-string entry |
+| Duplicate ID | error | Two files declare the same ADR-XXXX or SPEC-XXXX |
+
+## Architecture
+
+```
++---------------------+      +---------------------+
+| docs/adrs/*.md      |      | docs/openspec/...   |
+| (frontmatter edges) |      |    /spec.md         |
++----------+----------+      +----------+----------+
+           |                            |
+           +----------+    +------------+
+                      |    |
+                      v    v
+          +-----------------------------+
+          | lib/graph.py                |
+          |  - parse frontmatter (YAML  |
+          |    subset; stdlib only)     |
+          |  - parse governing comments |
+          |  - build directed graph     |
+          |  - validate (3 checks)      |
+          |  - derive inverse edges     |
+          +--------------+--------------+
+                         |
+              +----------+----------+
+              | stdout (markdown    |
+              | by default)         |
+              +---------------------+
+```
+
+The helper is stdlib-only — no PyYAML dependency. The frontmatter parser is intentionally narrow: it handles scalars and inline-bracket lists, which is all the SPEC-0018 schema declares. Extending it to nested mappings or block-list YAML is future work that should not be undertaken speculatively.
+
+**Python version.** Requires Python 3.10+ (uses PEP 604 union syntax `str | None` and `Path.is_relative_to`).
+
+## Cross-references
+
+- **Schema**: `${CLAUDE_PLUGIN_ROOT}/references/shared-patterns.md` § "Graph Edge Resolution"
+- **Author surfaces**: `skills/adr/SKILL.md` § "Graph Edge Frontmatter", `skills/spec/SKILL.md` § "Graph Edge Frontmatter"
+- **Code-edge format**: `${CLAUDE_PLUGIN_ROOT}/references/shared-patterns.md` § "Governing Comment Format"
+- **Canonical spec**: `docs/openspec/specs/artifact-graph/spec.md` (SPEC-0018)
+- **Canonical decision**: `docs/adrs/ADR-0023-frontmatter-dag-and-graph-skill.md`
+
+## Rules
+
+- Verb output is the helper's stdout — do not paraphrase it.
+- Hard errors (exit 1) MUST be surfaced before any other action. Do not run other verbs against a graph that failed validation.
+- The helper is the source of truth. If the helper output disagrees with this SKILL.md, fix the SKILL.md or the helper, not the user's expectations.
+- Do not bypass the helper to "do graph work in markdown." Determinism and byte-identity require the script.
+- When extending the helper (Stories 3-7), preserve the existing Python module structure: discovery → parsing → models → construction → validation. New verbs add new entry points but do not rewrite the core.

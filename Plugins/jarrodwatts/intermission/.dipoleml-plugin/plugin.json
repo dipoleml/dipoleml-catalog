@@ -1,0 +1,16 @@
+{
+  "name": "intermission",
+  "displayName": "Intermission",
+  "version": "0.1.5",
+  "description": "Play Doom deathmatch while DipoleML works, and get handed back when it's done",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Jarrodwatts"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/jarrodwatts/intermission",
+  "repository": "https://github.com/jarrodwatts/intermission",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

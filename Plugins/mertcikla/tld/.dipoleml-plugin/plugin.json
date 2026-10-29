@@ -1,0 +1,16 @@
+{
+  "name": "tld",
+  "displayName": "Tld",
+  "version": "0.0.1",
+  "description": "Codebase diagram generation for tldiagram.com",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Mertcikla"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://tldiagram.com",
+  "repository": "https://github.com/Mertcikla/tld",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

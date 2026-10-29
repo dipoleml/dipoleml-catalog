@@ -1,0 +1,16 @@
+{
+  "name": "dipoleml-video-vision",
+  "displayName": "DipoleML Video Vision",
+  "version": "1.4.0",
+  "description": "Give DipoleML the ability to watch and understand videos — extracts frames and audio for full video perception",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Jordanrendric"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/jordanrendric/claude-video-vision",
+  "repository": "https://github.com/jordanrendric/claude-video-vision",
+  "skills": "./skills/",
+  "commands": [],
+  "agents": []
+}

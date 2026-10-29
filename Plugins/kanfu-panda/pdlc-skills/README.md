@@ -1,0 +1,425 @@
+# pdlc-skills
+
+**English** · **[中文](./README.zh-CN.md)**
+
+[![CI](https://github.com/kanfu-panda/pdlc-skills/actions/workflows/ci.yml/badge.svg)](https://github.com/kanfu-panda/pdlc-skills/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+[![Version](https://img.shields.io/github/v/release/kanfu-panda/pdlc-skills?label=version&color=blue)](./CHANGELOG.md)
+[![GitHub stars](https://img.shields.io/github/stars/kanfu-panda/pdlc-skills?style=social)](https://github.com/kanfu-panda/pdlc-skills/stargazers)
+[![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-orange)](https://docs.anthropic.com/)
+[![Agent Skills](https://img.shields.io/badge/Agent%20Skills-Codex%20%C2%B7%20Copilot%20%C2%B7%20Cursor%20%C2%B7%20Gemini%20CLI-green)](https://agentskills.io/specification)
+
+> Author: **kanfu-panda**
+> Repo: [github.com/kanfu-panda/pdlc-skills](https://github.com/kanfu-panda/pdlc-skills)
+> License: [MIT](./LICENSE)
+
+**pdlc-skills** is built on one rule: **an AI saying "done" doesn't count — exit codes do.** It's a set of skills — a plugin in [Claude Code](https://docs.anthropic.com/), and a one-command install in Codex, GitHub Copilot, Cursor, Gemini CLI and any other tool that loads the [Agent Skills standard](https://agentskills.io/specification) — shipping a staged PDLC (Product Development Life Cycle) workflow — PRD → design → TDD → implement → review → ship → deploy → retro — on top of an **auditable, on-disk state machine**: every stage persists its artifacts to `docs/`, updates a per-feature state file, demands red tests before code, self-checks before handing off, and auto-repairs at most once.
+
+Four things fall out of that:
+
+- **Verified** — the test / lint / coverage results in the state machine are produced by a script from **real command exit codes**, never typed in by the model; every state write is followed by a contract check; and behavioural evals run the skills against real models to catch the model quietly ignoring the rules. See [How it's verified](#how-its-verified).
+- **Auditable** — every artifact lands on disk; you `git diff` exactly what the AI did.
+- **Autonomous** — because the checks are objective, a loop can drive `tdd → implement → review` to convergence unattended, each step in a fresh process, with fail-stop, stuck-stop, and budget guards.
+- **Portable** — the state machine lives in your repo, so it's tool-agnostic. **Claude Code** has the richest integration (38 slash commands + statusline + in-plugin loop engine); other tools install 36 skills with `npx skills add kanfu-panda/pdlc-skills` and drive the same methodology. See [Multi-platform](#multi-platform-other-ai-coding-tools).
+
+---
+
+## Why PDLC
+
+Without this plugin, an AI assistant working on a feature typically:
+
+- Says it built the feature, but the PRD lives only in the chat transcript.
+- Writes code without writing tests first.
+- Skips the design step, which means architectural drift accumulates silently.
+- Has no memory between sessions of which stage a feature is in.
+
+**PDLC turns those soft conventions into hard contracts:**
+
+| Hard contract | What it gives you |
+|---|---|
+| Every artifact lands on disk under `docs/` | You can `git diff` what the AI did |
+| Every stage updates a per-feature state machine | `/pdlc-status` always knows where you are |
+| Tests must exist (and fail) before implementation | Real TDD red-light gate, not a suggestion |
+| Each stage runs a self-check before handing off | Catch drift at stage boundary, not in review |
+| Auto-repair runs at most once | No infinite "fix → check → fix" loops |
+| Each stage declares its `next_step` | Multi-stage flows are command-driven, not memorized |
+
+---
+
+## How it's verified
+
+A typical AI workflow kit is prompts plus templates: it *asks* the model to write tests first and report honestly, then trusts that it did. pdlc-skills assumes the model will sometimes not comply, and checks at three layers:
+
+| Layer | Who decides | What it catches |
+|---|---|---|
+| **Checks in the state machine** | `pdlc-checks.sh` runs the commands in your `docs/00_standards/test-commands.yml` and maps their exit codes to `tests_pass` / `coverage_pass` / `lint_clean`. Three-state: a command that couldn't run is `null` — never `false`, never `true` | The model reporting "all tests pass" when they don't |
+| **State transitions** | A stage can only close through `pdlc-advance.sh`: it runs that stage's checks itself and refuses to advance when they're red; it also refuses when the tests written in tdd were changed during implementation (unless a reason is given, which lands in `auto_decisions`). In Claude Code an opt-in project guard also blocks writing state files directly | Advancing a stage whose checks failed; editing the tests to get green |
+| **State contract check** | `pdlc-state-lint.sh` runs right after every stage writes its state file (and before any command reads one) | Missing fields, unknown stage names, a stage other than ship / deploy writing `_done` |
+| **Behavioural evals** | `evals/` runs real skills against real models (Claude Code and Codex) in throwaway fixtures, each built so the honest outcome and the lazy one look different | The model ignoring the skill's instructions — e.g. copying the schema example and claiming every check green, or writing code before a red test |
+
+The deterministic parts — the scripts above, the loop driver, the installer — are covered by the plugin's own local test suite. Evals cost model turns, so they run before a release rather than in CI, and they are advisory, not a release gate. Scenarios, and how each one tells honest from lazy: [`evals/EVALS.md`](./evals/EVALS.md).
+
+### Compared with a typical prompt-based workflow
+
+| | Typical prompt-based workflow | pdlc-skills |
+|---|---|---|
+| Who decides "tests pass" | The model's own report | Real exit codes |
+| Where progress lives | The chat, or a free-form notes file | A machine-readable state file per feature, contract-checked on every write |
+| How far it goes | Usually up to code review | Through ship, deploy, retro, and a quality report a human signs off |
+| Unattended runs | Within one session | An external driver: fresh process per step, parallel git worktrees, budget / fail / stuck stops |
+| Is the workflow itself tested | Rarely against real models | Behavioural evals on both Claude Code and Codex |
+
+The trade-off is structure: 38 commands and a `docs/` layout are more than a single-entry kit asks of you. Layer 1 (`/pdlc-feature`, `/pdlc-fix`, `/pdlc-status`) is all you need to start, and `/pdlc-feature --lite` skips the task breakdown, PRD review and design for small features — tests-first, exit-code checks and code review still apply.
+
+---
+
+## Quick demo
+
+![pdlc-skills end-to-end demo](docs/assets/demo.gif)
+
+A typical end-to-end flow looks like this:
+
+```text
+$ # In Claude Code:
+$ /pdlc-feature add phone-number verification to user login
+
+→ Allocating feature ID F20260502-090000 (user-auth-phone)
+→ Stage 1: writing PRD
+   ✓ docs/01_requirements/prd/F20260502-090000-user-auth-phone-prd.md
+   ✓ self-check 8/8 passed
+→ Stage 2: technical design
+   ✓ docs/02_design/api/F20260502-090000-user-auth-phone-api.md
+   ✓ docs/02_design/database/F20260502-090000-user-auth-phone-db.md
+→ Stage 3: TDD red light
+   ✓ 14 tests written, all failing as expected
+→ Stage 4: implementation
+   ✓ 14/14 tests now passing
+→ Stage 5: code review + auto-repair
+   ✓ 3 lint issues auto-fixed
+   ✓ docs/07_reviews/code/F20260502-090000-user-auth-phone-review.md
+→ Stage 6: handoff
+   📦 docs/.pdlc-state/F20260502-090000.json updated
+   👉 Next: /pdlc-ship
+```
+
+Every artifact above is a real file you can `git diff`. Run `/pdlc-status` any time to see where each feature stands. *(Output above is illustrative — actual Claude Code output is markdown, not ASCII.)*
+
+---
+
+## Install
+
+> One-liner — no manual clone needed.
+
+```bash
+# Global (~/.claude/plugins/pdlc/)
+curl -fsSL https://raw.githubusercontent.com/kanfu-panda/pdlc-skills/main/install.sh \
+  | bash -s -- --global
+
+# Project-scoped (<project>/.claude/plugins/pdlc/)
+curl -fsSL https://raw.githubusercontent.com/kanfu-panda/pdlc-skills/main/install.sh \
+  | bash -s -- --project /path/to/my-project
+```
+
+That's it. The installer is a thin wrapper around `claude plugin marketplace add` + `claude plugin install`: it registers the marketplace source and installs the plugin into your `.claude/plugins/pdlc/` directory.
+
+Not on Claude Code? Jump to [Multi-platform](#multi-platform-other-ai-coding-tools) — it's one command there too.
+
+### Upgrade
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kanfu-panda/pdlc-skills/main/install.sh \
+  | bash -s -- --upgrade --global
+```
+
+### Uninstall
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kanfu-panda/pdlc-skills/main/install.sh \
+  | bash -s -- --uninstall --global
+```
+
+### Check your version
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kanfu-panda/pdlc-skills/main/install.sh \
+  | bash -s -- --version
+```
+
+### Equivalent native commands
+
+If you'd rather call Claude Code's plugin CLI directly:
+
+```bash
+claude plugin marketplace add kanfu-panda/pdlc-skills
+claude plugin install pdlc@pdlc-skills
+```
+
+### For contributors / template customization
+
+```bash
+git clone https://github.com/kanfu-panda/pdlc-skills.git
+cd pdlc-skills
+# edit references/templates/*.md or skills/pdlc-*/SKILL.md
+python3 adapters/sync_skills.py   # copy shared fragments / templates / scripts into each skill folder
+bash install.sh --global   # installs from your local clone
+```
+
+---
+
+## Verify the install
+
+```bash
+claude plugin list | grep pdlc
+# expected: pdlc@pdlc-skills  Version: 1.7.17 (or newer)  Status: ✔ enabled
+```
+
+In Claude Code (after restarting the session), type `/` and start typing `pdlc-` — you should see all 38 sub-commands (`/pdlc-feature`, `/pdlc-prd`, `/pdlc-tdd`, ...) in autocomplete.
+
+---
+
+## Multi-platform (other AI coding tools)
+
+Claude Code has the **richest integration** — 38 slash commands + statusline + in-plugin autonomous loop. But the PDLC methodology, state machine and templates are **platform-neutral**: the same `docs/.pdlc-state/` carries over no matter which tool drives it, so you can switch tools (or share a repo across a team on different tools) without losing PDLC state.
+
+Most AI coding tools now load the [Agent Skills open standard](https://agentskills.io/specification). pdlc builds one standard-conformant projection of its skills (36 of them — all but the 2 Claude Code-only ones; every one passes the official `skills-ref` validator) and installs it wherever your tool looks. Two ways, neither needs a clone:
+
+```bash
+# ① the generic installer: pick which tools to install into (Codex, Copilot, Cursor, Gemini CLI, OpenCode, … dozens)
+npx skills add kanfu-panda/pdlc-skills
+
+# ② this repo's installer: installs the standard projection above (needs python3)
+curl -fsSL https://raw.githubusercontent.com/kanfu-panda/pdlc-skills/main/install.sh \
+  | bash -s -- --target agents                   # ~/.agents/skills/  (Copilot, Gemini CLI, OpenCode, Amp, Goose)
+#   --target agents --project DIR                # DIR/.agents/skills/
+#   --target agents --dest DIR                   # any tool's own directory, e.g. .cursor/skills, ~/.gemini/config/skills (Antigravity CLI)
+#   --target codex                               # ~/.codex/skills/
+#   add --uninstall to remove; only pdlc-* directories are ever written or removed
+```
+
+The difference: ① installs the skills exactly as they are in the repo (the frontmatter carries Claude Code's argument hint, and the argument line in the body is a `$ARGUMENTS` placeholder) — on GitHub Copilot CLI 1.0.88 it triggers and reads the arguments correctly; ② installs the standard projection, with the argument line rewritten and a trigger hint added, and passes the official validator. If unsure, use ①. **Claude Code users: install the plugin**, not ① — otherwise you get a second copy of every skill.
+
+Skills trigger by description: drive PDLC in natural language (`用 pdlc 写个 PRD：<一句话需求>`, "run the pdlc review stage for F…").
+
+| Tool | Where | Status |
+|---|---|---|
+| Claude Code | plugin (this repo) | ✅ first-class |
+| Codex | `--target codex` (`npx skills add` installs into `~/.agents/skills/`; the distribution we verified reads `~/.codex/skills/`) | ✅ passed the state-integrity gate — [ADR 0004](./docs/decisions/0004-codex-loop-run.md); verified on a Codex distribution that reads `~/.codex/skills/`, vanilla OpenAI Codex unverified |
+| GitHub Copilot | `npx skills add`, or `--target agents` (`--project DIR`) | CLI 1.0.88: loads and triggers with either install · CLI 1.0.95 on v1.7.10: ✅ **passed** the state-integrity gate (3/3 rounds, default model; 1.0.88 on v1.7.0 failed 3/3) — [ADR 0007 §6](./docs/decisions/0007-agent-skills-standard.md#6-真机准入闸) · not yet built into the loop driver (use `--platform custom`) · VS Code not run |
+| Grok CLI | nothing extra — it loads the installed Claude Code plugin by itself | 1.0.41: ✅ passed the state-integrity gate (3/3 rounds) — [ADR 0007 §6](./docs/decisions/0007-agent-skills-standard.md#6-真机准入闸) · not yet in the loop driver |
+| Antigravity CLI (`agy`) | `--target agents --dest ~/.gemini/config/skills` (1.2.9 ignores the workspace `.agents/skills/`) | 1.2.9: loads and triggers · ❌ **failed** the gate — claimed "done, state updated" without writing a single file — [ADR 0007 §6](./docs/decisions/0007-agent-skills-standard.md#6-真机准入闸) |
+| Gemini CLI · OpenCode · Amp · Goose | `npx skills add`, or `--target agents` | loads per their docs · not run by us |
+| Cursor · Windsurf · Kiro · Roo Code | `npx skills add`, or `--target agents --dest <their skills dir>` | loads per their docs · not run by us |
+
+"Loads" is not the same as "trustworthy state": a tool must pass the **state-integrity gate** (`evals/` `honest-checks` — a deliberately red test, checking that `checks` come from real exit codes) before we recommend it for autonomous loops. **Any other tool**: put [`docs/pdlc-methodology.md`](./docs/pdlc-methodology.md) in your project rules (`AGENTS.md`, …) and drive PDLC in natural language.
+
+- **Autonomous convergence off Claude Code**: `adapters/codex-loop-run.sh <feature-id>... --project <dir>` (= `bin/pdlc-loop.sh --platform codex`) drives `tdd → implement → review` until reviewed and awaiting release (`next_step: pdlc-ship`); release stays human.
+
+Design: [ADR 0007](./docs/decisions/0007-agent-skills-standard.md) (revises the per-platform transpilers of [ADR 0003](./docs/decisions/0003-multi-platform-adapters.md)).
+
+---
+
+## Autonomous convergence (loop engineering)
+
+Because every stage writes **objective checks** — real `unit` / `lint` / `coverage` exit codes from `docs/00_standards/test-commands.yml`, never model self-report — to a machine-readable state machine, an outer loop can drive the mechanical stages to done without a human in the seat.
+
+Every step runs in a **fresh process** (`claude -p` / `codex exec`, or a fresh subagent inside Claude Code), and steps hand off through files on disk rather than through conversation — so a long run doesn't degrade as one session's context fills up.
+
+- **`/pdlc-loop-run <feature-id>`** — the convergence engine: auto-advances `tdd → implement → review` until reviewed and awaiting release (`next_step: pdlc-ship`), with an iteration cap, **fail-stop** (a stage reports `ok:false` → stop), and **stuck-stop** (state didn't advance → stop). **Release always stays human** — it never auto-ships.
+- **`/pdlc-loop-next <feature-id>`** — read-only helper that prints the next convergence command, for your own shell loops.
+- **`bin/pdlc-loop.sh`** — the external driver for several features at once: pass IDs or `--ready`, pick `--platform claude|codex` — or `--platform custom --cmd '<template>'` for any other CLI that takes a prompt (marked unverified; the driver still stops on red state but can't cap its spend) — and `--parallel N` runs each feature in its own git worktree. It orders features by `depends_on`, never ships, never commits or merges, and keeps a run record that `--status` and `/pdlc-status --loop` read back (per-feature step, time on the current step, stall hints; no ETA). A Claude run requires `--max-budget-usd`.
+- **On Codex** — `adapters/codex-loop-run.sh` is the same driver with `--platform codex` (Codex cleared a real-machine state-integrity gate — see [ADR 0004](./docs/decisions/0004-codex-loop-run.md)).
+
+Design: [ADR 0001](./docs/decisions/0001-loop-engineering-integration.md) · multi-feature driver: [ADR 0006](./docs/decisions/0006-multi-feature-loop-driver.md).
+
+---
+
+## Quality gate
+
+The same objective-checks discipline, promoted from a per-feature stage to a **standing gate**:
+
+- **`/pdlc-test-setup`** — lays the foundation: detects your stack, **runs every candidate command once and watches the exit code**, then writes `docs/00_standards/test-commands.yml`. Commands that don't actually run are **left blank with a note on how to fill them**, never guessed — a plausible-but-broken command would silently corrupt every downstream stage's `checks`.
+- **`/pdlc-quality`** — runs the real checks, compares them against `docs/00_standards/quality-targets.yml`, and writes a dated report to `docs/07_reviews/quality/` — Markdown (the source of truth, `git diff`-able and read by `/pdlc-ship` as a release gate) plus a self-contained HTML view of the same data, ready to open, print and sign. **A human signs off**; the tool only reports facts.
+
+Two things keep "all core flows are covered" from becoming an opinion:
+
+1. **An explicit `core_flow → E2E test` map** (`docs/00_standards/e2e-flow-map.yml`) turns coverage into a matrix you can check mechanically. A mapping that points at a test which didn't run is **rot** — reported red, not skipped.
+2. **PRD reconciliation** — every run diffs the P0/P1 flows in your PRDs against the declared `core_flows`, and **drift is a red light**. A stale flow list is the dangerous failure mode: the matrix goes green while reality has holes, dressing up "we don't know" as "we're covered".
+
+Anything that can't be measured is reported as **unmeasured, never as passing**. Design: [ADR 0005](./docs/decisions/0005-testing-and-quality-capability.md).
+
+---
+
+## Stage catalog (three layers)
+
+### Layer 1 · Entry points (3)
+
+One-sentence prompts drive the whole chain.
+
+| Slash command | Purpose |
+|---|---|
+| `/pdlc-feature` | End-to-end new feature (PRD → Design → TDD → Implement → Review → Ship); `--lite` for small features skips task breakdown, PRD review and design; in Claude Code each stage from design to review runs in a fresh subagent |
+| `/pdlc-fix` | End-to-end bug fix (locate → reproduce → fix → test → document), then `/pdlc-review` |
+| `/pdlc-status` | Show the project's PDLC state at a glance |
+
+### Layer 2 · Stages (11)
+
+Use when you want fine-grained control over one stage.
+
+| Slash command | Purpose |
+|---|---|
+| `/pdlc-prd` | Author a PRD |
+| `/pdlc-design` | Technical design; weighs 2–3 options first when there's a real trade-off |
+| `/pdlc-tdd` | Write failing tests first |
+| `/pdlc-implement` | Implement code against the design; with 4+ feature tasks, works in batches with a quick review after each |
+| `/pdlc-review` | Code + doc review; checklist items that don't fit the project type are marked not-applicable instead of "fixed" |
+| `/pdlc-e2e` | End-to-end tests |
+| `/pdlc-refactor` | Refactor code |
+| `/pdlc-ship` | Release the reviewed features (tests → VERSION → CHANGELOG → release notes → tag); the release notes double as the PR description; leaves CI config alone unless asked |
+| `/pdlc-deploy` | Deployment doc — per release (`/pdlc-deploy v1.2.0`, all features in it) or per feature |
+| `/pdlc-retro` | Iteration retrospective with trend comparison; if you use the loop driver, also which stage gets blocked most and why |
+| `/pdlc-task` | In-stage task tracking |
+
+### Layer 3 · Tools (24)
+
+Specialized stages you can invoke explicitly.
+
+- **🎨 Design (4):** `/pdlc-ui-design` · `/pdlc-ui-design-pro` · `/pdlc-db-design` · `/pdlc-arch`
+- **🔍 Quality (5):** `/pdlc-quality` (the standing gate — run real checks, verify every core flow has a passing E2E via an explicit flow→test map, reconcile the flow list against PRDs, then a human signs off) · `/pdlc-test-setup` (lay the objective-check foundation — detect the stack, verify each command really runs, then write `test-commands.yml`; unverified commands are left blank rather than guessed) · `/pdlc-lint` · `/pdlc-perf` · `/pdlc-security`
+- **🔧 Engineering (7):** `/pdlc-code-gen` · `/pdlc-add-service` · `/pdlc-add-app` · `/pdlc-api-mock` · `/pdlc-db-migrate` · `/pdlc-i18n` · `/pdlc-changelog`
+- **🔗 Governance (2):** `/pdlc-standard` · `/pdlc-relate`
+- **🏗️ Project lifecycle (3):** `/pdlc-bootstrap` · `/pdlc-adopt` · `/pdlc-onboard`
+- **🔁 Loop tooling (2):** `/pdlc-loop-next` (prints the next mechanical-convergence command) · `/pdlc-loop-run` (convergence engine: auto-advances `tdd → implement → review` until reviewed and awaiting release (`next_step: pdlc-ship`); release stays human) — [design](./docs/decisions/0001-loop-engineering-integration.md)
+- **⚙️ Settings (1):** `/pdlc-settings` (interactive config; currently the optional PDLC statusline — enable/disable/display items) — [design](./docs/decisions/0002-statusline-pdlc-status.md)
+
+---
+
+## 3-step quick start
+
+1. **Install** (one-line, no clone):
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/kanfu-panda/pdlc-skills/main/install.sh | bash -s -- --global
+   ```
+2. **Ship a feature:** in Claude Code, run `/pdlc-feature add a captcha to login`
+3. **Fix a bug:** `/pdlc-fix the pagination crash on empty lists`
+
+Check progress anytime: `/pdlc-status`.
+
+---
+
+## Target-project contract
+
+When a stage runs, it reads and writes these paths in your project:
+
+```
+docs/ARCHITECTURE.md                                        # surface · whole-system overview (pdlc-arch, in-place)
+docs/GLOSSARY.md                                            # surface · project vocabulary
+docs/00_standards/                                          # surface · team conventions (pdlc-standard; read by prd / implement / tdd / code-gen / onboard)
+docs/00_standards/test-commands.yml                        # surface · single source of check commands (unit/coverage/lint/e2e) for tdd / implement / review + loop drivers
+docs/00_standards/pdlc-hooks.yml                           # optional · Claude Code guard switches (written by /pdlc-settings hooks; absent = guards off)
+```
+
+> The `check` commands in `test-commands.yml` are the objective source of truth for `last_phase_result.checks` (real exit codes, never model self-audit) — the foundation that lets `/pdlc-loop-*` drive PDLC autonomously. See `docs/decisions/0001-loop-engineering-integration.md`.
+
+```
+docs/01_requirements/prd/                                   # PRDs
+docs/02_design/{api,database,architecture,ui-ux}/           # technical design
+docs/03_development/                                        # developer manuals (onboard writes here)
+docs/04_testing/{unit-tests,e2e-tests,defects,security,perf}/   # tests & defects
+docs/05_deployment/                                         # deployment docs; releases/v<version>-release-notes.md = /pdlc-ship's PR-description draft
+docs/06_tasks/                                              # in-stage task tracking
+docs/07_reviews/{doc,code,design,retro,quality}/            # review records + quality reports
+docs/.pdlc-state/<feature-id>.json                          # state machine + relations (one per feature, e.g. F20260419-090000.json)
+                                                            #   current_stage ends in _done only once released: ship_done / deploy_done
+docs/.pdlc-state/_relations.json                            # auto · reverse index of feature relations (pdlc-relate)
+docs/.pdlc-state/_graph.md                                  # auto · mermaid relation graph
+.worktrees/pdlc-loop/<feature-id>/                          # auto · one worktree per feature when bin/pdlc-loop.sh runs --parallel (git-excluded)
+.git/pdlc-loop/                                             # auto · loop driver run record + logs (docs/.pdlc-state/_loop/ outside git)
+```
+
+---
+
+## Document templates
+
+`references/templates/` ships 11 standard document templates that Claude fills in per feature:
+
+- `prd-template.md` — Product Requirements Document
+- `api-design-template.md` — API design
+- `arch-design-template.md` — Architecture design (per-feature, ledger)
+- `architecture-overview-template.md` — Whole-system architecture overview (surface)
+- `db-design-template.md` — Database schema design
+- `db-migrate-template.md` — DB migration script
+- `test-plan-template.md` — Test plan
+- `deploy-doc-template.md` — Deployment manual
+- `changelog-template.md` — Changelog entry
+- `glossary-template.md` — Project glossary (surface)
+- `adopt-report-template.md` — Legacy-project adoption report
+
+---
+
+## The Iron Law
+
+Every Layer 1 / Layer 2 stage **that produces artifacts** enforces six invariants. Read-only stages (such as `/pdlc-status`) are exempt.
+
+1. **Persist to disk** — every artifact is a real file, not just chat output
+2. **Update the state machine** — every completed stage writes `docs/.pdlc-state/<feature-id>.json`
+3. **Tests first** — code cannot be implemented until a failing test exists (TDD red light)
+4. **Self-check** — every stage runs a self-audit before handing off
+5. **One-shot repair** — auto-fix loops run at most once; stubborn failures get flagged for humans
+6. **State must advance** — a successful stage must change `current_stage`; a stage that didn't advance fails loudly instead of returning silently (so autonomous loops can't spin on stale state) — the exception is a deliberate human-block, which stays put but records `blocked_reason`
+
+---
+
+## Questions / discussion
+
+For usage questions, design discussions, or "is this a bug or am I holding it wrong" — please use [GitHub Discussions](https://github.com/kanfu-panda/pdlc-skills/discussions) rather than opening an Issue.
+
+For confirmed bugs and feature requests, open an [Issue](https://github.com/kanfu-panda/pdlc-skills/issues) with the bundled templates.
+
+For private security concerns, see [SECURITY.md](./SECURITY.md).
+
+---
+
+## Development
+
+Run the tests locally:
+
+```bash
+for f in tests/*.sh; do echo "== $f"; bash "$f" || break; done   # all 12 scripts, stop at the first red one
+python3 adapters/sync_skills.py --check                         # skills in sync with their shared sources
+shellcheck install.sh tests/*.sh bin/*.sh adapters/*.sh evals/run.sh \
+  evals/fixtures/*/scenario.sh .githooks/pre-commit
+```
+
+What each script covers is listed in [CLAUDE.md](./CLAUDE.md) under "Common commands".
+
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for PR workflow and coding conventions.
+
+User manual: [docs/usage-guide.md](./docs/usage-guide.md) · Release notes: [CHANGELOG.md](./CHANGELOG.md).
+
+---
+
+## 💖 Support this project
+
+PDLC is built and maintained in spare time. The zero-cost way to support it: [leave a ⭐ star](https://github.com/kanfu-panda/pdlc-skills) — stars are how other Claude Code users discover this project. If it saves you hours (or sanity) and you want to go further:
+
+**Donation channels:**
+
+- 🇨🇳 **[Afdian (爱发电)](https://afdian.com/a/kanfu-panda)** — for users in China; Alipay / WeChat Pay; native support for monthly tiers and one-time tips.
+- 🌍 **[PayPal](https://paypal.me/Leosh980)** — for international users; any amount, one-time.
+
+**Tiers (Afdian — choose monthly or one-time at the same amount):**
+
+| Tier | Afdian | PayPal equivalent | What you get |
+|---|---|---|---|
+| ☕ Tip | ¥10 one-time | $1+ one-time | Thank-you. Not listed. |
+| 🌱 Backer | ¥30/month | $5+ one-time | Your name on [SPONSORS.md](./SPONSORS.md) |
+| 🌳 Sponsor | ¥66/month | $20+ one-time | Name + avatar + link on [SPONSORS.md](./SPONSORS.md) |
+| 🏢 Enterprise | ¥888/month | $100+/month | Logo + link at the top of `README.md` |
+
+If you donate via PayPal, please drop your GitHub handle in [a SPONSORS issue](https://github.com/kanfu-panda/pdlc-skills/issues/new?title=%5BSponsor%5D%20add%20me%20to%20the%20list) so we can add you to the list. The list is updated monthly — see [SPONSORS.md](./SPONSORS.md).
+
+---
+
+## License
+
+[MIT](./LICENSE) — use it, fork it, ship it.

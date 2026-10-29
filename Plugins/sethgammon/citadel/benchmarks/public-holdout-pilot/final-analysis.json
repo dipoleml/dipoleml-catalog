@@ -1,0 +1,954 @@
+{
+  "schema": 1,
+  "kind": "citadel_public_holdout_fast_pilot_final_analysis",
+  "analysis_id": "sha256:90db4827e2a96ffe81a95f09e05f2380af53d2eef49bf4720049534388b52c6d",
+  "freeze_id": "sha256:cfe2d091ccd01effd8cacc443986e649a9db442a828fbe20946673a9eff173c8",
+  "assignment_id": "sha256:c5fa3f2a08617b1347fa402964fb91ae422036333a92fc1f551da073e3eb765e",
+  "route_ledger_id": "sha256:6839fbc159f099ac0e3c13004dc9718d4d3e1dfac60a44f61eaa12e7f00ea257",
+  "rows": [
+    {
+      "instance_id": "preactjs__preact-4880",
+      "repo": "preactjs/preact",
+      "feature_key": "js.issue-short",
+      "outcomes": {
+        "always-claude": {
+          "status": "failed",
+          "visited_attempts": [
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:b005b8c1af5fecc0bdac6cdc1235d20325eef496581b918eb0511436add97700",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.898374
+            }
+          ],
+          "comparison_cost_usd": 0.898374
+        },
+        "static-local-first": {
+          "status": "failed",
+          "visited_attempts": [
+            {
+              "plan_id": "qwen-3b",
+              "attempt_id": "sha256:61b7a3a746ba7702a3d1db951b1ffb8d932a042a830c1f3f6c81f1be12ea0530",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.000640444
+            },
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:b005b8c1af5fecc0bdac6cdc1235d20325eef496581b918eb0511436add97700",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.898374
+            }
+          ],
+          "comparison_cost_usd": 0.899014444
+        },
+        "citadel-controller": {
+          "status": "failed",
+          "visited_attempts": [
+            {
+              "plan_id": "qwen-3b",
+              "attempt_id": "sha256:61b7a3a746ba7702a3d1db951b1ffb8d932a042a830c1f3f6c81f1be12ea0530",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.000640444
+            },
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:b005b8c1af5fecc0bdac6cdc1235d20325eef496581b918eb0511436add97700",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.898374
+            }
+          ],
+          "comparison_cost_usd": 0.899014444
+        }
+      }
+    },
+    {
+      "instance_id": "GladysAssistant__Gladys-2504",
+      "repo": "GladysAssistant/Gladys",
+      "feature_key": "js.issue-short",
+      "outcomes": {
+        "always-claude": {
+          "status": "failed",
+          "visited_attempts": [
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:7f2033d6b02e86657495368f1d2211b59f50c714ce9a92f9749ee9c618d5bd77",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.433244
+            }
+          ],
+          "comparison_cost_usd": 0.433244
+        },
+        "static-local-first": {
+          "status": "failed",
+          "visited_attempts": [
+            {
+              "plan_id": "qwen-3b",
+              "attempt_id": "sha256:a312087876a66aabbc6e9c793a260386589f8fd45926cca626cc25b9034ee109",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.000123532
+            },
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:7f2033d6b02e86657495368f1d2211b59f50c714ce9a92f9749ee9c618d5bd77",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.433244
+            }
+          ],
+          "comparison_cost_usd": 0.433367532
+        },
+        "citadel-controller": {
+          "status": "failed",
+          "visited_attempts": [
+            {
+              "plan_id": "qwen-3b",
+              "attempt_id": "sha256:a312087876a66aabbc6e9c793a260386589f8fd45926cca626cc25b9034ee109",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.000123532
+            },
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:7f2033d6b02e86657495368f1d2211b59f50c714ce9a92f9749ee9c618d5bd77",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.433244
+            }
+          ],
+          "comparison_cost_usd": 0.433367532
+        }
+      }
+    },
+    {
+      "instance_id": "simple-icons__simple-icons-13659",
+      "repo": "simple-icons/simple-icons",
+      "feature_key": "js.issue-short",
+      "outcomes": {
+        "always-claude": {
+          "status": "failed",
+          "visited_attempts": [
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:30ede03d3f9bc3d0ad622fcfde85675b502d66938bd857b1ec1fab3a5fd7e695",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.081937
+            }
+          ],
+          "comparison_cost_usd": 0.081937
+        },
+        "static-local-first": {
+          "status": "failed",
+          "visited_attempts": [
+            {
+              "plan_id": "qwen-3b",
+              "attempt_id": "sha256:43ef565e18efd6a0a38ddc821b9cbea85f51ce3877cabd2cc251ec5aaf3ec5e6",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.00018139
+            },
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:30ede03d3f9bc3d0ad622fcfde85675b502d66938bd857b1ec1fab3a5fd7e695",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.081937
+            }
+          ],
+          "comparison_cost_usd": 0.08211839
+        },
+        "citadel-controller": {
+          "status": "failed",
+          "visited_attempts": [
+            {
+              "plan_id": "qwen-3b",
+              "attempt_id": "sha256:43ef565e18efd6a0a38ddc821b9cbea85f51ce3877cabd2cc251ec5aaf3ec5e6",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.00018139
+            },
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:30ede03d3f9bc3d0ad622fcfde85675b502d66938bd857b1ec1fab3a5fd7e695",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.081937
+            }
+          ],
+          "comparison_cost_usd": 0.08211839
+        }
+      }
+    },
+    {
+      "instance_id": "moment__luxon-1720",
+      "repo": "moment/luxon",
+      "feature_key": "js.issue-short",
+      "outcomes": {
+        "always-claude": {
+          "status": "failed",
+          "visited_attempts": [
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:c542adb165c69479c96bcc29d99547d8ae4084369c7e55bea6dac6303054333c",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.019312
+            }
+          ],
+          "comparison_cost_usd": 0.019312
+        },
+        "static-local-first": {
+          "status": "failed",
+          "visited_attempts": [
+            {
+              "plan_id": "qwen-3b",
+              "attempt_id": "sha256:47aa6f639f2967b3c5e961183079023826251a617b5cdcadf3f029e19800fdf4",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.001102775
+            },
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:c542adb165c69479c96bcc29d99547d8ae4084369c7e55bea6dac6303054333c",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.019312
+            }
+          ],
+          "comparison_cost_usd": 0.020414775
+        },
+        "citadel-controller": {
+          "status": "failed",
+          "visited_attempts": [
+            {
+              "plan_id": "qwen-3b",
+              "attempt_id": "sha256:47aa6f639f2967b3c5e961183079023826251a617b5cdcadf3f029e19800fdf4",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.001102775
+            },
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:c542adb165c69479c96bcc29d99547d8ae4084369c7e55bea6dac6303054333c",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.019312
+            }
+          ],
+          "comparison_cost_usd": 0.020414775
+        }
+      }
+    },
+    {
+      "instance_id": "gsd-build__get-shit-done-2186",
+      "repo": "gsd-build/get-shit-done",
+      "feature_key": "js.issue-long",
+      "outcomes": {
+        "always-claude": {
+          "status": "failed",
+          "visited_attempts": [
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:5fa726d841f5bae1b4fe2f54bf1e7ba23ce3a7348e2108c25285ebd9b736f673",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.606491
+            }
+          ],
+          "comparison_cost_usd": 0.606491
+        },
+        "static-local-first": {
+          "status": "failed",
+          "visited_attempts": [
+            {
+              "plan_id": "qwen-3b",
+              "attempt_id": "sha256:096bae90ef3f6716d10025fd12c5d8703facc22c4e75a56bcc06d6d998e0ed79",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.000303654
+            },
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:5fa726d841f5bae1b4fe2f54bf1e7ba23ce3a7348e2108c25285ebd9b736f673",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.606491
+            }
+          ],
+          "comparison_cost_usd": 0.606794654
+        },
+        "citadel-controller": {
+          "status": "failed",
+          "visited_attempts": [
+            {
+              "plan_id": "qwen-3b",
+              "attempt_id": "sha256:096bae90ef3f6716d10025fd12c5d8703facc22c4e75a56bcc06d6d998e0ed79",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.000303654
+            },
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:5fa726d841f5bae1b4fe2f54bf1e7ba23ce3a7348e2108c25285ebd9b736f673",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.606491
+            }
+          ],
+          "comparison_cost_usd": 0.606794654
+        }
+      }
+    },
+    {
+      "instance_id": "docsifyjs__docsify-2595",
+      "repo": "docsifyjs/docsify",
+      "feature_key": "js.issue-long",
+      "outcomes": {
+        "always-claude": {
+          "status": "failed",
+          "visited_attempts": [
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:d0bfe24347766b845bebb31e49e6a3abe9494ebe3a25125bb6c3d5cddf6cfd08",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.313779
+            }
+          ],
+          "comparison_cost_usd": 0.313779
+        },
+        "static-local-first": {
+          "status": "failed",
+          "visited_attempts": [
+            {
+              "plan_id": "qwen-3b",
+              "attempt_id": "sha256:d2ff3a2eb992fb9f45c45938a2b4020b272534ca98ff87d94c3623f56f43f07c",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.000070976
+            },
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:d0bfe24347766b845bebb31e49e6a3abe9494ebe3a25125bb6c3d5cddf6cfd08",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.313779
+            }
+          ],
+          "comparison_cost_usd": 0.313849976
+        },
+        "citadel-controller": {
+          "status": "failed",
+          "visited_attempts": [
+            {
+              "plan_id": "qwen-3b",
+              "attempt_id": "sha256:d2ff3a2eb992fb9f45c45938a2b4020b272534ca98ff87d94c3623f56f43f07c",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.000070976
+            },
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:d0bfe24347766b845bebb31e49e6a3abe9494ebe3a25125bb6c3d5cddf6cfd08",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.313779
+            }
+          ],
+          "comparison_cost_usd": 0.313849976
+        }
+      }
+    },
+    {
+      "instance_id": "openai__codex-plugin-cc-83",
+      "repo": "openai/codex-plugin-cc",
+      "feature_key": "js.issue-long",
+      "outcomes": {
+        "always-claude": {
+          "status": "failed",
+          "visited_attempts": [
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:47dff4348aac236c56a1f2938bab014bbfceca55b28dfeeca56ae86523132a63",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.550295
+            }
+          ],
+          "comparison_cost_usd": 0.550295
+        },
+        "static-local-first": {
+          "status": "failed",
+          "visited_attempts": [
+            {
+              "plan_id": "qwen-3b",
+              "attempt_id": "sha256:94773dc5287606824eaf5ac46677667f543a0eb573853f24217d3fcc76e486f4",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.000843799
+            },
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:47dff4348aac236c56a1f2938bab014bbfceca55b28dfeeca56ae86523132a63",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.550295
+            }
+          ],
+          "comparison_cost_usd": 0.551138799
+        },
+        "citadel-controller": {
+          "status": "failed",
+          "visited_attempts": [
+            {
+              "plan_id": "qwen-3b",
+              "attempt_id": "sha256:94773dc5287606824eaf5ac46677667f543a0eb573853f24217d3fcc76e486f4",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.000843799
+            },
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:47dff4348aac236c56a1f2938bab014bbfceca55b28dfeeca56ae86523132a63",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.550295
+            }
+          ],
+          "comparison_cost_usd": 0.551138799
+        }
+      }
+    },
+    {
+      "instance_id": "aralroca__next-translate-1259",
+      "repo": "aralroca/next-translate",
+      "feature_key": "js.issue-long",
+      "outcomes": {
+        "always-claude": {
+          "status": "failed",
+          "visited_attempts": [
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:fc565bb50b4071b091e464c059802ef62886093266bc4f8bf0aea7641ea2a05d",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.386144
+            }
+          ],
+          "comparison_cost_usd": 0.386144
+        },
+        "static-local-first": {
+          "status": "failed",
+          "visited_attempts": [
+            {
+              "plan_id": "qwen-3b",
+              "attempt_id": "sha256:484dbf436239a3a9192728d045c29c29536cd748e04b97b4dcdd8096df8904e2",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.000210788
+            },
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:fc565bb50b4071b091e464c059802ef62886093266bc4f8bf0aea7641ea2a05d",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.386144
+            }
+          ],
+          "comparison_cost_usd": 0.386354788
+        },
+        "citadel-controller": {
+          "status": "failed",
+          "visited_attempts": [
+            {
+              "plan_id": "qwen-3b",
+              "attempt_id": "sha256:484dbf436239a3a9192728d045c29c29536cd748e04b97b4dcdd8096df8904e2",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.000210788
+            },
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:fc565bb50b4071b091e464c059802ef62886093266bc4f8bf0aea7641ea2a05d",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.386144
+            }
+          ],
+          "comparison_cost_usd": 0.386354788
+        }
+      }
+    },
+    {
+      "instance_id": "MetaMask__metamask-mobile-17294",
+      "repo": "MetaMask/metamask-mobile",
+      "feature_key": "ts.issue-short",
+      "outcomes": {
+        "always-claude": {
+          "status": "passed",
+          "visited_attempts": [
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:84ff33a6206ca71076dcdd7a24f8a59cd2f0ed80c148ba09dffc9c833243bdeb",
+              "verification_status": "passed",
+              "comparison_cost_usd": 0.206445
+            }
+          ],
+          "comparison_cost_usd": 0.206445
+        },
+        "static-local-first": {
+          "status": "passed",
+          "visited_attempts": [
+            {
+              "plan_id": "qwen-3b",
+              "attempt_id": "sha256:b90bc539799344b5a67d86b0184ab073e600d2d079d153735a3c20ab3cd54a47",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.001105887
+            },
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:84ff33a6206ca71076dcdd7a24f8a59cd2f0ed80c148ba09dffc9c833243bdeb",
+              "verification_status": "passed",
+              "comparison_cost_usd": 0.206445
+            }
+          ],
+          "comparison_cost_usd": 0.207550887
+        },
+        "citadel-controller": {
+          "status": "passed",
+          "visited_attempts": [
+            {
+              "plan_id": "qwen-3b",
+              "attempt_id": "sha256:b90bc539799344b5a67d86b0184ab073e600d2d079d153735a3c20ab3cd54a47",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.001105887
+            },
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:84ff33a6206ca71076dcdd7a24f8a59cd2f0ed80c148ba09dffc9c833243bdeb",
+              "verification_status": "passed",
+              "comparison_cost_usd": 0.206445
+            }
+          ],
+          "comparison_cost_usd": 0.207550887
+        }
+      }
+    },
+    {
+      "instance_id": "denoland__std-6775",
+      "repo": "denoland/std",
+      "feature_key": "ts.issue-short",
+      "outcomes": {
+        "always-claude": {
+          "status": "passed",
+          "visited_attempts": [
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:1b3f5cd421ae98c680bcb7b4a0ac22d03112d13a97f57b62227d383c94cf8279",
+              "verification_status": "passed",
+              "comparison_cost_usd": 0.118993
+            }
+          ],
+          "comparison_cost_usd": 0.118993
+        },
+        "static-local-first": {
+          "status": "passed",
+          "visited_attempts": [
+            {
+              "plan_id": "qwen-3b",
+              "attempt_id": "sha256:88fe60268f9ce8775a2990cb86ef1a5b40b514eb44bde61c0adba83de0632e19",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.000182758
+            },
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:1b3f5cd421ae98c680bcb7b4a0ac22d03112d13a97f57b62227d383c94cf8279",
+              "verification_status": "passed",
+              "comparison_cost_usd": 0.118993
+            }
+          ],
+          "comparison_cost_usd": 0.119175758
+        },
+        "citadel-controller": {
+          "status": "passed",
+          "visited_attempts": [
+            {
+              "plan_id": "qwen-3b",
+              "attempt_id": "sha256:88fe60268f9ce8775a2990cb86ef1a5b40b514eb44bde61c0adba83de0632e19",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.000182758
+            },
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:1b3f5cd421ae98c680bcb7b4a0ac22d03112d13a97f57b62227d383c94cf8279",
+              "verification_status": "passed",
+              "comparison_cost_usd": 0.118993
+            }
+          ],
+          "comparison_cost_usd": 0.119175758
+        }
+      }
+    },
+    {
+      "instance_id": "RocketChat__Rocket.Chat.ReactNative-6382",
+      "repo": "RocketChat/Rocket.Chat.ReactNative",
+      "feature_key": "ts.issue-short",
+      "outcomes": {
+        "always-claude": {
+          "status": "failed",
+          "visited_attempts": [
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:ed3ec6e0d53458ecb154de375288a2fc48c1e7b52f377c42da6c5eaa00020829",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.111172
+            }
+          ],
+          "comparison_cost_usd": 0.111172
+        },
+        "static-local-first": {
+          "status": "failed",
+          "visited_attempts": [
+            {
+              "plan_id": "qwen-3b",
+              "attempt_id": "sha256:a0dbe4477d3dfc369d8986453ac24031b1da2ac8c75b7b6cd86d9b5fe11b9a21",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.000175252
+            },
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:ed3ec6e0d53458ecb154de375288a2fc48c1e7b52f377c42da6c5eaa00020829",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.111172
+            }
+          ],
+          "comparison_cost_usd": 0.111347252
+        },
+        "citadel-controller": {
+          "status": "failed",
+          "visited_attempts": [
+            {
+              "plan_id": "qwen-3b",
+              "attempt_id": "sha256:a0dbe4477d3dfc369d8986453ac24031b1da2ac8c75b7b6cd86d9b5fe11b9a21",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.000175252
+            },
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:ed3ec6e0d53458ecb154de375288a2fc48c1e7b52f377c42da6c5eaa00020829",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.111172
+            }
+          ],
+          "comparison_cost_usd": 0.111347252
+        }
+      }
+    },
+    {
+      "instance_id": "jhlywa__chess.js-546",
+      "repo": "jhlywa/chess.js",
+      "feature_key": "ts.issue-short",
+      "outcomes": {
+        "always-claude": {
+          "status": "failed",
+          "visited_attempts": [
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:1281689729a4c9dd253f72e31eda52255f4df225dbb003e40cb84d226660b505",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.206763
+            }
+          ],
+          "comparison_cost_usd": 0.206763
+        },
+        "static-local-first": {
+          "status": "failed",
+          "visited_attempts": [
+            {
+              "plan_id": "qwen-3b",
+              "attempt_id": "sha256:5bb275813354b37cb000be671f149bf9d5f2debb029f39c809ec5ec77d5b413d",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.002339148
+            },
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:1281689729a4c9dd253f72e31eda52255f4df225dbb003e40cb84d226660b505",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.206763
+            }
+          ],
+          "comparison_cost_usd": 0.209102148
+        },
+        "citadel-controller": {
+          "status": "failed",
+          "visited_attempts": [
+            {
+              "plan_id": "qwen-3b",
+              "attempt_id": "sha256:5bb275813354b37cb000be671f149bf9d5f2debb029f39c809ec5ec77d5b413d",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.002339148
+            },
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:1281689729a4c9dd253f72e31eda52255f4df225dbb003e40cb84d226660b505",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.206763
+            }
+          ],
+          "comparison_cost_usd": 0.209102148
+        }
+      }
+    },
+    {
+      "instance_id": "code-yeongyu__oh-my-openagent-3013",
+      "repo": "code-yeongyu/oh-my-openagent",
+      "feature_key": "ts.issue-long",
+      "outcomes": {
+        "always-claude": {
+          "status": "failed",
+          "visited_attempts": [
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:bc26364d59dacb32c10c221480da12675e637265d250d7ebf9310a80b0cb50d2",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.169484
+            }
+          ],
+          "comparison_cost_usd": 0.169484
+        },
+        "static-local-first": {
+          "status": "failed",
+          "visited_attempts": [
+            {
+              "plan_id": "qwen-3b",
+              "attempt_id": "sha256:ed8192b863edef8006bb0696359ab2a2870b972ea78b53abc5044f6ecf9480ca",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.001520442
+            },
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:bc26364d59dacb32c10c221480da12675e637265d250d7ebf9310a80b0cb50d2",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.169484
+            }
+          ],
+          "comparison_cost_usd": 0.171004442
+        },
+        "citadel-controller": {
+          "status": "failed",
+          "visited_attempts": [
+            {
+              "plan_id": "qwen-3b",
+              "attempt_id": "sha256:ed8192b863edef8006bb0696359ab2a2870b972ea78b53abc5044f6ecf9480ca",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.001520442
+            },
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:bc26364d59dacb32c10c221480da12675e637265d250d7ebf9310a80b0cb50d2",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.169484
+            }
+          ],
+          "comparison_cost_usd": 0.171004442
+        }
+      }
+    },
+    {
+      "instance_id": "honojs__hono-4269",
+      "repo": "honojs/hono",
+      "feature_key": "ts.issue-long",
+      "outcomes": {
+        "always-claude": {
+          "status": "failed",
+          "visited_attempts": [
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:1d3b49f16cefff0e3b296f178dac960ee8891aa875c3091517a5324e7284448c",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.131441
+            }
+          ],
+          "comparison_cost_usd": 0.131441
+        },
+        "static-local-first": {
+          "status": "failed",
+          "visited_attempts": [
+            {
+              "plan_id": "qwen-3b",
+              "attempt_id": "sha256:6ffbd4657d445677136063ffc48757b8be9f81f507008e57fb30cc637ff3b14e",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.000420307
+            },
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:1d3b49f16cefff0e3b296f178dac960ee8891aa875c3091517a5324e7284448c",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.131441
+            }
+          ],
+          "comparison_cost_usd": 0.131861307
+        },
+        "citadel-controller": {
+          "status": "failed",
+          "visited_attempts": [
+            {
+              "plan_id": "qwen-3b",
+              "attempt_id": "sha256:6ffbd4657d445677136063ffc48757b8be9f81f507008e57fb30cc637ff3b14e",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.000420307
+            },
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:1d3b49f16cefff0e3b296f178dac960ee8891aa875c3091517a5324e7284448c",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.131441
+            }
+          ],
+          "comparison_cost_usd": 0.131861307
+        }
+      }
+    },
+    {
+      "instance_id": "TanStack__router-4611",
+      "repo": "TanStack/router",
+      "feature_key": "ts.issue-long",
+      "outcomes": {
+        "always-claude": {
+          "status": "failed",
+          "visited_attempts": [
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:78d3ab3a29c789ca60c78701b7a055771fec1f363df6b699940cb7213f92b904",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.07408
+            }
+          ],
+          "comparison_cost_usd": 0.07408
+        },
+        "static-local-first": {
+          "status": "passed",
+          "visited_attempts": [
+            {
+              "plan_id": "qwen-3b",
+              "attempt_id": "sha256:6bcd712b3585260d4fe2a8f2afdb3b41affe453e41d171e337b05e9981308d49",
+              "verification_status": "passed",
+              "comparison_cost_usd": 0.001160928
+            }
+          ],
+          "comparison_cost_usd": 0.001160928
+        },
+        "citadel-controller": {
+          "status": "passed",
+          "visited_attempts": [
+            {
+              "plan_id": "qwen-3b",
+              "attempt_id": "sha256:6bcd712b3585260d4fe2a8f2afdb3b41affe453e41d171e337b05e9981308d49",
+              "verification_status": "passed",
+              "comparison_cost_usd": 0.001160928
+            }
+          ],
+          "comparison_cost_usd": 0.001160928
+        }
+      }
+    },
+    {
+      "instance_id": "openai__openai-agents-js-156",
+      "repo": "openai/openai-agents-js",
+      "feature_key": "ts.issue-long",
+      "outcomes": {
+        "always-claude": {
+          "status": "failed",
+          "visited_attempts": [
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:8b010d5e5d0c103d3026e24a07007cf780206648bf0c9373bfd58ccd02e4d343",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.486117
+            }
+          ],
+          "comparison_cost_usd": 0.486117
+        },
+        "static-local-first": {
+          "status": "failed",
+          "visited_attempts": [
+            {
+              "plan_id": "qwen-3b",
+              "attempt_id": "sha256:f49d180815ff1ed89cc125ce5f986d9cae2537ffbdf67f2c1b8715d1a7ffe3ef",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.003250899
+            },
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:8b010d5e5d0c103d3026e24a07007cf780206648bf0c9373bfd58ccd02e4d343",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.486117
+            }
+          ],
+          "comparison_cost_usd": 0.489367899
+        },
+        "citadel-controller": {
+          "status": "failed",
+          "visited_attempts": [
+            {
+              "plan_id": "qwen-3b",
+              "attempt_id": "sha256:f49d180815ff1ed89cc125ce5f986d9cae2537ffbdf67f2c1b8715d1a7ffe3ef",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.003250899
+            },
+            {
+              "plan_id": "claude-sonnet",
+              "attempt_id": "sha256:8b010d5e5d0c103d3026e24a07007cf780206648bf0c9373bfd58ccd02e4d343",
+              "verification_status": "failed",
+              "comparison_cost_usd": 0.486117
+            }
+          ],
+          "comparison_cost_usd": 0.489367899
+        }
+      }
+    }
+  ],
+  "primary": {
+    "schema": 1,
+    "kind": "citadel_public_holdout_fast_pilot_analysis",
+    "task_count": 16,
+    "point_estimate": {
+      "baseline_verified_rate": 0.125,
+      "candidate_verified_rate": 0.1875,
+      "paired_quality_difference": 0.0625,
+      "baseline_comparison_cost_usd": 4.794071,
+      "candidate_comparison_cost_usd": 4.733623979,
+      "comparison_cost_reduction": 0.012608703750945693
+    },
+    "sample_gates": {
+      "quality_preserved_in_observed_sample": true,
+      "comparison_cost_reduced_after_sample_quality": true,
+      "overall_preliminary_signal": true
+    },
+    "exploratory_bootstrap": {
+      "confidence_method": "paired stratified percentile bootstrap, 20000 repetitions, 95% two-sided interval",
+      "quality_difference_interval": {
+        "lower": 0,
+        "upper": 0.1875
+      },
+      "comparison_cost_reduction_interval": {
+        "lower": -0.0038714968212351375,
+        "upper": 0.04823168802494837
+      },
+      "by_feature_stratum": {
+        "js.issue-long": {
+          "baseline_verified_rate": 0,
+          "candidate_verified_rate": 0,
+          "paired_quality_difference": 0,
+          "baseline_comparison_cost_usd": 1.856709,
+          "candidate_comparison_cost_usd": 1.8581382169999998,
+          "comparison_cost_reduction": -0.0007697582119761126
+        },
+        "js.issue-short": {
+          "baseline_verified_rate": 0,
+          "candidate_verified_rate": 0,
+          "paired_quality_difference": 0,
+          "baseline_comparison_cost_usd": 1.432867,
+          "candidate_comparison_cost_usd": 1.434915141,
+          "comparison_cost_reduction": -0.0014294006352300048
+        },
+        "ts.issue-long": {
+          "baseline_verified_rate": 0,
+          "candidate_verified_rate": 0.25,
+          "paired_quality_difference": 0.25,
+          "baseline_comparison_cost_usd": 0.8611219999999999,
+          "candidate_comparison_cost_usd": 0.7933945760000001,
+          "comparison_cost_reduction": 0.07865020751995633
+        },
+        "ts.issue-short": {
+          "baseline_verified_rate": 0.5,
+          "candidate_verified_rate": 0.5,
+          "paired_quality_difference": 0,
+          "baseline_comparison_cost_usd": 0.643373,
+          "candidate_comparison_cost_usd": 0.6471760449999999,
+          "comparison_cost_reduction": -0.005911104444855431
+        }
+      }
+    },
+    "inference_scope": "Secondary bounded pilot. The sample gates describe these sixteen prospectively assigned tasks and are not a population noninferiority test.",
+    "claim_boundary": "Comparison USD is not actual subscription cash. This pilot cannot establish universal model performance, production savings, or best-in-class status."
+  },
+  "counterfactual_execution_disclosure": {
+    "generated_attempts": 32,
+    "policy_cost_excludes_unvisited_generated_tiers": true,
+    "total_observed_generation_comparison_usd": 4.807703979
+  },
+  "actual_subscription_cash_status": "unknown",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:f24af6bb897f2c1302d92fa943bd28f665faa7f6f23008085d182bf7095b4b2b",
+    "signature": "JWGCwZ7dNNdIFWQfS12p+qx+RZQfnwpZYZdfDJKxxKs/gyId0kZRCnr6A9XohwF42eDTuZVdVGDoSCGMb1/FBA=="
+  }
+}

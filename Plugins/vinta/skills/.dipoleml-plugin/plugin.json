@@ -1,0 +1,29 @@
+{
+  "name": "skills",
+  "displayName": "Skills",
+  "version": "2.14.3",
+  "description": "Opinionated agentic skills that do the boring parts for you",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Vinta"
+  },
+  "license": "MIT",
+  "homepage": "https://vinta.ws/code/",
+  "repository": "https://github.com/vinta/hal-9000",
+  "skills": [
+    "./commit",
+    "./pr",
+    "./difference",
+    "./fuck-over-engineering",
+    "./best-practices",
+    "./blindspot",
+    "./simple-english",
+    "./write-like-me",
+    "./audit-agent-settings",
+    "./refactor-agents-md",
+    "./refactor-memory",
+    "./refactor-skill"
+  ],
+  "commands": [],
+  "agents": []
+}

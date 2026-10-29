@@ -1,0 +1,64 @@
+# Slice issue format
+
+> Each slice in a `work-items.md` file (and in the per-repo files the skill writes) must follow this format. The publish
+> scripts (`scripts/create-issues.sh`, `scripts/link-blockers.sh`) parse it; the skill's Step 3 validation checks it.
+> Changes here require matching script changes.
+
+The format below is what `/plan-work-items` emits and what the publish pipeline reads. Required fields appear in the
+order shown. The `**References.**` block is required whenever the slice consumes any external artifact (HTTP endpoint,
+event payload, design frame, ADR, coding standard) — omit it only when no external artifact applies. Additional
+`**Bold paragraph.**` context blocks are allowed between required fields when a slice needs them — common ones:
+`**Note on scope boundary with <other effort>.**` for ticket-boundary clarifications,
+`**Note on <subsystem> capability.**` for SDK or platform caveats that affect acceptance.
+
+```
+## <SYM-N> — <short descriptive name>
+
+**Summary.** Three to five very short, plain-language sentences stating why the work is needed and what is being done. No technical detail and no ID references — plan references live in the References block, each with a one-sentence description.
+
+**Work to be done.**
+- Plain-language bullets stating the actual work, one to two short sentences each, every bullet supporting an acceptance criterion below.
+  - Technical detail, when needed, nests under the plain-language bullet it belongs to: starting points (a file path, a contract, a boundary), never a prescribed edit list or implementation code.
+
+*(Optional `**Bold paragraph.**` blocks here — e.g., `**Note on scope boundary.**`, `**Note on cross-repo gate.**`.)*
+
+**Screenshots.** *(Required for UI-bearing slices when the plan folder contains a `ui-designs/` subfolder. Each item is embedded inline using a same-target-repo raw URL of the form `https://github.com/<org>/<target-repo>/raw/<branch>/.github/issue-assets/<feature-slug>/<SYM-N>/<file>.<ext>`, where `<feature-slug>` is the kebab-cased basename of the plan folder and `<ext>` is the source file's own extension, one of `png`, `jpg`, `jpeg`, `gif`, `webp`, `svg`, or `pdf` — the accepted set in [screenshot-embed-rules.md](./screenshot-embed-rules.md). Copy the source filename including its extension; never rewrite `.jpg` to `.png`, because the upload resolves the source file by the filename in the URL. The file is copied into the target repo by `scripts/upload-screenshots.sh` before the issue is created. Cross-repo URLs into the planning repo are forbidden — the automated implementation tooling cannot resolve them. Each embed is wrapped in a link to the same URL so readers can open the full-size image in a new tab. A `.pdf` is linked rather than embedded as an image, because GitHub does not render it inline. One item per bullet, with a short caption naming the depicted state. Omitted when the slice has no UI surface or no `ui-designs/` folder exists.)*
+
+- *<state-or-scenario name>* — `[![<alt text>](https://github.com/<org>/<target-repo>/raw/<branch>/.github/issue-assets/<feature-slug>/<SYM-N>/<file>.<ext>)](https://github.com/<org>/<target-repo>/raw/<branch>/.github/issue-assets/<feature-slug>/<SYM-N>/<file>.<ext>)`
+
+**References.**
+- **Plan decisions** — every plan decision or work unit this slice satisfies, one bullet each: the ID as a link (e.g., `[D-6](feature-implementation-plan.md#d-6-...)`) followed by one short plain sentence saying what it is. Never a bare ID list. Replaces any inline `See plan: ...` reference and any standalone "Work items addressed" field.
+- **API contract** — `[<file>#<anchor>](<relative-path>)` (e.g., `[feature-implementation-plan.md#external-interfaces](feature-implementation-plan.md#external-interfaces)`). Required when the slice produces or consumes an HTTP endpoint.
+- **Event contract** — `[<file>#<event-section>](<relative-path>)`. Required when the slice produces or consumes an event payload.
+- **Design (Pencil)** — `<pen-file-path>`, frames `<frameId>` (purpose), `<frameId>` (purpose). Required for UI slices.
+- **Spec section** — `[feature-specification.md#<anchor>](feature-specification.md#<anchor>)` for the behavior this slice realizes.
+- **ADR / standard / repo doc** — links to architectural decisions, coding standards, or feature docs the implementer must honor.
+- Omits any bullet that does not apply. Does not link iteration histories, decision logs, review findings, team findings, facilitation summaries, or any other process artifact.
+
+**Acceptance criteria.**
+- [ ] Each criterion is an observable, verifiable outcome of this slice's own behavior. Test expectations live here (e.g., "Automated tests cover the rejection path"). Never standard operating procedure (commit pushed, CI green, PR opened), and never a prohibition without its validated reason stated alongside it.
+
+**Depends on.** `<SYM-N>` (within this repo), comma-separated for multiple, or `None.`
+```
+
+## Format invariants the scripts depend on
+
+These are the patterns the publish scripts grep for; violating them breaks the pipeline. The skill's Step 3 validation
+checks each invariant before publishing and proposes evidence-based repairs.
+
+- **Heading line** begins with `## ` followed by `<SYM-N>` (uppercase letters or digits, dash, digits), then `—`
+  (em-dash with surrounding spaces), then the title.
+- **Heading rewrite.** After issue creation, `scripts/create-issues.sh` rewrites each heading in place to
+  `## <SYM-N> (#NNN) — <title>`. The `(#NNN)` annotation is how `link-blockers.sh` resolves symbolic IDs to GitHub issue
+  numbers, and how `create-issues.sh` knows to skip already-created slices on re-run. Both shapes — with and without
+  `(#NNN)` — are valid input.
+- **Slice body** ends at the next `## ` heading or end of file.
+- **Screenshot URLs** use the exact path scheme `.github/issue-assets/<feature-slug>/<SYM-N>/<file>.<ext>`, where
+  `<feature-slug>` is the kebab-cased basename of the plan folder and `<ext>` is the source file's own extension from the
+  accepted set. The upload script extracts this path verbatim from the per-repo file and reads both the slug and the
+  filename back out of it, so what is written into the URL is authoritative for both.
+- **`Depends on` line** uses the literal bold marker `**Depends on.**`, comma-separates blockers, and ends with `.` (the
+  trailing period is part of the format, not a sentence terminator).
+- **Within-repo blockers only.** Every SYM named in a `Depends on` line must resolve to a slice in the same per-repo
+  file. Cross-repo blockers belong in the cross-repo work-order prose at the top of the source `work-items.md`, not as a
+  native `blocked_by` link.

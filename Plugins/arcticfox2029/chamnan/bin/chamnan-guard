@@ -1,0 +1,775 @@
+#!/usr/bin/env python3
+"""chamnan-guard — does anything staged for commit look like a secret or new MCP capability?
+
+  chamnan-guard          scan the staged diff, name the risks, never fail the commit
+  chamnan-guard --strict exit 1 instead, for a hook somebody opted into
+  chamnan-guard --history  the other question: is anything ALREADY committed. A one-off audit
+                           across every branch and tag (up to 500 commits), grouped by file, worst
+                           first — not a hook. 🐛 [2026-09-29] (R82 acc4, 2026-09-29) used to walk
+                           only HEAD's ancestry, so a commit on a side branch was invisible.
+
+`lib/redact.py` exists to keep a secret out of everything that reaches the MODEL — the SessionStart
+block, `MAP.md`, the file each agent reads. It had never been pointed at the other direction a
+secret actually leaves a machine, which is `git commit`, and which is the direction this
+repository's own rules name first (R1 agent 5, finding 1).
+
+**It warns. It does not block.** The redactor's own published recall is 98.2% on a synthetic corpus
+of deliberately obvious shapes, and it verifies nothing against a live service — by the no-network
+rule, and permanently. A false positive that stops every commit is worse than the leak it guards
+against: the person turns the hook off, and then nothing is watching at all. `--strict` exists for
+somebody who has read that sentence and wants the gate anyway.
+
+**It never prints what it found.** The finding is a file and a line number. Echoing the matched text
+would copy the secret into a terminal, a CI log and an agent's transcript — three more places it
+now exists — which is the thing this command is for.
+
+Only ADDED lines are read. A removed line is a risk leaving the tree, and a context line is already
+committed: flagging either is noise that trains people to ignore the real one.
+"""
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent / "lib"))
+import mdblock  # noqa: E402
+import redact  # noqa: E402
+import workspace as ws  # noqa: E402
+
+# Every `bin/` command shadows print with the scrubbing emitter. This one especially: it is holding
+# lines that may BE credentials, and one careless interpolation would print the thing it exists to
+# keep out of a terminal.
+print = redact.emit  # noqa: A001
+
+KNOWN_FLAGS = ("--strict", "--history")
+
+# A commit is in the foreground of somebody's workflow. The redactor was measured at 32 ms on an
+# 18 KB diff, so the cap is not about the scan — it is about a pathological diff (a vendored blob,
+# a generated lockfile) turning a commit into a wait. Past this, the scan says what it skipped
+# rather than pretending it looked.
+MAX_DIFF_BYTES = 4_000_000
+
+# An MCP server entry is executable/network capability, not ordinary configuration. Four items in
+# the 2026-09-12 security sweep named different incidents with the same commit-time boundary:
+# mcp-remote, MCP Inspector, Git MCP, and model-induced execution through MCP tools. The guard does
+# not claim a named package or endpoint is vulnerable -- versions move, and this command does no
+# network lookup. It makes a newly staged capability visible for command, version and access review.
+#
+# Dedicated filenames are the strong signal: every added line matters. Mixed settings files need a
+# content signal too, or changing an unrelated editor preference becomes permanent guard noise.
+_MCP_CONFIG_NAMES = frozenset((".mcp.json", "mcp.json", "mcp.jsonc"))
+_CONFIG_SUFFIXES = (".json", ".jsonc", ".yaml", ".yml", ".toml")
+_MCP_SIGNAL = re.compile(
+    r"(?:\bmcp[_-]?servers?\b|\bmcp[_-](?:remote|inspector|server|git)\b|"
+    r"@modelcontextprotocol/|(?:https?://|wss?://)[^\s\"']*/mcp(?:\b|/))",
+    re.I)
+
+
+def _staged_diff(root):
+    """The staged diff, or None when git cannot answer. Never raises.
+
+    `git_can_speak_for` first, and it is not a formality: `git -C <root>` answers about whatever
+    repository is ABOVE `root` when `root` itself is not in one. Without it, running this in a
+    directory that merely sits inside somebody's checkout would scan THAT repository's staged
+    changes and report findings against files this command was never pointed at.
+    """
+    if not ws.git_can_speak_for(root):
+        return None
+    try:
+        out = subprocess.run(
+            # 🐛 [2026-09-28] (R185 acc4, 2026-09-28) Left at git's defaults, a non-ASCII path in
+            # this diff comes back C-quoted (`"b/\340\271\204...txt"`) and `--no-prefix`/
+            # `diff.mnemonicPrefix`/custom `diff.srcPrefix`/`diff.dstPrefix` set in the scanned
+            # repository's own config each change or drop the `a/`/`b/` `_added_lines` strips — so
+            # every finding about a Thai, Chinese or accented filename named garbage. Pinned here
+            # rather than left to whatever the repository under scan happens to have configured.
+            ["git", "-C", str(root),
+             "-c", "core.quotePath=false", "-c", "diff.mnemonicPrefix=false",
+             "-c", "diff.noprefix=false",
+             "diff", "--cached", "--no-color", "--no-ext-diff",
+         # 🐛 [2026-09-18] (R3 agent 2, 2026-09-18) `--no-ext-diff` refuses an external diff COMMAND and does nothing about a
+         # textconv driver, which is a different key and runs anyway. A repository shipping
+         # `.gitattributes` with `*.bin diff=evil` and a `[diff "evil"] textconv = <program>` in its
+         # own config had that program executed by this exact call — reproduced, R3 2026-09-18.
+         "--no-textconv", "-U0", "--src-prefix=a/", "--dst-prefix=b/"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            stdin=subprocess.DEVNULL, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return out.stdout if out.returncode == 0 else None
+
+
+# Moved to `workspace.unquote_git_path` on 2026-09-30, where the churn reader also uses it; the old
+# name stays so every call site here keeps working.
+_unquote_git_path = ws.unquote_git_path
+
+
+def _added_lines(diff):
+    """(path, line number, text) for every ADDED line, following the `+++`/`@@` headers.
+
+    The line number is the one in the file after the commit, which is what a person opens. `-U0`
+    means every hunk header is followed only by added and removed lines, so the counter needs no
+    context handling.
+
+    🐛 [2026-09-28] (R136 acc2, 2026-09-28) `str.splitlines()` also breaks on U+2028, U+2029,
+    U+0085, \\x0b, \\x0c, \\x1c, \\x1d and \\x1e. An ADDED line carrying one of those (a form feed is
+    ordinary in real source) had its tail dropped as a fragment that does not start with "+", and
+    every scanner fed by this function silently missed it. Reuse `ws.jsonl_lines` -- it is
+    format-agnostic despite the name (splits on "\\n" only, strips a trailing "\\r") -- rather than
+    duplicate that split-and-strip here.
+    """
+    path, lineno = None, 0
+    for raw in ws.jsonl_lines(diff):
+        if raw.startswith("+++ "):
+            # 🐛 [2026-09-28] (R185 acc4, 2026-09-28) Unquoted BEFORE the `a/`/`b/` prefix check —
+            # a still-quoted header is `"b/name"`, not `a/name` or `b/name`, so the prefix strip
+            # silently no-ops on it and the quotes travel into every finding this function yields.
+            name = _unquote_git_path(raw[4:].strip())
+            path = None if name == "/dev/null" else name[2:] if name[:2] in ("a/", "b/") else name
+            continue
+        if raw.startswith("@@"):
+            try:
+                after = raw.split("+", 1)[1].split(" ", 1)[0]
+                lineno = int(after.split(",", 1)[0])
+            except (IndexError, ValueError):
+                lineno = 0
+            continue
+        if raw.startswith("+") and path:
+            yield path, lineno, raw[1:]
+            lineno += 1
+
+
+# ------------------------------------------------------ where a dependency comes from, and what
+# it runs before anybody reads it
+#
+# A dependency can arrive from somewhere other than the registry it appears to come from, under a
+# name written to be read as a different one, carrying code that runs because it was installed
+# rather than because anything imported it. Those are three separate questions and all three are
+# answerable from a staged diff, offline, without a list of known-bad names.
+#
+# Same stance as the MCP signal above: a review signal, never a verdict. Somebody adding a private
+# registry on purpose is doing their job, and being told once, at the commit that adds it, costs
+# them a second. Being told on every command would cost them the habit of reading it.
+#
+# Restricted to the files that can actually decide a dependency's origin. A README naming a mirror
+# is prose; `.npmrc` naming one is configuration, and the difference is the whole of why this is
+# quiet enough to keep — 0 of 2,917 commits across three real repositories.
+_SUPPLY_FILES = frozenset((
+    ".npmrc", ".yarnrc", ".yarnrc.yml", "pip.conf", "pip.ini", "gemfile", "gemfile.lock",
+    "package.json", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "composer.json",
+    "composer.lock", "cargo.toml", "cargo.lock", "go.mod", "pyproject.toml", "setup.py",
+    "setup.cfg", "pipfile", "poetry.lock", "uv.lock", "requirements.txt", "config.toml",
+))
+_SUPPLY_SUFFIXES = ("requirements.txt", ".gemspec")
+
+# The hosts each ecosystem installs from when nobody has changed anything. Naming them is what
+# lets this fire on a REDIRECTION rather than on the existence of a source line -- the first build
+# reported `source 'https://rubygems.org'`, which is the official one, written in the one place a
+# Ruby project is required to write it. A guard that fires on the correct configuration teaches
+# people to ignore it faster than one that never fires at all.
+_OFFICIAL_HOSTS = (
+    "rubygems.org", "registry.npmjs.org", "registry.yarnpkg.com", "pypi.org", "files.pythonhosted.org",
+    "crates.io", "static.crates.io", "index.crates.io", "proxy.golang.org", "sum.golang.org",
+    "repo.packagist.org", "packagist.org",
+)
+# 🐛 `r"\\\\."` here escaped the escape: the alternation became `rubygems\\\\.org`, which matches a
+# literal backslash before the dot and therefore nothing, so the lookahead always succeeded and
+# every official host was reported as a redirection. Four of twenty cases, all of them the
+# "correct configuration is silent" half — the half a guard is judged on.
+# 🐛 The separator used to sit OUTSIDE this as `\\s*["\']?`, and `\\s*` can give back what it took:
+# the lookahead was then applied at the space after `index-url =`, where the text does not begin
+# with a scheme, so it succeeded and `https://pypi.org/simple` was reported as a redirection. The
+# whitespace and the quote belong inside the lookahead, where they cannot be surrendered.
+_OFFICIAL = "(?!\\s*[\'\\\"]?(?:https?://)?(?:www\\.)?(?:%s))" % "|".join(
+    h.replace(".", r"\.") for h in _OFFICIAL_HOSTS)
+
+# 1. THE SOURCE WAS REDIRECTED. A registry line in configuration is the single highest-value thing
+#    in this whole file: it changes where every later install comes from, for everyone who clones.
+_SUPPLY_SOURCE = re.compile(
+    r"(?:^|\s)(?:registry\s*=|@[\w.-]+:registry\s*=|index[-_]url\s*=|extra[-_]index[-_]url\s*=|"
+    r"replace-with\s*=|npmRegistryServer\s*:)" + _OFFICIAL +
+    r"|\[source\.(?!crates-io\])"
+    r"|\bsource\b" + _OFFICIAL + r"\s+[\"']https?://", re.I)
+
+# 2. SOMETHING RUNS AT INSTALL TIME. Code that executes because a package was added, rather than
+#    because anything imported it.
+#
+#    `build.rs` and `extconf.rb` were in the first version and are out: a Rust build script and a
+#    Ruby native extension are how those ecosystems build a normal crate or gem, and this only ever
+#    sees the repository's OWN manifest -- flagging a project for building itself is pure noise.
+_SUPPLY_RUNS = re.compile(
+    r"\"(?:preinstall|postinstall|install|prepare|prepublish|prepack)\"\s*:|"
+    r"\"(?:post-install-cmd|post-update-cmd|post-autoload-dump)\"\s*:|"
+    r"\bcmdclass\s*=", re.I)
+
+# 3. IT DOES NOT COME FROM A REGISTRY AT ALL. A git or path dependency is not wrong -- it is just
+#    not something a registry ever reviewed, and a lockfile cannot pin what it does not host.
+#
+#    🐛 A bare `path = "src/main.rs"` matched, which is a `[[bin]]` target and not a dependency at
+#    all. Cargo writes a path DEPENDENCY as an inline table -- `foo = { path = "../foo" }` -- and
+#    requiring the brace is what separates the two without needing to know which section we are in.
+_SUPPLY_OFF_REGISTRY = re.compile(
+    r"(?:\bgit\+|\bgit@|\"github:|\bfile:|\blink:|\{[^}]*\bpath\s*=|"
+    r"\"resolved\"\s*:" + _OFFICIAL + r"|"
+    r"\bsource\s*=" + _OFFICIAL + r"\s*[\"']https?://)", re.I)
+
+# 4. NOTHING CAN CHECK IT ON ARRIVAL. A lockfile line that pins a version but no digest is a line
+#    that cannot detect the file being swapped underneath it.
+_SUPPLY_UNVERIFIED = re.compile(r"\"resolved\"\s*:", re.I)
+_SUPPLY_VERIFIED = re.compile(r"\"integrity\"\s*:|--hash=|\bsha256\s*=|\bchecksum\s*=", re.I)
+
+# 5. IS IT THE PACKAGE IT LOOKS LIKE? A dependency name written with a Cyrillic `а` or a Greek `ο`
+#    reads as the real one and resolves to a different one. This is the same attack `redact` was
+#    taught to see in a credential NAME on 2026-09-15 (R13.4, reproducing a Codex CLI issue), and
+#    the answer is the same: fold the look-alikes and see whether the name changed. Nothing here
+#    needs a list of real package names, which is what makes it work offline and for every
+#    ecosystem at once.
+#
+#    A dependency name is ASCII in all six registries this file knows about, so a non-ASCII letter
+#    inside one is worth a line whether or not it is an attack.
+_SUPPLY_NAME_CHARS = re.compile(r"[\"'][^\"'\s]*[^\x00-\x7f][^\"'\s]*[\"']\s*:")
+
+# 6. WHAT DOES THE THING THAT RUNS ACTUALLY DO? The install-time hook is the door; this is what
+#    walks through it. A script that fetches and executes, decodes a blob and runs it, or spawns a
+#    shell is not a build step somebody wrote by accident -- these shapes do not occur in the
+#    ordinary `tsc -b` or `python setup.py build_ext` that fills these fields.
+_SUPPLY_PAYLOAD = re.compile(
+    r"curl[^|&;]*\|\s*(?:ba|z|d|)?sh\b|wget[^|&;]*\|\s*(?:ba|z|d|)?sh\b|"
+    r"\bbase64\s+(?:-d|--decode|-D)\b|\batob\s*\(|"
+    r"\bchild_process\b|\brequire\s*\(\s*[\"']child_process|"
+    r"\beval\s*\(|\bexec\s*\(|\bInvoke-Expression\b|\bpowershell[^\n]*-enc\b|"
+    r"\bos\.system\s*\(|\bsubprocess\.(?:call|run|Popen)\s*\(", re.I)
+
+
+def _looks_like_another_name(text):
+    """True when a quoted key in this line reads as one name and is written as another.
+
+    `redact.fold_confusables` maps the look-alike alphabet onto ASCII. If folding changes the line,
+    something in it was written with a character chosen to be read as a different one — which for a
+    dependency name is the whole of the attack, and for an ordinary manifest never happens.
+    """
+    try:
+        return redact.fold_confusables(text) != text
+    except Exception:                        # noqa: BLE001 — a guard must not fail a commit
+        return False
+
+
+_SUPPLY_WHY = (
+    ("the source it installs from", _SUPPLY_SOURCE),
+    ("code that runs at install time", _SUPPLY_RUNS),
+    ("a dependency that no registry hosts", _SUPPLY_OFF_REGISTRY),
+    ("a name written with look-alike characters", _SUPPLY_NAME_CHARS),
+    ("a script that fetches, decodes or executes", _SUPPLY_PAYLOAD),
+)
+
+
+def scan_supply_changes(diff):
+    """`{path: [line numbers]}` for staged lines that change where a dependency comes from.
+
+    Four questions, in the order they matter: was the registry redirected, does something now run
+    at install time, does a dependency come from outside any registry, and can what arrives be
+    checked against a digest.
+
+    The fourth is asked per FILE rather than per line, because "a resolved URL with no integrity
+    field beside it" is a property of the lockfile's shape and a single line cannot answer it.
+    """
+    found, resolved_at, verified = {}, {}, set()
+    for path, lineno, text in _added_lines(diff):
+        normal = str(path).replace("\\", "/").casefold()
+        name = normal.rsplit("/", 1)[-1]
+        if name not in _SUPPLY_FILES and not name.endswith(_SUPPLY_SUFFIXES):
+            continue
+        if _looks_like_another_name(text):
+            found.setdefault(path, []).append(lineno)
+            continue
+        for _why, pattern in _SUPPLY_WHY:
+            if pattern.search(text):
+                found.setdefault(path, []).append(lineno)
+                break
+        if _SUPPLY_VERIFIED.search(text):
+            verified.add(path)
+        elif _SUPPLY_UNVERIFIED.search(text):
+            resolved_at.setdefault(path, []).append(lineno)
+    # A lockfile that added resolved URLs and not one digest anywhere.
+    for path, lines in resolved_at.items():
+        if path not in verified:
+            found.setdefault(path, []).extend(lines)
+    return {p: sorted(set(v)) for p, v in found.items()}
+
+
+def scan(diff):
+    """`{path: [line numbers]}` for added lines the redactor would have rewritten.
+
+    Asked line by line rather than over the whole diff, because the answer has to name a LINE. The
+    redactor is windowed and a whole-document call answers "did anything change" and nothing else,
+    which is not a finding somebody can act on.
+    """
+    found = {}
+    for path, lineno, text in _added_lines(diff):
+        if not text.strip():
+            continue
+        if redact.scrub(text) != text:
+            found.setdefault(path, []).append(lineno)
+    return found
+
+
+# The whole staged file is read for its context only up to this size, and only this much in total
+# per run: the guard runs inside `git commit`, where a slow hook gets bypassed.
+CONTEXT_FILE_CAP = 512_000
+CONTEXT_TOTAL_CAP = 2_000_000
+
+
+def scan_in_context(root, diff):
+    """`{path: [line numbers]}` for added lines the redactor rewrites only with the file around them.
+
+    🐛 [2026-10-09] (R27 acc4, 2026-10-09: a scanner limited to changed lines misses a credential
+    whose key name sits on an unchanged line) `scan` reads each added line alone, from a `-U0` diff.
+    A value whose name is on a line that did not change -- `api_token: >-` with the value on the
+    next line, a nested `password:` block -- was redacted when the whole file was scrubbed and
+    passed the guard in silence. Each staged file is scrubbed whole and the ADDED lines it rewrote
+    are reported; a scrub that changes the line count gives no line map, so that file keeps the
+    line-by-line answer. Check 482.
+    """
+    if not ws.git_can_speak_for(root):
+        return {}
+    wanted = {}
+    for path, lineno, text in _added_lines(diff):
+        if text.strip():
+            wanted.setdefault(path, set()).add(lineno)
+    found, spent = {}, 0
+    for path in sorted(wanted):
+        try:
+            blob = subprocess.run(["git", "-C", str(root), "cat-file", "blob", ":" + path],
+                                  capture_output=True, stdin=subprocess.DEVNULL, timeout=30).stdout
+        except (OSError, subprocess.SubprocessError):
+            continue
+        if not blob or len(blob) > CONTEXT_FILE_CAP or b"\0" in blob[:8000]:
+            continue
+        spent += len(blob)
+        if spent > CONTEXT_TOTAL_CAP:
+            break
+        text = blob.decode("utf-8", "replace")
+        before, after = text.split("\n"), redact.scrub(text).split("\n")
+        if len(before) != len(after):
+            continue
+        hits = sorted(n for n in wanted[path] if 0 < n <= len(before) and before[n - 1] != after[n - 1])
+        if hits:
+            found[path] = hits
+    return found
+
+
+def scan_bytecode(root):
+    """`{path: count}` of staged files git shows as binary whose text the redactor would rewrite.
+
+    🐛 [2026-10-05] (R76 acc4, 2026-10-05) A compiled module keeps its string literals as plain
+    bytes, and committed .pyc files have been decompiled to complete credentials across thousands
+    of public repositories. git shows a staged .pyc as binary, so `scan(diff)` never saw it:
+    reproduced, a credential compiled into `__pycache__/settings.cpython-39.pyc` and staged alone
+    passed with exit 0 and no output. TruffleHog's Git mode and gitleaks share the gap. Printable
+    runs of 8+ characters are read out of the staged blob and asked of the redactor one by one.
+    Check 421.
+    """
+    if not ws.git_can_speak_for(root):
+        return {}
+    try:
+        # 🐛 [2026-10-06] (R170 acc4, 2026-10-05) Only .pyc and .pyo were read here, and git calls
+        # ANY file binary that has a NUL in its first 8,000 bytes: a staged UTF-16 SQL file and a
+        # text file behind a binary header both carried a credential past the guard in silence.
+        # `--numstat` marks every such file `-<TAB>-`, so the whole set is read, not one suffix.
+        # Check 429.
+        names = subprocess.run(["git", "-C", str(root), "-c", "core.quotePath=false", "diff",
+                                "--cached", "--no-textconv", "--numstat", "--diff-filter=AM", "-z"],
+                               capture_output=True, stdin=subprocess.DEVNULL, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return {}
+    found = {}
+    for raw in names.stdout.split(b"\0"):
+        added, _, rest = raw.partition(b"\t")
+        deleted, _, path_b = rest.partition(b"\t")
+        path = path_b.decode("utf-8", "replace")
+        if not path or not (added == b"-" and deleted == b"-"
+                            or path.lower().endswith((".pyc", ".pyo"))):
+            continue
+        try:
+            blob = subprocess.run(["git", "-C", str(root), "cat-file", "blob", ":" + path],
+                                  capture_output=True, stdin=subprocess.DEVNULL,
+                                  timeout=30).stdout
+        except (OSError, subprocess.SubprocessError):
+            continue
+        hits = 0
+        blob = blob[:5_000_000]
+        if blob[:2] in (b"\xff\xfe", b"\xfe\xff"):
+            # UTF-16 text with its BOM: decoded and scanned line by line like any staged text.
+            runs = blob.decode("utf-16", "replace").splitlines()
+        else:
+            runs = [r.decode("ascii") for r in re.findall(rb"[\x20-\x7e]{8,}", blob)]
+            # 🐛 [2026-10-06] (R12 acc4, 2026-10-06) UTF-16 without a BOM interleaves every ASCII
+            # character with a NUL, so no printable run reached eight bytes and a staged BOM-less
+            # UTF-16 file with a credential passed in silence. chardet and file(1) read the NUL
+            # positions; when nearly every byte at one parity is NUL and almost none at the other,
+            # the blob is also decoded as UTF-16 of that order and scanned by line. Check 432.
+            head = blob[:4096]
+            odd, even = head[1::2], head[0::2]
+            if len(head) >= 16:
+                for nul_half, other, codec in ((odd, even, "utf-16-le"), (even, odd, "utf-16-be")):
+                    if nul_half.count(0) >= 0.4 * len(nul_half) and other.count(0) <= 0.05 * len(other):
+                        runs += blob[:len(blob) // 2 * 2].decode(codec, "replace").splitlines()
+                        break
+        for text in runs:
+            if redact.scrub(text) != text:
+                hits += 1
+        if hits:
+            found[path] = hits
+    return found
+
+
+def scan_mcp_changes(diff):
+    """`{path: [line numbers]}` for staged lines that add or alter MCP capability.
+
+    This is deliberately a review signal, not a vulnerability verdict. A dedicated MCP file is
+    executable configuration whatever spelling its server uses; in a mixed JSON/YAML/TOML file,
+    the line must carry an MCP key, a known launcher shape, or an MCP endpoint. Source and prose
+    files are outside the set, so documenting an incident does not make every commit noisy.
+    """
+    found = {}
+    for path, lineno, text in _added_lines(diff):
+        normal = str(path).replace("\\", "/").casefold()
+        name = normal.rsplit("/", 1)[-1]
+        dedicated = name in _MCP_CONFIG_NAMES
+        config = normal.endswith(_CONFIG_SUFFIXES)
+        if dedicated or (config and _MCP_SIGNAL.search(text)):
+            found.setdefault(path, []).append(lineno)
+    return found
+
+
+# ------------------------------------------------------ what is already committed, which the
+# staged diff can never see
+#
+# 🎯 R20.3. Everything above answers "is this about to go in". A person adopting chamnan on a
+# repository that already has history has a different first question, and nothing here could answer
+# it: `bin/` holds thirteen commands and none of them reads `git log`.
+#
+# The scanner is not duplicated. `_added_lines` and `scan` take any unified diff, and `git log -p`
+# produces one — so this is the same redactor over a different input, which is the only version
+# worth having: two scanners would disagree the first time either was corrected.
+HISTORY_DEFAULT_COMMITS = 500
+
+
+def _history_diff(root, limit):
+    """`git log -p` over the last `limit` commits across every ref, or None when git cannot answer."""
+    if not ws.git_can_speak_for(root):
+        return None
+    try:
+        out = subprocess.run(
+            # 🐛 [2026-09-28] (R185 acc4, 2026-09-28) The same quoting/prefix hole as `_staged_diff`
+            # above — one member of a set fixed and its twin left is this package's most recorded
+            # defect, so both went in together.
+            ["git", "-C", str(root),
+             "-c", "core.quotePath=false", "-c", "diff.mnemonicPrefix=false",
+             "-c", "diff.noprefix=false",
+             "log", "-p", "--no-color", "--no-ext-diff",
+             # The same textconv hole as the staged diff above — one member of a set fixed and its
+             # twin left is this package's most recorded defect, so both went in together.
+             "--no-textconv", "-U0",
+             # 🐛 [2026-09-29] (R82 acc4, 2026-09-29) Without `--all` this only walked HEAD's own
+             # ancestry — a credential committed on another branch was never examined, and the
+             # command still reported "nothing credential-shaped" as if it had looked everywhere.
+             # `--all` adds every branch, tag and remote-tracking ref; git de-duplicates commits
+             # reachable from more than one of them itself, so nothing is scanned twice.
+             "--all",
+             "--no-merges", "-n", str(int(limit)),
+             "--src-prefix=a/", "--dst-prefix=b/"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            stdin=subprocess.DEVNULL, timeout=300)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return out.stdout if out.returncode == 0 else None
+
+
+def _reflog_only_commits(root):
+    """How many commits only the reflog still reaches — not examined by `--history`. 0 when unknown.
+
+    🐛 [2026-10-05] (R41 acc4, 2026-10-05) After a rewrite that removes a secret, the scan said
+    "nothing credential-shaped … across every branch and tag" while `git log -g -p` still showed the
+    value: the reflog keeps rewritten-away commits in this clone for up to 90 days. The sentence was
+    true and read as "gone", so the count is said beside it. Check 416.
+    """
+    if not ws.git_can_speak_for(root):
+        return 0
+    try:
+        out = subprocess.run(
+            ["git", "-C", str(root), "rev-list", "--count", "--reflog", "--not", "--all"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            stdin=subprocess.DEVNULL, timeout=60)
+    except (OSError, subprocess.SubprocessError):
+        return 0
+    try:
+        return int(out.stdout.strip()) if out.returncode == 0 else 0
+    except ValueError:
+        return 0
+
+
+def _is_commit_header(raw):
+    """Is `raw` one of `git log -p`'s own `commit <sha>` header lines.
+
+    The one place this recognition is allowed to exist — `scan_history` below and
+    `_commits_examined` (🐛 [2026-09-29], R82 acc4, 2026-09-29) both call this instead of each
+    keeping its own copy, so a corpus with a commit MESSAGE that starts with the word "commit"
+    is read the same way by both.
+    """
+    return raw.startswith("commit ") and len(raw.split()) == 2
+
+
+def _commits_examined(diff):
+    """How many commits `_history_diff` actually put in front of the scanner.
+
+    🐛 [2026-09-29] (R82 acc4, 2026-09-29) The success message used to print the CEILING
+    (`HISTORY_DEFAULT_COMMITS`) regardless of how much history the repository actually has, which
+    reads as "I looked at up to 500 commits" even on a two-commit repository. Counting the same
+    header line `scan_history` splits on gives the true figure without a second parser to drift
+    out of sync with the first.
+    """
+    return sum(1 for raw in (diff or "").splitlines(True) if _is_commit_header(raw))
+
+
+def scan_history(diff):
+    """`{(commit, path): [line numbers]}` for added lines in history the redactor would rewrite.
+
+    A line number alone is useless here — the file has moved on, and the only way to look at what
+    was committed is `git show <commit>`. So the commit travels with the finding.
+    """
+    found, commit = {}, "?"
+    chunk = []
+    for raw in (diff or "").splitlines(True):
+        if _is_commit_header(raw):
+            for path, lineno, text in _added_lines("".join(chunk)):
+                if text.strip() and redact.scrub(text) != text:
+                    found.setdefault((commit, path), []).append(lineno)
+            commit, chunk = raw.split()[1][:12], []
+            continue
+        chunk.append(raw)
+    for path, lineno, text in _added_lines("".join(chunk)):
+        if text.strip() and redact.scrub(text) != text:
+            found.setdefault((commit, path), []).append(lineno)
+    return found
+
+
+def main(argv):
+    if ws.wants_version(argv):
+        print(ws.version_line())
+        return 0
+    if ws.wants_help(argv):
+        print(__doc__.strip())
+        return 0
+    _bad = ws.unknown_flags(argv, KNOWN_FLAGS)
+    if _bad:
+        print(f"chamnan: unknown option {_bad[0]!r} — {', '.join(KNOWN_FLAGS)}", file=sys.stderr)
+        return 2
+
+    strict = "--strict" in argv
+    root = ws.find_root()
+
+    if "--history" in argv:
+        # A one-off audit, not a commit hook: this is the question somebody asks on the day they
+        # adopt chamnan on a repository that already has a past.
+        hist = _history_diff(root, HISTORY_DEFAULT_COMMITS)
+        if hist is None:
+            # 🐛 [2026-10-06] (R163 acc4, 2026-10-05) In a partial clone (`--filter=blob:none`) the
+            # historical blobs are not on disk, and chamnan forbids git from fetching them
+            # (GIT_NO_LAZY_FETCH), so `log -p` fails here. The old line said "not a git repository"
+            # about a repository; the cause is now named, and nothing was claimed scanned.
+            print("chamnan: git could not produce this repository's history, so nothing was scanned "
+                  "\u2014 not a git repository, or a partial clone whose older contents are not on "
+                  "this machine (`git fetch --refetch` or `git backfill` brings them).", file=sys.stderr)
+            return 1
+        hits = scan_history(hist)
+        _reflog_n = _reflog_only_commits(root)
+        _reflog_line = (f"  {_reflog_n} commit(s) reachable only from the reflog (rewritten or reset away) "
+                        f"were not examined and are still in this clone; `git reflog expire --expire=now "
+                        f"--all && git gc --prune=now` removes them.") if _reflog_n else ""
+        if not hits:
+            # 🐛 [2026-09-29] (R82 acc4, 2026-09-29) This used to name the CEILING
+            # (`HISTORY_DEFAULT_COMMITS`), not what was actually examined — "the last 500 commits"
+            # on a two-commit repository states a limit nothing reached, not a result. Now it names
+            # the true count `_commits_examined` derived from the same diff the scan already ran.
+            print(f"chamnan: nothing credential-shaped in the "
+                  f"{_commits_examined(hist)} commit(s) examined across every branch and tag "
+                  f"(ceiling {HISTORY_DEFAULT_COMMITS}).")
+            print("  That is the redactor's recall on this history, not a guarantee — see the "
+                  "recall and touch-rate figures in the README for what it can and cannot find.")
+            if _reflog_line:
+                print(_reflog_line)
+            return 0
+        # 🐛 The first version listed every (commit, path) pair. On this repository that is 431
+        # lines across 79 commits, and almost all of it is the redactor's OWN specimen credentials
+        # in `lib/redact.py` and `tests/run_tests.py` — a first run that hands somebody 431 alarms
+        # has told them nothing, and they will not read the second screen.
+        #
+        # Grouped by FILE instead, worst first. A file that carries fixtures shows up once, at the
+        # top, where it can be recognised and dismissed in one line — and a file that carries one
+        # real secret is no longer buried under it.
+        _lines = sum(len(v) for v in hits.values())
+        _by_path = {}
+        for (commit, path), nums in hits.items():
+            _p = _by_path.setdefault(path, {"lines": 0, "commits": set(), "first": commit})
+            _p["lines"] += len(nums)
+            _p["commits"].add(commit)
+        print(f"chamnan: {_lines} line(s) in {len(_by_path)} file(s) across "
+              f"{len({c for c, _ in hits})} commit(s) look credential-shaped in history.\n",
+              file=sys.stderr)
+        _worst = sorted(_by_path.items(), key=lambda kv: -kv[1]["lines"])
+        for _path, _info in _worst[:15]:
+            print(f"  {_info['lines']:>4} line(s)  {len(_info['commits']):>3} commit(s)  {_path}",
+                  file=sys.stderr)
+            print(f"           git log -p -- {_path}   # then `git show <commit>` for one of them",
+                  file=sys.stderr)
+        if len(_worst) > 15:
+            print(f"  +{len(_worst) - 15} more file(s)", file=sys.stderr)
+        print("\n  A file full of test fixtures or a changelog quoting an example will sit at the "
+              "top of this list.", file=sys.stderr)
+        print("  That is expected, and it is why this groups by file: the one that matters is the "
+              "one you do not recognise.", file=sys.stderr)
+        # 🎯 The order of these two sentences is the finding, not decoration. GitHub's own guidance
+        # is to ROTATE first, because rewriting history does not remove the blob from forks, from
+        # clones, or from anyone's cache — and a person who rewrites and stops there believes they
+        # are finished.
+        print("\n  Rotate anything real here FIRST. Rewriting history does not remove it from "
+              "forks,", file=sys.stderr)
+        print("  clones or caches, so the rewrite is the second step and never the whole fix.",
+              file=sys.stderr)
+        if _reflog_line:
+            print(_reflog_line, file=sys.stderr)
+        return 1
+
+    # 🐛 [2026-09-15] R6.7. On Windows, CreateProcess searches the current directory before PATH, so
+    # a repository carrying `git.exe` at its root gets that binary run by anything here that spawns
+    # git. `workspace` sets `NoDefaultCurrentDirectoryInExePath` at import, which closes it — except
+    # on Windows before 10 1809, where the switch is not honoured and NOTHING IN THE PROCESS CAN
+    # OBSERVE THAT. So the case the switch is for is also detected directly.
+    #
+    # It refuses rather than routing around it: nobody puts a `git.exe` in a repository root by
+    # accident, and a tool that quietly picked the right binary would leave the next tool on that
+    # machine to find the wrong one. Empty on every platform that does not search the current
+    # directory, which is every platform but one.
+    _planted = ws.a_program_is_lying_in_wait(root)
+    if _planted:
+        print(f"chamnan: refusing to run — {', '.join(_planted)} in {root}.", file=sys.stderr)
+        print("  Windows searches the current directory before PATH, so this file would run "
+              "instead of the real program.", file=sys.stderr)
+        print("  Nothing here put it there. Remove it, or check where it came from, before "
+              "running any tool in this repository.", file=sys.stderr)
+        return 2
+    # 🐛 [2026-09-19] (self-measured) All three quiet returns below printed nothing at all, on the reasoning in the
+    # comment that follows — right for the HOOK and wrong for the person. Run by hand this command
+    # produced zero bytes on BOTH streams and exit 0, so "scanned the staged diff, found nothing"
+    # and "did not run" were the same output. Derived rather than spotted: running all 14 commands
+    # bare and measuring stdout AND stderr, this is the only one that says nothing either way.
+    # That is R6's finding in AWS's own words — without something on the healthy path, a working
+    # run and a run nobody set up are indistinguishable.
+    #
+    # The switch is the one `chamnan-report` already uses: answer by who is reading. A commit hook
+    # is not a terminal and still gets silence, so nothing is added to anybody's commit output.
+    def _say(line):
+        if ws.reader_is_a_terminal():
+            print(f"chamnan-guard: {line}")
+
+    diff = _staged_diff(root)
+    if diff is None:
+        # Not a git repository, or git is not installed. Silence: this runs from a commit hook, and
+        # a command that cannot answer must not add a line to somebody's commit output.
+        _say("not a git repository, or git cannot answer here — nothing was scanned.")
+        return 0
+    if not diff.strip():
+        _say("nothing is staged, so there was nothing to scan. "
+             "`git add` first, or `--history` to audit what is already committed.")
+        return 0
+    if len(diff.encode("utf-8", "replace")) > MAX_DIFF_BYTES:
+        print(f"chamnan-guard: staged diff is over {MAX_DIFF_BYTES // 1_000_000} MB — not scanned. "
+              f"Run `chamnan-guard` by hand if this commit should be checked.", file=sys.stderr)
+        return 0
+
+    found = scan(diff)
+    for _p, _ns in scan_in_context(root, diff).items():
+        found[_p] = sorted(set(found.get(_p, [])) | set(_ns))
+    bytecode_found = scan_bytecode(root)
+    mcp_found = scan_mcp_changes(diff)
+    supply_found = scan_supply_changes(diff)
+    if not found and not mcp_found and not supply_found and not bytecode_found:
+        _say(f"scanned {len(diff.encode('utf-8', 'replace')):,} byte(s) of staged diff — "
+             f"nothing credential-shaped, no new MCP capability, no supply-chain change.")
+        return 0
+
+    if found:
+        _n = sum(len(v) for v in found.values())
+        # This sentence deliberately does not end on a colon. A secret-ish word followed by one
+        # reads to chamnan's own redactor as a key introducing a value, so the line was rewritten by
+        # it and this file became a NEW hit in the self-scan over the tree chamnan ships.
+        print(f"chamnan-guard: {_n} staged line{'s' if _n != 1 else ''} in {len(found)} file"
+              f"{'s' if len(found) != 1 else ''} look like a leaked secret", file=sys.stderr)
+        for _p in sorted(found)[:6]:
+            _lines = found[_p]
+            _shown = ", ".join(str(n) for n in _lines[:6]) + (" …" if len(_lines) > 6 else "")
+            # The path is repository-authored text on its way to a terminal, like every other value
+            # these commands print.
+            print(f"    {mdblock.as_quoted(_p, 70)}  line {_shown}", file=sys.stderr)
+        if len(found) > 6:
+            print(f"    +{len(found) - 6} more file(s)", file=sys.stderr)
+        print("  Nothing is printed from those lines on purpose — reading them out would copy the "
+              "secret into this terminal and its transcript.", file=sys.stderr)
+        # 🎯 [2026-10-11] (R40 acc4, 2026-10-11: removing a flagged secret took 6.6 attempts against
+        # 2.6 to bypass it; an actionable warning moved 8 of 11 to a secure fix against 1 of 22) The
+        # binary-file branch below says what to do and this one, the common case, did not.
+        print("  Move the value out of the file before committing (read it from the environment or "
+              "an ignored file) and unstage it with `git restore --staged <file>`. If it was ever "
+              "pushed, revoke and replace it.", file=sys.stderr)
+
+    if bytecode_found:
+        print(f"chamnan-guard: {len(bytecode_found)} staged file(s) that git shows as binary carry text "
+              f"that looks like a leaked secret \u2014 a .pyc keeps its source's literals as plain bytes, "
+              f"and UTF-16 or NUL-headed text is binary to git", file=sys.stderr)
+        for _p in sorted(bytecode_found)[:6]:
+            print(f"    {mdblock.as_quoted(_p, 70)}  {bytecode_found[_p]} string(s)", file=sys.stderr)
+        if any(_p.lower().endswith((".pyc", ".pyo")) for _p in bytecode_found):
+            print("  Unstage it (`git rm --cached <file>`) and add `__pycache__/` and `*.pyc` to "
+                  ".gitignore.", file=sys.stderr)
+        else:
+            print("  Open the file in an editor that shows its encoding; move the value out before "
+                  "committing, or unstage it (`git rm --cached <file>`).", file=sys.stderr)
+
+    if mcp_found:
+        _n = sum(len(v) for v in mcp_found.values())
+        print(f"chamnan-guard: {_n} staged line{'s' if _n != 1 else ''} in "
+              f"{len(mcp_found)} file{'s' if len(mcp_found) != 1 else ''} add or change MCP "
+              "execution/network capability", file=sys.stderr)
+        for _p in sorted(mcp_found)[:6]:
+            _lines = mcp_found[_p]
+            _shown = ", ".join(str(n) for n in _lines[:6]) + (" …" if len(_lines) > 6 else "")
+            print(f"    {mdblock.as_quoted(_p, 70)}  line {_shown}", file=sys.stderr)
+        if len(mcp_found) > 6:
+            print(f"    +{len(mcp_found) - 6} more file(s)", file=sys.stderr)
+        print("  Review the server command, pinned version, endpoint and granted access. The added "
+              "configuration is not printed.", file=sys.stderr)
+
+    if supply_found:
+        _n = sum(len(v) for v in supply_found.values())
+        print(f"chamnan-guard: {_n} staged line{'s' if _n != 1 else ''} in "
+              f"{len(supply_found)} file{'s' if len(supply_found) != 1 else ''} change where a "
+              "dependency comes from, or what it runs on arrival", file=sys.stderr)
+        for _p in sorted(supply_found)[:6]:
+            _lines = supply_found[_p]
+            _shown = ", ".join(str(n) for n in _lines[:6]) + (" …" if len(_lines) > 6 else "")
+            print(f"    {mdblock.as_quoted(_p, 70)}  line {_shown}", file=sys.stderr)
+        if len(supply_found) > 6:
+            print(f"    +{len(supply_found) - 6} more file(s)", file=sys.stderr)
+        print("  Check the registry it points at, whether an install-time script was added, and "
+              "whether what arrives can be verified against a digest. The lines are not printed.",
+              file=sys.stderr)
+
+    print("  This is a WARNING and the commit proceeds. `chamnan-guard --strict` fails instead.",
+          file=sys.stderr)
+    return 1 if strict else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

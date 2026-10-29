@@ -1,0 +1,299 @@
+# ContentForge Upgrade Guide
+
+## Upgrading 4.5.12 → 4.6.0 (audit fixes)
+
+**Nothing migrates, and four behaviours are stricter.**
+
+- `checkpoint-manager.py save --extension` takes `md`, `json` or `txt`, and `fix-ledger.py` takes `--target` and `--source-draft` as file names inside the run. A wrapper of yours that passed a path now gets exit 2; pass the bare name.
+- Brand folders for names that are not plain ASCII get a six-character tag (`東京ブランド` becomes `brand-fa1e53`, `भारत Foods` becomes `foods-bb073d`). Plain ASCII names keep the slug they always had, and a folder made under the old slug is still found while no other brand claims it. If two non-ASCII brands already share the old folder, `brand` is never assumed to be either one: run `init` for each brand once and move its files across by hand. Brands with accents (`Café`) now fold to the ASCII slug (`cafe`).
+- `checkpoint-manager.py loop` exits 1 and records nothing when the edge or the run is at its cap. Stop looping and send the piece to a human reviewer, as the audit already required.
+- `finalize --status completed` runs the audit itself. A hand-written `run-audit.json` no longer finalizes a run whose real audit says VIOLATIONS.
+
+`SECURITY.md` now lists 4.6.x as supported, 4.5.x for trivially backportable fixes, and older minors as unsupported. The `cf-social-adapt.skill` upload for claude.ai changes with this release; download it from the 4.6.0 release.
+
+---
+
+## Upgrading 4.5.11 → 4.5.12 (registry refresh)
+
+**Nothing migrates.** `scripts/refresh_models.py` sends each API key in a request header and reads every page of each provider's model list, so its drift report may now list models it used to miss (a long catalogue was cut off at the first page). If a wrapper of yours called it with a Gemini key in a URL, it no longer needs to.
+
+---
+
+## Upgrading 4.5.10 → 4.5.11 (registry wording)
+
+**Nothing migrates.** Only the `last_updated_by` text in `scripts/model_registry.json` changes.
+
+---
+
+## Upgrading 4.5.9 → 4.5.10 (registry mirror)
+
+**Nothing migrates.** `scripts/model_registry.json` is replaced by the full mirror of the canonical registry, so it gains the speech models and aliases and loses entries the canonical file dropped. If you pinned a model id from a dropped entry in your own script, run `python scripts/resolve_model.py --check <id>` to see its status.
+
+---
+
+## Upgrading 4.5.8 → 4.5.9 (registry, parameter scan, pinned DeepL command)
+
+**Nothing migrates.** `scripts/model_registry.json` is replaced by the refreshed copy, so an alias such as `latest-fast-anthropic` may resolve to a different model than before; run `python scripts/resolve_model.py --aliases` to see them. If you copied the DeepL entry from `.mcp.json.example` into your own `.mcp.json`, change `"deepl-mcp-server"` to `"deepl-mcp-server@1.3.14"`. `resolve_model.py --check-params` now reports a `temperature`, `top_p` or `top_k` next to any Claude model, not only Opus 4.7 and 4.8; remove them from your own scripts (the Anthropic API rejects them from version 2026-10-21).
+
+---
+
+## Upgrading 4.5.7 → 4.5.8 (vendor-verified connector packages)
+
+**One behaviour change, nothing migrates.** Connector setup (`/contentforge:cf-connect`, `/contentforge:cf-integrations`) now gives a runnable `npx` command only for DeepL, whose package DeepL publishes. WordPress, HubSpot CMS, Semrush, Confluence, Sarvam AI, Twitter/X, LinkedIn and Instagram are reported as "no verified connector": you get the vendor's own MCP server, an aggregator entry, or the option to skip, and no command or environment variables. `.mcp.json.example` no longer carries the Stability AI, nanobanana and imagenate entries. If you already added one of those to your own `.mcp.json`, it keeps running; it is yours to review, and `npm view <package> maintainers repository` shows who publishes it.
+
+---
+
+## Upgrading 4.5.6 → 4.5.7 (printed commands, again)
+
+**No breaking changes, nothing migrates.** The audit recovery command that `checkpoint-manager.py` prints, and the pip install hint, paste into Git Bash and PowerShell as written, including when the Python path has a space. Nothing is executed differently.
+
+---
+
+## Upgrading 4.5.5 → 4.5.6 (printed commands)
+
+**No breaking changes, nothing migrates.** The commands that scripts print (a recovery step, an install hint) now paste into Git Bash and PowerShell as written. `utils/loop-tracker.md` and the always-on recipes call scripts through a quoted `${CLAUDE_PLUGIN_ROOT}` path.
+
+---
+
+## Upgrading 4.5.4 → 4.5.5 (byte-order marks)
+
+**No breaking changes, nothing migrates.** Files an agent or you hand to a script (an audit record, your own source draft, a content or reports file, a `.mcp.json`) can start with a UTF-8 byte-order mark, as PowerShell 5.1 and Notepad write them, and are read as before. The recovery messages from `checkpoint-manager.py` now print an absolute command.
+
+---
+
+## Upgrading 4.5.3 → 4.5.4 (scripts run from any folder)
+
+**No breaking changes, nothing migrates.** Skills, commands and agents now call every script as `python "${CLAUDE_PLUGIN_ROOT}/scripts/..."` (quoted, and never relative to the working folder), so ContentForge works when your project is not the plugin folder and when the plugin lives under a path with a space. Nothing in the scripts changed.
+
+---
+
+## Upgrading 4.5.2 → 4.5.3 (which Python)
+
+**No breaking changes, nothing migrates.** The "Script location" line in the pipeline skill, five other skills and commands, and the five agents that use `${CLAUDE_PLUGIN_ROOT}` now says to run the scripts with `python`, or `python3` where `python` is not found; three documents that said `python3 scripts/...` now say `python`. Nothing in the scripts changed.
+
+---
+
+## Upgrading 4.5.1 → 4.5.2 (manifest cleanup)
+
+**No breaking changes, nothing migrates.** The Cursor and Copilot CLI manifests no longer carry a `mcpServers` key pointing at `.mcp.json` (which never ships); both hosts keep discovering their own default MCP file if you add one.
+
+---
+
+## Upgrading 4.5.0 → 4.5.1 (docs release)
+
+**No breaking changes, nothing migrates.** 4.5.1 corrects documentation and raises the Python check in `scripts/setup.py` from 3.8 to 3.10, the minimum the pinned packages already needed (c2pa-python 0.38.0). Run on Python 3.8 or 3.9, `python scripts/setup.py` now reports "Python 3.10+ required" and exits 1; the pipeline itself is unchanged.
+
+---
+
+## Upgrading 4.4.x → 4.5.0 (nothing installs itself)
+
+**Nothing migrates, but one thing you may notice:** ContentForge no longer installs Python
+packages on its own. The first time a step needs `python-docx` (every `.docx`), `c2pa-python`
+and `cryptography` (`--c2pa-sign`), or the Google or Airtable packages for a backend you chose,
+the script prints the exact pinned install command and exits with an error. Run that command
+once, or set `CONTENTFORGE_INSTALL_DEPS=1` for a single run to let ContentForge run the same
+command for you. The versions are exact (`PINNED_DEPENDENCIES` in `scripts/_common.py`).
+
+Also: a `--run-id` that is not a generated run id, or a `--brand` that is a path, is refused
+instead of being used; the Airtable migrator only downloads https attachments and removes its
+temporary files; the brand-site harvester refuses private addresses.
+
+---
+
+## Upgrading 4.3.x → 4.4.0 (skills that reach the model)
+
+**Nothing migrates.** Two behaviour changes: skill descriptions are short, so
+Claude routes to skills by what they do; and translate, publish, social-adapt,
+switch-backend and add-integration are now skills Claude can start directly
+from a plain request (before, the first three went through a wrapper command
+and the last two could not be started at all). Each one shows its scope first
+and acts only on an explicit `yes`.
+The slash shortcuts (`/contentforge:translate` and the others) still work.
+
+---
+
+## Upgrading 4.2.x → 4.3.0 (the quality contract)
+
+**Nothing migrates.** One behaviour change to know: the run auditor now
+resolves the approve line for the run's industry instead of a fixed 7.0, so a
+run in a stricter industry (pharma, for example) that was approved below its
+industry's line now audits as a violation, and `finalize --status completed`
+refuses it. `finalize` also refuses when any file the audit read has changed
+since the audit: re-run `scripts/run-audit.py` after editing a finished run.
+Audits written by 4.2.x have no fingerprint; re-audit before finalizing.
+
+---
+
+## Upgrading 4.1.x → 4.2.0 (freshness pass)
+
+**No breaking changes, nothing migrates.** Two behaviour changes to know:
+`cf-switch-backend` now asks for an explicit "yes" before it rewrites the brand
+profile, and `cf-publish` places the AI-disclosure label at the top of the
+article (Article 50 first-exposure rule) instead of suggesting the footer.
+**Codex users:** if you added the marketplace before October 2026 and it showed
+no plugins, run `codex plugin marketplace remove neels-marketing-plugins`, then
+`codex plugin marketplace add indranilbanerjee/neels-plugins` and
+`codex plugin add contentforge@neels-plugins`.
+
+---
+
+## Upgrading 4.1.0 → 4.1.1 (docs release)
+
+**No functional changes.** 4.1.1 is documentation: 11 README translations
+(version-stamped and guard-checked), the real validated-run artifacts embedded
+in the README, full OpenAI-surface (Codex/ChatGPT) documentation, and a
+per-surface updating table. Nothing to migrate.
+
+---
+
+## Upgrading 4.0.0 → 4.1.0 (two new surfaces)
+
+**No breaking changes, nothing migrates.** 4.1.0 adds install surfaces only:
+Grok (xAI Build CLI) native manifests, and five hero skills packaged as
+claude.ai-uploadable `.skill` release assets. Existing installs, brands, runs,
+and stores are untouched. If you use claude.ai alongside your main install,
+grab the hero skills from the
+[latest release](https://github.com/indranilbanerjee/contentforge/releases/latest).
+
+---
+
+## Upgrading 3.x → 4.0.0 (the lifecycle release)
+
+**No breaking changes.** 4.0 is additive: existing brands, runs, artifacts, and
+configurations work unchanged. What to know:
+
+- **Nothing migrates and nothing is required.** The lifecycle stores start
+  empty and fill as you use them: the first recorded `/contentforge:audit-content`
+  creates `audits/`, the first `cf-aeo-check` keeps building `aeo/checks.json`
+  exactly as before, and each new pipeline run writes its telemetry companions.
+- **Pre-4.0 runs read as `not_instrumented` in telemetry** — unknown, never
+  zero. Advisories only begin once ≥3 instrumented runs exist for a brand (the
+  recurrence floor).
+- **`brand_pages` gains, never loses.** The post-Gate-1 merge upserts verified
+  pages with freshness stamps and never overwrites your manual curation;
+  harvested conversion candidates appear under `brand_pages.recon_candidates`
+  awaiting your confirmation — review them after your first 4.0 run.
+- **`cf-calendar --from-audit=latest` now requires a recorded audit.** If you
+  relied on running audit + calendar in one conversation, nothing changes
+  except that it now also works in two.
+- **On Cowork, run `/contentforge:cf-cowork-setup`** (or confirm it has run):
+  the lifecycle stores ride the brand-directory Drive sync, and without it they
+  vanish with the sandbox at session end.
+
+---
+
+## v2.1.0 → v3.0.0 (Historical)
+
+This section covers the v2.1.0 → v3.0.0 migration only. For changes since v3.0.0, see the CHANGELOG.md entries for v3.1.0 onward.
+
+Upgrading from v2.1.0 to v3.0.0. No breaking changes.
+
+---
+
+## What Changed
+
+| Category | v2.1.0 | v3.0.0 | Current (v3.16.1) |
+|----------|--------|--------|-------------------|
+| Skills | 3 | 17 (+14 new) | 21 |
+| Agents | 10 | 12 (+2 new, 4 upgraded) | 13 |
+| Commands | 0 | 0 | 9 |
+| Scripts | 0 | 2 | 17 |
+| Configs | 4 | 7 (+3 new, 1 updated) | 7 + 10 industry packs |
+| Templates | 7 | 10 (+3 new) | 10 |
+| Utilities | 2 | 6 (+4 new) | 6 |
+| Connectors | 6 HTTP | 6 HTTP + 16 npx available | 16 HTTP in the opt-in catalog, **0 connected by default** |
+
+Counts are current as of v3.16.1; the README is the authority if this table drifts.
+
+---
+
+## Breaking Changes
+
+**None.** All existing skills, agents, and configurations work identically.
+
+---
+
+## New Skills
+
+### Connector Discovery
+- `/contentforge:cf-integrations` — See which connectors are active and what they unlock
+- `/contentforge:cf-connect <name>` — Guided setup for any of the 29 connectors in the registry
+
+### Publishing & Social
+- `/contentforge:social-adapt` — Transform articles into LinkedIn, Twitter/X, Instagram, Facebook, Threads posts
+- `/contentforge:publish` — Push content to Webflow/WordPress via MCP, or export as HTML
+
+### Content Optimization
+- `/contentforge:cf-variants` — Generate 3-10 A/B variations of headlines, hooks, CTAs
+- `/contentforge:cf-analytics` — Quality score trends, timing breakdown, brand performance
+
+### Multilingual & Video
+- `/contentforge:translate` — Translate preserving brand voice, 15+ languages, 3 localization levels
+- `/contentforge:cf-video-script` — Timestamped scripts for YouTube, TikTok, Instagram Reels
+
+### Content Management
+- `/contentforge:cf-brief` — Research-backed content brief with keyword analysis and outline
+- `/contentforge:cf-audit` — Content freshness scoring, decay detection, gap analysis
+- `/contentforge:cf-calendar` — Production scheduling with deadline tracking
+- `/contentforge:cf-style-guide` — Import brand voice, generate brand profile JSON
+- `/contentforge:cf-template` — Create custom content type templates
+
+---
+
+## Agent Upgrades
+
+### Output Manager (Phase 8)
+5 new output formats: Medium article, Substack post, email newsletter, PDF export, social media package.
+
+### SEO/GEO Optimizer (Phase 6)
+New Step 7: AI Overview Optimization — structures content for Google AI Overviews and Perplexity answers. Adds GEO score to SEO Scorecard.
+
+### Humanizer (Phase 6.5)
+- New Step 6: Personality Profile Selection — 4 profiles (authoritative, conversational, technical, witty)
+- New Step 7: Industry-Specific AI Pattern Removal — 5 industries (healthcare, finance, tech, legal, education)
+
+### Reviewer (Phase 7)
+- New Step 6: Comparative Scoring — percentile ranking vs. brand history
+- New Step 7: Trend Tracking — pattern detection across last 10 pieces
+- New Step 8: Recommendation Engine — score-based next steps with cross-skill suggestions
+
+---
+
+## Scripts (New)
+
+v3.0.0 introduces a `scripts/` directory with Python utilities:
+
+- **`setup.py`** — Run it manually (`python scripts/setup.py`, from the plugin folder) when you want to check your install. Validates Python version, reports paths, checks `.mcp.json`. It does **not** run on its own — ContentForge has shipped an empty `hooks.json` since v3.9.0, so nothing fires at session start
+- **`connector-status.py`** — Registry of 29 connectors across 14 categories. Powers `/contentforge:cf-integrations` and `/contentforge:cf-connect`
+
+**Requirements:** Python 3.10+ (the Cowork VM has 3.10)
+
+---
+
+## Verification Steps
+
+After upgrading, verify everything works:
+
+1. `python scripts/setup.py` (from the plugin folder) — Run it yourself; should report your Python version and resolved paths
+2. `/contentforge:cf-integrations` — A fresh install shows **0 connected** connectors: no `.mcp.json` ships, by design. Add the ones you want with `/contentforge:cf-connect <name>` from the 16-connector catalog in `.mcp.json.connectors-reference`
+3. `/contentforge:create-content` — Existing pipeline should work unchanged
+4. `/contentforge:social-adapt [article]` — Should generate social posts
+5. `/contentforge:cf-brief "AI tools"` — Should generate content brief
+
+---
+
+## Recommended Adoption Path
+
+1. **Start with** `/contentforge:cf-integrations` — understand your connector status
+2. **Try** `/contentforge:social-adapt` — immediate value from existing content
+3. **Try** `/contentforge:cf-brief` — better briefs lead to better content
+4. **Explore** `/contentforge:publish` — if you have Webflow/WordPress connectors
+5. **Set up** `/contentforge:cf-analytics` — start tracking quality trends
+6. **When ready** — `/contentforge:translate`, `/contentforge:cf-video-script`, `/contentforge:cf-calendar`
+
+---
+
+## Questions?
+
+- [GitHub Issues](https://github.com/indranilbanerjee/contentforge/issues)
+- [CHANGELOG.md](CHANGELOG.md) for full details

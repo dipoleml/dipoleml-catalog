@@ -1,0 +1,12 @@
+{
+  "name": "claude-ad",
+  "version": "0.1.0",
+  "description": "Claude Code skills, agents and commands for Active Directory penetration testing: recon, Kerberoasting, AS-REP roasting, ADCS ESC1-17, DCSync, ACL abuse, coercion/NTLM relay, delegation, attack-path reasoning, environment constraints, OPSEC telemetry and conceptual compliance mapping.",
+  "author": {
+    "name": "ADscan",
+    "url": "https://github.com/ADScanPro"
+  },
+  "repository": "https://github.com/ADScanPro/Claude-AD",
+  "license": "MIT",
+  "keywords": ["active-directory", "pentesting", "kerberos", "adcs", "bloodhound", "dcsync", "red-team", "ntlm-relay"]
+}

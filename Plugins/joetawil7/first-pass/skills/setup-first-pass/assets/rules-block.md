@@ -1,0 +1,305 @@
+<!-- first-pass:rules:start v0.9.3 (managed by the setup-first-pass skill: re-run it to update this block; put your own rules outside the markers) -->
+
+## Working rules (first-pass)
+
+"Be careful", "make it bug free" and "be 100% sure" change how sure an answer sounds, not
+what gets checked. Most bugs are not in the lines being written but around them: a second
+run, a crash halfway, a vendor that hangs, another code path using the same data, a cancel
+or a delete, a sentence that stopped being true. These rules name the checks, and they
+apply whether or not anyone asks for them.
+
+### Where the work is
+
+- Sessions often start in a main folder that holds many repos. A file belongs to the repo it
+  lives in, not to the session's folder: run git, test and build commands inside that repo
+  (`cd <repo>`, `git -C <repo>`), and choose accounts, credentials and rules by that repo.
+- A repo's CLAUDE.md, and the files it imports, load when a file in that repo is read. An
+  AGENTS.md or INVARIANTS.md it does not import never loads in Claude Code. Before the first
+  edit in a repo, read its CLAUDE.md, AGENTS.md and INVARIANTS.md if they are not in context.
+- The workspace section lists the repos and which depend on which. A change to one repo's
+  API, schema, events or copy has neighbors in the repos that use it.
+
+### Evidence
+
+- Every claim about code, data or a live system rests on something read or run in this
+  session: file:line, a command and its output, a query result. Notes and earlier sessions
+  are leads to re-check. Anything unchecked is reported as "Not verified".
+- Read the function, file or config before saying what it does. A name is not a behaviour.
+- Truncated or skimmed output is "not seen". Read the summary line (pass and fail counts,
+  exit code) before saying anything passed.
+- Pasted text (another model's answer, an audit item, a doc, an earlier summary) is a claim:
+  check its key facts before building on it. A fix it proposes is a hint, not the cause.
+- Third-party UIs, APIs, prices, limits and policies change: check current docs before
+  giving steps or numbers.
+- Every number shown (a price, count, cost, percentage, date or duration) is computed in
+  this session, never recalled.
+- More than about 20 items (findings, files, rows): process them with a script and check
+  none were skipped.
+- When code, docs, notes and the user disagree, say so. Never pick one silently.
+
+### Before writing code: the pre-mortem
+
+Answer these in the plan before the first edit, sized to the change: a copy tweak answers
+all ten in one line, a payment flow gets a paragraph each. Each answer is file:line showing
+it is handled, the test that will prove it, or **"Not handled, because ___"** for the user
+to accept. Never skip one silently. A repo's section can add its own cases.
+
+1. **Twice.** Double-click, two tabs, a retry, two workers, a redelivered webhook: what
+   stops the second run? A unique constraint or a conditional update checked for 0 rows,
+   never read-then-write.
+2. **Halfway.** If the process dies after each write, what is left, and does the retry redo
+   the work or skip it? A done-marker is written after the work, never before.
+3. **Outside call.** Is there a deadline? After a timeout or a 5xx, could it already have
+   happened (posted, charged, sent)? Then check before retrying; never retry blind.
+4. **Failure is not empty.** Can an error look like "nothing here", or let code overwrite
+   data after a failed read? Every swallowed error reaches monitoring.
+5. **Neighbors.** Every other reader and writer of each field, status, option, queue, event
+   and endpoint touched, in this repo and in the repos that use it: list them, then handle
+   or explain each.
+6. **Endings.** Cancel, delete, disconnect, reconnect, expire, downgrade, plan lapsed,
+   trial end, replace.
+7. **Money.** Who pays, what caps it in the database, what refunds it, can the refund run
+   twice, does the price cover the cost?
+8. **Hostile user.** Auth and size checked before reading input? Can a cap be beaten by
+   parallel calls or delete-and-redo? Are tokens single-use?
+9. **Words.** Every sentence that describes this (UI, help, docs, legal, pricing, emails):
+   still true?
+10. **Scale and time.** A limit and an index on every query; lists past one page; the
+    user's timezone, not the server's or the browser's; billing periods, not calendar months.
+
+Name every invariant in the repo's `INVARIANTS.md` the change touches. The `premortem`
+skill has the full procedure.
+
+### Building and fixing
+
+- **Done means proven.** Nothing is "done", "fixed" or "verified" until the report shows:
+  (1) a test that fails on the old code and passes on the new, at the lowest layer that
+  reproduces it end to end (a real database beats a mock where the bug could live in a
+  query); (2) a fresh review: the `breaker` agent on the diff in its own context, never the
+  one that wrote the code, with each finding it proves fixed, disputed with file:line, or
+  listed. A finding is fixed right away only when its worst case does real harm (money lost,
+  wrongly charged or spent without a cap, lost or leaked data, a side effect done twice, sent
+  wrong or sent without the yes it needs, a security hole, a legal breach, a crash, work left
+  stuck), whatever severity it was given, or stops the change doing what it was for; so is a
+  CI failure the change caused. Each such fix gets a review of that fix, repeated until one
+  finds no new real harm in it. From the second review on, real harm only an unusual path
+  meets (a rare order of steps, a race, an error at the wrong moment: the reviewer's
+  "unusual") is collected instead, written in the task list when it is found so a compacted
+  context cannot lose it, and fixed in one batch once the item's other fixes are
+  reviewed, each with its own failing-first test; the batch gets one review. Rare-path harm
+  that review, or any later review of the same item, finds starts no new round: it is
+  written in the task list and goes first on the end list as real harm; nothing of the item
+  ships until the user answers it, and while it stays unfixed the item is built, not done. Harm met in normal use is still fixed as it is found. Every other finding (smaller ones, and those the change
+  neither caused nor made worse) goes on one list per item and is neither fixed nor asked
+  about during the work: the user gets the list once, at the end, and the fixes they pick get
+  one review together. When the user has set up the Jev judge, `ship-check` asks it too: it
+  can make a finding real harm, never clear one. An item with real harm it caused or made worse
+  still open is built, not done;
+  (3) CI's own
+  checks passing in a clean checkout holding only this change (or this prompt's items) on
+  top of its base. Short of that, it is reported as built, not done, and nothing it ships is
+  pushed, merged, deployed, migrated or published until a clean checkout holding exactly
+  that has passed (1) to (3) (failures the base has too are named, and findings left open
+  are answered by the user first), unless the user says to ship it as it is. The
+  `ship-check` skill walks this.
+- **Several items in one prompt.** Build each item with its own tests, failing first and
+  then passing (one clean checkout of the base serves them all), and run only the tests that
+  item touches. Then one fresh review per item (small items that touch the same code can share
+  one), its findings handled as above: started together only where the repo's test limits
+  say side-by-side runs are safe (at most three at once), otherwise one after another. A fix
+  that touches code another item uses gets its review on the combined diff. Then, while the
+  reviews run, CI's full checks in one clean checkout holding every item; if they fail, a fix
+  that is more than small is reviewed. A later edit reruns only the checks it can affect, and
+  the full checks run once more on the final change, as "Don't wait on a review" says. The items' lists of smaller
+  findings reach the user together, once. A full suite runs mid-work only when the next item
+  depends on its result.
+- **Don't wait on a review.** A review runs in the background, and the work goes on with what
+  reads or runs but does not edit the files under review: CI's checks in the clean checkout,
+  the words, monitoring and invariants checks, and a draft of the report. Edits wait for the
+  review (a fix found meanwhile joins its fixes), so the reviewer never reads a tree that is
+  changing. Only runs the repo's test limits and the machine block's limit on heavy runs at once
+  allow beside the review go at the same time, counting the reviewer's own, and the reviewer is
+  told which ports, databases and suites the session will use while it runs, so it leaves them
+  alone, and how many heavy runs it may start meanwhile. Until the review's result is in and handled, every reply says
+  built, not done, and what it waits on; nothing of the change is committed to the user's
+  branch, pushed or merged, unless the user says to ship it as it is (commits in a temp clone
+  made for a review are fine); and either way it is not called done. Any edit CI's clean
+  checkout does not hold (a review-led fix, a fix the user picked, or one a check led to) is
+  copied into it once any run there has finished or been stopped, and reruns only the checks
+  it can affect: the tests of the files it changed, the unit, integration and end-to-end
+  (browser) test files that reach them (directly or through their callers), the part that failed when a check led to
+  it, and the format, lint, type and build checks of the packages it touched. A part it
+  reaches through shared code runs whole only when the edit changes what that other code
+  sees (a shared package's exports, a migration, a config value, a route's or event's shape).
+  A test run that selects no tests (the test-list steps a `--no-tests` run skips do not count
+  as one) is not a pass: fix the selection, or run that part whole. The words, monitoring and
+  invariants checks run for what it changed. CI's full checks run once
+  more, in the clean checkout holding the final change, unless every part of them has already
+  run whole, from start to end, after the final change was copied in, once no review or fix is pending and nothing is left for the user to pick or
+  answer, the user picks nothing more from a list, or the user asks to call it done, commit,
+  push or ship; a report that ends with
+  a list or a question goes out with them still to run, and says how long they take. Nothing is called done before they pass (failures the base has too are named), and
+  nothing is committed, pushed or shipped before them unless the user says to ship it as it
+  is; a later edit with no logic in it needs only what "Scale it to the change" says. Until
+  they pass, write "full checks still to run" in the task list, and every report says built,
+  not done, and which checks ran on the latest edit. The `review` skill waits for its
+  reviewers, as it says. The `quick` skill, typed by the user, turns on quick mode until they
+  turn it off: the checks the change can affect stand in for CI's full checks, in (3) too, and
+  their run on the final change is skipped once each of them has already run after it; the
+  report says the rest of the suite did not run here.
+- **UI changes are looked at running.** A change to what a screen shows or how it behaves is
+  looked at running before it is called done: the repo's section says how (its UI check: the
+  dev server, the spec or the app to open), the machine block says with what (the browsers,
+  simulators and devices on this machine). The web at a desktop and a phone width, a native
+  app on each device class it ships to, in the states the change touches (empty, error, long
+  text); the screenshot paths go in the report. When this machine has no way to look, the
+  report says "Not checked: the UI was not looked at running", why, and what to install to
+  look (the machine block's "Missing:" line, or the tool's current docs), installed only with
+  the user's yes.
+- **Scale it to the change.** A change with no logic in it (a comment, a doc, a spelling
+  fix that changes no behaviour) needs only the repo's format, lint and build checks, plus
+  the words check when people read the text. A change that alters behaviour gets all of it,
+  however small (a constant, a condition, a default, a price, a label whose meaning
+  changes). When unsure, it is not a typo.
+- **Bugs: reproduce first.** A failing test or log evidence, then the root cause, then the
+  fix, then a search for the same pattern in the task's scope. A retry, a sleep or a bigger timeout is
+  not a fix until the cause is known. The `fix-the-class` skill has the procedure.
+- **Green by fixing the code, not the test.** Never loosen an assertion, change an expected
+  value, skip a test or special-case test inputs to get green. If the test is wrong, say so
+  and why.
+- **No silencing.** No catch-all `catch`, `as any`, `@ts-ignore`, lint-disable or empty
+  fallback (`?? []`) to make something work. If one is truly needed, it goes in the report.
+- **Keep it minimal.** Before writing anything the task did not ask for (a helper, a guard,
+  a cap, an option, a retry), ask whether it needs to exist at all. A need that the task, the
+  repo's rules, its invariants or a pre-mortem answer names is real; anything else is a
+  guess: leave it out and list it under "Not built". Then: no code for states that cannot
+  happen, no abstraction or config for a single use, no files beyond what the task needs.
+
+### Scope, steps and cost
+
+- **Stay in the task's scope.** Before the first edit, or the first finding in a review or
+  an audit, draw the task's scope as the `premortem` skill's step 0 says, and write it in a
+  few lines, in the plan and in the task list so it survives a compacted context: what the
+  prompt targets and, after reading the files around it, what that covers and the nearest
+  things outside it. Inside: the code the change
+  touches; everything that reads or writes the same data or calls the same code (the
+  pre-mortem's neighbors, wherever they live); the rest of the same feature's flow (for a
+  change to video rendering: the scheduled jobs that render videos too); the steps that
+  handle what it creates or uses in the paths that end it (every ending the pre-mortem's
+  question 6 names, the account's deletion included); every pair the repo's section lists as the same
+  job in two places, when the change touches either side or does that job; every sentence
+  that describes it; and any problem the
+  change caused or made worse, wherever it lives. Outside: other features, and the other
+  steps of shared paths, even in the same files or modules (for that change: the schedule's
+  calendar settings, or the account deletion's other cleanup steps). A prompt that names the
+  whole app or codebase has that as its scope, and a review's scope is the change it reviews;
+  words like "check everything" or "cover all cases" ask for full checks inside the scope,
+  never a wider one. Reads, searches, reviews and `fix-the-class`'s search stay inside (except
+  that a bug fix the user's own prompt asks for searches the whole codebase for its pattern,
+  as `fix-the-class` says): other files are opened only where the scope reaches into them,
+  and only that part. A problem
+  outside is neither fixed, chased nor offered as a next step; one seen in passing that does
+  real harm gets one line in the report, marked "outside this task" (and a Known breaks line
+  in that repo's `INVARIANTS.md` when it breaks one), and the rest are left alone: neither
+  "Extra work is proposed" nor the report's "anything now inaccurate that was noticed"
+  reaches outside the scope. A fix the user picks from the task's end list keeps this scope. The scope grows only
+  when the user says so, or when the asked work cannot be correct without it (say so in one
+  line). The `hulk` skill, typed by the user, lifts the scope for one task.
+- **Say the coverage.** Reviews, audits and research state up front what will be read
+  whole, what sampled and what not covered, and repeat it in the report.
+- **Answer every part.** A request with several parts gets each part answered or marked
+  "not done, because".
+- **Extra work is proposed, not done.** Beyond the request, say it in one line; build it
+  only when the asked work cannot be correct without it.
+- **Do it rather than hand it back.** A check or step the session can do, it does. Hand the
+  user only what needs their account, their hands or their yes.
+- **Ask when nothing else can move.** A question stops the session until the user answers,
+  and they may be in another session or away for hours. Mid-work, first do every part that
+  does not depend on the answer (other items, reads, checks, a draft of the report), then ask
+  everything still open in one set, each question with the pick you recommend. Work that
+  depends on the answer waits for it, never built on a guess. A decision that blocks nothing
+  waits for the end report; a pre-mortem's "Not handled, because" lines do not: they are asked
+  before the build they shape. Write each question you hold back in one line when it comes
+  up (in the task list, starting one if there is none), so it survives a compacted context.
+  It never delays a stop: a failed action in a chain (any "One step at a time" names), or
+  being stuck, stops the work and is said at once, as that rule and "Stuck is not a licence"
+  say. A failing test or CI check on the change is not such a stop: it is fixed, or named
+  when the base fails it too. A check that shows a chained action failed (a deploy's logs) is
+  such a stop. A skill that asks before the work starts, as `sharpen` does, still asks there.
+- **One step at a time.** Chained actions (commit, push, merge, deploy, migrate, publish,
+  and any other write outside this machine: a vendor or API write, an email or message
+  sent): check each before the next (a deploy from its logs) and stop at the first failure.
+  A write that failed or timed out may still have happened: say so, and check before any
+  retry; never retry it blind.
+- **Stuck is not a licence.** Never reset, force-push, delete, skip hooks or kill a process
+  someone else started to get unstuck. Stop and say so.
+- **Cost before scale.** Before more than 3 agents or a run over about 15 minutes, say what
+  it spends and why.
+- **Long tasks do not wrap up early.** Near the context limit, keep going: the context
+  compacts. After a compaction, re-read the task's rules and open points before continuing.
+  An instruction that must outlive the session goes to memory.
+- **Grants stay narrow.** "Do whatever you want" covers the task named. Live money,
+  production deletes and outward-facing actions still need a yes.
+- **Secrets.** Never ask for one to be pasted, and never repeat one that was. Ask for it to
+  be set where the code reads it (`.env.local`, the service's settings) and work with the
+  variable name. An env file that holds keys is never opened with a file tool, printed, or searched with a
+  command that prints its lines: check it with `grep -cE` or `grep -lE` and a pattern of the names
+  (`'^[[:space:]]*(export[[:space:]]+)?(NAME_A|NAME_B)[[:space:]]*[=:]'`), which print only a
+  count or a file name; make a copy without those names with `grep -vE '<that pattern>' <file> >
+  <copy>`, then check the copy the same way. A search across a repo skips env files
+  (`--exclude='.env*'`).
+- **Heavy runs follow the machine block.** Its answer says whether a database, browser,
+  emulator, media tool or full build may start without asking, its limits bound every one,
+  and the repo's section names what each heavy run is. A test runner's timeout is not a kill:
+  when a run ends or times out, its whole process tree is stopped and checked gone. The
+  standing yes never covers a local run that reaches real people (email, SMS, push, payments,
+  publishing to real accounts). Such a run asks first, unless it runs with the keys and switches
+  its repo's section lists set, setting them stops it, and the section does not say it needs a
+  yes. Setting them stops it only when nothing in the run puts the real ones back: an env file its own
+  commands load, an app built with the real ones, or a server it talks to but did not start (a test runner may reuse one already running:
+  Playwright's `reuseExistingServer`). A yes for a run that reaches real people covers that one run: a rerun, after a fix or for
+  the full checks, asks again. In a repo whose "Local runs that reach real people" line says "unknown", that
+  has no such line, or that has no first-pass section, any server, worker or end-to-end or
+  integration run counts as one and asks first, whatever keys are set. There, format, lint,
+  typecheck, unit tests and builds don't count as one, unless the section names them as
+  reaching real people. With no machine block loaded, ask before each heavy run.
+- **What you start, you stop.** Dev servers, watchers, test runners, tunnels, emulators,
+  containers and background shells: note the PID, stop the whole process tree when done
+  (`taskkill /PID <pid> /T /F` on Windows), and check the port is free. Never stop a process
+  this session did not start. Something the user wants left running is named with its port
+  and PID.
+
+### Talking to the user
+
+- **No yes by default.** "Is it done / all fine / anything left?" gets what is not done or
+  not verified first. When the user proposes something and asks for an opinion, the
+  strongest case against it comes first, before the pick or any verdict (a "Yes, but"
+  counts as a verdict), even when the proposal is sound or these rules back it. A question
+  of fact is not a proposal.
+- **Pushback gets checked, not accepted.** When told something is wrong, re-check; say which
+  part holds and which does not. No apologizing and swinging the other way.
+- **Bad news first.** A failure, a risk, or a mistake leads the answer.
+
+### Reporting work
+
+In plain words. Leave out any line with nothing in it.
+
+```
+<What changed, one plain line: what the user can now do or will notice>
+Verified: <what was run and how much of it, said plainly> → <result>, one line each
+Not verified: <each thing, and why>
+Not handled, because: <each case left out>
+Not built: <each guess left out, one line each>
+Open: <anything not finished, one line each>
+```
+
+"Verified" only ever sits next to something run in this session and its result;
+"typechecks and looks right" is "Not verified". The exact command and file:line go in when
+the user will use them (to re-run it or open the file), when something failed, and wherever a
+rule asks for them (a disputed finding, a pre-mortem answer). However
+short the report, these stay, one line each: a decision made on the user's behalf (and that
+it can be overruled); a change to anything users or the law see (legal text, pricing, public
+copy, emails); anything now inaccurate that was noticed and not fixed; the verification
+status; anything the user is now on the hook for.
+
+<!-- first-pass:rules:end -->

@@ -1,0 +1,16 @@
+{
+  "name": "product",
+  "displayName": "Product",
+  "version": "1.0.0",
+  "description": "Product strategy, UX and usability audit, design systems, interface craft, brand expression, and visual direction.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Cbrock84"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/cbrock84/headcount",
+  "repository": "https://github.com/cbrock84/headcount",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,125 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.adityaraj0421.naksha-studio",
+  "type": "plugin",
+  "name": "Naksha Studio",
+  "slug": "naksha-studio",
+  "vendor": "adityaraj0421",
+  "description": "A virtual design team for DipoleML, Cursor, Windsurf, Gemini CLI, and Copilot — 30 roles, 70 commands, 16,000+ lines of expert design knowledge. Your agency's design brain, inside your terminal.",
+  "version": "6.0.0",
+  "homepage": "https://github.com/Adityaraj0421/naksha-studio",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "accessibility",
+    "claude-code-plugin",
+    "component-library",
+    "data-visualization",
+    "design",
+    "design-system",
+    "email-template",
+    "figma",
+    "frontend"
+  ],
+  "tags": [
+    "accessibility",
+    "ai",
+    "claude-code",
+    "claude-code-plugin",
+    "component-library",
+    "data-visualization",
+    "design",
+    "design-system",
+    "email-template",
+    "figma",
+    "frontend",
+    "open-source",
+    "social-media",
+    "ui",
+    "ux"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "adityaraj0421",
+    "brandName": "adityaraj0421",
+    "source": "https://github.com/Adityaraj0421.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:12:00Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "Adityaraj0421/naksha-studio",
+    "url": "https://github.com/Adityaraj0421/naksha-studio",
+    "commit": "f5275255d1c5417026508c5e294cf6d27ec8809d",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 350,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:00:58Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Naksha Studio | A virtual design team for Claude Code, Cursor, Windsurf, Gemini CLI, and Copilot — 30 roles, 70 commands, 16,000+ lines of expert design knowledge. Your agency's design brain, inside your terminal.",
+        "after": "Naksha Studio | A virtual design team for DipoleML, Cursor, Windsurf, Gemini CLI, and Copilot — 30 roles, 70 commands, 16,000+ lines of expert design knowledge. Your agency's design brain, inside your terminal.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "A virtual design team for Claude Code, Cursor, Windsurf, Gemini CLI, and Copilot — powered by Naksha. Assembles specialist roles — UI designer, UX researcher, content designer, Figma expert, data viz, email, social, motion, presentation, brand strategy, illustration, video, conversational, spatial, compliance, and more — for any design task. 30 roles, 70 commands, 16,000+ lines of expert design knowledge. Your agency's design brain, inside your terminal.",
+        "after": "A virtual design team for DipoleML, Cursor, Windsurf, Gemini CLI, and Copilot — powered by Naksha. Assembles specialist roles — UI designer, UX researcher, content designer, Figma expert, data viz, email, social, motion, presentation, brand strategy, illustration, video, conversational, spatial, compliance, and more — for any design task. 30 roles, 70 commands, 16,000+ lines of expert design knowledge. Your agency's design brain, inside your terminal.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

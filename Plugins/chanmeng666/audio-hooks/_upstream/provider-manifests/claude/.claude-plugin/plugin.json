@@ -1,0 +1,40 @@
+{
+  "name": "audio-hooks",
+  "displayName": "echook",
+  "version": "7.1.0",
+  "description": "Audio notifications + AI-controlled config for Claude Code, Cursor IDE, and Codex CLI events. 39 hook events across Claude Code, Cursor and Codex (30 registered on Claude Code) + 47 matcher variants, each with its own sound. Desktop toasts, TTS, webhooks, status line + per-subagent rows, rate-limit alerts. Auto-bridges to Cursor IDE 3.2.16+; native install via 'audio-hooks install --cursor' or 'audio-hooks install --codex'.",
+  "author": {
+    "name": "Chan Meng",
+    "url": "https://github.com/ChanMeng666"
+  },
+  "homepage": "https://github.com/ChanMeng666/echook",
+  "repository": "https://github.com/ChanMeng666/echook",
+  "license": "MIT",
+  "documentationUrl": "https://github.com/ChanMeng666/echook#readme",
+  "supportUrl": "https://github.com/ChanMeng666/echook/blob/master/SUPPORT.md",
+  "privacyPolicyUrl": "https://github.com/ChanMeng666/echook/blob/master/PRIVACY.md",
+  "keywords": ["audio", "notifications", "hooks", "tts", "webhook", "ai-operated", "rate-limits", "cursor", "cursor-ide", "codex", "codex-cli", "openai-codex"],
+  "userConfig": {
+    "audio_theme": {
+      "type": "string",
+      "title": "Audio theme",
+      "description": "Audio theme: 'default' (voice recordings) or 'custom' (non-voice chimes). Leave blank for default."
+    },
+    "webhook_url": {
+      "type": "string",
+      "title": "Webhook URL (optional)",
+      "description": "Optional webhook URL for Slack/Discord/Teams/ntfy/raw notifications. Leave blank to skip. Event text, including the start of Claude's last message, is sent to this URL.",
+      "sensitive": true
+    },
+    "webhook_format": {
+      "type": "string",
+      "title": "Webhook format",
+      "description": "Webhook payload format: slack | discord | teams | ntfy | raw. Required when webhook_url is set."
+    },
+    "tts_enabled": {
+      "type": "boolean",
+      "title": "Enable text-to-speech",
+      "description": "Speak hook events using the system TTS engine. Default: false."
+    }
+  }
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Kubernetes Security"
+  short_description: "Cluster hardening, admission control, runtime, supply chain"
+  default_prompt: "Use $kubernetes-security to harden Kubernetes clusters you operate."

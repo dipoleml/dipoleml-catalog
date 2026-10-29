@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "scenario_id": "citadel-short-executor-proof-v2",
+  "repository": "https://github.com/SethGammon/Citadel.git",
+  "pinned_ref": "4a02265c206d992b556fc1b38c3c9487ced880d8",
+  "objective": "Add one focused regression proving an executor profile with missing observed-model telemetry remains unknown and can never be reported as a verified model match.",
+  "verification_command": ["node", "scripts/test-executor-profiles.js"],
+  "required_changed_paths": ["scripts/test-executor-profiles.js"],
+  "requested_runtime": "codex",
+  "requested_model": "gpt-5.6-sol",
+  "topology": "direct",
+  "planned_tools": ["filesystem", "shell"],
+  "fallbacks": [],
+  "claim_boundary": "prospective integration only; not performance or savings"
+}

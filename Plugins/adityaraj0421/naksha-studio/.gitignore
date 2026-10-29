@@ -1,0 +1,22 @@
+.DS_Store
+assets/
+*.local.md
+node_modules/
+.worktrees/
+
+# Internal AI tool artifacts (plans, brainstorms, session data)
+.claude/
+.superpowers/
+docs/superpowers/
+.firecrawl/
+
+# Local working files — brand assets, lint output, internal reviews
+brand/
+design-lint-report.json
+REVIEW.md
+
+# Local marketing assets — generated exports, social graphics, demo files
+social/
+demos/
+*.local.png
+*-local.*

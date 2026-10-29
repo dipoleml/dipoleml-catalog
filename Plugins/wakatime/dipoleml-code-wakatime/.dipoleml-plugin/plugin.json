@@ -1,0 +1,16 @@
+{
+  "name": "dipoleml-code-wakatime",
+  "displayName": "DipoleML Wakatime",
+  "version": "4.1.0",
+  "description": "WakaTime plugin for DipoleML - Track your AI usage, lines of code generated, and time spent prompting AI",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Wakatime"
+  },
+  "license": "BSD-3-Clause",
+  "homepage": "https://github.com/wakatime/claude-code-wakatime",
+  "repository": "https://github.com/wakatime/claude-code-wakatime",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

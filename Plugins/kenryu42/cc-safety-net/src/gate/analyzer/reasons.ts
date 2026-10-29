@@ -1,0 +1,26 @@
+import type { DestructiveCommandRuleMatch } from '@/core/rules/types';
+
+export {
+  REASON_COMMAND_ANALYSIS_LIMIT,
+  REASON_RECURSION_LIMIT,
+  REASON_SAFETY_NET_FAILED_CLOSED,
+} from '@/core/budget';
+
+export const REASON_STRICT_UNPARSEABLE =
+  'Command could not be safely analyzed (strict mode). Simplify the command and retry, or ask the user to verify.';
+
+export const REASON_UNSUPPORTED_HEREDOC_SYNTAX = 'Unsupported heredoc syntax';
+
+export const REASON_DYNAMIC_SHELL_SOURCE =
+  'shell execution source cannot be verified safely. Use a literal command string or ask the user to run it manually.';
+
+export function dynamicShellSourceMatch(): DestructiveCommandRuleMatch {
+  return {
+    id: 'analysis.dynamic-shell-source',
+    reason: REASON_DYNAMIC_SHELL_SOURCE,
+    intent: 'stop_and_explain',
+  };
+}
+
+export const REASON_STRUCTURAL_COMMAND_VALIDATION_LIMIT =
+  'CC Safety Net could not validate the command because its structure exceeds safe analysis limits.';

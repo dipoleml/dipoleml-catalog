@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Run the cc-safety-net CLI from source under an isolated home so verification
+# never reads or writes the developer's real ~/.cc-safety-net.
+#
+# Usage: CCSN_VERIFY_HOME=/abs/disposable/dir ./ccsn-isolated <command> [args...]
+# stdin, stdout, and the exit code pass through, so hook payloads pipe straight in.
+set -euo pipefail
+
+if [[ -z "${CCSN_VERIFY_HOME:-}" || "${CCSN_VERIFY_HOME}" != /* ]]; then
+  echo "ccsn-isolated: set CCSN_VERIFY_HOME to an absolute path to a disposable directory" >&2
+  exit 2
+fi
+mkdir -p "$CCSN_VERIFY_HOME"
+
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+
+exec env \
+  -u CC_SAFETY_NET_AUDIT_SCOPE \
+  HOME="$CCSN_VERIFY_HOME" \
+  USERPROFILE="$CCSN_VERIFY_HOME" \
+  CC_SAFETY_NET_HOME="$CCSN_VERIFY_HOME/.cc-safety-net" \
+  CC_SAFETY_NET_AUDIT_HOME="$CCSN_VERIFY_HOME" \
+  CC_SAFETY_NET_LEVEL='' \
+  CC_SAFETY_NET_STRICT='' \
+  CC_SAFETY_NET_PARANOID='' \
+  CC_SAFETY_NET_PARANOID_RM='' \
+  CC_SAFETY_NET_PARANOID_INTERPRETERS='' \
+  CC_SAFETY_NET_WORKTREE='' \
+  bun run "$REPO/src/entries/bin.ts" "$@"

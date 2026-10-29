@@ -1,0 +1,108 @@
+{
+  "schema": 1,
+  "cell_id": "008-bug-zero-retry-delay--citadel-hybrid-risk-route",
+  "order": 8,
+  "scenario_id": "bug-zero-retry-delay",
+  "task_class": "bug-fix",
+  "risk": "moderate",
+  "policy_id": "citadel-hybrid-risk-route",
+  "repetition": 1,
+  "route": {
+    "initial_tier": "local",
+    "escalation_tier": "cloud",
+    "reason_code": "FROZEN_BOUNDED_LOCAL_THEN_VERIFY"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "local",
+      "started_at": "2026-08-02T00:56:31.589Z",
+      "duration_ms": 6686,
+      "output_text": "{\n  \"files\": {\n    \"src/retry.js\": \"'use strict';\\nfunction retryDelay(value) {\\n  return value !== null && value !== undefined ? value : 250;\\n}\\nmodule.exports = { retryDelay };\"\n  }\n}",
+      "output_digest": "sha256:fac3a364b84101b26a60a656645b38af8e663bfb2b809a89b6616287fb1f502f",
+      "verification": {
+        "status": "passed",
+        "code": null,
+        "changed_paths": [
+          "src/retry.js"
+        ],
+        "applied_file_digests": {
+          "src/retry.js": "sha256:87d43987bb08de4ca7c68c699ef9b46f92eda7a48a3f4a25c6e5e587fc19cf63"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 0,
+          "signal": null,
+          "stdout": "",
+          "stderr": "",
+          "error": null
+        },
+        "patch_digest": "sha256:186334704dd94ede4aab3003be9c1b8910fb97faa27883335e926a6bad280506"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "ollama-chat",
+        "requested_model": "qwen2.5-coder:3b",
+        "canonical_model": "qwen2.5-coder:3b",
+        "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+        "response_digest": "sha256:a04cd54411ba52364bcf8c37d90465f7a51069e6e7e0461363bfd804ee2874bf",
+        "error": null
+      },
+      "usage": {
+        "input_tokens": 195,
+        "output_tokens": 58,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0
+      },
+      "economics": {
+        "comparison_cost": {
+          "status": "derived-comparison",
+          "total_usd": 0.000043559,
+          "source": "measured_gpu_energy_plus_frozen_residual_amortization"
+        },
+        "provider_reported_equivalent_cost": {
+          "status": "known",
+          "amount_usd": 0,
+          "source": "self_hosted_ollama"
+        },
+        "local_gpu_energy": {
+          "status": "measured",
+          "energy_kwh": 0.000124934,
+          "samples": 13,
+          "average_watts": 67.269231
+        },
+        "actual_subscription_cash": {
+          "status": "not-applicable",
+          "amount_usd": 0
+        }
+      }
+    }
+  ],
+  "status": "passed",
+  "final_verification": {
+    "status": "passed",
+    "code": null,
+    "changed_paths": [
+      "src/retry.js"
+    ],
+    "applied_file_digests": {
+      "src/retry.js": "sha256:87d43987bb08de4ca7c68c699ef9b46f92eda7a48a3f4a25c6e5e587fc19cf63"
+    },
+    "verifier": {
+      "command": "node verifier.js",
+      "status": 0,
+      "signal": null,
+      "stdout": "",
+      "stderr": "",
+      "error": null
+    },
+    "patch_digest": "sha256:186334704dd94ede4aab3003be9c1b8910fb97faa27883335e926a6bad280506"
+  },
+  "previous_cell_digest": "sha256:b4885e7f04f148981fd1168e5e8d938d31f6a5bd88211113c4f5cbd7170ade1a",
+  "receipt_digest": "sha256:115c017c3f204c86040e9c1de4864371fdc2d094252278004f0bf516f0d77ff5",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:8a4095a3380a203e567fe95ad31f4107ca73716cfcc9c090fd9679bc932aeaa7",
+    "signature": "Az6iLkfIEaL+Yf2XpRtBauFzugHP+IOrZr3Qq96NhCw50TgL2YtkXBbn8UP8HCGUmKfC6FIAza/+wdrZkcEoDA=="
+  }
+}

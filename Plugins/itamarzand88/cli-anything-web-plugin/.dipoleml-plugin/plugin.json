@@ -1,0 +1,16 @@
+{
+  "name": "cli-anything-web-plugin",
+  "displayName": "CLI Anything Web Plugin",
+  "version": "0.14.3",
+  "description": "CLI-Anything for the Web: Generate agent-native CLIs for closed-source web apps via network traffic analysis",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Itamarzand88"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/ItamarZand88/CLI-Anything-WEB",
+  "repository": "https://github.com/ItamarZand88/CLI-Anything-WEB",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

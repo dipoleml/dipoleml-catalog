@@ -1,0 +1,115 @@
+{
+  "chrome_version": "Google Chrome 155.0.8059.85",
+  "svg_sha256": {
+    "banner.svg": "0328bf27780e341b5765ab5014c5cb9329e308783569b7a44e5fb94071ef7c77",
+    "council-run.svg": "84e0c6bb9c299b635a9fc2f3768e2e0f028ec7c384a71adc7e081374711d8eef",
+    "heads-up.svg": "df8d30e768b0a70d0abd04ad92ab000897ca626801dad4a2ee19cf474f8c271b",
+    "tmux-pane.svg": "6cd692aeb2ba2e0653ca16e00e060a04a4bedc28487a29341926d992238eef49"
+  },
+  "static_previews": [
+    {
+      "file": "banner-0-dark.png",
+      "sha256": "fc8b6e824ab8ef6746125204255f4280c22c37f16b24e3dd9cfd045de183f6bc"
+    },
+    {
+      "file": "banner-0-light.png",
+      "sha256": "0a066db2c803d2bf5e7906c4624c56bea573224d860c182ae2da9c69d4694420"
+    },
+    {
+      "file": "council-run-0-dark.png",
+      "sha256": "98ff0289e235285bf68cf26e9453f7649f39e9337bac86a4c97082d2158061b3"
+    },
+    {
+      "file": "council-run-0-light.png",
+      "sha256": "3eb765f719e0941f6ec2cca4839b89f35ed8460c839c91b0e05561bd891d99f4"
+    },
+    {
+      "file": "council-run-1-dark.png",
+      "sha256": "ecfc161cdf7045e6061b571846e6a02db1fb3e2ed43b4244398f78291ec37b2b"
+    },
+    {
+      "file": "council-run-1-light.png",
+      "sha256": "952411fc2c5ef47f1f9ac4c0f825179b8420ca40be0ced8251e7c287b96e0b84"
+    },
+    {
+      "file": "council-run-2-dark.png",
+      "sha256": "f3ebb6fc526ffb80ea9663c0a1b2958d90ad99b0c450be377e5fef512929f9fc"
+    },
+    {
+      "file": "council-run-2-light.png",
+      "sha256": "609fd392c7e17235a139a4fc6d2e9ac774e929bfb2ab2ebbb4e7370f92139abf"
+    },
+    {
+      "file": "council-run-3-dark.png",
+      "sha256": "3abd989d11a371c537988d4c0be25c43f0ae7949f290c08301a6e9782f5b501b"
+    },
+    {
+      "file": "council-run-3-light.png",
+      "sha256": "a7f184206922adc04cd776417ceaf4a8b12cb312265477a10dca3bbebdbc3e54"
+    },
+    {
+      "file": "council-run-4-dark.png",
+      "sha256": "cd99d5f234995eaffc21bbca2786cf45f3f23120bc515c035080bef2467472c9"
+    },
+    {
+      "file": "council-run-4-light.png",
+      "sha256": "142b3be1ab5e8ba5014fc4388b7ef17336afe12fd357471a83bc128d28c1b10f"
+    },
+    {
+      "file": "heads-up-0-dark.png",
+      "sha256": "945cf25d8d4ac8ba457d30feb8ab029eb730fd6618dbd42304f923b2560e7a8b"
+    },
+    {
+      "file": "heads-up-0-light.png",
+      "sha256": "2de54293d45ea09a9443b1ee52f907ccd25318bebfc904985ae9074f529aff88"
+    },
+    {
+      "file": "heads-up-1-dark.png",
+      "sha256": "bea7782fbe5cf8a33e064c668b53ddd834a0f05473e22bc56176f07116012695"
+    },
+    {
+      "file": "heads-up-1-light.png",
+      "sha256": "88bcf1cebafa31e27eac54cb850c513cef40255bc7433d7bfbb5c78065a34345"
+    },
+    {
+      "file": "heads-up-2-dark.png",
+      "sha256": "db1f718efdf43326490fdc4e5466b09c66bbdf0ced850d16d257d69449c9b182"
+    },
+    {
+      "file": "heads-up-2-light.png",
+      "sha256": "9d9ded6b8ac5979692860860948e5928ebf0893b043aa2725e819f9f667ab293"
+    },
+    {
+      "file": "heads-up-3-dark.png",
+      "sha256": "5aef69dd7df06ee203aa8a2ddb4b32e4cf31ea5ee03841ab2baf620f40a80689"
+    },
+    {
+      "file": "heads-up-3-light.png",
+      "sha256": "a089a791808cc70d581a619e74214a26f880ed8d2b853586b82fb881b443b763"
+    },
+    {
+      "file": "tmux-pane-0-dark.png",
+      "sha256": "8ec56731ac64a777b396e7edb4c0a64442d01e158da2e3d941e85722b119e808"
+    },
+    {
+      "file": "tmux-pane-0-light.png",
+      "sha256": "c8e434968d0706b80176e9d3a9e32e66a8126729021b6996f2dbe01a2f7ff146"
+    },
+    {
+      "file": "tmux-pane-1-dark.png",
+      "sha256": "fb5fa64431db845bccc8610a6c3d1fb7587e239a2eb062778aab3be3e11d4fbd"
+    },
+    {
+      "file": "tmux-pane-1-light.png",
+      "sha256": "f749b5b2ec061f8739f49035ce00d08aa124f3e71de5cbe9506cc066082e3288"
+    },
+    {
+      "file": "tmux-pane-2-dark.png",
+      "sha256": "88d59708c776ec8403c5f57d920d0c3d890acbe9971f8994b1a3d2f79dec8a65"
+    },
+    {
+      "file": "tmux-pane-2-light.png",
+      "sha256": "01333f23085b6df5aa8e03667e34aed4d7d06b12b0e207a939f139364654d25c"
+    }
+  ]
+}

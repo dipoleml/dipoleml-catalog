@@ -1,0 +1,3362 @@
+[
+  {
+    "schema": 1,
+    "feature_key": "short_control",
+    "plan_id": "always-frontier",
+    "verification_status": "passed",
+    "duration_ms": 298076,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.655518,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "short_control",
+    "plan_id": "always-frontier",
+    "verification_status": "passed",
+    "duration_ms": 158901,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.56702,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "short_control",
+    "plan_id": "always-frontier",
+    "verification_status": "passed",
+    "duration_ms": 300377,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.797705,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "short_control",
+    "plan_id": "always-cheap",
+    "verification_status": "failed",
+    "duration_ms": 54167,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.064095,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "short_control",
+    "plan_id": "always-cheap",
+    "verification_status": "failed",
+    "duration_ms": 56774,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.069684,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "short_control",
+    "plan_id": "always-cheap",
+    "verification_status": "failed",
+    "duration_ms": 49009,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.060112,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "short_control",
+    "plan_id": "prompt-only",
+    "verification_status": "passed",
+    "duration_ms": 170310,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.428923,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "short_control",
+    "plan_id": "prompt-only",
+    "verification_status": "passed",
+    "duration_ms": 109657,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.645372,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "short_control",
+    "plan_id": "prompt-only",
+    "verification_status": "passed",
+    "duration_ms": 246305,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.699125,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "short_control",
+    "plan_id": "adaptive",
+    "verification_status": "passed",
+    "duration_ms": 300779,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.786749,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "short_control",
+    "plan_id": "adaptive",
+    "verification_status": "passed",
+    "duration_ms": 254753,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.553953,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "short_control",
+    "plan_id": "adaptive",
+    "verification_status": "passed",
+    "duration_ms": 398572,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 1.251168,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "short_control",
+    "plan_id": "always-frontier",
+    "verification_status": "failed",
+    "duration_ms": 181645,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.348076,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "short_control",
+    "plan_id": "always-frontier",
+    "verification_status": "failed",
+    "duration_ms": 158996,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.388524,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "short_control",
+    "plan_id": "always-frontier",
+    "verification_status": "failed",
+    "duration_ms": 200394,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.467109,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "short_control",
+    "plan_id": "always-cheap",
+    "verification_status": "failed",
+    "duration_ms": 100926,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.051191,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "short_control",
+    "plan_id": "always-cheap",
+    "verification_status": "failed",
+    "duration_ms": 112419,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.057663,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "short_control",
+    "plan_id": "always-cheap",
+    "verification_status": "failed",
+    "duration_ms": 129816,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.125347,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "short_control",
+    "plan_id": "prompt-only",
+    "verification_status": "failed",
+    "duration_ms": 94766,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.404584,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "short_control",
+    "plan_id": "prompt-only",
+    "verification_status": "failed",
+    "duration_ms": 99039,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.433754,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "short_control",
+    "plan_id": "prompt-only",
+    "verification_status": "failed",
+    "duration_ms": 142550,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.522119,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "short_control",
+    "plan_id": "adaptive",
+    "verification_status": "failed",
+    "duration_ms": 254805,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.948231,
+        "basis": "list-price",
+        "source": "summed_attempts:2"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "short_control",
+    "plan_id": "adaptive",
+    "verification_status": "failed",
+    "duration_ms": 407168,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 1.184461,
+        "basis": "list-price",
+        "source": "summed_attempts:2"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "short_control",
+    "plan_id": "adaptive",
+    "verification_status": "failed",
+    "duration_ms": 372850,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 1.081324,
+        "basis": "list-price",
+        "source": "summed_attempts:2"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "long_task",
+    "plan_id": "always-frontier",
+    "verification_status": "unknown",
+    "duration_ms": 5313,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "list-price",
+        "source": "one_or_more_attempt_costs_unknown"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "long_task",
+    "plan_id": "always-frontier",
+    "verification_status": "unknown",
+    "duration_ms": 5968,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "list-price",
+        "source": "one_or_more_attempt_costs_unknown"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "long_task",
+    "plan_id": "always-frontier",
+    "verification_status": "unknown",
+    "duration_ms": 5386,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "list-price",
+        "source": "one_or_more_attempt_costs_unknown"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "long_task",
+    "plan_id": "always-cheap",
+    "verification_status": "unknown",
+    "duration_ms": 5293,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "list-price",
+        "source": "one_or_more_attempt_costs_unknown"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "long_task",
+    "plan_id": "always-cheap",
+    "verification_status": "unknown",
+    "duration_ms": 4701,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "list-price",
+        "source": "one_or_more_attempt_costs_unknown"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "long_task",
+    "plan_id": "always-cheap",
+    "verification_status": "unknown",
+    "duration_ms": 5528,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "list-price",
+        "source": "one_or_more_attempt_costs_unknown"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "long_task",
+    "plan_id": "prompt-only",
+    "verification_status": "unknown",
+    "duration_ms": 4875,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "list-price",
+        "source": "one_or_more_attempt_costs_unknown"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "long_task",
+    "plan_id": "prompt-only",
+    "verification_status": "unknown",
+    "duration_ms": 4503,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "list-price",
+        "source": "one_or_more_attempt_costs_unknown"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "long_task",
+    "plan_id": "prompt-only",
+    "verification_status": "unknown",
+    "duration_ms": 5452,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "list-price",
+        "source": "one_or_more_attempt_costs_unknown"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "long_task",
+    "plan_id": "adaptive",
+    "verification_status": "unknown",
+    "duration_ms": 5374,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "list-price",
+        "source": "one_or_more_attempt_costs_unknown"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "long_task",
+    "plan_id": "adaptive",
+    "verification_status": "unknown",
+    "duration_ms": 4342,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "list-price",
+        "source": "one_or_more_attempt_costs_unknown"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "long_task",
+    "plan_id": "adaptive",
+    "verification_status": "unknown",
+    "duration_ms": 4922,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "list-price",
+        "source": "one_or_more_attempt_costs_unknown"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "long_task",
+    "plan_id": "always-frontier",
+    "verification_status": "passed",
+    "duration_ms": 1035718,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 2.953903,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "long_task",
+    "plan_id": "always-frontier",
+    "verification_status": "passed",
+    "duration_ms": 1276912,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 2.874942,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "long_task",
+    "plan_id": "always-frontier",
+    "verification_status": "passed",
+    "duration_ms": 593788,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 1.857272,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "long_task",
+    "plan_id": "always-cheap",
+    "verification_status": "failed",
+    "duration_ms": 159072,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.473519,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "long_task",
+    "plan_id": "always-cheap",
+    "verification_status": "failed",
+    "duration_ms": 130728,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.393344,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "long_task",
+    "plan_id": "always-cheap",
+    "verification_status": "failed",
+    "duration_ms": 165001,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.393292,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "long_task",
+    "plan_id": "prompt-only",
+    "verification_status": "passed",
+    "duration_ms": 839325,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 5.394199,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "long_task",
+    "plan_id": "prompt-only",
+    "verification_status": "failed",
+    "duration_ms": 719587,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 4.688819,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "long_task",
+    "plan_id": "prompt-only",
+    "verification_status": "passed",
+    "duration_ms": 865930,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 4.291695,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "long_task",
+    "plan_id": "adaptive",
+    "verification_status": "passed",
+    "duration_ms": 830069,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 2.611579,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "long_task",
+    "plan_id": "adaptive",
+    "verification_status": "passed",
+    "duration_ms": 913072,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 3.005565,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "long_task",
+    "plan_id": "adaptive",
+    "verification_status": "passed",
+    "duration_ms": 614662,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 2.271761,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "context_reset",
+    "plan_id": "always-frontier",
+    "verification_status": "failed",
+    "duration_ms": 352888,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 1.125674,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "context_reset",
+    "plan_id": "always-frontier",
+    "verification_status": "failed",
+    "duration_ms": 536021,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 1.755578,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "context_reset",
+    "plan_id": "always-frontier",
+    "verification_status": "failed",
+    "duration_ms": 466080,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 1.404847,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "context_reset",
+    "plan_id": "always-cheap",
+    "verification_status": "failed",
+    "duration_ms": 143858,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.08843,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "context_reset",
+    "plan_id": "always-cheap",
+    "verification_status": "failed",
+    "duration_ms": 151010,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.196271,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "context_reset",
+    "plan_id": "always-cheap",
+    "verification_status": "failed",
+    "duration_ms": 137941,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.186091,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "context_reset",
+    "plan_id": "prompt-only",
+    "verification_status": "failed",
+    "duration_ms": 721940,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 3.568422,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "context_reset",
+    "plan_id": "prompt-only",
+    "verification_status": "failed",
+    "duration_ms": 433202,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 2.13599,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "context_reset",
+    "plan_id": "prompt-only",
+    "verification_status": "failed",
+    "duration_ms": 487764,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 2.114619,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "context_reset",
+    "plan_id": "adaptive",
+    "verification_status": "failed",
+    "duration_ms": 560388,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 1.701575,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "context_reset",
+    "plan_id": "adaptive",
+    "verification_status": "failed",
+    "duration_ms": 621686,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 1.654498,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "context_reset",
+    "plan_id": "adaptive",
+    "verification_status": "failed",
+    "duration_ms": 424281,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 1.325278,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "context_reset",
+    "plan_id": "always-frontier",
+    "verification_status": "failed",
+    "duration_ms": 1209726,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 4.870629,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "context_reset",
+    "plan_id": "always-frontier",
+    "verification_status": "failed",
+    "duration_ms": 322636,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 1.25414,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "context_reset",
+    "plan_id": "always-frontier",
+    "verification_status": "failed",
+    "duration_ms": 1757930,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 5.074983,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "context_reset",
+    "plan_id": "always-cheap",
+    "verification_status": "failed",
+    "duration_ms": 140832,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.358638,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "context_reset",
+    "plan_id": "always-cheap",
+    "verification_status": "failed",
+    "duration_ms": 157642,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.394171,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "context_reset",
+    "plan_id": "always-cheap",
+    "verification_status": "failed",
+    "duration_ms": 139704,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.379753,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "context_reset",
+    "plan_id": "prompt-only",
+    "verification_status": "failed",
+    "duration_ms": 259243,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.914595,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "context_reset",
+    "plan_id": "prompt-only",
+    "verification_status": "failed",
+    "duration_ms": 388593,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 1.596053,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "context_reset",
+    "plan_id": "prompt-only",
+    "verification_status": "failed",
+    "duration_ms": 684660,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 3.304379,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "context_reset",
+    "plan_id": "adaptive",
+    "verification_status": "failed",
+    "duration_ms": 632231,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 2.33048,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "context_reset",
+    "plan_id": "adaptive",
+    "verification_status": "failed",
+    "duration_ms": 1202746,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 4.167313,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "context_reset",
+    "plan_id": "adaptive",
+    "verification_status": "failed",
+    "duration_ms": 812749,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 3.228063,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "parallel_work",
+    "plan_id": "always-frontier",
+    "verification_status": "unknown",
+    "duration_ms": 3934,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "list-price",
+        "source": "one_or_more_attempt_costs_unknown"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "parallel_work",
+    "plan_id": "always-frontier",
+    "verification_status": "unknown",
+    "duration_ms": 3821,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "list-price",
+        "source": "one_or_more_attempt_costs_unknown"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "parallel_work",
+    "plan_id": "always-frontier",
+    "verification_status": "unknown",
+    "duration_ms": 4149,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "list-price",
+        "source": "one_or_more_attempt_costs_unknown"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "parallel_work",
+    "plan_id": "always-cheap",
+    "verification_status": "unknown",
+    "duration_ms": 4122,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "list-price",
+        "source": "one_or_more_attempt_costs_unknown"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "parallel_work",
+    "plan_id": "always-cheap",
+    "verification_status": "unknown",
+    "duration_ms": 4960,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "list-price",
+        "source": "one_or_more_attempt_costs_unknown"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "parallel_work",
+    "plan_id": "always-cheap",
+    "verification_status": "unknown",
+    "duration_ms": 4117,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "list-price",
+        "source": "one_or_more_attempt_costs_unknown"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "parallel_work",
+    "plan_id": "prompt-only",
+    "verification_status": "unknown",
+    "duration_ms": 4272,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "list-price",
+        "source": "one_or_more_attempt_costs_unknown"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "parallel_work",
+    "plan_id": "prompt-only",
+    "verification_status": "unknown",
+    "duration_ms": 4728,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "list-price",
+        "source": "one_or_more_attempt_costs_unknown"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "parallel_work",
+    "plan_id": "prompt-only",
+    "verification_status": "unknown",
+    "duration_ms": 4568,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "list-price",
+        "source": "one_or_more_attempt_costs_unknown"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "parallel_work",
+    "plan_id": "adaptive",
+    "verification_status": "unknown",
+    "duration_ms": 4444,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "list-price",
+        "source": "one_or_more_attempt_costs_unknown"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "parallel_work",
+    "plan_id": "adaptive",
+    "verification_status": "unknown",
+    "duration_ms": 3997,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "list-price",
+        "source": "one_or_more_attempt_costs_unknown"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "parallel_work",
+    "plan_id": "adaptive",
+    "verification_status": "unknown",
+    "duration_ms": 3837,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "list-price",
+        "source": "one_or_more_attempt_costs_unknown"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "safety_boundary",
+    "plan_id": "always-frontier",
+    "verification_status": "passed",
+    "duration_ms": 338193,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.895774,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "safety_boundary",
+    "plan_id": "always-frontier",
+    "verification_status": "passed",
+    "duration_ms": 446986,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 1.505936,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "safety_boundary",
+    "plan_id": "always-frontier",
+    "verification_status": "failed",
+    "duration_ms": 715752,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 1.538265,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "safety_boundary",
+    "plan_id": "always-cheap",
+    "verification_status": "failed",
+    "duration_ms": 78604,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.200212,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "safety_boundary",
+    "plan_id": "always-cheap",
+    "verification_status": "failed",
+    "duration_ms": 127764,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.28889,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "safety_boundary",
+    "plan_id": "always-cheap",
+    "verification_status": "failed",
+    "duration_ms": 63203,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.138307,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "safety_boundary",
+    "plan_id": "prompt-only",
+    "verification_status": "passed",
+    "duration_ms": 213224,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.725554,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "safety_boundary",
+    "plan_id": "prompt-only",
+    "verification_status": "passed",
+    "duration_ms": 208364,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.648209,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "safety_boundary",
+    "plan_id": "prompt-only",
+    "verification_status": "passed",
+    "duration_ms": 209668,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.493095,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "safety_boundary",
+    "plan_id": "adaptive",
+    "verification_status": "passed",
+    "duration_ms": 345299,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.941569,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "safety_boundary",
+    "plan_id": "adaptive",
+    "verification_status": "passed",
+    "duration_ms": 443663,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 1.354234,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "safety_boundary",
+    "plan_id": "adaptive",
+    "verification_status": "passed",
+    "duration_ms": 525567,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.927119,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "safety_boundary",
+    "plan_id": "always-frontier",
+    "verification_status": "unknown",
+    "duration_ms": 4527,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "list-price",
+        "source": "one_or_more_attempt_costs_unknown"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "safety_boundary",
+    "plan_id": "always-frontier",
+    "verification_status": "unknown",
+    "duration_ms": 4551,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "list-price",
+        "source": "one_or_more_attempt_costs_unknown"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "safety_boundary",
+    "plan_id": "always-frontier",
+    "verification_status": "unknown",
+    "duration_ms": 4623,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "list-price",
+        "source": "one_or_more_attempt_costs_unknown"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "safety_boundary",
+    "plan_id": "always-cheap",
+    "verification_status": "unknown",
+    "duration_ms": 4815,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "list-price",
+        "source": "one_or_more_attempt_costs_unknown"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "safety_boundary",
+    "plan_id": "always-cheap",
+    "verification_status": "unknown",
+    "duration_ms": 4418,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "list-price",
+        "source": "one_or_more_attempt_costs_unknown"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "safety_boundary",
+    "plan_id": "always-cheap",
+    "verification_status": "unknown",
+    "duration_ms": 4114,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "list-price",
+        "source": "one_or_more_attempt_costs_unknown"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "safety_boundary",
+    "plan_id": "prompt-only",
+    "verification_status": "unknown",
+    "duration_ms": 3939,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "list-price",
+        "source": "one_or_more_attempt_costs_unknown"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "safety_boundary",
+    "plan_id": "prompt-only",
+    "verification_status": "unknown",
+    "duration_ms": 3912,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "list-price",
+        "source": "one_or_more_attempt_costs_unknown"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "safety_boundary",
+    "plan_id": "prompt-only",
+    "verification_status": "unknown",
+    "duration_ms": 3917,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "list-price",
+        "source": "one_or_more_attempt_costs_unknown"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "safety_boundary",
+    "plan_id": "adaptive",
+    "verification_status": "unknown",
+    "duration_ms": 3913,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "list-price",
+        "source": "one_or_more_attempt_costs_unknown"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "safety_boundary",
+    "plan_id": "adaptive",
+    "verification_status": "unknown",
+    "duration_ms": 3951,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "list-price",
+        "source": "one_or_more_attempt_costs_unknown"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "safety_boundary",
+    "plan_id": "adaptive",
+    "verification_status": "unknown",
+    "duration_ms": 3828,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "list-price",
+        "source": "one_or_more_attempt_costs_unknown"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "cleanup",
+    "plan_id": "always-frontier",
+    "verification_status": "passed",
+    "duration_ms": 501057,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 1.113332,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "cleanup",
+    "plan_id": "always-frontier",
+    "verification_status": "passed",
+    "duration_ms": 771008,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 1.893423,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "cleanup",
+    "plan_id": "always-frontier",
+    "verification_status": "passed",
+    "duration_ms": 561809,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 1.495821,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "cleanup",
+    "plan_id": "always-cheap",
+    "verification_status": "failed",
+    "duration_ms": 133819,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.065201,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "cleanup",
+    "plan_id": "always-cheap",
+    "verification_status": "failed",
+    "duration_ms": 143180,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.196926,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "cleanup",
+    "plan_id": "always-cheap",
+    "verification_status": "failed",
+    "duration_ms": 134304,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.131801,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "cleanup",
+    "plan_id": "prompt-only",
+    "verification_status": "passed",
+    "duration_ms": 645439,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 2.11435,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "cleanup",
+    "plan_id": "prompt-only",
+    "verification_status": "failed",
+    "duration_ms": 772316,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 2.364684,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "cleanup",
+    "plan_id": "prompt-only",
+    "verification_status": "passed",
+    "duration_ms": 634488,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 2.073292,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "cleanup",
+    "plan_id": "adaptive",
+    "verification_status": "passed",
+    "duration_ms": 635554,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 1.357002,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "cleanup",
+    "plan_id": "adaptive",
+    "verification_status": "passed",
+    "duration_ms": 580487,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 1.387003,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  },
+  {
+    "schema": 1,
+    "feature_key": "cleanup",
+    "plan_id": "adaptive",
+    "verification_status": "passed",
+    "duration_ms": 679022,
+    "costs": {
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not attribute subscription or invoice cash"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "source run does not establish per-operation marginal cash"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 1.793158,
+        "basis": "list-price",
+        "source": "summed_attempts:1"
+      }
+    },
+    "observed_tools": []
+  }
+]

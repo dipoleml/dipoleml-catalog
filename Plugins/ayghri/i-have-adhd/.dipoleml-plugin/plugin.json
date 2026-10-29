@@ -1,0 +1,16 @@
+{
+  "name": "i-have-adhd",
+  "displayName": "I Have Adhd",
+  "version": "0.4.1",
+  "description": "Shape DipoleML output for an ADHD reader: lead with the next action, number steps, suppress tangents, restate state, make wins visible.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Ayghri"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/ayghri/i-have-adhd",
+  "repository": "https://github.com/ayghri/i-have-adhd",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

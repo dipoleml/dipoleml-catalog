@@ -1,0 +1,16 @@
+{
+  "name": "verify-board",
+  "displayName": "Verify Board",
+  "version": "0.1.1",
+  "description": "Verify Board",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Yeonwoosung"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/YeonwooSung/my-claude-code-mods",
+  "repository": "https://github.com/YeonwooSung/my-claude-code-mods",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

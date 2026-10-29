@@ -1,0 +1,16 @@
+{
+  "name": "c2c-img",
+  "displayName": "C2c Img",
+  "version": "0.4.1",
+  "description": "Built-in image generation and editing for DipoleML, powered by your local Codex (ChatGPT) image_gen. No API key needed.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Actionow Ai"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/actionow-ai/c2c_img",
+  "repository": "https://github.com/actionow-ai/c2c_img",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

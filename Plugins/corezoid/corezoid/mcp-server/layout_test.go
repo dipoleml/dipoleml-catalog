@@ -1,0 +1,421 @@
+package main
+
+import (
+	"fmt"
+	"testing"
+)
+
+// --- fixture helpers ---------------------------------------------------------
+
+func goLogic(to string) map[string]interface{} {
+	return map[string]interface{}{"type": "go", "to_node_id": to}
+}
+
+func condLogic(to string) map[string]interface{} {
+	return map[string]interface{}{"type": "go_if_const", "to_node_id": to}
+}
+
+// node builds a node map. objType: 1=START, 2=END, 3=COND, 0=LOGIC.
+func node(id string, objType float64, x, y float64, logics ...map[string]interface{}) map[string]interface{} {
+	n := map[string]interface{}{
+		"id":       id,
+		"obj_type": objType,
+		"x":        x,
+		"y":        y,
+	}
+	if len(logics) > 0 {
+		ls := make([]interface{}, len(logics))
+		for i, l := range logics {
+			ls[i] = l
+		}
+		n["condition"] = map[string]interface{}{"logics": ls}
+	}
+	return n
+}
+
+func scheme(nodes ...map[string]interface{}) map[string]interface{} {
+	raw := make([]interface{}, len(nodes))
+	for i, n := range nodes {
+		raw[i] = n
+	}
+	return map[string]interface{}{"nodes": raw}
+}
+
+func xy(n map[string]interface{}) (float64, float64) {
+	x, _ := n["x"].(float64)
+	y, _ := n["y"].(float64)
+	return x, y
+}
+
+func onGrid(v float64) bool { return int(v)%gridSnap == 0 }
+
+// allRects returns the footprint of every node for overlap assertions.
+func allRects(nodes ...map[string]interface{}) [][4]float64 {
+	rs := make([][4]float64, 0, len(nodes))
+	for _, n := range nodes {
+		rs = append(rs, rectOf(n))
+	}
+	return rs
+}
+
+func anyIntersect(rs [][4]float64) bool {
+	for i := 0; i < len(rs); i++ {
+		for j := i + 1; j < len(rs); j++ {
+			if rectsIntersect(rs[i], rs[j]) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// --- tests -------------------------------------------------------------------
+
+func TestLayoutModeEnv(t *testing.T) {
+	cases := []struct {
+		env, want string
+		set       bool
+	}{
+		{"off", "off", true},
+		{"OFF", "off", true},
+		{"  off  ", "off", true},
+		{"full", "preserve", true}, // no full mode
+		{"junk", "preserve", true},
+		{"", "preserve", true},
+		{"", "preserve", false}, // unset
+	}
+	for _, c := range cases {
+		if c.set {
+			t.Setenv("COREZOID_AUTOLAYOUT", c.env)
+		} else {
+			// t.Setenv restores after the test; explicitly clear for the unset case.
+			t.Setenv("COREZOID_AUTOLAYOUT", "")
+		}
+		if got := layoutMode(); got != c.want {
+			t.Errorf("layoutMode() with env %q = %q, want %q", c.env, got, c.want)
+		}
+	}
+}
+
+func TestApplyLayoutOffNoop(t *testing.T) {
+	t.Setenv("COREZOID_AUTOLAYOUT", "off")
+	n := node("a", 0, 0, 0, goLogic("b"))
+	b := node("b", 2, 0, 0)
+	s := scheme(n, b)
+	applyLayout(s, "process")
+	for _, nd := range []map[string]interface{}{n, b} {
+		x, y := xy(nd)
+		if x != 0 || y != 0 {
+			t.Errorf("off mode moved node %v to (%v,%v)", nd["id"], x, y)
+		}
+	}
+}
+
+func TestApplyLayoutAllNewLaysOut(t *testing.T) {
+	t.Setenv("COREZOID_AUTOLAYOUT", "")
+	mk := func() (map[string]interface{}, []map[string]interface{}) {
+		start := node("start", 1, 0, 0, goLogic("l1"))
+		l1 := node("l1", 0, 0, 0, goLogic("l2"))
+		l2 := node("l2", 0, 0, 0, goLogic("end"))
+		end := node("end", 2, 0, 0)
+		return scheme(start, l1, l2, end), []map[string]interface{}{start, l1, l2, end}
+	}
+
+	s, nodes := mk()
+	applyLayout(s, "process")
+
+	// A from-scratch process is laid out by the full engine (Fix 2). Assert the
+	// engine's guarantees rather than the old baseLayout grid: every node is
+	// placed off the origin, and no two node boxes overlap.
+	for _, nd := range nodes {
+		x, y := xy(nd)
+		if x == 0 && y == 0 {
+			t.Errorf("node %v still at origin", nd["id"])
+		}
+	}
+	for i := 0; i < len(nodes); i++ {
+		for j := i + 1; j < len(nodes); j++ {
+			xi, yi := xy(nodes[i])
+			xj, yj := xy(nodes[j])
+			if xi == xj && yi == yj {
+				t.Errorf("nodes %v and %v overlap at (%v,%v)", nodes[i]["id"], nodes[j]["id"], xi, yi)
+			}
+		}
+	}
+
+	// Determinism: a second independent run yields identical coordinates.
+	s2, nodes2 := mk()
+	applyLayout(s2, "process")
+	for i := range nodes {
+		x1, y1 := xy(nodes[i])
+		x2, y2 := xy(nodes2[i])
+		if x1 != x2 || y1 != y2 {
+			t.Errorf("non-deterministic: node %v (%v,%v) vs (%v,%v)", nodes[i]["id"], x1, y1, x2, y2)
+		}
+	}
+}
+
+func TestPreserveLeavesPlacedNodes(t *testing.T) {
+	t.Setenv("COREZOID_AUTOLAYOUT", "")
+	start := node("start", 1, 700, 0, goLogic("l1"))
+	l1 := node("l1", 0, 600, 200, goLogic("n"))
+	n := node("n", 0, 0, 0) // new primary down-child of l1
+	s := scheme(start, l1, n)
+	applyLayout(s, "process")
+
+	// Placed nodes untouched (byte-identical coords).
+	if x, y := xy(start); x != 700 || y != 0 {
+		t.Errorf("placed start moved to (%v,%v)", x, y)
+	}
+	if x, y := xy(l1); x != 600 || y != 200 {
+		t.Errorf("placed l1 moved to (%v,%v)", x, y)
+	}
+	// New node lands directly below its parent.
+	nx, ny := xy(n)
+	if nx != 600 || ny != 400 {
+		t.Errorf("new node n = (%v,%v), want (600,400)", nx, ny)
+	}
+}
+
+func TestPreserveBranchRight(t *testing.T) {
+	t.Setenv("COREZOID_AUTOLAYOUT", "")
+	// s has a primary 'go' to p (placed) and a branch 'go_if_const' to n (new),
+	// so n is a branch target, not the down-child.
+	s0 := node("s", 0, 600, 200, goLogic("p"), condLogic("n"))
+	p := node("p", 0, 600, 400)
+	n := node("n", 0, 0, 0)
+	sc := scheme(s0, p, n)
+	applyLayout(sc, "process")
+
+	sx, sy := xy(s0)
+	nx, ny := xy(n)
+	if ny != sy {
+		t.Errorf("branch node n y = %v, want same row as source %v", ny, sy)
+	}
+	if nx <= sx {
+		t.Errorf("branch node n x = %v, want right of source %v", nx, sx)
+	}
+}
+
+func TestPreserveNudgesRectOverlap(t *testing.T) {
+	t.Setenv("COREZOID_AUTOLAYOUT", "")
+	start := node("start", 1, 700, 0, goLogic("l1"))
+	l1 := node("l1", 0, 600, 200, goLogic("n"))
+	// x is an off-grid placed node sitting where n's first target (600,400) would land.
+	x := node("x", 0, 610, 410)
+	n := node("n", 0, 0, 0) // new primary down-child of l1
+	sc := scheme(start, l1, x, n)
+	applyLayout(sc, "process")
+
+	// The off-grid placed node must not move.
+	if xx, xy2 := xy(x); xx != 610 || xy2 != 410 {
+		t.Errorf("placed off-grid node x moved to (%v,%v)", xx, xy2)
+	}
+	// No rectangle overlaps after placement.
+	if anyIntersect(allRects(start, l1, x, n)) {
+		t.Errorf("rect overlap after preserve placement")
+	}
+	// n was nudged below the (600,400) slot it would otherwise take.
+	if _, ny := xy(n); ny <= 400 {
+		t.Errorf("new node not nudged past overlap: y=%v", ny)
+	}
+}
+
+func TestPreserveInsertShiftsSubtree(t *testing.T) {
+	t.Setenv("COREZOID_AUTOLAYOUT", "")
+	// Placed chain P(600,200) -> C(600,400). Insert new N between them: P -> N -> C.
+	// N should take C's slot and C should slide down one step (smooth expansion),
+	// not have N nudged far below.
+	p := node("p", 0, 600, 200, goLogic("n"))
+	n := node("n", 0, 0, 0, goLogic("c")) // new; its own down-child is the placed C
+	c := node("c", 2, 600, 400)
+	sc := scheme(p, n, c)
+	applyLayout(sc, "process")
+
+	if x, y := xy(p); x != 600 || y != 200 {
+		t.Errorf("parent p moved to (%v,%v)", x, y)
+	}
+	if x, y := xy(n); x != 600 || y != 400 {
+		t.Errorf("inserted n = (%v,%v), want (600,400)", x, y)
+	}
+	if x, y := xy(c); x != 600 || y != 600 {
+		t.Errorf("child c not shifted down: (%v,%v), want (600,600)", x, y)
+	}
+	if anyIntersect(allRects(p, n, c)) {
+		t.Errorf("overlap after insert-shift")
+	}
+}
+
+func TestPreserveInsertTallNodeShiftsFarEnough(t *testing.T) {
+	t.Setenv("COREZOID_AUTOLAYOUT", "")
+	// Same P -> N -> C insertion as TestPreserveInsertShiftsSubtree, but N is a
+	// "tall" node: an err_node_id plus a time semaphore give it two extra
+	// output branches, so its real content-driven height (90 base + 2*56 =
+	// 202) plus a landing margin exceeds the flat vStep (200) the old code
+	// always used. If the gap isn't sized to N's real height, N's own box
+	// overlaps C right after the "smooth expansion" shift.
+	p := node("p", 0, 600, 200, goLogic("n"))
+	n := node("n", 0, 0, 0, goLogic("c"))
+	cond := n["condition"].(map[string]interface{})
+	cond["logics"].([]interface{})[0].(map[string]interface{})["err_node_id"] = "err_node"
+	cond["semaphors"] = []interface{}{
+		map[string]interface{}{"type": "time", "value": 30, "dimension": "sec", "to_node_id": "c"},
+	}
+	c := node("c", 2, 600, 400)
+	sc := scheme(p, n, c)
+	applyLayout(sc, "process")
+
+	if x, y := xy(p); x != 600 || y != 200 {
+		t.Errorf("parent p moved to (%v,%v)", x, y)
+	}
+	if x, y := xy(n); x != 600 || y != 400 {
+		t.Errorf("inserted n = (%v,%v), want (600,400)", x, y)
+	}
+	// The old flat-vStep behaviour would leave c at 600 — not enough room for
+	// n's real ~202px box plus a margin.
+	if _, y := xy(c); y <= 600 {
+		t.Errorf("tall node: child c only shifted to y=%v, want > 600 (flat vStep isn't enough)", y)
+	}
+	if anyIntersect(allRects(p, n, c)) {
+		t.Errorf("overlap after tall-node insert-shift")
+	}
+}
+
+func TestPreserveInsertLeavesParallelBranch(t *testing.T) {
+	t.Setenv("COREZOID_AUTOLAYOUT", "")
+	// P -> C -> D on the spine, plus a parallel branch B off P. Insert N above C:
+	// C and D (N's downstream) slide down; the parallel B must NOT move.
+	p := node("p", 0, 600, 200, goLogic("n"), condLogic("b"))
+	n := node("n", 0, 0, 0, goLogic("c")) // new
+	c := node("c", 0, 600, 400, goLogic("d"))
+	d := node("d", 2, 600, 600)
+	b := node("b", 2, 840, 400) // parallel branch target, not downstream of C
+	sc := scheme(p, n, c, d, b)
+	applyLayout(sc, "process")
+
+	if _, y := xy(c); y != 600 {
+		t.Errorf("c not shifted down: y=%v want 600", y)
+	}
+	if _, y := xy(d); y != 800 {
+		t.Errorf("d not shifted down: y=%v want 800", y)
+	}
+	if x, y := xy(b); x != 840 || y != 400 {
+		t.Errorf("parallel branch b moved to (%v,%v), want (840,400)", x, y)
+	}
+	if anyIntersect(allRects(p, n, c, d, b)) {
+		t.Errorf("overlap after insert-shift with parallel branch")
+	}
+}
+
+func TestPreservePushRoundTripUnchanged(t *testing.T) {
+	t.Setenv("COREZOID_AUTOLAYOUT", "")
+	// A small, fully-placed process (every node has non-(0,0) coords, with
+	// irregular values). Preserve mode must not move any of them.
+	start := node("start", 1, 600, 0, goLogic("l1"))
+	l1 := node("l1", 0, 640, 210, goLogic("end"))
+	end := node("end", 2, 700, 400)
+	nodes := []map[string]interface{}{start, l1, end}
+
+	// Snapshot every node's coordinates before layout.
+	type coord struct{ x, y float64 }
+	before := map[string]coord{}
+	for _, nd := range nodes {
+		x, y := xy(nd)
+		before[nd["id"].(string)] = coord{x, y}
+	}
+
+	s := scheme(start, l1, end)
+	applyLayout(s, "process")
+
+	// Every node must be byte-identical to its snapshot: nothing moved.
+	for _, nd := range nodes {
+		id := nd["id"].(string)
+		x, y := xy(nd)
+		if x != before[id].x || y != before[id].y {
+			t.Errorf("placed node %s moved from (%v,%v) to (%v,%v)",
+				id, before[id].x, before[id].y, x, y)
+		}
+	}
+}
+
+func TestApplyLayoutMalformed(t *testing.T) {
+	t.Setenv("COREZOID_AUTOLAYOUT", "")
+	// Must not panic for any of these.
+
+	// Empty nodes.
+	applyLayout(map[string]interface{}{"nodes": []interface{}{}}, "process")
+
+	// Missing nodes key entirely.
+	applyLayout(map[string]interface{}{}, "process")
+
+	// nil scheme.
+	applyLayout(nil, "process")
+
+	// Node missing condition, x as string, plus web_settings as an array.
+	bad := map[string]interface{}{"id": "bad", "obj_type": float64(0), "x": "not-a-number"}
+	missingCond := map[string]interface{}{"id": "mc", "obj_type": float64(0)}
+	s := scheme(bad, missingCond)
+	s["web_settings"] = []interface{}{1, 2, 3}
+	applyLayout(s, "process")
+
+	// nodes value of the wrong type.
+	applyLayout(map[string]interface{}{"nodes": "oops"}, "process")
+}
+
+func TestApplyLayoutLargeUsesFastPath(t *testing.T) {
+	t.Setenv("COREZOID_AUTOLAYOUT", "")
+	// A from-scratch process above maxEngineLayoutNodes must fall back to the
+	// lean baseLayout grid so push stays fast — not run the full engine.
+	const N = maxEngineLayoutNodes + 12
+	var nodes []map[string]interface{}
+	for i := 0; i < N; i++ {
+		id := fmt.Sprintf("n%03d", i)
+		switch {
+		case i == 0:
+			nodes = append(nodes, node(id, 1, 0, 0, goLogic("n001"))) // start
+		case i == N-1:
+			nodes = append(nodes, node(id, 2, 0, 0)) // final
+		default:
+			nodes = append(nodes, node(id, 0, 0, 0, goLogic(fmt.Sprintf("n%03d", i+1))))
+		}
+	}
+	applyLayout(scheme(nodes...), "process")
+
+	for _, nd := range nodes {
+		if x, y := xy(nd); x == 0 && y == 0 {
+			t.Fatalf("node %v left at origin — layout did not run", nd["id"])
+		}
+	}
+	// baseLayout keeps the spine chain in column 0 at spineX; the engine would not.
+	if x, _ := xy(nodes[1]); x != spineX {
+		t.Fatalf("large from-scratch process should use the baseLayout fast path (spine x=%d), got %v", spineX, x)
+	}
+}
+
+func TestSpineStraightCol0(t *testing.T) {
+	t.Setenv("COREZOID_AUTOLAYOUT", "")
+	// A spine A->B->C with branches hanging off each. This exercises baseLayout
+	// directly (the from-scratch fallback): applyLayout's all-new path now uses
+	// the full engine (Fix 2), so baseLayout's straight-col-0 spine guarantee is
+	// asserted against baseLayout itself.
+	start := node("start", 1, 0, 0, goLogic("a"))
+	a := node("a", 0, 0, 0, goLogic("b"), condLogic("ba"))
+	ba := node("ba", 0, 0, 0)
+	b := node("b", 0, 0, 0, goLogic("c"), condLogic("bb"))
+	bb := node("bb", 0, 0, 0)
+	c := node("c", 0, 0, 0, goLogic("end"))
+	end := node("end", 2, 0, 0)
+	baseLayout([]map[string]interface{}{start, a, ba, b, bb, c, end})
+
+	for _, id := range []string{"a", "b", "c"} {
+		var found map[string]interface{}
+		for _, nd := range []map[string]interface{}{a, b, c} {
+			if nd["id"] == id {
+				found = nd
+			}
+		}
+		if x, _ := xy(found); x != spineX {
+			t.Errorf("spine node %s x = %v, want %d (col 0)", id, x, spineX)
+		}
+	}
+}

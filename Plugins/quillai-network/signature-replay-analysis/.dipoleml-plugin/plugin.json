@@ -1,0 +1,16 @@
+{
+  "name": "signature-replay-analysis",
+  "displayName": "Signature Replay Analysis",
+  "version": "1.0.0",
+  "description": "Detects signature replay vulnerabilities in smart contracts — the vulnerability class affecting 19.63% of signature-using contracts. Covers same-chain, cross-chain, and cross-contract replay attacks, EIP-712 domain separator verification, nonce management analysis, ecrecover edge cases, permit/permit2 safety, and meta-transaction security.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Quillai Network"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/quillai-network/quillshield_skills",
+  "repository": "https://github.com/quillai-network/quillshield_skills",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

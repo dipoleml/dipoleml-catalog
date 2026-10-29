@@ -1,0 +1,74 @@
+# Alerts on the Kubescape prometheus-exporter (capabilities.prometheusExporter:
+# enable). Needs the Prometheus Operator; the release label must match your
+# Prometheus ruleSelector (kube-prometheus-stack's default is the Helm release name).
+#
+# Metric names are from kubescape/prometheus-exporter: per severity
+# (critical, high, medium, low, unknown; vulnerabilities add negligible), at
+# cluster and namespace level (label: namespace). Workload-level series need
+# prometheusExporter.enableWorkloadMetrics: true.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: kubescape
+  namespace: kubescape
+  labels:
+    release: kube-prometheus-stack
+spec:
+  groups:
+    - name: kubescape.posture
+      rules:
+        - alert: KubescapeCriticalControlsFailing
+          expr: kubescape_controls_total_cluster_critical > 0
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $value }} critical Kubescape control(s) failing"
+            description: "Run /platform-skills:kubescape cluster or: kubectl get workloadconfigurationscansummaries -A"
+        - alert: KubescapeHighControlsIncreased
+          # Gauges: a rise over a day means a change introduced new High findings.
+          expr: delta(kubescape_controls_total_cluster_high[1d]) > 0
+          labels:
+            severity: info
+          annotations:
+            summary: "High-severity Kubescape findings rose by {{ $value }} in 24h"
+            description: "Compare with yesterday's deploys; the PR gate (examples/kubescape/workflows/kubescape.yml) should have caught it."
+        - alert: KubescapeExporterDown
+          # Fires only when Prometheus stops getting the exporter's metrics (exporter
+          # down, or the ServiceMonitor no longer selected). It does NOT detect failing
+          # scans: prometheus-exporter v0.2.23 registers these gauges at start-up, so a
+          # running exporter serves 0 or the last value even when every scan fails.
+          # Alert on scan failures from the scanner's logs instead (see the reference).
+          expr: absent(kubescape_controls_total_cluster_high)
+          for: 30m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Prometheus has no Kubescape exporter metrics for 30m"
+            description: "kubectl -n kubescape get pods -l app=prometheus-exporter; check the ServiceMonitor release label."
+
+    - name: kubescape.vulnerabilities
+      rules:
+        - alert: KubescapeRelevantCriticalCVEs
+          # "Relevant" = in a package the container actually loaded. Needs
+          # capabilities.relevancy (node-agent); without it this series stays 0.
+          expr: kubescape_vulnerabilities_relevant_cluster_critical > 0
+          for: 1h
+          labels:
+            severity: warning
+          annotations:
+            summary: "{{ $value }} critical CVE(s) in packages that are loaded at runtime"
+            description: "kubectl get vulnerabilitymanifestsummaries -A; fix the image, then let kubevuln rescan."
+        - alert: KubescapeCriticalCVEsNoRelevancy
+          # Fallback for clusters where relevancy cannot run: alert on all critical
+          # CVEs only while the relevant series reports nothing.
+          expr: |
+            kubescape_vulnerabilities_total_cluster_critical > 0
+              and on() (sum(kubescape_vulnerabilities_relevant_cluster_critical) == 0)
+              and on() (sum(kubescape_vulnerabilities_relevant_cluster_high) == 0)
+          for: 6h
+          labels:
+            severity: info
+          annotations:
+            summary: "{{ $value }} critical CVE(s) in running images (relevancy off or not yet computed)"
+            description: "Gate images in CI with /platform-skills:trivy; enable relevancy to cut noise."

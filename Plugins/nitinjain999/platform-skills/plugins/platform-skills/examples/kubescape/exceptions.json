@@ -1,0 +1,47 @@
+[
+  {
+    "name": "payments-api-egress-enforced-by-linkerd-policy-until-2026-12-31",
+    "policyType": "postureExceptionPolicy",
+    "actions": [
+      "disable"
+    ],
+    "resources": [
+      {
+        "designatorType": "Attributes",
+        "attributes": {
+          "kind": "Deployment",
+          "namespace": "payments",
+          "name": "payments-api"
+        }
+      }
+    ],
+    "posturePolicies": [
+      {
+        "controlID": "C-0030"
+      }
+    ]
+  },
+  {
+    "name": "kube-system-cni-and-kube-proxy-host-network-acknowledged",
+    "policyType": "postureExceptionPolicy",
+    "actions": [
+      "alertOnly"
+    ],
+    "resources": [
+      {
+        "designatorType": "Attributes",
+        "attributes": {
+          "kind": "DaemonSet",
+          "namespace": "kube-system",
+          "name": "aws-node|kube-proxy"
+        }
+      }
+    ],
+    "posturePolicies": [
+      {
+        "frameworkName": "NSA",
+        "controlID": "C-0041"
+      }
+    ]
+  }
+]

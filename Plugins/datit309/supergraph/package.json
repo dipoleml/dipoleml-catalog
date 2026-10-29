@@ -1,0 +1,67 @@
+{
+  "name": "supergraph",
+  "version": "2.3.0",
+  "description": "Evidence-gated engineering workflows, 7 specialized subagents, and native Rust CDP browser/API automation for AI coding agents",
+  "type": "module",
+  "main": "./index.js",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./package.json": "./package.json"
+  },
+  "bin": {
+    "sg-team-mcp": "./bin/sg-team-mcp.js",
+    "sg-team-ui": "./bin/sg-team-ui.js",
+    "sg-team-status": "./bin/sg-team-status.js",
+    "sg-browser-mcp": "./bin/sg-browser-mcp.js",
+    "sg-video-demo": "./skills/video-demo/scripts/demo"
+  },
+  "scripts": {
+    "test": "node --test tests/*.mjs"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "skills",
+    "references",
+    "team",
+    "bin",
+    "AGENTS.md"
+  ],
+  "dsh": {
+    "manifestVersion": 1,
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-sidebar-right",
+        "@deepseek-ai/dsh-client-ui-session"
+      ]
+    }
+  },
+  "keywords": [
+    "supergraph",
+    "dsh",
+    "deepseek-harness",
+    "codebase-memory",
+    "serena",
+    "workflow",
+    "tdd"
+  ],
+  "author": {
+    "name": "datit309",
+    "email": "trantandat0919@gmail.com"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/datit309/supergraph",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/datit309/supergraph.git"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "bash-specialist",
+  "displayName": "Bash Specialist",
+  "version": "0.2.1",
+  "description": "Production-quality bash scripting with shellcheck compliance, robust error handling, and beautiful terminal UX via Charmbracelet gum. Skills: gum-beautify (TTY-safe interactive output). MCP: context7",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Sgaunet"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/sgaunet/claude-plugins#readme",
+  "repository": "https://github.com/sgaunet/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,16 @@
+{
+  "name": "token-saver",
+  "displayName": "Token Saver",
+  "version": "3.0.0",
+  "description": "Automatically compresses verbose CLI output (git, docker, npm, terraform, kubectl, etc.) to save tokens in DipoleML sessions. 36 specialized processors with content-aware compression.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Ppgranger"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/ppgranger/token-saver",
+  "repository": "https://github.com/ppgranger/token-saver",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

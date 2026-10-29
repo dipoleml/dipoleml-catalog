@@ -1,0 +1,1298 @@
+#!/usr/bin/env bash
+_smoke_policy_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${_smoke_policy_dir}/provider-policy.sh" 2>/dev/null || true
+# Claude Octopus â Provider Smoke Tests & Configuration
+# Extracted from orchestrate.sh
+# Source-safe: no main execution block.
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# MULTI-PROVIDER SUBSCRIPTION-AWARE ROUTING (v4.8)
+# Intelligent routing based on provider subscriptions, costs, and capabilities
+# ═══════════════════════════════════════════════════════════════════════════════
+
+PROVIDERS_CONFIG_FILE="${WORKSPACE_DIR:-$HOME/.claude-octopus}/.providers-config"
+PROVIDERS_CONFIG_LOADED="false"
+
+# Provider configuration variables (loaded from file)
+PROVIDER_CODEX_INSTALLED="false"
+PROVIDER_CODEX_AUTH_METHOD="none"
+PROVIDER_CODEX_TIER="free"
+PROVIDER_CODEX_COST_TIER="free"
+PROVIDER_CODEX_PRIORITY=2
+
+PROVIDER_AGY_INSTALLED="false"
+PROVIDER_AGY_AUTH_METHOD="none"
+PROVIDER_AGY_TIER="subscription"
+PROVIDER_AGY_COST_TIER="bundled"
+PROVIDER_AGY_PRIORITY=4
+
+PROVIDER_CLAUDE_INSTALLED="false"
+PROVIDER_CLAUDE_AUTH_METHOD="none"
+PROVIDER_CLAUDE_TIER="pro"
+PROVIDER_CLAUDE_COST_TIER="medium"
+PROVIDER_CLAUDE_PRIORITY=1
+
+PROVIDER_OPENCODE_INSTALLED="false"
+PROVIDER_OPENCODE_AUTH_METHOD="none"
+PROVIDER_OPENCODE_TIER="free"
+PROVIDER_OPENCODE_COST_TIER="variable"
+PROVIDER_OPENCODE_PRIORITY=5
+
+PROVIDER_OPENROUTER_ENABLED="false"
+PROVIDER_OPENROUTER_API_KEY_SET="false"
+PROVIDER_OPENROUTER_ROUTING_PREF="default"
+PROVIDER_OPENROUTER_PRIORITY=99
+
+PROVIDER_ORCAROUTER_ENABLED="false"
+PROVIDER_ORCAROUTER_API_KEY_SET="false"
+PROVIDER_ORCAROUTER_PRIORITY=99
+
+# Cost optimization strategy: cost-first, quality-first, balanced
+COST_OPTIMIZATION_STRATEGY="balanced"
+
+# CLI overrides for provider and routing
+FORCE_PROVIDER=""
+FORCE_COST_FIRST="false"
+FORCE_QUALITY_FIRST="false"
+OPENROUTER_ROUTING_OVERRIDE=""
+
+# Provider capabilities matrix
+# Format: provider:capability1,capability2,...
+
+# Provider capabilities matrix
+# Format: provider:capability1,capability2,...
+get_provider_capabilities() {
+    local provider="$1"
+    case "$provider" in
+        codex)
+            echo "code,chat,review"
+            ;;
+        agy)
+            echo "code,chat,analysis"
+            ;;
+        claude)
+            echo "code,chat,analysis,long-context"
+            ;;
+        opencode)
+            echo "code,chat,analysis"
+            ;;
+        openrouter)
+            echo "code,chat,vision,analysis,long-context"
+            ;;
+        orcarouter)
+            echo "code,chat,vision,analysis,long-context"
+            ;;
+        *)
+            echo "general"
+            ;;
+    esac
+}
+
+# Load provider configuration from file
+# Performance optimized: Single-pass parsing (saves ~200-500ms vs grep|sed chains)
+load_providers_config() {
+    if [[ ! -f "$PROVIDERS_CONFIG_FILE" ]]; then
+        [[ "$VERBOSE" == "true" ]] && log DEBUG "No providers config found at $PROVIDERS_CONFIG_FILE" || true
+        # Auto-detect and populate defaults
+        auto_detect_provider_config || return $?
+        PROVIDERS_CONFIG_LOADED="true"
+        return 0
+    fi
+
+    # Performance: Single-pass YAML parsing (reads file once, no subprocesses)
+    local current_provider=""
+    local key value
+
+    while IFS= read -r line || [[ -n "$line" ]]; do
+        # Skip comments and empty lines
+        [[ "$line" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "${line// }" ]] && continue
+
+        # Detect provider section headers (e.g., "  codex:")
+        if [[ "$line" =~ ^[[:space:]]*(codex|agy|claude|opencode|openrouter|orcarouter): ]]; then
+            current_provider="${BASH_REMATCH[1]}"
+            continue
+        fi
+
+        # Detect cost_optimization section
+        if [[ "$line" =~ ^cost_optimization: ]]; then
+            current_provider="cost_optimization"
+            continue
+        fi
+
+        # Parse key: value pairs (handles quoted values)
+        if [[ "$line" =~ ^[[:space:]]+(installed|auth_method|subscription_tier|cost_tier|priority|enabled|api_key_set|routing_preference|strategy):[[:space:]]*(.+)$ ]]; then
+            key="${BASH_REMATCH[1]}"
+            value="${BASH_REMATCH[2]}"
+            # Remove quotes from value
+            value="${value//\"/}"
+            value="${value// /}"  # Trim spaces
+
+            # Assign to appropriate variable based on current provider
+            case "$current_provider" in
+                codex)
+                    case "$key" in
+                        installed) PROVIDER_CODEX_INSTALLED="$value" ;;
+                        auth_method) PROVIDER_CODEX_AUTH_METHOD="$value" ;;
+                        subscription_tier) PROVIDER_CODEX_TIER="$value" ;;
+                        cost_tier) PROVIDER_CODEX_COST_TIER="$value" ;;
+                        priority) PROVIDER_CODEX_PRIORITY="$value" ;;
+                    esac
+                    ;;
+                agy)
+                    case "$key" in
+                        installed) PROVIDER_AGY_INSTALLED="$value" ;;
+                        auth_method) PROVIDER_AGY_AUTH_METHOD="$value" ;;
+                        subscription_tier) PROVIDER_AGY_TIER="$value" ;;
+                        cost_tier) PROVIDER_AGY_COST_TIER="$value" ;;
+                        priority) PROVIDER_AGY_PRIORITY="$value" ;;
+                    esac
+                    ;;
+                claude)
+                    case "$key" in
+                        installed) PROVIDER_CLAUDE_INSTALLED="$value" ;;
+                        auth_method) PROVIDER_CLAUDE_AUTH_METHOD="$value" ;;
+                        subscription_tier) PROVIDER_CLAUDE_TIER="$value" ;;
+                        cost_tier) PROVIDER_CLAUDE_COST_TIER="$value" ;;
+                        priority) PROVIDER_CLAUDE_PRIORITY="$value" ;;
+                    esac
+                    ;;
+                opencode)
+                    case "$key" in
+                        installed) PROVIDER_OPENCODE_INSTALLED="$value" ;;
+                        auth_method) PROVIDER_OPENCODE_AUTH_METHOD="$value" ;;
+                        subscription_tier) PROVIDER_OPENCODE_TIER="$value" ;;
+                        cost_tier) PROVIDER_OPENCODE_COST_TIER="$value" ;;
+                        priority) PROVIDER_OPENCODE_PRIORITY="$value" ;;
+                    esac
+                    ;;
+                openrouter)
+                    case "$key" in
+                        enabled) PROVIDER_OPENROUTER_ENABLED="$value" ;;
+                        api_key_set) PROVIDER_OPENROUTER_API_KEY_SET="$value" ;;
+                        routing_preference) PROVIDER_OPENROUTER_ROUTING_PREF="$value" ;;
+                        priority) PROVIDER_OPENROUTER_PRIORITY="$value" ;;
+                    esac
+                    ;;
+                orcarouter)
+                    case "$key" in
+                        enabled) PROVIDER_ORCAROUTER_ENABLED="$value" ;;
+                        api_key_set) PROVIDER_ORCAROUTER_API_KEY_SET="$value" ;;
+                        priority) PROVIDER_ORCAROUTER_PRIORITY="$value" ;;
+                    esac
+                    ;;
+                cost_optimization)
+                    case "$key" in
+                        strategy) COST_OPTIMIZATION_STRATEGY="$value" ;;
+                    esac
+                    ;;
+            esac
+        fi
+    done < "$PROVIDERS_CONFIG_FILE" || return $?
+
+    # Apply defaults for any missing values
+    PROVIDER_CODEX_INSTALLED="${PROVIDER_CODEX_INSTALLED:-false}"
+    PROVIDER_CODEX_AUTH_METHOD="${PROVIDER_CODEX_AUTH_METHOD:-none}"
+    PROVIDER_CODEX_TIER="${PROVIDER_CODEX_TIER:-free}"
+    PROVIDER_CODEX_COST_TIER="${PROVIDER_CODEX_COST_TIER:-free}"
+    PROVIDER_CODEX_PRIORITY="${PROVIDER_CODEX_PRIORITY:-2}"
+
+    PROVIDER_AGY_INSTALLED="${PROVIDER_AGY_INSTALLED:-false}"
+    PROVIDER_AGY_AUTH_METHOD="${PROVIDER_AGY_AUTH_METHOD:-none}"
+    PROVIDER_AGY_TIER="${PROVIDER_AGY_TIER:-subscription}"
+    PROVIDER_AGY_COST_TIER="${PROVIDER_AGY_COST_TIER:-bundled}"
+    PROVIDER_AGY_PRIORITY="${PROVIDER_AGY_PRIORITY:-4}"
+    if [[ "$PROVIDER_AGY_INSTALLED" != "true" ]] && command -v agy >/dev/null 2>&1; then
+        PROVIDER_AGY_INSTALLED="true"
+        PROVIDER_AGY_AUTH_METHOD="cli"
+        PROVIDER_AGY_TIER="subscription"
+        PROVIDER_AGY_COST_TIER="bundled"
+    fi
+
+    PROVIDER_CLAUDE_INSTALLED="${PROVIDER_CLAUDE_INSTALLED:-false}"
+    PROVIDER_CLAUDE_AUTH_METHOD="${PROVIDER_CLAUDE_AUTH_METHOD:-oauth}"
+    PROVIDER_CLAUDE_TIER="${PROVIDER_CLAUDE_TIER:-pro}"
+    PROVIDER_CLAUDE_COST_TIER="${PROVIDER_CLAUDE_COST_TIER:-medium}"
+    PROVIDER_CLAUDE_PRIORITY="${PROVIDER_CLAUDE_PRIORITY:-1}"
+
+    PROVIDER_OPENCODE_INSTALLED="${PROVIDER_OPENCODE_INSTALLED:-false}"
+    PROVIDER_OPENCODE_AUTH_METHOD="${PROVIDER_OPENCODE_AUTH_METHOD:-none}"
+    PROVIDER_OPENCODE_TIER="${PROVIDER_OPENCODE_TIER:-free}"
+    PROVIDER_OPENCODE_COST_TIER="${PROVIDER_OPENCODE_COST_TIER:-variable}"
+    PROVIDER_OPENCODE_PRIORITY="${PROVIDER_OPENCODE_PRIORITY:-5}"
+
+    PROVIDER_OPENROUTER_ENABLED="${PROVIDER_OPENROUTER_ENABLED:-false}"
+    PROVIDER_OPENROUTER_API_KEY_SET="${PROVIDER_OPENROUTER_API_KEY_SET:-false}"
+    PROVIDER_OPENROUTER_ROUTING_PREF="${PROVIDER_OPENROUTER_ROUTING_PREF:-default}"
+    PROVIDER_OPENROUTER_PRIORITY="${PROVIDER_OPENROUTER_PRIORITY:-99}"
+
+    PROVIDER_ORCAROUTER_ENABLED="${PROVIDER_ORCAROUTER_ENABLED:-false}"
+    PROVIDER_ORCAROUTER_API_KEY_SET="${PROVIDER_ORCAROUTER_API_KEY_SET:-false}"
+    PROVIDER_ORCAROUTER_PRIORITY="${PROVIDER_ORCAROUTER_PRIORITY:-99}"
+
+    COST_OPTIMIZATION_STRATEGY="${COST_OPTIMIZATION_STRATEGY:-balanced}"
+
+    PROVIDERS_CONFIG_LOADED="true"
+    [[ "$VERBOSE" == "true" ]] && log DEBUG "Loaded providers config: codex=$PROVIDER_CODEX_TIER, agy=$PROVIDER_AGY_TIER, strategy=$COST_OPTIMIZATION_STRATEGY" || true
+}
+
+# Auto-detect provider configuration from installed CLIs and auth
+auto_detect_provider_config() {
+    local detected
+    detected=$(detect_providers) || return $?
+
+    # Process detected providers
+    for entry in $detected; do
+        local provider="${entry%%:*}"
+        local auth="${entry##*:}"
+
+        case "$provider" in
+            codex)
+                PROVIDER_CODEX_INSTALLED="true"
+                PROVIDER_CODEX_AUTH_METHOD="$auth"
+                # Detect tier via API test or fallback to auth-based default
+                PROVIDER_CODEX_TIER=$(detect_tier_openai "$auth")
+                PROVIDER_CODEX_COST_TIER=$(get_cost_tier_for_subscription "codex" "$PROVIDER_CODEX_TIER")
+                ;;
+            agy)
+                PROVIDER_AGY_INSTALLED="true"
+                PROVIDER_AGY_AUTH_METHOD="$auth"
+                PROVIDER_AGY_TIER="subscription"
+                PROVIDER_AGY_COST_TIER="bundled"
+                ;;
+            claude)
+                PROVIDER_CLAUDE_INSTALLED="true"
+                PROVIDER_CLAUDE_AUTH_METHOD="$auth"
+                # Detect tier (defaults to pro for Claude Code users)
+                PROVIDER_CLAUDE_TIER=$(detect_tier_claude)
+                PROVIDER_CLAUDE_COST_TIER=$(get_cost_tier_for_subscription "claude" "$PROVIDER_CLAUDE_TIER")
+                ;;
+            opencode)
+                PROVIDER_OPENCODE_INSTALLED="true"
+                PROVIDER_OPENCODE_AUTH_METHOD="$auth"
+                PROVIDER_OPENCODE_TIER=$(detect_tier_opencode "$auth")
+                PROVIDER_OPENCODE_COST_TIER=$(get_cost_tier_for_subscription "opencode" "$PROVIDER_OPENCODE_TIER")
+                ;;
+            openrouter)
+                PROVIDER_OPENROUTER_ENABLED="true"
+                PROVIDER_OPENROUTER_API_KEY_SET="true"
+                ;;
+            orcarouter)
+                PROVIDER_ORCAROUTER_ENABLED="true"
+                PROVIDER_ORCAROUTER_API_KEY_SET="true"
+                ;;
+        esac
+    done
+
+    [[ "$VERBOSE" == "true" ]] && log DEBUG "Auto-detected providers: $detected" || true
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# TIER DETECTION - Auto-detect subscription tiers via API calls (v4.8.3)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Tier cache file location
+TIER_CACHE_FILE="${WORKSPACE_DIR:-$HOME/.claude-octopus}/.tier-cache"
+TIER_CACHE_TTL=86400  # 24 hours in seconds
+
+# Check if tier cache is valid for a provider (not expired)
+tier_cache_valid() {
+    local provider="$1"
+    [[ ! -f "$TIER_CACHE_FILE" ]] && return 1
+
+    local cache_line
+    cache_line=$(grep "^${provider}:" "$TIER_CACHE_FILE" 2>/dev/null || echo "")
+    [[ -z "$cache_line" ]] && return 1
+
+    local timestamp
+    timestamp=$(echo "$cache_line" | cut -d: -f3)
+    [[ -z "$timestamp" ]] && return 1
+
+    local current_time age
+    current_time=$(date +%s)
+    age=$((current_time - timestamp))
+
+    # Cache valid if less than TTL (24 hours)
+    [[ $age -lt $TIER_CACHE_TTL ]] && return 0
+    return 1
+}
+
+# Read tier from cache for a provider
+tier_cache_read() {
+    local provider="$1"
+    local cache_line
+    cache_line=$(grep "^${provider}:" "$TIER_CACHE_FILE" 2>/dev/null || echo "")
+
+    if [[ -z "$cache_line" ]]; then
+        echo ""
+        return 1
+    fi
+
+    # Extract tier from format: provider:tier:timestamp
+    local tier
+    tier=$(echo "$cache_line" | cut -d: -f2)
+
+    # Validate tier value (must be one of the expected values)
+    case "$tier" in
+        free|plus|pro|team|enterprise|api-only)
+            echo "$tier"
+            return 0
+            ;;
+        *)
+            # Invalid or corrupted tier value
+            [[ -n "$tier" ]] && log WARN "Invalid tier in cache for $provider: $tier"
+            # Remove corrupted entry
+            local temp_file
+            temp_file=$(secure_tempfile "tier-cache")
+            grep -v "^${provider}:" "$TIER_CACHE_FILE" > "$temp_file" 2>/dev/null || true
+            mv "$temp_file" "$TIER_CACHE_FILE" 2>/dev/null || true
+            return 1
+            ;;
+    esac
+}
+
+# Write tier to cache for a provider
+tier_cache_write() {
+    local provider="$1"
+    local tier="$2"
+
+    mkdir -p "$(dirname "$TIER_CACHE_FILE")"
+
+    # Remove old entry if it exists
+    if [[ -f "$TIER_CACHE_FILE" ]]; then
+        grep -v "^${provider}:" "$TIER_CACHE_FILE" > "${TIER_CACHE_FILE}.tmp" 2>/dev/null || true
+        mv "${TIER_CACHE_FILE}.tmp" "$TIER_CACHE_FILE" 2>/dev/null || true
+    fi
+
+    # Append new entry with current timestamp
+    local timestamp
+    timestamp=$(date +%s)
+    echo "${provider}:${tier}:${timestamp}" >> "$TIER_CACHE_FILE"
+
+    [[ "$VERBOSE" == "true" ]] && log DEBUG "Tier cached for $provider: $tier" || true
+}
+
+# Invalidate tier cache (call after config changes)
+tier_cache_invalidate() {
+    rm -f "$TIER_CACHE_FILE" 2>/dev/null || true
+    [[ "$VERBOSE" == "true" ]] && log DEBUG "Tier cache invalidated" || true
+}
+
+# Detect OpenAI/Codex subscription tier via test API call
+detect_tier_openai() {
+    local auth_method="$1"
+    local fallback_tier="api-only"
+
+    # Check cache first
+    if tier_cache_valid "codex"; then
+        local cached_tier
+        cached_tier=$(tier_cache_read "codex")
+        if [[ -n "$cached_tier" ]]; then
+            [[ "$VERBOSE" == "true" ]] && log DEBUG "Using cached Codex tier: $cached_tier" || true
+            echo "$cached_tier"
+            return 0
+        fi
+    fi
+
+    # Set fallback based on auth method
+    if [[ "$auth_method" == "oauth" ]]; then
+        fallback_tier="plus"
+    fi
+
+    # Cloud/remote sessions should not spend time or quota on provider probes.
+    # The fallback is still cached so routing has a stable tier hint.
+    if [[ "${OCTOPUS_SKIP_PROVIDER_PROBES:-false}" == "true" || "${CLAUDE_CODE_REMOTE:-}" == "true" || "${OCTOPUS_REMOTE_SESSION:-false}" == "true" ]]; then
+        [[ "$VERBOSE" == "true" ]] && log DEBUG "Codex tier probe skipped for remote session, using fallback: $fallback_tier" || true
+        tier_cache_write "codex" "$fallback_tier"
+        echo "$fallback_tier"
+        return 0
+    fi
+
+    # Attempt API detection with minimal test call
+    if command -v codex &>/dev/null; then
+        local test_response
+        # Use 5-second timeout for minimal "ok" prompt (3 tokens)
+        test_response=$(run_with_timeout 5 codex exec --skip-git-repo-check "ok" 2>&1 || echo "")
+
+        # Check for tier indicators in response
+        # o3-mini/gpt-4 access suggests plus tier
+        if [[ "$test_response" =~ (o3-mini|gpt-4|o1-preview) ]]; then
+            tier_cache_write "codex" "plus"
+            echo "plus"
+            return 0
+        # Rate limit or error suggests falling back to auth-based default
+        elif [[ "$test_response" =~ (rate_limit|429|invalid|unauthorized) ]]; then
+            [[ "$VERBOSE" == "true" ]] && log DEBUG "Codex API test failed, using fallback: $fallback_tier" || true
+            tier_cache_write "codex" "$fallback_tier"
+            echo "$fallback_tier"
+            return 0
+        fi
+    fi
+
+    # Default fallback
+    tier_cache_write "codex" "$fallback_tier"
+    echo "$fallback_tier"
+    return 0
+}
+
+# Detect Claude subscription tier (defaults to pro for Claude Code users)
+detect_tier_claude() {
+    # Check cache first
+    if tier_cache_valid "claude"; then
+        local cached_tier
+        cached_tier=$(tier_cache_read "claude")
+        if [[ -n "$cached_tier" ]]; then
+            [[ "$VERBOSE" == "true" ]] && log DEBUG "Using cached Claude tier: $cached_tier" || true
+            echo "$cached_tier"
+            return 0
+        fi
+    fi
+
+    # Default to "pro" for Claude Code users (most common)
+    # Phase 3: Add usage API check if available
+    local tier="pro"
+    tier_cache_write "claude" "$tier"
+    echo "$tier"
+    return 0
+}
+
+# Detect OpenCode subscription tier via auth list
+detect_tier_opencode() {
+    local auth_method="$1"
+    local fallback_tier="free"
+
+    # Check cache first
+    if tier_cache_valid "opencode"; then
+        local cached_tier
+        cached_tier=$(tier_cache_read "opencode")
+        if [[ -n "$cached_tier" ]]; then
+            [[ "$VERBOSE" == "true" ]] && log DEBUG "Using cached OpenCode tier: $cached_tier" || true
+            echo "$cached_tier"
+            return 0
+        fi
+    fi
+
+    # OpenCode supports multiple backend providers; tier depends on configured backends
+    if [[ "$auth_method" == "oauth" || "$auth_method" == "multi" ]]; then
+        fallback_tier="free"
+    elif [[ "$auth_method" == "api-key" ]]; then
+        fallback_tier="api-only"
+    fi
+
+    tier_cache_write "opencode" "$fallback_tier"
+    echo "$fallback_tier"
+    return 0
+}
+
+# Save provider configuration to file
+save_providers_config() {
+    mkdir -p "$(dirname "$PROVIDERS_CONFIG_FILE")" || return $?
+
+    cat > "$PROVIDERS_CONFIG_FILE" << EOF || return $?
+version: "2.0"
+created_at: "$(date -Iseconds 2>/dev/null || date +%Y-%m-%dT%H:%M:%S)"
+updated_at: "$(date -Iseconds 2>/dev/null || date +%Y-%m-%dT%H:%M:%S)"
+
+# Multi-Provider Subscription-Aware Configuration (v4.8)
+providers:
+  codex:
+    installed: $PROVIDER_CODEX_INSTALLED
+    auth_method: "$PROVIDER_CODEX_AUTH_METHOD"
+    subscription_tier: "$PROVIDER_CODEX_TIER"
+    cost_tier: "$PROVIDER_CODEX_COST_TIER"
+    priority: $PROVIDER_CODEX_PRIORITY
+
+  agy:
+    installed: $PROVIDER_AGY_INSTALLED
+    auth_method: "$PROVIDER_AGY_AUTH_METHOD"
+    subscription_tier: "$PROVIDER_AGY_TIER"
+    cost_tier: "$PROVIDER_AGY_COST_TIER"
+    priority: $PROVIDER_AGY_PRIORITY
+
+  claude:
+    installed: $PROVIDER_CLAUDE_INSTALLED
+    auth_method: "$PROVIDER_CLAUDE_AUTH_METHOD"
+    subscription_tier: "$PROVIDER_CLAUDE_TIER"
+    cost_tier: "$PROVIDER_CLAUDE_COST_TIER"
+    priority: $PROVIDER_CLAUDE_PRIORITY
+
+  opencode:
+    installed: $PROVIDER_OPENCODE_INSTALLED
+    auth_method: "$PROVIDER_OPENCODE_AUTH_METHOD"
+    subscription_tier: "$PROVIDER_OPENCODE_TIER"
+    cost_tier: "$PROVIDER_OPENCODE_COST_TIER"
+    priority: $PROVIDER_OPENCODE_PRIORITY
+
+  openrouter:
+    enabled: $PROVIDER_OPENROUTER_ENABLED
+    api_key_set: $PROVIDER_OPENROUTER_API_KEY_SET
+    routing_preference: "$PROVIDER_OPENROUTER_ROUTING_PREF"
+    priority: $PROVIDER_OPENROUTER_PRIORITY
+
+  orcarouter:
+    enabled: $PROVIDER_ORCAROUTER_ENABLED
+    api_key_set: $PROVIDER_ORCAROUTER_API_KEY_SET
+    priority: $PROVIDER_ORCAROUTER_PRIORITY
+
+cost_optimization:
+  strategy: "$COST_OPTIMIZATION_STRATEGY"
+EOF
+
+    PROVIDERS_CONFIG_LOADED="true"
+    log INFO "Providers config saved to $PROVIDERS_CONFIG_FILE"
+    tier_cache_invalidate  # Invalidate tier cache after config change
+}
+
+# Score a provider for a given task type and complexity
+# Returns: 0-150 score (higher is better), or -1 if provider can't handle task
+score_provider() {
+    local provider="$1"
+    local task_type="$2"
+    local complexity="${3:-2}"
+    local score=50  # Base score
+
+    # Check if provider is available
+    local is_available="false"
+    local cost_tier=""
+    local sub_tier=""
+    local priority=50
+
+    case "$provider" in
+        codex)
+            [[ "$PROVIDER_CODEX_INSTALLED" == "true" && "$PROVIDER_CODEX_AUTH_METHOD" != "none" ]] && is_available="true"
+            cost_tier="$PROVIDER_CODEX_COST_TIER"
+            sub_tier="$PROVIDER_CODEX_TIER"
+            priority="$PROVIDER_CODEX_PRIORITY"
+            ;;
+        agy)
+            [[ "$PROVIDER_AGY_INSTALLED" == "true" && "$PROVIDER_AGY_AUTH_METHOD" != "none" ]] && is_available="true"
+            cost_tier="$PROVIDER_AGY_COST_TIER"
+            sub_tier="$PROVIDER_AGY_TIER"
+            priority="$PROVIDER_AGY_PRIORITY"
+            ;;
+        claude)
+            [[ "$PROVIDER_CLAUDE_INSTALLED" == "true" ]] && is_available="true"
+            cost_tier="$PROVIDER_CLAUDE_COST_TIER"
+            sub_tier="$PROVIDER_CLAUDE_TIER"
+            priority="$PROVIDER_CLAUDE_PRIORITY"
+            ;;
+        opencode)
+            [[ "$PROVIDER_OPENCODE_INSTALLED" == "true" && "$PROVIDER_OPENCODE_AUTH_METHOD" != "none" ]] && is_available="true"
+            cost_tier="$PROVIDER_OPENCODE_COST_TIER"
+            sub_tier="$PROVIDER_OPENCODE_TIER"
+            priority="$PROVIDER_OPENCODE_PRIORITY"
+            ;;
+        openrouter)
+            [[ "$PROVIDER_OPENROUTER_ENABLED" == "true" && "$PROVIDER_OPENROUTER_API_KEY_SET" == "true" ]] && is_available="true"
+            cost_tier="pay-per-use"
+            sub_tier="api-only"
+            priority="$PROVIDER_OPENROUTER_PRIORITY"
+            ;;
+        orcarouter)
+            [[ "$PROVIDER_ORCAROUTER_ENABLED" == "true" && "$PROVIDER_ORCAROUTER_API_KEY_SET" == "true" ]] && is_available="true"
+            cost_tier="pay-per-use"
+            sub_tier="api-only"
+            priority="$PROVIDER_ORCAROUTER_PRIORITY"
+            ;;
+    esac
+
+    if [[ "$is_available" != "true" ]]; then
+        echo "-1"
+        return
+    fi
+
+    # Check capability match
+    local capabilities
+    capabilities=$(get_provider_capabilities "$provider")
+    local required_capability=""
+
+    case "$task_type" in
+        image)
+            required_capability="vision"
+            ;;
+        research|design|copywriting)
+            required_capability="analysis"
+            ;;
+        coding|review)
+            required_capability="code"
+            ;;
+        *)
+            required_capability="general"
+            ;;
+    esac
+
+    # Vision tasks require vision capability
+    if [[ "$required_capability" == "vision" && ! "$capabilities" =~ vision ]]; then
+        echo "-1"
+        return
+    fi
+
+    # Apply cost scoring based on strategy
+    local cost_value
+    cost_value=$(get_cost_tier_value "$cost_tier")
+
+    local effective_strategy="$COST_OPTIMIZATION_STRATEGY"
+    [[ "$FORCE_COST_FIRST" == "true" ]] && effective_strategy="cost-first"
+    [[ "$FORCE_QUALITY_FIRST" == "true" ]] && effective_strategy="quality-first"
+
+    case "$effective_strategy" in
+        cost-first)
+            # Heavily prefer cheaper options
+            score=$((score + (5 - cost_value) * 15))  # free=+75, bundled=+60, low=+45, medium=+30, high=+15
+            ;;
+        quality-first)
+            # Prefer higher-tier subscriptions
+            case "$sub_tier" in
+                max-20x|pro|workspace) score=$((score + 40)) ;;
+                max-5x|plus|google-one) score=$((score + 25)) ;;
+                free) score=$((score + 5)) ;;
+                api-only) score=$((score + 20)) ;;  # API is still high quality
+            esac
+            ;;
+        balanced|*)
+            # Moderate preference for cost, with some quality bonus
+            score=$((score + (5 - cost_value) * 8))  # free=+40, bundled=+32, etc.
+            case "$sub_tier" in
+                max-20x|pro|workspace) score=$((score + 15)) ;;
+                max-5x|plus|google-one) score=$((score + 10)) ;;
+            esac
+            ;;
+    esac
+
+    # Complexity matching bonus
+    case "$complexity" in
+        3)  # Complex tasks prefer higher tiers
+            case "$sub_tier" in
+                max-20x|pro|workspace) score=$((score + 20)) ;;
+                max-5x|plus|google-one) score=$((score + 10)) ;;
+            esac
+            ;;
+        1)  # Trivial tasks prefer cheaper options
+            case "$cost_tier" in
+                free|bundled) score=$((score + 15)) ;;
+            esac
+            ;;
+    esac
+
+    # Special capability bonuses
+    case "$task_type" in
+        research)
+            # Long context is valuable for research
+            if [[ "$capabilities" =~ long-context ]]; then
+                score=$((score + 15))
+            fi
+            ;;
+        image)
+            if [[ "$capabilities" =~ vision ]]; then
+                score=$((score + 20))
+            fi
+            ;;
+    esac
+
+    # Apply priority penalty (lower priority number = higher preference)
+    score=$((score - priority * 2))
+
+    echo "$score"
+}
+
+# Select best provider for a task using scoring
+# Returns: provider name (codex, agy, claude, openrouter)
+select_provider() {
+    local task_type="$1"
+    local complexity="${2:-2}"
+
+    # Check for force override
+    if [[ -n "$FORCE_PROVIDER" ]]; then
+        echo "$FORCE_PROVIDER"
+        return 0
+    fi
+
+    # Load config if needed
+    [[ -z "$PROVIDER_CODEX_INSTALLED" || "$PROVIDER_CODEX_INSTALLED" == "false" ]] && load_providers_config
+
+    local best_provider=""
+    local best_score=-1
+    local routing_providers
+    routing_providers="$(octo_smoke_routing_providers)" || {
+        log ERROR "Invalid OCTOPUS_SMOKE_ROUTING_PROVIDERS policy"
+        return 2
+    }
+
+    for provider in $routing_providers; do
+        local score
+        score=$(score_provider "$provider" "$task_type" "$complexity")
+
+        [[ "$VERBOSE" == "true" ]] && log DEBUG "Provider score: $provider = $score (task=$task_type, complexity=$complexity)" || true
+
+        if [[ "$score" -gt "$best_score" ]]; then
+            best_score="$score"
+            best_provider="$provider"
+        fi
+    done
+
+    if [[ -z "$best_provider" || "$best_score" -lt 0 ]]; then
+        # No suitable provider found, return first available
+        if [[ "$PROVIDER_CODEX_INSTALLED" == "true" && "$PROVIDER_CODEX_AUTH_METHOD" != "none" ]]; then
+            echo "codex"
+        elif [[ "$PROVIDER_AGY_INSTALLED" == "true" && "$PROVIDER_AGY_AUTH_METHOD" != "none" ]]; then
+            echo "agy"
+        elif [[ "$PROVIDER_OPENROUTER_ENABLED" == "true" ]]; then
+            echo "openrouter"
+        elif [[ "$PROVIDER_ORCAROUTER_ENABLED" == "true" && "$PROVIDER_ORCAROUTER_API_KEY_SET" == "true" ]]; then
+            echo "orcarouter"
+        else
+            echo "codex"  # Default fallback
+        fi
+        return 1
+    fi
+
+    echo "$best_provider"
+}
+
+# Display provider status with subscription tiers
+show_provider_status() {
+    load_providers_config
+
+    echo ""
+    echo -e "${CYAN}╔════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║  ${GREEN}PROVIDER STATUS${CYAN}                                              ║${NC}"
+    echo -e "${CYAN}╠════════════════════════════════════════════════════════════════╣${NC}"
+
+    # Codex
+    local codex_status="${RED}✗${NC}"
+    [[ "$PROVIDER_CODEX_INSTALLED" == "true" && "$PROVIDER_CODEX_AUTH_METHOD" != "none" ]] && codex_status="${GREEN}✓${NC}"
+    echo -e "${CYAN}║${NC}  Codex/OpenAI:   $codex_status  [$PROVIDER_CODEX_AUTH_METHOD]  $PROVIDER_CODEX_TIER ($PROVIDER_CODEX_COST_TIER)  ${CYAN}║${NC}"
+
+    # Antigravity
+    local agy_status="${RED}✗${NC}"
+    [[ "$PROVIDER_AGY_INSTALLED" == "true" && "$PROVIDER_AGY_AUTH_METHOD" != "none" ]] && agy_status="${GREEN}✓${NC}"
+    echo -e "${CYAN}║${NC}  Antigravity:    $agy_status  [$PROVIDER_AGY_AUTH_METHOD]  $PROVIDER_AGY_TIER ($PROVIDER_AGY_COST_TIER)  ${CYAN}║${NC}"
+
+    # Claude
+    local claude_status="${RED}✗${NC}"
+    [[ "$PROVIDER_CLAUDE_INSTALLED" == "true" ]] && claude_status="${GREEN}✓${NC}"
+    local agent_teams_info=""
+    if [[ "$SUPPORTS_AGENT_TEAMS" == "true" ]]; then
+        agent_teams_info="  [Agent Teams: available]"
+    fi
+    echo -e "${CYAN}║${NC}  Claude:         $claude_status  [$PROVIDER_CLAUDE_AUTH_METHOD]  $PROVIDER_CLAUDE_TIER ($PROVIDER_CLAUDE_COST_TIER)${agent_teams_info}  ${CYAN}║${NC}"
+
+    # OpenCode
+    local opencode_status="${RED}✗${NC}"
+    [[ "$PROVIDER_OPENCODE_INSTALLED" == "true" && "$PROVIDER_OPENCODE_AUTH_METHOD" != "none" ]] && opencode_status="${GREEN}✓${NC}"
+    echo -e "${CYAN}║${NC}  OpenCode:       $opencode_status  [$PROVIDER_OPENCODE_AUTH_METHOD]  $PROVIDER_OPENCODE_TIER ($PROVIDER_OPENCODE_COST_TIER)  ${CYAN}║${NC}"
+
+    # OpenRouter
+    local openrouter_status="${RED}✗${NC}"
+    [[ "$PROVIDER_OPENROUTER_ENABLED" == "true" ]] && openrouter_status="${GREEN}✓${NC}"
+    echo -e "${CYAN}║${NC}  OpenRouter:     $openrouter_status  [api-key]  $PROVIDER_OPENROUTER_ROUTING_PREF (pay-per-use)  ${CYAN}║${NC}"
+
+    # OrcaRouter
+    local orcarouter_status="${RED}✗${NC}"
+    [[ "$PROVIDER_ORCAROUTER_ENABLED" == "true" && "$PROVIDER_ORCAROUTER_API_KEY_SET" == "true" ]] && orcarouter_status="${GREEN}✓${NC}"
+    echo -e "${CYAN}║${NC}  OrcaRouter:     $orcarouter_status  [api-key]  pay-per-use  ${CYAN}║${NC}"
+
+    # Perplexity (v8.24.0)
+    local perplexity_status="${RED}✗${NC}"
+    [[ -n "${PERPLEXITY_API_KEY:-}" ]] && perplexity_status="${GREEN}✓${NC}"
+    echo -e "${CYAN}║${NC}  Perplexity:     $perplexity_status  [api-key]  sonar-pro (pay-per-use)  ${CYAN}║${NC}"
+
+    echo -e "${CYAN}╠════════════════════════════════════════════════════════════════╣${NC}"
+    echo -e "${CYAN}║${NC}  Cost Strategy:  $COST_OPTIMIZATION_STRATEGY  ${CYAN}║${NC}"
+
+    # v8.5: Show /fast mode and Opus mode status
+    local fast_info=""
+    if [[ "$USER_FAST_MODE" == "true" ]]; then
+        fast_info="${YELLOW}⚡ ON${NC} (6x cost for lower latency)"
+    else
+        fast_info="${DIM}off${NC}"
+    fi
+    echo -e "${CYAN}║${NC}  /fast Mode:     $fast_info  ${CYAN}║${NC}"
+
+    local opus_mode_info=""
+    case "$OCTOPUS_OPUS_MODE" in
+        fast)     opus_mode_info="${YELLOW}fast (forced)${NC}" ;;
+        standard) opus_mode_info="${GREEN}standard (forced)${NC}" ;;
+        auto)     opus_mode_info="${DIM}auto${NC}" ;;
+    esac
+    echo -e "${CYAN}║${NC}  Opus Mode:      $opus_mode_info  ${CYAN}║${NC}"
+
+    echo -e "${CYAN}╚════════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PROVIDER SMOKE TEST (v8.19.0 - Issue #34)
+# Fast parallel test that catches real provider failures before workflow starts
+# ═══════════════════════════════════════════════════════════════════════════════
+
+SMOKE_TEST_CACHE_FILE="${WORKSPACE_DIR:-$HOME/.claude-octopus}/.smoke-test-cache"
+
+# Compute cache key from current model config (auto-invalidates on config change)
+smoke_test_cache_key() {
+    local codex_model cursor_agent_model cursor_agent_state codex_sandbox
+    codex_model=$(get_agent_model "codex" 2>/dev/null || echo "default")
+    cursor_agent_model=$(get_agent_model "cursor-agent" 2>/dev/null || echo "${OCTOPUS_CURSOR_AGENT_MODEL:-auto}")
+    if declare -f cursor_agent_auth_method >/dev/null 2>&1; then
+        cursor_agent_state="$(cursor_agent_auth_method)"
+    elif [[ -n "${CURSOR_API_KEY:-}" ]]; then
+        cursor_agent_state="env:CURSOR_API_KEY"
+    else
+        cursor_agent_state="none"
+    fi
+    codex_sandbox="${OCTOPUS_CODEX_SANDBOX:-workspace-write}"
+    local claude_seat="off"
+    if _smoke_claude_available; then
+        claude_seat="${OCTOPUS_CLAUDE_BIN:-claude}/$(get_agent_model "claude-sonnet" 2>/dev/null || echo "default")"
+    fi
+    echo "${codex_model}:${cursor_agent_model}:${cursor_agent_state}:${codex_sandbox}:claude=${claude_seat}"
+}
+
+# Claude seats run as `claude --print` subprocesses with the CLI's own
+# credentials, not the host session's, so they need their own check.
+_smoke_claude_available() {
+    local claude_bin_name
+    read -r claude_bin_name _ <<< "${OCTOPUS_CLAUDE_BIN:-claude}"
+    { ! declare -f octo_provider_allowed >/dev/null 2>&1 || octo_provider_allowed claude; } \
+        && command -v "$claude_bin_name" &>/dev/null
+}
+
+# Check if smoke test cache is still valid (same config, within TTL)
+smoke_test_cache_valid() {
+    [[ -f "$SMOKE_TEST_CACHE_FILE" ]] || return 1
+
+    local cache_time cache_key cache_status current_time cache_age
+    cache_time=$(head -1 "$SMOKE_TEST_CACHE_FILE" 2>/dev/null || echo "0")
+    cache_key=$(sed -n '2p' "$SMOKE_TEST_CACHE_FILE" 2>/dev/null || echo "")
+    cache_status=$(sed -n '3p' "$SMOKE_TEST_CACHE_FILE" 2>/dev/null || echo "1")
+    current_time=$(date +%s)
+    cache_age=$((current_time - cache_time))
+
+    # Invalid if expired or config changed
+    [[ $cache_age -lt $PREFLIGHT_CACHE_TTL ]] || return 1
+    [[ "$cache_key" == "$(smoke_test_cache_key)" ]] || return 1
+
+    # Return cached status (0=passed, 1=failed)
+    return "$cache_status"
+}
+
+# Write smoke test cache (stores timestamp, config key, and status)
+smoke_test_cache_write() {
+    local status="$1"
+    mkdir -p "$(dirname "$SMOKE_TEST_CACHE_FILE")"
+    {
+        date +%s
+        smoke_test_cache_key
+        echo "$status"
+    } > "$SMOKE_TEST_CACHE_FILE"
+}
+
+# Classify provider error from stderr output
+_classify_smoke_error() {
+    local stderr_output="$1"
+    # Subshell isolates nocasematch — no leak risk on early exit
+    (
+        shopt -s nocasematch
+        local _re_model='model.*not (found|available|exist)|does not exist|unknown model|invalid model|no such model|ModelNotFoundError|404'
+        local _re_auth='auth|unauthorized|forbidden|401|403|invalid.*key|expired.*token|login required'
+        local _re_rate='rate.?limit|429|too many requests|quota'
+        local _re_policy='policy|blocked|safety|filtered|content.?filter|recitation'
+        local _re_gitrepo='not inside a trusted directory|skip-git-repo-check|not a git repository'
+        local _re_sandbox='operation not permitted|EPERM|denied by sandbox|forbidden by sandbox|sandbox.*(denied|blocked)'
+        if [[ "$stderr_output" =~ $_re_sandbox ]]; then
+            echo "SANDBOX_DENIED"
+        elif [[ "$stderr_output" =~ $_re_gitrepo ]]; then
+            echo "GIT_REPO_REQUIRED"
+        elif [[ "$stderr_output" =~ $_re_model ]]; then
+            echo "MODEL_NOT_FOUND"
+        elif [[ "$stderr_output" =~ $_re_auth ]]; then
+            echo "AUTH_FAILURE"
+        elif [[ "$stderr_output" =~ $_re_rate ]]; then
+            echo "RATE_LIMITED"
+        elif [[ "$stderr_output" =~ $_re_policy ]]; then
+            echo "POLICY_BLOCKED"
+        else
+            echo "UNKNOWN"
+        fi
+    )
+}
+
+# Display actionable error message for a smoke test failure
+_display_smoke_test_error() {
+    local provider="$1"
+    local error_type="$2"
+    local model="${3:-}"
+
+    case "$error_type" in
+        MODEL_NOT_FOUND)
+            echo -e "  ${RED}✗${NC} ${provider}: Model '${model}' not available"
+            if [[ "$provider" == "codex" ]]; then
+                echo -e "    ${DIM}Fix: export OCTOPUS_CODEX_MODEL=gpt-5.6-sol${NC}"
+            elif [[ "$provider" == "cursor" || "$provider" == "cursor-agent" || "$provider" == "Cursor Agent" ]]; then
+                echo -e "    ${DIM}Fix: export OCTOPUS_CURSOR_AGENT_MODEL=auto  (or any ID from: agent models)${NC}"
+            elif [[ "$provider" == "agy" || "$provider" == "Antigravity" ]]; then
+                echo -e "    ${DIM}Fix: agy models  (pick a valid label)  OR  unset OCTOPUS_AGY_MODEL to use agy's default${NC}"
+            else
+                echo -e "    ${DIM}Fix: export OCTOPUS_CODEX_MODEL=gpt-5.6-sol${NC}"
+            fi
+            ;;
+        AUTH_FAILURE)
+            echo -e "  ${RED}✗${NC} ${provider}: Authentication failed"
+            if [[ "$provider" == "codex" ]]; then
+                echo -e "    ${DIM}Fix: codex login  OR  export OPENAI_API_KEY=\"sk-...\"${NC}"
+            elif [[ "$provider" == "cursor" || "$provider" == "cursor-agent" || "$provider" == "Cursor Agent" ]]; then
+                echo -e "    ${DIM}Fix: agent login  OR  export CURSOR_API_KEY=\"...\"${NC}"
+            elif [[ "$provider" == "agy" || "$provider" == "Antigravity" ]]; then
+                echo -e "    ${DIM}Fix: launch plain agy and complete browser sign-in${NC}"
+            elif [[ "$provider" == "claude" || "$provider" == "Claude" ]]; then
+                echo -e "    ${DIM}Fix: claude auth login  OR  export ANTHROPIC_API_KEY=\"...\" (required when Claude seats run with --bare)${NC}"
+            else
+                echo -e "    ${DIM}Fix: codex login  OR  export OPENAI_API_KEY=\"...\"${NC}"
+            fi
+            ;;
+        RATE_LIMITED)
+            echo -e "  ${YELLOW}⚠${NC} ${provider}: Rate limited (429). Wait and retry."
+            ;;
+        POLICY_BLOCKED)
+            echo -e "  ${RED}✗${NC} ${provider}: Request blocked by policy"
+            echo -e "    ${DIM}Fix: Check the provider's usage policy / content filter settings${NC}"
+            ;;
+        TIMEOUT)
+            echo -e "  ${YELLOW}⚠${NC} ${provider}: Smoke test timed out. Provider may be slow or down."
+            ;;
+        SANDBOX_DENIED)
+            echo -e "  ${YELLOW}⚠${NC} ${provider}: Smoke test was denied by the sandbox (Operation not permitted), not by the provider"
+            echo -e "    ${DIM}Fix: re-run the preflight outside the sandbox before treating the provider as unavailable${NC}"
+            ;;
+        GIT_REPO_REQUIRED)
+            echo -e "  ${YELLOW}⚠${NC} ${provider}: Requires a git repository (configuration issue, not a provider failure)"
+            echo -e "    ${DIM}Fix: Run from a git repo or use 'codex exec --skip-git-repo-check'${NC}"
+            ;;
+        UNKNOWN)
+            echo -e "  ${RED}✗${NC} ${provider}: Smoke test failed (unknown error)"
+            echo -e "    ${DIM}Run with VERBOSE=true for details${NC}"
+            ;;
+    esac
+}
+
+# Test a single provider by sending a trivial prompt
+_smoke_test_provider() {
+    local provider="$1"
+    local smoke_timeout="${2:-10}"
+    local result_file="$3"
+    local agent_type model cmd stderr_file exit_code
+
+    # Determine agent type and get model
+    case "$provider" in
+        codex) agent_type="codex" ;;
+        cursor-agent) agent_type="cursor-agent" ;;
+        agy) agent_type="agy" ;;
+        claude) agent_type="claude-sonnet" ;;
+        *) echo "SKIP" > "$result_file"; return 0 ;;
+    esac
+
+    model=$(get_agent_model "$agent_type" 2>/dev/null || echo "")
+    stderr_file=$(secure_tempfile "smoke-stderr-${provider}")
+
+    log DEBUG "Smoke test ${provider}: model=${model}"
+
+    # Build and execute command with trivial prompt
+    local cmd_str
+    cmd_str=$(get_agent_command "$agent_type")
+
+    if [[ -z "$cmd_str" ]]; then
+        echo "SKIP" > "$result_file"
+        rm -f "$stderr_file" 2>/dev/null || true
+        return 0
+    fi
+
+    # Send trivial prompt with timeout
+    local smoke_exit=0
+    if [[ "$provider" == "codex" ]]; then
+        # Codex requires a git repo — use a temp one to avoid false negatives (#202)
+        local smoke_dir
+        smoke_dir=$(mktemp -d 2>/dev/null || mktemp -d -t 'octo-smoke')
+        git -C "$smoke_dir" init -q 2>/dev/null || true
+        # If we can't enter the temp repo, the probe would run in the caller's
+        # cwd (possibly not a git repo) and report a false negative, and the
+        # popd below would unwind an unrelated directory. Skip instead.
+        if ! pushd "$smoke_dir" >/dev/null 2>&1; then
+            log DEBUG "Smoke test codex: could not enter temp repo $smoke_dir; skipping"
+            rm -rf "$smoke_dir" 2>/dev/null
+            echo "SKIP" > "$result_file"
+            rm -f "$stderr_file" 2>/dev/null || true
+            return 0
+        fi
+        # codex cmd_str ends with `-` (stdin prompt); arg form is rejected.
+        echo "Reply with exactly: ok" | run_with_timeout "$smoke_timeout" \
+            $cmd_str \
+            >/dev/null 2>"$stderr_file" || smoke_exit=$?
+        popd >/dev/null 2>&1 || cd "$OLDPWD" 2>/dev/null || true
+        rm -rf "$smoke_dir" 2>/dev/null
+    elif [[ "$provider" == "cursor-agent" ]]; then
+        # cmd_str already carries --trust, --output-format text, --mode and
+        # --model from dispatch; only the stdin headless trigger is appended.
+        echo "Reply with exactly: ok" | run_with_timeout "$smoke_timeout" \
+            $cmd_str -p "" \
+            >/dev/null 2>"$stderr_file" || smoke_exit=$?
+    elif [[ "$provider" == "agy" ]]; then
+        # agy-exec.sh is a stdin adapter that builds its own argv and execs agy
+        # directly — any argv appended here would be silently discarded, so the
+        # prompt must go via stdin. Explicitly forbid
+        # tool use: a bare "ok" smoke prompt otherwise triggers agy's default
+        # web-search tool call, which hangs with no sandbox network permission.
+        echo "Reply with exactly: ok. Answer from your own knowledge only — do not use web search or any tools." \
+            | run_with_timeout "$smoke_timeout" \
+            $cmd_str \
+            >/dev/null 2>"$stderr_file" || smoke_exit=$?
+    elif [[ "$provider" == "claude" ]]; then
+        # claude --print reports auth failures ("Failed to authenticate: OAuth
+        # session expired ...") on stdout, so both streams feed the classifier.
+        echo "Reply with exactly: ok" | run_with_timeout "$smoke_timeout" \
+            $cmd_str \
+            >"$stderr_file" 2>&1 || smoke_exit=$?
+    else
+        run_with_timeout "$smoke_timeout" \
+            $cmd_str -p "Reply with exactly: ok" \
+            >/dev/null 2>"$stderr_file" || smoke_exit=$?
+    fi
+
+    if [[ $smoke_exit -eq 0 ]]; then
+        echo "PASS" > "$result_file"
+        log DEBUG "Smoke test ${provider}: passed"
+    elif [[ $smoke_exit -eq 124 ]]; then
+        # 124 = timeout exit code from GNU timeout / run_with_timeout
+        echo "TIMEOUT:${model}" > "$result_file"
+        log DEBUG "Smoke test ${provider}: timed out"
+    else
+        local error_type
+        error_type=$(_classify_smoke_error "$(cat "$stderr_file" 2>/dev/null)")
+        echo "${error_type}:${model}" > "$result_file"
+        log DEBUG "Smoke test ${provider}: failed (${error_type})"
+        [[ "$VERBOSE" == "true" ]] && cat "$stderr_file" >&2
+    fi
+
+    rm -f "$stderr_file" 2>/dev/null
+}
+
+# Tally one provider's smoke-test result and, on failure, mark it dead for the
+# rest of this run so get_dispatch_strategy() (embrace.sh) and the other
+# octo_quota_is_dead() consumers stop selecting it. Without this, a smoke test
+# failure was only ever logged — the provider stayed selectable and got
+# dispatched into the same failure a moment later. (#840)
+#
+# Only a definitive auth or quota/rate rejection seen outside a sandbox is
+# cached for later runs, with its own timestamp. An unknown error, a timeout or
+# a sandbox denial says nothing about the next run: caching it made the next
+# preflight report a healthy provider as "degraded (quota)" without calling it
+# (sail-cruisey #2905).
+_smoke_tally_result() {
+    local provider="$1" result="$2"
+    case "${result%%:*}" in
+        PASS)
+            ((++pass_count))
+            if declare -f octo_quota_clear_dead >/dev/null 2>&1; then
+                octo_quota_clear_dead "$provider"
+            fi
+            ;;
+        SKIP) ((++skip_count)) ;;
+        *)
+            ((++fail_count))
+            local persist=false
+            case "${result%%:*}" in
+                AUTH_FAILURE|RATE_LIMITED) persist=true ;;
+            esac
+            if declare -f octo_quota_in_sandbox >/dev/null 2>&1 && octo_quota_in_sandbox; then
+                persist=false
+            fi
+            if [[ "$persist" == true ]] && declare -f octo_quota_mark_dead >/dev/null 2>&1; then
+                octo_quota_mark_dead "$provider" "${OCTOPUS_QUOTA_DEAD_TTL:-3600}"
+            elif declare -f octo_quota_mark_failed_this_run >/dev/null 2>&1; then
+                # A timeout is slow, not dead: excluded in this run, but it does
+                # not stop a pass from being cached.
+                if [[ "${result%%:*}" == TIMEOUT ]]; then
+                    octo_quota_mark_failed_this_run "$provider" no-recheck
+                else
+                    octo_quota_mark_failed_this_run "$provider"
+                fi
+            fi
+            ;;
+    esac
+}
+
+# Status to cache for a passing smoke test: 0, unless a provider failed for an
+# unexplained reason. That provider is excluded only in this process, so a
+# cached pass would let the next run dispatch to it without testing it again.
+_smoke_pass_cache_status() {
+    if declare -f octo_quota_needs_recheck >/dev/null 2>&1 && octo_quota_needs_recheck; then
+        echo 1
+    else
+        echo 0
+    fi
+}
+
+# Orchestrate parallel smoke tests for all available providers
+provider_smoke_test() {
+    local force_check="${1:-false}"
+
+    # Skip if user opted out
+    if [[ "$SKIP_SMOKE_TEST" == "true" ]]; then
+        log DEBUG "Smoke test: skipped (--skip-smoke-test)"
+        return 0
+    fi
+
+    if [[ "${OCTOPUS_SKIP_PROVIDER_PROBES:-false}" == "true" || "${CLAUDE_CODE_REMOTE:-}" == "true" || "${OCTOPUS_REMOTE_SESSION:-false}" == "true" ]]; then
+        log DEBUG "Smoke test: skipped for remote session"
+        return 0
+    fi
+
+    # Return cached result if valid (unless forced)
+    if [[ "$force_check" != "true" ]] && smoke_test_cache_valid; then
+        log DEBUG "Smoke test: using cached result (passed)"
+        return 0
+    fi
+
+    log INFO "Running provider smoke test... 🐙"
+
+    # Determine which providers are available (from preflight state)
+    local has_codex=false has_cursor_agent=false has_agy=false has_claude=false
+    command -v codex &>/dev/null && has_codex=true
+    if declare -f cursor_agent_is_available >/dev/null 2>&1 && cursor_agent_is_available; then
+        has_cursor_agent=true
+    fi
+    command -v agy &>/dev/null && has_agy=true
+    _smoke_claude_available && has_claude=true
+
+    if [[ "$has_codex" == "false" && "$has_cursor_agent" == "false" && "$has_agy" == "false" && "$has_claude" == "false" ]]; then
+        log WARN "Smoke test: no providers to test"
+        return 0
+    fi
+
+    # Launch parallel smoke tests
+    local codex_result_file cursor_agent_result_file agy_result_file claude_result_file
+    codex_result_file=$(secure_tempfile "smoke-codex")
+    cursor_agent_result_file=$(secure_tempfile "smoke-cursor-agent")
+    agy_result_file=$(secure_tempfile "smoke-agy")
+    claude_result_file=$(secure_tempfile "smoke-claude")
+    local pids=()
+
+    if [[ "$has_codex" == "true" ]]; then
+        _smoke_test_provider "codex" "${OCTOPUS_CODEX_SMOKE_TIMEOUT:-45}" "$codex_result_file" &
+        pids+=($!)
+    else
+        echo "SKIP" > "$codex_result_file"
+    fi
+
+    if [[ "$has_cursor_agent" == "true" ]]; then
+        _smoke_test_provider "cursor-agent" "${OCTOPUS_CURSOR_AGENT_TIMEOUT:-120}" "$cursor_agent_result_file" &
+        pids+=($!)
+    else
+        echo "SKIP" > "$cursor_agent_result_file"
+    fi
+
+    if [[ "$has_agy" == "true" ]]; then
+        _smoke_test_provider "agy" "${OCTOPUS_AGY_SMOKE_TIMEOUT:-45}" "$agy_result_file" &
+        pids+=($!)
+    else
+        echo "SKIP" > "$agy_result_file"
+    fi
+
+    if [[ "$has_claude" == "true" ]]; then
+        _smoke_test_provider "claude" "${OCTOPUS_CLAUDE_SMOKE_TIMEOUT:-60}" "$claude_result_file" &
+        pids+=($!)
+    else
+        echo "SKIP" > "$claude_result_file"
+    fi
+
+    # Wait for all background tests
+    for pid in "${pids[@]}"; do
+        wait "$pid" 2>/dev/null || true
+    done
+
+    # Collect results
+    local codex_result cursor_agent_result agy_result claude_result
+    codex_result=$(cat "$codex_result_file" 2>/dev/null || echo "SKIP")
+    cursor_agent_result=$(cat "$cursor_agent_result_file" 2>/dev/null || echo "SKIP")
+    agy_result=$(cat "$agy_result_file" 2>/dev/null || echo "SKIP")
+    claude_result=$(cat "$claude_result_file" 2>/dev/null || echo "SKIP")
+    rm -f "$codex_result_file" "$cursor_agent_result_file" "$agy_result_file" "$claude_result_file" 2>/dev/null
+
+    local pass_count=0 fail_count=0 skip_count=0
+
+    _smoke_tally_result "codex" "$codex_result"
+    _smoke_tally_result "cursor-agent" "$cursor_agent_result"
+    _smoke_tally_result "agy" "$agy_result"
+    _smoke_tally_result "claude" "$claude_result"
+
+    # Display results
+    if [[ $fail_count -gt 0 ]]; then
+        echo ""
+        if [[ "$codex_result" != "PASS" && "$codex_result" != "SKIP" ]]; then
+            local codex_error="${codex_result%%:*}"
+            local codex_model="${codex_result#*:}"
+            _display_smoke_test_error "Codex" "$codex_error" "$codex_model"
+        fi
+        if [[ "$cursor_agent_result" != "PASS" && "$cursor_agent_result" != "SKIP" ]]; then
+            local cursor_agent_error="${cursor_agent_result%%:*}"
+            local cursor_agent_model="${cursor_agent_result#*:}"
+            _display_smoke_test_error "Cursor Agent" "$cursor_agent_error" "$cursor_agent_model"
+        fi
+        if [[ "$agy_result" != "PASS" && "$agy_result" != "SKIP" ]]; then
+            local agy_error="${agy_result%%:*}"
+            local agy_model="${agy_result#*:}"
+            _display_smoke_test_error "Antigravity" "$agy_error" "$agy_model"
+        fi
+        if [[ "$claude_result" != "PASS" && "$claude_result" != "SKIP" ]]; then
+            local claude_error="${claude_result%%:*}"
+            local claude_model="${claude_result#*:}"
+            _display_smoke_test_error "Claude" "$claude_error" "$claude_model"
+        fi
+        echo ""
+    fi
+
+    # Dispatch seats Claude researchers and the Claude synthesizer
+    # unconditionally, so a Claude CLI that answers with an error cannot be
+    # routed around: stop before the other providers spend a full phase on
+    # results nothing can synthesize. A timeout stays degraded; slow is not dead.
+    case "${claude_result%%:*}" in
+        PASS|SKIP) ;;
+        TIMEOUT)
+            if [[ $pass_count -eq 0 && $fail_count -eq 1 ]]; then
+                log WARN "Smoke test: degraded mode (the claude CLI timed out and no other provider was tested)"
+                smoke_test_cache_write "$(_smoke_pass_cache_status)"
+                return 0
+            fi
+            ;;
+        *)
+            log ERROR "Smoke test failed: the claude CLI that runs Claude seats returned ${claude_result%%:*}"
+            smoke_test_cache_write "1"
+            return 1
+            ;;
+    esac
+
+    # Pass if at least one provider succeeds (consistent with v7.9.1 single-provider mode)
+    if [[ $pass_count -gt 0 ]]; then
+        if [[ $fail_count -gt 0 ]]; then
+            log WARN "Smoke test: degraded mode ($pass_count/$((pass_count + fail_count)) providers passed)"
+        else
+            log INFO "Smoke test passed ($pass_count provider(s) verified)"
+        fi
+        smoke_test_cache_write "$(_smoke_pass_cache_status)"
+        return 0
+    fi
+
+    # All providers failed
+    log ERROR "Smoke test failed: no providers responded successfully"
+    echo -e "${RED}╔═══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${RED}║  ❌ PROVIDER SMOKE TEST FAILED                                ║${NC}"
+    echo -e "${RED}╚═══════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo -e "No AI providers could process a test request."
+    echo -e "This means workflows will produce ${YELLOW}empty results${NC}."
+    echo ""
+    echo -e "${DIM}Skip with: --skip-smoke-test  (not recommended)${NC}"
+    echo -e "${DIM}Re-test:   bash orchestrate.sh doctor smoke${NC}"
+    echo ""
+    smoke_test_cache_write "1"
+    return 1
+}

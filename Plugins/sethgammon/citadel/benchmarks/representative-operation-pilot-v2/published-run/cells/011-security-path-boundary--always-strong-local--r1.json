@@ -1,0 +1,122 @@
+{
+  "schema": 2,
+  "cell_id": "011-security-path-boundary--always-strong-local--r1",
+  "order": 11,
+  "scenario_id": "security-path-boundary",
+  "task_class": "security-repair",
+  "policy_id": "always-strong-local",
+  "repetition": 1,
+  "route": {
+    "initial_tier": "strong",
+    "escalation_tier": null,
+    "reason_code": "BASELINE_ALWAYS_STRONG"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "strong",
+      "started_at": "2026-08-01T05:21:53.725Z",
+      "duration_ms": 10293,
+      "output_text": "{\n  \"files\": {\n    \"src/safe-path.js\": \"'use strict';\\nconst path = require('path');\\n\\nfunction isWithinRoot(root, candidate) {\\n  const resolvedRoot = path.resolve(root);\\n  const resolvedCandidate = path.resolve(candidate);\\n  if (!resolvedRoot.endsWith(path.sep)) {\\n    resolvedRoot += path.sep;\\n  }\\n  return resolvedCandidate.startsWith(resolvedRoot);\\n}\\n\\nmodule.exports = { isWithinRoot };\"\n  }\n}",
+      "output_digest": "sha256:04c3e733afae028c86c1cf65f251c8cf7f31fcba0e6e7b80bf40a1960153740f",
+      "verification": {
+        "status": "failed",
+        "code": "REPOSITORY_VERIFIER_FAILED",
+        "changed_paths": [
+          "src/safe-path.js"
+        ],
+        "applied_file_digests": {
+          "src/safe-path.js": "sha256:0054acce6560e197dd10c0c9b5073661012bd7c3f624bd628fc611e54416bbf3"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 1,
+          "signal": null,
+          "stdout": "",
+          "stderr": "<ISOLATED_WORKSPACE>\\src\\safe-path.js:8\r\n    resolvedRoot += path.sep;\r\n                 ^\r\n\r\nTypeError: Assignment to constant variable.\r\n    at isWithinRoot (<ISOLATED_WORKSPACE>\\src\\safe-path.js:8:18)\r\n    at Object.<anonymous> (<ISOLATED_WORKSPACE>\\test.js:6:20)\r\n    at Module._compile (node:internal/modules/cjs/loader:1730:14)\r\n    at Object..js (node:internal/modules/cjs/loader:1895:10)\r\n    at Module.load (node:internal/modules/cjs/loader:1465:32)\r\n    at Function._load (node:internal/modules/cjs/loader:1282:12)\r\n    at TracingChannel.traceSync (node:diagnostics_channel:322:14)\r\n    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)\r\n    at Module.require (node:internal/modules/cjs/loader:1487:12)\r\n    at require (node:internal/modules/helpers:135:16)\r\n\r\nNode.js v22.17.1\r\n",
+          "error": null
+        },
+        "patch_digest": "sha256:fe6a4f5f0049ca8a5d3988aef5670c5d1a35f9a44fbe19089b9a516cc3d08c02"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "ollama-chat",
+        "requested_model": "qwen2.5-coder:7b",
+        "observed_model": "qwen2.5-coder:7b",
+        "model_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+        "done_reason": "stop",
+        "response_digest": "sha256:6393873a1a311a7ea95e8d2e21cec188366efc058c47cbd214cf4608d6bd2cd9",
+        "error": null
+      },
+      "usage": {
+        "prompt_tokens": 266,
+        "completion_tokens": 108,
+        "total_tokens": 374,
+        "provider_total_duration_ns": 10290054000
+      },
+      "economics": {
+        "provider_invoice": {
+          "status": "known",
+          "amount_usd": 0,
+          "source": "self_hosted_ollama_no_per_request_invoice"
+        },
+        "gpu_energy": {
+          "status": "measured",
+          "energy_kwh": 0.00025363,
+          "samples": 20,
+          "average_watts": 88.7075
+        },
+        "comparison_cost": {
+          "status": "derived-comparison",
+          "total_usd": 0.000079318,
+          "components": [
+            {
+              "kind": "gpu_electricity",
+              "status": "derived-comparison",
+              "amount_usd": 0.000050726,
+              "source": "average_gpu_power_times_request_wall_duration_times_frozen_rate"
+            },
+            {
+              "kind": "gpu_amortization",
+              "status": "derived-comparison",
+              "amount_usd": 0.000028592,
+              "source": "request_wall_duration_times_frozen_residual_value"
+            }
+          ]
+        },
+        "actual_end_to_end_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "whole_system_energy_setup_and_observed_utility_rate_not_measured"
+        }
+      }
+    }
+  ],
+  "status": "failed",
+  "final_verification": {
+    "status": "failed",
+    "code": "REPOSITORY_VERIFIER_FAILED",
+    "changed_paths": [
+      "src/safe-path.js"
+    ],
+    "applied_file_digests": {
+      "src/safe-path.js": "sha256:0054acce6560e197dd10c0c9b5073661012bd7c3f624bd628fc611e54416bbf3"
+    },
+    "verifier": {
+      "command": "node verifier.js",
+      "status": 1,
+      "signal": null,
+      "stdout": "",
+      "stderr": "<ISOLATED_WORKSPACE>\\src\\safe-path.js:8\r\n    resolvedRoot += path.sep;\r\n                 ^\r\n\r\nTypeError: Assignment to constant variable.\r\n    at isWithinRoot (<ISOLATED_WORKSPACE>\\src\\safe-path.js:8:18)\r\n    at Object.<anonymous> (<ISOLATED_WORKSPACE>\\test.js:6:20)\r\n    at Module._compile (node:internal/modules/cjs/loader:1730:14)\r\n    at Object..js (node:internal/modules/cjs/loader:1895:10)\r\n    at Module.load (node:internal/modules/cjs/loader:1465:32)\r\n    at Function._load (node:internal/modules/cjs/loader:1282:12)\r\n    at TracingChannel.traceSync (node:diagnostics_channel:322:14)\r\n    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)\r\n    at Module.require (node:internal/modules/cjs/loader:1487:12)\r\n    at require (node:internal/modules/helpers:135:16)\r\n\r\nNode.js v22.17.1\r\n",
+      "error": null
+    },
+    "patch_digest": "sha256:fe6a4f5f0049ca8a5d3988aef5670c5d1a35f9a44fbe19089b9a516cc3d08c02"
+  },
+  "previous_cell_digest": "sha256:5400026b5687bab4f52533bca86da4345e51eca214e8ef21feae3b21ca08bb94",
+  "receipt_digest": "sha256:49c7dfe08ad2da4d19fa31206f35cc84ff6e97179c0ee4014bffea6ab97e10d4",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:d0d23c7add5506e820d4f2dda6fb3d46fd69aafd9d2874da2255d39011e059cc",
+    "signature": "ARbLpnAfhaco5gEVDR7YBoE3iHluOGcxYK5aDzVrAOg5rT66as5bv2eI1W4Q/FsVQFWCh/JvhTP9Qqn+SLlDCg=="
+  }
+}

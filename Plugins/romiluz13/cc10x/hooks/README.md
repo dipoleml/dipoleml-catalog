@@ -1,0 +1,202 @@
+# cc10x Hooks
+
+This directory serves two different purposes:
+
+1. **Plugin runtime hooks** via `hooks.json`
+2. **Optional git pre-commit helper** via `pre-commit`
+
+## Plugin Runtime Hooks
+
+When CC10X is installed as a Claude Code plugin, Claude Code reads `hooks/hooks.json`
+from the plugin bundle and runs the referenced scripts from `${CLAUDE_PLUGIN_ROOT}/scripts`.
+
+**Python requirement:** every hook except the preflight is a `python3` script,
+so CC10X needs Python 3.9 or newer on `PATH` (3.9 is the minimum, 3.13 is the
+version the test suite runs on). If `python3` is missing or older, the hooks fail
+silently. The POSIX-sh preflight hook below detects this and tells the agent to ask
+you to install or upgrade Python; it always exits 0.
+
+### Every registered hook
+
+Each hook in `hooks.json` appears exactly once in this table (a validator in
+`harness_audit.py` checks that). "Blocks" means it can deny or signal the model;
+"audit" means it only writes log lines.
+
+| Event (matcher) | Hook | What it does | Blocks or audits |
+| --- | --- | --- | --- |
+| `SessionStart` (`startup\|resume\|clear\|compact\|fork`) | `cc10x_preflight.sh` | Tells the agent when `python3` is missing or older than 3.9 | Context only; always exits 0 |
+| `SessionStart` (same matcher) | `cc10x_sessionstart_context.py` | Injects resume context for the newest workflow that is not finished | Context only |
+| `PostToolUse` (`Edit\|Write\|Bash`) | `cc10x_posttooluse_artifact_guard.py` | Validates a workflow artifact right after it is written; audits other writes; logs a `bash_workflow_write` event when a Bash command writes into `.cc10x/workflows/` | Exit 2 only for a malformed artifact when `artifactIntegrity` is `"block"` (the shipped default); everything else audits |
+| `PostCompact` | `cc10x_event_logger.py postcompact` | Records the compaction in the hook log and the workflow event log | Audit |
+| `SubagentStop` | `cc10x_event_logger.py subagent_stop` | Logs whether a `cc10x:*` agent returned a contract; reads the final message, and the SubagentHandback report from the transcript when the final message has none (`report_source` records which) | Audit |
+| `PreCompact` | `cc10x_state_persist.py precompact` | Snapshots workflow state before compaction | Persistence only |
+| `Stop` | `cc10x_state_persist.py stop` | Snapshots workflow state when the session stops | Persistence only |
+| `StopFailure` | `cc10x_event_logger.py stop_failure` | Logs API errors (async) | Audit |
+| `InstructionsLoaded` | `cc10x_event_logger.py instructions_loaded` | Logs instruction file loads (async) | Audit |
+
+### Which hooks block, which audit
+
+- **Config-controlled** (`config/hook-mode.json`, values `"block"` or `"audit"`):
+  `artifactIntegrity` is the one key, and it ships as `"block"`.
+- **No hook gates git or file operations.** Claude Code's permission settings are
+  the gate for git commands and file reads and writes.
+- **Override location:** put a `hook-mode.json` with the same key in
+  `${CLAUDE_PLUGIN_DATA}` to change a mode without editing the plugin; it survives
+  plugin updates. A missing key, a value other than `block` or `audit`, or a corrupt
+  file leaves the shipped value (an `invalid_hook_mode` event is logged for invalid
+  input, once per problem and state of the file, tracked by a marker under
+  `.cc10x/state/`; if the marker cannot be written the event is logged on every call).
+  Any key other than `artifactIntegrity`, including the keys earlier versions shipped,
+  is ignored and logs no event. The resolver never raises and always yields the one
+  key, so a damaged file cannot silently turn `artifactIntegrity` off.
+- **PostToolUse cannot undo a write.** Exit 2 from the artifact guard feeds its
+  message to the model after the file is already on disk; the malformed artifact
+  stays until the model repairs it, and the message says to repair it now.
+- **Fail-open by design:** a hook that crashes, times out or cannot parse its
+  input lets the tool call proceed. The hooks log the decisions they make and
+  the failures they notice (an unreadable artifact, an invalid mode file, a
+  failed snapshot write, a workflow event dropped because its
+  id is unsafe (`workflow_id_unsafe`) or its append failed
+  (`workflow_event_append_failed`)), but a hook that dies before it
+  logs leaves only a trace in Claude Code's debug output.
+
+### SessionStart
+
+The matcher covers every documented source (`startup`, `resume`, `clear`,
+`compact`, `fork`). Resume context comes from the newest workflow artifact that is
+not finished (the later of the last `status_history` entry and the newest
+router-written events-log record decides when both carry a timestamp; otherwise a
+terminal `memory_finalized`, `workflow_completed` or `workflow_failed` in either
+counts; a completed `memory-finalize` phase also counts); with only finished
+workflows nothing is injected. Only files named like a workflow id (`wf-...json`)
+are artifacts. JSON that is not an object (`[]`, `5`, `null`) is an unreadable
+artifact. An unreadable artifact newer than a live one is logged
+(`workflow_artifact_unreadable`) and skipped; when no live workflow can be read,
+SessionStart says so in one line naming the unreadable artifact. Without
+`CLAUDE_PROJECT_DIR` the project root is the checkout root containing the session
+`cwd`, and a relative hook-input `cwd` is made absolute.
+
+## Loop pane (mod)
+
+`hooks.json` also names a hooks module, `"modules": ["./register.tsx"]`, beside the
+`hooks` object. It is a Claude Code mod that shows a running cc10x workflow: which
+phase is current, which agent is running, what is pending, and the whole step chain.
+It is a read-only viewer: it never writes to `.cc10x/`, never changes a workflow and
+never blocks a tool call. The settings hooks in the table above run exactly as before.
+
+**What it reads.** The newest live workflow artifact `.cc10x/workflows/wf-*.json` and its
+events log `wf-*.events.jsonl`. Like resume context it takes the newest live artifact
+first, but it reads at most the 20 newest and skips an older artifact that has no events log. It re-reads
+at session start, after an Edit, Write or Bash call that names `.cc10x/workflows/`,
+when a cc10x workflow agent is spawned, and when a turn completes. Its own plugin state
+(`cc10x.loop`, `cc10x.spawns`, `cc10x.opened`) holds the last view, the spawns it has
+seen, and the workflow ids it already opened the pane for.
+
+**Where it looks.** The router writes `.cc10x/` beside the shell's current directory, which
+a shell `cd` moves while the project root stays put. So the mod looks in `.cc10x/workflows`
+from the session's current directory upward. Inside the project the walk stops at the project
+root, so a parent folder's workflows never show as this project's; from a directory outside the
+project it walks up to `/` and then tries the project root. It reads each directory that exists
+in that order (at most 20 artifacts in each) and stops at the first that holds a live workflow,
+so a folder with only finished workflows does not hide a live one further up; the first
+finished workflow it passes is the one the pane names as last. A directory it cannot list is
+named in a dim error line and skipped. Inside the project that walk is the whole answer: the
+nearest live workflow wins, and a `cd` to a folder with none shows none, not the one left
+behind. Only from a directory outside the project does it also try the directory of the
+workflow it last showed (running or finished), so a brief `cd /tmp` does not drop it. When
+it finds no `.cc10x/workflows` at all, that is the idle
+state, unless a workflow was showing: then the pane says `no .cc10x/workflows found from <cwd>`
+as a dim line until a directory turns up again.
+
+**What it draws.**
+
+- A band, one line above the prompt: phase, running agents and how long they have
+  run, the next step, the remediation count against the circuit breaker, and any
+  pending gate. It ends with ` · stale` when the last re-read failed and the band shows
+  the previous view. Drawn in the terminal and Desktop only.
+- A dock pane: the workflow header, the raw phase cursor, one row per chain step
+  with its decision or running time (router results outside the chain marked `+`),
+  the remediation count, the gate, the last three events, and any read error or
+  warning. With no live workflow, the pane says so and names the last workflow that
+  finished.
+
+**Commands.** `/cc10x-loop` opens the pane. `/cc10x-loop status` re-reads and prints
+the artifact path it reads, the workflows directories it read, in order (or `no .cc10x/workflows
+found from <cwd>`), and the last read error, if any.
+
+**Opening by itself.** The pane also opens unasked, once per live workflow in a session, at the
+first refresh that sees that workflow, but only after the band has seen a layout that
+docks a pane beside the transcript (fullscreen). A main-screen terminal is never taken
+over: there the pane opens only on `/cc10x-loop`, and a workflow id stays unmarked so a
+later refresh after docking still opens it. With no live workflow nothing opens.
+
+**Minimum version.** The mod needs Claude Code 2.1.287 in the terminal or 2.1.286 in
+Desktop. It is not yet verified on a Claude Code release before 2.1.287; the settings
+hooks are unaffected either way.
+
+**What `claude plugin validate plugins/cc10x` reports for it** (copied from a run on
+Claude Code 2.1.304):
+
+```
+  ❯ types ./types/index.d.ts declares on $: nothing (no EngineInterface member)
+  ❯ types ./types/index.d.ts declares state: cc10x.loop, cc10x.spawns, cc10x.opened
+  ❯ ./register.tsx hooks: session.start, tool.call, agent.spawn, turn.complete, command.run{command=cc10x-loop}, ui.render{component=AbovePrompt}, ui.render{component=Pane, requestId=cc10x-loop}
+  ❯ ./register.tsx gating hook with .catch: tool.call
+  ❯ ./register.tsx gating hook with .catch: agent.spawn
+  ❯ ./register.tsx gating hook with .catch: command.run{command=cc10x-loop}
+  ❯ ./register.tsx calls: $.clock.now, $.command.register, $.fs.exists (via scan), $.fs.list (via scanDir), $.fs.read (via scanDir), $.session.cwd (via scan), $.session.root (via scan), $.state.get, $.state.set, $.ui.log, $.ui.open, $.ui.resolve
+  ❯ ./register.tsx state writes: cc10x.loop, cc10x.opened, cc10x.spawns
+  ❯ ./register.tsx state reads: cc10x.loop, cc10x.opened, cc10x.spawns
+```
+
+The mod's tests (`loop-pane.test.tsx`, `loop-state.test.ts`) run with
+`claude plugin test plugins/cc10x`, which is the `plugin_test` step of the release gate.
+
+**Known limits.**
+
+- Nothing is drawn in `claude -p`, cloud sessions or Desktop on WSL; the artifact and
+  events log stay the source of truth there.
+- The band draws in the terminal and Desktop only; VS Code gets the pane.
+- Elapsed times update when the view refreshes (a tool call on the workflow files, a
+  spawn, a turn end); there is no timer.
+- Spawns are kept in session state, so a spawn made before a session restart is not
+  shown as running until its result lands in the events log.
+- A spawn for an agent outside the current chain is not shown until its result lands.
+- Whether the surface docks a pane is remembered per session, not per surface; a
+  surface that never draws the band never opens the pane by itself (`/cc10x-loop`
+  still opens it).
+- A workflow already live when the session starts opens the pane at the first later
+  refresh, not at session start.
+- The `doc-syncer` row stays pending when memory sets `DIFF_DRIVEN_DOCS: skip`; the mod
+  cannot see that setting.
+- A QA workflow shows the full QA chain; steps its probe never runs stay pending.
+
+## Internal Publication Audit
+
+The plugin also ships an internal drift check:
+
+```bash
+python3 plugins/cc10x/tools/harness_audit.py
+```
+
+It validates the publication-critical contract:
+- plugin manifest version matches `README.md` and `CHANGELOG.md`
+- marketplace metadata matches the shipped plugin version
+- plugin hooks and MCP names referenced by docs/router actually exist
+- every hook in `hooks.json` is listed once in this README, and no document claims a fixed count of enforcement points
+- workflow replay fixtures and checker are present
+- key router headings still exist for invariant coverage
+- router-consumed task metadata and agent contract fields are still present
+
+## Optional Git Pre-Commit Hook
+
+This is separate from Claude Code plugin hooks. Install it only if you want
+git commits blocked when tests fail:
+
+```bash
+cp plugins/cc10x/hooks/pre-commit .git/hooks/pre-commit
+chmod +x .git/hooks/pre-commit
+```
+
+It blocks `git commit` if your test suite fails. No test runner configured?
+Hook exits 0 and passes through.

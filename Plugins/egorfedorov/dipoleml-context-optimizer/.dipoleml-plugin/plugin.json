@@ -1,0 +1,16 @@
+{
+  "name": "dipoleml-context-optimizer",
+  "displayName": "DipoleML Context Optimizer",
+  "version": "5.1.1",
+  "description": "See what DipoleML costs you and spend less of it. In chat: hand a long chat over to a new one, digest long documents, set up Projects, check tokens, sharpen prompts. In DipoleML: Haiku 5.5 subagents for reading and test runs; /cco audit of your own transcripts. Local, no telemetry.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Egorfedorov"
+  },
+  "license": "MIT",
+  "homepage": "https://egorfedorov.github.io/claude-context-optimizer/",
+  "repository": "https://github.com/egorfedorov/claude-context-optimizer",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,24 @@
+{
+  "name": "alexgreensh-anidoodle",
+  "description": "Hand-drawn art, written as code",
+  "owner": {
+    "name": "Alex Greenshpun",
+    "url": "https://github.com/alexgreensh"
+  },
+  "plugins": [
+    {
+      "name": "anidoodle",
+      "source": "./plugins/anidoodle",
+      "description": "Code-drawn stills, drawing timelapses, films, explainers and interactive web animations in 32 styles, with scores composed in code.",
+      "version": "0.9.6",
+      "author": {
+        "name": "Alex Greenshpun",
+        "url": "https://linkedin.com/in/alexgreensh"
+      },
+      "homepage": "https://github.com/alexgreensh/anidoodle",
+      "license": "Apache-2.0",
+      "category": "design",
+      "keywords": ["anidoodle", "illustration", "animation", "film", "drawing", "music", "explainer"]
+    }
+  ]
+}

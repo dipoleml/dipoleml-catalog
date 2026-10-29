@@ -1,0 +1,16 @@
+{
+  "name": "code-cleanup",
+  "displayName": "Code Cleanup",
+  "version": "1.4.0",
+  "description": "Evidence-first cleanup of agent trajectory residue, dead islands, split-brain authority, stale dependencies, and unnecessary code across repositories",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Johnkozaris"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/johnkozaris/jko-claude-plugins",
+  "repository": "https://github.com/johnkozaris/jko-claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

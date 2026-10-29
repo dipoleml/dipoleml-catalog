@@ -1,0 +1,48 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoLogo -NoProfile -NonInteractive -File C:\\Users\\alex\\.claude\\scripts\\self-improve-hook.ps1 session-start"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoLogo -NoProfile -NonInteractive -File C:\\Users\\alex\\.claude\\scripts\\self-improve-hook.ps1 session-end",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoLogo -NoProfile -NonInteractive -File C:\\Users\\alex\\.claude\\scripts\\self-improve-hook.ps1 tool-failure",
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -NoLogo -NoProfile -NonInteractive -File C:\\Users\\alex\\.claude\\scripts\\self-improve-hook.ps1 precompact",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "skill_name": "analyze",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Analyze how auth works.",
+      "expected_output": "Asks clarifying questions before scoping or launching anything.",
+      "expectations": [
+        "Asked 2-3 clarifying questions (which auth path, codebase vs web, scope) before proposing angles",
+        "Did NOT launch a workflow or spawn research agents before the scope was confirmed"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Analyze how the session-cookie authentication flow in this codebase validates and refreshes tokens.",
+      "expected_output": "Shows the refined question and 2-6 non-overlapping angles in chat and waits for confirmation.",
+      "expectations": [
+        "Displayed the refined question and the angles (label + focus each) inline in the chat",
+        "Proposed between 2 and 6 angles that do not overlap",
+        "Asked the user to Launch, Adjust angles, or Refine the question",
+        "Did NOT launch before confirmation"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Analyze how the caching layer invalidates entries across services. I confirm your question and angles as proposed.",
+      "expected_output": "Authors and runs one dynamic workflow implementing research → consolidate → verify → synthesize.",
+      "expectations": [
+        "Called the Workflow tool with an inline script it authored (no scriptPath), whose meta is a pure literal",
+        "The script runs one research agent per confirmed angle concurrently, each returning cited, excerpted claims",
+        "The script merges duplicates by returned indices and rebuilds sources and excerpts from the original claims in code",
+        "The script runs three independent verifiers per unique claim and tallies confirmed / refuted / unverified in code, never counting an errored vote as a refutation",
+        "The synthesis agent receives only confirmed claims",
+        "Did NOT research or write findings itself outside the workflow"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "The analysis workflow returned: every verification panel errored, zero confirmed claims.",
+      "expected_output": "Reports an infrastructure failure, not a negative finding, and offers a retry.",
+      "expectations": [
+        "Stated that no claim could be verified because the verifiers failed, not because claims were refuted",
+        "Did NOT present any unverified claim as a finding",
+        "Offered to retry"
+      ]
+    }
+  ]
+}

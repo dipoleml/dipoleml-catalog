@@ -1,0 +1,57 @@
+package codexproxy
+
+import (
+	"context"
+	"fmt"
+	"io"
+
+	"github.com/ethanhq/cc-fleet/internal/config"
+)
+
+// upstream is the wire-specific half of the daemon: one implementation per
+// protocol. call translates the Anthropic request to the upstream format, sends
+// it, and returns the streaming body (or a classified *upstreamError); convert
+// runs that stream through the upstream's SSE→Anthropic converter; models is the
+// /v1/models list (static for codex, unused for openai — its models come from the
+// real upstream's models_endpoint, not this daemon).
+type upstream interface {
+	call(ctx context.Context, areq *anthropicRequest, cc *convCtx) (io.ReadCloser, error)
+	// convert runs the upstream's SSE→Anthropic converter. cc carries the model, the
+	// presented key (openai-*, so a streaming error chunk that echoes it is redacted —
+	// codex has none), and the per-request tool-name map (sanitized→original restore).
+	convert(body io.Reader, sink sseSink, cc *convCtx) error
+	models() []string
+}
+
+// buildUpstream selects the upstream implementation for a daemon's protocol.
+// codex builds its own OAuth token source bound to the daemon's credential ref;
+// openai-* carries the real key per request (apiKey passed to call), so it only
+// needs the upstream base URL and ignores ref. extraBody is validated here, where
+// the request splice depends on it holding no field the proxy sets itself.
+// forwardEffort turns on openai-chat's reasoning field (chatEffortField).
+func buildUpstream(protocol, upstreamURL, ref, extraBody string, forwardEffort bool) (upstream, error) {
+	if err := config.ValidateExtraBody(protocol, extraBody); err != nil {
+		return nil, err
+	}
+	switch protocol {
+	case config.ProtocolCodexOAuth:
+		source, err := newCLIRideStore(ref)
+		if err != nil {
+			return nil, err
+		}
+		return newCodexUpstream(source, ref), nil
+	case config.ProtocolOpenAIChat:
+		up := newOpenAIChatUpstream(upstreamURL)
+		up.extra = extraMembers(extraBody)
+		if forwardEffort {
+			up.effortField = chatEffortField(upstreamURL, extraBody)
+		}
+		return up, nil
+	case config.ProtocolOpenAIResponses:
+		up := newOpenAIResponsesUpstream(upstreamURL)
+		up.extra = extraMembers(extraBody)
+		return up, nil
+	default:
+		return nil, fmt.Errorf("codexproxy: unsupported protocol %q", protocol)
+	}
+}

@@ -1,0 +1,16 @@
+{
+  "name": "dipoleml-ai-music-skills",
+  "displayName": "DipoleML Ai Music Skills",
+  "version": "0.103.0",
+  "description": "AI music generation workflow for Suno - album concepts, lyrics, prompts, mastering, release",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Bitwize Music Studio"
+  },
+  "license": "CC0-1.0",
+  "homepage": "https://github.com/bitwize-music-studio/claude-ai-music-skills#readme",
+  "repository": "https://github.com/bitwize-music-studio/claude-ai-music-skills",
+  "skills": "./skills/",
+  "commands": [],
+  "agents": []
+}

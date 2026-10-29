@@ -1,0 +1,236 @@
+<p align="center">
+  <img src="./assets/hero.avif" alt="claude-video-vision" width="100%" />
+</p>
+
+# Claude Code Video Vision
+
+Give Claude the ability to **watch and understand videos**.
+
+A Claude Code plugin that extracts frames via ffmpeg and processes audio via multiple backends (Gemini API, local Whisper, or OpenAI API). Claude receives frames as images and audio transcription with timestamps — the plugin is a **perception layer**, not an interpretation layer.
+
+## Features
+
+- **Multimodal perception** — Claude sees video frames directly and reads audio transcriptions with timestamps
+- **YouTube URL support** — Pass a YouTube URL directly; the MCP server downloads it with `yt-dlp`, preserving source metadata and captions for context
+- **Flexible backends** — Choose between cloud APIs or fully local processing
+- **Adaptive extraction** — Claude adjusts fps, time range, and resolution based on your question
+- **Auto-installation** — Whisper models download automatically on first use
+- **Interactive setup wizard** — `/setup-video-vision` walks you through configuration
+
+## Quick Start
+
+### 1. Install the plugin
+
+Inside Claude Code, run these commands **one at a time**:
+
+```
+/plugin marketplace add https://github.com/jordanrendric/claude-video-vision
+```
+
+Then:
+
+```
+/plugin install claude-video-vision
+```
+
+The MCP server will auto-install via `npx` from [npm](https://www.npmjs.com/package/claude-video-vision) on first use — no build step required.
+
+Alternative: local development
+
+```bash
+git clone https://github.com/jordanrendric/claude-video-vision.git
+claude --plugin-dir /path/to/claude-video-vision
+```
+
+### 2. Configure
+
+Inside Claude Code, run the interactive wizard:
+
+```
+/claude-video-vision:setup-video-vision
+```
+
+It will walk you through backend selection, whisper configuration (if local), frame options, and dependency verification.
+
+## Usage
+
+### Slash command
+
+```
+/watch-video path/to/video.mp4
+/watch-video tutorial.mp4 "what language is used in this tutorial?"
+/watch-video https://www.youtube.com/watch?v=... "summarize this video"
+```
+
+### Conversational
+
+Just mention a video file or YouTube URL — Claude will detect it:
+
+> "analyze this video for me: ~/Downloads/demo.mp4"
+>
+> "take a look at the first second of ~/videos/bug-report.mov"
+>
+> "summarize this YouTube Short: https://www.youtube.com/shorts/..."
+
+Claude adapts parameters automatically:
+- "the first second" → extracts at original fps from `00:00:00` to `00:00:01`
+- "summarize this 1h lecture" → low fps, full duration
+- "what text is on screen at 1:30?" → high resolution, narrow time window
+
+## Backends
+
+| Backend | Audio processing | Cost | Setup |
+|---------|------------------|------|-------|
+| **Gemini API** | Native (speech + non-speech events) | Free tier: 1500 req/day | `GEMINI_API_KEY` env var |
+| **Local (Whisper)** | `whisper.cpp` or Python `openai-whisper` | Free, fully offline | `brew install whisper-cpp` + auto model download |
+| **OpenAI API** | OpenAI Whisper API | Paid per usage | `OPENAI_API_KEY` env var |
+
+**All backends** extract video frames via ffmpeg — Claude always has direct visual access.
+
+## Architecture
+
+```
+┌───────────────────────────────────────────────────────┐
+│ Claude Code (your session)                            │
+│                                                       │
+│  /watch-video  ──→  Skill: video-perception          │
+│                        │                              │
+│                        ▼                              │
+│                  MCP tool: video_watch                │
+│                        │                              │
+└────────────────────────┼──────────────────────────────┘
+                         │
+                         ▼
+      ┌────────────────────────────────────┐
+      │ MCP Server (Node.js)               │
+      │                                    │
+      │  ┌──────────┐    ┌──────────────┐  │
+      │  │ ffmpeg   │    │ Audio backend│  │
+      │  │ frames   │ ║  │ (parallel)   │  │
+      │  └──────────┘    └──────────────┘  │
+      │       │                 │          │
+      └───────┼─────────────────┼──────────┘
+              ▼                 ▼
+        base64 images     transcription
+        + timestamps      + audio events
+              │                 │
+              └────────┬────────┘
+                       ▼
+              Claude receives both
+```
+
+## Requirements
+
+- **Node.js 24+** (for the MCP server)
+- **ffmpeg** (auto-detected, install instructions provided by setup wizard)
+- **yt-dlp** (optional, required only for YouTube URLs; `brew install yt-dlp` on macOS)
+- **Backend-specific**:
+  - Gemini API: free API key from [ai.google.dev](https://ai.google.dev/gemini-api/docs/api-key)
+  - Local: `brew install whisper-cpp` (macOS) or equivalent
+  - OpenAI: API key from OpenAI
+
+## MCP Tools
+
+The plugin exposes 6 MCP tools:
+
+- `video_watch` — Extract frames + process audio (main tool)
+- `video_analyze` — Analyze video structure with ffmpeg filters before extraction
+- `video_detail` — Drill into specific cached or newly extracted moments
+- `video_info` — Get video metadata without processing
+- `video_configure` — Change settings
+- `video_setup` — Check and guide dependency installation
+
+## Slash Commands
+
+- `/watch-video <path> [question]` — Analyze a video
+- `/setup-video-vision` — Interactive configuration wizard
+
+## Configuration
+
+Settings are stored in `~/.claude-video-vision/config.json`:
+
+```json
+{
+  "backend": "local",
+  "whisper_engine": "cpp",
+  "whisper_model": "auto",
+  "whisper_at": false,
+  "frame_mode": "images",
+  "frame_format": "jpeg",
+  "frame_resolution": 512,
+  "default_fps": "auto",
+  "max_frames": 100,
+  "frame_describer_model": "sonnet",
+  "enable_index": false,
+  "session_max_age_days": 7,
+  "downloads_max_age_days": 7
+}
+```
+
+`frame_format` can be `jpeg`, `png`, or `webp`. `jpeg` remains the default for backwards compatibility; `png` is useful for screen recordings where text and sharp UI edges should stay lossless.
+
+**Whisper models** auto-download to `~/.claude-video-vision/models/` on first use. Available: `tiny`, `base`, `small`, `medium`, `large-v3-turbo`, `large-v3`, `auto` (picks best for your RAM).
+
+## YouTube Transcripts
+
+For YouTube URLs, the server uses this transcript order:
+
+1. Manual YouTube subtitles when an English track is available.
+2. YouTube automatic captions when manual subtitles are not available.
+3. The configured audio backend when captions are missing, empty, or cover too little of a longer video.
+
+Audio results label provenance with `transcription_source`, for example `youtube_subtitles` or `youtube_auto_captions`, so Claude can treat manual subtitles as stronger evidence than auto-captions.
+
+## Troubleshooting
+
+### Windows: MCP server fails to connect with `Unknown command: "claude-video-vision@latest"`
+
+The plugin starts its MCP server with `npx -y claude-video-vision@latest`. If `claude mcp list` shows the server as failed and running that command yourself prints `Unknown command: "claude-video-vision@latest"` followed by a hint about `npm help`, then `npm` received the package name as if it were a subcommand. That points to a broken or outdated `npx` on your machine, not to the plugin.
+
+1. **Check your npm install** in PowerShell:
+
+   ```powershell
+   npx --version
+   npm --version
+   where.exe npx
+   ```
+
+   Both versions should match (7 or newer), and `where.exe npx` should point to `npx.cmd` inside your Node.js install directory.
+
+2. **Fix it** by updating npm (`npm install -g npm@latest`) or reinstalling Node.js 24+ LTS, then restart Claude Code.
+
+3. **Workaround** if it still fails: install the server globally and register it yourself.
+
+   ```powershell
+   npm install -g claude-video-vision
+   claude mcp add --scope user claude-video-vision -- claude-video-vision
+   ```
+
+   The plugin's own server entry will keep showing as failed; you can ignore it. A global install does not update itself, so re-run `npm install -g claude-video-vision` to pick up new releases.
+
+## Status
+
+**v1.4.0** — see the [CHANGELOG](./CHANGELOG.md) for release history. CI runs on Ubuntu and macOS with Node.js 24 and 26.
+
+## License
+
+MIT — see [LICENSE](./LICENSE).
+
+## Author
+
+**Jordan Vasconcelos**
+
+- GitHub: [@jordanrendric](https://github.com/jordanrendric)
+- LinkedIn: [jordanvasconcelos](https://www.linkedin.com/in/jordanvasconcelos/)
+- Instagram: [@jordanvasconcelos__](https://www.instagram.com/jordanvasconcelos__/)
+- X/Twitter: [@jordanrendric](https://x.com/jordanrendric)
+
+## Star History
+
+<a href="https://www.star-history.com/?repos=jordanrendric%2Fclaude-video-vision&type=date&legend=top-left">
+ <picture>
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=jordanrendric/claude-video-vision&type=date&theme=dark&legend=top-left" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=jordanrendric/claude-video-vision&type=date&legend=top-left" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=jordanrendric/claude-video-vision&type=date&legend=top-left" />
+ </picture>
+</a>

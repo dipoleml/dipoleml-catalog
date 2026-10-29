@@ -1,0 +1,126 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.kunchenguid.dipoleml-mod",
+  "type": "plugin",
+  "name": "DipoleML Mod",
+  "slug": "dipoleml-mod",
+  "vendor": "kunchenguid",
+  "description": "\"Work appears completed or recorded. Run /compact to save tokens.\"",
+  "version": "0.1.14",
+  "homepage": "https://github.com/kunchenguid/compact-adviser",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "claude-code-plugin",
+    "compaction",
+    "pi",
+    "pi-extension",
+    "typesafe"
+  ],
+  "tags": [
+    "claude-code",
+    "claude-code-plugin",
+    "compaction",
+    "pi",
+    "pi-extension",
+    "typesafe"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "kunchenguid",
+    "brandName": "kunchenguid",
+    "source": "https://github.com/kunchenguid.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:13:45Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "kunchenguid/compact-adviser",
+    "url": "https://github.com/kunchenguid/compact-adviser",
+    "commit": "37fa1a665b8933de68c90014312060e862cf121a",
+    "path": "packages/claude-mod",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 224,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:01:55Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Claude Mod | \"Work appears completed or recorded. Run /compact to save tokens.\"",
+        "after": "DipoleML Mod | \"Work appears completed or recorded. Run /compact to save tokens.\"",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Suggests (or, opt-in, runs) /compact at a completed checkpoint, judged by TypeSafe Jev. Its hooks module activates only when CLAUDE_CODE_ENABLE_FUNCTION_HOOKS is exactly 1 and is otherwise a complete no-op.",
+        "after": "Suggests (or, opt-in, runs) /compact at a completed checkpoint, judged by TypeSafe Jev. Its hooks module activates only when DipoleML_ENABLE_FUNCTION_HOOKS is exactly 1 and is otherwise a complete no-op.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "claude-mod",
+        "after": "dipoleml-mod",
+        "reason": "provider token neutralized in slug/id"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "compact-adviser-claude-mod"
+    ],
+    "env": [
+      "TYPESAFE_API_KEY"
+    ],
+    "credentials": [
+      "TYPESAFE_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

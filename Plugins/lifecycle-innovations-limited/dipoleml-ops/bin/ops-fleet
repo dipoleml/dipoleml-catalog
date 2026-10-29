@@ -1,0 +1,332 @@
+#!/usr/bin/env bash
+# ops-fleet — read-only Claude session + CLIProxyAPI gateway/pool dashboard.
+# Sources: claude agents/daemon, client-visible gateway/model API, optional
+# sanitized server-side pool snapshot. Never mutates state.
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+NO_COLOR="${NO_COLOR:-}"
+ALL=0
+MODELS=0
+NO_POOL=0
+LEGACY=0
+WATCH=0
+ONCE=0
+W="${FLEET_W:-104}"
+
+for arg in "$@"; do
+  case "$arg" in
+    --once|--snapshot) ONCE=1 ;;
+    --tui|--watch) WATCH=1 ;;
+    --all) ALL=1 ;;
+    --models) MODELS=1 ;;
+    --no-pool|--no-remote|--no-ec2) NO_POOL=1 ;;
+    --legacy-accounts) LEGACY=1 ;;
+    --no-color) NO_COLOR=1 ;;
+  esac
+done
+
+# Captured stdout (slash command / cron) → one-shot; real TTY → TUI unless --once.
+if [[ ! -t 1 ]] || (( ONCE )); then WATCH=0; fi
+if (( WATCH )); then :; else ONCE=1; fi
+
+# Prefer prefs + env for non-public host wiring
+PREFS="${PREFS_PATH:-$HOME/.claude/plugins/data/ops-ops-marketplace/preferences.json}"
+if [[ -f "$PREFS" ]]; then
+  eval "$(python3 - "$PREFS" <<'PY'
+import json,sys,shlex
+p=sys.argv[1]
+try:d=json.load(open(p))
+except Exception:d={}
+fleet=d.get('fleet') or {}
+for k,env in [
+ ('cliproxy_base_url','CLIPROXYAPI_BASE_URL'),
+ ('cliproxy_ssh_host','CLIPROXYAPI_SSH_HOST'),
+ ('cliproxy_ssh_user','CLIPROXYAPI_SSH_USER'),
+]:
+  v=fleet.get(k) or d.get(env) or ''
+  if v and env not in __import__('os').environ:
+    print(f'export {env}={shlex.quote(str(v))}')
+PY
+)"
+fi
+
+CLAUDE_BIN="${CLAUDE_BIN:-$(command -v claude 2>/dev/null || true)}"
+BASE="${CLIPROXYAPI_BASE_URL:-}"
+if [[ -z "$BASE" && -f "$HOME/.claude/settings.json" ]]; then
+  BASE="$(python3 -c 'import json,sys; d=json.load(open(sys.argv[1])); print((d.get("env") or {}).get("ANTHROPIC_BASE_URL",""))' "$HOME/.claude/settings.json" 2>/dev/null || true)"
+fi
+BASE="${BASE:-http://127.0.0.1:8317}"
+API_KEY="${CLIPROXY_API_KEY:-${CLIPROXYAPI_API_KEY:-}}"
+if [[ -z "$API_KEY" && -f "$HOME/.env" ]]; then
+  API_KEY="$(python3 - "$HOME/.env" <<'PY'
+from pathlib import Path
+import sys
+for line in Path(sys.argv[1]).read_text(errors="ignore").splitlines():
+    if line.startswith("CLIPROXY_API_KEY=") or line.startswith("CLIPROXYAPI_API_KEY="):
+        print(line.split("=",1)[1].strip().strip("\"\'")); break
+PY
+)"
+fi
+if [[ -z "${BASE:-}" || "$BASE" == "http://127.0.0.1:8317" ]]; then
+  if [[ -f "$HOME/.env" ]]; then
+    _b="$(python3 - "$HOME/.env" <<'PY'
+from pathlib import Path
+import sys
+for line in Path(sys.argv[1]).read_text(errors="ignore").splitlines():
+    if line.startswith("CLIPROXYAPI_BASE_URL=") or line.startswith("CLIPROXY_BASE_URL="):
+        print(line.split("=",1)[1].strip().strip("\"\'")); break
+PY
+)"
+    [[ -n "$_b" ]] && BASE="$_b"
+  fi
+fi
+
+C(){ if [[ -n "$NO_COLOR" ]]; then printf ''; else printf '\033[%sm' "$1"; fi; }
+B="$(C 1)"; D="$(C 2)"; G="$(C 32)"; Y="$(C 33)"; R="$(C 0)"; RED="$(C 31)"
+
+render() {
+  local tmp
+  tmp="$(mktemp -d)"
+  trap 'rm -rf "$tmp"' RETURN
+
+  # Claude sessions
+  if [[ -n "$CLAUDE_BIN" && -x "$CLAUDE_BIN" ]]; then
+    if (( ALL )); then
+      "$CLAUDE_BIN" agents --json --all >"$tmp/agents.json" 2>/dev/null || echo '[]' >"$tmp/agents.json"
+    else
+      "$CLAUDE_BIN" agents --json >"$tmp/agents.json" 2>/dev/null || echo '[]' >"$tmp/agents.json"
+    fi
+    "$CLAUDE_BIN" daemon status >"$tmp/daemon.txt" 2>/dev/null || true
+  else
+    echo '[]' >"$tmp/agents.json"
+  fi
+
+  # Gateway root + models
+  local auth_h=()
+  if [[ -n "$API_KEY" ]]; then auth_h=(-H "Authorization: Bearer ${API_KEY}"); fi
+  local t0 t1 ms
+  t0=$(python3 -c 'import time;print(int(time.time()*1000))')
+  curl -sS -m 5 -o "$tmp/root.json" -w '%{http_code}' "${auth_h[@]}" -A 'ops-fleet/1' "$BASE/" >"$tmp/root.code" 2>/dev/null || echo 000 >"$tmp/root.code"
+  t1=$(python3 -c 'import time;print(int(time.time()*1000))')
+  ms=$((t1-t0))
+  curl -sS -m 8 -o "$tmp/models.json" -w '%{http_code}' "${auth_h[@]}" -A 'ops-fleet/1' "${BASE%/}/v1/models" >"$tmp/models.code" 2>/dev/null || echo 000 >"$tmp/models.code"
+
+  # Pool
+  if (( NO_POOL )); then
+    printf '{"ok":false,"error":"pool collection disabled"}' >"$tmp/pool.json"
+  elif [[ -n "${CLIPROXYAPI_POOL_COMMAND:-}" ]]; then
+    if [[ -x "$CLIPROXYAPI_POOL_COMMAND" && "$CLIPROXYAPI_POOL_COMMAND" != *" "* ]]; then
+      "$CLIPROXYAPI_POOL_COMMAND" >"$tmp/pool.json" 2>/dev/null || printf '{"ok":false,"error":"pool command failed"}' >"$tmp/pool.json"
+    else
+      printf '{"ok":false,"error":"pool command must be an executable path"}' >"$tmp/pool.json"
+    fi
+  elif [[ -n "${CLIPROXYAPI_SSH_HOST:-}" ]]; then
+    CLIPROXYAPI_SSH_HOST="$CLIPROXYAPI_SSH_HOST" CLIPROXYAPI_SSH_USER="${CLIPROXYAPI_SSH_USER:-}" \
+      "$ROOT/bin/ops-fleet-pool-snapshot" >"$tmp/pool.json" 2>/dev/null || printf '{"ok":false,"error":"pool snapshot unavailable"}' >"$tmp/pool.json"
+  else
+    printf '{"ok":false,"error":"pool host not configured"}' >"$tmp/pool.json"
+  fi
+
+  MODELS_FLAG="$MODELS" NO_COLOR="$NO_COLOR" W="$W" BASE="$BASE" CLAUDE_BIN="$CLAUDE_BIN" \
+  python3 - "$tmp" <<'PY'
+import json, os, re, pathlib, time, datetime, sys
+tmp=pathlib.Path(sys.argv[1])
+NO=bool(os.environ.get('NO_COLOR'))
+def C(c): return '' if NO else f'\033[{c}m'
+B,D,G,Y,R,RED=C(1),C(2),C(32),C(33),C(0),C(31)
+W=int(os.environ.get('W') or 104)
+BASE=os.environ.get('BASE','')
+CLAUDE_BIN=os.environ.get('CLAUDE_BIN','')
+MODELS=os.environ.get('MODELS_FLAG')=='1'
+now=datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+def load(p, default=None):
+  try: return json.loads(pathlib.Path(p).read_text())
+  except Exception: return default
+
+agents=load(tmp/'agents.json', [])
+if isinstance(agents, dict):
+  agents=agents.get('agents') or agents.get('sessions') or agents.get('data') or []
+if not isinstance(agents, list): agents=[]
+
+daemon_txt=(tmp/'daemon.txt').read_text(errors='ignore') if (tmp/'daemon.txt').exists() else ''
+# parse daemon loosely
+pid=re.search(r'pid[:\s]+(\d+)', daemon_txt, re.I)
+ver=re.search(r'v?(\d+\.\d+\.\d+)', daemon_txt)
+up=re.search(r'up(?:time)?[:\s]+(\S+)', daemon_txt, re.I)
+sock='✓' if re.search(r'sock(?:et)?[:\s]+.*(ok|yes|✓|true|listen)', daemon_txt, re.I) or 'listening' in daemon_txt.lower() else ('✓' if agents else '✗')
+if not pid:
+  # fallback: claude process
+  import subprocess
+  try:
+    out=subprocess.check_output("pgrep -f '/claude($| )' | head -1", shell=True, text=True).strip()
+    pid_v=out or '?'
+  except Exception: pid_v='?'
+else: pid_v=pid.group(1)
+ver_v=ver.group(1) if ver else '?'
+up_v=up.group(1) if up else '?'
+
+root_code=(tmp/'root.code').read_text().strip() if (tmp/'root.code').exists() else '000'
+models_code=(tmp/'models.code').read_text().strip() if (tmp/'models.code').exists() else '000'
+models=load(tmp/'models.json', {})
+model_ids=[]
+if isinstance(models, dict):
+  data=models.get('data') or []
+  if isinstance(data, list):
+    model_ids=[m.get('id') for m in data if isinstance(m,dict) and m.get('id')]
+model_counts={}
+for mid in model_ids:
+  s=str(mid).lower()
+  if 'claude' in s or 'anthropic' in s: owner='anthropic'
+  elif 'grok' in s or s.startswith('xai') or 'x-ai' in s: owner='xai'
+  elif 'gemini' in s or 'antigravity' in s: owner='antigravity'
+  elif 'kimi' in s or s.startswith('k3'): owner='kimi'
+  elif s.startswith('gpt') or s.startswith('o1') or s.startswith('o3') or s.startswith('o4') or 'codex' in s: owner='openai'
+  else: owner='other'
+  model_counts[owner]=model_counts.get(owner,0)+1
+
+pool=load(tmp/'pool.json', {"ok":False})
+pool_ok=bool(pool.get('ok')); service=pool.get('service') or {}; routing=pool.get('routing') or {}; traffic=pool.get('traffic') or {}; providers=pool.get('providers') or {}
+active=sum(int(v.get('active') or 0) for v in providers.values() if isinstance(v,dict))
+disabled=sum(int(v.get('disabled') or 0) for v in providers.values() if isinstance(v,dict))
+backups=sum(int(v.get('backup') or 0) for v in providers.values() if isinstance(v,dict))
+cooling=sum(int(v.get('cooling') or 0) for v in providers.values() if isinstance(v,dict))
+serving=sum(int(v.get('serving', v.get('active') or 0) or 0) for v in providers.values() if isinstance(v,dict))
+_recov=[v.get('next_recovery_in_s') for v in providers.values() if isinstance(v,dict) and v.get('next_recovery_in_s') is not None]
+soonest=min(_recov) if _recov else None
+def _dur(s):
+  s=int(s)
+  if s<90: return f'{s}s'
+  if s<5400: return f'{s//60}m'
+  if s<172800: return f'{s//3600}h'
+  return f'{s//86400}d'
+pool_age='?'
+if pool.get('fetched_at'):
+  try: pool_age="%ss" % max(0,int(time.time())-int(pool["fetched_at"]))
+  except Exception: pool_age='?'
+
+# sessions summary
+states={'working':0,'waiting':0,'idle':0,'blocked':0,'done':0,'other':0}
+rows=[]
+for a in agents:
+  if not isinstance(a,dict): continue
+  st=str(a.get('status') or a.get('state') or a.get('phase') or 'idle').lower()
+  if 'work' in st or st=='running' or st=='active': key='working'
+  elif 'wait' in st or 'pending' in st: key='waiting'
+  elif 'block' in st or 'error' in st or 'fail' in st: key='blocked'
+  elif 'done' in st or 'complete' in st: key='done'
+  elif 'idle' in st: key='idle'
+  else: key='other'
+  states[key]=states.get(key,0)+1
+  name=a.get('name') or a.get('title') or a.get('id') or '?'
+  sid=str(a.get('id') or a.get('session_id') or '')[:8]
+  route='proxy' if 'proxy' in str(a.get('base_url') or a.get('provider') or BASE).lower() or '8317' in str(a.get('base_url') or '') else 'direct'
+  focus=str(a.get('focus') or a.get('cwd') or a.get('project') or '')[:18]
+  pid_s=a.get('pid') or '?'
+  up_s=a.get('uptime') or a.get('up') or ''
+  mark={'working':'●','waiting':'◐','idle':'○','blocked':'✗','done':'·'}.get(key,'·')
+  rows.append((mark,key,sid,str(name)[:28],route,st[:8],focus,pid_s,up_s))
+
+# header
+host=BASE.replace('https://','').replace('http://','')
+gw_ok = root_code in ('200','401','403') or models_code in ('200','401','403')
+gw_mark = f'{G}✓{R}' if gw_ok else f'{RED}✗{R}'
+auth_note='auth required' if models_code in ('401','403') else (f'{len(model_ids)} models' if models_code=='200' else f'HTTP {models_code}')
+# latency from models or root — approximate via file mtime not available; leave blank if unknown
+# we stored only one timing; re-read not possible. skip precise ms if not available.
+print(f'{B}╔ FLEET DASHBOARD {"═"*(max(0,W-22))} {now} ╗{R}')
+print(f' {B}CLAUDE{R}   bin {pathlib.Path(CLAUDE_BIN).name if CLAUDE_BIN else "?"} · pid {pid_v} · v{ver_v} · up {up_v} · sock {sock} · sessions {len(agents)}')
+print(f' {B}GATEWAY{R}  {gw_mark} remote {host} · root HTTP {root_code} · models {auth_note}')
+if pool_ok:
+  service_mark=f'{G}✓{R}' if service.get('active') else f'{Y}◐{R}'
+  cool_s=f' · {Y}{cooling} cooling{R}' + (f' (next {_dur(soonest)})' if soonest is not None else '') if cooling else ''
+  cap_mark=G if serving else RED
+  print(f' {B}POOL{R}     {service_mark} {cap_mark}{serving}/{active} serving{R}{cool_s} · {disabled} disabled · {backups} backup · evidence {pool_age}')
+  _cap=routing.get('max_retry_credentials')
+  _capw='' if (isinstance(_cap,int) and _cap>0) else f' {Y}(uncapped){R}'
+  print(f' {B}ROUTING{R}  {routing.get("strategy","?")} · retry {routing.get("request_retry","?")} / {routing.get("max_retry_interval_s","?")}s · credential-walk cap {_cap if _cap else "0"}{_capw} · cooling {"off" if routing.get("cooling_disabled") else "on"}')
+  reqs=int(traffic.get('requests') or 0); errs=int(traffic.get('errors') or 0)
+  status=traffic.get('status') or {}
+  r429=int(status.get('429') or 0); r5=sum(int(status.get(str(c)) or 0) for c in range(500,600))
+  rate=f'{(100.0*errs/reqs):.1f}%' if reqs else '0%'
+  p50=traffic.get('p50_ms'); p95=traffic.get('p95_ms')
+  p50s=f'{p50/1000:.1f}s' if isinstance(p50,(int,float)) else '?'
+  p95s=f'{p95/1000:.1f}s' if isinstance(p95,(int,float)) else '?'
+  print(f' {B}TRAFFIC{R}  {reqs} inference req/10m · errors {errs} ({rate}) · 429:{r429} · 5xx:{r5} · p50 {p50s} · p95 {p95s}')
+else:
+  print(f' {B}POOL{R}     {Y}◐{R} degraded · {pool.get("error") or "unavailable"}')
+print(f' routes oauth=direct Max  api=direct metered  bedrock=AWS  proxy=CLIProxyAPI')
+print(f'{B}╚{"═"*(W-2)}╝{R}')
+print(f'  {G}●{R} working {states.get("working",0)}   {Y}◐{R} waiting {states.get("waiting",0)}   ○ idle {states.get("idle",0)}   {RED}✗{R} blocked {states.get("blocked",0)}   ({len(agents)} total)')
+print(f'{D}{"─"*W}{R}')
+for mark,key,sid,name,route,st,focus,pid_s,up_s in rows[:40]:
+  print(f'{mark} {sid:<8} {name:<28} {route:<6} {st:<8} {focus:<18} pid {pid_s}   up {up_s}')
+if not rows:
+  print(f'{D}  (no sessions){R}')
+print(f'{D}{"─"*W}{R}')
+print(f'{B}PROVIDERS & MODELS{R}')
+# map credential provider names to catalog owners
+alias={'claude':'anthropic','codex':'openai','openai-compatible-kimi':'kimi','kimi':'kimi','xai':'xai','antigravity':'antigravity','anthropic':'anthropic','openai':'openai'}
+names=sorted(set(list(providers.keys())+list(model_counts.keys())))
+# merge openai-compatible-kimi into kimi display
+display_order=[]
+seen=set()
+for n in names:
+  label=n
+  if n.startswith('openai-compatible-'):
+    label=n.split('openai-compatible-',1)[-1]
+  key=alias.get(label,label)
+  if key in seen: continue
+  seen.add(key)
+  display_order.append((key,n))
+if not display_order and not model_counts:
+  print(f'  {D}No authenticated model or pool inventory{R}')
+for key, raw in display_order:
+  p=providers.get(raw,{}) if isinstance(providers.get(raw,{}),dict) else {}
+  # also try key itself
+  if not p: p=providers.get(key,{}) if isinstance(providers.get(key,{}),dict) else {}
+  if key=='kimi' and not p:
+    p=providers.get('openai-compatible-kimi',{}) if isinstance(providers.get('openai-compatible-kimi',{}),dict) else {}
+  if key in ('claude','anthropic'):
+    label='claude (anthropic)'
+    p=providers.get('claude', p) if isinstance(providers.get('claude',{}),dict) else p
+    cat=model_counts.get('anthropic',0)
+  elif key=='codex' or key=='openai':
+    label='codex (openai)'
+    cat=model_counts.get('openai',0)
+  elif key=='xai':
+    label='xai'
+    cat=model_counts.get('xai',0)
+  elif key=='antigravity':
+    label='antigravity'
+    cat=model_counts.get('antigravity',0)
+  elif key=='kimi':
+    label='kimi'
+    cat=model_counts.get('kimi',0)
+  else:
+    label=key
+    cat=model_counts.get(key,0)
+  _act=int(p.get('active') or 0); _cool=int(p.get('cooling') or 0)
+  _serv=int(p.get('serving', _act) or 0); _nr=p.get('next_recovery_in_s')
+  _c=f' · {Y}{_cool} cooling{R}' + (f' (next {_dur(_nr)})' if _nr is not None else '') if _cool else ''
+  _m=G if _serv else (Y if _act else D)
+  print(f'  {label:<20} {_m}{_serv}/{_act} serving{R}{_c} · {int(p.get("disabled") or 0)} disabled · {D}{int(p.get("backup") or 0)} backup{R} · catalog {cat}')
+
+if MODELS and model_ids:
+  print(f'{D}{"─"*W}{R}')
+  print(f'{B}MODELS ({len(model_ids)} effective IDs){R}')
+  for mid in model_ids:
+    print(f'  {mid}')
+PY
+}
+
+if (( WATCH )); then
+  while true; do
+    clear 2>/dev/null || true
+    render
+    sleep 5
+  done
+else
+  render
+fi

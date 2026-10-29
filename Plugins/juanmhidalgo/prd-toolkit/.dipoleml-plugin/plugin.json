@@ -1,0 +1,16 @@
+{
+  "name": "prd-toolkit",
+  "displayName": "Prd Toolkit",
+  "version": "2.1.5",
+  "description": "Refine, analyze, and validate Product Requirements Documents (PRDs). Publish to GitHub Issues or ClickUp.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Juanmhidalgo"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/juanmhidalgo/claude-plugins",
+  "repository": "https://github.com/juanmhidalgo/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

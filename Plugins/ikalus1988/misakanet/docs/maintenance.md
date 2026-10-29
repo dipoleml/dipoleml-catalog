@@ -1,0 +1,246 @@
+# MisakaNet 维护手册（maintenance）
+
+> 审计 2026-09-05（T3.2 / T3.4）：scripts 命名与破坏性操作、归档治理、可再生成数据清单。
+> 配套：`docs/CI.md`（workflow 索引）、`.audit-reports-20260905/`（审计与执行记录，gitignore 本地保留）。
+
+## 1. scripts/ 命名与破坏性操作分类
+
+现状（2026-09-05 快照）——带 `auto_` / `fix_` 前缀的脚本**只改写本地工作树文件**，
+不含 git commit/push、gh、或网络写回（grep 校验 0 命中）：
+
+| 脚本 | 作用 | 破坏性 | 建议 |
+|---|---|---|---|
+| `fix_frontmatter.py` | 修复损坏的 lesson frontmatter（`--fix` 才写） | 本地改写 | 保留 |
+| `fix_frontmatter_mix.py` | 混合/旧格式 frontmatter 修复 | 本地改写 | 保留 |
+| `fix_verification.py` | 补 Verification 段落 | 本地改写 | 保留 |
+| `fix_lesson_quality_v2.py` | 按评分器批量提升 lesson 质量 | 本地改写 | 保留 |
+| `auto_fix_lessons.py` | 自动修 lesson（面向 CI 反馈） | 本地改写 | 重命名候选 → `write_fix_lessons.py` |
+
+**命名政策（新增代码遵守）**：
+- 只读分析类：`audit_*` / `check_*` / `inspect_*` / `_dry` 参数
+- 会改写仓库文件的脚本：前缀 `write_*` 或 `mutate_*`，默认 `--dry-run`，显式 `--apply/--fix` 才写
+- 会触碰远端（git push / gh / 网络写）的脚本：前缀 `submit_*` / `sync_*`，必须在 docstring 声明
+  需要哪些凭据（见 `scripts/sync_lessons_to_d1.py` 头部示例）
+
+> 重命名 `auto_fix_lessons.py` 需先确认无 workflow/脚本引用（本次审计未发现引用，但仍建议
+> 在独立 PR 中连同引用检查一起做）。
+
+## 2. 归档与数据治理
+
+### lessons/_archive（退役区，不入索引）
+- **2026-09-05 已全部清理**（产品决策，git rm 共 50 篇）：
+  - 4 个损坏半导入顶层条目（`context-compaction-*` ×2、旧版 `feishu-bot-setup-complete`、`system-note-...`）
+  - 3 个归档子目录 46 篇（`conversation-dumps/` 1、`hook-raw/` 2、`skill-harvest/` 43）——
+    均为 2026-08-23 批量导入的自动化产物（`contributor: Unknown`、`metadata-normalized`、
+    draft/archive domain、skill-pipeline/bootstrap 来源），不入索引、非人工策展；git 历史可回溯，
+    源内容仍在本地 openclaw/cc-haha/skills 源中。
+- 今后请勿向 `_archive/` 新增文件（该目录在 `misakanet/lesson_index.py` 中作为脚手架排除）。
+
+### 可再生成数据（不要手改，改源后跑脚本）
+| 文件 | 生成方式 |
+|---|---|
+| `data/lessons.json` | `python3 scripts/update_lessons_json.py`（canonical，唯一 id；条数见下一行，不要在这里复制） |
+| `docs/_lessons_count.txt` | 同上，经 `scripts/sync_lesson_count.py` |
+| `docs/lessons/**`、`docs/topics/**`（含 `/topics/` 索引）、`docs/sitemap.xml` | `python3 scripts/build_lesson_pages.py`（幂等，`--check` 是门禁；清单在 `docs/.generated-pages.json`）——由 `update-lessons.yml` 在刷新索引后自动跑：每日一次，以及 push 到 `lessons/**` 时一次（否则合并进来的课程要等一天才有页面，而 `sync-d1.yml` 当场就让它可检索了）。`--check` 除"计划 vs 磁盘"外还查两条与计划无关的关系：不可成页的 lesson（无 `title`，或 `title` 无法成 slug）与语料里没有页面的 lesson（2026-09-30）|
+| 站内**必须含字面计数**的三处（`docs/index.html` 的 meta/首屏降级、`docs/llms.txt` 与 `.well-known` 副本） | `python3 scripts/sync_lesson_count.py`（幂等；`--check` 是门禁，`tests/test_lesson_count_ssot.py` 锁不变量 + 面数上限）。其余表面**指向**而不是复制：GitHub 渲染的 markdown 用 shields 动态徽章（读 `data` 分支 `badges/*.json`，`update-badges.yml` 每日推），散文/描述里只写来源（`data/lessons.json` / `llms.txt`） |
+| `data/okf/lessons.jsonl` | `python3 scripts/export_okf.py`（SAG/OKF 数据源） |
+| `data/sag.db` | `python3 scripts/build_sag_index.py`（构建模式） |
+| `docs/data/lessons.json` 等站点镜像 | **无自动化**：`sync-data.yml` 已于 2026-09-21 删除（触发条件永远不满足）。`data` 分支上的 `counter.json` 也已于 2026-09-28 删除（连同 main 的 `data/counter.json` 与 `sync-node-counter.yml`：那个数字的单一来源是 worker 的 D1/KV 计数器，见 `data/README.md` 与 #1985/#1820）|
+
+### 可见性/去重政策（用户决策 2026-09-05）
+- 索引 = 图书馆：core/contrib + 语言副本独特内容 + 生命周期目录**全部可见**
+- 镜像/翻译副本（如 `en/` 与 core/contrib 同 stem 的 29 篇）**不进索引**（`misakanet/lesson_index.py::canonical_lessons`），
+  文件保留、按路径可取；避免搜索结果重复
+- `templates/`（脚手架）与 `_archive/`（退役）永不索引；`lesson_gate.py` 单独负责 PR 编辑门禁（含镜像目录）
+
+## 3. 例行清理清单（发布前 5 分钟）
+1. `git status` 无意外 untracked（历史垃圾目录已被 `.gitignore` + `scripts/hygiene_check.sh` 拦截）
+2. `python3 scripts/update_lessons_json.py` 刷新计数；`make doctor` 全绿（或明确记录唯一失败项）
+3. 数据分支镜像与 D1 与仓库一致：跑一次 `sync-d1.yml`（`workflow_dispatch`），`--reconcile` 对比
+4. 删除本地临时物：`scripts/mhs_watch*` 等会话残留若不再使用可移除；`.audit-reports-*/` 已 gitignore，按需归档到 `~/audit_reports`
+5. 大改后跑：`python3 -m pytest tests/test_lesson_index_discovery.py tests/test_version_consistency.py -q`
+
+## 4. 相关决策记录
+- 版本双线（registry 2.27.x vs PyPI 2.23.x）为刻意设计，见 `docs/maintainer/handoff-2026-09-05.md`；
+  `tests/test_version_consistency.py` 锁两条线内部不变量
+- 每日 `update-lessons.yml` 提交 `data/lessons.json` + 计数标记文档；`sync-d1.yml` 每日同步 D1（canonical 358）
+
+## 5. 版本通道（audit T2.1 统一后的策略）
+
+MisakaNet 有**三条版本通道**（registry / repo release / pypi）。registry 与 pypi 各有自己的节奏；
+**npm bundle 从 2026-09-30 起不再是独立节奏**，它已经是 repo release 线的一部分（owner 决策 D1 = A，
+消费者报的“一页两个版本号”见 intake #2486）——下表仍单列一行，只因为它的发布面（npm）不同。不要试图把
+剩下的通道合并成单个数：registry 跟进 MCP registry、pypi 跟进发布实况，它们的时间点本来就不同。
+
+| 通道 | 载体 | 现状 | 何时 bump |
+<!-- 版本数字**不写在这里**（intake #2486）：这张表曾经写着 2.29.0 / 2.23.1，而 main 早已到 2.4x——“两处信息来自不同维护动作”正是这样产生的。每一行指向它的载体，那里才是唯一真相。 -->
+|---|---|---|---|
+| **registry 线** | `server.json`/`glama.json` `version` + API.md/JOIN.md 声明 | 见 `server.json` | 每次发版 tag 后“对齐”（随 handoff 流程） |
+| **repo release 线** | `pyproject.toml` + `.release-please-manifest.json`（release-please python 型随发版 bump）+ README `misakanet@` 声明 | 见 `pyproject.toml` | 每次发版（release-please/tag） |
+| **npm bundle 线** | `package.json` + `.codex-plugin/plugin.json`（发布实况见 `npm view misakanet version` 或 npm 徽章） | 见 `package.json` | **每次发版**：自 2026-09-30（owner 决策 D1 = A）这两个文件都在 release-please 的 `extra-files` 里（json updater），随发版 PR 一起走，不再有独立节奏 |
+| **pypi 通道** | server.json pypi entry == pyproject；发布实况见 PyPI（自 tag push 自动发布；通道修复见 §9） | 见 `pyproject.toml` | 发布即同步（release-pypi workflow_dispatch） |
+
+统一方式 = **单一工具 + 不变量门禁**，不再手改多处：
+
+```bash
+python3 scripts/align_versions.py --check                 # 门禁：R1-R7 不变量 + 两条 advisory
+python3 scripts/align_versions.py --registry 2.28.0       # 升 registry 线（server/glama/API/JOIN 一次完成）
+python3 scripts/align_versions.py --source 2.24.0         # 事故路径：手改 source 线（**不再是发版路径**）
+make check-versions                                       # 等价的 Makefile 入口（建议 CI 用）
+```
+
+不变量（与 tests/test_version_consistency.py 一致）：registry 对等；npm bundle 线**等于** manifest
+（2026-09-30 起 release-please 同时拥有两者，`JSON_PINNED_VERSION_FILES` 把“声明了没有”和“值对不对”
+一起锁住）；pypi 源线 pyproject==server pypi entry；pyproject 允许滞后于 manifest；文档声明不得超过当前上限。
+npm 线的**下界刻意不存在**（`npm_bundle_floor`）：回滚与手误从版本号上无法区分，所以 `--check` 只提示、
+不失败（2026-09-29 的 owner 决策）。PyPI 实况可用 `scripts/align_versions.py --check` 输出对照 pypi.org 人工核对。
+
+## 6. Dependabot 排查记录（2026-09-05）
+
+GitHub 提示默认分支 4 条开放告警（2 critical + 2 high）。沙箱无法读 API（git 凭据无 REST 权限，401），
+以下为本机可验证的排查结论：
+
+- **npm（root）**：`npm audit` → 0 漏洞；devDependency `wrangler ^4.127.0` 干净（overrides: sharp 0.35.3）。
+- **npm（packages/fatal-guard）**：`npm audit` → 0 漏洞。
+- **pip 顶层直接依赖**（requirements.txt / pyproject，含可选 hub extras）：OSV batch 查询
+  mcp/jsonschema/pyyaml/misakanet-core/chromadb/aiohttp/websocket-client/networkx/numpy/keyring/
+  requests/scrapling/sentence-transformers → **无 critical/high**。
+- **GitHub Actions**：inventory 显示均用较新版本（checkout@v7、setup-python@v7、github-script@v9、
+  codeql-action@v4、stale@v11 等）；`tj-actions/changed-files@v47.0.6`、`release-please-action@v5`、
+  `pypa/gh-action-pypi-publish@release/v1` 为 tag 引用（建议 SHA pin，但非安全告警本身）。
+- 推断剩余告警来源：`uv.lock` 传递依赖（dependabot 现支持 uv）或某个未覆盖的 Actions。
+  待维护者在 GitHub Security → Dependabot 页粘贴 4 条明细后逐条修复；修复路径模板：
+  pip/uv → 升级对应约束 + `uv lock`；npm → `npm audit fix` 后提交 lock；actions → 升到已修复版本或 SHA pin。
+
+**2026-09-05 修复（告警明细确认后）：4 条告警全部为 `chromadb`（pip · uv.lock）——
+GHSA-2wm9（高, 租户越权）、GHSA-36p7（严重, 代码注入）、GHSA-f4j7（严重, 预认证代码注入）、
+GHSA-xph7（高, RBAC 范围）。`last_affected = 1.5.9` 即 PyPI 最新版，上游无修复。
+本仓库零 chromadb import（仅 pyproject hub extras 遗留声明）→ 已从 `hub` extras 移除并 `uv lock`
+（lock -1806/+37 行），4 条告警在推送后自动关闭；外部 hub 包如确需 chromadb 由其自身清单声明。
+
+## 7. dsh bundle（插件/工具集成，2026-09-05）
+
+MisakaNet 现已声明 `dsh.bundle`（`package.json` + `cordis.patch.yml`），作为 dsh 插件的
+默认行为：
+
+- **任何安装方式都有工具（2026-09-15 起）**：patch 行 `misakanet-mcp` 声明
+  `transport: streamable-http` + `url: https://misakanet.org/mcp`，向 profile 提供
+  `mcp__misakanet__misakanet_search / get_lesson / …`（匿名读，不限次数；只有写入工具要 token）。npm 安装即可用，
+  **不再需要本地 python** —— 旧版本默认以 stdio 启动 `scripts/mcp_server.py`，而它只存在于
+  repo/git+ 检出里，于是 npm 装的 profile 挂上一个断开的空行（#1734）。
+- **本地 stdio（可选覆盖）**：想用仓库自带 server 的 profile，把该行 config 覆盖为
+  `transport: stdio` / `command: python3` / `args: [scripts/mcp_server.py]` / `cwd: 仓库根`
+  （本地、无额度限制）。`index.js` 会把行 config 合并到默认值之上。
+- **安装命令**：`dsh plugin --profile web add misakanet@<版本>`（`dsh plugin` 转发给 pnpm，
+  `--profile` 是必填）；profile 的 lockfile 落后时会静默留在旧版本，工具不出现时先确认装到的版本。
+
+### 远端接入示例（npm 用户可选）
+
+默认行本来就直连远端（匿名）。**只有**你要带 token 解除读配额、或想同时保留一个独立命名空间时，
+才需要下面的用户 patch（token 在 https://misakanet.org 注册）：
+
+```yaml
+- insert:
+    - id: misakanet-remote
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        transport: streamable-http
+        serverName: misakanet-remote
+        url: https://misakanet.org/mcp
+        headers:
+          Authorization: 'Bearer YOUR_MISAKANET_TOKEN'
+        failOnStartupError: false
+```
+
+> 命名空间提示：`serverName` 唯一（`misakanet` 已被默认远端行占用，这里用
+> `misakanet-remote`），工具名会以 `mcp__misakanet-remote__*` 出现。
+> 这是**用户自己的** patch，不受 DSH STORE 对 *bundle* patch 的命名限制（我们仓库里的
+> `cordis.patch.yml` 仍然只能命名自己的组件）。
+> 契约测试：`tests/test_dsh_bundle.py`（patch 声明 / 单行 / 字段 / 全局唯一 id / 行 config 与
+> `index.js` 默认值一致）。
+
+## 8. 发布准备 checklist（下一个 tag：2.28.x 线，示例以 2.28.0 为准）
+
+1. **前置**：目标 PR 全部合入 main（本会话：#1482/#1484/#1486）；本地 `git pull --ff-only`。
+2. **门禁**：`make check-versions`、`make doctor`（KV 占位符若仍未填需处理或记录）、
+   `python3 -m pytest tests/test_version_consistency.py tests/test_dsh_bundle.py tests/test_lesson_index_discovery.py -q`。
+3. **发版（release-please 流程）**：合 release-please 升版 PR（python 型会把 pyproject + manifest
+   推到 2.28.0）→ tag → 发布说明。
+4. **对齐**：`python3 scripts/align_versions.py --registry 2.28.0`
+   （一次更新 server.json/glama.json/API.md/JOIN.md；README `misakanet@` 声明如需同步跑
+   `--source`）。
+5. **数据/远端**：跑 `update-lessons.yml`（workflow_dispatch）刷新索引；`sync-d1.yml`
+   同步 D1（canonical 359+）。
+6. **发布渠道**：npm bundle（**不用手 bump**：`package.json`/`.codex-plugin/plugin.json` 自 2026-09-30 由
+   release-please 随发版 PR 写入，`misakanet-publish.yml` 由 release 事件自动发布；回滚 runbook 见
+   `docs/release-checklist.md`）、PyPI（如恢复，
+   PyPI 已恢复发布（2.29.0，见 §9 附注））、**MCP registry**（见 §9）。
+7. **收尾**：跑一遍 `make check-versions` 确认对齐无漂移；把 CHANGELOG 顶部数字与
+   docs/maintenance 数据行同步。
+
+## 9. MCP registry / dsh.so 重验 runbook
+
+**官方机制**：registry.modelcontextprotocol.io 的条目通过
+[modelcontextprotocol/registry](https://github.com/modelcontextprotocol/registry) 的
+`mcp-publisher` CLI 发布/更新；mcptoplist 等目录镜像 registry，registry 更新后自然同步
+（无需逐站提交）。仓库 `server.json` 就是发布源（当前 2.29.0，发布时随 §8 对齐）。
+
+> **2026-09-06 发布链路打通**：
+> - 前置：`server.json` description ≤100（registry 422）；README 需含 `mcp-name: io.github.Ikalus1988/misakanet`
+>   所有权标记（registry 400）；PyPI 版本须真实存在（registry 400）。
+> - PyPI 通道修复：`environment: pypi` 从未存在 → release-pypi 从未成功（PyPI 停在 2.18.0）。
+>   已建 environment + PyPI Trusted Publisher（owner Ikalus1988/repo MisakaNet/workflow release-pypi.yml/env pypi）
+>   + release-pypi 加 `workflow_dispatch`（#1511）→ misakanet 2.28.1 上线。
+> - **2026-09-12（v2.29.0）**：tag + GitHub Release 由维护者用 API 建（#1608 已合并但 release-please 因
+>   `untagged, merged release PRs outstanding` 而 abort；把 #1608 的标签从 `autorelease: pending` 改成
+>   `autorelease: tagged` 后，release-please 立刻恢复并为下一版开出 release PR）。PyPI 2.29.0 由 tag push
+>   自动触发 `release-pypi` 并成功；registry 线已 `align_versions.py --registry 2.29.0`；
+>   `mcp-publisher validate server.json` → ✅ valid。**registry 的 `publish` 仍待本机执行**（沙箱到
+>   github.com 的 device-flow 出口不通，与 2026-09-05 记录的一致）。
+> - 发布：`mcp-publisher login github`（本机，凭证 ~/.config/mcp-publisher）→
+>   `mcp-publisher publish server.json` → registry 2.28.1 ✓；mcptoplist 镜像自动同步。
+> - **2026-09-12**：`mcp-publisher publish server.json` → registry **2.29.0** ✓（`isLatest=true`，已用
+>   registry API 复核）。注意发布的是**本机 `server.json` 的字节**：这次发布前把 description 从
+>   `search verified debugging lessons` 改成 `search evidence-rated failure lessons`（2.28.1 那版
+>   在 registry 上仍留着旧措辞，且 `docs/trust-semantics.md` 明确禁止该说法）——**改完必须先 `git pull`
+>   再 publish**，否则发布的是本地旧文本。
+
+```bash
+# 1) 安装 CLI（macOS/linux）：brew install mcp-publisher
+#    或下载 release 二进制：https://github.com/modelcontextprotocol/registry/releases
+# 2) 在仓库根（含 server.json）初始化/校验
+mcp-publisher init          # 首次；已有 server.json 可跳过或用它校验
+mcp-publisher validate server.json   # 校验 schema（发布前必做）
+# 3) 登录（交互式，维护者账号）→ 发布当前 server.json
+mcp-publisher login
+mcp-publisher publish server.json
+# 4) 验证：https://registry.modelcontextprotocol.io/?q=io.github.Ikalus1988%2Fmisakanet
+#    应显示 server.json 的 version（当前 2.29.0）
+```
+
+**dsh.so L5 验证**：验证按 **spec tag**（如 `#v2.26.0`）运行——本仓库发布新 tag 后，
+在验证方把 spec 指到新 tag 重跑；L5.4（Plugin Inventory Active）预期转绿：仓库已声明
+`dsh.bundle`（PR #1484）且 bundle 契约测试 `tests/test_dsh_bundle.py` 已入 main。
+若验证方暂不支持自选 spec，则在 registry 重发布后等其按新 tag 重爬。
+
+> 提交文案备份：`.audit-reports-20260905/registry-refresh-copy.md`（若需人工渠道）。
+
+## 10. MCP 目录矩阵（listing 维护）
+
+| 目录 | 条目状态(2026-09-05) | 认领/刷新方式 | 备注 |
+|---|---|---|---|
+| registry.modelcontextprotocol.io（官方） | **2.30.2（2026-09-19 起由 CI 自动发布，见下）** | `.github/workflows/publish-mcp-registry.yml`（OIDC，随 release 自动跑；手工补发：`gh workflow run publish-mcp-registry.yml --ref main -f "version=X"`） | 权威源；mcptoplist 等镜像它 |
+| mcptoplist.com | 同 registry（镜像同步有延迟） | registry 更新后自动同步 | 无独立自助入口 |
+| mcpvault.io/servers/misakanet | 已自动收录（2026-09-03 邮件） | 站点 GitHub 登录认领（~1 分钟，免费）→ 请求验证（早期免费，对 https://misakanet.org/mcp 做真实 MCP 握手）→ 得 Verified 徽章（可嵌入 README） | 推广邮件来自 Henrik <hello@trymcpvault.com>；不感兴趣可回复 unsubscribe |
+
+> 决策记录（2026-09-05）：MCPVault 认领属可选营销项；若做，验证对象为远端
+> `https://misakanet.org/mcp`（与 §9 一致），徽章嵌入 README 时用目录提供的官方 badge URL。
+
+## 11. 复核记录：lesson PR ↔ intake 自动 issue（2026-09-06）
+
+- 事实：intake-label issue closed 53 / open 26；作者多为 Ikalus1988（intake MCP server 代建，模板+标签），
+  1 例 open 为 github-actions[bot]（#1368）。lesson/feature PR 引用的 issue 大多为维护者策展
+  （[Lesson]/[Search]/[Growth]/[Test]），仅少数指向 intake（如 #1494→#1368）。机制合理，非普遍滥用。
+- 风险：a) 自循环贡献（提交者=作者无核验）；b) 近重复主题（proxy/pip-timeout 多篇）；c) question intake 误转 lesson。
+- 建议：intake issue 记录提交者 node/source；作者==来源节点且无人确认时打 self-intake 标签；
+  PR 模板注明 closes+kind；kind=question 走 FAQ；提交前近重复阈值收紧；加转化率指标。

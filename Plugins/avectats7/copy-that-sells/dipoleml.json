@@ -1,0 +1,129 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.avectats7.copy-that-sells",
+  "type": "plugin",
+  "name": "Copy That Sells",
+  "slug": "copy-that-sells",
+  "vendor": "avectats7",
+  "description": "DipoleML skill that writes copy which sells. Print ads, OOH, billboards, headlines, taglines, landing pages, long-copy ads, emails, manifestos, product descriptions. Built on D&AD Copy Book craft, Bly direct-response frameworks, and Cannes Lions plus Clio Award print and OOH winners. Strict anti-AI writing layer. DipoleML + Cowork. MIT.",
+  "version": "2.0.3",
+  "homepage": "https://github.com/avectats7/copy-that-sells",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "ad-copy",
+    "advertising",
+    "ai-copywriting",
+    "bly",
+    "cannes-lions",
+    "claude-plugin",
+    "claude-skill",
+    "clio-awards",
+    "copywriting"
+  ],
+  "tags": [
+    "ad-copy",
+    "advertising",
+    "ai-copywriting",
+    "bly",
+    "cannes-lions",
+    "claude-code",
+    "claude-plugin",
+    "claude-skill",
+    "clio-awards",
+    "copywriting",
+    "direct-response",
+    "headlines",
+    "landing-page-copy",
+    "manifesto",
+    "marketing",
+    "ogilvy",
+    "ooh",
+    "print-ads",
+    "tagline"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "avectats7",
+    "brandName": "avectats7",
+    "source": "https://github.com/avectats7.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:12:16Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "avectats7/copy-that-sells",
+    "url": "https://github.com/avectats7/copy-that-sells",
+    "commit": "aef838698152ef7904d1344a71213721ffe4b474",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 22,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:06:23Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Copy That Sells | Claude skill that writes copy which sells. Print ads, OOH, billboards, headlines, taglines, landing pages, long-copy ads, emails, manifestos, product descriptions. Built on D&AD Copy Book craft, Bly direct-response frameworks, and Cannes Lions plus Clio Award print and OOH winners. Strict anti-AI writing layer. Claude Code + Cowork. MIT.",
+        "after": "Copy That Sells | DipoleML skill that writes copy which sells. Print ads, OOH, billboards, headlines, taglines, landing pages, long-copy ads, emails, manifestos, product descriptions. Built on D&AD Copy Book craft, Bly direct-response frameworks, and Cannes Lions plus Clio Award print and OOH winners. Strict anti-AI writing layer. DipoleML + Cowork. MIT.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Copywriting skill for Claude. Write print ads, OOH/billboards, headlines, taglines, long-copy ads, landing pages, emails, social, product descriptions, manifestos. Combines D&AD Copy Book craft with Bly direct-response frameworks. Treats Cannes Lions and Clio Award print and OOH winners as the gold standard.",
+        "after": "Copywriting skill for DipoleML. Write print ads, OOH/billboards, headlines, taglines, long-copy ads, landing pages, emails, social, product descriptions, manifestos. Combines D&AD Copy Book craft with Bly direct-response frameworks. Treats Cannes Lions and Clio Award print and OOH winners as the gold standard.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

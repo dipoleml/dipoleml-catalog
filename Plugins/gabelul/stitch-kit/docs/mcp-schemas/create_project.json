@@ -1,0 +1,656 @@
+{
+  "name": "create_project",
+  "description": "Creates a new Stitch project. A project is a container for UI designs and frontend code.\n",
+  "arguments": {
+    "type": "object",
+    "properties": {
+      "title": {
+        "description": "Optional. The title of the project.",
+        "type": "string"
+      }
+    },
+    "description": "Request message for CreateProject."
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "backgroundTheme": {
+        "description": "Optional. The background theme of the project.",
+        "type": "string"
+      },
+      "createTime": {
+        "description": "Output only. The time when the project was created.",
+        "format": "date-time",
+        "readOnly": true,
+        "type": "string"
+      },
+      "designTheme": {
+        "$ref": "#/$defs/DesignTheme",
+        "description": "Output only. The theme used to generate the first design in the project.",
+        "readOnly": true
+      },
+      "deviceType": {
+        "description": "Output only. The device type of the project.",
+        "enum": [
+          "DEVICE_TYPE_UNSPECIFIED",
+          "MOBILE",
+          "DESKTOP",
+          "TABLET",
+          "AGNOSTIC"
+        ],
+        "readOnly": true,
+        "type": "string",
+        "x-google-enum-descriptions": [
+          "Unspecified device type.",
+          "A design for a mobile device.",
+          "A design for a desktop device.",
+          "A design for a tablet device.",
+          "A design that is not tied to a specific device."
+        ]
+      },
+      "metadata": {
+        "$ref": "#/$defs/ProjectMetadata",
+        "description": "Metadata of the project."
+      },
+      "name": {
+        "description": "Identifier. The resource name of the project. Format: projects/{project}",
+        "type": "string",
+        "x-google-identifier": true
+      },
+      "origin": {
+        "description": "Output only. The origin of the project.",
+        "enum": [
+          "ORIGIN_UNSPECIFIED",
+          "STITCH",
+          "IMPORTED_FROM_GALILEO"
+        ],
+        "readOnly": true,
+        "type": "string",
+        "x-google-enum-descriptions": [
+          "Unspecified origin. By default, the project is created from Stitch.",
+          "The project is created from Stitch.",
+          "The project is imported from Galileo."
+        ]
+      },
+      "projectType": {
+        "description": "Optional. The type of the project. If not specified, the project is a text to UI project.",
+        "enum": [
+          "PROJECT_TYPE_UNSPECIFIED",
+          "TEXT_TO_UI",
+          "TEXT_TO_UI_PRO",
+          "TEXT_TO_UI_PRO_IMAGE_SPACE",
+          "IMAGE_TO_UI",
+          "IMAGE_TO_UI_PRO",
+          "PROJECT_DESIGN"
+        ],
+        "type": "string",
+        "x-google-enum-descriptions": [
+          "Unspecified project type. By default, the project is a text to UI project.",
+          "A text to UI project.",
+          "Pro version of text to UI project.",
+          "Deprecated. Pro version of text to UI project using image space for edits.",
+          "An image to UI project.",
+          "Deprecated.",
+          "A new design project."
+        ]
+      },
+      "readTime": {
+        "description": "Output only. The time the project was last read. Populated only when listing recently viewed projects.",
+        "format": "date-time",
+        "readOnly": true,
+        "type": "string"
+      },
+      "screenInstances": {
+        "description": "Output only. The screen instances on this project.",
+        "items": {
+          "$ref": "#/$defs/ScreenInstance"
+        },
+        "readOnly": true,
+        "type": "array"
+      },
+      "thumbnailScreenshot": {
+        "$ref": "#/$defs/File",
+        "description": "Optional. The screenshot to be used as the thumbnail for the project."
+      },
+      "title": {
+        "description": "Optional. The title of the project.",
+        "type": "string"
+      },
+      "updateTime": {
+        "description": "Output only. The time when the project was last updated.",
+        "format": "date-time",
+        "readOnly": true,
+        "type": "string"
+      },
+      "visibility": {
+        "description": "Optional. The visibility setting of the project.",
+        "enum": [
+          "VISIBILITY_UNSPECIFIED",
+          "PUBLIC",
+          "PRIVATE"
+        ],
+        "type": "string",
+        "x-google-enum-descriptions": [
+          "Unspecified visibility. By default, the project is private.",
+          "The project is visible to all users, and may be featured in the feed.",
+          "The project is visible to only the creator."
+        ]
+      }
+    },
+    "$defs": {
+      "DesignTheme": {
+        "description": "The theme of the design.",
+        "properties": {
+          "backgroundDark": {
+            "description": "Optional. The background color for dark mode (hex format, e.g., \"#1a1a1a\").",
+            "type": "string"
+          },
+          "backgroundLight": {
+            "description": "Optional. The background color for light mode (hex format, e.g., \"#f8f8f8\").",
+            "type": "string"
+          },
+          "colorMode": {
+            "description": "Optional. The mode of appearance of the design.",
+            "enum": [
+              "COLOR_MODE_UNSPECIFIED",
+              "LIGHT",
+              "DARK"
+            ],
+            "type": "string"
+          },
+          "customColor": {
+            "description": "Optional. A custom theme primary color (hex).",
+            "type": "string"
+          },
+          "description": {
+            "description": "Optional. A brief description of the theme aesthetic.",
+            "type": "string"
+          },
+          "font": {
+            "description": "Optional. The font of the design. 68 fonts available. SOURCE_SERIF_FOUR, SOURCE_SANS_THREE, and METROPOLIS are deprecated aliases — prefer SOURCE_SERIF_4, SOURCE_SANS_3, and a modern sans alternative respectively.",
+            "enum": [
+              "FONT_UNSPECIFIED",
+              "BE_VIETNAM_PRO",
+              "EPILOGUE",
+              "INTER",
+              "LEXEND",
+              "MANROPE",
+              "NEWSREADER",
+              "NOTO_SERIF",
+              "PLUS_JAKARTA_SANS",
+              "PUBLIC_SANS",
+              "SPACE_GROTESK",
+              "SPLINE_SANS",
+              "WORK_SANS",
+              "DOMINE",
+              "LIBRE_CASLON_TEXT",
+              "EB_GARAMOND",
+              "LITERATA",
+              "SOURCE_SERIF_4",
+              "SOURCE_SERIF_FOUR",
+              "MONTSERRAT",
+              "METROPHOBIC",
+              "METROPOLIS",
+              "SOURCE_SANS_3",
+              "SOURCE_SANS_THREE",
+              "NUNITO_SANS",
+              "ARIMO",
+              "HANKEN_GROTESK",
+              "RUBIK",
+              "GEIST",
+              "DM_SANS",
+              "IBM_PLEX_SANS",
+              "SORA",
+              "ANYBODY",
+              "ANTON",
+              "ARCHIVO_NARROW",
+              "ATKINSON_HYPERLEGIBLE_NEXT",
+              "BARLOW_CONDENSED",
+              "BEBAS_NEUE",
+              "BODONI_MODA",
+              "BRICOLAGE_GROTESQUE",
+              "CHIVO",
+              "CLIMATE_CRISIS",
+              "COMFORTAA",
+              "COURIER_PRIME",
+              "FIRA_SANS",
+              "GOOGLE_SANS",
+              "GOOGLE_SANS_CODE",
+              "GOOGLE_SANS_FLEX",
+              "GOOGLE_SANS_MONO",
+              "GOOGLE_SANS_TEXT",
+              "IBM_PLEX_SERIF",
+              "JETBRAINS_MONO",
+              "KARLA",
+              "LIBRE_FRANKLIN",
+              "MERRIWEATHER",
+              "NOTO_SANS",
+              "OPEN_SANS",
+              "OSWALD",
+              "OUTFIT",
+              "PLAYFAIR_DISPLAY",
+              "POIRET_ONE",
+              "QUESTRIAL",
+              "QUICKSAND",
+              "RALEWAY",
+              "ROBOTO_FLEX",
+              "SPACE_MONO",
+              "SYNE",
+              "VOLLKORN"
+            ],
+            "type": "string"
+          },
+          "headlineFont": {
+            "description": "Optional. Typeface for headings and titles. Same enum as `font`.",
+            "enum": [
+              "FONT_UNSPECIFIED",
+              "BE_VIETNAM_PRO",
+              "EPILOGUE",
+              "INTER",
+              "LEXEND",
+              "MANROPE",
+              "NEWSREADER",
+              "NOTO_SERIF",
+              "PLUS_JAKARTA_SANS",
+              "PUBLIC_SANS",
+              "SPACE_GROTESK",
+              "SPLINE_SANS",
+              "WORK_SANS",
+              "DOMINE",
+              "LIBRE_CASLON_TEXT",
+              "EB_GARAMOND",
+              "LITERATA",
+              "SOURCE_SERIF_4",
+              "SOURCE_SERIF_FOUR",
+              "MONTSERRAT",
+              "METROPHOBIC",
+              "METROPOLIS",
+              "SOURCE_SANS_3",
+              "SOURCE_SANS_THREE",
+              "NUNITO_SANS",
+              "ARIMO",
+              "HANKEN_GROTESK",
+              "RUBIK",
+              "GEIST",
+              "DM_SANS",
+              "IBM_PLEX_SANS",
+              "SORA",
+              "ANYBODY",
+              "ANTON",
+              "ARCHIVO_NARROW",
+              "ATKINSON_HYPERLEGIBLE_NEXT",
+              "BARLOW_CONDENSED",
+              "BEBAS_NEUE",
+              "BODONI_MODA",
+              "BRICOLAGE_GROTESQUE",
+              "CHIVO",
+              "CLIMATE_CRISIS",
+              "COMFORTAA",
+              "COURIER_PRIME",
+              "FIRA_SANS",
+              "GOOGLE_SANS",
+              "GOOGLE_SANS_CODE",
+              "GOOGLE_SANS_FLEX",
+              "GOOGLE_SANS_MONO",
+              "GOOGLE_SANS_TEXT",
+              "IBM_PLEX_SERIF",
+              "JETBRAINS_MONO",
+              "KARLA",
+              "LIBRE_FRANKLIN",
+              "MERRIWEATHER",
+              "NOTO_SANS",
+              "OPEN_SANS",
+              "OSWALD",
+              "OUTFIT",
+              "PLAYFAIR_DISPLAY",
+              "POIRET_ONE",
+              "QUESTRIAL",
+              "QUICKSAND",
+              "RALEWAY",
+              "ROBOTO_FLEX",
+              "SPACE_MONO",
+              "SYNE",
+              "VOLLKORN"
+            ],
+            "type": "string"
+          },
+          "bodyFont": {
+            "description": "Optional. Typeface for body text and paragraphs. Same enum as `font`.",
+            "enum": [
+              "FONT_UNSPECIFIED",
+              "BE_VIETNAM_PRO",
+              "EPILOGUE",
+              "INTER",
+              "LEXEND",
+              "MANROPE",
+              "NEWSREADER",
+              "NOTO_SERIF",
+              "PLUS_JAKARTA_SANS",
+              "PUBLIC_SANS",
+              "SPACE_GROTESK",
+              "SPLINE_SANS",
+              "WORK_SANS",
+              "DOMINE",
+              "LIBRE_CASLON_TEXT",
+              "EB_GARAMOND",
+              "LITERATA",
+              "SOURCE_SERIF_4",
+              "SOURCE_SERIF_FOUR",
+              "MONTSERRAT",
+              "METROPHOBIC",
+              "METROPOLIS",
+              "SOURCE_SANS_3",
+              "SOURCE_SANS_THREE",
+              "NUNITO_SANS",
+              "ARIMO",
+              "HANKEN_GROTESK",
+              "RUBIK",
+              "GEIST",
+              "DM_SANS",
+              "IBM_PLEX_SANS",
+              "SORA",
+              "ANYBODY",
+              "ANTON",
+              "ARCHIVO_NARROW",
+              "ATKINSON_HYPERLEGIBLE_NEXT",
+              "BARLOW_CONDENSED",
+              "BEBAS_NEUE",
+              "BODONI_MODA",
+              "BRICOLAGE_GROTESQUE",
+              "CHIVO",
+              "CLIMATE_CRISIS",
+              "COMFORTAA",
+              "COURIER_PRIME",
+              "FIRA_SANS",
+              "GOOGLE_SANS",
+              "GOOGLE_SANS_CODE",
+              "GOOGLE_SANS_FLEX",
+              "GOOGLE_SANS_MONO",
+              "GOOGLE_SANS_TEXT",
+              "IBM_PLEX_SERIF",
+              "JETBRAINS_MONO",
+              "KARLA",
+              "LIBRE_FRANKLIN",
+              "MERRIWEATHER",
+              "NOTO_SANS",
+              "OPEN_SANS",
+              "OSWALD",
+              "OUTFIT",
+              "PLAYFAIR_DISPLAY",
+              "POIRET_ONE",
+              "QUESTRIAL",
+              "QUICKSAND",
+              "RALEWAY",
+              "ROBOTO_FLEX",
+              "SPACE_MONO",
+              "SYNE",
+              "VOLLKORN"
+            ],
+            "type": "string"
+          },
+          "labelFont": {
+            "description": "Optional. Typeface for labels, captions, and UI chrome. Same enum as `font`.",
+            "enum": [
+              "FONT_UNSPECIFIED",
+              "BE_VIETNAM_PRO",
+              "EPILOGUE",
+              "INTER",
+              "LEXEND",
+              "MANROPE",
+              "NEWSREADER",
+              "NOTO_SERIF",
+              "PLUS_JAKARTA_SANS",
+              "PUBLIC_SANS",
+              "SPACE_GROTESK",
+              "SPLINE_SANS",
+              "WORK_SANS",
+              "DOMINE",
+              "LIBRE_CASLON_TEXT",
+              "EB_GARAMOND",
+              "LITERATA",
+              "SOURCE_SERIF_4",
+              "SOURCE_SERIF_FOUR",
+              "MONTSERRAT",
+              "METROPHOBIC",
+              "METROPOLIS",
+              "SOURCE_SANS_3",
+              "SOURCE_SANS_THREE",
+              "NUNITO_SANS",
+              "ARIMO",
+              "HANKEN_GROTESK",
+              "RUBIK",
+              "GEIST",
+              "DM_SANS",
+              "IBM_PLEX_SANS",
+              "SORA",
+              "ANYBODY",
+              "ANTON",
+              "ARCHIVO_NARROW",
+              "ATKINSON_HYPERLEGIBLE_NEXT",
+              "BARLOW_CONDENSED",
+              "BEBAS_NEUE",
+              "BODONI_MODA",
+              "BRICOLAGE_GROTESQUE",
+              "CHIVO",
+              "CLIMATE_CRISIS",
+              "COMFORTAA",
+              "COURIER_PRIME",
+              "FIRA_SANS",
+              "GOOGLE_SANS",
+              "GOOGLE_SANS_CODE",
+              "GOOGLE_SANS_FLEX",
+              "GOOGLE_SANS_MONO",
+              "GOOGLE_SANS_TEXT",
+              "IBM_PLEX_SERIF",
+              "JETBRAINS_MONO",
+              "KARLA",
+              "LIBRE_FRANKLIN",
+              "MERRIWEATHER",
+              "NOTO_SANS",
+              "OPEN_SANS",
+              "OSWALD",
+              "OUTFIT",
+              "PLAYFAIR_DISPLAY",
+              "POIRET_ONE",
+              "QUESTRIAL",
+              "QUICKSAND",
+              "RALEWAY",
+              "ROBOTO_FLEX",
+              "SPACE_MONO",
+              "SYNE",
+              "VOLLKORN"
+            ],
+            "type": "string"
+          },
+          "preset": {
+            "description": "Optional. The preset color of the design.",
+            "type": "string"
+          },
+          "roundness": {
+            "description": "Optional. The roundness of the design. ROUND_TWO is deprecated/unused.",
+            "enum": [
+              "ROUNDNESS_UNSPECIFIED",
+              "ROUND_TWO",
+              "ROUND_FOUR",
+              "ROUND_EIGHT",
+              "ROUND_TWELVE",
+              "ROUND_FULL"
+            ],
+            "type": "string"
+          },
+          "overridePrimaryColor": {
+            "description": "Optional. Hex override for the primary color.",
+            "type": "string"
+          },
+          "overrideSecondaryColor": {
+            "description": "Optional. Hex override for the secondary color.",
+            "type": "string"
+          },
+          "overrideTertiaryColor": {
+            "description": "Optional. Hex override for the tertiary color.",
+            "type": "string"
+          },
+          "overrideNeutralColor": {
+            "description": "Optional. Hex override for the neutral color.",
+            "type": "string"
+          },
+          "spacing": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Optional. Map of spacing token name to CSS value (e.g. {\"sm\": \"8px\"})."
+          },
+          "typography": {
+            "type": "object",
+            "additionalProperties": {
+              "$ref": "#/$defs/Typography"
+            },
+            "description": "Optional. Map of typography level name (e.g. \"h1\", \"body\") to Typography token overrides."
+          },
+          "saturation": {
+            "type": "number",
+            "description": "Read-only. Colour saturation level returned by the API (observed integer values, e.g. 3). Not settable via create/update_design_system — the input DesignTheme has no saturation field.",
+            "readOnly": true
+          },
+          "namedColors": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string"
+            },
+            "description": "Read-only. Resolved semantic colour roles mapped to hex values (background, error, error_container, ...). Populated after the first screen is generated.",
+            "readOnly": true
+          },
+          "spacingScale": {
+            "type": "number",
+            "description": "Read-only. Numeric spacing scale returned by the API. Distinct from the settable `spacing` map.",
+            "readOnly": true
+          },
+          "bodyFontFamily": {
+            "type": "string",
+            "description": "Read-only. Human-readable resolved body font name, e.g. \"Inter\". The enum form is in bodyFont.",
+            "readOnly": true
+          },
+          "headlineFontFamily": {
+            "type": "string",
+            "description": "Read-only. Human-readable resolved headline font name, e.g. \"Libre Caslon Text\".",
+            "readOnly": true
+          },
+          "labelFontFamily": {
+            "type": "string",
+            "description": "Read-only. Human-readable resolved label font name, e.g. \"Public Sans\".",
+            "readOnly": true
+          }
+        },
+        "type": "object"
+      },
+      "Typography": {
+        "description": "A single typography level's CSS overrides.",
+        "properties": {
+          "fontFamily": {
+            "type": "string",
+            "description": "Optional. CSS font-family value."
+          },
+          "fontSize": {
+            "type": "string",
+            "description": "Optional. CSS font-size value (e.g. \"1rem\")."
+          },
+          "fontWeight": {
+            "type": "string",
+            "description": "Optional. CSS font-weight value (e.g. \"600\")."
+          },
+          "letterSpacing": {
+            "type": "string",
+            "description": "Optional. CSS letter-spacing value."
+          },
+          "lineHeight": {
+            "type": "string",
+            "description": "Optional. CSS line-height value."
+          }
+        },
+        "type": "object"
+      },
+      "File": {
+        "description": "A File resource.",
+        "properties": {
+          "downloadUrl": {
+            "description": "Optional. The URL of the file for download. For image files, this would be FIFE base URLs.",
+            "type": "string"
+          },
+          "name": {
+            "description": "Identifier. The resource name of the file. Format: projects/{project}/files/{file}",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ProjectMetadata": {
+        "description": "Metadata relating to the project.",
+        "properties": {
+          "isRemixed": {
+            "description": "Whether this project was remixed or not.",
+            "type": "boolean"
+          },
+          "userRole": {
+            "description": "The Role of the user accessing the project.",
+            "enum": [
+              "ROLE_UNSPECIFIED",
+              "OWNER",
+              "READER"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "ScreenInstance": {
+        "description": "An instance of a screen on the project canvas.",
+        "properties": {
+          "groupId": {
+            "description": "Optional. Group identifier for Genie Agent output grouping.",
+            "type": "string"
+          },
+          "groupName": {
+            "description": "Optional. Human-readable name for the group (e.g., \"Warm Minimalism\").",
+            "type": "string"
+          },
+          "height": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "hidden": {
+            "description": "User hid this screen from canvas.",
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "sourceScreen": {
+            "description": "Format: projects/{project}/screens/{screen}",
+            "type": "string"
+          },
+          "variantScreenInstance": {
+            "$ref": "#/$defs/ScreenInstance"
+          },
+          "width": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "x": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "y": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "type": "object"
+      }
+    },
+    "description": "A project is a single app."
+  }
+}

@@ -1,0 +1,132 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.renezander030.capcut-cli",
+  "type": "plugin",
+  "name": "Capcut CLI",
+  "slug": "capcut-cli",
+  "vendor": "renezander030",
+  "description": "Independent, unofficial CLI to edit CapCut and JianYing (剪映) projects — subtitles, timing, speed, volume, templates, cut long-form to shorts. No API needed, reads draft_content.json and draft_info.json (剪映草稿) directly. Not affiliated with ByteDance.",
+  "version": "0.2.0",
+  "homepage": "https://github.com/renezander030/capcut-cli",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agent-skills",
+    "automation",
+    "capcut",
+    "capcut-api",
+    "capcut-automation",
+    "capcut-editor",
+    "capcut-subtitles",
+    "capcut-template",
+    "claude-code-plugin"
+  ],
+  "tags": [
+    "agent-skills",
+    "ai-agent",
+    "automation",
+    "capcut",
+    "capcut-api",
+    "capcut-automation",
+    "capcut-editor",
+    "capcut-subtitles",
+    "capcut-template",
+    "claude-code-plugin",
+    "cli",
+    "draft-content-json",
+    "jianying",
+    "python",
+    "srt-export",
+    "subtitle-editor",
+    "video-editing",
+    "video-production",
+    "video-to-shorts"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "renezander030",
+    "brandName": "renezander030",
+    "source": "https://github.com/renezander030.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:14:36Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "renezander030/capcut-cli",
+    "url": "https://github.com/renezander030/capcut-cli",
+    "commit": "f3d6c753edc33a183a60f955b402302c6e5ae7d4",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1040,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:59:00Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Edit CapCut and JianYing (剪映) projects from Claude Code — subtitles and SRT/ASS import, timing, speed, volume, keyframes, masks, filters and effects, templates, lint --fix, render previews, and cutting long-form to shorts.",
+        "after": "Edit CapCut and JianYing (剪映) projects from DipoleML — subtitles and SRT/ASS import, timing, speed, volume, keyframes, masks, filters and effects, templates, lint --fix, render previews, and cutting long-form to shorts.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=18"
+    ],
+    "packages": [
+      "capcut-cli"
+    ],
+    "env": [
+      "ANTHROPIC_API_KEY",
+      "IMPORTANT"
+    ],
+    "credentials": [
+      "ANTHROPIC_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

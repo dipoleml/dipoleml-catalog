@@ -1,0 +1,16 @@
+{
+  "name": "dipoleml-carbon",
+  "displayName": "DipoleML Carbon",
+  "version": "1.18.2",
+  "description": "Track the carbon footprint of your DipoleML sessions, in the terminal and the DipoleML desktop app",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Gwittebolle"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/gwittebolle/claude-carbon",
+  "repository": "https://github.com/gwittebolle/claude-carbon",
+  "skills": "./skills/",
+  "commands": [],
+  "agents": []
+}

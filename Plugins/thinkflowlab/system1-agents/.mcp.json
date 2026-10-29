@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "s1a": {
+      "command": "uv",
+      "args": ["run", "--project", "${CLAUDE_PLUGIN_ROOT:-.}", "s1a-mcp"]
+    }
+  }
+}

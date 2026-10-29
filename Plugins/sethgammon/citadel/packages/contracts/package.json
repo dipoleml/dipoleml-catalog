@@ -1,0 +1,25 @@
+{
+  "name": "@citadel/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Private, quarantined contract prototypes for Citadel maintainers.",
+  "license": "MIT",
+  "main": "./index.js",
+  "files": [
+    "index.js",
+    "README.md",
+    "app/",
+    "control-plane/",
+    "schemas/",
+    "vendor/"
+  ],
+  "exports": {
+    ".": "./index.js",
+    "./app": "./app/index.js",
+    "./control-plane": "./control-plane/index.js",
+    "./schemas/*": "./schemas/*"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

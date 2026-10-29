@@ -1,0 +1,103 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.mertcikla.tld",
+  "type": "plugin",
+  "name": "Tld",
+  "slug": "tld",
+  "vendor": "mertcikla",
+  "description": "Software architecture diagramming tool. Includes a modern easy to use Frontend + Backend + CLI to enable managing diagrams from the shell or in CI.",
+  "version": "0.0.1",
+  "homepage": "https://github.com/Mertcikla/tld",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agent-skill",
+    "claude-code-plugin",
+    "diagram",
+    "diagramming-as-code",
+    "diagramming-tool"
+  ],
+  "tags": [
+    "agent-skill",
+    "claude-code-plugin",
+    "diagram",
+    "diagramming-as-code",
+    "diagramming-tool"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "mertcikla",
+    "brandName": "mertcikla",
+    "source": "https://github.com/Mertcikla.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:14:00Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "Mertcikla/tld",
+    "url": "https://github.com/Mertcikla/tld",
+    "commit": "d58a8188c2f3edbcc880ecb97135a191a27a8881",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 294,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:01:17Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [
+      "TLD_DATABASE_URL",
+      "TLD_PUBLIC_URL",
+      "TLD_HOST"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

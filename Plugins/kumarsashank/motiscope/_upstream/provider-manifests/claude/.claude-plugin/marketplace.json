@@ -1,0 +1,23 @@
+{
+  "name": "motiscope",
+  "description": "A motion-design plugin — turn a screen recording of an animation into working web animation code (GSAP / CSS / Framer Motion / Lottie).",
+  "owner": {
+    "name": "Kumar Sashank Ghanta",
+    "email": "kumar@eonverse.in"
+  },
+  "plugins": [
+    {
+      "name": "motiscope",
+      "description": "Analyze a screen recording of an animation and recreate it as GSAP / CSS / Framer Motion / Lottie code.",
+      "author": {
+        "name": "Kumar Sashank Ghanta"
+      },
+      "source": "./",
+      "category": "productivity",
+      "tags": ["animation", "motion-design", "gsap", "css", "framer-motion", "lottie", "ffmpeg"],
+      "keywords": ["animation", "motion-design", "gsap", "css", "framer-motion", "lottie"],
+      "license": "MIT",
+      "homepage": "https://github.com/KumarSashank/motiscope"
+    }
+  ]
+}

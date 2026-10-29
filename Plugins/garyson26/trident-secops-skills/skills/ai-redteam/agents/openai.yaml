@@ -1,0 +1,4 @@
+interface:
+  display_name: "AI Red Team"
+  short_description: "LLM and agent red-teaming with defensive deliverables"
+  default_prompt: "Use $ai-redteam to evaluate prompt injection, jailbreak, tool abuse, and agent hijack on systems you own."

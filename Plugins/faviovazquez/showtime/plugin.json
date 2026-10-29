@@ -1,0 +1,49 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "showtime",
+  "version": "0.4.6",
+  "description": "A local video studio for your coding agent. Describe a video. Your agent directs. Your machine renders. Motion graphics, voice-over, music, footage editing, captions and platform-ready exports, with no cloud AI services or API keys.",
+  "author": {
+    "name": "Favio Vazquez",
+    "url": "https://github.com/FavioVazquez"
+  },
+  "homepage": "https://faviovazquez.github.io/showtime/",
+  "repository": "https://github.com/FavioVazquez/showtime",
+  "license": "MIT",
+  "keywords": [
+    "video",
+    "motion-graphics",
+    "animation",
+    "voice-over",
+    "music",
+    "captions",
+    "ffmpeg",
+    "editing"
+  ],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "showtime",
+        "shortDescription": "Make videos with your agent",
+        "longDescription": "Describe a video in one sentence; the model directs and your machine renders it. showtime makes launch films, explainers, data stories, repo and paper explainers, release videos and social shorts as HTML/CSS/canvas frames rendered frame-exact in headless Chrome, with local voice-over, music and sound effects, captions, footage editing and Manim for math. Every finished video is checked before you see it: text cut off or too small on a phone, text held too briefly to read, black or frozen frames, loudness, and a review round by a reviewer that did not build it. You get an MP4, a single-file HTML video and platform-ready exports, plus a receipt of what the video took. Everything runs on your computer with open models and tools installed once by `showtime setup`; nothing is uploaded and there are no cloud AI services or API keys of its own. MIT licensed.",
+        "developerName": "Favio Vazquez",
+        "category": "Creativity",
+        "capabilities": [
+          "Read",
+          "Write"
+        ],
+        "websiteURL": "https://faviovazquez.github.io/showtime/",
+        "privacyPolicyURL": "https://github.com/FavioVazquez/showtime/blob/main/PRIVACY.md",
+        "supportURL": "https://github.com/FavioVazquez/showtime/issues",
+        "defaultPrompt": [
+          "Make a 30-second launch video for this repo that I can post on X.",
+          "Turn data.csv into a 45-second animated data story for YouTube.",
+          "Explain this codebase in a 60-second video that follows one request through the real files."
+        ],
+        "brandColor": "#B3121F",
+        "composerIcon": "./assets/brand/icon/app-icon-128.png",
+        "logo": "./assets/brand/icon/app-icon-512.png"
+      }
+    }
+  }
+}

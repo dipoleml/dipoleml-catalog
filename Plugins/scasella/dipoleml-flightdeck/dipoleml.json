@@ -1,0 +1,136 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.scasella.dipoleml-flightdeck",
+  "type": "plugin",
+  "name": "DipoleML Flightdeck",
+  "slug": "dipoleml-flightdeck",
+  "vendor": "scasella",
+  "description": "A DipoleML mod that puts a live agent dashboard in your terminal: context and cost, advisor timeline, every permission check, subagent cards and swimlanes.",
+  "version": "0.5.1",
+  "homepage": "https://github.com/scasella/claude-flightdeck",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agent-observability",
+    "agent-visualization",
+    "anthropic",
+    "claude-code-mod",
+    "claude-code-mods",
+    "claude-code-plugin",
+    "claude-mods",
+    "coding-agents",
+    "context-window"
+  ],
+  "tags": [
+    "agent-observability",
+    "agent-visualization",
+    "anthropic",
+    "claude",
+    "claude-code",
+    "claude-code-mod",
+    "claude-code-mods",
+    "claude-code-plugin",
+    "claude-mods",
+    "coding-agents",
+    "context-window",
+    "cost-tracking",
+    "developer-tools",
+    "function-hooks",
+    "llm-observability",
+    "multi-agent",
+    "observability",
+    "subagents",
+    "tui",
+    "typescript"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "scasella",
+    "brandName": "scasella",
+    "source": "https://github.com/scasella.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:14:44Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "scasella/claude-flightdeck",
+    "url": "https://github.com/scasella/claude-flightdeck",
+    "commit": "f9c3c5230775109de4bd08c5c7a42112a6a2a885",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 186,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:02:32Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Claude Flightdeck | A Claude Code mod that puts a live agent dashboard in your terminal: context and cost, advisor timeline, every permission check, subagent cards and swimlanes.",
+        "after": "DipoleML Flightdeck | A DipoleML mod that puts a live agent dashboard in your terminal: context and cost, advisor timeline, every permission check, subagent cards and swimlanes.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Flightdeck: a live agent dashboard for Claude Code. Main model vitals, an on-call architect, every permission check, subagent cards and swimlanes, a turn receipt and a session log, all from real session events",
+        "after": "Flightdeck: a live agent dashboard for DipoleML. Main model vitals, an on-call architect, every permission check, subagent cards and swimlanes, a turn receipt and a session log, all from real session events",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "claude-flightdeck",
+        "after": "dipoleml-flightdeck",
+        "reason": "provider token neutralized in slug/id"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

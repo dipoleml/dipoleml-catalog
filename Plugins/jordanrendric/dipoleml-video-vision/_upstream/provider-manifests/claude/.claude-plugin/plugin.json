@@ -1,0 +1,15 @@
+{
+  "name": "claude-video-vision",
+  "description": "Give Claude the ability to watch and understand videos — extracts frames and audio for full video perception",
+  "version": "1.4.0",
+  "author": {
+    "name": "Jordan Vasconcelos",
+    "url": "https://github.com/jordanrendric"
+  },
+  "homepage": "https://github.com/jordanrendric/claude-video-vision",
+  "repository": "https://github.com/jordanrendric/claude-video-vision",
+  "license": "MIT",
+  "keywords": ["video", "vision", "multimodal", "ffmpeg", "whisper", "gemini", "perception"],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json"
+}

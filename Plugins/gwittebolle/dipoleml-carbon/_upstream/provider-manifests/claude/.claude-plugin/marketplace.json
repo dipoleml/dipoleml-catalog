@@ -1,0 +1,32 @@
+{
+  "name": "claude-carbon",
+  "owner": {
+    "name": "Gaetan Wittebolle"
+  },
+  "metadata": {
+    "description": "Track the carbon footprint of your Claude Code sessions, in the terminal and the Claude desktop app"
+  },
+  "plugins": [
+    {
+      "name": "claude-carbon",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/gwittebolle/claude-carbon.git"
+      },
+      "description": "Track the carbon footprint of your Claude Code sessions, in the terminal and the Claude desktop app",
+      "version": "1.18.2",
+      "author": {
+        "name": "Gaetan Wittebolle"
+      },
+      "homepage": "https://github.com/gwittebolle/claude-carbon",
+      "repository": "https://github.com/gwittebolle/claude-carbon",
+      "license": "MIT",
+      "keywords": [
+        "carbon-footprint",
+        "sustainability",
+        "claude-code",
+        "green-it"
+      ]
+    }
+  ]
+}

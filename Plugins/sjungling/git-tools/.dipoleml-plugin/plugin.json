@@ -1,0 +1,16 @@
+{
+  "name": "git-tools",
+  "displayName": "Git Tools",
+  "version": "2.1.1",
+  "description": "Git utilities and debugging workflows",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Sjungling"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/sjungling/sjungling-claude-plugins",
+  "repository": "https://github.com/sjungling/sjungling-claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

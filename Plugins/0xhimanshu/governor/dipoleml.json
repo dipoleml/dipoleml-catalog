@@ -1,0 +1,120 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.0xhimanshu.governor",
+  "type": "plugin",
+  "name": "Governor",
+  "slug": "governor",
+  "vendor": "0xhimanshu",
+  "description": "DipoleML usage governor: compact professional output, context slimming, tool-output filtering, telemetry, and drift guardrails.",
+  "version": "0.2.5",
+  "homepage": "https://github.com/0xhimanshu/governor",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "claude-ai",
+    "claude-code-plugin",
+    "claude-skills",
+    "cli",
+    "context-window",
+    "developer-tools",
+    "prompt-engineering",
+    "token-optimization"
+  ],
+  "tags": [
+    "ai-tools",
+    "claude-ai",
+    "claude-code",
+    "claude-code-plugin",
+    "claude-skills",
+    "cli",
+    "context-window",
+    "developer-tools",
+    "llm",
+    "prompt-engineering",
+    "token-optimization"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "0xhimanshu",
+    "brandName": "0xhimanshu",
+    "source": "https://github.com/0xhimanshu.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:51Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "0xhimanshu/governor",
+    "url": "https://github.com/0xhimanshu/governor",
+    "commit": "eda8f4a8849102234b17a206efdc580aec56e400",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 132,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:03:16Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Governor | Claude Code usage governor: compact professional output, context slimming, tool-output filtering, telemetry, and drift guardrails.",
+        "after": "Governor | DipoleML usage governor: compact professional output, context slimming, tool-output filtering, telemetry, and drift guardrails.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Governor: always-on compact professional output, telemetry, context slimming, tool-output filtering, prompt guidance, and drift guardrails for Claude Code Max users.",
+        "after": "Governor: always-on compact professional output, telemetry, context slimming, tool-output filtering, prompt guidance, and drift guardrails for DipoleML Max users.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,132 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.chanmeng666.audio-hooks",
+  "type": "plugin",
+  "name": "Audio Hooks",
+  "slug": "audio-hooks",
+  "vendor": "chanmeng666",
+  "description": "【Every star you give feeds a hungry developer's motivation!⭐️】 🔊 echook — AI-operated audio notifications for DipoleML, Cursor IDE & Codex CLI — 26 hooks, voice + chime themes, TTS, webhooks, rate-limit alerts, status line. Tell your AI agent to install — natural language forever after.",
+  "version": "7.1.0",
+  "homepage": "https://github.com/ChanMeng666/echook",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "ai-operated",
+    "audio-notifications",
+    "automation",
+    "bash",
+    "claude-plugin",
+    "cli-tools",
+    "codex",
+    "codex-cli",
+    "cursor"
+  ],
+  "tags": [
+    "ai-operated",
+    "audio-notifications",
+    "automation",
+    "bash",
+    "claude-code",
+    "claude-plugin",
+    "cli-tools",
+    "codex",
+    "codex-cli",
+    "cursor",
+    "cursor-ide",
+    "developer-tools",
+    "echook",
+    "hooks",
+    "notification-system",
+    "openai-codex",
+    "productivity",
+    "tts",
+    "webhooks",
+    "wsl"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "chanmeng666",
+    "brandName": "chanmeng666",
+    "source": "https://github.com/ChanMeng666.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:12:31Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "ChanMeng666/echook",
+    "url": "https://github.com/ChanMeng666/echook",
+    "commit": "f6173c7cead85ec0f9c552a550e111233aebd869",
+    "path": "plugins/audio-hooks",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 90,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:04:56Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Audio Hooks | 【Every star you give feeds a hungry developer's motivation!⭐️】 🔊 echook — AI-operated audio notifications for Claude Code, Cursor IDE & Codex CLI — 26 hooks, voice + chime themes, TTS, webhooks, rate-limit alerts, status line. Tell your AI agent to install — natural language forever after.",
+        "after": "Audio Hooks | 【Every star you give feeds a hungry developer's motivation!⭐️】 🔊 echook — AI-operated audio notifications for DipoleML, Cursor IDE & Codex CLI — 26 hooks, voice + chime themes, TTS, webhooks, rate-limit alerts, status line. Tell your AI agent to install — natural language forever after.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Audio notifications + AI-controlled config for Claude Code, Cursor IDE, and Codex CLI events. 39 hook events across Claude Code, Cursor and Codex (30 registered on Claude Code) + 47 matcher variants, each with its own sound. Desktop toasts, TTS, webhooks, status line + per-subagent rows, rate-limit alerts. Auto-bridges to Cursor IDE 3.2.16+; native install via 'audio-hooks install --cursor' or 'audio-hooks install --codex'.",
+        "after": "Audio notifications + AI-controlled config for DipoleML, Cursor IDE, and Codex CLI events. 39 hook events across DipoleML, Cursor and Codex (30 registered on DipoleML) + 47 matcher variants, each with its own sound. Desktop toasts, TTS, webhooks, status line + per-subagent rows, rate-limit alerts. Auto-bridges to Cursor IDE 3.2.16+; native install via 'audio-hooks install --cursor' or 'audio-hooks install --codex'.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [
+      "SUPPORT"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

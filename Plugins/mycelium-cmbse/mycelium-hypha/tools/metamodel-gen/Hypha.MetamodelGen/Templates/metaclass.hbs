@@ -1,0 +1,106 @@
+---
+name: {{Name}}
+package: {{Package}}
+fully qualified name: {{FullyQualifiedName}}
+isAbstract: {{#if IsAbstract}}true{{else}}false{{/if}}
+visibility: {{Visibility}}
+generalizes: [{{#each Generalizations}}{{this}}{{#unless @last}}, {{/unless}}{{/each}}]
+specializedBy: [{{#each Specializations}}{{this}}{{#unless @last}}, {{/unless}}{{/each}}]
+---
+
+# {{Name}}
+
+`{{Package}}` package · {{#if IsAbstract}}abstract metaclass{{else}}concrete metaclass{{/if}}
+{{#if Documentation}}
+
+{{{Documentation}}}
+{{/if}}
+{{#if Generalizations}}
+
+## Generalizations
+
+{{#each Generalizations}}
+- [{{this}}]({{this}}.md)
+{{/each}}
+{{/if}}
+{{#if Specializations}}
+
+## Specializations
+
+{{#each Specializations}}
+- [{{this}}]({{this}}.md)
+{{/each}}
+{{/if}}
+{{#if Features}}
+
+## Owned features
+
+{{#each Features}}
+### {{Name}}
+
+`{{Visibility}}` {{{TypeMarkdown}}} · `{{Multiplicity}}`{{#if Modifiers}} · *{{Modifiers}}*{{/if}}
+{{#if Documentation}}
+
+{{{Documentation}}}
+{{/if}}
+{{#if Redefines}}
+
+Redefines {{#each Redefines}}{{{this}}}{{#unless @last}}, {{/unless}}{{/each}}
+{{/if}}
+{{#if Subsets}}
+
+Subsets {{#each Subsets}}{{{this}}}{{#unless @last}}, {{/unless}}{{/each}}
+{{/if}}
+
+{{/each}}
+{{/if}}
+{{#if InheritedFeatures}}
+
+## Inherited features
+
+| Feature | Type | Multiplicity | Owner | Modifiers |
+| --- | --- | --- | --- | --- |
+{{#each InheritedFeatures}}
+| {{Name}} | {{{TypeMarkdown}}} | {{Multiplicity}} | [{{Owner}}]({{Owner}}.md) | {{Modifiers}} |
+{{/each}}
+{{/if}}
+{{#if Operations}}
+
+## Operations
+
+{{#each Operations}}
+### {{Name}}
+
+`{{Signature}}`{{#if IsQuery}} · *query*{{/if}}
+{{#if Documentation}}
+
+{{{Documentation}}}
+{{/if}}
+{{#if Body}}
+
+```ocl
+{{{Body}}}
+```
+{{/if}}
+
+{{/each}}
+{{/if}}
+{{#if Constraints}}
+
+## Constraints
+
+{{#each Constraints}}
+### {{Name}}
+{{#if Documentation}}
+
+{{{Documentation}}}
+{{/if}}
+{{#if Body}}
+
+```ocl
+{{{Body}}}
+```
+{{/if}}
+
+{{/each}}
+{{/if}}

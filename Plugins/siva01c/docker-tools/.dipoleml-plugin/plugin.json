@@ -1,0 +1,16 @@
+{
+  "name": "docker-tools",
+  "displayName": "Docker Tools",
+  "version": "1.0.0",
+  "description": "Docker skills for Drupal development — Compose stack authoring/operations and Docker Model Runner for local AI models",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Siva01c"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/siva01c/claude-plugins",
+  "repository": "https://github.com/siva01c/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

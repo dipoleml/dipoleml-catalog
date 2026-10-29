@@ -1,0 +1,605 @@
+#!/usr/bin/env node
+/**
+ * ops-telegram-autolink — extract api_id / api_hash from my.telegram.org
+ * and generate a gram.js session string, producing a ready-to-paste
+ * user_config block for the claude-ops plugin's Telegram MCP.
+ *
+ * NO BROWSER required. my.telegram.org uses plain HTML form posts + session
+ * cookies, so this works over pure HTTP. Much simpler and faster than the
+ * Playwright approach.
+ *
+ * Usage:
+ *   ops-telegram-autolink --phone +15551234567 [options]
+ *
+ * Options:
+ *   --phone        E.164 phone number (required)
+ *   --app-title    Label for the Telegram app entry (default: "claude-ops")
+ *   --app-short    Short name for the app entry (default: "claude_ops")
+ *   --skip-session Skip gram.js session generation (only extract api_id/hash)
+ *   --code-file    File path to read codes from (default: /tmp/telegram-code.txt)
+ *
+ * Bridge protocol:
+ *   Progress/prompts → stderr as single-line JSON events:
+ *     {"type": "phase", ...}
+ *     {"type": "step", ...}
+ *     {"type": "need_code", "channel": "web_login" | "gram_auth", ...}
+ *     {"type": "error", "message": "..."}
+ *   Final result   → stdout as single-line JSON:
+ *     {"api_id": "...", "api_hash": "...", "phone": "...", "session": "..."}
+ *
+ *   When the caller sees a need_code event, it should prompt the user for
+ *   the code from Telegram and write it (digits only) to the file in
+ *   --code-file. The script polls the file every 2s, unlinks it after read.
+ *
+ * Depends on: telegram (gram.js). No cheerio — selectors are extracted via
+ * simple regex to keep the dep footprint minimal.
+ */
+
+import { readFileSync, existsSync, unlinkSync } from 'node:fs';
+import { execSync, execFileSync } from 'node:child_process';
+import { parseArgs } from 'node:util';
+import os from 'node:os';
+import { TelegramClient } from 'telegram';
+import { StringSession } from 'telegram/sessions/index.js';
+import { setCredential, getCredential, deleteCredential } from '../lib/credential-store.mjs';
+import { osId, keyringBackend } from '../lib/os-detect.mjs';
+
+const { values } = parseArgs({
+  options: {
+    phone: { type: 'string' },
+    'app-title': { type: 'string', default: 'claude-ops' },
+    'app-short': { type: 'string', default: 'claude_ops' },
+    'skip-session': { type: 'boolean', default: false },
+    'code-file': { type: 'string', default: '/tmp/telegram-code.txt' },
+  },
+});
+
+const PHONE = values.phone;
+const APP_TITLE = values['app-title'];
+const APP_SHORT = values['app-short'];
+const SKIP_SESSION = values['skip-session'];
+const CODE_FILE = values['code-file'];
+
+function emit(event) {
+  process.stderr.write(JSON.stringify(event) + '\n');
+}
+
+function die(message, extra = {}) {
+  emit({ type: 'error', message, ...extra });
+  process.exit(1);
+}
+
+if (!PHONE || !/^\+\d{7,15}$/.test(PHONE)) {
+  die('missing or invalid --phone [E.164 required, e.g. +155****4567]');
+}
+
+if (existsSync(CODE_FILE)) unlinkSync(CODE_FILE);
+
+/**
+ * Wait for the bridge file to appear with a valid code, then consume it.
+ */
+async function waitForCode(maxSec = 300) {
+  const start = Date.now();
+  let lastLog = 0;
+  while (Date.now() - start < maxSec * 1000) {
+    if (existsSync(CODE_FILE)) {
+      const raw = readFileSync(CODE_FILE, 'utf8').trim();
+      if (/^[\w\-]{3,20}$/.test(raw)) {
+        try {
+          unlinkSync(CODE_FILE);
+        } catch {}
+        return raw;
+      }
+    }
+    if (Date.now() - lastLog > 15000) {
+      emit({
+        type: 'heartbeat',
+        waited_s: Math.floor((Date.now() - start) / 1000),
+      });
+      lastLog = Date.now();
+    }
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  die(`timeout waiting for code file at ${CODE_FILE}`);
+}
+
+/**
+ * Simple cookie jar — just enough to keep the my.telegram.org session.
+ */
+class CookieJar {
+  constructor() {
+    this.cookies = new Map();
+  }
+  update(response) {
+    const raw = response.headers.getSetCookie
+      ? response.headers.getSetCookie()
+      : [response.headers.get('set-cookie')].filter(Boolean);
+    for (const c of raw || []) {
+      const [kv] = c.split(';');
+      const eq = kv.indexOf('=');
+      if (eq > 0) this.cookies.set(kv.slice(0, eq).trim(), kv.slice(eq + 1).trim());
+    }
+  }
+  header() {
+    return Array.from(this.cookies.entries())
+      .map(([k, v]) => `${k}=${v}`)
+      .join('; ');
+  }
+}
+
+// --- Phase 1: my.telegram.org HTTP flow ---
+emit({
+  type: 'phase',
+  phase: 1,
+  message: 'Extracting api_id / api_hash from my.telegram.org',
+});
+
+const jar = new CookieJar();
+const COMMON_HEADERS = {
+  'User-Agent':
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+  'Accept-Language': 'en-US,en;q=0.9',
+};
+
+async function httpPost(url, body) {
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: {
+      ...COMMON_HEADERS,
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'X-Requested-With': 'XMLHttpRequest',
+      Cookie: jar.header(),
+      Referer: 'https://my.telegram.org/auth',
+      Origin: 'https://my.telegram.org',
+    },
+    body: new URLSearchParams(body).toString(),
+    redirect: 'manual',
+  });
+  jar.update(res);
+  return res;
+}
+
+async function httpGet(url) {
+  const res = await fetch(url, {
+    headers: { ...COMMON_HEADERS, Cookie: jar.header() },
+    redirect: 'manual',
+  });
+  jar.update(res);
+  return res;
+}
+
+// Step 1.1: request a login code for PHONE
+emit({ type: 'step', message: `POST /auth/send_password for ${PHONE}` });
+const sendRes = await httpPost('https://my.telegram.org/auth/send_password', {
+  phone: PHONE,
+});
+const sendText = await sendRes.text();
+if (sendText.includes('Sorry, too many tries')) {
+  die('my.telegram.org rate-limited your account. Wait ~8 hours and retry.');
+}
+let randomHash;
+try {
+  const parsed = JSON.parse(sendText);
+  randomHash = parsed.random_hash;
+  if (!randomHash) throw new Error('no random_hash in response');
+} catch (e) {
+  die('send_password response was not valid JSON', {
+    body: sendText.slice(0, 200),
+  });
+}
+emit({
+  type: 'step',
+  message: 'Telegram has sent a code to your Telegram account',
+});
+
+// Step 1.2: wait for code from the bridge
+emit({
+  type: 'need_code',
+  channel: 'web_login',
+  message: `Enter the code from Telegram → write it to ${CODE_FILE}`,
+  code_file: CODE_FILE,
+});
+const webCode = await waitForCode(300);
+
+// Step 1.3: POST login with phone + random_hash + password=code
+emit({ type: 'step', message: 'POST /auth/login' });
+const loginRes = await httpPost('https://my.telegram.org/auth/login', {
+  phone: PHONE,
+  random_hash: randomHash,
+  password: webCode,
+});
+const loginBody = await loginRes.text();
+if (loginBody && /error|invalid|wrong/i.test(loginBody)) {
+  die(`login rejected: ${loginBody.slice(0, 150)}`);
+}
+
+// Step 1.4: GET /apps to see if an app already exists
+emit({ type: 'step', message: 'GET /apps' });
+let appsRes = await httpGet('https://my.telegram.org/apps');
+let appsHtml = await appsRes.text();
+
+/**
+ * Extract api_id and api_hash from my.telegram.org /apps HTML.
+ * Uses a cascade of increasingly broad strategies so HTML layout
+ * changes don't break extraction. The values have known formats:
+ *   api_id  = 5-12 digit number
+ *   api_hash = 32-char lowercase hex string
+ * These formats are stable (Telegram API contract), only the HTML
+ * wrapping changes.
+ */
+function extract(html) {
+  let apiId = null;
+  let apiHash = null;
+
+  // Strategy 1: label + nearby span (original layout)
+  const idS1 = html.match(/api_id[^<]*<\/label>[\s\S]*?<span[^>]*>\s*(\d{5,12})\s*<\/span>/i);
+  const hashS1 = html.match(/api_hash[^<]*<\/label>[\s\S]*?<span[^>]*>\s*([a-f0-9]{32})\s*<\/span>/i);
+  if (idS1) apiId = idS1[1];
+  if (hashS1) apiHash = hashS1[1];
+
+  // Strategy 2: api_id/api_hash near any tag containing the value
+  if (!apiId) {
+    const idS2 = html.match(/api_id[^<]*<[^>]+>\s*(\d{5,12})\s*</i);
+    if (idS2) apiId = idS2[1];
+  }
+  if (!apiHash) {
+    const hashS2 = html.match(/api_hash[^<]*<[^>]+>\s*([a-f0-9]{32})\s*</i);
+    if (hashS2) apiHash = hashS2[1];
+  }
+
+  // Strategy 3: value in any tag on same line or nearby text as keyword
+  if (!apiId) {
+    const idS3 = html.match(/api_id[\s\S]{0,200}?(\d{5,12})/i);
+    if (idS3) apiId = idS3[1];
+  }
+  if (!apiHash) {
+    const hashS3 = html.match(/api_hash[\s\S]{0,200}?([a-f0-9]{32})/i);
+    if (hashS3) apiHash = hashS3[1];
+  }
+
+  // Strategy 4: input/hidden fields with api_id/api_hash as name or id
+  if (!apiId) {
+    const idS4 = html.match(/(?:name|id)=['"]?api_id['"]?[^>]*value=['"]?(\d{5,12})['"]?/i);
+    if (idS4) apiId = idS4[1];
+  }
+  if (!apiHash) {
+    const hashS4 = html.match(/(?:name|id)=['"]?api_hash['"]?[^>]*value=['"]?([a-f0-9]{32})['"]?/i);
+    if (hashS4) apiHash = hashS4[1];
+  }
+
+  // Strategy 5: brute-force — strip all HTML tags and look for the
+  // characteristic patterns near their keywords in plain text
+  if (!apiId || !apiHash) {
+    const text = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+    if (!apiId) {
+      const idS5 = text.match(/api_id\s*:?\s*(\d{5,12})/i);
+      if (idS5) apiId = idS5[1];
+    }
+    if (!apiHash) {
+      const hashS5 = text.match(/api_hash\s*:?\s*([a-f0-9]{32})/i);
+      if (hashS5) apiHash = hashS5[1];
+    }
+  }
+
+  // Strategy 6: last resort — find a 32-char hex string near "api_hash" text
+  // Proximity check prevents CSRF tokens in form fields from being captured.
+  if (!apiHash) {
+    const hashProximity = html.match(/api_hash[\s\S]{0,500}?([a-f0-9]{32})/i);
+    if (hashProximity) apiHash = hashProximity[1];
+  }
+
+  return { apiId, apiHash };
+}
+
+let { apiId, apiHash } = extract(appsHtml);
+
+if (!apiId || !apiHash) {
+  // Step 1.5: no app exists → create one
+  emit({ type: 'step', message: 'No existing app — creating one' });
+  // Extract CSRF token / hash value from the create-app form if present
+  const hashInput = appsHtml.match(/name=['"]hash['"]\s+value=['"]([a-z0-9]+)['"]/i);
+  const createParams = {
+    hash: hashInput ? hashInput[1] : '',
+    app_title: APP_TITLE,
+    app_shortname: APP_SHORT,
+    app_url: 'https://github.com/claude-ops-marketplace/claude-ops',
+    app_platform: 'desktop',
+    app_desc: 'claude-ops — automated operations for Claude Code',
+  };
+  const createRes = await httpPost('https://my.telegram.org/apps/create', createParams);
+  const createBody = await createRes.text();
+  if (createRes.status >= 400 || /error/i.test(createBody.slice(0, 200))) {
+    die(`/apps/create failed (HTTP ${createRes.status})`, {
+      body: createBody.slice(0, 200),
+    });
+  }
+  // Re-fetch the apps page now that an app exists
+  appsRes = await httpGet('https://my.telegram.org/apps');
+  appsHtml = await appsRes.text();
+  ({ apiId, apiHash } = extract(appsHtml));
+}
+
+/**
+ * Extract human-readable text from an HTML document for diagnostics.
+ *
+ * Deliberately NOT a chain of `.replace(/<script.*?<\/script>/gi, '')`-style
+ * regexes: those miss valid-but-unusual end tags (`</script >`, `</script\n>`)
+ * and, because each pass can re-create a tag the previous pass removed, they can
+ * leave live `<script`/`<style` markup behind. This is a single left-to-right
+ * pass over the input that can never resurrect markup, and it HTML-escapes the
+ * text it keeps so the result is inert wherever it is later rendered.
+ */
+function htmlToDiagnosticText(html) {
+  const RAW_TEXT = new Set(['script', 'style', 'textarea', 'title', 'noscript']);
+  const out = [];
+  let i = 0;
+  const n = html.length;
+
+  while (i < n) {
+    const lt = html.indexOf('<', i);
+    if (lt === -1) {
+      out.push(html.slice(i));
+      break;
+    }
+    out.push(html.slice(i, lt));
+
+    // Comment / CDATA / doctype
+    if (html.startsWith('<!--', lt)) {
+      const end = html.indexOf('-->', lt + 4);
+      i = end === -1 ? n : end + 3;
+      continue;
+    }
+    if (html[lt + 1] === '!' || html[lt + 1] === '?') {
+      const end = html.indexOf('>', lt);
+      i = end === -1 ? n : end + 1;
+      continue;
+    }
+
+    // A '<' that does not open a tag is literal text, not markup.
+    const nameMatch = /^<\/?([a-zA-Z][a-zA-Z0-9-]*)/.exec(html.slice(lt, lt + 64));
+    if (!nameMatch) {
+      out.push('<');
+      i = lt + 1;
+      continue;
+    }
+    const tagName = nameMatch[1].toLowerCase();
+    const isClosing = html[lt + 1] === '/';
+
+    // Walk to the tag's '>' while respecting quoted attribute values, so a '>'
+    // inside an attribute does not terminate the tag early.
+    let j = lt + nameMatch[0].length;
+    let quote = null;
+    while (j < n) {
+      const c = html[j];
+      if (quote) {
+        if (c === quote) quote = null;
+      } else if (c === '"' || c === "'") {
+        quote = c;
+      } else if (c === '>') {
+        break;
+      }
+      j++;
+    }
+    i = j < n ? j + 1 : n;
+
+    // Raw-text elements: skip their entire content, matching the end tag the way
+    // an HTML parser does — '</name' followed by whitespace, '/' or '>'.
+    if (!isClosing && RAW_TEXT.has(tagName) && html[j - 1] !== '/') {
+      const endRe = new RegExp(`</${tagName}(?=[\\s/>])`, 'i');
+      const rest = html.slice(i);
+      const m = endRe.exec(rest);
+      if (!m) {
+        i = n;
+      } else {
+        const close = html.indexOf('>', i + m.index);
+        i = close === -1 ? n : close + 1;
+      }
+      continue;
+    }
+
+    out.push(' ');
+  }
+
+  // Escape what survived: the snippet is inert wherever it is later rendered.
+  return out
+    .join('')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+if (!apiId || !apiHash) {
+  // Dump a snippet of the HTML so the caller can diagnose what changed
+  const snippet = htmlToDiagnosticText(appsHtml).slice(0, 500);
+  die(
+    `could not extract ${!apiId ? 'api_id' : ''}${!apiId && !apiHash ? ' or ' : ''}${!apiHash ? 'api_hash' : ''} from /apps HTML after 6 extraction strategies`,
+    { html_snippet: snippet },
+  );
+}
+
+emit({
+  type: 'phase',
+  phase: 1,
+  message: 'Extracted credentials',
+  api_id: apiId,
+});
+
+// --- Phase 2: gram.js session generation ---
+if (SKIP_SESSION) {
+  process.stdout.write(
+    JSON.stringify({
+      api_id: apiId,
+      api_hash: apiHash,
+      phone: PHONE,
+      session: null,
+    }) + '\n',
+  );
+  process.exit(0);
+}
+
+emit({ type: 'phase', phase: 2, message: 'Generating gram.js session string' });
+
+const stringSession = new StringSession('');
+const client = new TelegramClient(stringSession, parseInt(apiId, 10), apiHash, {
+  connectionRetries: 3,
+  baseLogger: {
+    log: () => {},
+    warn: () => {},
+    error: (...a) => emit({ type: 'gram_error', message: a.join(' ') }),
+    info: () => {},
+    debug: () => {},
+  },
+});
+
+// Remove any leftover code file from the web-login step so we don't reuse it
+if (existsSync(CODE_FILE)) {
+  try {
+    unlinkSync(CODE_FILE);
+  } catch {}
+}
+
+try {
+  await client.start({
+    phoneNumber: async () => PHONE,
+    password: async () => {
+      // 2FA password is separate from the phone code. If the user has 2FA
+      // enabled, we'd need another bridge file. For MVP, default to empty
+      // and let gram.js error loudly if 2FA is required.
+      emit({
+        type: 'need_password',
+        message:
+          'Telegram 2FA password required. Write to /tmp/telegram-password.txt or leave unset for no-2FA accounts',
+        password_file: '/tmp/telegram-password.txt',
+      });
+      const start = Date.now();
+      while (Date.now() - start < 60_000) {
+        if (existsSync('/tmp/telegram-password.txt')) {
+          const pw = readFileSync('/tmp/telegram-password.txt', 'utf8').trim();
+          try {
+            unlinkSync('/tmp/telegram-password.txt');
+          } catch {}
+          return pw;
+        }
+        await new Promise((r) => setTimeout(r, 2000));
+      }
+      return '';
+    },
+    phoneCode: async () => {
+      emit({
+        type: 'need_code',
+        channel: 'gram_auth',
+        message: `Telegram sent a SECOND code for gram.js auth. Write digits-only to ${CODE_FILE}`,
+        code_file: CODE_FILE,
+      });
+      return await waitForCode(300);
+    },
+    onError: (err) => emit({ type: 'gram_error', message: err.message }),
+  });
+} catch (err) {
+  die(`gram.js auth failed: ${err.message}`);
+}
+
+const sessionStr = client.session.save();
+
+// Step 2.1: Validate session
+emit({ type: 'step', message: 'Validating session...' });
+try {
+  await client.connect();
+  const me = await client.getMe();
+  emit({
+    type: 'step',
+    message: `✓ Validated — ${me.firstName} (@${me.username || 'no-username'})`,
+  });
+  await client.disconnect();
+} catch (e) {
+  emit({ type: 'step', message: `⚠ Session validation failed: ${e.message}` });
+  await client.disconnect().catch(() => {});
+}
+
+// Step 2.2: Save to cross-OS credential store
+//
+// Cascades through the host-native keyring (macOS security / Linux secret-tool /
+// Windows cmdkey) → keytar → encrypted JSON → plaintext JSON. Existing macOS
+// installations keep working because the service/account names (and the
+// underlying `security add-generic-password` invocation on darwin) are
+// unchanged. See lib/credential-store.mjs for cascade details.
+const CRED_ACCOUNT = process.env.USER || process.env.USERNAME || os.userInfo().username || 'user';
+try {
+  const backends = new Set();
+  for (const [svc, val] of [
+    ['telegram-api-id', apiId],
+    ['telegram-api-hash', apiHash],
+    ['telegram-phone', PHONE],
+    ['telegram-session', sessionStr],
+  ]) {
+    const r = await setCredential(svc, CRED_ACCOUNT, val);
+    if (!r || !r.ok) {
+      throw new Error(`setCredential(${svc}) failed (backend=${r ? r.backend : 'none'})`);
+    }
+    if (r.backend) backends.add(r.backend);
+  }
+  const backendList = Array.from(backends).join(', ') || 'unknown';
+  emit({
+    type: 'step',
+    message: `✓ Saved credentials to credential store (backend=${backendList}, host=${osId()}, native=${keyringBackend() || 'none'})`,
+    backend: backendList,
+  });
+} catch (e) {
+  emit({
+    type: 'step',
+    message: `○ Credential store save failed: ${e.message}`,
+  });
+}
+
+// Step 2.3: Register MCP server
+try {
+  // Argv form — never interpolate secrets into a shell string (CodeQL js/command-line-injection).
+  const pluginRoot = (process.env.CLAUDE_PLUGIN_ROOT || '').trim();
+  const telegramServerPath = pluginRoot ? `${pluginRoot}/telegram-server/index.js` : null;
+  if (telegramServerPath) {
+    execFileSync(
+      'claude',
+      [
+        'mcp',
+        'add',
+        'telegram',
+        '-s',
+        'user',
+        '-e',
+        `TELEGRAM_API_ID=${apiId}`,
+        '-e',
+        `TELEGRAM_API_HASH=${apiHash}`,
+        '-e',
+        `TELEGRAM_PHONE=${PHONE}`,
+        '-e',
+        `TELEGRAM_SESSION=${sessionStr}`,
+        '--',
+        'node',
+        telegramServerPath,
+      ],
+      { timeout: 15000, stdio: 'pipe' },
+    );
+    emit({
+      type: 'step',
+      message: '✓ Registered Telegram MCP server in Claude Code',
+    });
+  }
+} catch {
+  emit({
+    type: 'step',
+    message: '○ Could not auto-register MCP — run: claude mcp add telegram',
+  });
+}
+
+const result = {
+  api_id: apiId,
+  api_hash: apiHash,
+  phone: PHONE,
+  session: sessionStr,
+};
+process.stdout.write(JSON.stringify(result) + '\n');
+process.exit(0);

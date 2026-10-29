@@ -1,0 +1,113 @@
+# Contributing to claude-carbon
+
+Thanks for taking the time to contribute. This document covers how the project
+is laid out, how to test changes, and what a good pull request looks like.
+
+## Project layout
+
+claude-carbon is plain bash + jq + awk. There is no build step and no runtime
+dependency to install (only `/carbon-card` needs `playwright-core`, see the
+README).
+
+| Path                | What it is                                                            |
+| ------------------- | --------------------------------------------------------------------- |
+| `hooks/`            | Claude Code status line + shell hooks (the live CO2 estimate)         |
+| `scripts/`          | Report, card generation, backfill, update logic                       |
+| `skills/`           | The `/carbon-report`, `/carbon-card`, `/carbon-update` slash commands |
+| `data/factors.json` | Emission factors (per-model energy, PUE, carbon intensity)            |
+| `data/prices.json`  | Per-model token prices                                                |
+| `tests/`            | Golden vectors for the methodology, plus the install/update wiring     |
+| `install.sh`        | The installer (also what `npx claude-carbon` runs)                    |
+| `METHODOLOGY.md`    | How every number is derived                                           |
+
+## Running the tests
+
+```bash
+bash tests/run-vectors.sh         # the methodology maths
+bash tests/run-install-tests.sh   # the settings.json wiring and the update repair path
+node --experimental-strip-types tests/run-mod-tests.mjs   # the mod's pure modules
+bash tests/run-mod-kit.sh         # the mod's own tests, under claude plugin test
+bash scripts/check-versions.sh    # the three version manifests agree
+shellcheck --severity=warning $(find . -name '*.sh' -not -path './.git/*')
+```
+
+`run-vectors.sh` replays the golden vectors in `tests/methodology-vectors.json`
+against `data/factors.json` and `data/prices.json`. It only needs bash, jq and
+awk.
+
+`run-install-tests.sh` covers what a user's `settings.json` ends up looking like:
+cold start, an install that predates a hook, a foreign status line or third-party
+hooks that must survive untouched, repeated runs, paths spelled differently
+(`~/…` versus expanded), the marketplace-cache guard, and the repair `update.sh`
+performs. Every case runs under its own throwaway `CLAUDE_CONFIG_DIR`, so your
+real `~/.claude` is never touched, and nothing hits the network.
+
+`run-mod-kit.sh` needs a `claude` binary on the PATH (or `CLAUDE_BIN`) but no
+login: the kit mocks the engine, under a throwaway `HOME` and `CLAUDE_CONFIG_DIR`.
+CI pins Claude Code 2.1.296 for it, since the kit ships inside the binary.
+
+CI runs all of them on every push and pull request.
+
+## Changing the methodology (factors or prices)
+
+This is the sensitive part of the project. Any change to `data/factors.json` or
+`data/prices.json` must ship in the same PR as:
+
+1. An update to `tests/methodology-vectors.json` so the golden vectors encode
+   the new expected outputs.
+2. An update to `METHODOLOGY.md` explaining the derivation. Every number must
+   be reproducible from a cited source; "it looks right" is not a derivation.
+
+PRs that change factors or prices without both of these will not be merged.
+
+## Pull requests
+
+- Branch from `main`, open the PR against `main`.
+- Keep commits in English, conventional format: `feat:`, `fix:`, `refactor:`,
+  `chore:`, `docs:`, `test:`.
+- Add an entry to `CHANGELOG.md` (date-stamped, see existing entries for the
+  format).
+- If the change is user-visible, update the README.
+
+### Releases (maintainer notes)
+
+```bash
+bash scripts/release.sh patch --dry-run   # see what would happen
+bash scripts/release.sh patch             # bump, tag, push, open a draft release
+```
+
+The script bumps the three manifests that must stay in sync (`package.json`,
+`.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json`) and the version
+and release date in `CITATION.cff`, commits, tags,
+pushes, and opens the GitHub release as a draft pre-filled with the CHANGELOG
+lines added since the last tag. Edit those notes, then
+`gh release edit vX.Y.Z --draft=false`. Pass `--npm` to publish to npm as well;
+the tarball only carries `bin/`, so that is only needed when `bin/` changed.
+
+**When to bump.** The update notice users see compares the version in
+`.claude-plugin/plugin.json` against `origin/main`, not commits. So anything
+that runs on their machine (`scripts/`, `hooks/`, `skills/`, `data/`,
+`install.sh`, `bin/`) stays invisible to every installed user until a release
+bumps it. Docs, CHANGELOG, stats and CI changes deliberately do not nag anyone
+and need no bump. `scripts/check-versions.sh` (run in CI) fails on a manifest
+mismatch and warns when runtime changes have piled up unreleased.
+
+`release.sh` stops before writing anything when the release would only bump a
+number: when HEAD is already the last release's commit (a second run of the same
+command), and when no runtime file changed since the last tag. The second case
+goes through with `--force`, the first never does.
+
+## Reporting bugs and proposing features
+
+Use the [issue templates](https://github.com/gwittebolle/claude-carbon/issues/new/choose).
+For bugs, the environment details (OS, Claude Code version, install method)
+matter a lot: the status line runs in the terminal CLI and IDE extensions only,
+and quota data comes from an OAuth endpoint, so many issues are
+environment-specific.
+
+For security issues, do not open a public issue: see [SECURITY.md](SECURITY.md).
+
+## Questions
+
+Not sure whether something is a bug, or want to discuss an idea before writing
+code? Open an issue. Small questions are fine.

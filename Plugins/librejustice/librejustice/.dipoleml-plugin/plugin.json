@@ -1,0 +1,16 @@
+{
+  "name": "librejustice",
+  "displayName": "Librejustice",
+  "version": "1.18.0",
+  "description": "Free and open source, LibreJustice gives your agent ~3.8 million French-language and European decisions and ~3.9 million legal articles, readable as they stood on any date and linked article by article. Four MCP tools over OAuth, two research skills.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Librejustice"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://librejustice.fr",
+  "repository": "https://github.com/librejustice/librejustice",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

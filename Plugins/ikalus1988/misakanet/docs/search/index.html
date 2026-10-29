@@ -1,0 +1,1164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="Search the indexed failure-recovery lessons from real AI agent debugging sessions. DCO, GitHub token, pip timeout, database locked, and more.">
+<link rel="canonical" href="https://misakanet.org/search/">
+<meta property="og:title" content="Search Failure Lessons — MisakaNet">
+<meta property="og:description" content="Search the indexed failure-recovery lessons from real AI agent debugging sessions.">
+<meta property="og:url" content="https://misakanet.org/search/">
+<title>Search Indexed Failure Lessons — MisakaNet</title>
+<!-- design-tokens:start -->
+<style id="misaka-design-tokens">
+/*
+ * The design system's tokens — ONE source for every hand-written page (#3541, batch V).
+ *
+ * Why this file exists: the site currently holds two products. The homepage has an identity
+ * (Orbitron, a cyan glow, a grid), and the other hand-written pages are GitHub's default dark
+ * theme — copied in from somewhere else. Fourteen pages, fourteen sets of hardcoded colours,
+ * radii, shadows and font stacks. Nothing is *wrong* with them; they are simply not one site,
+ * and every future change has to be made fourteen times.
+ *
+ * This block changes nothing on its own: no page references these names yet. That is deliberate
+ * — batch W is the batch that replaces hardcoded values with these names, and a batch that
+ * changed the rendering as well as the vocabulary would make a visual regression impossible to
+ * attribute. So this file is the vocabulary, and the gate below keeps it the only copy of it.
+ *
+ * Every value below is measured, not chosen for taste: the text colours were picked for their
+ * WCAG contrast ratio against --bg-0 (15.95:1, 7.67:1, 4.14:1), and the two accent colours
+ * for theirs (12.79:1 and 5.21:1). If a value changes here, the ratios change with it, so the
+ * numbers in the comments are part of the contract.
+ *
+ * Maintained by scripts/sync_design_tokens.py — `--check` fails when a page drifts from this
+ * file, the same way the shared nav row is kept honest.
+ */
+:root {
+  /* ── 底与面：3 档（收编 GitHub 习惯色，不再各页自定义）── */
+  --bg-0: #070b15;   /* 页面底 */
+  --bg-1: #0d1424;   /* 卡片 / 面 */
+  --bg-2: #161b22;   /* 浮层 / 代码块 */
+
+  /* ── 文字：3 档（对比度已实测）── */
+  --fg-1: #e2e8f0;   /* 15.95:1 on --bg-0 */
+  --fg-2: #94a3b8;   /*  7.67:1 on --bg-0 */
+  --fg-3: #64748b;   /*  仅限 ≥16px 或非文本装饰（4.14:1，正文禁用）*/
+
+  /* ── 品牌与语义 ── */
+  --accent:   #00e5ff;  /* 12.79:1 — 品牌 / 链接（首页既有 --cyan）*/
+  --accent-2: #ff0080;  /*  5.21:1 — 次级强调，限量使用 */
+  --ok:       #22c55e;  /*  8.63:1 */
+  --warn:     #f0c040;
+  --danger:   #ef4444;  /*  5.23:1 */
+  --line:        rgba(148,163,184,.14);
+  --line-strong: rgba(0,229,255,.28);
+
+  /* ── 字体：4 族（不换字体家族，只把 5 套声明收敛成 token）── */
+  /* `--font-ui` 是**系统栈**，不是 Inter：十三个手写页面今天用的是
+     `-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`，而 Inter 只在首页被
+     加载。#3541 的风险第 1 条写着"若 onload 不触发会静默回退……只有像素对比能抓到"，所以
+     **本单不换字体家族**：把 `--font-ui` 写成 Inter 开头，等于让这十三个页面在没加载 Inter
+     的情况下用 CJK 字体渲染拉丁字母——那是一次静默的排版退化。
+     首页的 Inter 因此单列为 `--font-brand`：两个族都是"不动"的，只是各归其位。── */
+  --font-ui:      -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', sans-serif;
+  --font-brand:   'Inter','PingFang SC','Microsoft YaHei','Noto Sans SC',sans-serif;
+  --font-display: 'Orbitron', var(--font-brand);      /* 仅品牌层 */
+  --font-cn:      'Ma Shan Zheng','Noto Sans SC',cursive; /* 仅首页副标 */
+  --font-mono:    'JetBrains Mono',ui-monospace,monospace;
+
+  /* ── 字阶：10 档，rem 基准 16 ── */
+  --fs-3xs:.6875rem; --fs-2xs:.75rem; --fs-xs:.8125rem; --fs-sm:.875rem;
+  --fs-md:1rem;     --fs-lg:1.125rem; --fs-xl:1.3125rem; --fs-2xl:1.5rem;
+  --fs-3xl:1.875rem;--fs-4xl:2.375rem;
+  /* 品牌层的字号（首页的标识组合）。它们不属于 UI 字阶：按 #3541 的 px 规则向上取整，52px 和
+     48px 恰好不动，但 22px 会变成 24px、36px 会变成 38px——那会把首页的标识撑宽 41px，
+     而首页的头部本来就比视口宽（§118.9 的既有 bug），再撑就没有余地了。
+     #3541 说"首页那套签名不是要改掉的东西，它是资产"，所以这一层保留原尺寸，
+     并由像素对比守住：改这里的数会立刻在 header 的宽度上被看见。── */
+  --fs-display:3.25rem;      /* 52px — .logo-title */
+  --fs-display-sm:3rem;      /* 48px — .logo-cn */
+  --fs-display-md:2.25rem;   /* 36px — 窄屏下的 .logo-title / .logo-cn */
+  --fs-tagline:1.375rem;     /* 22px — .logo-tagline */
+
+  /* ── 间距：4px 基准，8 档 ── */
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px;
+  --sp-5:24px; --sp-6:32px; --sp-7:40px; --sp-8:48px;
+
+  /* ── 圆角：3 档（现状 14 种）── */
+  --r-sm:6px; --r-md:10px; --r-lg:16px;
+  /* 胶囊形不是"圆角档位"，是形状：现状的 50% 与 999px 是同一种东西的两种写法。
+     它单列一个 token，而不是混进三档里——把它塞进 --r-lg 会让胶囊变成圆角矩形。── */
+  --r-pill:999px;
+
+  /* ── 动效：2 档 + 1 个 easing（现状 5 种时长）── */
+  --t-fast:150ms; --t-base:250ms; --ease:cubic-bezier(.2,.8,.2,1);
+
+  /* ── 阴影：2 档（现状 31 处）── */
+  --sh-1:0 1px 2px rgba(0,0,0,.35);
+  --sh-2:0 12px 32px rgba(0,0,0,.45);
+}
+
+/* ── 图标：一套 Lucide 线性图标（Y 批）── */
+/* The icon set is Lucide, inlined as SVG; the *shapes* live in `scripts/site_icons.py` and the
+   *style* lives here, for the same reason the tokens live here and not in each page: one source,
+   copied into every page, gated by a script. An emoji could not do this job — it is a coloured
+   bitmap chosen by the platform, so the same markup renders three different icons in three
+   browsers and none of them is `--accent`.
+
+   `1em` makes an icon the size of the text it sits in, which is exactly what an emoji was.
+   `non-scaling-stroke` keeps the line one hairline wide at every size instead of letting it
+   thicken as the icon grows — a scaled-up drawing looks like a scaled-up drawing, and this is a
+   set of UI glyphs, not artwork. Lucide draws at 24px with a 2px stroke; at the 14px of a drawer
+   row that would be 1.17px, and at the 30px of the register panel 2.5px, so the stroke is set
+   once, here, at 1.5px, and every icon inherits it.
+
+   The markup carries no width/height/stroke attributes at all: the attributes would be forty
+   copies of a decision this block already makes. */
+.ico {
+  width: 1em;
+  height: 1em;
+  display: inline-block;
+  vertical-align: -0.125em;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+/* ── The footer shell（Z 批）────────────────────────────────────────────────
+   The footer is the one navigation every page shares, and until batch Z it was
+   six shells wearing six spellings: `footer {}` on some pages and `.footer {}`
+   on others, a cyan-tinted top border on the homepage and a grey one on the
+   rest, four different `margin-top` values, and six pages with no footer at all
+   — which meant six pages the reader could not leave except with the back
+   button.
+
+   So the shell lives here, beside the icons, for the same reason: one source,
+   copied into every page, and `scripts/sync_design_tokens.py --check` fails when
+   a page drifts from it. A page may still add its *own* footer content (the
+   homepage's link row and wordmark), but the shell around it is not the page's
+   to decide. */
+.footer {
+  margin-top: var(--sp-7);
+  padding: var(--sp-5) 0;
+  border-top: 1px solid var(--line);
+  text-align: center;
+  color: var(--fg-2);
+  font-size: var(--fs-xs);
+  line-height: 1.8;
+}
+.footer a { color: var(--accent); text-decoration: none; }
+.footer a:hover { text-decoration: underline; }
+.site-links { margin: 0 0 var(--sp-2); }
+</style>
+<!-- design-tokens:end -->
+<style>
+  :root {
+    --text-soft: rgba(255,255,255,0.72);
+    --text-muted: rgba(255,255,255,0.64);
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: var(--font-ui); background: radial-gradient(circle at 50% -20%, rgba(0,229,255,0.09), transparent 38%), var(--bg-0); color: var(--fg-1); min-height: 100vh; }
+  .container { max-width: 720px; margin: 0 auto; padding: 40px 20px; }
+  .topbar { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; margin-bottom: 4px; }
+  h1 { font-family: var(--font-ui); font-size: var(--fs-2xl); font-weight: 700; margin-bottom: 4px; }
+  .subtitle { color: var(--text-soft); font-size: var(--fs-md); line-height: 1.55; margin-bottom: 24px; }
+  .lang-switch { display: flex; gap: 6px; flex-shrink: 0; margin-top: 2px; }
+  .lang-switch button { background: transparent; color: var(--text-muted); border: 1px solid rgba(255,255,255,0.12); border-radius: var(--r-md); padding: 4px 10px; cursor: pointer; font-size: var(--fs-2xs); font-family: var(--font-ui); }
+  .lang-switch button.active { color: var(--accent); border-color: rgba(0,229,255,0.42); background: rgba(0,229,255,0.08); }
+  .home-link { display: inline-block; color: var(--text-muted); font-size: var(--fs-xs); text-decoration: none; margin-bottom: 8px; transition: color var(--t-fast); }
+  .home-link:hover { color: var(--accent); }
+  .search-box { position: relative; margin-bottom: 16px; background: rgba(255,255,255,0.035); border: 1px solid rgba(0,229,255,0.24); border-radius: var(--r-lg); transition: border-color var(--t-fast), box-shadow var(--t-fast); }
+  .search-box:focus-within { border-color: rgba(0,229,255,0.62); background: rgba(0,229,255,0.06); outline: 2px solid rgba(0,229,255,0.62); outline-offset: 0; }
+  .search-box input { width: 100%; padding: 15px 16px; background: transparent; border: 0; color: var(--fg-1); font-size: var(--fs-md); font-family: var(--font-ui); outline: none; }
+  .search-box input::placeholder { color: rgba(255,255,255,0.56); }
+  .stats { font-size: var(--fs-xs); color: var(--text-muted); margin-bottom: 20px; }
+  .sr-only { position:absolute; width:1px; height:1px; padding:0; margin:-1px; overflow:hidden; clip:rect(0,0,0,0); white-space:nowrap; border:0; }
+  .results-header { font-size: var(--fs-xs); color: var(--text-soft); margin-bottom: 12px; }
+  .result { padding: 16px; background: rgba(255,255,255,0.025); border: 1px solid rgba(0,229,255,0.12); border-radius: var(--r-md); margin-bottom: 10px; cursor: pointer; transition: border-color 0.15s, box-shadow var(--t-fast); box-shadow: var(--sh-1); }
+  .result:hover { border-color: rgba(0,229,255,0.35); }
+  .result-title { font-family: var(--font-ui); font-size: var(--fs-md); line-height: 1.35; font-weight: 700; color: var(--fg-1); margin-bottom: 4px; }
+  .result-meta { display: flex; gap: 8px; align-items: center; margin-bottom: 6px; flex-wrap: wrap; }
+  .badge { font-size: var(--fs-3xs); padding: 2px 6px; border-radius: var(--r-sm); font-weight: 600; font-family: var(--font-ui); }
+  .badge-domain { background: rgba(0,229,255,0.1); color: var(--accent); }
+  .badge-plain { background: rgba(148,163,184,0.15); color: var(--fg-2); }
+  .badge-fatal { background: rgba(239,68,68,0.12); color: #f87171; }
+  .badge-runtime { background: rgba(251,146,60,0.12); color: #fb923c; }
+  .badge-setup { background: rgba(56,189,248,0.12); color: #38bdf8; }
+  .badge-high { background: rgba(35,134,54,0.15); color: #3fb950; }
+  .badge-medium { background: rgba(251,146,60,0.12); color: #fb923c; }
+  .badge-low { background: rgba(139,148,158,0.12); color: #8b949e; }
+  /* The evidence scale, and it is a *scale*, not decoration: `docs/evidence-badges.md` is the
+     contract (E0 grey → E1 red → E2 orange → E3 blue → E4 green) and `docs/assets/badges/
+     evidence-e*.svg` is the artwork, which uses the same five colours. This ramp was shifted
+     by one — E1 rendered blue while the badge and the contract said red, and E4 rendered
+     violet — so a reader could not trust the colour to tell the levels apart. The colours
+     below are the artwork's, so the chip and the badge now agree.
+     The scale needs a blue that the vocabulary does not carry (it has no blue on purpose),
+     so E3's two values are literal and the rest come from the tokens that match exactly. */
+  .badge-evidence { background: rgba(0,229,255,0.14); color: var(--accent); cursor: help; }
+  .badge-evidence.ev-e0 { background: rgba(139,148,158,0.14); color: #8b949e; }
+  .badge-evidence.ev-e1 { background: rgba(239,68,68,0.14); color: var(--danger); }
+  .badge-evidence.ev-e2 { background: rgba(245,158,11,0.14); color: #f59e0b; }
+  .badge-evidence.ev-e3 { background: rgba(59,130,246,0.14); color: #3b82f6; }
+  .badge-evidence.ev-e4 { background: rgba(16,185,129,0.14); color: #10b981; }
+  .result-takeaway { font-size: var(--fs-2xs); color: var(--text-muted); margin-top: 4px; line-height: 1.5; }
+  .section-label { font-size: var(--fs-2xs); font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; margin: 20px 0 8px; }
+  .fold-toggle { display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font-size: var(--fs-xs); color: var(--text-muted); background: transparent; border: 1px solid rgba(255,255,255,0.08); border-radius: var(--r-sm); padding: 6px 12px; margin: 8px 0; transition: color 0.15s, border-color var(--t-fast); }
+  .fold-toggle:hover { color: var(--accent); border-color: rgba(0,229,255,0.3); }
+  .fold-toggle .arrow { transition: transform var(--t-fast); }
+  .fold-toggle.open .arrow { transform: rotate(90deg); }
+  .match-explain { font-size: var(--fs-3xs); color: var(--text-muted); margin-top: 4px; line-height: 1.5; }
+  .score-explain { font-size: var(--fs-3xs); color: var(--text-muted); margin-top: 8px; line-height: 1.55; }
+  .score-explain summary { cursor: pointer; color: var(--text-soft); }
+  .score-explain code { color: var(--accent); }
+  .result-id { font-family: var(--font-mono); font-size: var(--fs-3xs); letter-spacing: 0.02em; color: var(--text-muted); }
+  .result-summary { font-family: var(--font-ui); font-size: var(--fs-xs); color: var(--text-soft); font-weight: 400; line-height: 1.65; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .result-tags { font-size: var(--fs-3xs); color: var(--text-muted); margin-top: 6px; }
+  .result-actions { display: flex; gap: 12px; align-items: center; margin-top: 10px; }
+  .btn-primary { font-family: var(--font-ui); font-size: var(--fs-2xs); font-weight: 600; color: var(--bg-0); background: var(--accent); border: none; border-radius: var(--r-sm); padding: 6px 14px; cursor: pointer; text-decoration: none; display: inline-block; }
+  .btn-primary:hover { opacity: 0.9; }
+  .btn-secondary { font-family: var(--font-ui); font-size: var(--fs-2xs); color: var(--text-soft); background: transparent; border: 1px solid #30363d; border-radius: var(--r-sm); padding: 6px 14px; cursor: pointer; text-decoration: none; display: inline-block; }
+  .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
+  .feedback-bar { display: flex; gap: 6px; align-items: center; margin-top: 8px; }
+  .feedback-btn { font-family: var(--font-ui); font-size: var(--fs-3xs); color: var(--text-muted); background: transparent; border: 1px solid rgba(255,255,255,0.08); border-radius: var(--r-sm); padding: 3px 8px; cursor: pointer; transition: color 0.15s, border-color 0.15s, background var(--t-fast); }
+  .feedback-btn:hover { color: var(--accent); border-color: rgba(0,229,255,0.3); }
+  .feedback-btn.selected { color: #3fb950; border-color: rgba(35,134,54,0.4); background: rgba(35,134,54,0.08); pointer-events: none; }
+  .feedback-summary { display: flex; gap: 12px; align-items: center; justify-content: center; padding: 12px; margin-top: 16px; border-top: 1px solid #21262d; font-size: var(--fs-2xs); color: var(--text-muted); }
+  .feedback-summary a { color: var(--accent); text-decoration: none; }
+  .feedback-summary a:hover { text-decoration: underline; }
+  .lesson-preview { margin-top: 12px; padding: 12px; border: 1px solid rgba(0,229,255,0.16); border-radius: var(--r-md); background: #0b1020; cursor: default; }
+  .lesson-preview h2 { font-family: var(--font-ui); font-size: var(--fs-md); font-weight: 700; color: var(--fg-1); margin: 18px 0 8px; }
+  .lesson-preview h3 { font-family: var(--font-ui); font-size: var(--fs-xs); font-weight: 600; color: var(--fg-1); margin: 14px 0 6px; }
+  .lesson-preview pre { background: #0b0f14; border: 1px solid rgba(255,255,255,0.08); border-radius: var(--r-md); padding: 12px; overflow-x: auto; white-space: pre-wrap; word-break: break-word; font-family: var(--font-mono); font-size: var(--fs-2xs); line-height: 1.65; color: #c9d1d9; }
+  .lesson-preview code { font-family: var(--font-mono); }
+  .lesson-preview p code { background: rgba(255,255,255,0.08); padding: 2px 5px; border-radius: var(--r-sm); }
+  .lesson-preview p { margin: 6px 0; line-height: 1.65; }
+  .preview-status { font-size: var(--fs-2xs); color: var(--text-soft); }
+  .fallback { padding: 24px; text-align: center; color: var(--text-soft); }
+  .fallback a { color: var(--accent); text-decoration: none; }
+  .fallback a:hover { text-decoration: underline; }
+  .loading { text-align: center; color: var(--text-muted); padding: 40px; }
+  /* Narrow screens (2026-10-19): this page had no media query at all, which is why pointing a phone at
+     /search/ was a dead end — a 720px layout on a 390px screen. Only what breaks is adjusted: the
+     container breathes less, the topbar stacks, and the code-heavy explain block wraps. */
+  @media (max-width: 640px) {
+    .container { padding: 24px 14px; }
+    .topbar { flex-direction: column; gap: 8px; }
+    .lang-switch { align-self: flex-end; margin-top: 0; }
+    h1 { font-size: var(--fs-xl); }
+    .subtitle { font-size: var(--fs-sm); margin-bottom: 18px; }
+    .result { padding: 13px; }
+    .score-explain code { word-break: break-word; }
+    .result-actions { flex-wrap: wrap; gap: 8px; }
+  }
+</style>
+</head>
+<body>
+<div class="container">
+  <div class="topbar">
+    <div>
+      <a href="/" class="home-link" data-i18n="goHome">← Go to homepage</a>
+      <h1 data-i18n="heading">Search Failure Lessons</h1>
+      <p class="subtitle" data-i18n="subtitle">Reviewed fixes from real agent debugging sessions. Not random chat logs.</p>
+    </div>
+    <div class="lang-switch" aria-label="Language">
+      <button type="button" data-lang="zh">中</button>
+      <button type="button" data-lang="en">EN</button>
+    </div>
+  </div>
+
+  <main id="main-content">
+  <div class="search-box">
+    <label class="sr-only" for="q" data-i18n="searchLabel">Search lessons</label>
+    <input type="text" id="q" data-i18n-placeholder="placeholder" placeholder="Search lessons... (e.g., pip timeout, database locked, profinet)" autofocus>
+  </div>
+  <div class="stats" id="stats"></div>
+  <div id="results" class="loading" role="region" aria-live="polite">Loading lessons...</div>
+  <div id="feedback-summary" class="feedback-summary" hidden></div>
+  <div style="text-align:center; margin-top:24px; font-size:var(--fs-2xs); color:var(--text-muted);">
+    <span data-i18n="feedbackPrompt">Did a lesson help you?</span> <a href="https://github.com/Ikalus1988/MisakaNet/issues/new?template=lesson-feedback.yml" style="color:var(--accent);" data-i18n="feedbackPromptLink">Share feedback</a> <span data-i18n="feedbackPromptSuffix">(5 lines, anonymous OK)</span>
+  </div>
+  </main>
+  <!-- The row is generated by scripts/sync_site_partials.py from docs/_partials/site-links.html;
+       this page had the .footer rules but no footer, so the last thing on it was a GitHub link. -->
+  <footer class="footer">
+<!-- site-links:start -->
+<nav class="site-links" aria-label="Site links">
+  <a href="/">Home</a> ·
+  <a href="/search/">Search lessons</a> ·
+  <a href="/install/">Install</a> ·
+  <a href="/start">Start</a>
+</nav>
+<!-- site-links:end --></footer>
+</div>
+
+<!-- The escaper and the JSON reader the site shares: one copy, loaded before this page's
+     script. `docs/js/site.js` is where they live now (they used to be copied into seven
+     pages, and the copies drifted — #3694 is what that cost). -->
+<script src="/js/site.js"></script>
+<script>
+const I18N = {
+  en: {
+    searchLabel: 'Search lessons',
+    pageTitle: 'Search Failure Lessons — MisakaNet',
+    heading: 'Search Failure Lessons',
+    subtitle: 'Reviewed fixes from real agent debugging sessions. Not random chat logs.',
+    placeholder: 'Search lessons... (e.g., pip timeout, database locked, profinet)',
+    loading: 'Loading lessons...',
+    stats: '{count} searchable lessons · {total} total · E3+: {e3} · E4: {e4} · stdlib-only · GitHub-audited',
+    resultsHeader: 'Found {count} lessons for "{q}"',
+    resultsStats: '{count} searchable lessons · {total} total · E3+: {e3} · E4: {e4} · static JSON · GitHub-audited',
+    noMatchPrefix: 'No exact match for',
+    noMatchSuffix: 'Try a broader term.',
+    installSkill: 'Install agent skill',
+    submitLesson: 'Submit a lesson',
+    readLesson: 'Read lesson',
+    collapse: 'Collapse',
+    openGitHub: 'Open on GitHub',
+    loadingPreview: 'Loading lesson preview...',
+    clipped: '... (open on GitHub for full lesson)',
+    noPreview: 'No preview body found. Open on GitHub for the full lesson.',
+    previewUnavailable: 'Preview unavailable. Use "Open on GitHub" for the full lesson.',
+    loadFailed: 'Failed to load lessons.',
+    goHome: 'Go to homepage',
+    feedbackIrrelevant: 'Irrelevant',
+    feedbackTooBasic: 'Too basic',
+    feedbackHelpful: 'Helpful',
+    feedbackRecorded: '{count} feedback recorded',
+    feedbackCopy: 'Copy feedback',
+    feedbackSubmit: 'Open GitHub issue',
+    badgeFatal: 'Fatal Pitfall',
+    badgeRuntime: 'Runtime Failure',
+    badgeSetup: 'Setup Fix',
+    badgeOther: 'General',
+    whyThisMatched: 'Why this matched',
+    matchedTerms: 'matched terms',
+    entityFields: 'entity fields',
+    keywordCoverage: 'keyword coverage',
+    sectionTopFixes: 'Top fixes',
+    sectionResults: 'Results',
+    sectionRelated: 'Related',
+    sectionCommon: 'Common references ({count})',
+    noMatchHelpPrefix: 'Try fewer keywords, check the spelling, or browse by ',
+    noMatchTopics: 'topic',
+    noMatchHelpSuffix: 'Popular queries: ',
+    requestLesson: 'Request a lesson',
+    feedbackCopied: 'Feedback copied to clipboard.',
+    feedbackPrompt: 'Did a lesson help you?',
+    feedbackPromptLink: 'Share feedback',
+    feedbackPromptSuffix: '(5 lines, anonymous OK)',
+    githubAudited: 'GitHub-audited'
+  },
+  zh: {
+    searchLabel: '搜索课程',
+    pageTitle: '搜索失败教训 — MisakaNet',
+    heading: '搜索失败教训',
+    subtitle: '来自真实 AI Agent 调试会话的已审核修复，不是随机聊天记录。',
+    placeholder: '搜索 DCO、GitHub token、pip timeout、database locked...',
+    loading: '正在加载 lessons...',
+    stats: '{count} 条可搜索 lessons · {total} 条总计 · E3+: {e3} · E4: {e4} · 纯标准库 · GitHub 审核',
+    resultsHeader: '为”{q}”找到 {count} 条 lesson',
+    resultsStats: '{count} 条可搜索 lessons · {total} 条总计 · E3+: {e3} · E4: {e4} · 静态 JSON · GitHub 审核',
+    noMatchPrefix: '没有精确匹配',
+    noMatchSuffix: '可以试试更宽泛的关键词。',
+    installSkill: '安装 agent skill',
+    submitLesson: '提交 lesson',
+    readLesson: '阅读 lesson',
+    collapse: '收起',
+    openGitHub: '在 GitHub 打开',
+    loadingPreview: '正在加载 lesson 预览...',
+    clipped: '...（完整 lesson 请在 GitHub 打开）',
+    noPreview: '没有可预览正文。请在 GitHub 打开完整 lesson。',
+    previewUnavailable: '预览不可用。请使用“在 GitHub 打开”查看完整 lesson。',
+    loadFailed: 'Lessons 加载失败。',
+    goHome: '回到首页',
+    feedbackIrrelevant: '无关',
+    feedbackTooBasic: '太基础',
+    feedbackHelpful: '有帮助',
+    feedbackRecorded: '已记录 {count} 条反馈',
+    feedbackCopy: '复制反馈',
+    feedbackSubmit: '提交到 GitHub',
+    badgeFatal: '致命踩坑',
+    badgeRuntime: '运行失败',
+    badgeSetup: '配置修复',
+    badgeOther: '通用',
+    whyThisMatched: '为什么匹配',
+    matchedTerms: '命中词',
+    entityFields: '实体字段',
+    keywordCoverage: '关键词覆盖',
+    sectionTopFixes: '直接可用的修复',
+    sectionResults: '结果',
+    sectionRelated: '相关',
+    sectionCommon: '常见参考（{count}）',
+    noMatchHelpPrefix: '可以少输几个词、检查拼写，或按',
+    noMatchTopics: '主题',
+    noMatchHelpSuffix: '浏览。常见查询：',
+    requestLesson: '请求一篇课程',
+    feedbackCopied: '反馈已复制到剪贴板。',
+    feedbackPrompt: '课程帮到你了吗？',
+    feedbackPromptLink: '分享反馈',
+    feedbackPromptSuffix: '（5 行以内，可匿名）',
+    githubAudited: 'GitHub 审核'
+  }
+};
+// 2026-09-30: this page's local scoring reads title/summary/domain/tags only, so it loads the projection
+// (149 KB raw / 60 KB gzip) instead of the whole corpus (1.32 MB raw / 418 KB) — 7× less for an identical
+// local search. The corpus stays as a fallback so a missing projection cannot empty the page.
+const LESSONS_LITE_URL = "../data/lessons-lite.json";
+const LESSONS_FULL_URL = "../data/lessons.json";
+
+// One primary and one fallback — deliberately not a loop: an awaited fetch inside a `for … of` is the
+// per-item fan-out pattern `tests/test_site_request_fanout.py` forbids on this site.
+async function fetchLessonsOnce(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error('HTTP ' + r.status);
+  const data = await r.json();
+  if (!Array.isArray(data) || !data.length) throw new Error('not a non-empty array');
+  return data;
+}
+
+async function fetchLessonsWithFallback() {
+  try {
+    return await fetchLessonsOnce(LESSONS_LITE_URL);
+  } catch (err) {
+    console.warn('MisakaNet search: ' + LESSONS_LITE_URL + ' unavailable — ' + err.message);
+    return fetchLessonsOnce(LESSONS_FULL_URL);
+  }
+}
+const RAW_BASE = "https://raw.githubusercontent.com/Ikalus1988/MisakaNet/main/";
+let _lessons = null;
+let _lastResults = [];
+const _previewCache = new Map();
+let LANG = localStorage.getItem('misakanet-lang') || localStorage.getItem('misaka_lang') || (navigator.language.startsWith('zh') ? 'zh' : 'en');
+
+function t(key, vars = {}) {
+  let value = (I18N[LANG] && I18N[LANG][key]) || I18N.en[key] || key;
+  Object.keys(vars).forEach(name => {
+    value = value.split('{' + name + '}').join(String(vars[name]));
+  });
+  return value;
+}
+
+// Coogen borrow (Phase 2): ?intent= is id-only instrumentation — passed to
+// the search-signal endpoint for "what users come to do" aggregation.
+// Invalid values are silently ignored.
+const URL_INTENT = new URLSearchParams(window.location.search).get('intent');
+const PAGE_INTENT = ['search', 'intake', 'eval'].includes(String(URL_INTENT || '').toLowerCase())
+  ? String(URL_INTENT).toLowerCase() : null;
+
+function updateStats() {
+  if (!_lessons) return;
+  const searchable = _lessons.filter(isSearchable).length;
+  const total = _lessons.length;
+  // Coogen borrow (Phase 2): show verified-reuse counts, not composite
+  // averages — E0 lessons never drag the headline numbers down.
+  const e3plus = _lessons.filter(l => ['E3', 'E4'].includes(String(l.evidence_level || '').toUpperCase())).length;
+  const e4 = _lessons.filter(l => String(l.evidence_level || '').toUpperCase() === 'E4').length;
+  document.getElementById('stats').textContent = t('stats', { count: searchable, total, e3: e3plus, e4 });
+}
+
+function setLang(lang) {
+  LANG = lang === 'zh' ? 'zh' : 'en';
+  localStorage.setItem('misakanet-lang', LANG);
+  document.documentElement.lang = LANG === 'zh' ? 'zh-CN' : 'en';
+  document.title = t('pageTitle');
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    el.textContent = t(el.dataset.i18n);
+  });
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+    el.placeholder = t(el.dataset.i18nPlaceholder);
+  });
+  document.querySelectorAll('[data-lang]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.lang === LANG);
+  });
+  if (!_lessons) {
+    document.getElementById('results').textContent = t('loading');
+    return;
+  }
+  updateStats();
+  const q = document.getElementById('q').value.trim();
+  if (q) render(_lastResults, q);
+}
+
+function getLessonUrl(lesson) {
+  const raw = lesson && (lesson.url || lesson.path || '');
+  if (!raw) return 'https://github.com/Ikalus1988/MisakaNet/tree/main/lessons';
+  if (/^https?:\/\//i.test(raw)) return raw;
+  return 'https://github.com/Ikalus1988/MisakaNet/blob/main/' + encodeURI(String(raw).replace(/^\/+/, ''));
+}
+
+function getLessonPath(lesson) {
+  const raw = lesson && (lesson.url || lesson.path || '');
+  if (!raw) return '';
+  if (!/^https?:\/\//i.test(raw)) return String(raw).replace(/^\/+/, '');
+  try {
+    const url = new URL(raw);
+    let match = url.pathname.match(/\/Ikalus1988\/MisakaNet\/(?:blob|raw)\/main\/(.+)$/);
+    if (!match) match = url.pathname.match(/\/Ikalus1988\/MisakaNet\/main\/(.+)$/);
+    return match ? decodeURIComponent(match[1]) : '';
+  } catch (e) {
+    return '';
+  }
+}
+
+function getRawLessonUrl(lesson) {
+  const path = getLessonPath(lesson);
+  return path ? RAW_BASE + encodeURI(path) : getLessonUrl(lesson);
+}
+
+function stripFrontmatter(markdown) {
+  return String(markdown || '')
+    .replace(/^\uFEFF?---\s*\r?\n[\s\S]*?\r?\n---\s*\r?\n?/, '')
+    .trim();
+}
+
+function isSearchable(l) {
+  const text = ((l.title||'') + ' ' + (l.summary||'')).toLowerCase();
+  const junk = ['context compaction','earlier turns','poc record','mojibake','bot reply'];
+  return !junk.some(k => text.includes(k)) && (l.title||'').trim();
+}
+
+function search(q) {
+  if (!q || !_lessons) return [];
+  const tokens = q.toLowerCase().split(/\s+/).filter(Boolean);
+  return _lessons.filter(isSearchable).map(l => {
+    const title = (l.title||'').toLowerCase();
+    const domain = (l.domain||'').toLowerCase();
+    const summary = (l.summary||'').toLowerCase();
+    const tags = (l.tags||[]).join(' ').toLowerCase();
+    const full = title + ' ' + domain + ' ' + summary + ' ' + tags;
+    let score = tokens.filter(t => full.includes(t)).length / tokens.length;
+    if (tokens.some(t => title.includes(t))) score += 0.3;
+    if (tokens.some(t => tags.includes(t))) score += 0.15;
+    if (tokens.some(t => domain.includes(t))) score += 0.1;
+    return { ...l, score };
+  }).filter(l => l.score > 0).sort((a,b) => b.score - a.score).slice(0, 20);
+}
+
+function explainResult(r, q) {
+  const terms = q.toLowerCase().split(/\s+/).filter(Boolean);
+  const title = (r.title || '').toLowerCase();
+  const domain = (r.domain || '').toLowerCase();
+  const tags = (r.tags || []).join(' ').toLowerCase();
+  const summary = (r.summary || '').toLowerCase();
+  const matched = terms.filter(term => (title + ' ' + domain + ' ' + tags + ' ' + summary).includes(term));
+  const entities = [];
+  if (terms.some(term => title.includes(term))) entities.push('title');
+  if (terms.some(term => domain.includes(term))) entities.push('domain');
+  if (terms.some(term => tags.includes(term))) entities.push('tags');
+  const coverage = terms.length ? matched.length / terms.length : 0;
+  return {
+    matched: matched.length ? matched.join(', ') : 'none',
+    entities: entities.length ? entities.join(', ') : 'content only',
+    coverage: Math.round(coverage * 100),
+  };
+}
+
+function updateUrl(q, lessonId) {
+  const url = new URL(location);
+  if (q) url.searchParams.set('q', q);
+  else url.searchParams.delete('q');
+  if (lessonId) url.searchParams.set('lesson', lessonId);
+  else url.searchParams.delete('lesson');
+  history.replaceState(null, '', url);
+}
+
+function getTakeaway(r) {
+  // First complete sentence from summary, fallback to title
+  const s = r.summary || '';
+  const match = s.match(/^[^.!?。！？]+[.!?。！？]/);
+  const takeaway = match ? match[0].trim() : s.slice(0, 120);
+  return takeaway || r.title || '';
+}
+
+// The kind of failure, not its trustworthiness. This used to fall through to a green "Verified"
+// badge for anything the keywords did not classify — and no branch read `evidence_level` at all, so
+// 241 of the 388 cards wearing it were E0 (contributor self-reported). The trust signal on a card is
+// the E-level badge beside this one; a category badge must not overrule it (#3539 H).
+function inferBadge(r) {
+  const text = ((r.title||'') + ' ' + (r.summary||'') + ' ' + (r.tags||[]).join(' ')).toLowerCase();
+  if (/delete|drop|clear|overwrite|corrupt|destroy|清空|覆盖|丢数据/.test(text)) return { key: 'badgeFatal', cls: 'badge-fatal' };
+  if (/timeout|locked|rate.limit|429|403|oom|crash|崩溃|超时|锁定/.test(text)) return { key: 'badgeRuntime', cls: 'badge-runtime' };
+  if (/setup|config|install|deploy|初始化|配置|安装/.test(text)) return { key: 'badgeSetup', cls: 'badge-setup' };
+  return { key: 'badgeOther', cls: 'badge-plain' };
+}
+
+// ── Evidence levels (#786) — see docs/trust-semantics.md ──
+const EVIDENCE_LABELS = {
+  E0: 'E0 — contributor self-reported',
+  E1: 'E1 — maintainer reviewed',
+  E2: 'E2 — local smoke reproduced',
+  E3: 'E3 — CI / sandbox verified recovery',
+  E4: 'E4 — observed reuse: two or more distinct clients retrieved it',
+};
+
+// Missing or unknown values read as E0: evidence is never assumed.
+function evidenceInfo(level) {
+  const key = String(level || '').trim().toUpperCase();
+  const normalized = EVIDENCE_LABELS[key] ? key : 'E0';
+  return { level: normalized, label: EVIDENCE_LABELS[normalized] };
+}
+
+// ── Client-side confidence / result_type classification ──
+const ACTIONABLE_RE = /fix|solution|workaround|step\s*\d|verify|verification|error.code|exit.code|```|pip install|git |curl |chmod|mkdir|export /i;
+const COMMON_RE = /github.com.*443|connectivity|checklist|basic|intro|overview|getting.started|quick.start|faq|troubleshooting.general|network.*basics|git.*basics|config.*general/i;
+const ERROR_CODE_RE = /GH\d{3,4}|E\d{3,5}|INTP-\d+|KL-\d+|exit\s+(?:code|status)\s+\d+|HTTP\s+\d{3}/i;
+
+function classifyResult(r, score) {
+  const title = (r.title || '').toLowerCase();
+  const summary = (r.summary || '').toLowerCase();
+  const tags = (r.tags || []).join(' ').toLowerCase();
+  const content = title + ' ' + summary + ' ' + tags;
+
+  const hasErrorCode = ERROR_CODE_RE.test(r.title + ' ' + (r.summary || '').slice(0, 300));
+  const hasActionable = ACTIONABLE_RE.test(r.summary || '');
+  const hasVerification = /## verification|## verify/i.test(r.summary || '');
+  const isCommon = COMMON_RE.test(title + ' ' + summary.slice(0, 300));
+  const highScore = score >= 0.6;
+  const lowScore = score < 0.35;
+
+  // Confidence
+  let confidence = 'medium';
+  if ((hasErrorCode && score > 0.4) || (hasVerification && hasActionable && highScore)) {
+    confidence = 'high';
+  } else if ((isCommon && lowScore) || (score < 0.25 && !hasActionable)) {
+    confidence = 'low';
+  }
+
+  // Result type
+  let resultType = 'related';
+  if (confidence === 'low') resultType = 'common';
+  else if (confidence === 'high' || (confidence === 'medium' && hasActionable)) resultType = 'actionable';
+
+  return { confidence, resultType };
+}
+
+// ── Feedback system (localStorage MVP) ──
+const FEEDBACK_KEY = 'misakanet-search-feedback';
+
+function getFeedbackStore() {
+  try { return JSON.parse(localStorage.getItem(FEEDBACK_KEY) || '[]'); } catch { return []; }
+}
+
+function saveFeedback(entry) {
+  const store = getFeedbackStore();
+  store.push(entry);
+  localStorage.setItem(FEEDBACK_KEY, JSON.stringify(store));
+  updateFeedbackSummary();
+}
+
+function getFeedbackForLesson(lessonId, query) {
+  return getFeedbackStore().find(f => f.lesson_id === lessonId && f.query === query);
+}
+
+const FEEDBACK_API = window.location.origin + '/api/feedback';
+const SEARCH_SIGNAL_API = window.location.origin + '/api/search-signal';
+
+// Unsolved failure map (#788). Only searches that found nothing useful are
+// reported; the backend derives a task-family label and drops the query, so no
+// raw query text is ever stored. Fire-and-forget, deduped per query per session.
+const _signalledQueries = new Set();
+
+function reportUnsolvedSearch(q, results) {
+  if (!q) return;
+  const topScore = results.length ? (results[0].score || 0) : 0;
+  if (results.length && topScore >= 0.35) return; // solved — nothing to report
+  const key = q.toLowerCase().trim();
+  if (_signalledQueries.has(key)) return;
+  _signalledQueries.add(key);
+
+  fetch(SEARCH_SIGNAL_API, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      query: q, result_count: results.length, top_score: topScore,
+      ...(PAGE_INTENT ? { intent: PAGE_INTENT } : {}),
+    }),
+  }).catch(() => {}); // silent fail — insights are best-effort
+}
+
+function submitFeedback(lessonId, query, feedback) {
+  const existing = getFeedbackForLesson(lessonId, query);
+  if (existing) return;
+  const entry = {
+    query,
+    lesson_id: lessonId,
+    feedback,
+    ts: new Date().toISOString(),
+  };
+  saveFeedback(entry);
+  restoreFeedbackState(lessonId, query);
+
+  // POST to backend (fire-and-forget, localStorage is primary)
+  fetch(FEEDBACK_API, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(entry),
+  }).catch(() => {}); // silent fail, localStorage is fallback
+}
+
+function restoreFeedbackState(lessonId, query) {
+  const bar = document.querySelector('[data-feedback-id="' + lessonId + '"]');
+  if (!bar) return;
+  const existing = getFeedbackForLesson(lessonId, query);
+  if (!existing) return;
+  bar.querySelectorAll('.feedback-btn').forEach(btn => {
+    if (btn.dataset.type === existing.feedback) btn.classList.add('selected');
+    else btn.style.display = 'none';
+  });
+}
+
+function updateFeedbackSummary() {
+  const el = document.getElementById('feedback-summary');
+  if (!el) return;
+  const count = getFeedbackStore().length;
+  if (count === 0) { el.hidden = true; return; }
+  el.hidden = false;
+  el.innerHTML = t('feedbackRecorded', { count }) +
+    ' · <a href="#" onclick="copyFeedback();return false">' + t('feedbackCopy') + '</a>' +
+    ' · <a href="#" onclick="openFeedbackIssue();return false">' + t('feedbackSubmit') + '</a>';
+}
+
+// Event delegation for feedback buttons (no inline onclick)
+document.getElementById('results').addEventListener('click', function(e) {
+  const btn = e.target.closest('.feedback-btn');
+  if (!btn) return;
+  const bar = btn.closest('.feedback-bar');
+  if (!bar) return;
+  const card = btn.closest('.result');
+  const lessonId = bar.dataset.feedbackId;
+  const query = document.getElementById('q').value.trim();
+  if (!lessonId || !query) return;
+  submitFeedback(lessonId, query, btn.dataset.type);
+});
+
+function restoreAllFeedbackStates() {
+  const query = document.getElementById('q').value.trim();
+  if (!query) return;
+  document.querySelectorAll('.feedback-bar').forEach(bar => {
+    restoreFeedbackState(bar.dataset.feedbackId, query);
+  });
+}
+
+function copyFeedback() {
+  const data = JSON.stringify(getFeedbackStore(), null, 2);
+  navigator.clipboard.writeText(data).then(() => alert(t('feedbackCopied')));
+}
+
+function openFeedbackIssue() {
+  const store = getFeedbackStore();
+  const body = '## Search Feedback\n\n```json\n' + JSON.stringify(store, null, 2) + '\n```\n\n_Submitted via misakanet.org/search/_';
+  const url = 'https://github.com/Ikalus1988/MisakaNet/issues/new?title=' +
+    encodeURIComponent('[Search] Feedback report') +
+    '&body=' + encodeURIComponent(body) +
+    '&labels=feedback';
+  window.open(url, '_blank');
+}
+
+function render(results, q, meta) {
+  const el = document.getElementById('results');
+  _lastResults = results;
+  reportUnsolvedSearch(q, results);
+  if (!results.length) {
+    el.innerHTML = '<div class="fallback">' +
+      '<div style="margin-bottom:8px;">' + t('noMatchPrefix') + ' "' + escapeHTML(q) + '". ' + t('noMatchSuffix') + '</div>' +
+      '<div style="font-size:var(--fs-xs);margin-bottom:12px;max-width:480px;margin-left:auto;margin-right:auto;">' +
+        t('noMatchHelpPrefix') + '<a href="/topics/" style="color:var(--accent);">' + t('noMatchTopics') + '</a>. ' +
+        t('noMatchHelpSuffix') + '<code style="font-size:var(--fs-3xs);">pip timeout</code>, <code style="font-size:var(--fs-3xs);">database locked</code>, <code style="font-size:var(--fs-3xs);">DCO sign-off</code>, <code style="font-size:var(--fs-3xs);">git rebase</code>.' +
+      '</div>' +
+      '<div style="font-size:var(--fs-2xs);"><a href="/skill.md">' + t('installSkill') + '</a> &middot; <a href="https://github.com/Ikalus1988/MisakaNet">' + t('submitLesson') + '</a> &middot; <a href="https://github.com/Ikalus1988/MisakaNet/issues/new?template=lesson-request.yml">' + t('requestLesson') + '</a></div></div>';
+    return;
+  }
+  const searchable = _lessons ? _lessons.filter(isSearchable).length : 0;
+  const total = _lessons ? _lessons.length : 0;
+  if (meta && meta.source === 'server') {
+    showServerNote(q, meta.relaxed ? serverNote('relaxed') : serverNote('ranked'));
+  }
+
+  // Classify and group results (resultType drives Top fixes / Related /
+  // Common grouping; the composite confidence value is no longer displayed —
+  // the evidence badge is the trust signal, Coogen borrow Phase 2).
+  const classified = results.map((r, index) => {
+    const { resultType } = classifyResult(r, r.score || 0);
+    return { ...r, _index: index, _resultType: resultType };
+  });
+  const topFixes = classified.filter(r => r._resultType === 'actionable');
+  const commonRefs = classified.filter(r => r._resultType === 'common');
+  const relatedRefs = classified.filter(r => r._resultType === 'related');
+
+  function renderCard(r) {
+    const takeaway = escapeHTML(getTakeaway(r));
+    const title = escapeHTML(r.title);
+    const summary = escapeHTML((r.summary||'').slice(0,200));
+    const domain = escapeHTML(r.domain||'general');
+    const tags = (r.tags||[]).slice(0,4).map(escapeHTML).join(', ');
+    const url = getLessonUrl(r);
+    const id = escapeHTML(r.id || '');
+    const badge = inferBadge(r);
+    // Coogen borrow (Phase 2): composite match-confidence badge removed —
+    // the evidence badge is the trust signal; "Why this matched" keeps the
+    // relevance explanation (matched terms / coverage / trust_score).
+    const ev = evidenceInfo(r.evidence_level);
+    // `evidence_source` and `trust_score` are not in the lite projection the page loads (and widening
+    // that gate is not free: +25.7 KB on a 228 KB file), so the card printed `trust: —` and called
+    // every level "inferred" — wrong for the lessons whose level comes from frontmatter. Show what
+    // the payload actually carries.
+    const signals = explainResult(r, q);
+    const showTakeaway = takeaway !== title;
+    // The card is a control as well as a container: it is focusable, Enter/Space open it, and it
+    // toggles the preview panel below. Without a role it read as a focusable block of text, and
+    // without an expansion state nothing said whether the panel was open (#3539 R2). The name comes
+    // from the title — computed from the card's contents it would read the whole card, summary and
+    // all — and the state is written where the panel is opened and closed.
+    return '<div class="result" role="button" tabindex="0" aria-expanded="false"' +
+      ' aria-controls="preview-' + r._index + '" aria-labelledby="result-title-' + r._index + '"' +
+      ' data-index="' + r._index + '" data-id="' + id + '">' +
+      '<div class="result-meta">' +
+        '<span class="badge ' + badge.cls + '">' + t(badge.key) + '</span>' +
+        '<span class="badge badge-domain">' + domain + '</span>' +
+        '<span class="badge badge-evidence ev-' + ev.level.toLowerCase() + '" title="' + escapeHTML(ev.label) + '">' + ev.level + '</span>' +
+      '</div>' +
+      '<h2 class="result-title" id="result-title-' + r._index + '">' + title + '</h2>' +
+      (showTakeaway ? '<div class="result-takeaway">' + takeaway + '</div>' : '') +
+      '<div class="result-summary">' + summary + '</div>' +
+      (tags ? '<div class="result-tags">' + tags + '</div>' : '') +
+      '<details class="score-explain"><summary>' + t('whyThisMatched') + '</summary>' +
+        '<div>' + t('matchedTerms') + ': <code>' + escapeHTML(signals.matched) + '</code></div>' +
+        '<div>' + t('entityFields') + ': <code>' + escapeHTML(signals.entities) + '</code></div>' +
+        '<div>' + t('keywordCoverage') + ': <code>' + signals.coverage + '%</code> · score: <code>' + Number(r.score || 0).toFixed(3) + '</code></div>' +
+        '<div>evidence: <code>' + ev.level + '</code> · ' + escapeHTML(ev.label) + '</div>' +
+      '</details>' +
+      '<div class="result-actions">' +
+        '<button class="btn-primary" type="button" data-action="preview" aria-expanded="false"' +
+        ' aria-controls="preview-' + r._index + '">' + t('readLesson') + '</button>' +
+        '<a class="btn-secondary" href="' + escapeHTML(url) + '" target="_blank" rel="noopener">' + t('openGitHub') + '</a>' +
+      '</div>' +
+      '<div class="feedback-bar" data-feedback-id="' + id + '">' +
+        '<button class="feedback-btn" data-type="irrelevant">' + t('feedbackIrrelevant') + '</button>' +
+        '<button class="feedback-btn" data-type="too_basic">' + t('feedbackTooBasic') + '</button>' +
+        '<button class="feedback-btn" data-type="helpful">' + t('feedbackHelpful') + '</button>' +
+      '</div>' +
+      '<div class="lesson-preview" id="preview-' + r._index + '" hidden></div>' +
+    '</div>';
+  }
+
+  let html = '<div class="results-header">' + t('resultsHeader', { count: results.length, q: escapeHTML(q) }) + '</div>';
+  const e3plus = _lessons.filter(l => ['E3', 'E4'].includes(String(l.evidence_level || '').toUpperCase())).length;
+  const e4 = _lessons.filter(l => String(l.evidence_level || '').toUpperCase() === 'E4').length;
+  html += '<div class="stats">' + t('resultsStats', { count: searchable, total, e3: e3plus, e4 }) + '</div>';
+
+  // Top fixes
+  if (topFixes.length) {
+    html += '<div class="section-label">' + t('sectionTopFixes') + '</div>';
+    html += topFixes.map(renderCard).join('');
+  }
+
+  // Related (if no top fixes, show related as primary)
+  if (!topFixes.length && relatedRefs.length) {
+    html += '<div class="section-label">' + t('sectionResults') + '</div>';
+    html += relatedRefs.map(renderCard).join('');
+  } else if (relatedRefs.length) {
+    html += '<div class="section-label">' + t('sectionRelated') + '</div>';
+    html += relatedRefs.map(renderCard).join('');
+  }
+
+  // Common references (folded)
+  if (commonRefs.length) {
+    // The arrow is decoration — it only rotates when the list is open — so it is hidden from the
+    // name and the button is named by its label ("Common references (3)").
+    html += '<button class="fold-toggle" type="button" aria-expanded="false"' +
+      ' aria-controls="fold-common" onclick="toggleFold(this)">' +
+      '<span class="arrow" aria-hidden="true">▸</span> ' + t('sectionCommon', { count: commonRefs.length }) +
+      '</button>';
+    html += '<div id="fold-common" hidden>' + commonRefs.map(renderCard).join('') + '</div>';
+  }
+
+  el.innerHTML = html;
+  restoreAllFeedbackStates();
+}
+
+function renderMarkdown(text, headingLevel = 2) {
+  // Minimal markdown renderer: h2, h3, code blocks, inline code, paragraphs.
+  // `headingLevel` is the level the lesson's own `##` maps to — the preview lives inside a result
+  // card whose title is an h2, so the body's headings have to start one level deeper (2026-10-20).
+  let html = escapeHTML(text);
+  // Code blocks: ```...```
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+  // Inline code: `...`
+  html = html.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+  // H2: ## ...
+  html = html.replace(/^## (.+)$/gm, '<h' + headingLevel + '>$1</h' + headingLevel + '>');
+  // H3: ### ...
+  html = html.replace(/^### (.+)$/gm, '<h' + (headingLevel + 1) + '>$1</h' + (headingLevel + 1) + '>');
+  // Paragraphs: double newline
+  html = html.replace(/\n\n/g, '</p><p>');
+  // Single newline within paragraphs
+  html = html.replace(/\n/g, '<br>');
+  return '<p>' + html + '</p>';
+}
+
+/** The lesson's markdown, for the inline preview panel — fetched when a reader asks for it.
+ *
+ * Falls back to whatever `preview` the search data happens to carry (the corpus fallback path still has
+ * it), then to the API's short `description`, so the panel never shows nothing when something is known.
+ */
+async function fetchLessonBody(lesson) {
+  if (lesson && lesson.preview) return lesson.preview;
+  if (!lesson || !lesson.id) return '';
+  try {
+    const r = await fetch('../mcp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Accept': 'application/json',
+                 'MCP-Protocol-Version': '2025-06-18', 'Origin': location.origin },
+      body: JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'tools/call',
+        params: { name: 'misakanet_get_lesson', arguments: { id: lesson.id, detail: 'summary' } } }),
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const payload = await r.json();
+    const text = payload && payload.result && payload.result.content && payload.result.content[0]
+      && payload.result.content[0].text;
+    if (!text) throw new Error('no content');
+    // The tool answers with a JSON envelope: {path, content, ...}. Plain markdown is accepted too, so a
+    // future shape change degrades to showing the payload rather than showing nothing.
+    try {
+      const parsed = JSON.parse(text);
+      return parsed.content || parsed.summary || parsed.description || '';
+    } catch (e) {
+      return text;
+    }
+  } catch (err) {
+    console.warn('MisakaNet search: lesson body unavailable —', err.message);
+    return lesson.summary || '';
+  }
+}
+
+async function togglePreview(index) {
+  const lesson = _lastResults[index];
+  const card = document.querySelector('.result[data-index="' + index + '"]');
+  const panel = card && card.querySelector('.lesson-preview');
+  if (!lesson || !panel) return;
+
+  // Auto-collapse: close any other open preview first
+  const openPanels = document.querySelectorAll('.lesson-preview:not([hidden])');
+  openPanels.forEach(p => {
+    if (p !== panel) {
+      p.hidden = true;
+      const otherCard = p.closest('.result');
+      const otherBtn = otherCard.querySelector('[data-action="preview"]');
+      if (otherBtn) {
+        otherBtn.textContent = t('readLesson');
+        otherBtn.setAttribute('aria-expanded', 'false');
+      }
+      // The card is a control too, so the card that just closed has to say it closed (#3539 R2).
+      otherCard.setAttribute('aria-expanded', 'false');
+    }
+  });
+
+  if (panel.dataset.loaded === 'true') {
+    panel.hidden = !panel.hidden;
+    const btn = card.querySelector('[data-action="preview"]');
+    if (btn) {
+      btn.textContent = panel.hidden ? t('readLesson') : t('collapse');
+      btn.setAttribute('aria-expanded', panel.hidden ? 'false' : 'true');
+    }
+    // The card carries the same state, read off the panel it controls.
+    card.setAttribute('aria-expanded', panel.hidden ? 'false' : 'true');
+    updateUrl(document.getElementById('q').value.trim(), panel.hidden ? null : (lesson.id || ''));
+    return;
+  }
+
+  panel.hidden = false;
+  panel.innerHTML = '<div class="preview-status">' + t('loadingPreview') + '</div>';
+  const btn = card.querySelector('[data-action="preview"]');
+  if (btn) {
+    btn.textContent = t('collapse');
+    btn.setAttribute('aria-expanded', 'true');
+  }
+  card.setAttribute('aria-expanded', 'true');
+  try {
+    // The lesson body is fetched on demand (2026-09-30). It used to ride along in the corpus as
+    // `preview` (~2.1 KB per lesson, 1.09 MB of the 1.32 MB file) because this panel wanted *one* of
+    // them. `misakanet_get_lesson` is the documented public read path and answers with the lesson's
+    // markdown; the panel's loading and unavailable states already exist, so a failure here degrades
+    // exactly as it did before.
+    const body = await fetchLessonBody(lesson);
+    const clipped = body.length > 2400 ? body.slice(0, 2400) + '\n\n' + t('clipped') : body;
+    panel.dataset.loaded = 'true';
+    panel.innerHTML = renderMarkdown(clipped || t('noPreview'), 3);
+    updateUrl(document.getElementById('q').value.trim(), lesson.id || '');
+  } catch (e) {
+    panel.innerHTML = '<div class="preview-status">' + t('previewUnavailable') + '</div>';
+  }
+}
+
+/** The folded "common references" list is a disclosure, so the button says whether it is open.
+ *
+ * The state is read off the panel rather than toggled twice in a row: the panel's `hidden` is what
+ * the reader can see, and the arrow's rotation is only a picture of it. Toggling the class and the
+ * `hidden` attribute independently is what let the two drift apart (#3539 R2).
+ */
+function toggleFold(button) {
+  const panel = button.nextElementSibling;
+  if (!panel) return;
+  panel.hidden = !panel.hidden;
+  button.classList.toggle('open', !panel.hidden);
+  button.setAttribute('aria-expanded', panel.hidden ? 'false' : 'true');
+}
+
+function runSearch(q) {
+  const results = search(q);
+  render(results, q);
+  updateUrl(q);
+  return results;
+}
+
+/** The *committed* query goes to the Worker; typing stays local.
+ *
+ * WHY (2026-09-30, measured by `scripts/bench_search_parity.mjs`): the local scorer is a substring match
+ * over four metadata fields — it always returns five rows (its extra hits are mostly false positives) and
+ * it cannot see lesson **bodies**. The server ranks by BM25/IDF over the bodies too. The two rankings
+ * disagree on most queries, so this is a visible change, and it is split deliberately: `input` keeps using
+ * the local scorer so the list is instant and no request is made per keystroke — this worker shares one
+ * anti-burst window (20 reads / 60 s) across every read entry point, so per-keystroke server calls would
+ * throttle a real visitor.
+ *
+ * The local list renders first and is replaced by the server's answer when it has one; when the server
+ * answers `no_match` the local hits stay and the note says what the server knows, rather than blanking a
+ * page that visibly had results.
+ */
+async function runServerSearch(q) {
+  runSearch(q);
+  try {
+    const r = await fetch('/api/lessons?q=' + encodeURIComponent(q) + '&limit=20');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const payload = await r.json();
+    const rows = Array.isArray(payload && payload.results) ? payload.results : [];
+    if (!rows.length) {
+      if (payload && payload.no_match) showServerNote(q, serverNote('noMatch'));
+      return;
+    }
+    render(rows.map(toLocalShape), q, { source: 'server', relaxed: payload.relaxed === true });
+  } catch (err) {
+    console.warn('MisakaNet search: server ranking unavailable — ' + err.message);
+  }
+}
+
+/** Server rows carry `description` where the local rows carry `summary`, and `rank` where they carry
+ *  `score`. Only the shape is adapted — the order is the server's. */
+function toLocalShape(row) {
+  return Object.assign({}, row, { summary: row.summary || row.description || '' });
+}
+
+/** The note's copy lives here rather than in `docs/locales/*.json`, because those dictionaries are the
+ *  *homepage's* translation surface and `tests/test_site_i18n.py` fails any key the homepage does not
+ *  reach — a rule that has already caught wrong wording shipped next to the right one. This page keeps its
+ *  own map, in both languages, beside the inline English copy its no-match block has always had. */
+const SERVER_NOTES = {
+  en: {
+    ranked: 'Ranked by the server index — it matches lesson bodies, not only titles.',
+    relaxed: 'No lesson matched every word; these match some of them.',
+    noMatch: 'The server index found no match; showing local keyword matches.',
+  },
+  zh: {
+    ranked: '由服务端索引排序——它覆盖课程正文，不只是标题。',
+    relaxed: '没有课程命中全部词；以下是命中部分词的结果。',
+    noMatch: '服务端索引没有命中；以下是本地关键词匹配。',
+  },
+};
+
+const serverNote = (kind) => (SERVER_NOTES[LANG] || SERVER_NOTES.en)[kind] || '';
+
+/** One line under the results, so "these are partial matches" and "these are substring matches" are
+ *  never confused with "the server ranked these". */
+function showServerNote(q, text) {
+  const el = document.getElementById('results');
+  if (!el || !text) return;
+  const note = document.createElement('div');
+  note.className = 'result-source';
+  note.style.cssText = 'font-size:var(--fs-2xs);color:#8b949e;margin:10px 0 0;';
+  note.textContent = text;
+  el.insertBefore(note, el.firstChild);
+}
+
+async function init() {
+  try {
+    _lessons = await fetchLessonsWithFallback();
+    updateStats();
+    document.getElementById('results').innerHTML = '';
+    const params = new URLSearchParams(location.search);
+    const q = params.get('q');
+    const lessonId = params.get('lesson');
+    if (q) {
+      document.getElementById('q').value = q;
+      let results = search(q);
+      render(results, q);
+      // A deep link is a committed query: the server's ranking replaces the local one when it answers.
+      await runServerSearch(q);
+      results = _lastResults;
+      // Auto-expand matching lesson
+      if (lessonId && results.length) {
+        const idx = results.findIndex(r => r.id === lessonId);
+        if (idx >= 0) setTimeout(() => togglePreview(idx), 300);
+      }
+    }
+  } catch(e) {
+    document.getElementById('results').innerHTML = '<div class="fallback">' + t('loadFailed') + ' <a href="/">' + t('goHome') + '</a></div>';
+  }
+}
+
+document.querySelectorAll('[data-lang]').forEach(btn => {
+  btn.addEventListener('click', () => setLang(btn.dataset.lang));
+});
+
+document.getElementById('q').addEventListener('input', function() {
+  const q = this.value.trim();
+  if (!q) { _lastResults = []; document.getElementById('results').innerHTML = ''; updateUrl(''); return; }
+  runSearch(q);
+});
+
+document.getElementById('q').addEventListener('keydown', function(event) {
+  if (event.key !== 'Enter') return;
+  const q = this.value.trim();
+  if (!q) return;
+  event.preventDefault();
+  const results = runSearch(q);
+  if (results.length) togglePreview(0);
+  runServerSearch(q);
+});
+
+document.getElementById('results').addEventListener('click', function(event) {
+  if (event.target.closest('a')) return;
+  if (event.target.closest('.lesson-preview')) return;
+  // A feedback button and the "Why this matched" disclosure live inside the card; without this the
+  // same click also opens the preview and fetches the body, i.e. it costs one of the 20 anonymous
+  // reads per minute (#3539 C5).
+  //
+  // `button` must NOT be in this list (2026-10-20): it also swallowed the preview's own button,
+  // which is the control that opens the preview — on the live site "Read lesson" did nothing at all
+  // and the body could only be reached by clicking the card around it. `.feedback-btn` already
+  // covers the buttons that must not expand the card.
+  if (event.target.closest('.feedback-btn, summary, details')) return;
+  const card = event.target.closest('.result');
+  if (!card) return;
+  togglePreview(Number(card.dataset.index));
+});
+
+document.getElementById('results').addEventListener('keydown', function(event) {
+  if (event.target.closest('a,button')) return;
+  if (event.key !== 'Enter' && event.key !== ' ') return;
+  const card = event.target.closest('.result');
+  if (!card) return;
+  event.preventDefault();
+  togglePreview(Number(card.dataset.index));
+});
+
+setLang(LANG);
+init();
+updateFeedbackSummary();
+</script>
+</body>
+</html>

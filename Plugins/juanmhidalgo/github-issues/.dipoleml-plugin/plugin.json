@@ -1,0 +1,16 @@
+{
+  "name": "github-issues",
+  "displayName": "GitHub Issues",
+  "version": "1.11.3",
+  "description": "Work GitHub Issues — bugs, tech debt, refactors, follow-ups: verify each issue against the current code before planning and implementing, or triage a backlog read-only",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Juanmhidalgo"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/juanmhidalgo/claude-plugins",
+  "repository": "https://github.com/juanmhidalgo/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

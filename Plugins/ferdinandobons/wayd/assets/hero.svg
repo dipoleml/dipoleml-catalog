@@ -1,0 +1,257 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 460" role="img" aria-labelledby="title desc">
+  <title id="title">WAYD: a meme-y social feed for programmers, built on GitHub Issues.</title>
+  <desc id="desc">Animated banner showing the three core Claude commands of WAYD. Step 1 appears first with the /wayd post flow, then step 2 with the /wayd scroll flow, then step 3 with reactions and replies. Loops every 12 seconds.</desc>
+
+  <defs>
+    <!-- Background gradient -->
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0d1117"/>
+      <stop offset="100%" stop-color="#1a1f2e"/>
+    </linearGradient>
+
+    <!-- Soft glow on the title -->
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%">
+      <feGaussianBlur stdDeviation="2.5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Step card shape -->
+    <symbol id="card" overflow="visible">
+      <rect x="0" y="0" rx="14" ry="14" width="380" height="220" fill="#161b22" stroke="#30363d" stroke-width="1"/>
+    </symbol>
+
+    <style>
+      .mono { font-family: "JetBrains Mono", "Fira Code", "SF Mono", Menlo, Consolas, monospace; }
+      .sans { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Helvetica Neue", Arial, sans-serif; }
+
+      /* ===========================================================
+         STEP REVEAL CASCADE — 12s loop
+         Step 1 enters at ~3%, step 2 at ~28%, step 3 at ~53%
+         All three stay visible until 95%, then fade and restart
+         =========================================================== */
+      @keyframes step-1-enter {
+        0%, 2%   { opacity: 0; transform: translateY(18px); }
+        6%, 95%  { opacity: 1; transform: translateY(0); }
+        100%     { opacity: 0; transform: translateY(18px); }
+      }
+      @keyframes step-2-enter {
+        0%, 27%  { opacity: 0; transform: translateY(18px); }
+        31%, 95% { opacity: 1; transform: translateY(0); }
+        100%     { opacity: 0; transform: translateY(18px); }
+      }
+      @keyframes step-3-enter {
+        0%, 52%  { opacity: 0; transform: translateY(18px); }
+        56%, 95% { opacity: 1; transform: translateY(0); }
+        100%     { opacity: 0; transform: translateY(18px); }
+      }
+      .step-1 { animation: step-1-enter 12s ease-out infinite; }
+      .step-2 { animation: step-2-enter 12s ease-out infinite; }
+      .step-3 { animation: step-3-enter 12s ease-out infinite; }
+
+      /* ===========================================================
+         INTERNAL LINE REVEALS — each step's lines fade in one by one
+         after that step's card is visible. Percentages are relative
+         to the same 12s loop.
+         =========================================================== */
+      /* Step 1 internal lines: 8%, 13%, 18%, 23% */
+      @keyframes l1a { 0%, 8%  { opacity: 0 } 11%, 95% { opacity: 1 } 100% { opacity: 0 } }
+      @keyframes l1b { 0%, 13% { opacity: 0 } 16%, 95% { opacity: 1 } 100% { opacity: 0 } }
+      @keyframes l1c { 0%, 18% { opacity: 0 } 21%, 95% { opacity: 1 } 100% { opacity: 0 } }
+      @keyframes l1d { 0%, 23% { opacity: 0 } 26%, 95% { opacity: 1 } 100% { opacity: 0 } }
+
+      /* Step 2 internal lines: 33%, 38%, 43%, 48% */
+      @keyframes l2a { 0%, 33% { opacity: 0 } 36%, 95% { opacity: 1 } 100% { opacity: 0 } }
+      @keyframes l2b { 0%, 38% { opacity: 0 } 41%, 95% { opacity: 1 } 100% { opacity: 0 } }
+      @keyframes l2c { 0%, 43% { opacity: 0 } 46%, 95% { opacity: 1 } 100% { opacity: 0 } }
+      @keyframes l2d { 0%, 48% { opacity: 0 } 51%, 95% { opacity: 1 } 100% { opacity: 0 } }
+
+      /* Step 3 internal lines: 58%, 63%, 70%, 77% */
+      @keyframes l3a { 0%, 58% { opacity: 0 } 61%, 95% { opacity: 1 } 100% { opacity: 0 } }
+      @keyframes l3b { 0%, 63% { opacity: 0 } 66%, 95% { opacity: 1 } 100% { opacity: 0 } }
+      @keyframes l3c { 0%, 70% { opacity: 0 } 73%, 95% { opacity: 1 } 100% { opacity: 0 } }
+      @keyframes l3d { 0%, 77% { opacity: 0 } 80%, 95% { opacity: 1 } 100% { opacity: 0 } }
+
+      .line-1a { animation: l1a 12s linear infinite; }
+      .line-1b { animation: l1b 12s linear infinite; }
+      .line-1c { animation: l1c 12s linear infinite; }
+      .line-1d { animation: l1d 12s linear infinite; }
+
+      .line-2a { animation: l2a 12s linear infinite; }
+      .line-2b { animation: l2b 12s linear infinite; }
+      .line-2c { animation: l2c 12s linear infinite; }
+      .line-2d { animation: l2d 12s linear infinite; }
+
+      .line-3a { animation: l3a 12s linear infinite; }
+      .line-3b { animation: l3b 12s linear infinite; }
+      .line-3c { animation: l3c 12s linear infinite; }
+      .line-3d { animation: l3d 12s linear infinite; }
+
+      /* Cursor blink */
+      @keyframes blink { 0%, 49% { opacity: 1 } 50%, 100% { opacity: 0 } }
+      .cursor { animation: blink 1s steps(2, end) infinite; }
+
+      /* Subtle pulse on each step's number badge while its lines reveal */
+      @keyframes pulse-1 { 0%, 8%, 30%, 100% { fill: #d2a8ff } 15%, 25% { fill: #ffffff } }
+      @keyframes pulse-2 { 0%, 33%, 55%, 100% { fill: #79c0ff } 40%, 50% { fill: #ffffff } }
+      @keyframes pulse-3 { 0%, 58%, 85%, 100% { fill: #ff7b72 } 70%, 80% { fill: #ffffff } }
+      .num-1 { animation: pulse-1 12s linear infinite; }
+      .num-2 { animation: pulse-2 12s linear infinite; }
+      .num-3 { animation: pulse-3 12s linear infinite; }
+    </style>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1280" height="460" fill="url(#bg)"/>
+
+  <!-- ============================================================ -->
+  <!-- HEADER: title + tagline + subtagline                           -->
+  <!-- ============================================================ -->
+  <g transform="translate(640, 95)" text-anchor="middle">
+    <!-- WAYD wordmark (mono purple, no gradient) -->
+    <text class="mono" font-size="68" font-weight="800" fill="#d2a8ff" filter="url(#glow)" letter-spacing="5">
+      WAYD
+    </text>
+
+    <!-- Tagline (primary) -->
+    <text y="30" class="sans" font-size="16" fill="#c9d1d9">
+      The scroll break you take while your agent works, without leaving your console.
+    </text>
+
+    <!-- Subtagline (secondary, smaller, dimmer) -->
+    <text y="54" class="sans" font-size="13" fill="#7d8590">
+      A meme-y social feed living inside Claude Code, Cursor, and Copilot. Built on GitHub Issues. No server, no signup.
+    </text>
+  </g>
+
+  <!-- ============================================================ -->
+  <!-- 3 STEP CARDS — appear in cascade                               -->
+  <!-- Each card is wrapped: outer <g> for positioning,               -->
+  <!-- inner <g> for the CSS animation.                               -->
+  <!-- ============================================================ -->
+
+  <!-- ============ STEP 1: Post a vibe ============ -->
+  <g transform="translate(60, 215)">
+    <g class="step-1">
+      <use href="#card"/>
+
+      <!-- Number badge + heading -->
+      <g transform="translate(24, 30)">
+        <circle cx="0" cy="0" r="18" fill="#21262d" stroke="#3d2a5c"/>
+        <text class="num-1 mono" x="0" y="6" text-anchor="middle" font-size="16" font-weight="700">1</text>
+      </g>
+      <text x="56" y="36" class="sans" font-size="17" font-weight="700" fill="#c9d1d9">Post a vibe</text>
+
+      <!-- Mini conversation -->
+      <g transform="translate(24, 76)">
+        <rect x="0" y="0" rx="8" ry="8" width="332" height="124" fill="#0d1117" stroke="#21262d"/>
+
+        <!-- Line A: user command -->
+        <text class="line-1a mono" x="14" y="24" font-size="12" fill="#7d8590">
+          <tspan fill="#79c0ff">$</tspan>
+          <tspan dx="6" fill="#c9d1d9">/wayd post</tspan>
+          <tspan dx="2" class="cursor" fill="#c9d1d9">▌</tspan>
+        </text>
+
+        <!-- Line B: pick vibe -->
+        <text class="line-1b mono" x="14" y="48" font-size="12" fill="#c9d1d9">
+          <tspan fill="#7d8590">›</tspan>
+          <tspan dx="6">🤡 cursed-code</tspan>
+        </text>
+
+        <!-- Line C: write text -->
+        <text class="line-1c mono" x="14" y="72" font-size="11" fill="#c9d1d9">
+          <tspan fill="#7d8590">›</tspan>
+          <tspan dx="6">"git push --force on main at 23:47"</tspan>
+        </text>
+
+        <!-- Line D: confirmation -->
+        <text class="line-1d mono" x="14" y="100" font-size="12">
+          <tspan fill="#3fb950">✓</tspan>
+          <tspan dx="6" fill="#c9d1d9">Posted</tspan>
+        </text>
+      </g>
+    </g>
+  </g>
+
+  <!-- ============ STEP 2: Scroll the feed ============ -->
+  <g transform="translate(450, 215)">
+    <g class="step-2">
+      <use href="#card"/>
+
+      <g transform="translate(24, 30)">
+        <circle cx="0" cy="0" r="18" fill="#21262d" stroke="#1e3a5f"/>
+        <text class="num-2 mono" x="0" y="6" text-anchor="middle" font-size="16" font-weight="700">2</text>
+      </g>
+      <text x="56" y="36" class="sans" font-size="17" font-weight="700" fill="#c9d1d9">Scroll the feed</text>
+
+      <g transform="translate(24, 76)">
+        <rect x="0" y="0" rx="8" ry="8" width="332" height="124" fill="#0d1117" stroke="#21262d"/>
+
+        <!-- Line A: scroll command -->
+        <text class="line-2a mono" x="14" y="24" font-size="12">
+          <tspan fill="#79c0ff">$</tspan>
+          <tspan dx="6" fill="#c9d1d9">/wayd scroll</tspan>
+        </text>
+
+        <!-- Line B: post header -->
+        <text class="line-2b mono" x="14" y="48" font-size="11" fill="#c9d1d9">
+          🤡 <tspan fill="#7d8590">cursed-code · @alex · 2h ago</tspan>
+        </text>
+
+        <!-- Line C: post body -->
+        <text class="line-2c mono" x="14" y="70" font-size="10" fill="#c9d1d9">
+          "800-line doStuff() method, written by me"
+        </text>
+
+        <!-- Line D: action footer -->
+        <text class="line-2d mono" x="14" y="100" font-size="11" fill="#7d8590">
+          [n]ext  [😂❤️🚀]  [c]omment  [t]hread
+        </text>
+      </g>
+    </g>
+  </g>
+
+  <!-- ============ STEP 3: React, reply ============ -->
+  <g transform="translate(840, 215)">
+    <g class="step-3">
+      <use href="#card"/>
+
+      <g transform="translate(24, 30)">
+        <circle cx="0" cy="0" r="18" fill="#21262d" stroke="#5a2828"/>
+        <text class="num-3 mono" x="0" y="6" text-anchor="middle" font-size="16" font-weight="700">3</text>
+      </g>
+      <text x="56" y="36" class="sans" font-size="17" font-weight="700" fill="#c9d1d9">React, reply</text>
+
+      <g transform="translate(24, 76)">
+        <rect x="0" y="0" rx="8" ry="8" width="332" height="124" fill="#0d1117" stroke="#21262d"/>
+
+        <!-- Line A: react -->
+        <text class="line-3a mono" x="14" y="24" font-size="14">
+          <tspan fill="#7d8590">›</tspan>
+          <tspan dx="6">😂</tspan>
+        </text>
+
+        <!-- Line B: react confirmation -->
+        <text class="line-3b mono" x="14" y="46" font-size="12">
+          <tspan fill="#3fb950">✓</tspan>
+          <tspan dx="6" fill="#c9d1d9">Reacted</tspan>
+        </text>
+
+        <!-- Line C: reply -->
+        <text class="line-3c mono" x="14" y="76" font-size="12">
+          <tspan fill="#7d8590">›</tspan>
+          <tspan dx="6" fill="#c9d1d9">c: same energy 💀</tspan>
+        </text>
+
+        <!-- Line D: reply confirmation -->
+        <text class="line-3d mono" x="14" y="100" font-size="12">
+          <tspan fill="#3fb950">✓</tspan>
+          <tspan dx="6" fill="#c9d1d9">Replied</tspan>
+        </text>
+      </g>
+    </g>
+  </g>
+</svg>

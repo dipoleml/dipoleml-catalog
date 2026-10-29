@@ -1,0 +1,542 @@
+# Contributing to Platform Skills
+
+Thank you for your interest in contributing to Platform Skills! This guide will help you propose improvements and add new patterns.
+
+## How to Contribute
+
+### Reporting Issues
+
+If you encounter problems or have suggestions:
+
+1. **Search existing issues** first to avoid duplicates
+2. **Open a new issue** with:
+   - Clear problem description or feature request
+   - Relevant context (cloud provider, tool versions, error messages)
+   - Expected vs actual behavior
+   - Minimal reproduction steps if applicable
+
+### Proposing New Patterns
+
+Before submitting a pattern:
+
+1. **Check if it's truly a pattern** - Is it reusable across multiple scenarios?
+2. **Verify it's production-tested** - Patterns should be battle-tested, not theoretical
+3. **Ensure it follows principles** - Root-cause focused, security-conscious, operationally safe
+
+### Pull Request Process
+
+1. **Fork the repository** and create a feature branch
+   ```bash
+   git checkout -b feature/flux-troubleshooting-pattern
+   ```
+
+2. **Make your changes** following the structure:
+   - **Core guidance** goes in `SKILL.md`
+   - **Detailed patterns** go in `references/*.md`
+   - **Practical examples** go in `examples/*/`
+   - Update `CHANGELOG.md` with your changes
+
+3. **Follow the writing style**:
+   - Production-first mindset
+   - Root-cause analysis over symptoms
+   - Explicit blast radius and rollback plans
+   - Clear prerequisites and assumptions
+   - Concrete examples over abstract descriptions
+
+4. **Test your changes**:
+   - Validate markdown formatting
+   - Test code examples in real environments
+   - Ensure links work
+   - Run spellcheck
+
+5. **Submit pull request** with:
+   - Clear title describing the change
+   - Problem statement (what gap does this fill?)
+   - Solution approach (how does this help users?)
+   - Testing notes (how was this validated?)
+
+### Content Guidelines
+
+#### Problem Classification
+
+When documenting issues, use this structure:
+
+**Template:**
+
+```
+### Problem: [Concise description]
+
+**Symptoms:**
+- Observable behavior
+- Exact error messages
+- Impact on services
+
+**Evidence to collect:**
+Commands to gather diagnostic information
+
+**Root cause:**
+Clear explanation of why this happens
+
+**Fix:**
+Specific configuration changes with code blocks
+
+**Validation:**
+How to verify the fix worked
+
+**Prevention:**
+How to avoid this in the future
+
+**Rollback:**
+How to safely undo if needed
+```
+
+**Example:**
+
+```markdown
+### Problem: HelmRelease stuck in reconciling state
+
+**Symptoms:**
+- HelmRelease shows "Reconciling" for >10 minutes
+- Error: "chart pull failed: failed to get chart version"
+- Application pods not created
+
+**Evidence to collect:**
+`flux logs --kind=HelmRelease --name=my-app`
+`kubectl describe helmrelease my-app -n apps`
+
+**Root cause:**
+HelmRepository source is unreachable or chart version doesn't exist
+
+**Fix:**
+Verify HelmRepository is ready and chart version exists in repository
+
+**Validation:**
+`flux get helmreleases` shows "Ready" status
+
+**Prevention:**
+Add health checks for HelmRepository before creating HelmReleases
+
+**Rollback:**
+`flux suspend helmrelease my-app` to stop reconciliation
+```
+
+#### Code Examples
+
+- **Always include context** - Don't show snippets in isolation
+- **Use realistic names** - `myapp`, `production`, `team-a` not `foo`, `bar`, `test123`
+- **Show before and after** for configuration changes
+- **Include validation commands** - How to verify it works
+- **Add comments** explaining non-obvious choices
+
+#### Security Guidance
+
+When documenting security patterns:
+
+- **Assume breach mindset** - Defense in depth
+- **Least privilege by default** - Explain if more access is truly needed
+- **Explicit over implicit** - Make security choices visible
+- **Compliance awareness** - Note regulatory implications where relevant
+
+### Review Process
+
+All contributions are reviewed for:
+
+1. **Correctness** - Is the guidance technically accurate?
+2. **Clarity** - Can a platform engineer follow this?
+3. **Safety** - Are risks and rollbacks documented?
+4. **Consistency** - Does it match existing patterns?
+5. **Value** - Does it solve real problems?
+
+Reviewers may:
+- Request changes for clarity or safety
+- Suggest alternative approaches
+- Ask for additional examples or validation
+- Request tests in specific environments
+
+### Community Guidelines
+
+- **Be respectful** - We're all learning
+- **Be constructive** - Suggest improvements, don't just criticize
+- **Be specific** - "This is unclear" vs "Step 3 assumes X but doesn't explain it"
+- **Be patient** - Reviewers are volunteers
+- **Be collaborative** - Multiple iterations are normal
+
+## What We're Looking For
+
+### High Priority
+
+- **SOC 2 for Kubernetes** — Kyverno `ValidatingPolicy` resources mapped to SOC 2 Trust Services Criteria (privileged containers, required labels, image tag mutability, non-root enforcement); `kube-bench` CIS Benchmark integration; pod security admission evidence commands. Backs up `references/compliance.md` with a Kubernetes layer.
+- **HIPAA and PCI-DSS control mapping** — extend `references/compliance.md` with HIPAA §164.3xx and PCI-DSS Req 1–12 mapped to existing Terraform patterns. Most controls overlap with SOC 2; the work is mapping, evidence commands, and a per-framework readiness checklist.
+- **Linkerd examples** — working `examples/linkerd/` assets (HTTPRoute canary split, `AuthorizationPolicy` + `MeshTLSAuthentication`, PodMonitor) to back up `references/linkerd.md`
+
+### Medium Priority
+
+- **Azure compliance** — SOC 2 controls in Terraform for Azure: Azure Policy assignments (CIS benchmark initiative), Defender for Cloud standards, Monitor diagnostic settings for audit logging, Azure Backup. Mirrors the AWS compliance domain.
+- **GCP patterns** — landing zone, GKE, Workload Identity, and IAM examples
+- **Istio** — traffic management, mTLS, and telemetry (counterpart to the Linkerd domain)
+- **Argo CD ApplicationSet fleet patterns** — cluster generators, matrix strategies, progressive rollout examples
+
+### Lower Priority (But Still Welcome)
+
+- **Migration guides** — Flux v1 → v2, EKS 1.28 → 1.31 upgrade paths
+- **Multi-cloud networking** — Transit Gateway, VNet peering, PrivateLink, cross-cloud DNS
+- **Alternative approaches** to existing patterns with documented trade-offs
+- **OpenShift operator lifecycle** — OLM, CatalogSource, operator upgrade patterns
+
+## Adding a New Domain
+
+Follow this checklist when adding a net-new domain (e.g. a new command + reference + examples):
+
+### 1. Reference guide — `references/<domain>.md`
+
+- [ ] File exists at `references/<domain>.md`
+- [ ] Follows Problem → Evidence → Fix → Prevention → Rollback structure
+- [ ] Includes decision matrix or ownership table where applicable
+- [ ] References related domains with relative links
+- [ ] Added to `REQUIRED_REFERENCES` array in `tests/validate-skill.sh`
+
+### 2. Skill — `skills/<domain>/SKILL.md`
+
+- [ ] File exists at `skills/<domain>/SKILL.md` (one directory per skill; supporting files can sit beside it)
+- [ ] Has YAML frontmatter: `name:`, `description:`, `argument-hint:`
+- [ ] Defines at least one `## Mode:` section
+- [ ] Do not add a `commands` or `skills` key to `.claude-plugin/plugin.json`; `skills/` is scanned by default and either key fails validation
+- [ ] Run `tests/validate-skill.sh` and `tests/release-consistency.sh` to confirm the skill loads as `/platform-skills:<domain>`
+
+### 3. SKILL.md (both copies)
+
+- [ ] `SKILL.md` (root) references `references/<domain>.md`
+- [ ] `SKILL.md` lists `/platform-skills:<domain>` in the slash commands section
+- [ ] Synced: `cp SKILL.md skills/platform-skills/SKILL.md`
+
+### 4. Examples — `examples/<domain>/`
+
+- [ ] Directory exists with at least one non-README asset file
+- [ ] `README.md` has a `Status: Stable` (or Beta/Draft/Experimental) line near the top
+- [ ] `README.md` includes a files table, quick-start section, and See Also links
+- [ ] Optional but encouraged: `<domain>-validate.sh` offline validator script
+- [ ] If validator script added: register it in `tests/validate-skill.sh` VALIDATE_SCRIPTS array
+- [ ] Domain directory added to `EXAMPLE_DOMAINS` in `tests/validate-skill.sh`
+
+### 5. Documentation updates
+
+- [ ] `COMMANDS.md` — add row to ToC table and add full `### /platform-skills:<domain>` section
+- [ ] `HOW_IT_WORKS.md` — add row to slash-command table
+- [ ] `GETTING_STARTED.md` — increment command count, add row to command table
+- [ ] `QUICKSTART.md` — increment command count (`See all N commands`)
+- [ ] `README.md` — add domain to the domain table (lines ~40–75)
+- [ ] `EDITOR_INTEGRATIONS.md` — add `### <domain>` section with 4–6 Copilot Chat prompts, update command count
+- [ ] `.github/copilot-instructions.md` — add domain section with key patterns and never-generate list; update version to next release
+- [ ] `CHANGELOG.md` — add bullet under the upcoming release version
+
+### 6. Cursor rules (optional)
+
+- [ ] If the domain has specific file types, add `.cursor/rules/<domain>.mdc`
+- [ ] Register the `.mdc` globs in the `EDITOR_INTEGRATIONS.md` file reference table
+
+### 7. CI validation
+
+- [ ] `bash tests/validate-skill.sh` — all checks pass
+- [ ] `bash tests/validate-helmcheck.sh` — all checks pass
+- [ ] `bash tests/handbook-consistency.sh` — all checks pass
+- [ ] `bash tests/release-consistency.sh` — all checks pass
+- [ ] `bash tests/validate-ci.sh` — all checks pass
+- [ ] `bash tests/scan-secrets.sh` — all checks pass (stage new files first; it scans tracked files)
+- [ ] `bash tests/validate-terraform.sh` — only if you touched `*.tf`; takes a few minutes
+
+The last two are the exact scripts `validate.yml` and `release.yml` run, so a local
+pass means those gates will pass. Run them from anywhere — they resolve the repo
+root themselves.
+
+### 8. Wiki (post-merge)
+
+- [ ] Create `Command-<Domain>.md` page in the wiki
+- [ ] Create `Domain-<Domain>.md` page in the wiki
+- [ ] Update `Home.md` and `Commands.md` command count
+- [ ] Add rows to `Home.md` Commands table, `Domains.md` table
+
+## Documentation Standards
+
+### File Structure
+
+```markdown
+# Title
+
+Brief overview paragraph.
+
+## Contents
+
+- Section 1
+- Section 2
+- Section 3
+
+## Section 1
+
+Content here...
+
+### Subsection
+
+More specific content...
+
+## Further Reading
+
+- [External docs](https://example.com)
+- [Related patterns](references/platform-operating-model.md)
+```
+
+### Code Block Standards
+
+Always specify language:
+
+```yaml
+# Good - language specified
+apiVersion: v1
+kind: ConfigMap
+```
+
+~~~
+# Bad - no language
+apiVersion: v1
+kind: ConfigMap
+~~~
+
+### Link Standards
+
+Use relative links for internal docs:
+```markdown
+See [Flux CD patterns](references/fluxcd.md) for details.
+```
+
+Use absolute links for external resources:
+```markdown
+See [AWS IAM docs](https://docs.aws.amazon.com/iam/) for reference.
+```
+
+## Development Setup
+
+Before contributing, read `CLAUDE.md` for the design philosophy and writing principles that all patterns in this repository follow. The repository layout is in the "Repository structure" section of `README.md`.
+
+### Prerequisites
+
+- Git
+- Text editor with markdown support
+- (Optional) Markdown linter
+- (Optional) Vale for prose linting
+
+### Recommended Tools
+
+```bash
+# Markdown linting
+npm install -g markdownlint-cli
+
+# Check markdown files
+markdownlint '**/*.md' --ignore node_modules
+
+# Spellcheck (if vale is installed)
+vale references/*.md
+```
+
+### Testing Changes Locally
+
+If you have Claude Code installed:
+
+```bash
+# Register the local repo as a marketplace and install
+claude plugin marketplace add $(pwd)
+claude plugin install platform-skills
+
+# Verify version and status
+claude plugin list
+
+# Uninstall after testing
+claude plugin uninstall platform-skills
+```
+
+To upgrade after making further changes, re-run:
+
+```bash
+claude plugin marketplace update
+claude plugin install platform-skills
+```
+
+## Release Process
+
+### For Maintainers
+
+Platform Skills uses automated GitHub Actions workflows for releases.
+
+#### Quick Release Steps
+
+1. **Update version and changelog:**
+   ```bash
+   # Update marketplace.json
+   vim .claude-plugin/marketplace.json  # Set every plugin's version to "X.Y.Z"
+   
+   # Update CHANGELOG.md
+   vim CHANGELOG.md  # Add [X.Y.Z] section with changes
+
+   # Rebuild the folder the plugin directory lists, after the version bump
+   bash scripts/build-plugin.sh
+   bash tests/plugin-folder.sh --strict
+   
+   # Commit
+   git add .
+   git commit -m "Prepare vX.Y.Z release"
+   git push origin main
+   ```
+
+2. **Create and push tag (triggers automated release):**
+   ```bash
+   git tag -a vX.Y.Z -m "Release vX.Y.Z"
+   git push origin vX.Y.Z
+   ```
+
+3. **Automated workflow handles:**
+   - ✅ Version validation (tag matches marketplace.json)
+   - ✅ Quality checks (markdown presence, YAML/JSON syntax, internal links, Terraform validation)
+   - ✅ GitHub Release creation with changelog extraction
+   - ✅ Marketplace publication preparation
+   
+   **Note:** Release workflow validates syntax and structure. For comprehensive validation including Kubernetes manifests and GitHub Actions security checks, use the standard PR workflow before tagging.
+
+4. **Verify release:**
+   - GitHub Release created automatically
+   - Release notes extracted from CHANGELOG.md
+   - Tag and version match
+
+5. **Distribution:**
+   
+   This repository is distributed through multiple channels:
+   - **Claude Marketplace**: Default end-user distribution for one-command install
+   - **GitHub Repository**: Source of truth for the handbook, examples, and release history
+   - **Local Installation**: Clone and install as a Claude plugin for testing or customization
+
+   **Current state:** Marketplace publication is manual (see Marketplace Publication section below).
+   **Future state:** When the Claude marketplace API is available, publication will be automated via the GitHub Release workflow.
+
+#### Versioning
+
+Follow semantic versioning:
+
+- **Major (X.0.0)**: Breaking changes to skill structure
+- **Minor (1.X.0)**: New patterns, features, or significant enhancements
+- **Patch (1.0.X)**: Bug fixes, documentation improvements
+
+#### Pre-Release Checklist
+
+Before creating a tag:
+
+- [ ] All PRs merged to main
+- [ ] Version updated in `.claude-plugin/marketplace.json` (every plugin's `version`)
+- [ ] Every plugin's `source.sha` in `.claude-plugin/marketplace.json` set to the content merge commit, in a PR that touches only that file. Not managed by Renovate; `bash tests/marketplace-pins.sh --release <tag-commit>` is what `release.yml` runs
+- [ ] CHANGELOG.md updated with release notes
+- [ ] `plugins/platform-skills/` rebuilt in the release PR (`bash scripts/build-plugin.sh`); `bash tests/plugin-folder.sh --strict` passes, and `release.yml` runs it again on the tag
+- [ ] All CI checks passing
+- [ ] Examples tested locally
+- [ ] Documentation reviewed
+
+#### The plugin folder
+
+The plugin directory lists `plugins/platform-skills/`, not the repository root. The root holds over 900 files, and the directory holds any version over 512 for review. `scripts/build-plugin.sh` generates the folder from the source:
+
+- the root manifest without `experimental`, plus the icon
+- `README.md`, built from `scripts/plugin-readme.md` plus a command list taken from each skill's frontmatter
+- `LICENSE` and `NOTICE`
+- `skills/`, `references/`, `agents/` and `assets/` in full
+- only the files in `examples/` that shipped content names
+
+Rules:
+
+- **Edit the source, never the folder.** A PR that touches the folder or `.claude-plugin/plugin.json` runs `tests/plugin-folder.sh --strict`, which fails on anything but an exact rebuild.
+- **Rebuild only in the release PR.** Between releases the folder lags the source on purpose. The directory follows `main`, so a rebuild in between would publish unreleased content under the previous version. Renovate ignores the folder for the same reason.
+- **Stay inside the directory's limits.** The folder must stay at or under 480 files, keep every non-image file under 256 KiB, and contain no binary except images. A shipped file that names a new example adds it to the folder. If a new domain pushes the count past the budget, the check says so before the directory does.
+
+#### Marketplace Publication
+
+The release workflow provides marketplace publication instructions in the GitHub Release notes.
+
+**Current Process (Manual):**
+
+1. After GitHub Release is created, follow the instructions in the release summary
+2. Use Claude Code CLI to publish:
+   ```bash
+   claude plugin publish .
+   ```
+3. Or submit via Claude marketplace publisher portal
+
+**Future (Automated):**
+- When Claude marketplace API is available, publication will be fully automated
+- The workflow has placeholder steps ready to uncomment
+
+#### Post-Release
+
+After marketplace publication:
+
+- [ ] Verify marketplace installation: `claude plugin marketplace update && claude plugin install platform-skills`
+- [ ] Verify local installation: `claude plugin marketplace add $(pwd) && claude plugin install platform-skills`
+- [ ] Update README badges if needed
+- [ ] Announce release (optional)
+- [ ] Monitor issues for feedback
+
+## Automated Dependency Management
+
+This repository uses [Renovate](https://docs.renovatebot.com/) for automated dependency updates.
+
+### What Renovate Does
+
+Renovate automatically:
+- **GitHub Actions**: Updates action versions and maintains SHA pinning for security
+- **Terraform**: Updates provider versions and module references
+- **Helm Charts**: Updates chart versions in examples
+- **Container Images**: Updates image tags in Kubernetes manifests
+- **Vulnerability alerts**: Raises separate security-labelled PRs for CVE-flagged dependencies (handled by the `vulnerabilityAlerts` config block, separate from normal update rules)
+
+### Reviewing Renovate PRs
+
+When Renovate creates a pull request:
+
+1. **Check the CI status** - All validation workflows must pass
+2. **Review the changes** - Verify version compatibility
+3. **Test if needed** - For major updates, test examples locally
+4. **Merge promptly** - Security updates should be merged quickly
+
+### Renovate Configuration
+
+See [renovate.json](renovate.json) for the complete configuration. Key policies:
+
+- **Automerge**: Terraform provider minor/patch; Helm chart patch only; stable patch updates for Terraform, Helm, Kubernetes, and docker-compose managers (non-0.x versions)
+- **Manual review**: Required for GitHub Actions (all versions), Terraform modules, container images, and all major version bumps
+- **Schedule**: Runs weekly on Mondays before 6am Berlin time
+- **Grouping**: Related updates are grouped into single PRs
+
+### Pausing Renovate
+
+If you need to pause Renovate temporarily:
+
+```bash
+# Add a renovate.json field
+{
+  "enabled": false
+}
+```
+
+Or use the Renovate dashboard to pause updates for specific dependencies.
+
+## Questions?
+
+- **General questions**: [Discussions](https://github.com/nitinjain999/platform-skills/discussions)
+- **Bug reports**: [Issues](https://github.com/nitinjain999/platform-skills/issues)
+- **Security issues**: Report via [GitHub Security Advisories](https://github.com/nitinjain999/platform-skills/security/advisories) (do not open public issues)
+
+## License
+
+By contributing, you agree that your contributions will be licensed under the Apache-2.0 License.
+
+## Acknowledgments
+
+Contributors will be recognized in:
+- Release notes
+- Contributors section in README
+- GitHub contributors graph
+
+Thank you for helping make platform engineering better for everyone!

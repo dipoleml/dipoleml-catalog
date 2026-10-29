@@ -1,0 +1,413 @@
+{
+  "schema": 2,
+  "bundle_id": "sha256:3a57feb9698a153cfddaf5d387be92e77cd952eca38a0b9743df28633126b584",
+  "run_id": "sha256:ef69fc777ebd7bf68ba48fe4de9c36c3a30926d45bb459b78dad7a02898a24a8",
+  "freeze_id": "sha256:59f9b492ba72dd3f838f53eb7737983c91b859064f4d6cad8ab248090eb78f4d",
+  "started_at": "2026-08-01T03:44:38.936Z",
+  "completed_at": "2026-08-01T03:53:36.633Z",
+  "environment": {
+    "platform": "win32",
+    "arch": "x64",
+    "cpu_count": 12,
+    "cpu_model": "AMD Ryzen 5 2600 Six-Core Processor            ",
+    "total_memory_bytes": 34266742784,
+    "gpu": "NVIDIA GeForce GTX 1070, 8192 MiB, 582.53",
+    "hostname_digest": "sha256:76ad7b959234467904798f9c25069a2cf56a833f2282c4e8a4adfca9cf651540",
+    "git_commit": "5e140d73cb3dd1fd27086bd88f5c47242cbff409",
+    "node": "v22.17.1",
+    "model_inventory": [
+      {
+        "model": "qwen2.5-coder:1.5b",
+        "expected_digest": "sha256:d7372fd828518a4d38b1eb196c673c31a85f2ed302b3d1e406c4c2d1b64a0668",
+        "observed_digest": "sha256:d7372fd828518a4d38b1eb196c673c31a85f2ed302b3d1e406c4c2d1b64a0668",
+        "status": "passed"
+      },
+      {
+        "model": "qwen2.5-coder:3b",
+        "expected_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+        "observed_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+        "status": "passed"
+      },
+      {
+        "model": "qwen2.5-coder:7b",
+        "expected_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+        "observed_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+        "status": "passed"
+      }
+    ],
+    "human_interventions_during_cells": 0
+  },
+  "economics": {
+    "electricity_usd_per_kwh": 0.2,
+    "gpu_residual_value_usd": 100,
+    "gpu_useful_compute_hours": 10000,
+    "setup_and_download_costs_included": false,
+    "whole_system_energy_status": "unknown"
+  },
+  "artifacts": [
+    {
+      "path": "cells/000-weighted-path-v2--always-strong-local--r2.json",
+      "digest": "sha256:a5310e89ed95074fee1e8d6ad3032ad34779518a665eac5f8a26534563c8732d"
+    },
+    {
+      "path": "cells/001-numeric-percent-v2--always-strong-local--r1.json",
+      "digest": "sha256:57ff3c115a3159bd12db1ba99d7dc412745f7cc713c780706bfd3a9d3cf003c8"
+    },
+    {
+      "path": "cells/002-lexical-vowels-v2--always-strong-local--r3.json",
+      "digest": "sha256:7b701237ffa3f13c69f0bb7d74939e203b12190b5a2477eb92bf05887043a245"
+    },
+    {
+      "path": "cells/003-numeric-array-sum-v2--citadel-capability-profile-local--r2.json",
+      "digest": "sha256:02ae2973c73ff0ea85da39f445acb6eb332ce1186ec552b3e43e17a79a1fc7dc"
+    },
+    {
+      "path": "cells/004-numeric-hex-v2--always-strong-local--r1.json",
+      "digest": "sha256:db594f773729d2384a2f31cfd70102bec07402fb80a2a840724fa801551ec742"
+    },
+    {
+      "path": "cells/005-numeric-addition-v2--always-strong-local--r3.json",
+      "digest": "sha256:4702d4b83b2ba24898f229a98f49355ca49353d98b2fdc51eceaf1976bc57661"
+    },
+    {
+      "path": "cells/006-numeric-hex-v2--always-strong-local--r3.json",
+      "digest": "sha256:7b2a9ff11988721babf7833d2136c36fcf7306a68e2a69bc2ca5f69415a83cb5"
+    },
+    {
+      "path": "cells/007-numeric-expression-v2--always-strong-local--r3.json",
+      "digest": "sha256:c0f18b76422a283af3d8724346973ef6b32e4733543a1813f9cff79712234002"
+    },
+    {
+      "path": "cells/008-numeric-expression-v2--always-strong-local--r2.json",
+      "digest": "sha256:971d0155aec2e1b55f768b22b635df2bfb7faec53b769f00db08bcbab4b2db00"
+    },
+    {
+      "path": "cells/009-numeric-addition-v2--always-strong-local--r2.json",
+      "digest": "sha256:9730598333ed3500bf3157660e12a67364dddfedfd0dfbf0cf6e54c6a18a1a1d"
+    },
+    {
+      "path": "cells/010-numeric-array-sum-v2--always-strong-local--r2.json",
+      "digest": "sha256:9fc9153e534f488aba8a8eb41e114956cbcb85dc45265b8ba08b263c447a787b"
+    },
+    {
+      "path": "cells/011-lexical-vowels-v2--citadel-capability-profile-local--r2.json",
+      "digest": "sha256:bd5a3a1f5a3ca3f869a7dda9756c618a09a81f40d999b1721a90e25cf56552dc"
+    },
+    {
+      "path": "cells/012-lexical-vowels-v2--citadel-capability-profile-local--r1.json",
+      "digest": "sha256:b0248772d06a2ea472fdf2ddac525e6ab96783991be50936be43b5d398596160"
+    },
+    {
+      "path": "cells/013-critical-schedule-v2--always-strong-local--r3.json",
+      "digest": "sha256:22b254157c31210ce1ef43350e430a7e2fcc5e6a91417a4d74b67b11d307cef7"
+    },
+    {
+      "path": "cells/014-lexical-length-v2--citadel-capability-profile-local--r1.json",
+      "digest": "sha256:d562ad5470c2629b16ff4bcfbf8e977d61e318f4f7a4fed657937062caa59afd"
+    },
+    {
+      "path": "cells/015-constraint-pair-v2--citadel-capability-profile-local--r2.json",
+      "digest": "sha256:08098e6472e81e1ddcf17352774bf70b4289e715103f16335ceb9d5ba8964b6f"
+    },
+    {
+      "path": "cells/016-numeric-hex-v2--always-strong-local--r2.json",
+      "digest": "sha256:08d32ad67e4bb2e373eedb075ff1d92bb1e12bcddc93e2d961132aa2988fdb96"
+    },
+    {
+      "path": "cells/017-numeric-addition-v2--citadel-capability-profile-local--r3.json",
+      "digest": "sha256:f4590b39ee20aa2cb92790dfd5ebc982ff0d133ae073b89f9c6bead249acb80f"
+    },
+    {
+      "path": "cells/018-lexical-length-v2--always-strong-local--r1.json",
+      "digest": "sha256:9ad769d2a8afa007cd91295160449a4d4b41d3e8ffe31ce64d111bac9d91272a"
+    },
+    {
+      "path": "cells/019-numeric-expression-v2--citadel-capability-profile-local--r2.json",
+      "digest": "sha256:c97e47ef2af67c5fc2aa6d054d1feacbc415e2eff8a89f71d672258a191b40f6"
+    },
+    {
+      "path": "cells/020-numeric-maximum-v2--always-strong-local--r2.json",
+      "digest": "sha256:35dd8d487f2f6b0182fb3ec060cdf7284ff81df1ba6d029580d464e52312ea63"
+    },
+    {
+      "path": "cells/021-numeric-array-sum-v2--citadel-capability-profile-local--r3.json",
+      "digest": "sha256:6fec6b36c04e0f67e2fb34858e8172c4e0a13d7ee23c7d08b5eb010778384b6d"
+    },
+    {
+      "path": "cells/022-weighted-path-v2--citadel-capability-profile-local--r2.json",
+      "digest": "sha256:3601695d649e5109ad9145eb6e46dcdc9db600a4df68f84debc249538f0be993"
+    },
+    {
+      "path": "cells/023-weighted-path-v2--citadel-capability-profile-local--r3.json",
+      "digest": "sha256:b080a265bc337b39a84856145b612f828eedcd6f0ca91522bad3085fc3f58c72"
+    },
+    {
+      "path": "cells/024-numeric-percent-v2--always-strong-local--r2.json",
+      "digest": "sha256:e66c4fb238cba67227ee54e98d205fd126591e041dd49c7169bafbed847ffbdf"
+    },
+    {
+      "path": "cells/025-numeric-expression-v2--always-strong-local--r1.json",
+      "digest": "sha256:40265502fef14d233ee90af74b96a2bc07e2596099e506db6dfbd0f0d81911b6"
+    },
+    {
+      "path": "cells/026-lexical-length-v2--always-strong-local--r2.json",
+      "digest": "sha256:052dfca3a4421947e463d082ab12b224a83a563a09ef0508ef024fd2dbf245d8"
+    },
+    {
+      "path": "cells/027-numeric-addition-v2--citadel-capability-profile-local--r1.json",
+      "digest": "sha256:0a41a819aa26c01c146e49fa70e921fbb36eaee8e8eb8927b4c61b34586c75e2"
+    },
+    {
+      "path": "cells/028-numeric-maximum-v2--always-strong-local--r1.json",
+      "digest": "sha256:38645b575b54f79c39b8376a70f5854ee0e794b894604030183d6219bc9af438"
+    },
+    {
+      "path": "cells/029-critical-schedule-v2--citadel-capability-profile-local--r1.json",
+      "digest": "sha256:1e75eff8d782cde30f3c30a8d3cf669c4c0d77812015da0a93d58cef52eedb41"
+    },
+    {
+      "path": "cells/030-lexical-length-v2--citadel-capability-profile-local--r3.json",
+      "digest": "sha256:52445bb03cbcfadadabbb502b79b911b5359f5d2d341337487939250bbdb4903"
+    },
+    {
+      "path": "cells/031-constraint-pair-v2--always-strong-local--r3.json",
+      "digest": "sha256:b8e7d11b604652736601c7e46f1194505a69266595d0c140988f6425ecd3ba0f"
+    },
+    {
+      "path": "cells/032-lexical-length-v2--citadel-capability-profile-local--r2.json",
+      "digest": "sha256:feff7aca4e7b4e6a70ce4cf807486d6d5e6d34886d8abaa51849cc4aab34f3d3"
+    },
+    {
+      "path": "cells/033-numeric-maximum-v2--citadel-capability-profile-local--r1.json",
+      "digest": "sha256:a8d3bad82db45a03b5f586d386c6245828cd8dad9330a5bfcfd6ccf6138109ff"
+    },
+    {
+      "path": "cells/034-numeric-array-sum-v2--always-strong-local--r3.json",
+      "digest": "sha256:69f79ff10d4dc8c66d22ac435abfac13b5366c9c574abae9d9d639b7d3ee7468"
+    },
+    {
+      "path": "cells/035-critical-schedule-v2--citadel-capability-profile-local--r2.json",
+      "digest": "sha256:c1fe1203255702afe99118e0f7f3afb7596dc5c145d8ef809008f56a292050b6"
+    },
+    {
+      "path": "cells/036-numeric-percent-v2--citadel-capability-profile-local--r2.json",
+      "digest": "sha256:0cc57882e91ea5e2833cefb68ac995d1d3e102e99aa59f71526d72979b4c505d"
+    },
+    {
+      "path": "cells/037-weighted-path-v2--always-strong-local--r1.json",
+      "digest": "sha256:2df52da916c0f05bc341addcc15d7f554bfeb107198ba2a29544825a642d8e7b"
+    },
+    {
+      "path": "cells/038-lexical-length-v2--always-strong-local--r3.json",
+      "digest": "sha256:20d13a622fd8e20bb6e6801690a55f86721c5b9cf064e87e6ac23d47116d0070"
+    },
+    {
+      "path": "cells/039-constraint-pair-v2--citadel-capability-profile-local--r3.json",
+      "digest": "sha256:abe2daea696c1545ef5c8f554d136e9b4d7afda6915509947593c42444abae2d"
+    },
+    {
+      "path": "cells/040-adversarial-ledger-v3--always-strong-local--r2.json",
+      "digest": "sha256:f3055d78859ecbed904666f61e4ee60b1fde9bb99aacd2c2a116026f64c7d483"
+    },
+    {
+      "path": "cells/041-constraint-pair-v2--always-strong-local--r1.json",
+      "digest": "sha256:6b5493f8f87cfb7b14e97bf503785f7caea3e314d88f76d4d7c28252a7a18b34"
+    },
+    {
+      "path": "cells/042-numeric-expression-v2--citadel-capability-profile-local--r3.json",
+      "digest": "sha256:fd0b4424c399048d414cca1dc10e6392b33b68371e08b442d68847c264c929c8"
+    },
+    {
+      "path": "cells/043-numeric-maximum-v2--always-strong-local--r3.json",
+      "digest": "sha256:f57d866dd5431defa30a35415cce8c458e05b626e927ba4e5511fffbd28f9207"
+    },
+    {
+      "path": "cells/044-adversarial-ledger-v3--always-strong-local--r3.json",
+      "digest": "sha256:b8d03caacef82c45a1e44a4b92a217b1c7c3b3df6084a51e6a21e899525425a6"
+    },
+    {
+      "path": "cells/045-adversarial-ledger-v3--always-strong-local--r1.json",
+      "digest": "sha256:1084a55409e14833e9aa9286f9b83854a202fdb08654a9efd7baa12188407b94"
+    },
+    {
+      "path": "cells/046-critical-schedule-v2--citadel-capability-profile-local--r3.json",
+      "digest": "sha256:58a06a8785f880f634620ea94bd2a88d0ce10cc59ed981e1db97ab159973018d"
+    },
+    {
+      "path": "cells/047-numeric-hex-v2--citadel-capability-profile-local--r3.json",
+      "digest": "sha256:f9b325ddf18e7d69210e968736ccced600c31bfa34ab14f6b85a2e82d4886992"
+    },
+    {
+      "path": "cells/048-numeric-addition-v2--always-strong-local--r1.json",
+      "digest": "sha256:5be2ff4b9e77b4c7c4a0df86fd5f35365d07dc4b2e90c86c436c2161001c1d2d"
+    },
+    {
+      "path": "cells/049-numeric-hex-v2--citadel-capability-profile-local--r2.json",
+      "digest": "sha256:5ff4a2b847282c8674c4bc28fb536f0391c2735b1c120bd0517e9f465c77e48a"
+    },
+    {
+      "path": "cells/050-constraint-pair-v2--citadel-capability-profile-local--r1.json",
+      "digest": "sha256:82620021171d1dbdfff442e92ac5793df8bea531dfdf47e54eb4dd69c3c3f3d3"
+    },
+    {
+      "path": "cells/051-numeric-addition-v2--citadel-capability-profile-local--r2.json",
+      "digest": "sha256:ac59dbdc80d53dc5f450f1037d4f7878e0cfece0b24fb8d5a24c4ab7fdafd5de"
+    },
+    {
+      "path": "cells/052-adversarial-ledger-v3--citadel-capability-profile-local--r1.json",
+      "digest": "sha256:e73091ed0eec474730156cebef90311c19014e1bdd0b4284dc04504915cea631"
+    },
+    {
+      "path": "cells/053-adversarial-ledger-v3--citadel-capability-profile-local--r2.json",
+      "digest": "sha256:9fa03d5a5386890a60b5ef6ad159027a5160a43caa3c3ac50f47b92f42ae9e6c"
+    },
+    {
+      "path": "cells/054-numeric-expression-v2--citadel-capability-profile-local--r1.json",
+      "digest": "sha256:df9d0075c8507dc1da7d59e8d5f08edffbf6b7e9d09581e875656f70ac7c3c72"
+    },
+    {
+      "path": "cells/055-numeric-array-sum-v2--citadel-capability-profile-local--r1.json",
+      "digest": "sha256:54d85e4ff756b5a17e4ead1523f1bba6dab5d5df1dc4957943130110ac5535d3"
+    },
+    {
+      "path": "cells/056-lexical-vowels-v2--citadel-capability-profile-local--r3.json",
+      "digest": "sha256:359762c35a5a3f297047e0449b3c95df104ec5e3ec1a91b17c2d858436b7b2a3"
+    },
+    {
+      "path": "cells/057-numeric-hex-v2--citadel-capability-profile-local--r1.json",
+      "digest": "sha256:e37c9a56153b727f4ab1557611a126181861c7111bcf2585df9d5024b2adedd9"
+    },
+    {
+      "path": "cells/058-adversarial-ledger-v3--citadel-capability-profile-local--r3.json",
+      "digest": "sha256:6e15931173ffc5230fa8f9a146d0e49d0ed81e801182dadf58b6f1014f71f106"
+    },
+    {
+      "path": "cells/059-numeric-percent-v2--citadel-capability-profile-local--r3.json",
+      "digest": "sha256:9d205586fe89c45b549b3f6f21fcd5877188b1d5b3f99d5301c4818a1f004bb9"
+    },
+    {
+      "path": "cells/060-numeric-maximum-v2--citadel-capability-profile-local--r3.json",
+      "digest": "sha256:765ced7053a5124de2f8d25a23f1782d872b57f1ef6a1dc0eac024679ad1956f"
+    },
+    {
+      "path": "cells/061-numeric-array-sum-v2--always-strong-local--r1.json",
+      "digest": "sha256:8c2bf554d06e5dad9c0e089fd4d9f0593af4a1001be36b49a2de28ab7a1e58b1"
+    },
+    {
+      "path": "cells/062-lexical-vowels-v2--always-strong-local--r2.json",
+      "digest": "sha256:3dcd5caf489e5fe9e60df30634d76083394bc508bfe6e79093fbbe3a79e56b50"
+    },
+    {
+      "path": "cells/063-lexical-vowels-v2--always-strong-local--r1.json",
+      "digest": "sha256:da430f1d3714948e8aedc4a2662e0d36b990d007c65c0c1a91ed2564b540e1a3"
+    },
+    {
+      "path": "cells/064-numeric-maximum-v2--citadel-capability-profile-local--r2.json",
+      "digest": "sha256:de444fad82ba8335added045d08885bd0ab224912d1f1e0fa8833e8186994e3e"
+    },
+    {
+      "path": "cells/065-weighted-path-v2--always-strong-local--r3.json",
+      "digest": "sha256:9ebba60ececda32e72c5a1b630f497103e02b77d3d10831ba9fdea9e7974174e"
+    },
+    {
+      "path": "cells/066-constraint-pair-v2--always-strong-local--r2.json",
+      "digest": "sha256:ef91325467fa3dc83dae1ad7db65c320e5ed28ef787519fd56c812a12353ba20"
+    },
+    {
+      "path": "cells/067-critical-schedule-v2--always-strong-local--r2.json",
+      "digest": "sha256:966e07183c4219710edf7fad6726b39249aacb36f5f0af7b926b04ef186ec5af"
+    },
+    {
+      "path": "cells/068-critical-schedule-v2--always-strong-local--r1.json",
+      "digest": "sha256:1a949b894f9230cddfca3ef185f3eb004530912bd0ec39f530a41b8439e3efa6"
+    },
+    {
+      "path": "cells/069-numeric-percent-v2--citadel-capability-profile-local--r1.json",
+      "digest": "sha256:b08852fc0c8d6b07987953ff9e1563bd3e3fe274db5819d1ce5e84ba42a17c6b"
+    },
+    {
+      "path": "cells/070-weighted-path-v2--citadel-capability-profile-local--r1.json",
+      "digest": "sha256:2ba0ddc7b2a31ca22cd728fb4db4bc1bcb16b326d116f1e63513676d6822c675"
+    },
+    {
+      "path": "cells/071-numeric-percent-v2--always-strong-local--r3.json",
+      "digest": "sha256:f8de481ddeb619c1b00f60775b079902782bad7cb2209b2b3dd38185c589a645"
+    }
+  ],
+  "final_chain_digest": "sha256:ad020892e31253a5c128aed721fd1235a2b59cae2215630721b8807e187222b8",
+  "summary": {
+    "policies": [
+      {
+        "policy_id": "always-strong-local",
+        "cells": 36,
+        "verified": 24,
+        "failed": 12,
+        "unknown": 0,
+        "verified_rate": 0.666667,
+        "attempts": 36,
+        "tier_attempts": {
+          "tiny": 0,
+          "lexical": 0,
+          "strong": 36
+        },
+        "escalations": 0,
+        "duration_ms": 243033,
+        "prompt_tokens": 2913,
+        "completion_tokens": 387,
+        "gpu_energy_status": "measured",
+        "gpu_energy_kwh": 0.003568132,
+        "modeled_cost_status": "derived-comparison",
+        "modeled_cost_usd": 0.001388718,
+        "actual_end_to_end_cash_status": "unknown"
+      },
+      {
+        "policy_id": "citadel-capability-profile-local",
+        "cells": 36,
+        "verified": 24,
+        "failed": 12,
+        "unknown": 0,
+        "verified_rate": 0.666667,
+        "attempts": 48,
+        "tier_attempts": {
+          "tiny": 18,
+          "lexical": 6,
+          "strong": 24
+        },
+        "escalations": 12,
+        "duration_ms": 284788,
+        "prompt_tokens": 3690,
+        "completion_tokens": 513,
+        "gpu_energy_status": "measured",
+        "gpu_energy_kwh": 0.00412744,
+        "modeled_cost_status": "derived-comparison",
+        "modeled_cost_usd": 0.001616567,
+        "actual_end_to_end_cash_status": "unknown"
+      }
+    ],
+    "comparison": {
+      "quality_ratio": 1,
+      "gpu_energy_reduction": -0.156751,
+      "modeled_cost_reduction": -0.164071,
+      "duration_reduction": -0.171808,
+      "token_reduction": -0.273636
+    },
+    "false_passes": 0,
+    "integrity_failures": 0,
+    "gates": {
+      "quality": true,
+      "gpu_energy": false,
+      "modeled_cost": false,
+      "terminal_coverage": true,
+      "execution_identity": true,
+      "zero_false_passes": true
+    },
+    "evidence_result": "failed",
+    "actual_end_to_end_cash_status": "unknown"
+  },
+  "report_digest": "sha256:7e99309d4a273d6588dd8f9ed9010cf86645e7a0aa7d551e3435a278796655e7",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:1981f618abe99c7e48fde960ee1b6cca6432ace712aff575848b432ed7cf209f",
+    "signature": "tLS7ngmj/Shdxx6snEVSblWLqe85sFZHkg6+ojKBowiGzoei+oBf8CLr+TNYWrnAaWzmEC0JqDa5dxvRWfG4AA=="
+  }
+}

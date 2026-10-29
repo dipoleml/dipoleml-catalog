@@ -1,0 +1,153 @@
+#!/usr/bin/env bash
+# ops-unread — Channel availability + unread counts → JSON
+# Checks WhatsApp (Baileys bridge), Email (gog), Slack (env), Telegram (env)
+# All secrets via env vars or CLI auth — no hardcoded credentials.
+#
+# ENV VARS (optional — tools auto-detect if installed):
+#   GMAIL_ACCOUNT     — Gmail account for gog (default: auto-detect)
+#   SLACK_MCP_ENABLED — "true" if Slack MCP server is configured
+#   TELEGRAM_ENABLED  — "true" if Telegram user-auth MCP is configured
+#   WHATSAPP_BRIDGE_DB — bridge messages.db path (default: ~/.local/share/whatsapp-mcp/whatsapp-bridge/store/messages.db)
+
+set -euo pipefail
+
+RESULT='{"channels":{}}'
+
+# ── WhatsApp: policy/resolver, never assume :8080 ──
+WA_ACCOUNTS_BIN="$(dirname "$0")/ops-wa-accounts"
+if [ -x "$WA_ACCOUNTS_BIN" ]; then
+  WA_JSON="$("$WA_ACCOUNTS_BIN" 2>/dev/null || true)"
+else
+  WA_JSON=""
+fi
+WA_N=$(printf '%s' "$WA_JSON" | python3 -c 'import json,sys
+try:
+  d=json.load(sys.stdin)
+  print(len([a for a in d.get("accounts") or [] if a.get("agent_enabled")]))
+except Exception:
+  print(0)
+' 2>/dev/null || echo 0)
+if [ "$WA_N" != "0" ]; then
+  RESULT=$(echo "$RESULT" | jq --argjson n "$WA_N" \
+    '.channels.whatsapp = {"accounts": $n, "available": true, "note": "resolved via ops-wa-accounts; classify via policy api or ssh remote_store"}')
+else
+  RESULT=$(echo "$RESULT" | jq \
+    '.channels.whatsapp = {"unread": 0, "available": false, "note": "no WhatsApp accounts in $PREFS_PATH / registry — run /ops:setup step 3b. Do not launchctl a leftover local bridge."}')
+fi
+
+# ── Email via gog ──
+# gog needs BOTH an explicit --account (any multi-token store rejects a bare
+# call) and an unlocked keyring. lib/gog-account.sh resolves both and reports
+# the real reason on failure instead of a blanket "not authenticated".
+# shellcheck source=../lib/gog-account.sh
+. "$(cd "$(dirname "$0")/.." && pwd)/lib/gog-account.sh"
+
+if ops_gog_ready; then
+  EMAIL_COUNT=$(gog gmail search -a "$OPS_GOG_ACCOUNT" -j --results-only --no-input --max 50 "in:inbox" 2>/dev/null | python3 -c "
+import json, sys
+try:
+    data = json.loads(sys.stdin.read())
+    items = data if isinstance(data, list) else data.get('threads', data.get('messages', []))
+    print(len(items))
+except:
+    print(0)
+" 2>/dev/null || echo "0")
+  [[ "$EMAIL_COUNT" =~ ^[0-9]+$ ]] || EMAIL_COUNT="0"
+  RESULT=$(echo "$RESULT" | jq --argjson c "$EMAIL_COUNT" --arg a "$OPS_GOG_ACCOUNT" \
+    '.channels.email = {"inbox_count": $c, "available": true, "account": $a}')
+else
+  RESULT=$(echo "$RESULT" | jq --arg n "$OPS_GOG_NOTE" \
+    '.channels.email = {"inbox_count": 0, "available": false, "note": $n}')
+fi
+
+# ── Slack — multi-workspace support ──
+# Reads slack_workspaces array from preferences.json.
+# Backwards-compat: if array is absent/empty, falls back to legacy SLACK_MCP_ENABLED env var.
+#
+# preferences.json schema (new):
+#   "slack_workspaces": [
+#     { "name": "<workspace_a>", "token_env": "SLACK_BOT_TOKEN_<WORKSPACE_A>", "kind": "bot_token" },
+#     { "name": "<workspace_b>", "token_env": "SLACK_BOT_TOKEN_<WORKSPACE_B>", "kind": "user_token" }
+#   ]
+#
+# Backwards-compat (legacy):
+#   SLACK_MCP_ENABLED=true  →  single unnamed workspace via mcp__claude_ai_Slack__*
+PREFS_PATH="${CLAUDE_PLUGIN_DATA_DIR:-$HOME/.claude/plugins/data/ops-ops-marketplace}/preferences.json"
+
+SLACK_WS_COUNT=0
+SLACK_WS_NAMES=()
+SLACK_WS_AVAILABLE=()
+
+if command -v jq >/dev/null 2>&1 && [ -f "$PREFS_PATH" ]; then
+  SLACK_WS_COUNT=$(jq -r '(.slack_workspaces // []) | length' "$PREFS_PATH" 2>/dev/null || echo "0")
+  [[ "$SLACK_WS_COUNT" =~ ^[0-9]+$ ]] || SLACK_WS_COUNT=0
+fi
+
+if [ "$SLACK_WS_COUNT" -gt 0 ]; then
+  # New multi-workspace path — iterate each configured workspace
+  WS_ARRAY="[]"
+  for i in $(seq 0 $((SLACK_WS_COUNT - 1))); do
+    ws_name=$(jq -r ".slack_workspaces[$i].name // \"workspace-$i\"" "$PREFS_PATH" 2>/dev/null)
+    token_env=$(jq -r ".slack_workspaces[$i].token_env // \"\"" "$PREFS_PATH" 2>/dev/null)
+    ws_kind=$(jq -r ".slack_workspaces[$i].kind // \"bot_token\"" "$PREFS_PATH" 2>/dev/null)
+
+    # Resolve token from the named env var.
+    # Validate token_env is a legal POSIX shell identifier before indirect expansion;
+    # bash aborts the entire script under `set -u`/`set -e` if `${!var}` is given a
+    # name with invalid characters (e.g. "SLACK-TOKEN" → "invalid variable name").
+    ws_token=""
+    if [[ "$token_env" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+      ws_token="${!token_env:-}"
+    elif [ -n "$token_env" ]; then
+      # Configured but the env var name is not a valid shell identifier — emit an
+      # explicit error record and skip without aborting the rest of the scan.
+      WS_ARRAY=$(echo "$WS_ARRAY" | jq \
+        --arg name "$ws_name" \
+        --arg env "$token_env" \
+        '. + [{"name": $name, "available": false, "unread": null, "note": ("invalid token_env (must match [A-Za-z_][A-Za-z0-9_]*): " + $env)}]')
+      continue
+    fi
+
+    if [ -n "$ws_token" ]; then
+      # Token present — mark available, actual unread count requires MCP at scan time
+      WS_ARRAY=$(echo "$WS_ARRAY" | jq \
+        --arg name "$ws_name" \
+        --arg kind "$ws_kind" \
+        --arg env "$token_env" \
+        '. + [{"name": $name, "kind": $kind, "token_env": $env, "available": true, "unread": null, "note": "Scan via mcp__claude_ai_Slack__* or direct curl with token_env"}]')
+    else
+      # Token env var not set — workspace configured but credential missing
+      WS_ARRAY=$(echo "$WS_ARRAY" | jq \
+        --arg name "$ws_name" \
+        --arg env "$token_env" \
+        '. + [{"name": $name, "available": false, "unread": null, "note": ("token env var not set: " + $env)}]')
+    fi
+  done
+  RESULT=$(echo "$RESULT" | jq --argjson ws "$WS_ARRAY" '.channels.slack = {"workspaces": $ws, "multi_workspace": true}')
+else
+  # Legacy single-workspace path — honour SLACK_MCP_ENABLED env var
+  SLACK_ENABLED="${SLACK_MCP_ENABLED:-false}"
+  if [ "$SLACK_ENABLED" = "true" ]; then
+    RESULT=$(echo "$RESULT" | jq '.channels.slack = {"unread": null, "available": true, "multi_workspace": false, "note": "Scan via Slack MCP tools (legacy single-workspace mode)"}')
+  else
+    RESULT=$(echo "$RESULT" | jq '.channels.slack = {"unread": null, "available": false, "multi_workspace": false, "note": "No slack_workspaces configured. Set SLACK_MCP_ENABLED=true (legacy) or add slack_workspaces[] to preferences.json"}')
+  fi
+fi
+
+# ── Telegram — user-auth MCP, check env ──
+TG_ENABLED="${TELEGRAM_ENABLED:-false}"
+if [ "$TG_ENABLED" = "true" ]; then
+  RESULT=$(echo "$RESULT" | jq '.channels.telegram = {"unread": null, "available": true, "note": "Scan via Telegram user-auth MCP tools"}')
+else
+  RESULT=$(echo "$RESULT" | jq '.channels.telegram = {"unread": null, "available": false, "note": "Set TELEGRAM_ENABLED=true when user-auth MCP (tdlib/MTProto) is configured"}')
+fi
+
+# ── Notion — MCP-based, check env ──
+NOTION_ENABLED="${NOTION_MCP_ENABLED:-false}"
+if [ "$NOTION_ENABLED" = "true" ]; then
+  RESULT=$(echo "$RESULT" | jq '.channels.notion = {"unread": null, "available": true, "note": "Scan via Notion MCP tools (search, fetch, comments)"}')
+else
+  RESULT=$(echo "$RESULT" | jq '.channels.notion = {"unread": null, "available": false, "note": "Set NOTION_MCP_ENABLED=true when Notion MCP integration is configured"}')
+fi
+
+echo "$RESULT"

@@ -1,0 +1,57 @@
+diff --git a/scripts/test-executor-profiles.js b/scripts/test-executor-profiles.js
+index 3178834..6125575 100644
+--- a/scripts/test-executor-profiles.js
++++ b/scripts/test-executor-profiles.js
+@@ -178,6 +178,52 @@ assert.equal(missionUnknown.receipt_status, 'unknown');
+ assert.equal(missionUnknown.cost, null);
+ assert.equal(missionUnknown.cost_status, 'unknown');
+ 
++// Regression: telemetry that carries usage but no model identity keeps the model
++// proof unknown on every surface. A verified receipt and trusted usage numbers
++// must never be laundered into a match, and the requested model must never be
++// echoed back as an observation.
++const blindObservation = Object.freeze({
++  trusted: true,
++  cost: Object.freeze({ amount: 0.11, unit: 'usd', source: 'adapter' }),
++  duration_ms: 1200,
++  tokens: 900,
++});
++for (const observation of [blindObservation, { trusted: true, model: null }, { trusted: true, model: '' }]) {
++  assert.deepEqual(profiles.evaluateModelProof(local, observation), {
++    requested_model: local.model, observed_model: null, status: 'unknown', reason_code: 'MODEL_OBSERVATION_MISSING',
++  });
++}
++// A legacy null-model profile must not treat absent telemetry as recorded either.
++assert.deepEqual(profiles.evaluateModelProof(legacy[1], blindObservation), {
++  requested_model: 'default', observed_model: null, status: 'unknown', reason_code: 'MODEL_OBSERVATION_MISSING',
++});
++
++const blindInput = {
++  profile: local,
++  observation: blindObservation,
++  wrapper,
++  verification: profiles.verifyForkReceiptWrapper(wrapper, { publicKey, expected: wrapperInput }),
++};
++const blindState = profiles.missionControlExecutorState(blindInput);
++assert.equal(blindState.receipt_status, 'verified', 'a verified receipt must not vouch for the model');
++assert.equal(blindState.model_status, 'unknown');
++assert.equal(blindState.model_reason_code, 'MODEL_OBSERVATION_MISSING');
++assert.equal(blindState.observed_model, null);
++assert.notEqual(blindState.observed_model, blindState.requested_model);
++// Only the model is missing: the rest of the trusted telemetry stays known.
++assert.equal(blindState.cost_status, 'known');
++assert.equal(blindState.duration_status, 'known');
++assert.equal(blindState.tokens_status, 'known');
++
++const blindReplay = profiles.publicExecutorReplay(blindInput);
++assert.equal(blindReplay.model_status, 'unknown');
++assert.equal(blindReplay.observed_model, null);
++assert.equal(blindReplay.model_reason_code, 'MODEL_OBSERVATION_MISSING');
++for (const claimed of ['passed', 'MODEL_OBSERVATION_MATCHED', 'MODEL_OBSERVATION_RECORDED']) {
++  assert(!JSON.stringify({ blindState, blindReplay }).includes(claimed),
++    `missing observed-model telemetry was reported as ${claimed}`);
++}
++
+ const replay = profiles.publicExecutorReplay({ profile: local, observation: null, wrapper });
+ const serialized = JSON.stringify(replay);
+ for (const forbidden of ['signature', 'private', 'raw_output', 'env', 'command', 'args']) {

@@ -1,0 +1,16 @@
+{
+  "name": "skill-conductor",
+  "displayName": "Skill Conductor",
+  "version": "3.2.0",
+  "description": "Create, edit, evaluate, and package DipoleML agent skills — full draft→test→review→improve lifecycle.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Smixs"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/smixs/skill-conductor",
+  "repository": "https://github.com/smixs/skill-conductor",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

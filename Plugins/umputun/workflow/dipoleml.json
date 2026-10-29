@@ -1,0 +1,101 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.umputun.workflow",
+  "type": "plugin",
+  "name": "Workflow",
+  "slug": "workflow",
+  "vendor": "umputun",
+  "description": "various things for DipoleML",
+  "version": "1.3.2",
+  "homepage": "https://github.com/umputun/cc-thingz",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "claude-code-plugin",
+    "marketplace"
+  ],
+  "tags": [
+    "claude-code",
+    "claude-code-plugin",
+    "marketplace",
+    "plugin"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "umputun",
+    "brandName": "umputun",
+    "source": "https://github.com/umputun.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:15:12Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "umputun/cc-thingz",
+    "url": "https://github.com/umputun/cc-thingz",
+    "commit": "f84b93ca0f04a1406bdbb834d8f1ed1946996d1e",
+    "path": "plugins/workflow",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 490,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:00:15Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Workflow | various things for claude code",
+        "after": "Workflow | various things for DipoleML",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

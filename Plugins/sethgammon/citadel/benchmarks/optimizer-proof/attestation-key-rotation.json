@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "kind": "citadel_optimizer_attestation_key_rotation",
+  "rotated_at": "2026-07-30T20:46:00.000Z",
+  "reason_code": "ORIGINAL_PRIVATE_KEY_UNAVAILABLE_BEFORE_MATRIX",
+  "previous_public_key_digest": "sha256:1729dd809e7f55ad5f3e40590ca1055d7edf9a792b56d0d900d95c5f347d982b",
+  "current_public_key_digest": "sha256:f921e1eacfbabe66fee52f75fec74ea7500f880307d4aa9e10a4d013271d7125",
+  "matrix_runs_before_rotation": 0,
+  "selection_record_digest": "sha256:234e805981ef070475960905f65243fa01fbfffa7b7e7babf39ee3dc982f3de1",
+  "selection_unchanged": true
+}

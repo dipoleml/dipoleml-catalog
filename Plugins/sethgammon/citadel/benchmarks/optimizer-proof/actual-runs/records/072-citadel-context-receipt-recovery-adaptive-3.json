@@ -1,0 +1,69 @@
+{
+  "schema": 1,
+  "evidence_kind": "actual-run",
+  "scenario_set_id": "optimizer-scenarios-sha256:602e496906f3a293203750602234ba88a55a86b9e4f54f32239264098dcebe5b",
+  "metric_set_id": "optimizer-metrics-sha256:bedffbda2b18d725610b0f294a8273ef908237fd957bf9e51a5af4885b123e4f",
+  "scenario_id": "citadel-context-receipt-recovery",
+  "category": "context_reset",
+  "holdout": false,
+  "policy_id": "adaptive",
+  "repetition": 3,
+  "decision_id": "sha256:adcada2dd71cc3a178987e27df9d70fb0bf5fc3a2f6692f538c57f1a24972f8b",
+  "selected_profile_id": "claude-frontier",
+  "observed_profile_id": "claude-frontier",
+  "requested_model": "claude-opus-5",
+  "observed_model": "claude-opus-5",
+  "model_proof_status": "passed",
+  "started_at": "2026-07-31T03:51:10.409Z",
+  "duration_ms": 812749,
+  "outcome": "failed",
+  "verified": false,
+  "attempts": 1,
+  "human_interventions": 0,
+  "topology": "sequential-recovery",
+  "cost": {
+    "status": "known",
+    "amount_usd": 3.228063,
+    "provenance": "tool_reported",
+    "source": "citadel_optimizer_runner",
+    "source_ref": "summed_attempts:1",
+    "pricing_snapshot_digest": null,
+    "components": [
+      {
+        "kind": "model",
+        "amount_usd": 3.2280633999999995,
+        "source": "attempt_1:claude total_cost_usd"
+      }
+    ]
+  },
+  "artifact_paths": [],
+  "verification_receipts": [
+    {
+      "attempt": 1,
+      "profile_id": "claude-frontier",
+      "status": "passed",
+      "exit_code": 0,
+      "timed_out": false,
+      "output_digest": "sha256:0676e1fef8b2b217ca748f6431dd436838a5a380516c810d6d34829cd3f3cb53",
+      "output_excerpt": "[stdout]\nOperation Fork executors passed: schema 2 bindings, same-runtime isolation, honest model proof, tamper rejection, legacy compatibility, and shell-free Windows launch.\n\n[stderr]\n",
+      "output_truncated": false,
+      "patch_exit_code": 0,
+      "patch_digest": "sha256:9640a12f533266a488c717012e925e7195cb448e2ac61e93bedd7aba4067a65c",
+      "patch_excerpt": "diff --git a/core/forks/compare.js b/core/forks/compare.js\nindex a5e09b3..d8a8fc1 100644\n--- a/core/forks/compare.js\n+++ b/core/forks/compare.js\n@@ -19,7 +19,13 @@ function comparableBranch(branch, fork, verification) {\n     if (!['passed', 'failed'].includes(evidence.status)) reasons.push('outcome-inconclusive');\n   }\n   if (!branch.receipt_digest) reasons.push('receipt-missing');\n-  if (fork.schema_version === EXECUTOR_FORK_SCHEMA_VERSION\n+  // A fresh verification that actively fails outranks the stored\n+  // `receipt_verified` flag on every schema. A resume after an interrupted\n+  // receipt write leaves a stale or mismatched receipt on disk that still\n+  // satisfies the stored flag. Schema 2 additionally fails closed when no\n+  // receipt could be verified at all.\n+  if (verification && verification.status === 'invalid') reasons.push('fork-receipt-unverified');\n+  else if (fork.schema_version === EXECUTOR_FORK_SCHEMA_VERSION\n     && (!verification || verification.status !== 'verified')) {\n     reasons.push('fork-receipt-unverified');\n   }\ndiff --git a/core/forks/evidence.js b/core/forks/evidence.js\nindex 080547e..c55a3cb 100644\n--- a/core/forks/evidence.js\n+++ b/core/forks/evidence.js\n@@ -77,8 +77,14 @@ function trustedPublicKey(projectRoot, fork) {\n       }\n       return { key: crypto.createPublicKey(pem), result: verification('verified', 'FORK_SIGNER_KEY_VERIFIED') };\n     }\n+    // Schema 1 keeps schema 2's taxonomy: an absent signer is `unknown` (there\n+    // is nothing to check), a present but unusable one is `invalid`.\n+    let pem;\n+    try { pem = readPrivate(projectRoot, fork.fork_id, 'signing-key.pem'); } catch (_error) {\n+      return { key: null, result: verification('unknown', 'FORK_SIGNER_KEY_MISSING') };\n+    }\n     return {\n-      key: crypto.createPublicKey(readPrivate(projectRoot, fork.fork_id, 'signing-key.pem')),\n+      key: crypto.createPublicKey(pem),\n       result: verification('verified', 'FORK_LEGACY_SIGNER_LOADED'),\n     };\n   } catch (_error) {\ndiff --git a/core/forks/lifecycle.js b/core/forks/lifecycle.js\nindex cf16965..7465e36 100644\n--- a/core/forks/lifecycle.js\n+++ b/core/forks/lifecycle.js\n@@ -88,9 +88,14 @@ function updateBranch(fork, branchId, changes, now) {\n  * Schema 2 decisions are fail-closed: the caller must hand in the result of a\n  * fresh cryptographic verification of the stored fork receipt wrapper. Omitting\n  * it rejects the decision instead of trusting the record.\n+ *\n+ * A fresh verification that actively fails is binding on every schema, so a\n+ * stale or mismatched receipt left by an interrupted run cannot be decided on.\n+ * Schema 1 keeps the legacy path only while nothing contradicts the record.\n  */\n function assertVerifiedReceipt(fork, branchId, verification) {\n-  if (fork.schema_version !== EXECUTOR_FORK_SCHEMA_VERSION) return;\n+  const contradicted = Boolean(verification) && verification.status === 'invalid';\n+  if (!contradicted && fork.schema_version !== EXECUTOR_FORK_SCHEMA_VERSION) return;\n   if (!verification || verification.status !== 'verified') {\n     throw Object.assign(new Error('Branch executor receipt is not cryptographically verified'), {\n       code: 'FORK_RECEIPT_UNVERIFIED',\ndiff --git a/scripts/test-operation-fork.js b/scripts/test-operation-fork.js\nindex 9c367c7..31b3601 100644\n--- a/scripts/test-operation-fork.js\n+++ b/scripts/test-operation-fork.js\n@@ -119,6 +119,28 @@ assert.equal(resumed.fork.branches.find((branch) => branch.runtime === 'claude')\n assert.equal(resumed.fork.branches.find((branch) => branch.runtime === 'claude').failure_code, 'RUNTIME_EFFECT_AMBIGUOUS');\n assert.deepEqual(calls, ['codex'], 'ambiguous Claude effect must not run again');\n \n+// An interrupted receipt write leaves durable receipt state that no longer\n+// matches the branch it claims to prove. Resuming must re-verify from disk and\n+// refuse the stale receipt instead of trusting the recorded receipt_verified.\n+const raceDirectory = forks.forkDirectory(project, 'fork-auth-race', false);\n+fs.copyFileSync(path.join(raceDirectory, 'receipts', 'branch-codex.json'),\n+  path.join(raceDirectory, 'receipts', 'branch-claude.json'));\n+const stale = forks.loadFork(project, 'fork-auth-race');\n+const staleEvidence = forks.forkEvidence(project, stale);\n+assert.equal(staleEvidence.get('branch-claude').verification.status, 'invalid');\n+assert.equal(staleEvidence.get('branch-codex').verification.status, 'verified');\n+const staleComparison = forks.compareFork(stale, { evidence: staleEvidence });\n+const staleBranch = staleComparison.branches.find((branch) => branch.branch_id === 'branch-claude');\n+assert.equal(staleBranch.comparable, false, 'a mismatched receipt must not stay comparable');\n+assert(staleBranch.reasons.includes('fork-receipt-unverified'));\n+assert.equal(staleComparison.comparable_count, 1);\n+assert.equal(staleComparison.outcome, 'insufficient-evidence',\n+  'a fork cannot recommend a winner once one receipt fails fresh verification');\n+assert.throws(() => forks.applySelection({ projectRoot: project, forkId: 'fork-auth-race',\n+  branchId: 'branch-claude', expectedRevision: stale.revision, actorId: 'actor-operator',\n+  idempotencyKey: 'stale-receipt-selection-001', reason: 'stale receipt' }),\n+(error) => error.code === 'FORK_RECEIPT_UNVERIFIED', 'a mismatched receipt must not be selectable');\n+\n for (const branch of [...result.fork.branches, ...recovery.branches]) {\n   const target = provider.resolve(project, worktrees, branch.run_id.includes('recovery') ? 'fork-recovery' : 'fork-auth-race', branch.branch_id);\n   if (fs.existsSync(target)) git(project, ['worktree', 'remove', '--force', target]);\n",
+      "patch_truncated": false,
+      "changed_paths": [
+        "core/forks/compare.js",
+        "core/forks/evidence.js",
+        "core/forks/lifecycle.js",
+        "scripts/test-operation-fork.js"
+      ]
+    }
+  ],
+  "receipt_status": "verified",
+  "adversarial_result": "unknown",
+  "failure_code": "EXPECTED_ARTIFACTS_NOT_CHANGED",
+  "attestation": {
+    "algorithm": "ed25519",
+    "signature_base64": "muKp1IJ7i93AEi8yvO7zxToPYebeRyT3S5myKjvlk7/vudnxrnhEGCB67bWUP6gh8V4KVDfeDTAAH/nIexwHBQ=="
+  }
+}

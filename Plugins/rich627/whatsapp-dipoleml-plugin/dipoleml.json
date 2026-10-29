@@ -1,0 +1,163 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.rich627.whatsapp-dipoleml-plugin",
+  "type": "plugin",
+  "name": "WhatsApp DipoleML Plugin",
+  "slug": "whatsapp-dipoleml-plugin",
+  "vendor": "rich627",
+  "description": "DipoleML WhatsApp channel plugin — run AI directly from WhatsApp, voice transcription, remote tool approval, access control. No API keys, no Docker, just a linked device.",
+  "version": "0.33.1",
+  "homepage": "https://github.com/Rich627/whatsapp-claude-plugin",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "ai-assistant",
+    "ai-automation",
+    "anthropic",
+    "baileys",
+    "channel",
+    "chatbot",
+    "claude-desktop",
+    "claude-plugin",
+    "developer-tools"
+  ],
+  "tags": [
+    "ai-assistant",
+    "ai-automation",
+    "anthropic",
+    "baileys",
+    "channel",
+    "chatbot",
+    "claude",
+    "claude-code",
+    "claude-desktop",
+    "claude-plugin",
+    "developer-tools",
+    "mcp",
+    "mcp-integration",
+    "mcp-server",
+    "messaging-bot",
+    "whatsapp",
+    "whatsapp-bot",
+    "whatsapp-integration",
+    "whatsapp-web"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "whatsapp",
+    "brandName": "whatsapp",
+    "source": "https://cdn.simpleicons.org/whatsapp",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-28T23:04:26Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "Rich627/whatsapp-claude-plugin",
+    "url": "https://github.com/Rich627/whatsapp-claude-plugin",
+    "commit": "24ad936b95bb0e03c083eaa5ffbdbb6996f6c60b",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 112,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:04:13Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "WhatsApp Claude Plugin | Claude Code WhatsApp channel plugin — run AI directly from WhatsApp, voice transcription, remote tool approval, access control. No API keys, no Docker, just a linked device.",
+        "after": "WhatsApp DipoleML Plugin | DipoleML WhatsApp channel plugin — run AI directly from WhatsApp, voice transcription, remote tool approval, access control. No API keys, no Docker, just a linked device.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "WhatsApp channel for Claude Code — choose linked-device messaging or official Cloud API, with built-in access control.",
+        "after": "WhatsApp channel for DipoleML — choose linked-device messaging or official Cloud API, with built-in access control.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "whatsapp-claude-plugin",
+        "after": "whatsapp-dipoleml-plugin",
+        "reason": "provider token neutralized in slug/id"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "bun",
+      "args": [
+        "run",
+        "--cwd",
+        "${DIPOLEML_PLUGIN_ROOT}",
+        "--shell=bun",
+        "--silent",
+        "start"
+      ]
+    },
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "claude-channel-whatsapp"
+    ],
+    "env": [
+      "GROQ_API_KEY",
+      "OPENAI_API_KEY"
+    ],
+    "credentials": [
+      "GROQ_API_KEY",
+      "OPENAI_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative. Upstream plugin scripts may reference CLAUDE_PLUGIN_ROOT; the DipoleML loader must set it as an alias for DIPOLEML_PLUGIN_ROOT.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

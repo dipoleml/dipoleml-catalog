@@ -1,0 +1,138 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.ihabkhaled.ai-psychiatry",
+  "type": "plugin",
+  "name": "Ai Psychiatry",
+  "slug": "ai-psychiatry",
+  "vendor": "ihabkhaled",
+  "description": "AI-Psychiatry is a DipoleML plugin that gives AI coding agents an executive-function layer to detect and control attention drift, overthinking, recursive reasoning, compulsive verification, scope drift, retry loops, deadlocks, livelocks, context waste, and failure to stop after completion.",
+  "version": "0.7.0",
+  "homepage": "https://github.com/ihabkhaled/AI-Psychiatry",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agentic-ai",
+    "agentic-ai-development",
+    "ai-coding",
+    "ai-governance",
+    "ai-model",
+    "ai-safety",
+    "claude-ai",
+    "claude-code-plugin",
+    "claude-skills"
+  ],
+  "tags": [
+    "agentic-ai",
+    "agentic-ai-development",
+    "ai",
+    "ai-agent",
+    "ai-agents",
+    "ai-coding",
+    "ai-governance",
+    "ai-model",
+    "ai-safety",
+    "ai-tools",
+    "claude",
+    "claude-ai",
+    "claude-code",
+    "claude-code-plugin",
+    "claude-skills",
+    "coding-agents",
+    "llm",
+    "llm-agents",
+    "llms",
+    "prompt-engineering"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "ihabkhaled",
+    "brandName": "ihabkhaled",
+    "source": "https://github.com/ihabkhaled.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:13:19Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "ihabkhaled/AI-Psychiatry",
+    "url": "https://github.com/ihabkhaled/AI-Psychiatry",
+    "commit": "fe3983e11edff4c7f41a1843da687828f9e54ca8",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 10,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:51:54Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Ai Psychiatry | AI-Psychiatry is a Claude plugin that gives AI coding agents an executive-function layer to detect and control attention drift, overthinking, recursive reasoning, compulsive verification, scope drift, retry loops, deadlocks, livelocks, context waste, and failure to stop after completion.",
+        "after": "Ai Psychiatry | AI-Psychiatry is a DipoleML plugin that gives AI coding agents an executive-function layer to detect and control attention drift, overthinking, recursive reasoning, compulsive verification, scope drift, retry loops, deadlocks, livelocks, context waste, and failure to stop after completion.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [
+      "SUPPORT"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

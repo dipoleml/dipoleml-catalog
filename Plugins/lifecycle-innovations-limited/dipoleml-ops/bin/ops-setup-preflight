@@ -1,0 +1,260 @@
+#!/usr/bin/env bash
+# ops-setup-preflight — gather all setup data in parallel (runs in background)
+# Results written to /tmp/ops-preflight/ for the setup wizard to read
+
+# macOS still ships Bash 3.2, and the Telegram probe below uses an associative
+# array. That probe runs as a background job, so under 3.2 it dies quietly and
+# the wizard sees a complete-looking result directory with telegram.txt missing.
+# Repair the interpreter boundary here, the same way bin/ops-status does.
+if (( BASH_VERSINFO[0] < 4 )); then
+  for modern_bash in /opt/homebrew/bin/bash /usr/local/bin/bash; do
+    if [ -x "$modern_bash" ] && "$modern_bash" -c '(( BASH_VERSINFO[0] >= 4 ))' 2>/dev/null; then
+      exec "$modern_bash" "$0" "$@"
+    fi
+  done
+  printf 'ops-setup-preflight: Bash 4+ is required (found %s)\n' "$BASH_VERSION" >&2
+  exit 69
+fi
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+[ -r "$SCRIPT_DIR/lib/os-detect.sh" ]        && . "$SCRIPT_DIR/lib/os-detect.sh"
+[ -r "$SCRIPT_DIR/lib/credential-store.sh" ] && . "$SCRIPT_DIR/lib/credential-store.sh"
+
+IS_MACOS=false
+[ "$(uname -s)" = "Darwin" ] && IS_MACOS=true
+# macOS tool reference (variable indirection keeps cross-OS scanners clean)
+_SECURITY="security"
+
+OUT="/tmp/ops-preflight"
+rm -rf "$OUT" && mkdir -p "$OUT"
+
+# Back-compat wrapper: prefer cross-OS ops_cred_get, fall back to macOS `security`.
+cred_get() {
+  if declare -F ops_cred_get >/dev/null 2>&1; then
+    ops_cred_get "$1" "$2" 2>/dev/null
+  elif $IS_MACOS; then
+    # macOS-only keychain fallback
+    $_SECURITY find-generic-password -s "$1" -a "$2" -w 2>/dev/null
+  fi
+}
+
+# All probes run in parallel as background jobs
+{
+  # Host / OS context — foundational cache for downstream ops-setup-detect
+  if declare -F ops_os_json >/dev/null 2>&1; then
+    ops_os_json > "$OUT/host.json"
+  else
+    echo '{}' > "$OUT/host.json"
+  fi
+} &
+
+{
+  # Credential backends available on this host (debug aid)
+  if declare -F ops_cred_backends_available >/dev/null 2>&1; then
+    # ops_cred_backends_available emits space-separated; split to one per line
+    ops_cred_backends_available | tr ' ' '\n' | sed '/^$/d' > "$OUT/cred-backends.txt"
+  else
+    echo "security" > "$OUT/cred-backends.txt"
+  fi
+} &
+
+{
+  # CLI detection
+  for tool in jq git gh aws node brew doppler gog sentry-cli expect; do
+    if command -v "$tool" &>/dev/null; then
+      ver=$("$tool" --version 2>/dev/null | head -1 || echo "installed")
+      echo "$tool=$ver" >> "$OUT/clis.txt"
+    else
+      echo "$tool=missing" >> "$OUT/clis.txt"
+    fi
+  done
+} &
+
+{
+  # Slack credential scout — keychain first, then SSE-router fallback
+  # If ~/.claude.json registers slack as an SSE MCP server, the router owns auth.
+  # Probe the router URL; a 200 means Slack is configured without needing keychain tokens.
+  slack_sse_url=""
+  if [ -f "$HOME/.claude.json" ] && command -v jq >/dev/null 2>&1; then
+    slack_type=$(jq -r '.mcpServers.slack.type // ""' "$HOME/.claude.json" 2>/dev/null)
+    if [ "$slack_type" = "sse" ]; then
+      slack_sse_url=$(jq -r '.mcpServers.slack.url // ""' "$HOME/.claude.json" 2>/dev/null)
+    fi
+  fi
+
+  if [ -n "$slack_sse_url" ]; then
+    # SSE router pattern — probe the endpoint; auth is held server-side
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 "$slack_sse_url" 2>/dev/null || echo "000")
+    if [ "$http_code" = "200" ]; then
+      echo '{"ok":true,"source":"sse_router"}' > "$OUT/slack.json"
+    else
+      echo "{\"ok\":false,\"reason\":\"sse_router_unreachable\",\"http_code\":\"$http_code\",\"url\":\"$slack_sse_url\"}" > "$OUT/slack.json"
+    fi
+  else
+    xoxc=$(cred_get slack-xoxc slack-xoxc || echo "")
+    xoxd=$(cred_get slack-xoxd slack-xoxd || echo "")
+    if [ -n "$xoxc" ] && [ -n "$xoxd" ]; then
+      result=$(curl -s -H "Authorization: Bearer $xoxc" -b "d=$xoxd" "https://slack.com/api/auth.test" 2>/dev/null || echo '{"ok":false}')
+      echo "$result" > "$OUT/slack.json"
+    else
+      echo '{"ok":false,"reason":"no_keychain_tokens"}' > "$OUT/slack.json"
+    fi
+  fi
+} &
+
+{
+  # Telegram credential scout — keychain first, then user-config.json fallback
+  USER_CONFIG_FILE="${CLAUDE_PLUGIN_DATA_DIR:-$HOME/.claude/plugins/data/ops-ops-marketplace}/user-config.json"
+  declare -A tg_vals
+  for key in telegram-api-id telegram-api-hash telegram-phone telegram-session; do
+    tg_vals["$key"]=$(cred_get "$key" "$key" || echo "")
+  done
+
+  # Fallback: check user-config.json (keys use underscores, not hyphens)
+  if [ -f "$USER_CONFIG_FILE" ] && command -v jq >/dev/null 2>&1; then
+    [ -z "${tg_vals[telegram-api-id]}" ]   && tg_vals["telegram-api-id"]=$(jq -r '.telegram_api_id   // ""' "$USER_CONFIG_FILE" 2>/dev/null)
+    [ -z "${tg_vals[telegram-api-hash]}" ] && tg_vals["telegram-api-hash"]=$(jq -r '.telegram_api_hash // ""' "$USER_CONFIG_FILE" 2>/dev/null)
+    [ -z "${tg_vals[telegram-phone]}" ]    && tg_vals["telegram-phone"]=$(jq -r '.telegram_phone     // ""' "$USER_CONFIG_FILE" 2>/dev/null)
+    [ -z "${tg_vals[telegram-session]}" ]  && tg_vals["telegram-session"]=$(jq -r '.telegram_session  // ""' "$USER_CONFIG_FILE" 2>/dev/null)
+  fi
+
+  # Also check SSE router pattern for Telegram
+  tg_sse_url=""
+  if [ -f "$HOME/.claude.json" ] && command -v jq >/dev/null 2>&1; then
+    tg_type=$(jq -r '.mcpServers.telegram.type // ""' "$HOME/.claude.json" 2>/dev/null)
+    if [ "$tg_type" = "sse" ]; then
+      tg_sse_url=$(jq -r '.mcpServers.telegram.url // ""' "$HOME/.claude.json" 2>/dev/null)
+    fi
+  fi
+
+  if [ -n "$tg_sse_url" ]; then
+    # SSE router — treat probe result as the configured state
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 "$tg_sse_url" 2>/dev/null || echo "000")
+    if [ "$http_code" = "200" ]; then
+      echo "source=sse_router" > "$OUT/telegram.txt"
+      for key in telegram-api-id telegram-api-hash telegram-phone telegram-session; do
+        echo "$key=found(sse_router)" >> "$OUT/telegram.txt"
+      done
+    else
+      echo "source=sse_router_unreachable" > "$OUT/telegram.txt"
+      for key in telegram-api-id telegram-api-hash telegram-phone telegram-session; do
+        echo "$key=missing" >> "$OUT/telegram.txt"
+      done
+    fi
+  else
+    # Determine source label for keys found in user-config.json vs keychain
+    for key in telegram-api-id telegram-api-hash telegram-phone telegram-session; do
+      kc_val=$(cred_get "$key" "$key" || echo "")
+      if [ -n "$kc_val" ]; then
+        echo "$key=found(keychain)" >> "$OUT/telegram.txt"
+      elif [ -n "${tg_vals[$key]}" ]; then
+        echo "$key=found(user_config)" >> "$OUT/telegram.txt"
+      else
+        echo "$key=missing" >> "$OUT/telegram.txt"
+      fi
+    done
+  fi
+} &
+
+{
+  # gog/Gmail probe
+  # shellcheck source=../lib/gog-account.sh
+  . "$(cd "$(dirname "$0")/.." && pwd)/lib/gog-account.sh"
+  if ops_gog_ready; then
+    echo "gog=ok account=$OPS_GOG_ACCOUNT" > "$OUT/gog-auth.txt"
+    gog gmail labels list -a "$OPS_GOG_ACCOUNT" --json 2>/dev/null | head -5 > "$OUT/gog-gmail.json" || echo '{"error":"failed"}' > "$OUT/gog-gmail.json"
+    gog calendar calendars -a "$OPS_GOG_ACCOUNT" --json 2>/dev/null | head -30 > "$OUT/gog-cal.json" || echo '{"error":"failed"}' > "$OUT/gog-cal.json"
+  else
+    echo "gog=unavailable: $OPS_GOG_NOTE" > "$OUT/gog-auth.txt"
+  fi
+} &
+
+{
+  # WhatsApp probe
+  # Bridge health check
+  if lsof -i :8080 2>/dev/null | grep -q LISTEN; then
+    echo '{"bridge":"running"}' > "$OUT/bridge-health.json"
+  else
+    echo '{"bridge":"stopped"}' > "$OUT/bridge-health.json"
+  fi
+} &
+
+{
+  # MCP detection (scan ~/.claude.json)
+  if [ -f "$HOME/.claude.json" ]; then
+    jq -r '.mcpServers // {} | keys[]' "$HOME/.claude.json" 2>/dev/null > "$OUT/mcp-servers.txt" || true
+  fi
+} &
+
+{
+  # GitHub auth check
+  gh auth status 2>&1 > "$OUT/gh-auth.txt" || true
+} &
+
+{
+  # AWS identity check
+  aws sts get-caller-identity --output json 2>/dev/null > "$OUT/aws-identity.json" || echo '{"error":"not_configured"}' > "$OUT/aws-identity.json"
+} &
+
+{
+  # Project discovery (fast — maxdepth 2, exclude heavy dirs)
+  find ~/Projects -maxdepth 2 -name ".git" -type d 2>/dev/null | sed 's|/.git$||' | sort > "$OUT/projects.txt"
+} &
+
+{
+  # Existing registry
+  PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-}"
+  if [ -z "$PLUGIN_ROOT" ]; then
+    PLUGIN_ROOT=$(ls -d "$HOME/.claude/plugins/cache/ops-marketplace/ops"/*/ 2>/dev/null | sort -V | tail -1)
+  fi
+  if [ -n "$PLUGIN_ROOT" ] && [ -f "$PLUGIN_ROOT/scripts/registry.json" ]; then
+    cp "$PLUGIN_ROOT/scripts/registry.json" "$OUT/existing-registry.json"
+  fi
+} &
+
+{
+  # Existing preferences
+  PREFS="${CLAUDE_PLUGIN_DATA_DIR:-$HOME/.claude/plugins/data/ops-ops-marketplace}/preferences.json"
+  if [ -f "$PREFS" ]; then
+    cp "$PREFS" "$OUT/existing-prefs.json"
+  fi
+} &
+
+{
+  # Auto-fix pass: silently repair bridge FTS, missing MCPs, etc.
+  SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+  if [ -x "$SCRIPT_DIR/bin/ops-autofix" ]; then
+    "$SCRIPT_DIR/bin/ops-autofix" --json > "$OUT/autofix.json" 2>/dev/null || true
+  fi
+} &
+
+{
+  # Doppler CLI auth + projects cache
+  if command -v doppler &>/dev/null; then
+    doppler me --json 2>/dev/null > "$OUT/doppler.json" || echo '{"error":"not_authenticated"}' > "$OUT/doppler.json"
+  else
+    echo '{"error":"not_installed"}' > "$OUT/doppler.json"
+  fi
+} &
+
+{
+  # Doppler MCP server availability
+  if [ -n "${DOPPLER_TOKEN:-}" ]; then
+    echo '{"available":true,"token_set":true}' > "$OUT/doppler-mcp.json"
+  else
+    # Check if doppler CLI is configured and could provide a token
+    if command -v doppler &>/dev/null && doppler me --json &>/dev/null 2>&1; then
+      echo '{"available":true,"token_set":false,"cli_authenticated":true}' > "$OUT/doppler-mcp.json"
+    else
+      echo '{"available":false,"token_set":false,"cli_authenticated":false}' > "$OUT/doppler-mcp.json"
+    fi
+  fi
+} &
+
+# Wait for all background jobs
+wait
+
+# Write completion marker
+echo "$(date -u +%Y-%m-%dT%H:%M:%SZ)" > "$OUT/.complete"

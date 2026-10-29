@@ -1,0 +1,221 @@
+# The research vault
+
+The vault is the **project's home** — a clean, visible, templated folder where every research file lives in a sensible place, plus the knowledge layer (facts, bibliography, decisions, …) that every skill reads and writes. It is two things at once:
+
+1. **An organized project folder** (`research/<project>/`) with a numbered, lifecycle-stage template, so a project reads top-to-bottom like its own story instead of a flat dump of files.
+2. **A knowledge store** (`knowledge/`) holding the canonical facts, the one shared bibliography, the decisions log, open questions, glossary, voice profile, and entities.
+
+The point: **every skill writes its output into the right place, reads what it needs from one home, and drift is caught automatically.** No more "where did the methodology doc go," no more sample size that says 247 in the methods and 240 in the abstract.
+
+This document is the single source of truth for the vault. Each `SKILL.md` carries vault read/update lines in its `## Handoffs` section and links here.
+
+---
+
+## Hard rule: the vault never holds PII
+
+**The vault stores pseudonyms and non-identifying attributes only.** The real-name → pseudonym key stays off-system, exactly as `qualitative-coding` requires. `knowledge/entities.md` may say "P03 — ICU nurse, 8 years' tenure"; it must never contain a real name, email, phone, or address. `06-data/` holds anonymized data only — never the identifying key. `/vault audit` actively scans for PII and flags it 🔴. This rule does not bend.
+
+---
+
+## The folder template
+
+The vault lives in a **visible** folder named after the project (so it reads as a normal project directory in Finder / VS Code), organized by lifecycle stage:
+
+```
+research/<project-slug>/
+  README.md                  # auto-generated project overview (title, facts, current stage, contents map, last audit)
+  manifest.json              # the index: artifacts + facts block + vault registry
+  knowledge/                 # the knowledge layer
+    facts.md                 # project facts with provenance + notes (mirror of manifest.facts)
+    bibliography.md          # canonical verified reference list — the single source of truth for citations
+    decisions.md             # append-only log: date · skill · decision · rationale
+    open-questions.md        # consolidated [… NEEDED] markers + design questions, each with status
+    glossary.md              # canonical terms, operationalizations, abbreviations
+    voice-profile.md         # extracted once by manuscript-drafter; reused downstream
+    entities.md              # participants (PSEUDONYMS ONLY), sites, instruments, datasets, variables
+  00-inbox/                  # raw material you drop in before it's filed (PDFs, notes, datasets-to-clean)
+  01-ideation/               # research-brainstorm → brainstorm_*.md
+  02-literature/             # literature-review → lit_review_*.md
+  03-methodology/            # methodology-advisor → methodology_*.md ; replication-designer → replication_design_*.md
+  04-ethics/                 # ethics-committee → ethics_review_*.md
+  05-instruments/            # survey-design → survey_*.md
+  06-data/                   # anonymized datasets + codebooks (you manage; NEVER the real-name key)
+  07-analysis/               # data-analysis → analysis_*.md + scripts ; qualitative-coding → codebook + themes
+  08-drafts/                 # manuscript-drafter → manuscript_*.md ; grant-writer → grant_*.md ; citation-formatter → references.md
+  09-review/                 # peer-review → *_REVIEWED.* ; reviewer-response → response_to_reviewers_*/
+  10-dissemination/          # talk-builder → talk_*.md (+ slide stubs)
+  audits/                    # vault_audit_<date>.md
+  archive/                   # superseded versions, moved here when a file is replaced
+```
+
+### Stage → folder map
+
+The manifest's `stage` value maps to where current work is filed:
+
+| `stage` | folder | producing skill(s) |
+|---|---|---|
+| `ideation` | `01-ideation/` | research-brainstorm |
+| `review` | `02-literature/` | literature-review |
+| `design` | `03-methodology/` | methodology-advisor, replication-designer |
+| `ethics` | `04-ethics/` | ethics-committee |
+| `instrument` | `05-instruments/` | survey-design |
+| `data-collection` | `06-data/` | (you — the pipeline can't collect data) |
+| `analysis` | `07-analysis/` | data-analysis, qualitative-coding |
+| `drafting` / `citations` | `08-drafts/` | manuscript-drafter, grant-writer, citation-formatter |
+| `pre-submission` / `submitted` / `revision` | `09-review/` | peer-review, reviewer-response |
+| `dissemination` | `10-dissemination/` | talk-builder |
+
+`<project-slug>` is a short kebab-case name (e.g. `remote-work-mentorship`). The vault is **opt-in**: a skill invoked standalone with explicit inputs and no project folder behaves exactly as before.
+
+### The root `README.md` (auto-generated)
+
+The vault keeps a human-facing front page at the project root, regenerated by `/vault` (`init`, `show`, `organize`, `audit`):
+
+```markdown
+# Remote-Work Mentorship   ·   stage: drafting   ·   updated 2026-06-03
+
+Mixed-methods study of mentorship in fully-remote knowledge work.
+
+## Facts
+| fact | value | source |
+|---|---|---|
+| sample_size | 247 | methodology-advisor |
+| sample_size_analyzed | 240 (after 7 exclusions) | data-analysis |
+| target_journal | J. Hypothetical Studies | — |
+
+## Contents
+- 01-ideation/      brainstorm_remote_work.md
+- 02-literature/    lit_review_remote_work.md
+- 03-methodology/   methodology_remote_work.md
+- 07-analysis/      analysis_remote_work.md (draft)
+- 08-drafts/        manuscript_discussion.md
+- knowledge/        18 sources · 3 open questions · 11 decisions
+
+## Last audit
+2026-06-03 — 1 🔴 (sample-size wording), 1 🟡 (open citation). See audits/.
+```
+
+---
+
+## The facts block (in `manifest.json`)
+
+The structured half of the hybrid. `manifest.json` (at the project root) carries the file index plus a `facts` block and a `vault` registry:
+
+```json
+{
+  "project": "remote-work-mentorship",
+  "language": "en",
+  "stage": "drafting",
+  "created": "2026-06-03",
+  "facts": {
+    "sample_size":          {"value": 247, "source": "methodology-advisor", "status": "final"},
+    "sample_size_analyzed": {"value": 240, "source": "data-analysis", "status": "final", "note": "after 7 attention-check exclusions"},
+    "irb_number":           {"value": "IRB-2026-0142", "source": "ethics-committee", "status": "final"},
+    "preregistration":      {"value": "https://osf.io/xyz", "source": "methodology-advisor"},
+    "target_journal":       {"value": "J. Hypothetical Studies"}
+  },
+  "vault": {
+    "bibliography":   "knowledge/bibliography.md",
+    "decisions":      "knowledge/decisions.md",
+    "open_questions": "knowledge/open-questions.md",
+    "glossary":       "knowledge/glossary.md",
+    "voice_profile":  "knowledge/voice-profile.md",
+    "entities":       "knowledge/entities.md"
+  },
+  "artifacts": [
+    {"skill": "literature-review",   "file": "02-literature/lit_review_remote_work.md",  "stage": "review",   "status": "final"},
+    {"skill": "methodology-advisor", "file": "03-methodology/methodology_remote_work.md","stage": "design",   "status": "final"},
+    {"skill": "data-analysis",       "file": "07-analysis/analysis_remote_work.md",      "stage": "analysis", "status": "draft"}
+  ]
+}
+```
+
+Each fact carries **provenance** (`source`) and `status`; each artifact records its stage folder. The vault keeps legitimately-distinct facts (recruited N vs analyzed N) as separate keys with notes — never a silent overwrite.
+
+---
+
+## The knowledge notes
+
+`knowledge/` holds the cross-cutting knowledge (the same seven notes as before, now under `knowledge/` rather than a hidden subfolder). Formats unchanged:
+
+- **`bibliography.md`** — the canonical reference list. Every source has a stable cite-key, DOI, verified status, and which skill verified it. `literature-review` seeds it; `manuscript-drafter` / `grant-writer` / `reviewer-response` cite *by key*; `citation-formatter` renders any style *from it*. Nothing re-fabricates.
+- **`decisions.md`** — append-only `date · skill · decision · rationale`. The reproducibility spine.
+- **`open-questions.md`** — consolidated `[CITATION NEEDED]` / `[LITERATURE NEEDED]` / `[PRELIMINARY DATA NEEDED]` / `[REVIEWER CONCERN UNADDRESSED]` + design questions, each `[ ]`/`[x]`.
+- **`glossary.md`** — canonical terms + operationalizations.
+- **`voice-profile.md`** — written once by manuscript-drafter; reused by talk / grant / response.
+- **`entities.md`** — pseudonyms + non-identifying attributes only. **No PII.**
+- **`facts.md`** — human-readable mirror of the manifest `facts` block.
+
+(Full per-note examples are in the v0.11.1 history; the shapes are unchanged — only the location moved to `knowledge/`.)
+
+---
+
+## The protocol (woven into each skill's `## Handoffs`)
+
+### At intake — read the vault
+
+1. Read the project `manifest.json` `facts` — **use them; don't re-ask** for sample size, journal, IRB#, language.
+2. Cite from `knowledge/bibliography.md` by key — never re-fabricate.
+3. Use `knowledge/glossary.md` terms; apply `knowledge/voice-profile.md`; consult `knowledge/entities.md` and `knowledge/open-questions.md`.
+4. Reconcile against the filesystem — files are the source of truth.
+
+### At output — file it + update the vault
+
+1. **Write the deliverable into the correct stage folder** (see the map above) — e.g. methodology → `03-methodology/`, analysis → `07-analysis/`, drafts → `08-drafts/`.
+2. Register it in `manifest.json` `artifacts` (`skill`, `file`, `stage`, `status`); advance `stage` if the stage completed.
+3. Update the knowledge layer: deposit facts (with provenance), append decisions, add verified citations, register/resolve `[… NEEDED]` markers, update the glossary; manuscript-drafter writes `voice-profile.md` once.
+4. If you replace an existing artifact, move the old version to `archive/`.
+
+### Flag-on-write — the rule that makes it rigorous
+
+Before writing a fact or citation that **conflicts** with the vault, STOP and surface it (usually a distinct fact, occasionally a correction). Never silently overwrite a vault fact; never emit a value into an artifact that contradicts the vault. Fires only on genuine conflict, not every write.
+
+---
+
+## `/vault` — managing the project home
+
+The `vault` skill (`/vault`) is the librarian. Subcommands:
+
+- **`init [<project-slug>]`** — scaffold the full template (all stage folders + `knowledge/` notes + `manifest.json` with empty `facts`/`vault` + the root `README.md`). Asks for a project name + language.
+- **`show`** — print the project summary (facts, stage, contents, vault counts) and refresh the root `README.md`.
+- **`organize`** — **tidy the folder.** File any loose artifacts (in the root or `00-inbox/`) into their correct stage folder by type; move superseded versions to `archive/`; regenerate the root `README.md` and the contents map. Does not touch `06-data/` (you manage data).
+- **`audit`** — the drift check (below).
+- **`add <type>`** / **`resolve <question>`** — deposit knowledge / close an open question.
+
+### `/vault audit` — the checks
+
+Writes `audits/vault_audit_<date>.md` with 🔴/🟡/🟢 findings:
+
+1. **Fact consistency** — each fact vs. its appearances in artifacts (sample size, IRB#, journal). Mismatch → 🔴.
+2. **Citation consistency** — every in-text citation resolves to a `bibliography.md` key; entries verified; no unresolved `[… NEEDED]` at `pre-submission`+ → 🔴.
+3. **Terminology** — artifact terms drifting from the glossary → 🟡.
+4. **Open questions** — unresolved markers; submission-blockers → 🟡/🔴.
+5. **Staleness** — `draft` facts/artifacts at a late stage → 🟡.
+6. **PII safety** — apparent real-name PII anywhere in the vault → 🔴.
+7. **Filing** — artifacts sitting in the wrong stage folder, or loose in the root / `00-inbox/` → 🟡 (offer `/vault organize`).
+
+Severity: 🔴 blocker · 🟡 review · 🟢 note. The audit **reports**; it never auto-edits artifacts. It may offer specific fixes.
+
+---
+
+## Portability
+
+| Mechanism | Claude Code | claude.ai |
+|---|---|---|
+| The vault folder | `research/<project>/` persists across sessions | sandbox within a session; re-upload the folder across sessions; paste the manifest |
+| `/vault` command | available | invoke the `vault` skill by name; it operates on what's in the sandbox; no slash command |
+| Audit + organize | scan/move on the filesystem | operate on the artifacts present in the conversation/sandbox |
+| Flag-on-write | model-driven | model-driven (identical intent) |
+
+Vault use stays **opt-in** — no project folder, and every skill runs standalone exactly as before.
+
+---
+
+## Design rationale
+
+- **A visible, narrative folder.** Numbered stage folders make the project legible to a human browsing it, not just to the model. The root `README.md` is the front page.
+- **One home, files in the right place.** Skills write into their stage folder, so outputs never scatter. `organize` keeps it tidy; `archive/` preserves superseded versions.
+- **Hybrid, markdown-first.** Human-readable notes + a structured `facts` block the audit diffs precisely.
+- **Files win; the vault is reconciled.** The vault never invents an artifact's contents; the audit reconciles.
+- **Distinct facts over overwrites.** Related-but-different numbers are both kept; only contradictions are flagged.
+- **PII never centralizes.** Pseudonyms only; data anonymized; the audit enforces it.

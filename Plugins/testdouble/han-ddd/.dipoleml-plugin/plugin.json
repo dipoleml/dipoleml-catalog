@@ -1,0 +1,16 @@
+{
+  "name": "han-ddd",
+  "displayName": "Han Ddd",
+  "version": "1.0.0",
+  "description": "Strategic Domain-Driven Design analysis for the Han suite. Discovers domain boundaries, identifies bounded context candidates (strongly expressed, latent, and speculative), finds boundary leaks, and produces an evidence-backed domain and context map for an existing codebase. Depends on han-communication and han-core. Opt-in: not bundled by the han meta-plugin.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Testdouble"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/testdouble/han",
+  "repository": "https://github.com/testdouble/han",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

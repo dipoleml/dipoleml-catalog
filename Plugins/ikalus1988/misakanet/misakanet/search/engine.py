@@ -1,0 +1,1244 @@
+"""MisakaNet 搜索引擎 — BM25 + 元数据加权 + 分层缓存。
+BM25 核心算法委托给 misakanet-core 包。
+"""
+
+import json
+import math
+import os
+import re
+import sqlite3
+import sys
+from dataclasses import dataclass, field
+from pathlib import Path
+
+from misakanet_core import BM25, ScoredDocument
+
+REPO = Path(__file__).resolve().parent.parent.parent
+LESSONS = REPO / "lessons"
+LESSONS_CORE = LESSONS / "core"
+LESSONS_CONTRIB = LESSONS / "contrib"
+REFERENCES = REPO / "reference"
+INDEX = LESSONS / "index.md"
+
+WEIGHT_DOMAIN_MATCH = 0.25
+WEIGHT_STATUS = {"published": 0.0, "active": 0.1, "draft": 0.0, "stale": -0.3, "superseded": -0.5}
+WEIGHT_TITLE_EXACT = 0.8
+WEIGHT_TITLE_PARTIAL = 0.4
+WEIGHT_HAS_REF = 0.12
+MAX_METADATA = 1.0
+
+# Feature #532: domain synonym query expansion.
+# The alias -> canonical table lives in `data/query-aliases.json` (SSOT, unified in #1780);
+# `_SYNONYM_MAP` is defined further down as a *view* of that file via `_synonym_view()`.
+# Feature #532's hard-coded 34-entry literal used to sit here; it was overwritten
+# unconditionally at import time and had no read path, so it was removed. Do not reintroduce
+# a second word list — edit the JSON.
+
+# Feature #228: boost core/verified/recent lessons, penalize drafts.
+# Multipliers added to the final composite score (not the BM25 term),
+# so they don't compete with the existing 0.65 / 0.20 / 0.15 weights.
+BOOST_CORE = 0.15
+BOOST_VERIFIED = 0.10
+BOOST_RECENT = 0.05
+BOOST_DRAFT = -0.20
+BOOST_RECENT_DAYS = 30
+
+# Cross-encoder reranking weights — now configurable via search_config
+# (Issue #312, defaults: cross_encoder=0.70, bm25_rerank=0.30)
+
+# ── 分层缓存 ──
+import threading
+
+# The L2 cache is a derived artifact (it is rebuilt from `lessons/` on demand) and `.cache/`
+# is gitignored, so pointing it somewhere else is always safe. `MISAKANET_CACHE_DIR` exists so
+# that a caller — a test, a second checkout, a sandbox — can get its own cache instead of
+# contending for this one: two processes sharing one SQLite file hold locks on each other, and
+# on Windows the loser cannot even move the file. Default is unchanged.
+_CACHE_DIR = Path(os.environ.get("MISAKANET_CACHE_DIR") or (REPO / ".cache"))
+_CACHE_DB = _CACHE_DIR / "search_cache.db"
+_L1_CACHE = {}
+_L1_MAX = 50
+_L2_CONN = None
+_CACHE_LOCK = threading.RLock()
+
+
+def _l2():
+    global _L2_CONN
+    with _CACHE_LOCK:
+        if _L2_CONN is None:
+            _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            _L2_CONN = sqlite3.connect(str(_CACHE_DB), check_same_thread=False)
+            _L2_CONN.execute("PRAGMA journal_mode=WAL")
+        _L2_CONN.execute("""
+            CREATE TABLE IF NOT EXISTS file_cache (
+                path TEXT PRIMARY KEY, mtime REAL, size INT,
+                title TEXT, domain TEXT, status TEXT,
+                reference TEXT, scope TEXT, source TEXT, tags TEXT, language TEXT
+            )""")
+        # Migration: add language column if upgrading from older schema
+        try:
+            _L2_CONN.execute("ALTER TABLE file_cache ADD COLUMN language TEXT")
+        except sqlite3.OperationalError:
+            pass  # column already exists
+        _L2_CONN.commit()
+    return _L2_CONN
+
+
+@dataclass
+class CachedDoc:
+    filename: str
+    filepath: Path
+    content: str
+    title: str = ""
+    domain: str = ""
+    status: str = ""
+    reference: str = ""
+    scope: str = ""
+    source: str = ""
+    tags: list = field(default_factory=list)
+    language: str = ""
+    mtime: float = 0.0
+    is_lesson: bool = True
+
+    @property
+    def is_draft(self) -> bool:
+        return self.status == "draft"
+
+    @property
+    def is_stale(self) -> bool:
+        return self.status == "stale"
+
+    @property
+    def is_superseded(self) -> bool:
+        return self.status == "superseded"
+
+    @property
+    def score_baseline(self) -> float:
+        return 0.0 if self.is_draft else 0.1
+
+
+def _parse_json_frontmatter(text: str) -> dict | None:
+    m = re.match(r"^---\s*\n?(\{.*?\})\n?---", text, re.DOTALL)
+    if m:
+        try:
+            return json.loads(m.group(1))
+        except json.JSONDecodeError:
+            return None
+    return None
+
+
+def _parse_yaml_frontmatter(text: str) -> dict:
+    meta = {}
+    m = re.match(r"^---\s*\n(.*?)\n---", text, re.DOTALL)
+    if not m:
+        return meta
+    for line in m.group(1).split("\n"):
+        line = line.strip()
+        if ":" not in line:
+            continue
+        key, _, val = line.partition(":")
+        key = key.strip()
+        val = val.strip().strip('"').strip("'")
+        if val.startswith("[") and val.endswith("]"):
+            try:
+                meta[key] = json.loads(val.replace("'", '"'))
+            except json.JSONDecodeError:
+                meta[key] = [v.strip().strip('"').strip("'") for v in val[1:-1].split(",")]
+        else:
+            meta[key] = val
+    return meta
+
+
+def _load_docs_cached(directory: Path, is_lesson: bool = True) -> list[CachedDoc]:
+    """L2缓存加载 — 只重新解析有变动的文件。
+
+    如果 is_lesson=True，扫描 misakanet.lesson_index.canonical_lessons 给出
+    的无重复课程集（audit T2.2/T2.5 "图书馆" 策略：所有含真实课文的子目录
+    可见，但镜像/翻译副本按 stem 去重，core/contrib 原版优先，避免用户看
+    到重复结果；templates/_archive 与 README/index 类文件永不索引）。
+    为 reference 时扫描单个目录。
+    """
+    docs = []
+    conn = _l2()
+    known = {
+        row[0]: (row[1], row[2])
+        for row in conn.execute("SELECT path, mtime, size FROM file_cache").fetchall()
+    }
+    changed = 0
+    from misakanet.lesson_index import EXCLUDED_LESSON_FILES, canonical_lessons
+
+    if is_lesson:
+        files = canonical_lessons(LESSONS)
+    else:
+        files = sorted(directory.glob("**/*.md"))
+    for f in files:
+        if f.name.startswith(".") or f.name in EXCLUDED_LESSON_FILES:
+            continue
+        if not f.exists():
+            continue
+        try:
+            st = f.stat()
+        except OSError:
+            continue
+        rel = str(f.relative_to(REPO))
+        cached = known.get(rel)
+        if cached and cached[0] == st.st_mtime and cached[1] == st.st_size:
+            row = conn.execute(
+                "SELECT title,domain,status,reference,scope,source,tags,language "
+                "FROM file_cache WHERE path=?",
+                (rel,),
+            ).fetchone()
+            if row:
+                tags = json.loads(row[6]) if row[6] else []
+                doc = CachedDoc(
+                    filename=f.name,
+                    filepath=f,
+                    content="",
+                    mtime=st.st_mtime,
+                    is_lesson=is_lesson,
+                    title=row[0] or f.stem,
+                    domain=row[1] or "",
+                    status=row[2] or "",
+                    reference=row[3] or "",
+                    scope=row[4] or "",
+                    source=row[5] or "",
+                    tags=tags,
+                    language=row[7] or "",
+                )
+                doc.content = f.read_text(encoding="utf-8", errors="replace")
+                docs.append(doc)
+                continue
+        try:
+            content = f.read_text(encoding="utf-8", errors="replace")
+        except (OSError, UnicodeDecodeError):
+            continue
+        if not content.strip():
+            continue
+        doc = CachedDoc(
+            filename=f.name, filepath=f, content=content, mtime=st.st_mtime, is_lesson=is_lesson
+        )
+        meta = _parse_json_frontmatter(content) or _parse_yaml_frontmatter(content)
+        doc.title = meta.get("title", f.stem)
+        doc.domain = meta.get("domain", "")
+        if isinstance(doc.domain, list):
+            doc.domain = doc.domain[0] if doc.domain else ""
+        doc.status = meta.get("status", "")
+        doc.reference = meta.get("reference", "")
+        doc.scope = meta.get("scope", "")
+        doc.source = meta.get("source", "")
+        doc.language = meta.get("language", "")
+        raw_tags = meta.get("tags", "")
+        doc.tags = raw_tags if isinstance(raw_tags, list) else []
+        docs.append(doc)
+        conn.execute(
+            "INSERT OR REPLACE INTO file_cache "
+            "(path,mtime,size,title,domain,status,reference,scope,source,tags,language) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                rel,
+                st.st_mtime,
+                st.st_size,
+                doc.title,
+                doc.domain,
+                doc.status,
+                doc.reference,
+                doc.scope,
+                doc.source,
+                json.dumps(doc.tags, ensure_ascii=False),
+                doc.language,
+            ),
+        )
+        changed += 1
+    conn.commit()
+    if changed:
+        # stderr, not stdout: this fires on the first search against a cold cache, and
+        # `misakanet/server/protocol.py` writes its JSON-RPC responses to stdout. A bare
+        # `print` here puts a non-JSON line into the stdio transport. Measured 2026-10-04 with
+        # a cold L2 cache: the first `misakanet_search` emitted `  📦 L2缓存: 464 篇变动`
+        # between the `initialize` response and the search response, so a client parsing stdout
+        # line-by-line had one unparseable line in the middle of a valid exchange. The two
+        # cross-encoder warnings below already use stderr; this was the odd one out.
+        print(f"  📦 L2缓存: {changed} 篇变动", file=sys.stderr)
+    return docs
+
+
+def _doc_cache_id(doc: CachedDoc) -> str:
+    return str(doc.filepath.relative_to(REPO))
+
+
+def _display_path(doc: CachedDoc) -> str:
+    """The path a reader can actually open: repo-relative, POSIX, **directory included**.
+
+    `CachedDoc.filename` is a basename, so the old `f"lessons/{doc.filename}"` named a file
+    that exists only for the three lessons sitting directly in `lessons/`. The other 521 are
+    in a subdirectory (`contrib/` 432, `en/` 64, `core/` 14, …), so the one line a reader
+    follows to open the answer pointed at a path that does not exist for 99% of the corpus.
+    A `reference/` document used to be relabelled `reference/<basename>` the same way.
+    """
+    try:
+        return doc.filepath.relative_to(REPO).as_posix()
+    except ValueError:  # filepath outside REPO — keep it absolute
+        return str(doc.filepath)
+
+
+def _search_cached(
+    query: str, docs: list[CachedDoc], titles_only: bool = False, broad_only: bool = False,
+    rerank: bool = False,
+    weights: dict | None = None,
+    include_stale: bool = False,
+) -> list[tuple[float, CachedDoc]]:
+    """L1缓存 — 相同 query 直接返回上次结果。"""
+    # Add corpus fingerprint to cache key to avoid stale results
+    corpus_fingerprint = hash(tuple(sorted(d.filepath.name for d in docs[:100])))
+    weight_key = tuple(sorted(weights.items())) if weights else ""
+    key = f"{query}_{titles_only}_{broad_only}_{rerank}_{corpus_fingerprint}_{weight_key}_{include_stale}"
+    if key in _L1_CACHE:
+        doc_map = {_doc_cache_id(d): d for d in docs}
+        result = [(s, doc_map[fid]) for s, fid in _L1_CACHE[key] if fid in doc_map]
+        if len(result) == len(_L1_CACHE[key]):
+            return result
+    result = _rank_docs_impl(query, docs, titles_only, broad_only, rerank=rerank, weights=weights, include_stale=include_stale)
+    _L1_CACHE[key] = [(s, _doc_cache_id(d)) for s, d in result[:20]]
+    if len(_L1_CACHE) > _L1_MAX:
+        del _L1_CACHE[next(iter(_L1_CACHE))]
+    return result
+
+
+# Extended Latin character range: includes accented chars (é, ü, ñ, etc.)
+_LATIN_EXT = "a-zA-Z\u00c0-\u024f"
+_TOKEN_RE = re.compile(f"[{_LATIN_EXT}0-9_]+|[\u4e00-\u9fff]")
+
+
+def _tokenize(text: str) -> list[str]:
+    """Tokenize text into lower-case tokens with extended character support.
+
+    Handles:
+    - Accented Latin characters (é, ü, ñ, ï, etc.) — preserved, not dropped
+    - Internal underscores kept (test_123 stays as one token)
+    - Leading/trailing underscores stripped (_italic_ → italic)
+    - CJK characters split individually for BM25 recall
+    """
+    text = text.lower()
+    # Split CJK into individual chars surrounded by spaces
+    text = re.sub(r"([\u4e00-\u9fff])", r" \1 ", text)
+    tokens = _TOKEN_RE.findall(text)
+    result = []
+    for t in tokens:
+        t = t.strip("_")  # strip markdown-style wrapping underscores
+        if len(t) >= 1:
+            result.append(t)
+    return result
+
+
+class BM25ScoringError(RuntimeError):
+    """The BM25 core could not score the document set.
+
+    Raised instead of degrading to an all-zero score vector: a scoring crash and a query
+    whose tokens match nothing are different outcomes, and returning zeros made them
+    indistinguishable to every caller (a search that silently ranked on metadata alone).
+    Callers either handle this explicitly or let it reach the request boundary, which
+    reports it as an error rather than as "no results".
+    """
+
+
+def _compute_bm25_scores(query: str, docs: list[CachedDoc]) -> list[float]:
+    """BM25 scoring delegated to misakanet-core.
+
+    A zero score here means "the query's tokens matched this document's tokens zero times".
+    It never means "scoring failed" — that raises `BM25ScoringError` (fail-fast, CLAUDE.md).
+    """
+    if not query or not query.strip():
+        return [0.0] * len(docs)
+
+    query_tokens = _tokenize(query)
+    if not query_tokens:
+        return [0.0] * len(docs)
+
+    # Build ScoredDocument list for core engine
+    scored_docs = [ScoredDocument(d.filename, _tokenize(d.content)) for d in docs]
+    if not scored_docs:
+        return [0.0] * len(docs)
+
+    try:
+        engine = BM25(scored_docs)
+        results = engine.search(query, top_k=len(docs))
+    except Exception as e:
+        raise BM25ScoringError(
+            f"BM25 core failed to score {len(scored_docs)} document(s) "
+            f"for query {query!r}: {type(e).__name__}: {e}"
+        ) from e
+
+    # Map results back to original order
+    result_scores = {r.doc_id: r.score for r in results}
+    return [result_scores.get(d.filename, 0.0) for d in docs]
+
+
+def _metadata_bonus(query: str, doc: CachedDoc) -> float:
+    bonus = 0.0
+    q = query.lower()
+    t = doc.title.lower()
+    if doc.domain and doc.domain.lower() in q:
+        bonus += WEIGHT_DOMAIN_MATCH
+    if t == q:
+        bonus += WEIGHT_TITLE_EXACT
+    elif q in t or any(word in t for word in q.split()):
+        bonus += WEIGHT_TITLE_PARTIAL
+    bonus += WEIGHT_STATUS.get(doc.status, 0.0)
+    if doc.reference:
+        bonus += WEIGHT_HAS_REF
+    if doc.source and doc.source != "bootstrap":
+        bonus += 0.05
+    return min(bonus, MAX_METADATA)
+
+
+def _metadata_bonus_breakdown(query: str, doc: CachedDoc) -> list[tuple[str, float]]:
+    """Return per-field metadata bonus breakdown for --explain mode."""
+    parts = []
+    q = query.lower()
+    t = doc.title.lower()
+    if doc.domain and doc.domain.lower() in q:
+        parts.append(("domain_match", WEIGHT_DOMAIN_MATCH))
+    if t == q:
+        parts.append(("title_exact", WEIGHT_TITLE_EXACT))
+    elif q in t or any(word in t for word in q.split()):
+        parts.append(("title_partial", WEIGHT_TITLE_PARTIAL))
+    status_w = WEIGHT_STATUS.get(doc.status, 0.0)
+    if status_w:
+        parts.append((f"status({doc.status})", status_w))
+    if doc.reference:
+        parts.append(("has_reference", WEIGHT_HAS_REF))
+    if doc.source and doc.source != "bootstrap":
+        parts.append(("source", 0.05))
+    return parts
+
+
+def _normalize(values: list[float]) -> list[float]:
+    """Min–max to [0, 1] — a position **within this result set**, not a match quality.
+
+    This is the reason two "retrieval quality" readings can coexist and disagree: the CLI prints
+    this value as a percentage (top hit ≈ 100% by construction, whether or not the query has an
+    answer), while the worker-side evaluation reports an unnormalised score (12–19 relevant, 2–4
+    irrelevant). Neither is wrong; **they are different scales, and the numbers cannot be compared
+    across the two paths** (#2790 / §86.4). `tests/test_search_score_is_relative.py` pins the
+    property so a reader cannot re-derive the wrong conclusion from a 96%.
+    """
+    if not values:
+        return values
+    mn, mx = min(values), max(values)
+    # All-zero (no-match) vectors must stay zero so the caller's threshold
+    # can detect "no results". Only a non-zero flat vector (mx > 0 but no
+    # spread) gets the neutral 0.5 treatment (fixes P0: garbage queries
+    # previously scored 0.325 > threshold and returned the whole corpus).
+    if mx - mn < 1e-10:
+        if mx <= 0:
+            return [0.0] * len(values)
+        return [0.5] * len(values)
+    return [(v - mn) / (mx - mn) for v in values]
+
+
+def _compute_boost(doc: CachedDoc) -> float:
+    """Feature #228: per-doc boost factor summed into the final score.
+
+    Sum of the applicable multipliers. Kept additive (not multiplicative)
+    so the constants stay easy to reason about and tune.
+    """
+    boost = 0.0
+    if _is_core(doc):
+        boost += BOOST_CORE
+    if _is_verified(doc):
+        boost += BOOST_VERIFIED
+    if _is_recent(doc):
+        boost += BOOST_RECENT
+    if doc.is_draft:
+        boost += BOOST_DRAFT
+    return boost
+
+
+def _compute_boost_breakdown(doc: CachedDoc) -> list[tuple[str, float]]:
+    """Return per-factor boost breakdown for --explain mode."""
+    parts = []
+    if _is_core(doc):
+        parts.append(("core", BOOST_CORE))
+    if _is_verified(doc):
+        parts.append(("verified", BOOST_VERIFIED))
+    if _is_recent(doc):
+        parts.append(("recent", BOOST_RECENT))
+    if doc.is_draft:
+        parts.append(("draft", BOOST_DRAFT))
+    return parts
+
+
+def _synonym_view(table: dict | None = None) -> dict[str, list[str]]:
+    """`_SYNONYM_MAP`'s shape (alias -> list of canonical strings), projected from the
+    shared table.
+
+    This exists so Feature #532's public surface keeps working for every caller that
+    introspects it, and so `tests/test_synonym_expansion.py` keeps asserting the same
+    terms. It is **not** a second word list: the values are read out of
+    data/query-aliases.json, and a test removes an entry from that file to prove the view
+    follows it (issue #1780).
+    """
+    try:
+        from scripts import expand_query as eq
+        data = eq.cached_table() if table is None else table
+    except Exception:
+        # No repo-root `scripts/` on sys.path (an installed package) or a broken table:
+        # an empty view is the honest answer — expansion does nothing rather than making
+        # the engine unimportable. CI's `--check` is what rejects a malformed table.
+        return {}
+    view: dict[str, list[str]] = {}
+    for entry in data.get("aliases", []):
+        alias = str(entry.get("alias", "")).strip().lower()
+        canonical = str(entry.get("canonical", "")).strip()
+        if alias and canonical:
+            view.setdefault(alias, []).append(canonical)
+    return view
+
+
+# Feature #532 (unified in #1780): alias -> canonical strings, read from
+# data/query-aliases.json rather than hard-coded here. See `_synonym_view`.
+_SYNONYM_MAP: dict[str, list[str]] = _synonym_view()
+
+
+def _expand_query(query: str) -> str:
+    """Feature #532, unified in #1780: expand `query` from data/query-aliases.json.
+
+    Before #1780 this module expanded from a hard-coded `_SYNONYM_MAP` (34 tokens, no
+    evidence) while production expanded from nothing at all — two different ideas of
+    what a query means. Now both read the same file through the same implementation
+    (`scripts/expand_query.py`, ported 1:1 to the Worker), so "found locally but not in
+    production" cannot come from the word list.
+
+    Public behaviour is unchanged: a string in, a string out, and a query with no
+    matching entry comes back usable. `MISAKANET_QUERY_ALIASES=0` makes this the
+    identity — the rollback switch, same name in the Worker and the CLI.
+    """
+    if not query:
+        return query
+    try:
+        from scripts import expand_query as eq
+    except ImportError:      # installed package without the repo's scripts/ directory
+        return query
+    if not eq.query_aliases_enabled():
+        return query
+    return eq.expand_query_text(query)
+
+
+def _rank_docs_impl(
+    query: str, docs: list[CachedDoc], titles_only: bool = False, broad_only: bool = False,
+    rerank: bool = False,
+    weights: dict | None = None,
+    include_stale: bool = False,
+) -> list[tuple[float, CachedDoc]]:
+    if not docs:
+        return []
+    if broad_only:
+        docs = [d for d in docs if d.scope == "broad"]
+    if not titles_only:
+        visible = [d for d in docs if not d.is_draft]
+        if visible:
+            docs = visible
+    # Filter stale/superseded by default (Issue #1440)
+    if not include_stale:
+        active = [d for d in docs if not d.is_stale and not d.is_superseded]
+        if active:
+            docs = active
+    # Alias expansion (#1780) is applied here for every caller. The local CLI also
+    # expands at its query entry (search_knowledge._scoring_query), so its searches reach
+    # the layer twice; §8.6 of docs/maintainer/query-alias-design-2026-09-16.md records
+    # what that does to the numbers (it is the configuration the offline eval measures).
+    expanded_query = _expand_query(query)
+    bm25_raw = _compute_bm25_scores(expanded_query, docs)
+    bm25_norm = _normalize(bm25_raw)
+    # Load configurable weights (Issue #1220, #1001)
+    from scripts.search_config import get_cached_config
+    cfg = get_cached_config()
+    # Per-request weight overrides (Issue #1001)
+    bm25_w = weights.get("bm25_weight", cfg.bm25_weight) if weights else cfg.bm25_weight
+    meta_w = weights.get("metadata_weight", cfg.metadata_weight) if weights else cfg.metadata_weight
+    base_w = weights.get("baseline_weight", cfg.baseline_weight) if weights else cfg.baseline_weight
+    scored = [
+        (
+            bm25_w * bm25_norm[i]
+            + meta_w * _metadata_bonus(query, d)
+            + base_w * d.score_baseline
+            + _compute_boost(d),
+            d,
+        )
+        for i, d in enumerate(docs)
+    ]
+    scored.sort(key=lambda x: -x[0])
+
+    # Cross-encoder reranking (Issue #312)
+    if rerank:
+        scored = _cross_encoder_rerank(query, scored)
+
+    return scored
+
+
+# ── Cross-encoder reranking (Issue #312) ──
+_CROSS_ENCODER = None
+_CROSS_ENCODER_FAILED = False
+
+
+def _get_cross_encoder():
+    """Lazy-load cross-encoder model. Returns None if unavailable."""
+    global _CROSS_ENCODER, _CROSS_ENCODER_FAILED
+    if _CROSS_ENCODER_FAILED:
+        return None
+    if _CROSS_ENCODER is not None:
+        return _CROSS_ENCODER
+    try:
+        from sentence_transformers import CrossEncoder
+        _CROSS_ENCODER = CrossEncoder("cross-encoder/ms-marco-MiniLM-L-6-v2", max_length=512)
+        return _CROSS_ENCODER
+    except (ImportError, Exception) as e:
+        _CROSS_ENCODER_FAILED = True
+        print(f"  ⚠️ Cross-encoder unavailable ({e}), falling back to BM25", file=sys.stderr)
+        return None
+
+
+def _cross_encoder_rerank(
+    query: str, scored: list[tuple[float, CachedDoc]], top_k: int = 10
+) -> list[tuple[float, CachedDoc]]:
+    """Rerank top-K results using cross-encoder for better precision.
+
+    Falls back to original BM25 ranking if cross-encoder unavailable.
+    """
+    if not scored:
+        return scored
+
+    encoder = _get_cross_encoder()
+    if encoder is None:
+        return scored  # graceful fallback
+
+    # Take top-K for reranking (cross-encoder is expensive)
+    candidates = scored[:top_k]
+    remainder = scored[top_k:]
+
+    # Build query-doc pairs
+    pairs = [(query, f"{d.title} {d.content[:300]}") for _, d in candidates]
+
+    try:
+        # Cross-encoder scores (higher = more relevant)
+        ce_scores = encoder.predict(pairs)
+        # Normalize CE scores to [0, 1]
+        ce_norm = _normalize(list(ce_scores))
+
+        # Blend: cross-encoder + original BM25 composite (configurable weights)
+        from scripts.search_config import get_cached_config
+        rerank_cfg = get_cached_config()
+        ce_w = rerank_cfg.cross_encoder_weight
+        bm25_rerank_w = rerank_cfg.bm25_rerank_weight
+        reranked = [
+            (ce_w * ce_norm[i] + bm25_rerank_w * orig_score, doc)
+            for i, (orig_score, doc) in enumerate(candidates)
+        ]
+        reranked.sort(key=lambda x: -x[0])
+        return reranked + remainder
+    except Exception as e:
+        print(f"  ⚠️ Cross-encoder rerank failed ({e}), using BM25", file=sys.stderr)
+        return scored
+
+
+def _matching_terms(text: str, query: str) -> list[str]:
+    text_l = text.lower()
+    matches = []
+    for token in _tokenize(query):
+        token_l = token.lower()
+        if token_l and token_l in text_l and token_l not in matches:
+            matches.append(token_l)
+    return matches
+
+
+def _highlight(text: str, query: str) -> str:
+    tokens = _tokenize(query)
+    if not tokens:
+        return text
+    for t in sorted(set(tokens), key=len, reverse=True):
+        if len(t) < 1:
+            continue
+        text = re.sub(
+            re.escape(t), lambda m: f"\033[33m{m.group()}\033[0m", text, flags=re.IGNORECASE
+        )
+    return text
+
+
+def _highlight_plain(text: str, query: str) -> str:
+    """Highlight matching terms without ANSI escapes for JSON consumers."""
+    highlighted = text
+    for token in sorted(set(_tokenize(query)), key=len, reverse=True):
+        highlighted = re.sub(
+            re.escape(token),
+            lambda m: f"[{m.group()}]",
+            highlighted,
+            flags=re.IGNORECASE,
+        )
+    return highlighted
+
+
+def _score_bar(score: float, width: int = 10) -> str:
+    pct = max(0.0, min(score, 1.0))
+    filled = round(pct * width)
+    return "█" * filled + "░" * (width - filled) + f" {pct:.0%}"
+
+
+def _get_match_reason(query: str, doc: CachedDoc, score: float | None = None) -> str:
+    """Show why this result was matched, including field names and terms."""
+    reasons = []
+
+    for term in _matching_terms(doc.title, query):
+        reasons.append(f"title keyword '{term}'")
+
+    for term in _matching_terms(doc.domain, query):
+        if term == doc.domain.lower():
+            reasons.append(f"domain '{doc.domain}'")
+        else:
+            reasons.append(f"domain keyword '{term}'")
+
+    for tag in doc.tags:
+        tag_text = str(tag)
+        for term in _matching_terms(tag_text, query):
+            if term == tag_text.lower():
+                reasons.append(f"tag '{tag_text}'")
+            else:
+                reasons.append(f"tag keyword '{term}'")
+
+    for term in _matching_terms(doc.content, query):
+        if not any(f"'{term}'" in reason for reason in reasons):
+            reasons.append(f"content keyword '{term}'")
+
+    if doc.scope == "broad":
+        reasons.append("broad")
+
+    if not reasons and score is not None and score > 0:
+        reasons.append("BM25 content score")
+
+    return " + ".join(dict.fromkeys(reasons))
+
+
+# ── Heuristic confidence / result_type classification ──
+
+# Patterns that indicate actionable lessons (have concrete fix steps)
+_ACTIONABLE_SIGNALS = re.compile(
+    r"(fix|solution|workaround|step\s*\d|verify|verification|"
+    r"error.code|exit.code|return.code|"
+    r"```|pip install|git |curl |chmod |mkdir |export )",
+    re.IGNORECASE,
+)
+
+# Patterns that indicate common/reference content (generic, not specific)
+_COMMON_PATTERNS = re.compile(
+    r"(github.com.*443|connectivity|checklist|basic|intro|overview|"
+    r"getting.started|quick.start|faq|troubleshooting.general|"
+    r"network.*basics|git.*basics|config.*general|auth.*basics)",
+    re.IGNORECASE,
+)
+
+# Error code pattern (specific technical signal)
+_ERROR_CODE_PATTERN = re.compile(
+    r"(GH\d{3,4}|E\d{3,5}|W\d{3,5}|SEC\d+|INTP-\d+|KL-\d+|"
+    r"exit\s+(?:code|status)\s+\d+|HTTP\s+\d{3}|error\s+code\s+\d+)",
+    re.IGNORECASE,
+)
+
+
+def _classify_confidence(
+    doc: CachedDoc, query: str, match_reasons: str, score: float
+) -> str:
+    """Classify result confidence: high | medium | low.
+
+    Heuristic rules (no schema migration required):
+    - high: error codes in title/content, clear fix steps, verification section,
+            high match score, title match
+    - low: common patterns, generic titles, low score, only content keyword match
+    - medium: everything else
+    """
+    title_lower = doc.title.lower()
+    content_lower = doc.content[:2000].lower()
+    reasons_lower = match_reasons.lower()
+
+    # High confidence signals
+    has_error_code = bool(_ERROR_CODE_PATTERN.search(doc.title + " " + doc.content[:500]))
+    has_actionable = bool(_ACTIONABLE_SIGNALS.search(content_lower))
+    has_verification = "## verification" in content_lower or "## verify" in content_lower
+    has_title_match = "title keyword" in reasons_lower or "title exact" in reasons_lower
+    high_score = score >= 0.6
+
+    if has_error_code and has_title_match:
+        return "high"
+    if has_verification and has_actionable and high_score:
+        return "high"
+    if has_title_match and high_score and has_actionable:
+        return "high"
+
+    # Low confidence signals
+    is_common = bool(_COMMON_PATTERNS.search(title_lower + " " + content_lower[:500]))
+    only_content_match = (
+        "content keyword" in reasons_lower
+        and "title" not in reasons_lower
+        and "tag" not in reasons_lower
+    )
+    low_score = score < 0.35
+    generic_title = len(title_lower.split()) <= 3 and not has_error_code
+
+    if is_common and low_score:
+        return "low"
+    if only_content_match and low_score:
+        return "low"
+    if generic_title and low_score and not has_actionable:
+        return "low"
+
+    return "medium"
+
+
+def _classify_result_type(doc: CachedDoc, confidence: str) -> str:
+    """Classify result type: actionable | common | related.
+
+    - actionable: high/medium confidence with fix steps or verification
+    - common: low confidence or generic reference content
+    - related: medium confidence but no clear fix steps (background/context)
+    """
+    if confidence == "low":
+        return "common"
+
+    content_lower = doc.content[:2000].lower()
+    has_actionable = bool(_ACTIONABLE_SIGNALS.search(content_lower))
+
+    if confidence == "high":
+        return "actionable"
+    if confidence == "medium" and has_actionable:
+        return "actionable"
+    if confidence == "medium":
+        return "related"
+
+    return "common"
+
+
+def _get_signal_level(doc: CachedDoc, confidence: str) -> str:
+    """Classify signal level: canonical | common.
+
+    - canonical: specific error codes, clear fix steps, verification, multi-case reuse
+    - common: generic content, basic guides, background knowledge
+    """
+    if confidence == "low":
+        return "common"
+
+    content_lower = doc.content[:2000].lower()
+    has_error_code = bool(_ERROR_CODE_PATTERN.search(doc.title + " " + doc.content[:500]))
+    has_verification = "## verification" in content_lower or "## verify" in content_lower
+    has_actionable = bool(_ACTIONABLE_SIGNALS.search(content_lower))
+
+    if has_error_code or (has_verification and has_actionable):
+        return "canonical"
+    if confidence == "high":
+        return "canonical"
+
+    return "common"
+
+
+def _get_search_boost(signal_level: str, confidence: str) -> float:
+    """Get search boost multiplier based on signal level and confidence.
+
+    Canonical results get boosted, common results get suppressed.
+    """
+    if signal_level == "canonical":
+        return 0.6
+    if signal_level == "common":
+        return -0.4
+    return 0.0
+
+
+def _get_why_matched(match_reasons: str) -> dict:
+    """Parse match reasons into structured explanation.
+
+    Returns dict with matched_terms, match_fields, and summary.
+    """
+    if not match_reasons:
+        return {"matched_terms": [], "match_fields": [], "summary": "no match"}
+
+    parts = [r.strip() for r in match_reasons.split("+")]
+    matched_terms = []
+    match_fields = []
+
+    for part in parts:
+        # Extract quoted terms
+        quoted = re.findall(r"'([^']+)'", part)
+        matched_terms.extend(quoted)
+
+        # Extract field names
+        if part.startswith("title"):
+            match_fields.append("title")
+        elif part.startswith("domain"):
+            match_fields.append("domain")
+        elif part.startswith("tag"):
+            match_fields.append("tags")
+        elif part.startswith("content"):
+            match_fields.append("content")
+        elif part == "broad":
+            match_fields.append("broad")
+
+    return {
+        "matched_terms": list(dict.fromkeys(matched_terms)),
+        "match_fields": list(dict.fromkeys(match_fields)),
+        "summary": match_reasons,
+    }
+
+
+def _term_tfidf(query: str, doc: CachedDoc, docs: list[CachedDoc] | None = None) -> list[dict]:
+    """Return transparent per-term TF/IDF contributions for an explanation."""
+    corpus = docs or [doc]
+    query_terms = list(dict.fromkeys(_tokenize(query)))
+    tokenized = [_tokenize(item.content) for item in corpus]
+    total_docs = max(len(tokenized), 1)
+    doc_index = next((index for index, item in enumerate(corpus) if item.filename == doc.filename), 0)
+    doc_tokens = tokenized[doc_index]
+    details = []
+    for term in query_terms:
+        tf = doc_tokens.count(term)
+        if not tf:
+            continue
+        document_frequency = sum(term in tokens for tokens in tokenized)
+        idf = math.log((total_docs + 1) / (document_frequency + 1)) + 1
+        details.append({"term": term, "term_frequency": tf,
+                       "document_frequency": document_frequency,
+                       "tfidf": round(tf * idf, 6)})
+    return details
+
+
+def _entity_matches(query: str, doc: CachedDoc) -> dict[str, list[str]]:
+    terms = set(_tokenize(query))
+    matches = {}
+    for field, value in (("title", doc.title), ("domain", doc.domain), ("tags", " ".join(map(str, doc.tags)))):
+        found = [term for term in _tokenize(value) if term in terms]
+        if found:
+            matches[field] = list(dict.fromkeys(found))
+    return matches
+
+
+def _vector_similarity(query: str, doc: CachedDoc) -> float | None:
+    """Return optional cosine similarity, or None when vectors are unavailable."""
+    try:
+        from misakanet.search.embeddings import generate_embedding
+        query_embedding = generate_embedding(query)
+        doc_embedding = generate_embedding(f"{doc.title}\n{doc.content[:4000]}")
+        numerator = sum(a * b for a, b in zip(query_embedding, doc_embedding))
+        left_norm = math.sqrt(sum(a * a for a in query_embedding))
+        right_norm = math.sqrt(sum(b * b for b in doc_embedding))
+        return round(numerator / (left_norm * right_norm), 6) if left_norm and right_norm else 0.0
+    except (ImportError, RuntimeError, OSError, ValueError):
+        return None
+
+
+def _score_breakdown(query: str, doc: CachedDoc, docs: list[CachedDoc] | None = None) -> dict:
+    """Return field-level ranking evidence for CLI/API explain modes."""
+    from scripts.search_config import get_cached_config
+    cfg = get_cached_config()
+    bm25 = _compute_bm25_scores(query, [doc])[0]
+    meta_parts = _metadata_bonus_breakdown(query, doc)
+    boost_parts = _compute_boost_breakdown(doc)
+    vector = _vector_similarity(query, doc)
+    metadata_total = sum(value for _, value in meta_parts)
+    boost_total = sum(value for _, value in boost_parts)
+    return {
+        "bm25": round(float(bm25), 6),
+        "bm25_terms": _term_tfidf(query, doc, docs),
+        "vector_similarity": vector,
+        "entity_matches": _entity_matches(query, doc),
+        "hybrid": {
+            "bm25_component": round(cfg.bm25_weight * float(bm25), 6),
+            "metadata_component": round(cfg.metadata_weight * metadata_total, 6),
+            "baseline_component": round(cfg.baseline_weight * float(doc.score_baseline), 6),
+            "boost_component": round(boost_total, 6),
+            "vector_component": vector,
+        },
+        "metadata": {key: round(float(value), 6) for key, value in meta_parts},
+        "metadata_total": round(metadata_total, 6),
+        "baseline": round(float(doc.score_baseline), 6),
+        "boost": {key: round(float(value), 6) for key, value in boost_parts},
+        "boost_total": round(boost_total, 6),
+    }
+
+
+def _get_related_lessons(
+    doc: CachedDoc, all_docs: list[CachedDoc], max_related: int = 3
+) -> list[tuple[str, str]]:
+    """Find related lessons by shared tags. Returns [(title, repo-relative path), ...]."""
+    if not doc.tags or not all_docs:
+        return []
+    doc_tags = set(t.lower() for t in doc.tags)
+    scored = []
+    for other in all_docs:
+        # Compare the full path, not the basename: `contrib/x.md` and `en/x.md` are two
+        # different lessons, and the basename test silently merged them.
+        if other.filepath == doc.filepath:
+            continue
+        if not other.tags:
+            continue
+        other_tags = set(t.lower() for t in other.tags)
+        overlap = doc_tags & other_tags
+        if len(overlap) >= 1:
+            # Score by number of shared tags
+            scored.append((len(overlap), other.title, _display_path(other)))
+    scored.sort(key=lambda x: -x[0])
+    return [(t, f) for _, t, f in scored[:max_related]]
+
+
+def _format_output(
+    scored: list[tuple[float, CachedDoc]],
+    titles_only: bool = False,
+    top_k: int = 10,
+    mode_label: str = "",
+    query: str = "",
+    explain: bool = False,
+    all_docs: list[CachedDoc] | None = None,
+) -> bool:
+    if not scored:
+        return False
+    n = len(scored)
+    shown = min(top_k, n)
+    print(f"\\n📋 {mode_label} ({n} matches, showing top {shown})")
+    print("-" * 60)
+    for score, doc in scored[:top_k]:
+        # Feature #227: Credibility badges
+        core_tag = "[core]" if _is_core(doc) else "[contrib]"
+        verified_tag = "[verified]" if _is_verified(doc) else ""
+        domain_tag = f"[{doc.domain}]" if doc.domain else ""
+        status_tag = f"({doc.status})" if doc.status else ""
+        ref_tag = f"→ {doc.reference}" if doc.reference else ""
+
+        # Feature #231: Match reason
+        match_reason = _get_match_reason(query, doc, score)
+
+        # Confidence / result type / signal level
+        confidence = _classify_confidence(doc, query, match_reason, score)
+        result_type = _classify_result_type(doc, confidence)
+        _get_signal_level(doc, confidence)
+        conf_icon = {"high": "🟢", "medium": "🟡", "low": "⚫"}.get(confidence, "⚪")
+
+        # Build badge line
+        badges = f"{core_tag} {verified_tag} {domain_tag}".strip()
+        time_str = _relative_time(doc.mtime)
+
+        print(f"  {badges:<25} {doc.title} {status_tag}")
+        score_bar = _score_bar(score)
+        print(f"  {'':>25} {score_bar:>15}  {time_str}  {conf_icon} {confidence}/{result_type}")
+        if match_reason:
+            print(f"  {'':>25} (matched: {match_reason})")
+        # Feature: --explain score breakdown (#303)
+        if explain and query:
+            breakdown = _score_breakdown(query, doc, docs=all_docs)
+            tag_str = ", ".join(doc.tags[:5]) if doc.tags else "—"
+
+            vector_label = f"{breakdown['vector_similarity']:.3f}" if breakdown['vector_similarity'] is not None else "unavailable"
+            print(f"  {'':>25} ↳ Hybrid components: BM25 {breakdown['hybrid']['bm25_component']:.3f}; "
+                  f"metadata {breakdown['hybrid']['metadata_component']:.3f}; "
+                  f"vector {vector_label}")
+            if breakdown["bm25_terms"]:
+                terms = ", ".join(
+                    f"{item['term']} tf={item['term_frequency']} tfidf={item['tfidf']:.2f}"
+                    for item in breakdown["bm25_terms"]
+                )
+                print(f"  {'':>25}   Terms: {terms}")
+            else:
+                print(f"  {'':>25}   Terms: none")
+            if breakdown["entity_matches"]:
+                print(f"  {'':>25}   Entities: {breakdown['entity_matches']}")
+            if breakdown["metadata"]:
+                meta_detail = ", ".join(f"{key}(+{value:.2f})" for key, value in breakdown["metadata"].items())
+                print(f"  {'':>25}   Meta: {breakdown['metadata_total']:.3f} = {meta_detail}")
+            else:
+                print(f"  {'':>25}   Meta: 0.000")
+            print(f"  {'':>25}   Base: {breakdown['baseline']:.3f}")
+            if breakdown["boost"]:
+                boost_detail = ", ".join(f"{key}({value:+.2f})" for key, value in breakdown["boost"].items())
+                print(f"  {'':>25}   Boost: {breakdown['boost_total']:+.2f} = {boost_detail}")
+            else:
+                print(f"  {'':>25}   Boost: +0.00")
+            print(f"  {'':>25}   Tags: {tag_str}")
+        # Feature: related lessons (cross-lesson reference graph)
+        if all_docs is not None:
+            related = _get_related_lessons(doc, all_docs, max_related=3)
+            if related:
+                rel_line = ", ".join(f"📄 {f}" for _, f in related)
+                print(f"  {'':>25} 🔗 Related: {rel_line}")
+        if titles_only:
+            continue
+        print(f"  {'':>25} 📄 {_display_path(doc)}")
+        preview = _get_preview(doc.content, max_chars=120)
+        if preview:
+            print(f"  {'':>25} {_highlight(preview, query)}")
+        if ref_tag:
+            print(f"  {'':>25} ref: {ref_tag}")
+        print()
+    return True
+
+
+def _get_preview(content: str, max_chars: int = 100) -> str:
+    if not content:
+        return ""
+    lines = content.split("\n")
+    start = 0
+    if lines and lines[0].strip() == "---":
+        for i in range(1, len(lines)):
+            if lines[i].strip() == "---":
+                start = i + 1
+                break
+    for line in lines[start:]:
+        line = line.strip()
+        if line and not line.startswith("#") and not line.startswith("- **"):
+            if len(line) > max_chars:
+                return line[:max_chars] + "..."
+            return line
+    return ""
+
+
+def _show_timing(elapsed: float, num_docs: int):
+    if elapsed > 0.1:
+        print(f"  ⏱ 检索 {num_docs} 篇文档耗时 {elapsed:.2f}s")
+
+
+# 导出：用缓存版本替换原始加载/排序函数
+_load_docs = _load_docs_cached
+_rank_docs = _search_cached
+# 保留原名供 L1 缓存内部调用（不导出）
+_rank_docs_impl_export = _rank_docs_impl
+
+__all__ = [
+    "BM25ScoringError",
+    "CachedDoc",
+    "LESSONS",
+    "REFERENCES",
+    "_load_docs",
+    "_rank_docs",
+    "_format_output",
+    "_show_timing",
+    "_tokenize",
+    "_compute_bm25_scores",
+    "_normalize",
+    "_is_verified",
+    "_is_core",
+    "_is_recent",
+    "_compute_boost",
+    "_relative_time",
+    "_get_match_reason",
+    "_highlight_plain",
+    "_score_breakdown",
+    "_get_related_lessons",
+    "_expand_query",
+    "_SYNONYM_MAP",
+    "MisakaNetSearchEngine",
+]
+
+
+def _is_verified(doc: CachedDoc) -> bool:
+    """Check if lesson has Verify/Verification section."""
+    if not doc.content:
+        return False
+    return bool(re.search(r"##\s*(Verify|Verification)", doc.content, re.IGNORECASE))
+
+
+def _is_core(doc: CachedDoc) -> bool:
+    """Check if lesson is in core/ directory."""
+    parts = [part.lower() for part in doc.filepath.parts]
+    return any(parts[i] == "lessons" and parts[i + 1] == "core" for i in range(len(parts) - 1))
+
+
+def _is_recent(doc: CachedDoc) -> bool:
+    """Feature #228: True if lesson was updated within BOOST_RECENT_DAYS days."""
+    if not doc.mtime:
+        return False
+    import datetime
+
+    age_days = (datetime.datetime.now().timestamp() - doc.mtime) / 86400
+    return age_days <= BOOST_RECENT_DAYS
+
+
+def _relative_time(mtime: float) -> str:
+    """Show relative update time."""
+    if not mtime:
+        return ""
+    import datetime
+
+    now = datetime.datetime.now().timestamp()
+    diff = now - mtime
+    if diff < 60:
+        return "just now"
+    elif diff < 3600:
+        return f"{int(diff/60)}m ago"
+    elif diff < 86400:
+        return f"{int(diff/3600)}h ago"
+    elif diff < 2592000:
+        return f"{int(diff/86400)}d ago"
+    else:
+        return f"{int(diff/2592000)}mo ago"
+
+
+class MisakaNetSearchEngine:
+    """Public search facade for HTTP/MCP servers (audit 2026-09-05, QW4).
+
+    scripts/mcp_http_server.py and scripts/ai_agent_api.py import this class
+    (``HAS_BM25``) as the BM25 fallback behind SAG-Lite. Before this facade
+    existed the name was never defined, so the import failed and every BM25
+    request silently degraded to the no-engine error path.
+
+    Wraps the internal cached-load + BM25 rank pipeline and returns
+    SAG-Lite-compatible result dicts, so callers can treat the ``bm25`` and
+    ``sag-lite`` sources interchangeably.
+    """
+
+    def __init__(self, lessons_dir: Path = LESSONS):
+        self.lessons_dir = lessons_dir
+        self._docs = _load_docs_cached(lessons_dir, is_lesson=True)
+
+    def search(
+        self,
+        query: str,
+        top: int = 5,
+        domain: str | None = None,
+        rerank: bool = False,
+        weights: dict | None = None,
+    ) -> list[dict]:
+        """Rank lessons by BM25 + metadata weights, SAG-compatible dict shape.
+
+        ``domain`` filters before truncation (mirrors the SAG SQL path);
+        ``rerank``/``weights`` are passed through to the internal ranker.
+
+        The corpus is refreshed on every call through the L2 mtime cache
+        (cheap when nothing changed), so long-running HTTP/MCP servers pick
+        up newly submitted lessons without a restart (review fix, PR #1482).
+        """
+        self._docs = _load_docs_cached(self.lessons_dir, is_lesson=True)
+        ranked = _search_cached(query, self._docs, rerank=rerank, weights=weights)
+        results: list[dict] = []
+        for score, doc in ranked:
+            if domain and doc.domain != domain:
+                continue
+            try:
+                rel = doc.filepath.relative_to(REPO).as_posix()
+            except ValueError:  # filepath outside REPO — keep absolute
+                rel = str(doc.filepath)
+            results.append({
+                "title": doc.title,
+                "description": self._plain_snippet(doc.content),
+                "domain": doc.domain,
+                "tags": list(doc.tags),
+                "source": doc.source or "lesson",
+                "path": rel,
+                "status": doc.status,
+                "score": round(float(score), 4),
+            })
+            if len(results) >= top:
+                break
+        return results
+
+    @staticmethod
+    def _plain_snippet(content: str, max_chars: int = 240) -> str:
+        """First meaningful text after frontmatter, flattened for JSON."""
+        body = content or ""
+        if body.startswith("---"):
+            end = body.find("\n---", 3)
+            if end != -1:
+                body = body[end + 4:]
+        return " ".join(body.split())[:max_chars]
+

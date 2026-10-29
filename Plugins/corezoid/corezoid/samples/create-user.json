@@ -1,0 +1,201 @@
+{
+    "obj_type": 1,
+    "obj_id": 1758522,
+    "parent_id": 647267,
+    "title": "Create User",
+    "description": "",
+    "status": "active",
+    "params": [
+      {
+        "name": "first_name",
+        "type": "string",
+        "descr": "First Name",
+        "flags": [
+          "required",
+          "input"
+        ],
+        "regex": "",
+        "regex_error_text": ""
+      },
+      {
+        "name": "last_name",
+        "type": "string",
+        "descr": "Last Name",
+        "flags": [
+          "required",
+          "input"
+        ],
+        "regex": "",
+        "regex_error_text": ""
+      },
+      {
+        "name": "gender",
+        "type": "string",
+        "descr": "Gender",
+        "flags": [
+          "input"
+        ],
+        "regex": "",
+        "regex_error_text": ""
+      }
+    ],
+    "ref_mask": true,
+    "conv_type": "process",
+    "scheme": {
+      "nodes": [
+        {
+          "id": "68ff7b76e552e81908288df2",
+          "obj_type": 2,
+          "condition": {
+            "logics": [],
+            "semaphors": []
+          },
+          "title": "Final",
+          "description": "",
+          "x": 1504,
+          "y": 164,
+          "uuid": "1fb9b70e-4d7e-4335-9432-7e76013e8073",
+          "extra": "{\"modeForm\":\"collapse\",\"icon\":\"error\"}",
+          "options": null
+        },
+        {
+          "id": "68ff7b5eb677ac4b9f281697",
+          "obj_type": 0,
+          "condition": {
+            "logics": [
+              {
+                "type": "api_rpc_reply",
+                "mode": "key_value",
+                "res_data": {
+                  "status": "error",
+                  "description": "first_name is requred"
+                },
+                "res_data_type": {
+                  "status": "string",
+                  "description": "string"
+                },
+                "throw_exception": false
+              },
+              {
+                "type": "go",
+                "to_node_id": "68ff7b76e552e81908288df2"
+              }
+            ],
+            "semaphors": []
+          },
+          "title": "",
+          "description": "",
+          "x": 1128,
+          "y": 112,
+          "uuid": "cc2be492-32c2-4952-82fb-0623825a214e",
+          "extra": "{\"modeForm\":\"expand\",\"icon\":\"\"}",
+          "options": null
+        },
+        {
+          "id": "68ff7b55e552e81908288064",
+          "obj_type": 0,
+          "condition": {
+            "logics": [
+              {
+                "type": "go_if_const",
+                "to_node_id": "68ff7b5eb677ac4b9f281697",
+                "conditions": [
+                  {
+                    "param": "first_name",
+                    "const": "",
+                    "fun": "eq",
+                    "cast": "string"
+                  }
+                ]
+              },
+              {
+                "type": "go",
+                "to_node_id": "68ff35fdb677ac4b9f054bd3"
+              }
+            ],
+            "semaphors": []
+          },
+          "title": "",
+          "description": "",
+          "x": 780,
+          "y": 96,
+          "uuid": "f7db817a-a752-4604-9fa6-b39fd35761db",
+          "extra": "{\"modeForm\":\"expand\",\"icon\":\"\"}",
+          "options": null
+        },
+        {
+          "id": "68ff35ade552e819080577b8",
+          "obj_type": 1,
+          "condition": {
+            "logics": [
+              {
+                "type": "go",
+                "to_node_id": "68ff7b55e552e81908288064"
+              }
+            ],
+            "semaphors": []
+          },
+          "title": "Start",
+          "description": "",
+          "x": 880,
+          "y": -52,
+          "uuid": "c1bf869a-31e1-4d32-94b3-40c854dbdca5",
+          "extra": "{\"modeForm\":\"collapse\",\"icon\":\"\"}",
+          "options": null
+        },
+        {
+          "id": "68ff35fdb677ac4b9f054bd3",
+          "obj_type": 0,
+          "condition": {
+            "logics": [
+              {
+                "type": "api_rpc_reply",
+                "mode": "key_value",
+                "res_data": {
+                  "status": "ok",
+                  "user_id": "13214"
+                },
+                "res_data_type": {
+                  "status": "string",
+                  "user_id": "number"
+                },
+                "throw_exception": false
+              },
+              {
+                "type": "go",
+                "to_node_id": "68ff35aee552e819080577ba"
+              }
+            ],
+            "semaphors": []
+          },
+          "title": "",
+          "description": "",
+          "x": 780,
+          "y": 320,
+          "uuid": "60e911d3-ef03-4fa1-897e-04c45e1759d9",
+          "extra": "{\"modeForm\":\"expand\",\"icon\":\"\"}",
+          "options": null
+        },
+        {
+          "id": "68ff35aee552e819080577ba",
+          "obj_type": 2,
+          "condition": {
+            "logics": [],
+            "semaphors": []
+          },
+          "title": "Final",
+          "description": "",
+          "x": 880,
+          "y": 616,
+          "uuid": "fa07b959-43a1-4a3c-95d9-75d2ea9fc2f7",
+          "extra": "{\"modeForm\":\"collapse\",\"icon\":\"success\"}",
+          "options": "{\"save_task\":true}"
+        }
+      ],
+      "web_settings": [
+        [],
+        []
+      ]
+    },
+    "uuid": "8e15e9e6-3056-4a40-b652-3d0bca7d9894"
+}

@@ -1,0 +1,397 @@
+package server
+
+import (
+	"context"
+	"encoding/json"
+	"io/fs"
+	"net/http"
+	"net/http/httputil"
+	"net/url"
+	"os"
+	"path"
+	"path/filepath"
+	"strconv"
+	"strings"
+
+	"buf.build/gen/go/tldiagramcom/diagram/connectrpc/go/diag/v1/diagv1connect"
+	"github.com/google/uuid"
+	"github.com/mertcikla/tld/v2/internal/store"
+	"github.com/mertcikla/tld/v2/internal/tech"
+	"github.com/mertcikla/tld/v2/internal/workspace"
+	"github.com/mertcikla/tld/v2/pkg/api"
+	"github.com/mertcikla/tld/v2/pkg/app"
+)
+
+type Server struct {
+	handler http.Handler
+	watches *watchManager
+}
+
+type Options struct {
+	DataDir        string
+	WorkspaceDir   string
+	PublicURL      string
+	AllowedOrigins []string
+	Config         *workspace.Config
+}
+
+func New(appStore *app.Store, static fs.FS, workspaceID uuid.UUID, dataDir ...string) (*Server, error) {
+	opts := Options{}
+	if len(dataDir) > 0 {
+		opts.DataDir = dataDir[0]
+	}
+	return NewWithOptions(appStore, static, workspaceID, opts)
+}
+
+func NewWithOptions(appStore *app.Store, static fs.FS, workspaceID uuid.UUID, opts Options) (*Server, error) {
+	dataDirs := []string{}
+	if opts.DataDir != "" || opts.WorkspaceDir != "" {
+		dataDirs = append(dataDirs, opts.DataDir)
+		if opts.WorkspaceDir != "" {
+			dataDirs = append(dataDirs, opts.WorkspaceDir)
+		}
+	}
+	apiStore := store.NewAPIAdapter(appStore, dataDirs...)
+	collabHub := api.NewCollaborationHub()
+	collabHooks := collaborationHooks{base: api.NopWorkspaceHooks{}, store: apiStore, hub: collabHub}
+	wsSvc := &api.WorkspaceService{Store: apiStore, Hooks: collabHooks}
+	orgSvc := &api.OrgService{Store: apiStore, Hooks: collabHooks}
+	depSvc := &api.DependencyService{Store: apiStore}
+	importSvc := &api.ImportService{Store: apiStore}
+	mermaidSvc := &api.MermaidService{Store: apiStore, Hooks: collabHooks}
+	collabSvc := &api.CollaborationService{Store: apiStore, Hooks: collabHooks, Hub: collabHub}
+	collabRealtime := &api.CollaborationRealtimeHandler{Store: apiStore, Hooks: collabHooks, Hub: collabHub}
+
+	mux := http.NewServeMux()
+	selfHosted := isSelfHosted(opts)
+	watchManager := registerCodeIndexHandlers(mux, appStore, opts.DataDir, selfHosted, opts.Config)
+	registerEditorHandlers(mux, appStore, selfHosted)
+	registerDensityHandlers(mux, appStore)
+	registerMergeHandlers(mux, appStore)
+	registerTagHandlers(mux, apiStore, workspaceID)
+
+	mux.HandleFunc("GET /api/ready", func(w http.ResponseWriter, r *http.Request) {
+		views, elements, connectors, err := apiStore.GetWorkspaceResourceCounts(r.Context(), workspaceID)
+		w.Header().Set("Content-Type", "application/json")
+		if err != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"ok":    false,
+				"error": "resource counts unavailable",
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"ok": true,
+			"resources": map[string]int{
+				"views":      views,
+				"elements":   elements,
+				"connectors": connectors,
+			},
+			// Capabilities are disabled for reverse-proxied self-hosted
+			// deployments where the server is not the user's workstation:
+			// there is no local checkout for watching, and the server cannot
+			// open the caller's editor.
+			"capabilities": map[string]bool{
+				"watch":        !selfHosted,
+				"editor":       !selfHosted,
+				"repositories": !selfHosted,
+			},
+		})
+	})
+
+	mux.HandleFunc("GET /api/views/{id}/thumbnail.svg", func(w http.ResponseWriter, r *http.Request) {
+		viewID, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+		if err != nil || viewID <= 0 {
+			http.Error(w, "invalid view id", http.StatusBadRequest)
+			return
+		}
+
+		svg, err := appStore.ThumbnailSVG(r.Context(), viewID)
+		if err != nil {
+			http.Error(w, "thumbnail not found", http.StatusNotFound)
+			return
+		}
+
+		w.Header().Set("Content-Type", "image/svg+xml; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write([]byte(svg))
+	})
+
+	mux.HandleFunc("GET /api/views/{id}/ws", collabRealtime.WS)
+
+	wsPath, wsHandler := diagv1connect.NewWorkspaceServiceHandler(wsSvc)
+	mux.Handle("/api"+wsPath, http.StripPrefix("/api", wsHandler))
+
+	orgPath, orgHandler := diagv1connect.NewOrgServiceHandler(orgSvc)
+	mux.Handle("/api"+orgPath, http.StripPrefix("/api", orgHandler))
+
+	depPath, depHandler := diagv1connect.NewDependencyServiceHandler(depSvc)
+	mux.Handle("/api"+depPath, http.StripPrefix("/api", depHandler))
+
+	importPath, importHandler := diagv1connect.NewImportServiceHandler(importSvc)
+	mux.Handle("/api"+importPath, http.StripPrefix("/api", importHandler))
+
+	mermaidPath, mermaidHandler := diagv1connect.NewMermaidServiceHandler(mermaidSvc)
+	mux.Handle("/api"+mermaidPath, http.StripPrefix("/api", mermaidHandler))
+
+	flowPath, flowHandler := diagv1connect.NewFlowServiceHandler(&api.FlowService{Store: apiStore, Hooks: collabHooks})
+	mux.Handle("/api"+flowPath, http.StripPrefix("/api", flowHandler))
+
+	collabPath, collabHandler := diagv1connect.NewCollaborationServiceHandler(collabSvc)
+	mux.Handle("/api"+collabPath, http.StripPrefix("/api", collabHandler))
+
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		serveStatic(static, w, r)
+	})
+
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := api.WithWorkspaceID(r.Context(), workspaceID)
+		ctx = api.WithCollaborationRequestInfo(ctx, api.CollaborationRequestInfo{RemoteAddr: r.RemoteAddr})
+		mux.ServeHTTP(w, r.WithContext(ctx))
+	})
+
+	return &Server{handler: localCORSMiddleware(handler, opts), watches: watchManager}, nil
+}
+
+func (s *Server) Routes() http.Handler {
+	return s.handler
+}
+
+func (s *Server) Shutdown(context.Context) error {
+	if s.watches != nil {
+		return s.watches.Close()
+	}
+	return nil
+}
+
+func localCORSMiddleware(next http.Handler, opts Options) http.Handler {
+	configuredOrigins := configuredCORSOrigins(opts)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if origin := r.Header.Get("Origin"); isAllowedCORSOrigin(origin, configuredOrigins) {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			w.Header().Set("Vary", "Origin")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
+			if requestedHeaders := r.Header.Get("Access-Control-Request-Headers"); requestedHeaders != "" {
+				w.Header().Set("Access-Control-Allow-Headers", requestedHeaders)
+			} else {
+				w.Header().Set("Access-Control-Allow-Headers", "Accept, Authorization, Connect-Protocol-Version, Connect-Timeout-Ms, Content-Type, X-CSRF-Token, X-Requested-With")
+			}
+			if r.Header.Get("Access-Control-Request-Private-Network") == "true" {
+				w.Header().Set("Access-Control-Allow-Private-Network", "true")
+			}
+			w.Header().Set("Access-Control-Expose-Headers", "Connect-Protocol-Version, Grpc-Status, Grpc-Message")
+		}
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// isSelfHosted reports whether the server is running as a shared, reverse-proxied
+// deployment rather than the user's local workstation. Self-hosted servers
+// disable workstation-bound capabilities (watching a local checkout, opening the
+// caller's editor).
+func isSelfHosted(opts Options) bool {
+	return strings.TrimSpace(opts.PublicURL) != ""
+}
+
+func configuredCORSOrigins(opts Options) map[string]struct{} {
+	origins := map[string]struct{}{}
+	if origin := httpOrigin(opts.PublicURL); origin != "" {
+		origins[origin] = struct{}{}
+	}
+	for _, origin := range opts.AllowedOrigins {
+		if origin := httpOrigin(origin); origin != "" {
+			origins[origin] = struct{}{}
+		}
+	}
+	return origins
+}
+
+func isAllowedCORSOrigin(origin string, configured map[string]struct{}) bool {
+	if isAllowedLocalOrigin(origin) {
+		return true
+	}
+	_, ok := configured[origin]
+	return ok
+}
+
+func httpOrigin(value string) string {
+	u, err := url.Parse(strings.TrimRight(strings.TrimSpace(value), "/"))
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return ""
+	}
+	return u.Scheme + "://" + u.Host
+}
+
+func isAllowedLocalOrigin(origin string) bool {
+	if origin == "" {
+		return false
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	switch u.Scheme {
+	case "vscode-webview", "vscode-webview-resource", "vscode-file", "vscode-resource", "wails":
+		return true
+	case "http", "https":
+		host := u.Hostname()
+		return host == "127.0.0.1" || host == "localhost" || host == "::1" || host == "wails.localhost"
+	default:
+		return false
+	}
+}
+
+func serveStatic(static fs.FS, w http.ResponseWriter, r *http.Request) {
+	if strings.HasPrefix(r.URL.Path, "/api/") {
+		http.NotFound(w, r)
+		return
+	}
+
+	cleaned := strings.TrimPrefix(path.Clean(r.URL.Path), "/")
+	if cleaned == "" {
+		cleaned = "index.html"
+	}
+
+	if serveDynamicIconAsset(cleaned, w) {
+		return
+	}
+
+	isIconAssetRequest := strings.HasPrefix(cleaned, "icons/")
+	if os.Getenv("DEV") == "true" && !isIconAssetRequest {
+		target, err := url.Parse("http://localhost:5173")
+		if err == nil {
+			httputil.NewSingleHostReverseProxy(target).ServeHTTP(w, r)
+			return
+		}
+	}
+
+	tryPaths := []string{
+		path.Join("frontend/dist", cleaned),
+	}
+	if !isIconAssetRequest {
+		tryPaths = append(tryPaths, "frontend/dist/index.html")
+	}
+	for _, candidate := range tryPaths {
+		data, encoding, err := readStaticAsset(static, candidate, r.Header.Get("Accept-Encoding"))
+		if err != nil {
+			continue
+		}
+		w.Header().Set("Content-Type", contentType(candidate))
+		w.Header().Add("Vary", "Accept-Encoding")
+		if encoding != "" {
+			w.Header().Set("Content-Encoding", encoding)
+		}
+		_, _ = w.Write(data)
+		return
+	}
+
+	http.NotFound(w, r)
+}
+
+func serveDynamicIconAsset(cleaned string, w http.ResponseWriter) bool {
+	switch {
+	case cleaned == "icons.json":
+		data, err := tech.CatalogJSON()
+		if err != nil {
+			http.Error(w, "technology catalog unavailable", http.StatusInternalServerError)
+			return true
+		}
+		w.Header().Set("Content-Type", contentType(cleaned))
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write(data)
+		return true
+	case strings.HasPrefix(cleaned, "icons/"):
+		filename := strings.TrimPrefix(cleaned, "icons/")
+		if !isSafeDynamicIconFilename(filename) {
+			return false
+		}
+		configDir, err := workspace.ConfigDir()
+		if err != nil {
+			return false
+		}
+		data, err := os.ReadFile(filepath.Join(configDir, "icons", "icons", filename))
+		if err != nil {
+			return false
+		}
+		w.Header().Set("Content-Type", contentType(filename))
+		w.Header().Set("Cache-Control", "no-store")
+		_, _ = w.Write(data)
+		return true
+	default:
+		return false
+	}
+}
+
+func isSafeDynamicIconFilename(filename string) bool {
+	if filename == "" || strings.ContainsAny(filename, "/\\:\x00") {
+		return false
+	}
+	if filename != path.Base(filename) || filename != filepath.Base(filename) {
+		return false
+	}
+	ext := strings.ToLower(path.Ext(filename))
+	return ext == ".svg" || ext == ".png"
+}
+
+func readStaticAsset(static fs.FS, candidate, acceptEncoding string) ([]byte, string, error) {
+	if acceptsEncoding(acceptEncoding, "br") {
+		if data, err := fs.ReadFile(static, candidate+".br"); err == nil {
+			return data, "br", nil
+		}
+	}
+	if acceptsEncoding(acceptEncoding, "gzip") {
+		if data, err := fs.ReadFile(static, candidate+".gz"); err == nil {
+			return data, "gzip", nil
+		}
+	}
+	data, err := fs.ReadFile(static, candidate)
+	return data, "", err
+}
+
+func acceptsEncoding(header, encoding string) bool {
+	for part := range strings.SplitSeq(header, ",") {
+		token, params, _ := strings.Cut(strings.TrimSpace(part), ";")
+		if !strings.EqualFold(token, encoding) {
+			continue
+		}
+		for param := range strings.SplitSeq(params, ";") {
+			key, value, ok := strings.Cut(strings.TrimSpace(param), "=")
+			if ok && strings.EqualFold(key, "q") {
+				quality, err := strconv.ParseFloat(strings.TrimSpace(value), 64)
+				if err == nil && quality <= 0 {
+					return false
+				}
+			}
+		}
+		return true
+	}
+	return false
+}
+
+func contentType(file string) string {
+	switch path.Ext(file) {
+	case ".html":
+		return "text/html; charset=utf-8"
+	case ".css":
+		return "text/css; charset=utf-8"
+	case ".js":
+		return "application/javascript"
+	case ".svg":
+		return "image/svg+xml"
+	case ".png":
+		return "image/png"
+	case ".json":
+		return "application/json"
+	default:
+		return "application/octet-stream"
+	}
+}

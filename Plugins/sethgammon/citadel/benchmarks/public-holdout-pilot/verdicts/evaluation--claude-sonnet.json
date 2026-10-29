@@ -1,0 +1,126 @@
+{
+  "schema": 1,
+  "kind": "citadel_public_holdout_verdict_bundle",
+  "bundle_id": "sha256:180775ce15489b64197ea34b03023936129a80fc82b351360dc9a43f5508bc8d",
+  "phase": "pilot-evaluation",
+  "plan_id": "claude-sonnet",
+  "verdicts": [
+    {
+      "instance_id": "preactjs__preact-4880",
+      "attempt_id": "sha256:b005b8c1af5fecc0bdac6cdc1235d20325eef496581b918eb0511436add97700",
+      "verification_status": "failed",
+      "evaluator_summary_id": "sha256:077c1adf0a229c4e7363eb2d3eb4c0b3d3dd36d0b65429a667ea8e68e6a7ff69",
+      "evaluator_summary_digest": "sha256:0c2327ce6d39d5798a3b681775dda99fb36bf3a815e5097791484147a3c45c07"
+    },
+    {
+      "instance_id": "GladysAssistant__Gladys-2504",
+      "attempt_id": "sha256:7f2033d6b02e86657495368f1d2211b59f50c714ce9a92f9749ee9c618d5bd77",
+      "verification_status": "failed",
+      "evaluator_summary_id": "sha256:5912fb01f014dd2715e2b4e123b8fb1d6e8f3a0c210fa10129dbdf55c50fbc00",
+      "evaluator_summary_digest": "sha256:5f06a259a92c46a5e2e38e58e46ea687c0d703ff48cde18b6cc517b0c79e8c80"
+    },
+    {
+      "instance_id": "simple-icons__simple-icons-13659",
+      "attempt_id": "sha256:30ede03d3f9bc3d0ad622fcfde85675b502d66938bd857b1ec1fab3a5fd7e695",
+      "verification_status": "failed",
+      "evaluator_summary_id": "sha256:bf50c37614b397164d89cb36c89cfca6d0b97e175bd766684e50c51f03cb6a38",
+      "evaluator_summary_digest": "sha256:80c4fc47893533ed1144ad83bfe1bb3cdfc65539a426a6c672096131b077d8ba"
+    },
+    {
+      "instance_id": "moment__luxon-1720",
+      "attempt_id": "sha256:c542adb165c69479c96bcc29d99547d8ae4084369c7e55bea6dac6303054333c",
+      "verification_status": "failed",
+      "evaluator_summary_id": "sha256:3e418e6df7aeebe76b829edd81b3b81c1d19982fb064444b86c9318265a306f4",
+      "evaluator_summary_digest": "sha256:f9d90b21f7148477416607b2e94bbc809e8f7328486268021808358add817a2b"
+    },
+    {
+      "instance_id": "gsd-build__get-shit-done-2186",
+      "attempt_id": "sha256:5fa726d841f5bae1b4fe2f54bf1e7ba23ce3a7348e2108c25285ebd9b736f673",
+      "verification_status": "failed",
+      "evaluator_summary_id": "sha256:a615cded7108b571c075f56201022d8d59dee0a3a2a31f0d7e007b4eb64b5586",
+      "evaluator_summary_digest": "sha256:f51e2fc007fc2e051a12088e406636165ec358388f34884f4d98d747f148b0c8"
+    },
+    {
+      "instance_id": "docsifyjs__docsify-2595",
+      "attempt_id": "sha256:d0bfe24347766b845bebb31e49e6a3abe9494ebe3a25125bb6c3d5cddf6cfd08",
+      "verification_status": "failed",
+      "evaluator_summary_id": "sha256:a7e844e066695a09a3da364aab49b114fedf563dbaa911b4d6b2a55306cad214",
+      "evaluator_summary_digest": "sha256:0e9b3fb58156250eed3a97dd4b3fbc99cd4800484baa2357940a55101fb27f01"
+    },
+    {
+      "instance_id": "openai__codex-plugin-cc-83",
+      "attempt_id": "sha256:47dff4348aac236c56a1f2938bab014bbfceca55b28dfeeca56ae86523132a63",
+      "verification_status": "failed",
+      "evaluator_summary_id": "sha256:0a3c5f4bc5f3d6e551641ddf46cfc1ecc2f8dba087a56676a6ee4a4be2c2cc7e",
+      "evaluator_summary_digest": "sha256:475c5a06dad9d61faed11545c6ea912725f4cb8f42b3232452e1f0a7a574d861"
+    },
+    {
+      "instance_id": "aralroca__next-translate-1259",
+      "attempt_id": "sha256:fc565bb50b4071b091e464c059802ef62886093266bc4f8bf0aea7641ea2a05d",
+      "verification_status": "failed",
+      "evaluator_summary_id": "sha256:7ca984b1ca01c9a2ef9ff79db834aeeb3fd0468567996fc3e1b3671f51b38e77",
+      "evaluator_summary_digest": "sha256:be293efcc3624e0c717f836f7e64a6cb87eec1a35706ccb906628d2d3f7221e0"
+    },
+    {
+      "instance_id": "MetaMask__metamask-mobile-17294",
+      "attempt_id": "sha256:84ff33a6206ca71076dcdd7a24f8a59cd2f0ed80c148ba09dffc9c833243bdeb",
+      "verification_status": "passed",
+      "evaluator_summary_id": "sha256:2ce9d038345e4ad63ecd7aefce3cfc79a46431092f83beeaae2fcce7f331babd",
+      "evaluator_summary_digest": "sha256:60b51af6e2cb94b950d3dd459028905c92ebef34f2c3e6a789de4748cab7b186"
+    },
+    {
+      "instance_id": "denoland__std-6775",
+      "attempt_id": "sha256:1b3f5cd421ae98c680bcb7b4a0ac22d03112d13a97f57b62227d383c94cf8279",
+      "verification_status": "passed",
+      "evaluator_summary_id": "sha256:caca44f5a662599e973fb91ae24e64bad176eac6919944e676e96e0daacb52bf",
+      "evaluator_summary_digest": "sha256:c9f806fd231d0d8ec62c4d681965fc821c6fa2175e8f110bc40cfbac341f3ab7"
+    },
+    {
+      "instance_id": "RocketChat__Rocket.Chat.ReactNative-6382",
+      "attempt_id": "sha256:ed3ec6e0d53458ecb154de375288a2fc48c1e7b52f377c42da6c5eaa00020829",
+      "verification_status": "failed",
+      "evaluator_summary_id": "sha256:0f8ade4ac4581d45381f97ffa5377e2acce93781bbaefc1b5430aee052157ae6",
+      "evaluator_summary_digest": "sha256:04bd04f59ec5654e358121e1e31fbfa88aea4392b513eb35233432a1a60c7773"
+    },
+    {
+      "instance_id": "jhlywa__chess.js-546",
+      "attempt_id": "sha256:1281689729a4c9dd253f72e31eda52255f4df225dbb003e40cb84d226660b505",
+      "verification_status": "failed",
+      "evaluator_summary_id": "sha256:68685850eba2570e652fc01894312d3700c7b665a6f73a12327b68ce82844362",
+      "evaluator_summary_digest": "sha256:7420a7f36769f562b8544d6eed7c5a32461efb647ebf71d23d5ffeae064f9a60"
+    },
+    {
+      "instance_id": "code-yeongyu__oh-my-openagent-3013",
+      "attempt_id": "sha256:bc26364d59dacb32c10c221480da12675e637265d250d7ebf9310a80b0cb50d2",
+      "verification_status": "failed",
+      "evaluator_summary_id": "sha256:b74f5baf827b720e8aa75a1170107642b01d90d487eb2dfb169227344df09d7e",
+      "evaluator_summary_digest": "sha256:bbf41910cbeae544e4606b5f6ebbc2ed30eb96b2361596b011a21e15770bdd2b"
+    },
+    {
+      "instance_id": "honojs__hono-4269",
+      "attempt_id": "sha256:1d3b49f16cefff0e3b296f178dac960ee8891aa875c3091517a5324e7284448c",
+      "verification_status": "failed",
+      "evaluator_summary_id": "sha256:69427a2ab01fa08fd61fb98db71d79f1c57c24a86c272d61e32c5089dee3ece2",
+      "evaluator_summary_digest": "sha256:ca23824c3f14cd6a22f6f2f1ce1f17e4222bb4fdd251480e0721135376c5a000"
+    },
+    {
+      "instance_id": "TanStack__router-4611",
+      "attempt_id": "sha256:78d3ab3a29c789ca60c78701b7a055771fec1f363df6b699940cb7213f92b904",
+      "verification_status": "failed",
+      "evaluator_summary_id": "sha256:1ea4a0563a8db2553e7570408fe40f924cb4656a10af9510a598b337d4ee523e",
+      "evaluator_summary_digest": "sha256:e2252b2be210e2d80c2b2924acf1ccb86afff7560d92825197a39876c114fcc5"
+    },
+    {
+      "instance_id": "openai__openai-agents-js-156",
+      "attempt_id": "sha256:8b010d5e5d0c103d3026e24a07007cf780206648bf0c9373bfd58ccd02e4d343",
+      "verification_status": "failed",
+      "evaluator_summary_id": "sha256:db680b8da7b99cb8c68cffbf8c696f504913538331cd88ac79bea234c0f72183",
+      "evaluator_summary_digest": "sha256:11f1e23ec38227b9be3abc1737566807d9a476eb801a292003b3b0721bee8bcb"
+    }
+  ],
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:c909def22ab8dbfa07c873a94f50de97dadd744b9f361b6e1162c1d78a63cd12",
+    "signature": "NLNjED6c6GVgcyVCJ1u5nsltFiI8vXXXFR/kO7gLHWLOtGIVn7zmwCgWkOyZMQxivr7NLWl5k2VZeug+zdXTAA=="
+  }
+}

@@ -1,0 +1,1310 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/danjdewhurst/story-skills/schemas/result.schema.json",
+  "title": "Story Skills CLI result, apiVersion story/v2",
+  "$comment": "The object `story <command> --json` prints. The envelope is the same for every command; `data` depends on `command` and is described under $defs/data-<command>. A failure before the command produced a result (a usage error, a missing project) has data null. Fields may be added within story/v2; renaming, removing, or retyping one changes apiVersion. story/v2 made diagnostics[].code the finding's rule code (story/v1, in 0.16.0, had the check name there) and added diagnostics[].check.",
+  "type": "object",
+  "required": ["apiVersion", "command", "ok", "data", "diagnostics", "writes"],
+  "properties": {
+    "apiVersion": { "const": "story/v2" },
+    "command": {
+      "enum": ["validate", "links", "continuity", "check", "series", "next", "doctor", "report", "knowledge", "context", "timeline", "prose", "voices", "pacing", "clues", "progress", "similarity", "add", "rename", "remove", "move", "split", "merge", "reindex", "migrate", "wordcount", "names", "mentions", "compare", "passes", "diagram", "synopsis", "grid", "list", "snapshot", "export", "build", "init", "import"]
+    },
+    "ok": { "type": "boolean", "description": "True exactly when the command exits 0." },
+    "data": { "type": ["object", "null"] },
+    "diagnostics": { "type": "array", "items": { "$ref": "#/$defs/diagnostic" } },
+    "writes": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "Absolute paths of the files the command created or updated; empty for a --dry-run. A real init or import that failed partway lists the files it had already written, with data null." }
+  },
+  "allOf": [
+    { "if": { "properties": { "command": { "enum": ["validate", "links", "continuity"] }, "data": { "type": "object" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/data-check" } } } },
+    { "if": { "properties": { "command": { "const": "check" }, "data": { "type": "object" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/data-check-all" } } } },
+    { "if": { "properties": { "command": { "const": "series" }, "data": { "type": "object" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/data-series" } } } },
+    { "if": { "properties": { "command": { "enum": ["next", "doctor"] }, "data": { "type": "object" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/data-next" } } } },
+    { "if": { "properties": { "command": { "const": "next" }, "data": { "type": "object" } } }, "then": { "properties": { "data": { "required": ["release"] } } } },
+    { "if": { "properties": { "command": { "const": "report" }, "data": { "type": "object" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/data-report" } } } },
+    { "if": { "properties": { "command": { "const": "knowledge" }, "data": { "type": "object" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/data-knowledge" } } } },
+    { "if": { "properties": { "command": { "const": "context" }, "data": { "type": "object" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/data-context" } } } },
+    { "if": { "properties": { "command": { "const": "timeline" }, "data": { "type": "object" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/data-timeline" } } } },
+    { "if": { "properties": { "command": { "const": "prose" }, "data": { "type": "object" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/data-prose" } } } },
+    { "if": { "properties": { "command": { "const": "voices" }, "data": { "type": "object" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/data-voices" } } } },
+    { "if": { "properties": { "command": { "const": "pacing" }, "data": { "type": "object" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/data-pacing" } } } },
+    { "if": { "properties": { "command": { "const": "clues" }, "data": { "type": "object" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/data-clues" } } } },
+    { "if": { "properties": { "command": { "const": "progress" }, "data": { "type": "object" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/data-progress" } } } },
+    { "if": { "properties": { "command": { "const": "similarity" }, "data": { "type": "object" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/data-similarity" } } } },
+    { "if": { "properties": { "command": { "enum": ["add", "rename", "remove", "move", "split", "merge", "reindex", "migrate", "wordcount"] }, "data": { "type": "object" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/data-write" } } } },
+    { "if": { "properties": { "command": { "const": "names" }, "data": { "type": "object" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/data-names" } } } },
+    { "if": { "properties": { "command": { "const": "mentions" }, "data": { "type": "object" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/data-mentions" } } } },
+    { "if": { "properties": { "command": { "const": "compare" }, "data": { "type": "object" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/data-compare" } } } },
+    { "if": { "properties": { "command": { "const": "passes" }, "data": { "type": "object" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/data-passes" } } } },
+    { "if": { "properties": { "command": { "const": "diagram" }, "data": { "type": "object" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/data-diagram" } } } },
+    { "if": { "properties": { "command": { "const": "synopsis" }, "data": { "type": "object" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/data-synopsis" } } } },
+    { "if": { "properties": { "command": { "const": "grid" }, "data": { "type": "object" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/data-grid" } } } },
+    { "if": { "properties": { "command": { "const": "list" }, "data": { "type": "object" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/data-list" } } } },
+    { "if": { "properties": { "command": { "const": "snapshot" }, "data": { "type": "object" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/data-snapshot" } } } },
+    { "if": { "properties": { "command": { "const": "export" }, "data": { "type": "object" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/data-export" } } } },
+    { "if": { "properties": { "command": { "const": "build" }, "data": { "type": "object" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/data-build" } } } },
+    { "if": { "properties": { "command": { "const": "init" }, "data": { "type": "object" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/data-init" } } } },
+    { "if": { "properties": { "command": { "const": "import" }, "data": { "type": "object" } } }, "then": { "properties": { "data": { "$ref": "#/$defs/data-import" } } } },
+    { "if": { "properties": { "data": { "type": "null" } } }, "then": { "properties": { "ok": { "const": false } } } }
+  ],
+  "$defs": {
+    "diagnostic": {
+      "type": "object",
+      "required": ["severity", "file", "message", "code", "check"],
+      "properties": {
+        "severity": { "enum": ["error", "warning", "dismissed"] },
+        "file": { "type": ["string", "null"], "description": "The project file the finding is about, relative to the project root (a linked book's file starts with its folder); stdin for a finding about a passage piped to prose - or voices -; or null when it is about no one project file (an import finding about the manuscript names it in source)." },
+        "chapter": { "type": ["string", "null"], "description": "The id of the chapter the finding shows up in, for the story continuity findings that carry one (docs/continuity.md lists them); null otherwise. An exemption's chapter key matches it." },
+        "message": { "type": "string", "minLength": 1, "description": "The finding as the text output prints it, without the [code] the text output adds after a warning or a promoted warning." },
+        "code": { "enum": ["unreadable-file", "missing-required-path", "windows-reserved-name", "stray-file", "nested-file", "symlinked-file", "interrupted-write", "interrupted-change", "stale-registry", "stale-word-count", "todo-markers", "unclosed-comment", "ambiguous-scene-break", "outline-without-chapter-text", "unsupported-footnote", "no-scene-records", "empty-chapter", "beat-too-long", "missing-field", "field-not-scalar", "field-not-list", "field-invalid-items", "field-not-integer", "field-not-number", "field-not-boolean", "field-not-text", "field-below-minimum", "unsupported-value", "id-not-kebab", "shared-id", "near-miss-key", "frontmatter-id", "wrong-type", "story-id-mismatch", "substitute-story-id", "entry-not-mapping", "schema-too-new", "schema-version-mismatch", "invalid-book-number", "invalid-ifid", "invalid-cover", "invalid-build-style", "invalid-date", "invalid-calendar", "invalid-cli-config", "invalid-filename", "filename-number-mismatch", "duplicate-chapter-number", "duplicate-scene-number", "unnumbered-without-title", "invalid-choice", "invalid-route-hours", "duplicate-route", "deceased-without-died-in", "progression-fixed-field", "progression-list-field", "progression-duplicate", "progression-out-of-order", "duplicate-pass", "duplicate-query", "invalid-query", "query-unknown-key", "exemption-pattern-too-short", "exemption-unknown-code", "exemption-code-not-dismissible", "exemption-file-not-relative", "exemption-too-broad", "exemption-misspelled-key", "exemption-unknown-key", "exemption-chapter-not-carried", "style-use-equals-avoid", "style-sample-missing", "style-sample-own-chapters", "style-sample-duplicate", "unknown-word-list", "duplicate-session-date", "research-no-sources", "research-unsettled", "research-unreviewed", "empty-matter", "matter-todo-markers", "permission-pending", "permission-no-rights-holder", "backslash-path", "form-length-range", "unused-target", "session-without-characters", "invalid-language", "unsupported-writing-mode", "unsupported-chapter-numerals", "invalid-isbn", "invalid-subject", "too-many-keywords", "todo-placeholder", "author-and-authors", "unknown-label", "blank-label", "missing-reference", "missing-backlink", "backlink-type-mismatch", "legacy-backlink-type", "route-to-self", "broken-link", "link-backslash", "link-not-kebab", "link-outside-project", "unreachable-chapter", "series-link-backslash", "series-link-self", "series-link-unreadable", "series-link-not-project", "series-link-not-sibling", "series-missing-backlink", "series-link-other-series", "revived-without-death", "died-in-missing-chapter", "revived-in-missing-chapter", "revival-before-death", "death-status-mismatch", "revival-status-mismatch", "posthumous-appearance", "deceased-in-cast", "progression-deceased-in-cast", "progression-death-conflict", "pov-not-in-cast", "pov-scene-mismatch", "named-not-listed", "scene-cast-not-in-chapter", "scene-location-not-in-chapter", "cut-character-in-cast", "cut-character-in-arc", "cut-character-relationship", "chapter-numbering-start", "chapter-numbering-gap", "promise-payoff-before-plant", "promise-payoff-missing", "promise-plant-missing", "promise-stale-planned", "promise-payoff-passed", "promise-unpaid", "question-resolved-before-introduced", "question-resolution-missing", "question-open-but-resolved", "question-unanswered", "clue-payoff-before-plant", "clue-payoff-missing", "clue-plant-missing", "clue-stale-planned", "clue-payoff-passed", "clue-unpaid", "complete-with-open-promise", "complete-with-open-question", "complete-with-open-clue", "current-chapter-ahead", "current-chapter-behind", "state-missing-character", "state-missing-location", "state-missing-artifact", "state-missing-owner", "state-missing-chapter", "state-missing-knows", "state-fact-not-kebab", "state-duplicate-fact", "state-duplicate-character", "state-duplicate-artifact", "state-status-conflict", "posthumous-learning", "deceased-learning", "progression-deceased-learning", "learner-not-in-cast", "knowledge-not-recorded", "state-tracks-dead-character", "state-location-drift", "object-not-recorded", "state-object-drift", "state-differs-by-path", "gone-artifact-used", "gone-artifact-mentioned", "malformed-date", "malformed-time", "negative-travel-hours", "travel-hours-undated", "clock-backward", "travel-too-fast", "route-same-time", "route-too-fast", "series-link-outside", "series-too-many-books", "series-conflict", "series-id-missing", "series-title-mismatch", "series-cycle", "duplicate-book-number", "canon-name-mismatch", "canon-pronunciation-mismatch", "canon-death-status", "canon-posthumous-appearance", "canon-posthumous-learning", "canon-destroyed-status", "canon-destroyed-artifact-used", "canon-fact-relearned", "prose-filter-words", "prose-adverbs", "prose-bookisms", "prose-avoided-spelling", "prose-uniform-sentences", "prose-similar-names", "prose-baseline-sentences", "prose-baseline-paragraphs", "prose-baseline-dialogue", "prose-baseline-filter-words", "prose-baseline-adverbs", "prose-baseline-small", "style-sample-unreadable", "pacing-no-hook", "pacing-no-sequel", "pacing-easy-wins", "pacing-resolution-run", "pacing-long-chapter", "pacing-short-chapter", "clue-unplanted", "clue-late-plant", "clue-no-characters", "clue-herring-unresolved", "clue-none-delayed", "voice-avoid", "voice-words-unused", "voice-sound-alike", "mention-not-named", "name-clash", "name-look-alike", "name-shared-initial", "context-file-skipped", "release-undrafted", "story-missing-at-ref", "similarity-shared-passage", "similarity-no-reference-text", "derived-ifid", "scene-outside-book", "scene-no-location", "scene-unknown-location", "chapter-no-scenes", "scene-no-setting", "permission-pending-left-out", "matter-placement-left-out", "unknown-reference", "adopted-references", "prose-name-shared", "linked-book-id", "choices-dropped", "leftover-references", "stale-exemption", "stale-query", "ambiguous-references", "split-references", "split-scenes", "merge-conflicts", "folder-not-removed", "kept-story-options", "unsplit-chapter-lines", "unused-chapter-text", "usage-error", "unusable-project", "write-refused", "command-failed"], "description": "The stable rule code of the finding, as docs/cli-reference.md lists it and story.md severity names it. A command that failed before producing a result uses usage-error, unusable-project, write-refused, or command-failed." },
+        "check": { "type": "string", "minLength": 1, "description": "The check that raised the finding: validate, links, continuity, or the command name." },
+        "source": { "type": "string", "minLength": 1, "description": "import only, for a finding about the manuscript rather than a project file (unsplit-chapter-lines, unused-chapter-text): the manuscript file's absolute path, or stdin for one piped in. Its file is null." },
+        "exemption": { "type": "string", "description": "For a dismissed finding, the reason from continuity/exemptions.md, or \"severity <code> is off in story.md\" for a warning a story.md severity entry turned off." },
+        "exemptionIndex": { "type": ["integer", "null"], "minimum": 0, "description": "For a dismissed finding, the index in the continuity/exemptions.md exemptions list of the entry that matched it (exemptions[i] in story validate's messages), or null when a story.md severity entry turned it off." }
+      }
+    },
+    "count": { "type": "integer", "minimum": 0 },
+    "check-summary": {
+      "type": "object",
+      "required": ["ok", "errors", "warnings", "dismissed"],
+      "properties": {
+        "ok": { "type": "boolean" },
+        "errors": { "$ref": "#/$defs/count" },
+        "warnings": { "$ref": "#/$defs/count" },
+        "dismissed": { "$ref": "#/$defs/count" }
+      }
+    },
+    "action": {
+      "type": "object",
+      "required": ["priority", "title", "detail"],
+      "properties": {
+        "priority": { "enum": ["P0", "P1", "P2", "P3"] },
+        "title": { "type": "string" },
+        "detail": { "type": "string" }
+      }
+    },
+    "word-count": {
+      "type": "object",
+      "required": ["word", "count"],
+      "properties": { "word": { "type": "string" }, "count": { "$ref": "#/$defs/count" } }
+    },
+    "skipped-checks": {
+      "type": "array",
+      "description": "Checks the story's language pack has no word lists for, so they did not run; empty for English.",
+      "items": {
+        "type": "object",
+        "required": ["check", "language", "missing", "message"],
+        "properties": {
+          "check": { "type": "string", "description": "The skipped check, such as filter-words or speech-tags." },
+          "language": { "type": "string", "description": "The story.md language tag." },
+          "missing": { "type": "array", "items": { "type": "string" }, "description": "The word lists the pack lacks." },
+          "message": { "type": "string", "description": "The note the text output prints." }
+        }
+      }
+    },
+    "data-check": {
+      "type": "object",
+      "required": ["errors", "warnings", "dismissed"],
+      "properties": {
+        "errors": { "$ref": "#/$defs/count" },
+        "warnings": { "$ref": "#/$defs/count" },
+        "dismissed": { "$ref": "#/$defs/count" }
+      }
+    },
+    "data-check-all": {
+      "type": "object",
+      "$comment": "errors, warnings, and dismissed count the diagnostics: each finding once, and with strict every warning as an error. checks summarizes each check's own result, as story validate, links, and continuity report it.",
+      "required": ["errors", "warnings", "dismissed", "strict", "checks"],
+      "properties": {
+        "errors": { "$ref": "#/$defs/count" },
+        "warnings": { "$ref": "#/$defs/count" },
+        "dismissed": { "$ref": "#/$defs/count" },
+        "strict": { "type": "boolean" },
+        "checks": { "$ref": "#/$defs/checks" }
+      }
+    },
+    "data-series": {
+      "type": "object",
+      "required": ["root", "series", "seriesTitle", "books", "ordered", "shared"],
+      "properties": {
+        "root": { "type": "string" },
+        "series": { "type": ["string", "null"] },
+        "seriesTitle": { "type": ["string", "null"] },
+        "books": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["title", "label", "bookNumber", "status"],
+            "properties": {
+              "title": { "type": "string" },
+              "label": { "type": "string" },
+              "bookNumber": { "type": ["number", "null"] },
+              "status": { "description": "The book's story.md status as written, or null when unset." }
+            }
+          }
+        },
+        "ordered": { "type": "boolean" },
+        "shared": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["label", "ids"],
+            "properties": { "label": { "type": "string" }, "ids": { "type": "array", "items": { "type": "string" } } }
+          }
+        }
+      }
+    },
+    "data-next": {
+      "type": "object",
+      "required": ["root", "title", "storyId", "actions", "checks"],
+      "properties": {
+        "root": { "type": "string" },
+        "title": { "type": "string" },
+        "storyId": { "type": "string" },
+        "actions": { "type": "array", "items": { "$ref": "#/$defs/action" } },
+        "checks": { "$ref": "#/$defs/checks" },
+        "release": { "$ref": "#/$defs/release", "description": "Only on next: the serial release schedule." },
+        "fix": { "$ref": "#/$defs/doctor-fix" }
+      }
+    },
+    "release": {
+      "type": ["object", "null"],
+      "description": "The serial release schedule on --date, or null when story.md sets no release-every cadence and no chapter has a release-date. Each chapter is an episode, in reading order.",
+      "required": ["every", "unit", "start", "warnDays", "complete", "last", "next", "episodes"],
+      "properties": {
+        "every": { "type": ["integer", "null"], "minimum": 1, "description": "The number of days or months between episodes from story.md release-every, or null without a cadence." },
+        "unit": { "enum": ["day", "month", null], "description": "day for a release-every day count, month for a monthly cadence such as 1 month, or null without a cadence." },
+        "start": { "type": ["string", "null"], "description": "story.md release-start, or null without a cadence." },
+        "warnDays": { "type": "integer", "minimum": 0, "description": "story.md release-warn-days, or 3 when it is unset or invalid: an episode with no prose due within this many days, or past due, is a release-undrafted warning." },
+        "complete": { "type": "boolean", "description": "True when story.md has status: complete. The chapters are then every episode there is: the cadence stops at the last one, and nothing is scheduled past it." },
+        "last": { "type": ["integer", "null"], "minimum": 1, "description": "The episode number of a complete story's final release, when every chapter has a release date; otherwise null." },
+        "next": {
+          "type": ["object", "null"],
+          "description": "The first release today or later, or null when none is scheduled. chapter and file are null for an episode the cadence schedules past the last chapter, which a complete story never has.",
+          "required": ["episode", "chapter", "file", "date", "drafted", "daysUntil"],
+          "properties": {
+            "episode": { "type": "integer", "minimum": 1 },
+            "chapter": { "type": ["string", "null"] },
+            "file": { "type": ["string", "null"] },
+            "date": { "type": "string" },
+            "drafted": { "type": "boolean" },
+            "daysUntil": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "episodes": {
+          "type": "array",
+          "description": "Each chapter with a release date, from its release-date or the cadence.",
+          "items": {
+            "type": "object",
+            "required": ["episode", "chapter", "file", "date", "drafted"],
+            "properties": {
+              "episode": { "type": "integer", "minimum": 1 },
+              "chapter": { "type": "string" },
+              "file": { "type": "string" },
+              "date": { "type": "string" },
+              "drafted": { "type": "boolean" }
+            }
+          }
+        }
+      }
+    },
+    "doctor-fix": {
+      "type": "object",
+      "description": "Only on doctor --fix: the safe repairs it applied. actions, checks, and diagnostics are the diagnosis made after them.",
+      "required": ["dryRun", "repairs", "stopped", "changes"],
+      "properties": {
+        "dryRun": { "type": "boolean", "description": "True for --dry-run, which changed nothing: the repairs ran on a copy of the project, and writes is empty." },
+        "repairs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["command", "codes", "changes"],
+            "properties": {
+              "command": { "enum": ["undo", "migrate", "wordcount --write", "reindex"], "description": "The story command the repair ran; undo puts back a change a split, merge, move, rename, or remove left part way, and is not a command of its own." },
+              "codes": { "type": "array", "items": { "type": "string" }, "description": "The finding codes that called for this repair." },
+              "changes": { "type": "array", "items": { "$ref": "#/$defs/change" } }
+            }
+          }
+        },
+        "stopped": { "type": ["string", "null"], "description": "Why a repair could not run (a file that does not parse), after which no later repair was tried; null when every due repair ran." },
+        "changes": { "type": "array", "items": { "$ref": "#/$defs/change" }, "description": "Every change the repairs made, sorted by path." }
+      }
+    },
+    "change": {
+      "type": "object",
+      "required": ["action", "path"],
+      "properties": {
+        "action": { "enum": ["create", "update", "delete", "mkdir", "rmdir"] },
+        "path": { "type": "string", "minLength": 1, "description": "Relative to the project root, with / separators." }
+      }
+    },
+    "checks": {
+      "type": "object",
+      "required": ["validate", "links", "continuity"],
+      "properties": {
+        "validate": { "$ref": "#/$defs/check-summary" },
+        "links": { "$ref": "#/$defs/check-summary" },
+        "continuity": { "$ref": "#/$defs/check-summary" }
+      }
+    },
+    "data-report": {
+      "type": "object",
+      "$comment": "series, bookNumber, genre, subGenre, status, pov, tense, and schemaVersion are copied from story.md frontmatter as written, or null when unset.",
+      "required": ["root", "title", "storyId", "schemaVersion", "series", "bookNumber", "genre", "subGenre", "form", "status", "pov", "tense", "unit", "targetWords", "targetCharacters", "counts", "chapters", "arcs", "checks", "actions"],
+      "properties": {
+        "root": { "type": "string" },
+        "title": { "type": "string" },
+        "storyId": { "type": "string" },
+        "form": { "type": "string" },
+        "unit": { "enum": ["words", "characters"], "description": "The book's count unit: characters for Chinese and Japanese, or story.md count-unit; words otherwise." },
+        "targetWords": { "type": ["integer", "null"] },
+        "targetCharacters": { "type": ["integer", "null"], "description": "story.md target-characters in a book counted in characters, else null." },
+        "counts": {
+          "type": "object",
+          "required": ["characters", "locations", "systems", "factions", "artifacts", "arcs", "chapters", "scenes", "questions", "promises", "clues", "glossaryTerms", "research", "words", "characterCount"],
+          "properties": {
+            "characters": { "$ref": "#/$defs/count" },
+            "locations": { "$ref": "#/$defs/count" },
+            "systems": { "$ref": "#/$defs/count" },
+            "factions": { "$ref": "#/$defs/count" },
+            "artifacts": { "$ref": "#/$defs/count" },
+            "arcs": { "$ref": "#/$defs/count" },
+            "chapters": { "$ref": "#/$defs/count" },
+            "scenes": { "$ref": "#/$defs/count" },
+            "questions": { "$ref": "#/$defs/count" },
+            "promises": { "$ref": "#/$defs/count" },
+            "clues": { "$ref": "#/$defs/count" },
+            "glossaryTerms": { "$ref": "#/$defs/count" },
+            "research": { "$ref": "#/$defs/count" },
+            "words": { "$ref": "#/$defs/count" },
+            "characterCount": { "type": ["integer", "null"], "minimum": 0, "description": "The manuscript's prose (not the characters entity count) in characters, or null in a book counted in words." }
+          }
+        },
+        "chapters": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["number", "title", "status", "pov", "wordCount", "characterCount"],
+            "properties": { "wordCount": { "$ref": "#/$defs/count" }, "characterCount": { "type": ["integer", "null"], "minimum": 0, "description": "The chapter's prose in characters, or null in a book counted in words." } }
+          }
+        },
+        "arcs": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["name", "type", "status", "characters"],
+            "properties": { "characters": { "$ref": "#/$defs/count" } }
+          }
+        },
+        "checks": { "$ref": "#/$defs/checks" },
+        "actions": { "type": "array", "items": { "$ref": "#/$defs/action" } }
+      }
+    },
+    "data-context": {
+      "type": "object",
+      "required": ["target", "budget", "estimatedTokens", "sections", "omitted", "warnings"],
+      "properties": {
+        "target": {
+          "type": "object",
+          "required": ["kind", "id", "chapter", "number", "title"],
+          "properties": {
+            "kind": { "enum": ["chapter", "scene"] },
+            "id": { "type": "string", "minLength": 1 },
+            "chapter": { "type": "string", "minLength": 1, "description": "The target's chapter id: the target itself, or the scene's chapter." },
+            "number": { "type": "integer", "minimum": 1 },
+            "title": { "type": "string" }
+          }
+        },
+        "budget": { "type": "integer", "minimum": 1 },
+        "estimatedTokens": { "type": "integer", "minimum": 0, "description": "The estimated tokens of the included items, at ceil(words * 4 / 3) each." },
+        "sections": {
+          "type": "array",
+          "description": "Every section in priority order, each with every candidate item; an item's included says whether it fit the budget.",
+          "items": {
+            "type": "object",
+            "required": ["id", "title", "items"],
+            "properties": {
+              "id": { "enum": ["target", "essentials", "pov", "characters", "locations", "threads", "scenes"] },
+              "title": { "type": "string" },
+              "items": { "type": "array", "items": { "$ref": "#/$defs/context-item" } }
+            }
+          }
+        },
+        "omitted": {
+          "type": "array",
+          "description": "The items left out to fit the budget, in priority order.",
+          "items": {
+            "type": "object",
+            "required": ["id", "label", "source", "tokens"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1 },
+              "label": { "type": "string" },
+              "source": { "type": "string", "description": "The project files the item draws on, comma-separated." },
+              "tokens": { "$ref": "#/$defs/count" }
+            }
+          }
+        },
+        "warnings": { "type": "array", "items": { "type": "string" }, "description": "Project files left out because they failed to parse; also reported as diagnostics." }
+      }
+    },
+    "context-item": {
+      "type": "object",
+      "required": ["id", "label", "source", "text", "tokens", "included"],
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "description": "The kind and id, such as character:mara-quill or scene:chapter-02-scene-01." },
+        "label": { "type": "string" },
+        "source": { "type": "string", "description": "The project files the item draws on, comma-separated." },
+        "text": { "type": "string", "description": "The item as markdown." },
+        "tokens": { "$ref": "#/$defs/count" },
+        "included": { "type": "boolean" }
+      }
+    },
+    "data-knowledge": {
+      "type": "object",
+      "required": ["character", "at", "entries", "state", "changes"],
+      "properties": {
+        "character": { "type": "string" },
+        "at": { "type": "string" },
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["knows", "learnedIn", "audience"],
+            "properties": {
+              "knows": { "type": "string" },
+              "learnedIn": { "type": "string", "description": "The chapter id it was learned in, or empty for pre-existing knowledge." },
+              "audience": {
+                "type": "string",
+                "enum": ["reader", "character"],
+                "description": "reader: already shown to the reader, or known before the book. character: known in story time from a chapter the reader has not reached; do not reveal."
+              }
+            }
+          }
+        },
+        "state": { "type": "object", "description": "The character's frontmatter with every progression up to and including the chapter applied, and progressions left out." },
+        "changes": {
+          "type": "array",
+          "description": "The progressions applied by the chapter, oldest first.",
+          "items": {
+            "type": "object",
+            "required": ["field", "value", "from"],
+            "properties": {
+              "field": { "type": "string", "minLength": 1 },
+              "value": { "type": ["string", "number", "boolean"] },
+              "from": { "type": "string", "minLength": 1, "description": "The chapter the change takes effect from." },
+              "previous": { "description": "The value the change replaced; absent when the field was not set before." }
+            }
+          }
+        }
+      }
+    },
+    "data-timeline": {
+      "type": "object",
+      "required": ["unit", "hasCalendar", "totalChapters", "chronology", "undated", "pov", "presence"],
+      "properties": {
+        "unit": { "enum": ["words", "characters"], "description": "The book's count unit: characters for Chinese and Japanese, or story.md count-unit; words otherwise. POV totals, shares, and order use it." },
+        "hasCalendar": { "type": "boolean", "description": "True when story.md has a valid calendar, so chapter and scene dates may be calendar dates." },
+        "totalChapters": { "$ref": "#/$defs/count" },
+        "chronology": { "type": "array", "items": { "$ref": "#/$defs/timeline-scene" } },
+        "undated": { "type": "array", "items": { "$ref": "#/$defs/timeline-scene" } },
+        "pov": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["pov", "chapters", "words", "share"],
+            "properties": {
+              "pov": { "type": "string" },
+              "chapters": { "$ref": "#/$defs/count" },
+              "words": { "$ref": "#/$defs/count" },
+              "characterCount": { "$ref": "#/$defs/count", "description": "The POV's chapters in characters; present only when unit is characters." },
+              "share": { "type": "number", "minimum": 0, "description": "Percent of the book's length in the count unit." }
+            }
+          }
+        },
+        "presence": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "chapters", "first", "last", "longestGap", "gapAfter", "trailing", "died"],
+            "properties": {
+              "id": { "type": "string" },
+              "chapters": { "$ref": "#/$defs/count" },
+              "first": { "type": ["integer", "null"] },
+              "last": { "type": ["integer", "null"] },
+              "longestGap": { "$ref": "#/$defs/count" },
+              "gapAfter": { "type": ["integer", "null"] },
+              "trailing": { "$ref": "#/$defs/count" },
+              "died": { "type": ["integer", "null"] }
+            }
+          }
+        }
+      }
+    },
+    "timeline-scene": {
+      "type": "object",
+      "required": ["id", "file", "title", "chapterNumber", "pov", "location", "date", "time", "reading"],
+      "properties": {
+        "id": { "type": "string" },
+        "file": { "type": "string" },
+        "title": { "type": "string" },
+        "pov": { "type": "string" },
+        "location": { "type": "string" },
+        "date": { "type": "string" },
+        "time": { "type": "string" },
+        "reading": { "$ref": "#/$defs/count" }
+      }
+    },
+    "data-write": {
+      "type": "object",
+      "$comment": "The write commands. The rest of data is the command's result: kind, id, and file (relative to the project root) for add, rename, remove, move, split, and merge, plus oldId for rename and move, and prose for rename --prose ({ edits: [{ file, line, endLine, column, from, to }], aliases, shared }); newId, title, scenesMoved, renumbered, choiceAdded ({ file, index, text, to }, or null in a linear book), and choicesRetargeted ([{ file, index, text, from, to }], with text null for a choice that has none) for split, whose file is the new chapter; mergedId, scenesMoved, renumbered, and choicesRetargeted for merge; chapters and total for wordcount.",
+      "required": ["dryRun", "changes"],
+      "properties": {
+        "undone": {
+          "type": "object",
+          "description": "Only when rename, remove, move, split, or merge first put back the change it left part way when it last ran with the same arguments: the command that stopped, and the files it had changed, which were put back.",
+          "required": ["command", "files"],
+          "properties": {
+            "command": { "type": "string", "minLength": 1, "description": "The command that stopped, as typed and as its undo log names it: story split chapter-03 --at 2." },
+            "files": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "The files put back, relative to the project root, with / separators." }
+          }
+        },
+        "dryRun": { "type": "boolean", "description": "True for a --dry-run, which changed nothing: changes lists what the command would do, and writes is empty." },
+        "changes": {
+          "type": "array",
+          "description": "Every file the command created, updated, or deleted, and every folder it made, sorted by path.",
+          "items": { "$ref": "#/$defs/change" }
+        }
+      }
+    },
+    "name-match": {
+      "type": "object",
+      "required": ["kind", "id", "name", "full", "file"],
+      "properties": {
+        "kind": { "enum": ["character", "location", "faction", "artifact", "system", "term"] },
+        "id": { "type": "string", "minLength": 1 },
+        "name": { "type": "string", "minLength": 1, "description": "The existing name or alias matched: a character's given name when the match is on it." },
+        "full": { "type": "string", "minLength": 1, "description": "The whole name the matched name belongs to." },
+        "file": { "type": "string", "minLength": 1, "description": "The entity's file, relative to the project root, with / separators." }
+      }
+    },
+    "data-names": {
+      "type": "object",
+      "required": ["names"],
+      "properties": {
+        "names": {
+          "type": "array",
+          "description": "One entry per candidate name, in the order given.",
+          "items": {
+            "type": "object",
+            "required": ["name", "status", "clashes", "lookalikes", "initials"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1 },
+              "status": { "enum": ["clear", "check", "taken"], "description": "taken with a clash, check with only look-alikes or shared initials, else clear: the word the text output prints." },
+              "clashes": { "type": "array", "items": { "$ref": "#/$defs/name-match" }, "description": "Existing names it clashes with; each is a name-clash error." },
+              "lookalikes": { "type": "array", "items": { "$ref": "#/$defs/name-match" }, "description": "Existing names it looks like; each is a name-look-alike warning." },
+              "initials": { "type": "array", "items": { "$ref": "#/$defs/name-match" }, "description": "Major characters whose given name shares its initial; each is a name-shared-initial warning." }
+            }
+          }
+        }
+      }
+    },
+    "data-mentions": {
+      "type": "object",
+      "$comment": "With no kind and id (mode audit), kind, id, names, chapters, and matches are null and the findings are the diagnostics.",
+      "required": ["mode", "kind", "id", "names", "chapters", "matches"],
+      "properties": {
+        "mode": { "enum": ["entity", "audit"] },
+        "kind": { "enum": ["character", "location", "faction", "artifact", "system", "term", null] },
+        "id": { "type": ["string", "null"] },
+        "names": { "type": ["array", "null"], "items": { "type": "string" }, "description": "The names looked for: the entity's name, a character's given name, and its aliases." },
+        "chapters": {
+          "type": ["array", "null"],
+          "description": "Each drafted (not outline) chapter, in chapter order, whose prose names the entity or whose frontmatter lists it.",
+          "items": {
+            "type": "object",
+            "required": ["chapter", "file", "count", "listed"],
+            "properties": {
+              "chapter": { "type": "string" },
+              "file": { "type": "string", "description": "The chapter file, relative to the project root, with / separators." },
+              "count": { "type": "integer", "minimum": 0 },
+              "listed": { "type": ["boolean", "null"], "description": "Whether the chapter's frontmatter lists the entity (pov, characters, or mentions for a character; locations for a location; mentions for an artifact), or null for a kind chapters do not list." }
+            }
+          }
+        },
+        "matches": {
+          "type": ["array", "null"],
+          "description": "Each place the prose names the entity, in chapter and text order.",
+          "items": {
+            "type": "object",
+            "required": ["chapter", "file", "line", "column", "text", "excerpt"],
+            "properties": {
+              "chapter": { "type": "string" },
+              "file": { "type": "string" },
+              "line": { "type": "integer", "minimum": 1, "description": "The line in the chapter file, counting its frontmatter." },
+              "column": { "type": "integer", "minimum": 1 },
+              "text": { "type": "string", "description": "The name as the prose writes it." },
+              "excerpt": { "type": "string", "description": "The line around the match, trimmed." }
+            }
+          }
+        }
+      }
+    },
+    "data-compare": {
+      "type": "object",
+      "$comment": "In chapters mode, anchors is null; with --anchor (anchors mode), chapters and the four totals are null.",
+      "required": ["mode", "label", "chapters", "beforeChapters", "afterChapters", "beforeWords", "afterWords", "anchors"],
+      "properties": {
+        "mode": { "enum": ["chapters", "anchors"] },
+        "label": { "type": "string", "description": "\"git ref <ref>\", the absolute path of the --against project, or \"snapshot <id>\"." },
+        "chapters": {
+          "type": ["array", "null"],
+          "items": {
+            "type": "object",
+            "required": ["id", "title", "status", "before", "after", "unchanged", "movedFrom"],
+            "properties": {
+              "id": { "type": "string" },
+              "title": { "type": "string" },
+              "status": { "enum": ["unchanged", "changed", "added", "removed"] },
+              "before": { "$ref": "#/$defs/count", "description": "Words in the earlier draft; 0 for an added chapter." },
+              "after": { "$ref": "#/$defs/count", "description": "Words now; 0 for a removed chapter." },
+              "unchanged": { "type": "number", "minimum": 0, "description": "The share of paragraphs unchanged, from 0 to 1." },
+              "movedFrom": { "type": ["string", "null"], "description": "The chapter's id in the earlier draft when it moved, else null." }
+            }
+          }
+        },
+        "beforeChapters": { "type": ["integer", "null"], "minimum": 0 },
+        "afterChapters": { "type": ["integer", "null"], "minimum": 0 },
+        "beforeWords": { "type": ["integer", "null"], "minimum": 0 },
+        "afterWords": { "type": ["integer", "null"], "minimum": 0 },
+        "anchors": {
+          "type": ["array", "null"],
+          "items": {
+            "type": "object",
+            "required": ["label", "status", "to", "similarity", "excerpt"],
+            "properties": {
+              "label": { "type": "string" },
+              "status": { "enum": ["unchanged", "edited", "not-found", "unknown"] },
+              "to": { "type": ["string", "null"], "description": "The current label, for an unchanged or edited paragraph." },
+              "similarity": { "type": ["number", "null"], "description": "From 0 to 1, for an unchanged or edited paragraph." },
+              "excerpt": { "type": ["string", "null"], "description": "The opening words of a paragraph not found in the current text." }
+            }
+          }
+        }
+      }
+    },
+    "data-passes": {
+      "type": "object",
+      "required": ["passes", "done", "next", "changed", "notes", "dryRun", "changes"],
+      "properties": {
+        "passes": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["pass", "status", "focus", "checks"],
+            "properties": {
+              "pass": { "type": "string", "minLength": 1 },
+              "status": { "type": "string", "description": "pending, in-progress, or done (as story.md records it)." },
+              "focus": { "type": ["string", "null"], "description": "What a default pass looks for; null for a custom pass." },
+              "checks": { "type": ["array", "null"], "items": { "type": "string" }, "description": "The commands that help with a default pass, pointed at the project; null for a custom pass." }
+            }
+          }
+        },
+        "done": { "$ref": "#/$defs/count" },
+        "next": { "type": ["string", "null"], "description": "The pass in progress, else the first not done; null when all are done or none are recorded." },
+        "changed": { "type": "boolean", "description": "True when --init, --start, or --done rewrote story.md." },
+        "notes": { "type": "array", "items": { "type": "string" }, "description": "The note: lines the text output prints, such as a custom pass that may be a typo." },
+        "dryRun": { "type": "boolean", "description": "True for a --dry-run, which changed nothing: changes lists what the command would do, and writes is empty." },
+        "changes": { "type": "array", "description": "Every file the command created or updated, and every folder it made, sorted by path; empty when it wrote nothing.", "items": { "$ref": "#/$defs/change" } }
+      }
+    },
+    "data-diagram": {
+      "type": "object",
+      "required": ["kind", "text", "nodes", "edges", "outFile", "dryRun", "changes"],
+      "$comment": "text is rendered from nodes, edges, and (for the timeline) title and groups alone. Node and edge ids are project ids; in arcs an arc and a chapter may share an id, and kind tells them apart.",
+      "properties": {
+        "kind": { "enum": ["relationships", "locations", "timeline", "clues", "arcs"] },
+        "text": { "type": "string", "description": "The Mermaid source." },
+        "title": { "type": "string", "description": "timeline only: the title drawn above the timeline, the story title." },
+        "nodes": {
+          "type": "array",
+          "description": "The diagram's nodes in drawing order: characters (relationships), locations, dated events in story order (timeline), chapters by number plus an unrevealed placeholder when a clue has no payoff chapter (clues), or arcs then chapters (arcs).",
+          "items": {
+            "type": "object",
+            "required": ["id", "label", "kind"],
+            "properties": {
+              "id": { "type": "string", "minLength": 1, "description": "The entity id; unrevealed for the clues placeholder." },
+              "label": { "type": "string", "description": "The readable name or title, whitespace closed up, before Mermaid escaping." },
+              "kind": { "enum": ["character", "location", "event", "chapter", "arc", "unrevealed"] },
+              "state": { "enum": ["alive", "deceased", "revived"], "description": "character: how they stand at the end of the book, as story continuity reads deaths." },
+              "region": { "type": ["string", "null"], "description": "location: its region, or null." },
+              "number": { "type": "integer", "description": "chapter: its chapter number." },
+              "date": { "type": "string", "description": "event: the story date." },
+              "time": { "type": ["string", "null"], "description": "event: the time of day, or null for an untimed event." },
+              "toldLateIn": { "type": ["integer", "string", "null"], "description": "event: the chapter number (or id, for a chapter with no number) an event told after later events is read in, else null." }
+            }
+          }
+        },
+        "edges": {
+          "type": "array",
+          "description": "The diagram's edges in drawing order; from and to are node ids. The timeline has none.",
+          "items": {
+            "type": "object",
+            "required": ["from", "to", "label", "kind"],
+            "properties": {
+              "from": { "type": "string", "minLength": 1 },
+              "to": { "type": "string", "minLength": 1 },
+              "label": { "type": ["string", "null"], "description": "The edge text before Mermaid escaping (a clue's title without the red-herring note), or null for an unlabelled edge." },
+              "kind": { "enum": ["family-directed", "family", "relationship", "route", "sequence", "clue", "red-herring", "advances"], "description": "family-directed runs from the elder (parent, grandparent, aunt, uncle); family and relationship are drawn once per pair; route is a declared route; sequence links consecutive chapters; clue and red-herring run from plant to payoff; advances runs from an arc to a chapter." },
+              "hours": { "type": "number", "description": "route: the travel hours." },
+              "mode": { "type": ["string", "null"], "description": "route: the travel mode, or null." },
+              "reverse": { "type": "boolean", "description": "route: true when the destination declares a route back." },
+              "clue": { "type": "string", "description": "clue, red-herring: the clue id." },
+              "revealed": { "type": "boolean", "description": "clue, red-herring: false when the clue has no payoff chapter yet, so the edge runs to the unrevealed node." }
+            }
+          }
+        },
+        "groups": {
+          "type": "array",
+          "description": "timeline only: each run of events on one day, drawn as a section.",
+          "items": {
+            "type": "object",
+            "required": ["label", "kind", "nodes"],
+            "properties": {
+              "label": { "type": "string", "description": "The story date." },
+              "kind": { "const": "date" },
+              "nodes": { "type": "array", "items": { "type": "string" }, "description": "The ids of the events in the section, in order." }
+            }
+          }
+        },
+        "outFile": { "type": ["string", "null"], "description": "The absolute path --out wrote (or, with --dry-run, would write), else null." },
+        "dryRun": { "type": "boolean", "description": "True for a --dry-run, which changed nothing: changes lists what the command would do, and writes is empty." },
+        "changes": { "type": "array", "description": "Every file the command created or updated, and every folder it made, sorted by path; empty when it wrote nothing.", "items": { "$ref": "#/$defs/change" } }
+      }
+    },
+    "data-snapshot": {
+      "type": "object",
+      "$comment": "story snapshot <name> reports the snapshot taken, as a write command does (dryRun and changes); story snapshot --restore <name> reports data.restored; story snapshot --list reports data.snapshots.",
+      "allOf": [
+        {
+          "if": { "required": ["dryRun"], "properties": { "restored": { "type": "null" } } },
+          "then": {
+            "required": ["name", "id", "created", "chapters", "words", "files", "dir", "replaced", "dryRun", "changes"],
+            "properties": {
+              "name": { "type": "string", "minLength": 1, "description": "The name as typed." },
+              "id": { "type": "string", "minLength": 1, "description": "The kebab-case id, the snapshot's folder name." },
+              "created": { "type": "string", "minLength": 1, "description": "When the snapshot was taken, an ISO 8601 UTC time." },
+              "chapters": { "$ref": "#/$defs/count" },
+              "words": { "$ref": "#/$defs/count" },
+              "characters": { "$ref": "#/$defs/count", "description": "Only in a project counted in characters." },
+              "files": { "$ref": "#/$defs/count", "description": "Markdown files copied." },
+              "unparsed": { "type": "integer", "minimum": 1, "description": "Markdown files copied that do not parse, which chapters and words leave out; only when there are any." },
+              "dir": { "type": "string", "minLength": 1, "description": "The snapshot folder, relative to the project root: .snapshots/<id>." },
+              "replaced": { "type": "boolean", "description": "True when --force replaced a snapshot of the same name." },
+              "dryRun": { "type": "boolean" },
+              "changes": { "type": "array", "items": { "$ref": "#/$defs/change" } }
+            }
+          }
+        },
+        {
+          "if": { "required": ["restored"] },
+          "then": {
+            "required": ["restored", "safety", "created", "updated", "deleted", "removedFolders", "reindexed", "dryRun", "changes"],
+            "properties": {
+              "restored": {
+                "type": "object",
+                "required": ["name", "id"],
+                "description": "The snapshot put back: its name as taken and its id.",
+                "properties": {
+                  "name": { "type": "string", "minLength": 1 },
+                  "id": { "type": "string", "minLength": 1 }
+                }
+              },
+              "safety": {
+                "type": ["object", "null"],
+                "required": ["id", "dir"],
+                "description": "The snapshot of the project as it was, taken before the restore (before-restore-<id>-<n>); null when the project already matched and nothing changed.",
+                "properties": {
+                  "id": { "type": "string", "minLength": 1 },
+                  "dir": { "type": "string", "minLength": 1, "description": ".snapshots/<id>, relative to the project root." }
+                }
+              },
+              "created": { "type": "array", "items": { "type": "string" }, "description": "Markdown files written back that the project did not have, relative to the project root." },
+              "updated": { "type": "array", "items": { "type": "string" }, "description": "Markdown files rewritten to the snapshot's text." },
+              "deleted": { "type": "array", "items": { "type": "string" }, "description": "Markdown files the snapshot does not have, deleted from the project." },
+              "removedFolders": { "type": "array", "items": { "type": "string" }, "description": "Folders the deletes left empty, removed from the project, deepest first (rmdir in changes). A folder init makes is kept, as is any folder that was already empty or still holds something." },
+              "reindexed": { "type": "boolean", "description": "False when nothing changed, or when a restored file does not parse, so the registries were left for story reindex after the fix." },
+              "dryRun": { "type": "boolean" },
+              "changes": { "type": "array", "description": "Every file created, updated, or deleted, and every folder removed, the safety snapshot's files and the registries reindex rebuilt included.", "items": { "$ref": "#/$defs/change" } }
+            }
+          }
+        },
+        {
+          "if": { "required": ["snapshots"] },
+          "then": {
+            "properties": {
+              "snapshots": {
+                "type": "array",
+                "description": "Oldest first; a folder without a readable snapshot.json comes last, with a null date and counts.",
+                "items": {
+                  "type": "object",
+                  "required": ["name", "id", "created", "chapters", "words"],
+                  "properties": {
+                    "name": { "type": "string", "minLength": 1 },
+                    "id": { "type": "string", "minLength": 1 },
+                    "created": { "type": ["string", "null"] },
+                    "chapters": { "type": ["integer", "null"], "minimum": 0 },
+                    "words": { "type": ["integer", "null"], "minimum": 0 },
+                    "characters": { "type": "integer", "minimum": 0 },
+                    "unparsed": { "type": "integer", "minimum": 0, "description": "Files the snapshot holds that did not parse when it was taken, left out of chapters and words; only when the manifest records any." }
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "data-grid": {
+      "type": "object",
+      "required": ["range", "beats", "chapters", "rows"],
+      "properties": {
+        "range": {
+          "type": "object",
+          "required": ["from", "to", "total"],
+          "properties": {
+            "from": { "type": ["string", "null"], "description": "The first chapter shown, after --from; null when the book has no chapters." },
+            "to": { "type": ["string", "null"], "description": "The last chapter shown, after --to; null when the book has no chapters." },
+            "total": { "$ref": "#/$defs/count", "description": "Chapters in the whole book, shown or not." }
+          }
+        },
+        "beats": { "type": "boolean", "description": "True when any chapter in the whole book records a beat: the text grid then prints a (beat) row above the (hook) and (outcomes) rows." },
+        "chapters": {
+          "type": "array",
+          "description": "The columns, in chapter number order.",
+          "items": {
+            "type": "object",
+            "required": ["id", "number", "title", "beat", "hook", "outcomes"],
+            "properties": {
+              "id": { "type": "string" },
+              "number": { "type": "integer" },
+              "title": { "type": "string" },
+              "beat": { "type": "string", "description": "The chapter's beat on one line, or an empty string." },
+              "hook": { "type": "string", "description": "The chapter's hook, or an empty string." },
+              "outcomes": { "type": "array", "items": { "enum": ["yes", "no", "yes-but", "no-and"] }, "description": "The outcomes of the chapter's scenes, in scene order; sequels and scenes with no outcome are left out." }
+            }
+          }
+        },
+        "rows": {
+          "type": "array",
+          "description": "Arcs in the order the whole book first advances them, then arcs no chapter advances, then ids no arc file defines.",
+          "items": {
+            "type": "object",
+            "required": ["id", "name", "status", "known", "cells"],
+            "properties": {
+              "id": { "type": "string" },
+              "name": { "type": ["string", "null"], "description": "Null for an id no arc file defines." },
+              "status": { "type": ["string", "null"], "description": "Null for an id no arc file defines." },
+              "known": { "type": "boolean", "description": "False when chapters or scenes advance an arc id with no file in plot/arcs." },
+              "cells": { "type": "array", "items": { "type": "boolean" }, "description": "One cell per entry in chapters, in the same order: true when the chapter or one of its scenes lists the arc in arcs-advanced." }
+            }
+          }
+        }
+      }
+    },
+    "data-list": {
+      "type": "object",
+      "required": ["kind", "query", "where", "total", "items"],
+      "properties": {
+        "kind": { "enum": ["chapters", "scenes", "characters", "locations", "systems", "factions", "artifacts", "arcs", "questions", "promises", "clues", "terms", "research", "matter"], "description": "The kind listed, by its plural name." },
+        "query": { "type": ["string", "null"], "description": "The name of the story.md query --query ran, or null without --query." },
+        "where": {
+          "type": "array",
+          "description": "The filters: a --query's own, in story.md order, then the --where filters, in the order given; an item matches only when it matches every one.",
+          "items": {
+            "type": "object",
+            "required": ["key", "op", "value"],
+            "properties": {
+              "key": { "type": "string" },
+              "op": { "enum": ["eq", "ne", "present", "absent"], "description": "eq for key=value, ne for key!=value, present for key, absent for !key." },
+              "value": { "type": ["string", "null"], "description": "The value compared; null for present and absent." }
+            }
+          }
+        },
+        "total": { "$ref": "#/$defs/count", "description": "Files of the kind, matched or not." },
+        "items": {
+          "type": "array",
+          "description": "The matches in book order: chapters by number, scenes by chapter and scene, matter by order, the rest by file name. Empty when a project file fails to parse.",
+          "items": {
+            "type": "object",
+            "required": ["id", "file", "title", "fields"],
+            "properties": {
+              "id": { "type": "string" },
+              "file": { "type": "string", "description": "The file, relative to the project root, with / separators." },
+              "title": { "type": "string", "description": "The title, or the name for characters, places, and other bible entries, or the term for glossary terms." },
+              "fields": { "type": "object", "description": "The frontmatter value of each filtered key, as written; null when the file does not set it." }
+            }
+          }
+        }
+      }
+    },
+    "data-synopsis": {
+      "type": "object",
+      "required": ["title", "logline", "pages", "budget", "words", "sections", "text", "outFile", "dryRun", "changes"],
+      "properties": {
+        "title": { "type": "string" },
+        "logline": { "type": "string" },
+        "pages": { "enum": [1, 3] },
+        "budget": { "$ref": "#/$defs/count", "description": "The word budget: 500 for one page, 1500 for three." },
+        "words": { "$ref": "#/$defs/count" },
+        "sections": {
+          "type": "array",
+          "description": "The text under each arc heading, in arc order; an arc a truncated synopsis lost is left out.",
+          "items": {
+            "type": "object",
+            "required": ["arc", "name", "text"],
+            "properties": { "arc": { "type": "string" }, "name": { "type": "string" }, "text": { "type": "string" } }
+          }
+        },
+        "text": { "type": "string", "description": "The synopsis markdown, as printed or written." },
+        "outFile": { "type": ["string", "null"], "description": "The absolute path --out wrote (or, with --dry-run, would write), else null." },
+        "dryRun": { "type": "boolean", "description": "True for a --dry-run, which changed nothing: changes lists what the command would do, and writes is empty." },
+        "changes": { "type": "array", "description": "Every file the command created or updated, and every folder it made, sorted by path; empty when it wrote nothing.", "items": { "$ref": "#/$defs/change" } }
+      }
+    },
+    "output-changes": {
+      "type": "array",
+      "description": "Every file the command created, updated, or deleted, and every folder it made, sorted by path. Paths are relative to the project root for export and build, and to the new project's folder (\".\" when it is made) for init and import, so a file outside it starts with ../.",
+      "items": { "$ref": "#/$defs/change" }
+    },
+    "data-export": {
+      "type": "object",
+      "required": ["outFile", "chapters", "dryRun", "changes"],
+      "properties": {
+        "outFile": { "type": "string", "minLength": 1, "description": "The absolute path of the manuscript written (or, with --dry-run, that would be written)." },
+        "chapters": { "$ref": "#/$defs/count" },
+        "dryRun": { "type": "boolean", "description": "True for a --dry-run, which changed nothing: changes lists what the command would do, and writes is empty." },
+        "changes": { "$ref": "#/$defs/output-changes" }
+      }
+    },
+    "data-build": {
+      "type": "object",
+      "required": ["format", "outFile", "chapters", "pages", "pdf", "engine", "dryRun", "changes"],
+      "properties": {
+        "format": { "enum": ["markdown", "epub", "docx", "shunn", "html", "print", "narration", "metadata", "fountain", "twee", "ink", "codex"], "description": "The format built; md reads as markdown." },
+        "outFile": { "type": "string", "minLength": 1, "description": "The absolute path of the file written (or, with --dry-run, that would be written); for codex, the folder of pages." },
+        "chapters": { "$ref": "#/$defs/count" },
+        "pages": { "type": ["integer", "null"], "minimum": 0, "description": "codex: the pages written; null for every other format." },
+        "pdf": { "type": "boolean", "description": "True for --pdf." },
+        "engine": { "enum": ["prince", "weasyprint", "pagedjs-cli", "chrome", null], "description": "--pdf: the engine that rendered the PDF, or with --dry-run the one found and not run; null without --pdf." },
+        "dryRun": { "type": "boolean", "description": "True for a --dry-run, which changed nothing: changes lists what the command would do, and writes is empty." },
+        "changes": { "$ref": "#/$defs/output-changes" }
+      }
+    },
+    "new-project": {
+      "type": "object",
+      "required": ["root", "storyId", "keptStory", "ignoredOptions", "gitignore", "dryRun", "changes"],
+      "properties": {
+        "root": { "type": "string", "minLength": 1, "description": "The absolute path of the project made or filled." },
+        "storyId": { "type": "string", "minLength": 1 },
+        "keptStory": { "type": "boolean", "description": "True when --force kept an existing story.md. For import, the old chapter files were replaced, so scenes, bible entries, and continuity files may point at chapters that are gone or changed: run story links." },
+        "ignoredOptions": { "type": "array", "items": { "type": "string" }, "description": "The options the kept story.md did not take: title for the title, else the flag, such as --genre. The kept-story-options diagnostic names them too." },
+        "gitignore": { "enum": ["created", "kept", "missing-dist"], "description": "created when the command wrote .gitignore; kept for an existing one that ignores dist/, or that was not checked (a symlink, or not UTF-8 text); missing-dist for an existing one that does not ignore dist/, so builds would be committed." },
+        "dryRun": { "type": "boolean", "description": "True for a --dry-run, which changed nothing: changes lists what the command would do, and writes is empty." },
+        "changes": { "$ref": "#/$defs/output-changes" }
+      }
+    },
+    "data-init": {
+      "$ref": "#/$defs/new-project",
+      "required": ["linkedBooks"],
+      "properties": {
+        "linkedBooks": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "The absolute paths of the books --follows or --precedes linked to, whose story.md got the backlink." }
+      }
+    },
+    "data-import": {
+      "$ref": "#/$defs/new-project",
+      "required": ["chapters", "unit", "words", "characterCount", "candidates", "snapshot"],
+      "properties": {
+        "chapters": { "$ref": "#/$defs/count", "description": "The chapter files written." },
+        "unit": { "enum": ["words", "characters"], "description": "The book's count unit." },
+        "words": { "$ref": "#/$defs/count" },
+        "characterCount": { "type": ["integer", "null"], "minimum": 0, "description": "The characters in the chapters, for a book counted in characters; null otherwise." },
+        "candidates": {
+          "type": "array",
+          "description": "Capitalised names that appear three or more times, most frequent first, up to 25: candidates for story add.",
+          "items": {
+            "type": "object",
+            "required": ["name", "count"],
+            "properties": { "name": { "type": "string", "minLength": 1 }, "count": { "$ref": "#/$defs/count" } }
+          }
+        },
+        "snapshot": {
+          "type": ["object", "null"],
+          "required": ["id", "dir", "restore"],
+          "description": "The snapshot --force saved before it deleted the old chapters (with --dry-run, the one it would save); null when there were no chapters to replace.",
+          "properties": {
+            "id": { "type": "string", "minLength": 1, "description": "before-import-<n>." },
+            "dir": { "type": "string", "minLength": 1, "description": ".snapshots/<id>, relative to the project root." },
+            "restore": { "type": "string", "minLength": 1, "description": "The story snapshot --restore command that puts the project back, with --path from where import ran." }
+          }
+        }
+      }
+    },
+    "data-similarity": {
+      "type": "object",
+      "required": ["label", "minWords", "reference", "words", "sharedWords", "chapters", "passages"],
+      "properties": {
+        "label": { "type": "string", "description": "The --against text as given, or \"git ref <ref>\"." },
+        "minWords": { "type": "integer", "minimum": 5, "description": "The shortest shared run reported, after --min-words and story.md cli-defaults." },
+        "reference": {
+          "type": "object",
+          "required": ["files", "words"],
+          "properties": { "files": { "$ref": "#/$defs/count" }, "words": { "$ref": "#/$defs/count" } }
+        },
+        "words": { "$ref": "#/$defs/count" },
+        "sharedWords": { "$ref": "#/$defs/count" },
+        "chapters": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["file", "title", "words", "sharedWords", "passages"],
+            "properties": {
+              "file": { "type": "string" },
+              "title": { "type": "string" },
+              "words": { "$ref": "#/$defs/count" },
+              "sharedWords": { "$ref": "#/$defs/count" },
+              "passages": { "$ref": "#/$defs/count" }
+            }
+          }
+        },
+        "passages": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["file", "from", "to", "words", "text", "reference"],
+            "properties": {
+              "file": { "type": "string" },
+              "from": { "type": "string", "description": "Paragraph label of the passage's first word, as the review copy labels it (ch03-p12)." },
+              "to": { "type": "string" },
+              "words": { "type": "integer", "minimum": 5 },
+              "text": { "type": "string", "description": "The shared words as written in the chapter; paragraphs are joined with \" / \"." },
+              "reference": {
+                "type": "object",
+                "required": ["file", "from", "to", "text"],
+                "properties": {
+                  "file": { "type": "string", "description": "Path from the working directory, or <ref>:<path> for a git ref." },
+                  "from": { "type": "string", "description": "A chapter label (ch07-p4) for a story project, or p4 for a plain file." },
+                  "to": { "type": "string" },
+                  "text": { "type": "string" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "data-prose": {
+      "type": "object",
+      "required": ["styleSheet", "words", "chapters", "phrases", "similarNames", "thresholds", "baseline", "language", "skipped"],
+      "properties": {
+        "language": { "type": "string", "description": "story.md language as written (en when unset), which picks the language pack." },
+        "skipped": { "$ref": "#/$defs/skipped-checks" },
+        "styleSheet": { "type": "boolean" },
+        "baseline": {
+          "type": ["object", "null"],
+          "description": "The profile built from style-sheet.md samples, or null when there are none or --baseline=false.",
+          "required": ["samples", "words", "narrationWords", "sentences", "paragraphMean", "dialogueShare", "filterPerThousand", "adverbsPerThousand", "signatureWords", "usable"],
+          "properties": {
+            "samples": { "type": "array", "items": { "type": "string" }, "description": "Each sample document, relative to the project folder." },
+            "words": { "$ref": "#/$defs/count" },
+            "narrationWords": { "$ref": "#/$defs/count" },
+            "sentences": {
+              "type": "object",
+              "required": ["count", "mean", "longest", "spread"],
+              "properties": { "count": { "$ref": "#/$defs/count" }, "mean": { "type": "number" }, "longest": { "$ref": "#/$defs/count" }, "spread": { "type": "number" } }
+            },
+            "paragraphMean": { "type": "number", "minimum": 0 },
+            "dialogueShare": { "type": "number", "minimum": 0, "description": "Percent of words inside dialogue." },
+            "filterPerThousand": { "type": ["number", "null"], "minimum": 0, "description": "Null when the filter-word check is skipped for the language." },
+            "adverbsPerThousand": { "type": ["number", "null"], "minimum": 0, "description": "Null when the adverb check is skipped for the language." },
+            "signatureWords": { "type": ["array", "null"], "items": { "type": "string" }, "description": "Null when signature words are skipped for the language." },
+            "usable": { "type": "boolean", "description": "False when the samples hold too little narration to compare with; the fixed limits then apply." }
+          }
+        },
+        "thresholds": {
+          "type": "object",
+          "description": "The warning limits the run used, after --max-filter-words, --max-adverbs, --max-bookisms, and story.md cli-defaults.",
+          "required": ["maxFilterWords", "maxAdverbs", "maxBookisms"],
+          "properties": {
+            "maxFilterWords": { "type": "number", "minimum": 0 },
+            "maxAdverbs": { "type": "number", "minimum": 0 },
+            "maxBookisms": { "$ref": "#/$defs/count" }
+          }
+        },
+        "words": { "$ref": "#/$defs/count" },
+        "chapters": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["file", "title", "analysis"],
+            "properties": {
+              "file": { "type": "string" },
+              "title": { "type": "string" },
+              "sample": { "const": true, "description": "Present when the style sheet names this chapter as a sample: it is part of the baseline, so no prose-baseline-* drift is reported for it." },
+              "baseline": {
+                "type": "object",
+                "description": "Present when a baseline is on: the chapter's figures on the baseline's scales.",
+                "required": ["sentenceMean", "paragraphMean", "dialogueShare", "filterPerThousand", "adverbsPerThousand", "signatureWordsUsed"],
+                "properties": {
+                  "sentenceMean": { "type": "number" },
+                  "paragraphMean": { "type": "number" },
+                  "dialogueShare": { "type": "number" },
+                  "filterPerThousand": { "type": ["number", "null"] },
+                  "adverbsPerThousand": { "type": ["number", "null"] },
+                  "signatureWordsUsed": { "type": ["integer", "null"], "minimum": 0 }
+                }
+              },
+              "analysis": {
+                "type": "object",
+                "required": ["words", "narrationWords", "paragraphs", "sentences", "filterWords", "adverbs", "plainTags", "bookisms", "echoes", "watch", "variants"],
+                "properties": {
+                  "words": { "$ref": "#/$defs/count" },
+                  "paragraphs": { "$ref": "#/$defs/count" },
+                  "narrationWords": { "$ref": "#/$defs/count" },
+                  "sentences": {
+                    "type": "object",
+                    "required": ["count", "mean", "longest", "spread"],
+                    "properties": {
+                      "count": { "$ref": "#/$defs/count" },
+                      "mean": { "type": "number" },
+                      "longest": { "$ref": "#/$defs/count" },
+                      "spread": { "type": "number" }
+                    }
+                  },
+                  "filterWords": { "type": "array", "items": { "$ref": "#/$defs/word-count" } },
+                  "adverbs": { "type": "array", "items": { "$ref": "#/$defs/word-count" } },
+                  "plainTags": { "type": "array", "items": { "$ref": "#/$defs/word-count" } },
+                  "bookisms": { "type": "array", "items": { "$ref": "#/$defs/word-count" } },
+                  "echoes": { "type": "array", "items": { "$ref": "#/$defs/word-count" } },
+                  "watch": { "type": "array", "items": { "$ref": "#/$defs/word-count" } },
+                  "variants": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["use", "avoid", "source", "count"],
+                      "properties": { "use": { "type": "string" }, "avoid": { "type": "string" }, "source": { "type": "string" }, "count": { "$ref": "#/$defs/count" } }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "phrases": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["phrase", "count"],
+            "properties": { "phrase": { "type": "string" }, "count": { "$ref": "#/$defs/count" } }
+          }
+        },
+        "similarNames": {
+          "type": "array",
+          "description": "Pairs of characters whose first names a reader could confuse.",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["id", "name", "first"],
+              "properties": { "id": { "type": "string" }, "name": { "type": "string" }, "first": { "type": "string" } }
+            }
+          }
+        }
+      }
+    },
+    "data-voices": {
+      "type": "object",
+      "required": ["profiles", "unattributed", "language", "skipped"],
+      "properties": {
+        "language": { "type": "string", "description": "story.md language as written (en when unset), which picks the language pack." },
+        "skipped": { "$ref": "#/$defs/skipped-checks" },
+        "profiles": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "lines", "words", "sentenceLength", "contractions", "questions", "exclamations", "signature"],
+            "properties": {
+              "id": { "type": "string" },
+              "lines": { "$ref": "#/$defs/count" },
+              "words": { "$ref": "#/$defs/count" },
+              "sentenceLength": { "type": "number" },
+              "contractions": { "type": ["number", "null"], "description": "Per 100 words, or null when the contraction count is skipped for the language." },
+              "questions": { "type": "number" },
+              "exclamations": { "type": "number" },
+              "signature": { "type": "array", "items": { "type": "string" } }
+            }
+          }
+        },
+        "unattributed": { "$ref": "#/$defs/count" }
+      }
+    },
+    "data-pacing": {
+      "type": "object",
+      "required": ["unit", "rows", "medianWords", "medianCharacterCount", "totals"],
+      "properties": {
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "number", "words", "characterCount", "scenes", "sequels", "outcomes", "hook", "status"],
+            "properties": {
+              "id": { "type": "string" },
+              "words": { "$ref": "#/$defs/count" },
+              "characterCount": { "type": ["integer", "null"], "minimum": 0, "description": "The chapter's prose in characters, or null in a book counted in words." },
+              "scenes": { "$ref": "#/$defs/count" },
+              "sequels": { "$ref": "#/$defs/count" },
+              "outcomes": {
+                "type": "object",
+                "required": ["yes", "no", "yes-but", "no-and"],
+                "properties": {
+                  "yes": { "$ref": "#/$defs/count" },
+                  "no": { "$ref": "#/$defs/count" },
+                  "yes-but": { "$ref": "#/$defs/count" },
+                  "no-and": { "$ref": "#/$defs/count" }
+                }
+              },
+              "hook": { "type": "string" }
+            }
+          }
+        },
+        "unit": { "enum": ["words", "characters"], "description": "The book's count unit: characters for Chinese and Japanese, or story.md count-unit; words otherwise." },
+        "medianWords": { "type": "number", "minimum": 0 },
+        "medianCharacterCount": { "type": ["number", "null"], "minimum": 0, "description": "The median chapter in characters, or null in a book counted in words. The long and short chapter findings use the median in the unit." },
+        "totals": {
+          "type": "object",
+          "required": ["scenes", "sequels", "outcomesRecorded", "setbacks", "hooks"],
+          "properties": {
+            "scenes": { "$ref": "#/$defs/count" },
+            "sequels": { "$ref": "#/$defs/count" },
+            "outcomesRecorded": { "$ref": "#/$defs/count" },
+            "setbacks": { "$ref": "#/$defs/count" },
+            "hooks": { "$ref": "#/$defs/count" }
+          }
+        }
+      }
+    },
+    "data-clues": {
+      "type": "object",
+      "required": ["chapters", "rows", "totals"],
+      "properties": {
+        "chapters": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "number"],
+            "properties": { "id": { "type": "string" } }
+          }
+        },
+        "rows": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "title", "status", "redHerring", "significanceDelayed", "cells"],
+            "properties": {
+              "id": { "type": "string" },
+              "title": { "type": "string" },
+              "redHerring": { "type": "boolean" },
+              "significanceDelayed": { "type": "boolean" },
+              "cells": { "type": "array", "items": { "type": "string" }, "description": "One cell per entry in chapters, in the same order." }
+            }
+          }
+        },
+        "totals": {
+          "type": "object",
+          "required": ["clues", "redHerrings", "planted", "revealed"],
+          "properties": {
+            "clues": { "$ref": "#/$defs/count" },
+            "redHerrings": { "$ref": "#/$defs/count" },
+            "planted": { "$ref": "#/$defs/count" },
+            "revealed": { "$ref": "#/$defs/count" }
+          }
+        }
+      }
+    },
+    "data-progress": {
+      "type": "object",
+      "$comment": "target, percent, remaining, deadline.perDay, lastSession.since, and pace are in unit; words is the word count in every book.",
+      "required": ["logged", "unit", "words", "characterCount", "target", "percent", "remaining", "deadline", "chapters", "sessions", "lastSession", "pace", "projected", "daily", "release", "dryRun", "changes"],
+      "properties": {
+        "release": { "$ref": "#/$defs/release" },
+        "logged": {
+          "type": ["object", "null"],
+          "required": ["file", "date", "words", "characterCount"],
+          "properties": { "file": { "type": "string" }, "date": { "type": "string" }, "words": { "$ref": "#/$defs/count" }, "characterCount": { "type": ["integer", "null"], "minimum": 0, "description": "The logged manuscript in characters, or null in a book counted in words." } }
+        },
+        "unit": { "enum": ["words", "characters"], "description": "The book's count unit: characters for Chinese and Japanese, or story.md count-unit; words otherwise." },
+        "words": { "$ref": "#/$defs/count" },
+        "characterCount": { "type": ["integer", "null"], "minimum": 0, "description": "The manuscript in characters, or null in a book counted in words." },
+        "target": { "type": ["integer", "null"] },
+        "percent": { "type": ["number", "null"] },
+        "remaining": { "type": ["integer", "null"] },
+        "deadline": {
+          "type": ["object", "null"],
+          "required": ["date", "daysLeft", "perDay"],
+          "properties": { "date": { "type": "string" }, "daysLeft": { "type": "integer" }, "perDay": { "type": ["integer", "null"] } }
+        },
+        "chapters": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["id", "words", "characterCount", "target", "percent"],
+            "properties": { "id": { "type": "string" }, "words": { "$ref": "#/$defs/count" }, "characterCount": { "type": ["integer", "null"], "minimum": 0, "description": "The chapter's prose in characters, or null in a book counted in words." }, "target": { "type": "integer" }, "percent": { "type": "number" } }
+          }
+        },
+        "sessions": { "$ref": "#/$defs/count" },
+        "lastSession": {
+          "type": ["object", "null"],
+          "required": ["date", "words", "characterCount", "since"],
+          "properties": { "date": { "type": "string" }, "words": { "$ref": "#/$defs/count" }, "characterCount": { "type": ["integer", "null"], "minimum": 0, "description": "The session's manuscript in characters, or null in a book counted in words." }, "since": { "type": "integer" } }
+        },
+        "pace": { "type": ["number", "null"] },
+        "projected": { "type": ["string", "null"] },
+        "daily": {
+          "type": "object",
+          "description": "Daily writing from the session log, in unit: a day's words are the gain since the session logged before it, and today's are measured from the manuscript now.",
+          "required": ["target", "writingDays", "today", "streak", "weeks"],
+          "properties": {
+            "target": { "type": ["integer", "null"], "description": "story.md daily-target-words (daily-target-characters in a book counted in characters), or null." },
+            "writingDays": { "type": ["array", "null"], "items": { "enum": ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] }, "description": "story.md writing-days, Monday first, or null for every day." },
+            "today": {
+              "type": "object",
+              "required": ["date", "scheduled", "written", "remaining", "met"],
+              "properties": {
+                "date": { "type": "string" },
+                "scheduled": { "type": "boolean", "description": "Whether today is one of the writing days." },
+                "written": { "type": ["integer", "null"], "description": "Gained since the last session before today, or null with none logged." },
+                "remaining": { "type": ["integer", "null"] },
+                "met": { "type": ["boolean", "null"] }
+              }
+            },
+            "streak": {
+              "type": "object",
+              "required": ["current", "longest"],
+              "properties": { "current": { "$ref": "#/$defs/count" }, "longest": { "$ref": "#/$defs/count" } }
+            },
+            "weeks": {
+              "type": "array",
+              "description": "The last --weeks weeks (default 4, 1 to 52), Monday to Sunday, oldest first, ending with the current week.",
+              "items": {
+                "type": "object",
+                "required": ["start", "end", "written", "days", "target"],
+                "properties": { "start": { "type": "string" }, "end": { "type": "string" }, "written": { "type": "integer" }, "days": { "$ref": "#/$defs/count" }, "target": { "type": ["integer", "null"] } }
+              }
+            }
+          }
+        },
+        "dryRun": { "type": "boolean", "description": "True for a --dry-run, which changed nothing: changes lists what the command would do, and writes is empty." },
+        "changes": { "type": "array", "description": "Every file the command created or updated, and every folder it made, sorted by path; empty when it wrote nothing.", "items": { "$ref": "#/$defs/change" } }
+      }
+    }
+  }
+}

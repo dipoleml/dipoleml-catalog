@@ -1,0 +1,16 @@
+{
+  "name": "blast-radius",
+  "displayName": "Blast Radius",
+  "version": "0.1.1",
+  "description": "Blast Radius",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Yeonwoosung"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/YeonwooSung/my-claude-code-mods",
+  "repository": "https://github.com/YeonwooSung/my-claude-code-mods",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

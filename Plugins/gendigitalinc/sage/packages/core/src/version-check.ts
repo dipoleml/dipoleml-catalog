@@ -1,0 +1,137 @@
+/**
+ * Version check — POSTs environment context to the Sage version-check
+ * endpoint to receive platform-aware update guidance.
+ * Fail-open: returns null on any error so it never blocks startup.
+ */
+
+import { resolveEndpoint } from "./clients/url-check.js";
+import { loadConfig } from "./config.js";
+import { loadExtendedInfo, mergeExtendedInfo } from "./extended-info.js";
+import { buildSageProxyEnvelope, type SageUserConfigInput } from "./sage-proxy.js";
+import type { AgentRuntime, Logger } from "./types.js";
+import { nullLogger } from "./types.js";
+
+const DEFAULT_TIMEOUT_MS = 5_000;
+
+/** Environment context sent alongside the version check for platform-aware responses. */
+export interface VersionCheckContext {
+	agentRuntime: AgentRuntime;
+	agentRuntimeVersion?: string;
+	iid: string;
+	/**
+	 * Active Sage user config to include in the telemetry envelope.
+	 * When provided, no config file read is needed in this function.
+	 */
+	config?: SageUserConfigInput;
+	/**
+	 * Optional explicit config path used only when `config` is not provided.
+	 */
+	configPath?: string;
+}
+
+export interface VersionCheckResult {
+	currentVersion: string;
+	latestVersion: string;
+	updateAvailable: boolean;
+}
+
+/**
+ * Compare two semver strings (major.minor.patch).
+ * Returns true if `latest` is newer than `current`.
+ */
+export function isNewerVersion(current: string, latest: string): boolean {
+	const parse = (v: string): number[] =>
+		v
+			.replace(/^v/, "")
+			.split(".")
+			.map((n) => Number.parseInt(n, 10) || 0);
+
+	const cur = parse(current);
+	const lat = parse(latest);
+
+	for (let i = 0; i < 3; i++) {
+		const c = cur[i] ?? 0;
+		const l = lat[i] ?? 0;
+		if (l > c) return true;
+		if (l < c) return false;
+	}
+	return false;
+}
+
+/**
+ * Fetch the latest published version from the version-check endpoint.
+ * Sends environment context so the backend can serve platform-specific guidance.
+ * Returns null on any failure (network, parse, timeout).
+ */
+export async function checkForUpdate(
+	currentVersion: string,
+	logger: Logger = nullLogger,
+	timeoutMs: number = DEFAULT_TIMEOUT_MS,
+	context: VersionCheckContext,
+): Promise<VersionCheckResult | null> {
+	if (currentVersion === "dev") {
+		logger.debug("Skipping version check for dev build");
+		return null;
+	}
+	try {
+		if (!context.iid) {
+			logger.debug("Skipping version check: missing installation id");
+			return null;
+		}
+		let config: SageUserConfigInput | undefined = context.config;
+		if (!config) {
+			try {
+				config = await loadConfig(context.configPath, logger);
+			} catch (err) {
+				// Fail-open: keep version-check available even if config loading fails.
+				logger.debug(`Version check config load failed: ${err}`);
+			}
+		}
+
+		const envelope = buildSageProxyEnvelope({
+			iid: context.iid,
+			versionApp: currentVersion,
+			agentRuntime: context.agentRuntime,
+			agentRuntimeVersion: context.agentRuntimeVersion ?? "unknown",
+			config,
+		});
+		// Optional extended-info enrichment. Fail-open: any error inside the
+		// loader yields `null`, leaving the envelope unchanged.
+		const extendedInfo = await loadExtendedInfo(undefined, logger).catch(() => null);
+		const enriched = mergeExtendedInfo(
+			envelope as unknown as Record<string, unknown>,
+			extendedInfo,
+		);
+
+		const response = await fetch(resolveEndpoint("/v2/version-check"), {
+			method: "POST",
+			signal: AbortSignal.timeout(timeoutMs),
+			headers: {
+				Accept: "application/json",
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify(enriched),
+		});
+
+		if (!response.ok) {
+			logger.debug(`Version check HTTP ${response.status}`);
+			return null;
+		}
+
+		const body = (await response.json()) as Record<string, unknown>;
+		const latestVersion = body.version;
+		if (typeof latestVersion !== "string") {
+			logger.debug("Version check: no version field in response");
+			return null;
+		}
+
+		return {
+			currentVersion,
+			latestVersion,
+			updateAvailable: isNewerVersion(currentVersion, latestVersion),
+		};
+	} catch (err) {
+		logger.debug(`Version check failed: ${err}`);
+		return null;
+	}
+}

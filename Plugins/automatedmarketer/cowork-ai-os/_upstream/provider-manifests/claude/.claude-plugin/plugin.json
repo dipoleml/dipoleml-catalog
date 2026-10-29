@@ -1,0 +1,8 @@
+{
+  "name": "cowork-ai-os",
+  "version": "0.10.3",
+  "description": "AI operating system for Claude Cowork. 9-phase onboarding wizard, daily brief, voice writer, audit, tune-up, browse-skills, browse-connectors, file organizer. Mac and Windows.",
+  "author": {
+    "name": "Nuno Tavares"
+  }
+}

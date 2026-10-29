@@ -1,0 +1,16 @@
+{
+  "name": "legal-risk",
+  "displayName": "Legal Risk",
+  "version": "1.0.0",
+  "description": "Contract review, privacy and data protection, enterprise risk, corporate governance, compliance, and audit readiness. Reviewer-class: its findings are not overrulable by the department under review.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Cbrock84"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/cbrock84/headcount",
+  "repository": "https://github.com/cbrock84/headcount",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

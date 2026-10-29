@@ -1,0 +1,121 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.adilmunawar.zd-deploy",
+  "type": "plugin",
+  "name": "Zd Deploy",
+  "slug": "zd-deploy",
+  "vendor": "adilmunawar",
+  "description": "DipoleML plugins for agricultural geospatial engineering. agents, skills and guardrails for satellite ML, PostGIS/Earth Engine, Next.js and mobile apps, deployment and ops. One install, 14 modules, tested hooks, npm CLI.",
+  "version": "7.6.1",
+  "homepage": "https://github.com/Adilmunawar/ZD-claude-plugin",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agriculture",
+    "agritech",
+    "anthropic",
+    "claude-code-plugins",
+    "developer-tools",
+    "devops",
+    "geospatial",
+    "gis",
+    "google-earth-engine"
+  ],
+  "tags": [
+    "agriculture",
+    "agritech",
+    "ai-agents",
+    "anthropic",
+    "claude",
+    "claude-code",
+    "claude-code-plugins",
+    "developer-tools",
+    "devops",
+    "geospatial",
+    "gis",
+    "google-earth-engine",
+    "nextjs",
+    "postgis",
+    "precision-agriculture",
+    "remote-sensing",
+    "satellite-imagery"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "adilmunawar",
+    "brandName": "adilmunawar",
+    "source": "https://github.com/Adilmunawar.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:59Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "Adilmunawar/ZD-claude-plugin",
+    "url": "https://github.com/Adilmunawar/ZD-claude-plugin",
+    "commit": "60f343d7f5030f20495748d5dabfc640ca292275",
+    "path": "plugins/zd-deploy",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 9,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:52:01Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Zd Deploy | Claude Code plugins for agricultural geospatial engineering. agents, skills and guardrails for satellite ML, PostGIS/Earth Engine, Next.js and mobile apps, deployment and ops. One install, 14 modules, tested hooks, npm CLI.",
+        "after": "Zd Deploy | DipoleML plugins for agricultural geospatial engineering. agents, skills and guardrails for satellite ML, PostGIS/Earth Engine, Next.js and mobile apps, deployment and ops. One install, 14 modules, tested hooks, npm CLI.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

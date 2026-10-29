@@ -1,0 +1,10 @@
+{
+  "typemux-cc": {
+    "command": "${CLAUDE_PLUGIN_ROOT}/bin/typemux-cc",
+    "args": [],
+    "extensionToLanguage": {
+      ".py": "python",
+      ".pyi": "python"
+    }
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "name": "code-review-council",
+  "description": "Multi-agent code review for Claude Code: parallel review by Codex (gpt-6-astra high), Gemini 3.8 Flash (High), and five Claude specialist subagents",
+  "owner": { "name": "Chowdhury Yeameen" },
+  "plugins": [
+    {
+      "name": "review-council",
+      "description": "Multi-agent code review — delegates the same diff to Codex CLI, Gemini CLI, and five Claude specialist subagents (security, performance, logic, regression, robustness — the last run blind), then verifies and synthesizes all seven streams.",
+      "category": "code-review",
+      "source": {
+        "source": "git-subdir",
+        "path": "."
+      },
+      "version": "1.2.0",
+      "tags": [
+        "multi-agent",
+        "code-review",
+        "ai-code-review",
+        "claude-code",
+        "claude-plugin",
+        "llm-code-review",
+        "second-opinion",
+        "codex",
+        "gemini"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "name": "career-hunter",
+  "displayName": "Career Hunter",
+  "version": "0.4.2",
+  "description": "End-to-end job search automation: guided onboarding builds your personal application profile and a multi-tab Google Sheets tracker, then auto-apply and Gmail-sync skills hunt roles, submit applications, keep the tracker current, and add confirmed interviews to your Google Calendar.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Huskar20"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/huskar20/huskar20-plugins",
+  "repository": "https://github.com/huskar20/huskar20-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

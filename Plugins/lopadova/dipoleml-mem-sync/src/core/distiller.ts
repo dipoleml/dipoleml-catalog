@@ -1,0 +1,441 @@
+import { join } from "path";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync, statSync } from "fs";
+import { logger } from "./logger";
+import { epochToIsoString, epochToMillis } from "./epoch";
+import {
+  buildDistillationSystemPrompt,
+  buildDistillationUserPrompt,
+  estimateTokens,
+} from "./prompts/distillation-system";
+import type { Observation, ExportFile } from "../types/observation";
+import type {
+  DistilledRule,
+  KnowledgeSection,
+  DistillationReport,
+  LLMDistillationResponse,
+  RuleFeedback,
+  RuleFeedbackEntry,
+} from "../types/distillation";
+import { LLMDistillationResponseSchema } from "../types/distillation";
+import type { DistillationConfig } from "../types/config";
+
+/**
+ * Compute the oldest/newest observation timestamps as ISO strings.
+ *
+ * Merged sets can mix seconds (legacy exports) and milliseconds (current
+ * claude-mem), so the min/max must be taken on normalized instants — sorting
+ * raw `created_at_epoch` would rank any seconds value below any ms value and
+ * report the range backwards.
+ */
+export function computeDateRange(observations: Observation[]): { oldest: string; newest: string } {
+  if (observations.length === 0) return { oldest: "", newest: "" };
+  // Compare on a normalized (ms) instant, but format the ORIGINAL epoch so any
+  // sub-second precision is preserved (epochToSeconds would truncate it).
+  let oldest = observations[0];
+  let newest = observations[0];
+  let minMs = epochToMillis(oldest.created_at_epoch);
+  let maxMs = minMs;
+  for (const obs of observations) {
+    const ms = epochToMillis(obs.created_at_epoch);
+    if (ms < minMs) {
+      minMs = ms;
+      oldest = obs;
+    }
+    if (ms > maxMs) {
+      maxMs = ms;
+      newest = obs;
+    }
+  }
+  return {
+    oldest: epochToIsoString(oldest.created_at_epoch),
+    newest: epochToIsoString(newest.created_at_epoch),
+  };
+}
+
+// ── Load merged observations ────────────────────────────────────────
+
+export function loadMergedForDistillation(
+  mergedDir: string,
+  project: string,
+): Observation[] {
+  const mergedFile = join(mergedDir, project, "latest.json");
+  if (!existsSync(mergedFile)) return [];
+
+  try {
+    const content = readFileSync(mergedFile, "utf-8");
+    const parsed = JSON.parse(content) as ExportFile;
+    return parsed.observations;
+  } catch {
+    return [];
+  }
+}
+
+// ── Extract unique devs from contribution files ─────────────────────
+
+export function countUniqueDevs(
+  contributionsDir: string,
+  project: string,
+): number {
+  const projectDir = join(contributionsDir, project);
+  if (!existsSync(projectDir)) return 0;
+
+  try {
+    const devDirs = readdirSync(projectDir).filter((name: string) => {
+      return statSync(join(projectDir, name)).isDirectory();
+    });
+    return devDirs.length;
+  } catch {
+    return 0;
+  }
+}
+
+// ── Multi-provider helpers ─────────────────────────────────────────
+
+export function getProviderConfig(provider: string): {
+  endpoint: string;
+  envVar: string;
+  label: string;
+} {
+  if (provider === "anthropic") {
+    return {
+      endpoint: "https://api.anthropic.com/v1/messages",
+      envVar: "ANTHROPIC_API_KEY",
+      label: "Anthropic",
+    };
+  }
+  return {
+    endpoint: "https://models.github.ai/inference/chat/completions",
+    envVar: "GITHUB_TOKEN",
+    label: "GitHub Models",
+  };
+}
+
+export function buildApiRequest(
+  provider: string,
+  apiKey: string,
+  model: string,
+  systemPrompt: string,
+  userPrompt: string,
+): { url: string; headers: Record<string, string>; body: Record<string, unknown> } {
+  if (provider === "anthropic") {
+    return {
+      url: "https://api.anthropic.com/v1/messages",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: {
+        model,
+        max_tokens: 8192,
+        system: systemPrompt,
+        messages: [{ role: "user", content: userPrompt }],
+      },
+    };
+  }
+  return {
+    url: "https://models.github.ai/inference/chat/completions",
+    headers: {
+      "Content-Type": "application/json",
+      "Authorization": `Bearer ${apiKey}`,
+    },
+    body: {
+      model,
+      max_tokens: 8192,
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user", content: userPrompt },
+      ],
+    },
+  };
+}
+
+export function parseApiResponse(
+  provider: string,
+  json: any,
+): { text: string; inputTokens: number; outputTokens: number } {
+  if (provider === "anthropic") {
+    const textBlock = json.content?.find((c: any) => c.type === "text");
+    if (!textBlock?.text) throw new Error("No text content in Anthropic API response");
+    return {
+      text: textBlock.text,
+      inputTokens: json.usage?.input_tokens ?? 0,
+      outputTokens: json.usage?.output_tokens ?? 0,
+    };
+  }
+  const choice = json.choices?.[0];
+  if (!choice?.message?.content) throw new Error("No content in GitHub Models API response");
+  return {
+    text: choice.message.content,
+    inputTokens: json.usage?.prompt_tokens ?? 0,
+    outputTokens: json.usage?.completion_tokens ?? 0,
+  };
+}
+
+// ── API Call ────────────────────────────────────────────────────────
+
+interface DistillationResult {
+  rules: DistilledRule[];
+  knowledgeSections: KnowledgeSection[];
+  report: DistillationReport;
+}
+
+/**
+ * Call the LLM API to distill observations into rules and knowledge.
+ * Supports Anthropic API and GitHub Models (Copilot) as providers.
+ */
+export async function callDistillationAPI(
+  observations: Observation[],
+  project: string,
+  config: DistillationConfig,
+  apiKey: string,
+  contributionsDir: string,
+): Promise<DistillationResult> {
+  const systemPrompt = buildDistillationSystemPrompt();
+  const userPrompt = buildDistillationUserPrompt(
+    observations,
+    project,
+    config.excludeTypes,
+  );
+
+  const inputTokenEstimate = estimateTokens(observations);
+
+  if (inputTokenEstimate > config.maxTokenBudget) {
+    throw new Error(
+      `Estimated input tokens (${inputTokenEstimate}) exceeds budget (${config.maxTokenBudget}). ` +
+      `Reduce observations or increase maxTokenBudget.`,
+    );
+  }
+
+  const provider = config.provider ?? "github-copilot";
+  const providerInfo = getProviderConfig(provider);
+  const request = buildApiRequest(provider, apiKey, config.model, systemPrompt, userPrompt);
+
+  const response = await fetch(request.url, {
+    method: "POST",
+    headers: request.headers,
+    body: JSON.stringify(request.body),
+  });
+
+  if (!response.ok) {
+    const errorBody = await response.text();
+    throw new Error(`${providerInfo.label} API error (${response.status}): ${errorBody}`);
+  }
+
+  const apiResult = await response.json();
+  const { text, inputTokens, outputTokens } = parseApiResponse(provider, apiResult);
+
+  // Parse JSON response
+  const parsed = parseDistillationResponse(text);
+
+  // Build report
+  const uniqueDevs = countUniqueDevs(contributionsDir, project);
+  const typeBreakdown: Record<string, number> = {};
+  for (const obs of observations) {
+    typeBreakdown[obs.type] = (typeBreakdown[obs.type] ?? 0) + 1;
+  }
+
+  // Cost estimate varies by provider
+  let estimatedCost: number;
+  if (provider === "anthropic") {
+    // Sonnet 4 pricing ($3/MTok input, $15/MTok output)
+    estimatedCost = (inputTokens * 3 + outputTokens * 15) / 1_000_000;
+  } else {
+    // GitHub Copilot — included in subscription
+    estimatedCost = 0;
+  }
+
+  const report: DistillationReport = {
+    project,
+    generatedAt: new Date().toISOString(),
+    generatedAtEpoch: Math.floor(Date.now() / 1000),
+    inputStats: {
+      totalObservations: observations.length,
+      uniqueDevs,
+      typeBreakdown,
+      dateRange: computeDateRange(observations),
+    },
+    outputStats: {
+      rulesGenerated: parsed.rules.length,
+      knowledgeSections: parsed.knowledgeSections.length,
+      avgConfidence: parsed.rules.length > 0
+        ? Math.round((parsed.rules.reduce((s, r) => s + r.confidence, 0) / parsed.rules.length) * 1000) / 1000
+        : 0,
+    },
+    tokenUsage: {
+      inputTokens,
+      outputTokens,
+      totalTokens: inputTokens + outputTokens,
+      estimatedCost: Math.round(estimatedCost * 10000) / 10000,
+    },
+    model: config.model,
+  };
+
+  return { rules: parsed.rules, knowledgeSections: parsed.knowledgeSections, report };
+}
+
+/**
+ * Parse the LLM's JSON response, validating against the schema.
+ */
+export function parseDistillationResponse(text: string): LLMDistillationResponse {
+  // Strip markdown code fences if present
+  let cleaned = text.trim();
+  if (cleaned.startsWith("```")) {
+    cleaned = cleaned.replace(/^```(?:json)?\s*\n?/, "").replace(/\n?```\s*$/, "");
+  }
+
+  const parsed = JSON.parse(cleaned);
+  return LLMDistillationResponseSchema.parse(parsed);
+}
+
+// ── Write output artifacts ──────────────────────────────────────────
+
+export function writeDistillationOutput(
+  outputDir: string,
+  project: string,
+  result: DistillationResult,
+): void {
+  const distilledDir = join(outputDir, project);
+  mkdirSync(distilledDir, { recursive: true });
+
+  // Write rules.md
+  const rulesMarkdown = renderRulesMarkdown(result.rules, result.report);
+  writeFileSync(join(distilledDir, "rules.md"), rulesMarkdown, "utf-8");
+
+  // Write knowledge-base.md
+  const kbMarkdown = renderKnowledgeBaseMarkdown(result.knowledgeSections);
+  writeFileSync(join(distilledDir, "knowledge-base.md"), kbMarkdown, "utf-8");
+
+  // Write distillation-report.json
+  writeFileSync(
+    join(distilledDir, "distillation-report.json"),
+    JSON.stringify(result.report, null, 2),
+    "utf-8",
+  );
+
+  // Initialize feedback.json if not exists
+  const feedbackPath = join(distilledDir, "feedback.json");
+  if (!existsSync(feedbackPath)) {
+    const feedback: RuleFeedback = {
+      project,
+      updatedAt: new Date().toISOString(),
+      entries: result.rules.map((r) => ({
+        ruleId: r.id,
+        status: "proposed" as const,
+      })),
+    };
+    writeFileSync(feedbackPath, JSON.stringify(feedback, null, 2), "utf-8");
+  }
+}
+
+// ── Load existing feedback ──────────────────────────────────────────
+
+export function loadFeedback(distilledDir: string, project: string): RuleFeedback | null {
+  const feedbackPath = join(distilledDir, project, "feedback.json");
+  if (!existsSync(feedbackPath)) return null;
+  try {
+    return JSON.parse(readFileSync(feedbackPath, "utf-8")) as RuleFeedback;
+  } catch {
+    return null;
+  }
+}
+
+export function saveFeedback(distilledDir: string, project: string, feedback: RuleFeedback): void {
+  const dir = join(distilledDir, project);
+  mkdirSync(dir, { recursive: true });
+  feedback.updatedAt = new Date().toISOString();
+  writeFileSync(join(dir, "feedback.json"), JSON.stringify(feedback, null, 2), "utf-8");
+}
+
+// ── Markdown Rendering ──────────────────────────────────────────────
+
+function renderRulesMarkdown(rules: DistilledRule[], report: DistillationReport): string {
+  const lines: string[] = [];
+
+  lines.push(`# Distilled Rules — ${report.project}`);
+  lines.push(`Generated: ${report.generatedAt}`);
+  lines.push(`Source: ${report.inputStats.totalObservations} observations from ${report.inputStats.uniqueDevs} developer(s)`);
+  lines.push("");
+  lines.push("---");
+  lines.push("");
+
+  // Group by category
+  const byCategory = new Map<string, DistilledRule[]>();
+  for (const rule of rules) {
+    const cat = rule.category;
+    if (!byCategory.has(cat)) byCategory.set(cat, []);
+    byCategory.get(cat)!.push(rule);
+  }
+
+  for (const [category, catRules] of byCategory) {
+    lines.push(`## ${capitalize(category)}`);
+    lines.push("");
+
+    for (const rule of catRules.sort((a, b) => b.confidence - a.confidence)) {
+      lines.push(`### ${rule.rule}`);
+      lines.push("");
+      lines.push(`> ${rule.rationale}`);
+      lines.push("");
+      lines.push(`- **Confidence:** ${(rule.confidence * 100).toFixed(0)}%`);
+      lines.push(`- **Evidence:** ${rule.sourceCount} observations (${rule.sourceTypes.join(", ")})`);
+      lines.push(`- **Dev diversity:** ${rule.devDiversity}`);
+      lines.push("");
+    }
+  }
+
+  // Provenance
+  lines.push("---");
+  lines.push("");
+  lines.push("## Provenance");
+  lines.push("");
+  lines.push(`- Model: ${report.model}`);
+  lines.push(`- Input: ${report.inputStats.totalObservations} observations`);
+  lines.push(`- Date range: ${report.inputStats.dateRange.oldest.slice(0, 10)} to ${report.inputStats.dateRange.newest.slice(0, 10)}`);
+  lines.push(`- Token usage: ${report.tokenUsage.totalTokens} (est. cost: $${report.tokenUsage.estimatedCost.toFixed(4)})`);
+  lines.push("");
+  lines.push("*This file was auto-generated by claude-mem-sync. Rules are suggestions requiring human review before adoption into CLAUDE.md.*");
+
+  return lines.join("\n");
+}
+
+function renderKnowledgeBaseMarkdown(sections: KnowledgeSection[]): string {
+  const lines: string[] = [];
+
+  lines.push("# Knowledge Base");
+  lines.push("");
+
+  for (const section of sections) {
+    lines.push(`## ${section.title}`);
+    lines.push("");
+    lines.push(`**Concepts:** ${section.concepts.join(", ")}`);
+    lines.push(`**Source observations:** ${section.sourceCount}`);
+    lines.push("");
+    lines.push(section.description);
+    lines.push("");
+
+    if (section.patterns.length > 0) {
+      lines.push("### Patterns");
+      for (const p of section.patterns) {
+        lines.push(`- ${p}`);
+      }
+      lines.push("");
+    }
+
+    if (section.antiPatterns.length > 0) {
+      lines.push("### Anti-Patterns");
+      for (const ap of section.antiPatterns) {
+        lines.push(`- ${ap}`);
+      }
+      lines.push("");
+    }
+  }
+
+  lines.push("---");
+  lines.push("*Auto-generated by claude-mem-sync knowledge distillation.*");
+
+  return lines.join("\n");
+}
+
+function capitalize(s: string): string {
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}

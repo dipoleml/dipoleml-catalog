@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "kind": "citadel_optimizer_matrix_intent",
+  "authorization_digest": "sha256:b17292a5a08b6ea705f82d5c265e047aa65bb9f774d2fc5ea085648e0fdab1eb",
+  "ordinal": 106,
+  "run_key": "nanoid-safety-random-boundary/adaptive/1",
+  "scenario_id": "nanoid-safety-random-boundary",
+  "policy_id": "adaptive",
+  "repetition": 1,
+  "state": "completed",
+  "started_at": "2026-07-31T05:08:18.192Z",
+  "completed_at": "2026-07-31T05:08:22.383Z",
+  "output_file": "records/106-nanoid-safety-random-boundary-adaptive-1.json",
+  "error": null
+}

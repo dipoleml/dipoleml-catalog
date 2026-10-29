@@ -1,0 +1,171 @@
+{
+  "schema": 1,
+  "catalog_id": "optimizer-proof-retrospective",
+  "adapters": {
+    "retrospective-only": {
+      "protocol": "citadel-operation-adapter-v1",
+      "executable": "node",
+      "args": [],
+      "timeout_ms": 1000,
+      "environment_allowlist": []
+    }
+  },
+  "plans": [
+    {
+      "plan_id": "always-frontier",
+      "label": "Historical always-frontier policy",
+      "adapter_id": "retrospective-only",
+      "topology": "direct",
+      "model": null,
+      "tools": [],
+      "privacy": "allow-remote",
+      "feature_keys": [],
+      "prior": {
+        "success_probability": 0.5,
+        "strength": 2,
+        "source": "neutral-pre-history-prior"
+      },
+      "expected_duration_ms": 311506.5,
+      "costs": {
+        "actual_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "basis": "observed",
+          "source": "not attributable in source evidence"
+        },
+        "marginal": {
+          "status": "unknown",
+          "amount_usd": null,
+          "basis": "observed",
+          "source": "not attributable in source evidence"
+        },
+        "market_equivalent": {
+          "status": "known",
+          "amount_usd": 1.404847,
+          "basis": "list-price",
+          "source": "median of 21 source cells"
+        }
+      },
+      "retry_on": [],
+      "max_retries": 0,
+      "fallback_plan_ids": []
+    },
+    {
+      "plan_id": "always-cheap",
+      "label": "Historical always-cheap policy",
+      "adapter_id": "retrospective-only",
+      "topology": "direct",
+      "model": null,
+      "tools": [],
+      "privacy": "allow-remote",
+      "feature_keys": [],
+      "prior": {
+        "success_probability": 0.5,
+        "strength": 2,
+        "source": "neutral-pre-history-prior"
+      },
+      "expected_duration_ms": 106672.5,
+      "costs": {
+        "actual_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "basis": "observed",
+          "source": "not attributable in source evidence"
+        },
+        "marginal": {
+          "status": "unknown",
+          "amount_usd": null,
+          "basis": "observed",
+          "source": "not attributable in source evidence"
+        },
+        "market_equivalent": {
+          "status": "known",
+          "amount_usd": 0.186091,
+          "basis": "list-price",
+          "source": "median of 21 source cells"
+        }
+      },
+      "retry_on": [],
+      "max_retries": 0,
+      "fallback_plan_ids": []
+    },
+    {
+      "plan_id": "prompt-only",
+      "label": "Historical prompt-only policy",
+      "adapter_id": "retrospective-only",
+      "topology": "direct",
+      "model": null,
+      "tools": [],
+      "privacy": "allow-remote",
+      "feature_keys": [],
+      "prior": {
+        "success_probability": 0.5,
+        "strength": 2,
+        "source": "neutral-pre-history-prior"
+      },
+      "expected_duration_ms": 209016,
+      "costs": {
+        "actual_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "basis": "observed",
+          "source": "not attributable in source evidence"
+        },
+        "marginal": {
+          "status": "unknown",
+          "amount_usd": null,
+          "basis": "observed",
+          "source": "not attributable in source evidence"
+        },
+        "market_equivalent": {
+          "status": "known",
+          "amount_usd": 1.596053,
+          "basis": "list-price",
+          "source": "median of 21 source cells"
+        }
+      },
+      "retry_on": [],
+      "max_retries": 0,
+      "fallback_plan_ids": []
+    },
+    {
+      "plan_id": "adaptive",
+      "label": "Historical adaptive policy",
+      "adapter_id": "retrospective-only",
+      "topology": "custom",
+      "model": null,
+      "tools": [],
+      "privacy": "allow-remote",
+      "feature_keys": [],
+      "prior": {
+        "success_probability": 0.5,
+        "strength": 2,
+        "source": "neutral-pre-history-prior"
+      },
+      "expected_duration_ms": 402870,
+      "costs": {
+        "actual_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "basis": "observed",
+          "source": "not attributable in source evidence"
+        },
+        "marginal": {
+          "status": "unknown",
+          "amount_usd": null,
+          "basis": "observed",
+          "source": "not attributable in source evidence"
+        },
+        "market_equivalent": {
+          "status": "known",
+          "amount_usd": 1.357002,
+          "basis": "list-price",
+          "source": "median of 21 source cells"
+        }
+      },
+      "retry_on": [],
+      "max_retries": 0,
+      "fallback_plan_ids": []
+    }
+  ]
+}

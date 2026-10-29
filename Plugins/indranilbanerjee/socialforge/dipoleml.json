@@ -1,0 +1,141 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.indranilbanerjee.socialforge",
+  "type": "plugin",
+  "name": "Socialforge",
+  "slug": "socialforge",
+  "vendor": "indranilbanerjee",
+  "description": "An open-source social media production system that turns a content calendar into on-brand copy, images, video, and client-ready delivery - with compliance and human approval built in.",
+  "version": "1.30.2",
+  "homepage": "https://github.com/indranilbanerjee/socialforge",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agency-operations",
+    "agent-skills",
+    "ai-image",
+    "ai-video",
+    "c2pa",
+    "claude-plugin",
+    "claude-skills",
+    "content-calendar",
+    "copilot-cli-plugin"
+  ],
+  "tags": [
+    "agency-operations",
+    "agent-skills",
+    "ai-image",
+    "ai-video",
+    "c2pa",
+    "claude-code",
+    "claude-plugin",
+    "claude-skills",
+    "content-calendar",
+    "copilot-cli-plugin",
+    "cursor-plugin",
+    "eu-ai-act",
+    "gemini-cli-extension",
+    "hermes-plugin",
+    "nano-banana-pro",
+    "openai-codex",
+    "openclaw-plugin",
+    "social-media",
+    "veo-3",
+    "vertex-ai"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "indranilbanerjee",
+    "brandName": "indranilbanerjee",
+    "source": "https://github.com/indranilbanerjee.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:13:21Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "indranilbanerjee/socialforge",
+    "url": "https://github.com/indranilbanerjee/socialforge",
+    "commit": "1176d188b3abe1a8a1ba233edfa37676ea02c106",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 42,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:05:51Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude,cursor",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".cursor-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/cursor/.cursor-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Open-source social media engine — 21 skills, asset-first compositing, AI image+video, 9-platform copy adaptation. Runs on Claude Code, Codex, Cursor, Antigravity.",
+        "after": "Open-source social media engine — 21 skills, asset-first compositing, AI image+video, 9-platform copy adaptation. Runs on DipoleML, Codex, Cursor, Antigravity.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "@indranilbanerjee/socialforge"
+    ],
+    "env": [
+      "WAVESPEED_API_KEY",
+      "GEMINI_API_KEY"
+    ],
+    "credentials": [
+      "WAVESPEED_API_KEY",
+      "GEMINI_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude",
+      "cursor"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

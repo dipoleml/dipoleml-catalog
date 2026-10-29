@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "kind": "citadel_optimizer_matrix_intent",
+  "authorization_digest": "sha256:b17292a5a08b6ea705f82d5c265e047aa65bb9f774d2fc5ea085648e0fdab1eb",
+  "ordinal": 88,
+  "run_key": "citadel-safety-model-proof/always-cheap/1",
+  "scenario_id": "citadel-safety-model-proof",
+  "policy_id": "always-cheap",
+  "repetition": 1,
+  "state": "completed",
+  "started_at": "2026-07-31T04:30:39.231Z",
+  "completed_at": "2026-07-31T04:31:58.090Z",
+  "output_file": "records/088-citadel-safety-model-proof-always-cheap-1.json",
+  "error": null
+}

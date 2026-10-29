@@ -1,0 +1,339 @@
+---
+description: Scenario-driven answers to the questions practitioners actually ask when adopting and using Lattice.
+---
+
+# Practical Guide
+
+Scenario-driven answers to common questions practitioners have when adopting and using Lattice. Each answer is self-contained and brief.
+
+---
+
+## Contents
+
+- [Getting Started](#getting-started)
+- [Requirements](#requirements)
+- [Architecture](#architecture)
+- [Language](#language)
+- [Customization](#customization)
+- [Workflow](#workflow)
+- [Codebase Transformation](#codebase-transformation)
+- [Domain-Driven Design](#domain-driven-design)
+- [Team Usage](#team-usage)
+- [The Learning Flywheel](#the-learning-flywheel)
+- [Troubleshooting](#troubleshooting)
+
+---
+
+## Getting Started
+
+### I just installed Lattice. What do I do first?
+
+Run `/lattice-init`. It scans your project, creates `.lattice/config.yaml`, and confirms you're ready — from that moment Lattice runs on built-in defaults with full functionality, so you can start using any molecule immediately. Refiner interviews (`/knowledge-priming-refiner`, `/language-idioms-refiner`, ...) are optional upgrades that pin your team's conventions instead of generic defaults; run them anytime.
+
+### My project already has 50k+ lines of code. Is Lattice only for new projects?
+
+No. Lattice works for brownfield codebases too. Run `/lattice-init` to scan the repo and set up `.lattice/` around what you already have. Use `/refactor-safely`, `/bug-fix`, and `/review` for incremental improvement without rewriting everything. Run `/architecture-refiner` to give Lattice explicit ground rules for whatever architecture you actually follow — it writes `.lattice/standards/architecture.md` so the architecture atom enforces your structure, not a generic default.
+
+### What happens if I skip all refiners and just start using molecules?
+
+Molecules work out of the box on built-in defaults — `code-forge` even generates with your language's native idioms when no language-idioms doc exists. What you give up without `/knowledge-priming-refiner` is a pinned record of your stack and conventions applied every session, and without `/language-idioms-refiner`, language-specific patterns follow the model's general knowledge instead of your team's explicit choices. The other refiners (architecture, clean code, DDD, review) have solid embedded defaults. Refiners are optional — run them when you want generic defaults replaced by your team's rules.
+
+### What is the `.lattice/` folder and should I commit it to version control?
+
+The `.lattice/` folder is Lattice's living context layer. It holds `config.yaml` (your settings), `standards/` (refiner outputs like architecture and coding rules), `requirements/` (epic and feature specs produced by requirement-forge), `context/` (per-feature living documents capturing decisions and blueprints), `reviews/` (review log), `learnings/` (operational learnings accumulated across design, implementation, review, and bug-fix sessions), and `insights/` (the architectural insights document produced by architecture-compass). Commit it — it's the shared source of truth for your team's standards and accumulates value over time. `requirements/` is the one exception worth calling out: it's optional and pluggable — teams that already track requirements in an external system (Jira, Linear, etc.) can skip it entirely and point `design-blueprint` at an external reference instead. Commit it only if you're using it.
+
+---
+
+## Requirements
+
+### When should I use `/requirement-forge` vs. jumping straight to `/design-blueprint`?
+
+Use `/requirement-forge` when the feature scope, problem statement, or acceptance criteria are not yet clearly defined — it acts as a senior PM + BA pair that challenges assumptions, structures epics and features, and produces specs complete enough for `design-blueprint` to consume without further interviews. Go straight to `/design-blueprint` when the feature is already well-understood and you only need to make technical design decisions. When in doubt, run requirement-forge first — a well-specced feature produces a sharper blueprint.
+
+### What is the structure requirement-forge produces?
+
+Three artifacts in `.lattice/requirements/`: a thin `index.md` apex file (definitions, glossary, and a generated list of epics), one `epics/{epic-slug}.md` per epic (hand-authored header plus a generated feature table listing name and summary), and per-feature files in `features/` — each carrying its own `status`, `priority`, and `depends_on` frontmatter, which is never mirrored into the rollups. Each feature file contains a problem statement, user/personas, scope (in-scope and out-of-scope), boundary conditions, assumptions, ordered scenarios (each with acceptance criteria), implementation notes, and open questions. If source documents were provided during intake, the relevant epic file also includes a Source Materials table (tracing which documents produced which features) and a Deferred Items section (content intentionally excluded from the current feature set). The feature file is the direct input to `design-blueprint`.
+
+### What is a scenario in requirement-forge?
+
+A scenario is a bounded situation the feature must handle — not a user story, not an acceptance criterion. A feature is broken into 2–5 scenarios; each scenario has 3–6 Given/When/Then acceptance criteria. Scenarios are ordered chronologically — the natural implementation sequence. This two-level structure prevents both scenario sprawl (too many ACs on a flat feature) and story fragmentation (too many fine-grained stories disconnected from the feature).
+
+### Do I need to run `/requirement-forge-refiner` before using requirement-forge?
+
+No — requirement-forge works with built-in defaults out of the box. When no standards document is found, the molecule tells you the active defaults (Given/When/Then ACs, P0/P1/P2 priority, max 5 scenarios per feature, max 6 ACs per scenario, standard status workflow) so you know what will govern the session. Run `/requirement-forge-refiner` when you want to tailor these to your team — custom AC format, alternative nomenclature (e.g., "use case" instead of "scenario"), different priority notation, or an extended status workflow. It is a one-time setup.
+
+### I have existing PRDs, feature lists, or Confluence pages. How does requirement-forge handle them?
+
+The molecule opens by asking whether you have existing material before assuming a blank slate. Provide file paths, paste text, or describe where documents live. It reads everything silently and runs a structured triage: classifies each document by type (product requirements, technical design, stakeholder wishlist, marketing — only product requirements and wishlists feed the pipeline), identifies overlaps between documents (same capability described differently), surfaces contradictions for your resolution, checks granularity (ACs mistaken for features, or broad epics mistaken for features), identifies gaps (implied behaviors never explicitly stated), and flags orphaned content (material that doesn't map to any feature — collected for the relevant epic's Deferred Items section). It then presents a structured hypothesis with proposed epics and features. You confirm or correct before anything is written.
+
+### My requirement-forge session ended before all features were specced. What happens next time?
+
+The molecule's first action is always to scan `.lattice/requirements/` for existing work. It classifies each feature file as complete, structurally incomplete (missing sections), or quality-suspect (present but with a spec quality issue flagged by the `requirement-quality` atom). It surfaces each issue one by one and asks whether to finish it, move on, or skip — no blanket restart. When you're done resolving incomplete features, it offers explicit re-entry points: add features to an existing epic, create a new epic, or update a specific spec.
+
+### I only want to spec one feature, not design a whole product. Does requirement-forge force me through a full epic structure?
+
+No. If your description or documents reveal only 1–3 features, the molecule offers a single-feature fast path: spec the feature directly, then create a placeholder `epics/{epic-slug}.md` plus a thin `index.md` pointing to it, so the structure is in place for later expansion. You are not forced to define a complete epic before speccing a single feature.
+
+### How does requirement-forge connect to design-blueprint?
+
+Each feature file's `## Links` section gains a `- Design:` back-link that `design-blueprint` writes the first time it resolves that feature's requirement doc in Step 1 — on either a new design session or a resumed one. The `design-blueprint` molecule's context-anchoring step accepts a "requirement doc link" pointing to the feature file — it loads the problem statement and scope as starting context for the design session. When a requirement doc is linked, design-blueprint takes it as Level 1 (Capabilities) and proposes starting at Level 2 or later, so you do not agree the same outcomes twice. It offers a capabilities walk-through first, for when someone else wrote the spec. The two molecules complement each other: requirement-forge defines WHAT and WHY; design-blueprint defines HOW.
+
+### What is the difference between collaborative and autonomous mode in requirement-forge?
+
+Collaborative mode (default) pauses for confirmation at every phase — epic list, feature list per epic, feature frame, and each scenario. The molecule proposes and you approve or correct before advancing. Autonomous mode runs all phases silently, drafts everything, then presents the complete output for review. Use collaborative when you want to shape the spec interactively; use autonomous when you want a draft quickly and prefer to review and edit in one pass. Autonomous mode pauses only for genuine blockers — contradictions with no reasonable resolution, missing domain knowledge, or scope so ambiguous that two valid structures exist.
+
+### Why does the feature file ask for personas? My PRD already says "for users."
+
+"Users" is too vague for good specs. Different user types produce different acceptance criteria — what an admin sees on login is not what a buyer sees. The molecule pushes for specific roles (buyer, seller, admin, guest) so each scenario's ACs are verifiable for a concrete user type. If a feature genuinely serves all user types identically, state that explicitly — the persona section still forces you to confirm it rather than silently assume.
+
+### My feature has assumptions that might be wrong. How does requirement-forge handle them?
+
+Feature files include an explicit Assumptions section — statements the team proceeds with as true without full validation. The `requirement-quality` atom checks for hidden assumptions (preconditions buried in ACs without being documented) and treats them as an anti-pattern. When an assumption reads like it could be a requirement ("users will have verified emails" — is that an assumption or a feature to build?), the atom flags it as an ambiguity signal for you to decide.
+
+### What happens to content from my source documents that doesn't map to any feature?
+
+It goes into the relevant epic's Deferred Items section — intentionally excluded content with reasons for deferral. Nothing disappears silently. Marketing copy, competitive positioning, out-of-scope ideas, and deferred feature suggestions are all tracked so stakeholders can verify that everything from the source material was either mapped to a feature or consciously set aside.
+
+### Can I use the `requirement-quality` atom on its own to validate specs I already wrote?
+
+Yes. The atom works standalone — it does not require the molecule. Point it at any feature spec file and it runs the 12-item self-validation checklist (problem statement, scope, boundary conditions, assumptions, scenarios, ACs, independence, implementation notes, coherence) and the 17-item anti-pattern scan. It will flag issues like vague problem statements, missing failure scenarios, persona-less specs, hidden assumptions, and wrong granularity. Use it as a quality gate before handing any spec to `design-blueprint`.
+
+---
+
+## Architecture
+
+### My team uses clean architecture. Do I need to configure anything?
+
+No. Clean architecture is the default — atoms enforce it out of the box with no config needed. Optionally run `/architecture-refiner` to customize specific rules (e.g., disable the Provider pattern, adjust layer naming) and write them to `.lattice/standards/architecture.md`.
+
+### I use clean architecture but want to customize a few rules (e.g., we don't use the Provider pattern).
+
+Run `/architecture-refiner`. It interviews you about your specific rules and writes `.lattice/standards/architecture.md` in overlay mode by default — your customizations apply on top of clean architecture defaults, so you only need to document what differs.
+
+### My team uses hexagonal / ports & adapters architecture. How do I set that up?
+
+Run `/architecture-refiner` and select hexagonal / ports & adapters when prompted. It sets `architecture_mode: custom` in `.lattice/config.yaml` and writes `.lattice/standards/architecture.md` — an enriched document where you capture port/adapter boundaries, inbound/outbound rules, allowed dependency directions, anti-patterns, naming conventions, and any other constraints your team follows. The richer the document, the more precisely the architecture atom enforces your structure.
+
+### We use a modular monolith with vertical slices. Can Lattice work with that?
+
+Yes. Run `/architecture-refiner` and describe your modular monolith structure. It sets `architecture_mode: custom` and produces `.lattice/standards/architecture.md` where you document your slice boundaries, module contracts, shared kernel rules, and any cross-slice constraints. The architecture atom enforces exactly what you define.
+
+### We don't follow any named architecture pattern — we have our own layer structure. Can Lattice enforce it?
+
+Yes. Run `/architecture-refiner` and describe your layers, their responsibilities, and the rules between them. It sets `architecture_mode: custom` and writes `.lattice/standards/architecture.md` — Lattice has no requirement for a named pattern. The more precisely you describe your rules, the more precisely the atom enforces them.
+
+### What is `architecture_mode` and when do I need to set it?
+
+`architecture_mode` tells the architecture atom which rulebook to use: `clean` (default) uses embedded clean architecture enforcement; `custom` uses only your `.lattice/standards/architecture.md`. You only need to set it when you're not using clean architecture — `/architecture-refiner` sets it automatically when you select a non-clean style.
+
+### I switched from clean architecture to hexagonal. How do I update my Lattice config?
+
+Re-run `/architecture-refiner` and select hexagonal when prompted. It updates `architecture_mode: custom` in `.lattice/config.yaml` and rewrites `.lattice/standards/architecture.md` with your new structure. Your old clean architecture document is replaced.
+
+---
+
+## Language
+
+### My team uses Go (or Rust, or Python). Do I need to do anything special?
+
+Run `/language-idioms-refiner`. It detects your language, proposes idiomatic patterns (error handling, type system, naming, testing, DI), and asks you to confirm or adjust. The output goes to `.lattice/standards/language-idioms.md` and is consumed by multiple atoms — clean-code, test-quality, secure-coding, DDD, and architecture all reference specific sections to adapt their pseudocode defaults to your language. `/lattice-init` auto-suggests this as priority #2 after knowledge-priming.
+
+### We use Java/TypeScript. The defaults already seem fine. Do we still need the language-idioms document?
+
+Recommended but not critical. The embedded defaults have an OOP + exception-based style that aligns well with Java, Kotlin, TypeScript, and C#. The language-idioms document still adds value — it captures your specific conventions (test framework, DI approach, naming patterns) — but the gap is smaller than for Go or Rust where the defaults actively conflict.
+
+### What's the difference between the language-idioms document and knowledge-priming?
+
+Knowledge-priming answers "what is this project?" — tech stack, directory layout, trusted docs, conventions. Language idioms answers "how does this language express patterns?" — error handling philosophy, type system, naming rules, testing idioms, DI approach. Knowledge-priming says "we use Go 1.22 with Chi router." Language idioms says "Go uses error returns not exceptions, interfaces at consumer not provider, table-driven tests."
+
+### What's the difference between the language-idioms document and a clean-code overlay?
+
+Language idioms describes *how the language works* — language-level facts. A clean-code overlay describes *how your team works within the language* — team-level preferences. Language idioms: "Go uses error returns." Clean-code overlay: "We use `fmt.Errorf('context: %w', err)` for wrapping and custom error types for domain errors." They're complementary, not overlapping.
+
+### My project uses multiple languages (e.g., Go backend + TypeScript frontend). What do I do?
+
+One language-idioms document per project, covering the primary language. `/lattice-init` detects multiple languages and asks which is primary. If both languages are equally important, create the document for whichever language you use Lattice with most (typically the backend). The other language still gets reasonable behavior from the pseudocode defaults.
+
+### The atoms are generating exception-based error handling, but we use Go.
+
+You're missing the language-idioms document. Run `/language-idioms-refiner` — it proposes Go-idiomatic patterns including error returns, `if err != nil`, and error wrapping. The clean-code atom reads the "Error Handling" section and adapts §8 accordingly. Without it, atoms fall back to pseudocode defaults which assume exceptions.
+
+---
+
+## Customization
+
+### How do I change what an atom checks for?
+
+Run the corresponding refiner (e.g., `/clean-code-refiner`, `/architecture-refiner`) — it interviews you and writes a standards document to `.lattice/standards/` that the atom picks up. If no refiner exists for what you need, add your rules directly to `.lattice/standards/knowledge-base.md`; the knowledge-priming atom loads it into every workflow.
+
+### What is the difference between overlay and override mode?
+
+Overlay (default) applies your standards document on top of embedded defaults — only sections you define replace the corresponding defaults; everything else stays. Override fully replaces the defaults with your document — atoms enforce only what you wrote. Use overlay when you want to tweak a few rules; use override when you manage the full standard yourself.
+
+### I ran the architecture-refiner but want to change one section. Do I re-run the whole interview?
+
+No. Edit `.lattice/standards/architecture.md` directly — it's a plain markdown file. Update the section you want to change and save. The atom picks it up on the next invocation. Re-run `/architecture-refiner` only if you want a guided interview to rebuild the document from scratch.
+
+### Can I write the standards document by hand instead of using a refiner?
+
+Yes. Create the file directly under `.lattice/standards/` (e.g., `architecture.md`) and point to it in `.lattice/config.yaml` via the relevant `paths` key. The refiner is just a guided way to produce the same file — the atom only cares about the document, not how it was created.
+
+### How do I add project-specific rules that don't exist in any atom's defaults?
+
+Add them to `.lattice/standards/knowledge-base.md`. The knowledge-priming atom loads this document into every workflow, so any rule, convention, or constraint you put there is available to all atoms and molecules. You can edit it directly or use `/knowledge-priming-refiner` to build it via a guided interview.
+
+### I keep repeating the same instruction every time I run a molecule. Where do I put it?
+
+In `.lattice/config.yaml` under `additional_instructions.{molecule}` (e.g. `design_blueprint`) — a few lines such as "suffix the context doc name with the platform" or "read the backend repo in `../api` before designing". The molecule shows them at session start and applies them above everything else, gates included. Keep it to a handful of lines, and only lines that matter while this molecule runs: anything every agent session needs belongs in `AGENTS.md` / `CLAUDE.md`, and rules for what the artifact must contain belong in a refiner's standards document. See [when to use which](configuration.md#choosing-where-an-instruction-goes).
+
+### Our specs live in a separate repo. Can requirement-forge and design-blueprint use them?
+
+Yes. Only `requirement-forge` writes requirements, so one instruction moves them:
+
+```yaml
+additional_instructions:
+  requirement_forge:
+    - Write and read requirements under ~/specs/.lattice/requirements/
+```
+
+`design-blueprint` reaches the spec through the context doc's `requirement_doc` link, which can point anywhere local, and writes its back-links as relative paths between the two files. Context docs and learnings stay in the code repo by default — they describe this codebase. Your agent host must allow access outside the workspace.
+
+### Can I keep the review log somewhere else?
+
+Yes — only the `review` molecule writes it:
+
+```yaml
+additional_instructions:
+  review:
+    - Append the review log to docs/reviews/review-log.md
+```
+
+To move context docs or learnings, use `paths.context_base` and `paths.operational_learnings` instead; every molecule that touches them resolves through the owning atom. See [path values](configuration.md#paths-keys).
+
+---
+
+## Workflow
+
+### When should I use `/design-blueprint` vs. just starting with `/code-forge`?
+
+Use `/design-blueprint` when the feature involves real design decisions — new components, cross-layer interactions, API contracts, or anything where getting the structure wrong is costly to fix. Go straight to `/code-forge` for small, well-understood changes where the design is already clear. When in doubt, blueprint first — it takes minutes and prevents larger refactors later. If the feature itself is not yet well-defined, start with `/requirement-forge` before `/design-blueprint`.
+
+### What is the difference between `/refactor-safely` and just refactoring directly?
+
+`/refactor-safely` requires agreement on the target structure before touching code, then uses characterization tests as a safety net to ensure externally observable behavior doesn't change. Refactoring directly skips both — no upfront structural agreement and no enforced regression protection. Use `/refactor-safely` when the change is non-trivial or the code lacks test coverage.
+
+### When should I use `/bug-fix` vs. just fixing the bug myself?
+
+`/bug-fix` enforces the right thought process: RCA first, reproduce with a failing test, then fix. It prevents jumping straight to a patch without understanding the cause. That said, it's a judgment call — for obvious, contained bugs you're confident about, fixing directly is fine. `/bug-fix` adds the most value when the root cause is unclear or the fix touches critical paths.
+
+### How does `/review` differ from a normal code review?
+
+`/review` is delta-scoped and structured — it only reviews what changed, applies all relevant atoms (architecture, clean code, security, test quality) as enforcement lenses, and produces severity-ordered findings. A normal code review depends on the reviewer's knowledge and attention. `/review` ensures no atom's rules are silently skipped and captures recurring patterns as learnings to improve future code generation.
+
+### What is the "inside-out implementation order" in code-forge?
+
+Inside-out means code-forge implements from the innermost layer of your architecture outward, following the dependency direction of your loaded architecture doc — with clean architecture, for example: domain entities first, then application use cases, then adapters/infrastructure, then the entry points (controllers, handlers). This order ensures outer layers always depend on already-implemented inner layers and prevents placeholder stubs from leaking into the final code.
+
+---
+
+## Codebase Transformation
+
+### My codebase has significant architectural debt. Where do I start?
+
+Run `/architecture-compass`. It scans the repository, conducts a short targeted interview, then leads a collaborative session to agree on the current architectural state and a recommended direction. The output is `.lattice/insights/architecture.md` — an insights document capturing what was found, what was agreed, and what to do first. The first moves in the document guide which existing molecules to use next: `/refactor-safely` for moving existing code, `/design-blueprint` + `/code-forge` for introducing new structures.
+
+### What does `/architecture-compass` actually produce?
+
+A single document at `.lattice/insights/architecture.md` with: repository identity, why the team is doing this (from the interview), archaeology findings (dead code, duplicates, hidden coupling), domain map, current architecture with Mermaid diagram, recommended direction with diagram and annotated folder tree, gap assessment, and first moves (2–3 structural decisions with molecule guidance). Not a full execution plan — an orientation document.
+
+### How long does a session take?
+
+Plan for one focused session of 2–3 hours. The scan and interview are fast. The two agreement rounds — current architecture and recommended direction — take longer than most teams expect. The current state agreement in particular surfaces things the team assumed were intentional but are actually drift, and vice versa. The gap assessment and first moves can be built in a follow-up session — reaching current + direction agreement is itself a complete and valuable output.
+
+### The AI proposed a direction that feels too simple. Should I push for more?
+
+Only if you have a specific reason. The molecule is designed to propose the minimum viable direction — the simplest structure that resolves the stated pain. The test: can the team take the first move this week? A direction that only pays off after six months of work is wrong. Push for more complexity only when you have a concrete reason tied to the actual pain, not because simplicity feels unsatisfying.
+
+### I tried improving this codebase before and it stalled. Will this be different?
+
+The interview explicitly asks about previous failed attempts. That is the most important question in the session — previous failures reveal specific blockers (technical, organisational, or political) that will stall this attempt too unless the insights document accounts for them. Whatever stopped the last attempt needs to be named and addressed in the recommended direction before any work begins.
+
+### What is the difference between `/architecture-compass` and `/refactor-safely`?
+
+`/refactor-safely` operates at a bounded, specific scope — one module, one known structural problem. It assumes you already know what needs to change and why. `/architecture-compass` operates at the repository level — it helps the team agree on where the architecture is and what direction it should move. Use `/architecture-compass` when the team needs shared orientation. Use `/refactor-safely` when you have a specific, bounded improvement to make — including the first moves from an architecture-compass session.
+
+### Can I run `/architecture-compass` on a codebase that already has `.lattice/` config?
+
+Yes — and it will produce sharper output. If `.lattice/standards/architecture.md` exists (from `/architecture-refiner`), the molecule uses it as the audit lens and as input to the recommended direction. If `.lattice/standards/knowledge-base.md` exists, it loads it for codebase identity. If neither exists, it infers defaults from the scan and offers to run `/lattice-init` first.
+
+### The insights document says the recommended direction is the best current understanding. Does that mean it will change?
+
+Yes, and that is expected. The direction is a hypothesis based on what is known at the time of the session. As first moves complete, the team learns things that refine the direction. Update the document when that happens — the session status table tracks what is agreed and when. A document framed as a living hypothesis gets updated and trusted. One framed as authoritative gets abandoned when reality diverges.
+
+### We have a large codebase. Will `/architecture-compass` try to read everything?
+
+No. The molecule uses a strategic scanning protocol: directory tree, dependency manifests, architecture documents, import patterns via grep, entry points, interface files, and one representative file per top-level module — roughly 15–25 targeted reads total. Full method implementations, test files, generated code, and vendor directories are skipped. The scan extracts architectural signal, not completeness.
+
+---
+
+## Domain-Driven Design
+
+### Can I customize what DDD patterns Lattice enforces?
+
+Yes. Run `/ddd-refiner` — it interviews you about your DDD usage and writes `.lattice/standards/ddd-principles.md`. You can limit enforcement to only the patterns your team uses (e.g., aggregates and value objects but not bounded contexts) and add project-specific rules on top of the defaults. For example: "all domain objects must be constructed via the builder pattern", "aggregates must never expose mutable collections", "value objects must be immutable and self-validating". The DDD atom enforces whatever you define alongside the embedded defaults.
+
+---
+
+## Team Usage
+
+### Multiple developers on my team use Lattice. How do we coordinate?
+
+Commit `.lattice/` to version control. All standards documents, config, blueprints, and review insights live there — everyone on the team shares the same rules automatically. Refiners are run once (or as a team decision) and the outputs become the shared source of truth. Individual developers pull the latest `.lattice/` and Lattice enforces the team's agreed standards, not personal defaults.
+
+### Should we run refiners individually or as a team?
+
+As a team, at least for the first time. Refiner outputs define what Lattice enforces for everyone — architecture rules, coding standards, DDD patterns. These are team decisions, not individual preferences. One person running a refiner and committing the output is fine mechanically, but the decisions inside should reflect team consensus. Re-runs to tweak rules follow the same principle.
+
+### Two developers customized the architecture differently. How do we resolve that?
+
+Treat `.lattice/standards/architecture.md` like any other source file — resolve the conflict in version control. Review both versions as a team, agree on the rules, and merge into one canonical document. Going forward, architecture changes should go through the same review process as code changes to prevent divergence.
+
+### A new developer joined. How do they onboard to our Lattice setup?
+
+They pull the repo — `.lattice/` is already there with all the team's standards, config, and review history. No refiner runs needed. They install Lattice into their AI tool, and it immediately enforces the team's agreed rules. The `.lattice/` folder is the onboarding artifact.
+
+---
+
+## The Learning Flywheel
+
+### What are review insights and how do they feed back into code generation?
+
+`/review` captures two things: a **review log** (`.lattice/reviews/review-log.md`) for health tracking and trends, and **operational learnings** (`.lattice/learnings/operational-learnings.md`) for recurring cross-cutting patterns worth remembering. Operational learnings feed back into the code-facing molecules — when `/code-forge`, `/design-blueprint`, `/bug-fix`, or `/refactor-safely` runs next, it loads these patterns and uses them to avoid repeating past mistakes (e.g., if learnings flag "anemic domain models keep appearing," code-forge actively pushes behavior into entities from the start). Those four molecules and `/review` both consume and contribute to operational learnings via the `learning-harvest` atom.
+
+### How do I know if Lattice is actually improving my code quality over time?
+
+Check `.lattice/reviews/review-log.md` — it tracks findings per review (critical, warning, suggestion counts) and key patterns over time. If the same issues keep appearing, they'll surface in `.lattice/learnings/operational-learnings.md` as recurring patterns. Improvement shows up as fewer critical and warning findings per review cycle and fewer recurring entries in learnings.
+
+### The review log is getting long. How do I manage it?
+
+`/review` handles this automatically — once the log exceeds ~20 entries, it moves the oldest entries into a one-line `## History` summary section at the top of `.lattice/reviews/review-log.md`. For `.lattice/learnings/operational-learnings.md`, the `learning-harvest` atom self-assesses document health and proposes tightening when entries grow dense or overlap — consolidating duplicates, flagging noise, and suggesting promotion to standards. You can also edit the file manually.
+
+### Can I manually add insights from production incidents?
+
+Yes. Edit `.lattice/learnings/operational-learnings.md` directly and add a bullet under the appropriate category in the same format: `- YYYY-MM-DD [context] Pattern — actionable takeaway`. Keep it concise and actionable — the goal is a signal that helps future sessions avoid the same mistake, not a detailed incident report.
+
+---
+
+## Troubleshooting
+
+### An atom seems to be checking rules I don't agree with. How do I change them?
+
+Run the corresponding refiner to produce a standards document for that atom — it replaces or overlays the embedded defaults. If no refiner exists for the atom, add your rules to `.lattice/standards/knowledge-base.md`. If you disagree with a specific check entirely, use override mode to take full control of what the atom enforces.
+
+### Code-forge is generating code in a style that doesn't match my project. What should I check?
+
+Check three things: first, that `.lattice/standards/knowledge-base.md` exists and describes your project's tech stack, conventions, and coding style — run `/knowledge-priming-refiner` if it doesn't. Second, check `.lattice/standards/language-idioms.md` — if it's missing and you use Go, Rust, Python, or another non-OOP language, atoms will use pseudocode defaults that assume exceptions and classes. Run `/language-idioms-refiner` to fix this. Third, check `.lattice/standards/clean-code.md` — if it's missing or generic, run `/clean-code-refiner` to capture your project-specific style.
+
+### The architecture atom isn't loading my custom document. What could be wrong?
+
+Check three things: (1) `.lattice/config.yaml` has `paths.architecture` pointing to the correct file path; (2) the file actually exists at that path; (3) if your team follows a non-clean style, `architecture_mode: custom` must be set — without it the atom enforces clean-architecture rules and treats your document as an overlay on those defaults rather than as the sole rulebook. If all three are correct, check that the document has a valid markdown structure with headings the atom can parse.

@@ -1,0 +1,26 @@
+{
+  "name": "hypergrok",
+  "description": "Hyperliquid trading desk for Grok Build",
+  "owner": {
+    "name": "Galleon Labs"
+  },
+  "plugins": [
+    {
+      "name": "hypergrok",
+      "description": "Turn Grok Build into a 7-role Hyperliquid trading desk: research, risk, execution and review.",
+      "category": "development",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/galleonlabs/hypergrok-trading-desk.git",
+        "ref": "v1.7.0"
+      },
+      "homepage": "https://github.com/galleonlabs/hypergrok-trading-desk",
+      "keywords": ["hypergrok", "hyperliquid", "trading desk", "grok bot"],
+      "version": "1.7.0",
+      "author": {
+        "name": "Galleon Labs"
+      },
+      "tags": ["trading", "hyperliquid", "agents"]
+    }
+  ]
+}

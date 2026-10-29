@@ -1,0 +1,12 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "noEmit": false,
+    "stripInternal": true
+  },
+  "include": ["src/**/*"],
+  // The frontend is browser code with its own lib and globals; it ships inside
+  // the page, not as a declaration. tsconfig.gui.json covers it.
+  "exclude": ["tests", "dist", "node_modules", "src/gui/frontend"]
+}

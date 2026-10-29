@@ -1,0 +1,164 @@
+# Lesson Trust Semantics
+
+> MisakaNet 的信任模型和证据等级
+
+---
+
+## 一句话定位
+
+**MisakaNet is a Git-backed failure-memory layer for AI coding agents.**
+
+不是通用记忆系统，不是 Agent runtime，不是向量数据库。
+是专注、轻量、可审计的失败恢复知识层。
+
+---
+
+## 反 RAG 立场
+
+**MisakaNet is NOT a RAG system.**
+
+| RAG 系统 | MisakaNet |
+|----------|-----------|
+| 向量嵌入 + 语义搜索 | BM25 关键词搜索 |
+| 需要嵌入模型 | 纯标准库（无第三方包） |
+| 云服务 | 本地运行 |
+| 黑盒检索 | 可审计的搜索结果 |
+
+**为什么选择 BM25 而不是 RAG？**
+
+1. **纯标准库（无第三方包）：** 无需安装嵌入模型（通常 2GB+）
+2. **可审计：** 搜索结果完全可预测
+3. **本地运行：** 无需云服务，无需网络
+4. **快速：** 毫秒级响应
+5. **足够好：** 对于 failure recovery，关键词搜索已经足够
+
+---
+
+## 信任级别
+
+MisakaNet uses three trust levels for lessons. These terms are used consistently across README, site, and generated data.
+
+## Definitions
+
+| Term | Meaning | Quality gate |
+|------|---------|-------------|
+| **indexed** | In the search index. May be draft, published, or contrib. | quality_scorer ≥ 0 |
+| **published** | Approved and visible. Passes quality gate. | quality_scorer ≥ 75 |
+| **verified** | Fact-checked against original source material. Rare. | manual review + source link |
+
+## Usage
+
+- **README / public site**: Use "indexed" when counting total lessons.
+  - ✅ "249 indexed failure-recovery lessons"
+  - ❌ "249 verified failure lessons" (unless all 249 have been fact-checked)
+
+- **Lesson frontmatter**: `status` uses one of `active`, `archived`, `draft`, `published`, `stale`, `superseded`. That set is not a convention — it is the one `scripts/lesson_gate.py` enforces (`VALID_STATUS`), the one `scripts/queue_lesson.py --status` offers, and the one `lessons/TEMPLATE.md` documents. Adding a status means changing `VALID_STATUS`, not just a doc.
+  - Only `published` is indexed: `is_published_status()` is a strict comparison, so the other five are excluded from the sitemap and from search weighting. They still get a page, rendered with a "not published" banner — never silently treated as published.
+  - `published` means it passed the quality gate, not that it was manually verified.
+
+- **Contrib lessons**: Start as `draft`, become `published` after quality_scorer ≥ 75.
+
+- **Core lessons**: Are `published` by default (maintainer-curated).
+
+## Why this matters
+
+Claiming "verified" when lessons are only "indexed" erodes trust when a lesson turns out to be wrong. Use "indexed" for scale claims, "verified" only for fact-checked content.
+
+---
+
+## Evidence levels E0–E4 (Issue #786)
+
+`status` answers *"is this published?"*. `evidence_level` answers the harder question: **how reliable is this lesson?** Without it, a contributor's self-reported guess and a CI-verified fix are indistinguishable in search results.
+
+| Level | Meaning | How it is achieved | Weight |
+|-------|---------|--------------------|--------|
+| **E0** | Contributor self-reported | Default on intake | 0.00 |
+| **E1** | Maintainer reviewed | A maintainer accepted the intake | 0.25 |
+| **E2** | Local smoke reproduced | Maintainer or CI reproduced the fix | 0.50 |
+| **E3** | Sandbox / CI verified recovery | Automated verification in CI | 0.75 |
+| **E4** | Reused by distinct clients (**observed**) | Two or more distinct clients actually retrieved the lesson (`COUNT(DISTINCT client_hint)` over `search_signals`) | 1.00 |
+
+### Rules
+
+- **Default is E0.** A missing, empty, malformed, or unknown `evidence_level` reads as E0 everywhere — evidence is never assumed. `scripts/queue_lesson.py` writes `"evidence_level": "E0"` on new lessons.
+- **One step at a time.** Promotion is E0 → E1 → E2 → E3 → E4; skipping levels means the intermediate evidence was never produced.
+- **Evidence is not writing quality.** A beautifully written but unreproduced lesson is still E0.
+
+- **E4 is the one rung nobody can write, vote, or merge a lesson into.** It reads an observation from the transport layer, so it is the only level not produced by editing a file. `scripts/infer_evidence_level.py` therefore never infers it (see below), and the `E3 → E4` row above is the only way up.
+
+### Promotion rules
+
+| From | To | What has to happen |
+|------|----|--------------------|
+| E0 | E1 | A maintainer reviews the lesson and accepts it (**review**) |
+| E1 | E2 | Someone reproduces the failure and the fix locally (**reproduce**) |
+| E2 | E3 | CI or a sandbox run verifies the recovery automatically (**CI verify**) |
+| E3 | E4 | Two or more distinct clients are **observed** retrieving the lesson (**observed reuse**) |
+
+To promote a lesson through E1–E3, edit `evidence_level` in its frontmatter in the same PR that carries the evidence (review comment, reproduction log, or CI run link). E4 is not edited into a file: it is counted from `search_signals` by the worker, and a lesson that declares `E4` in frontmatter without that observation is claiming something no file can establish.
+
+### What the corpus actually looks like
+
+`backlog-and-growth-2026-09-20.md` §3.9 asked for this distribution **before** any talk of an
+"E0/E1 downgrade after six months without reuse" mechanism — a downgrade rule written without the
+number is a guess. Generated by `python3 scripts/evidence_distribution.py`; `--check FILE` fails
+when the committed table stops matching the corpus, so it cannot rot the way a hand-written figure does.
+
+<!-- Generated by: python3 scripts/evidence_distribution.py -->
+
+| Level | Lessons | Share |
+|---|---|---|
+| **E0** | 41 | 6.3% |
+| **E1** (declared) | 193 | 29.8% |
+| **E2** (declared) | 86 | 13.3% |
+| **E3** (declared) | 16 | 2.5% |
+| **E4** (declared) | 0 | 0.0% |
+
+- Total lessons: **648**
+- At **E0** in total (declared + default): **353** (54.5%) — of which **312** declare no level at all
+- At **E4** (*observed reuse by two or more distinct clients*): **0**
+
+Three things this says that the definitions above do not:
+
+1. **312 of 648 lessons never declare a level.** They read as E0 by the default rule, not by a
+   decision. That is the honest reading of "evidence is never assumed" — and it means the E0
+   population is mostly *unwritten*, not *unevidenced*.
+2. **No lesson has ever reached E4.** The top of the scale rests on an observation — two or more
+   distinct clients actually retrieving the lesson — and nothing has met it. It is also not
+   reachable by declaring it: on 2026-10-17 the two lesson pages that carried an `E4` badge were
+   found to have been inferred from their own prose (`scripts/infer_evidence_level.py` matched
+   `verified by` / `cross-node confirmation` in the body), which is the declaration this rung
+   excludes. That branch was removed; the two lessons declare no level and therefore read `E0` by
+   the default rule above. Any reuse narrative the project tells should be read against that zero.
+3. **E3 is 16 lessons (2.5%).** CI-verified recovery is rare, so a "promote on CI evidence" push has
+   a small denominator to work with.
+
+### me_events: live reuse signals (tool-level semantics)
+
+`misakanet_me_events` aggregates a lesson's **live reuse evidence** — observed retrieval by distinct clients, regression-benchmark citations, helpful votes, and a lesson's own declared provenance. It uses the E-level vocabulary as *signal strength*, not as the frontmatter promotion chain:
+
+- **E4 in the tool comes only from an observation**: `search_signals` shows **two or more distinct `client_hint` values** actually retrieved the lesson. `client_hint` is the salted hash of the caller's `client_id` / `X-MisakaNet-Client`, written by the worker from the request on every completed search — nothing the lesson body says can raise it, and one client retrieving the lesson forty times is still one client (`COUNT(DISTINCT client_hint)`). It is never conferred by counting lower signals — since 2026-10-16 a helpful vote cannot reach it at any count, and since 2026-10-17 neither can a `verified by:` line in the lesson's own prose.
+- **Anonymous callers do not count.** A caller with no `client_id` writes no `client_hint`, so the observed count **under**-counts. That is the correct direction for a trust signal: it can be wrong by staying silent, but it cannot be inflated by editing a lesson. Do not "fix" the undercount with a User-Agent fallback — the UA is shared and spoofable, and counting it would make the number meaningless.
+- **A helpful vote is `E3`** — one person's opinion, recorded as a hint. Almost every retrieval is agent-initiated, and the person shown the "did this help?" button did not ask the question, so a vote surveys what the transport layer can observe instead (measured 2026-10-16: 3 of the 24 most-retrieved lessons carried any vote, 6 votes in total). A vote is a reuse *hint*; it is **not** CI verification and does not claim the lesson passed a sandbox run.
+- **Regression-benchmark citations are `E3`** — a curated query references the lesson: sandbox-level evidence, not external reuse.
+- **A declared `verified by:` / `contributors:` line is `E3`** — it is parsed out of the lesson's own body, so anyone who can edit the lesson can write it. It is reported as a hint and cannot confer `E4`.
+- This is a query over live signals. The authoritative `evidence_level` for a lesson lives in its frontmatter and follows the one-step-at-a-time promotion rules above; me_events does not edit it.
+
+### How evidence affects scoring
+
+`scripts/score_lessons.py` keeps the existing quality `score` unchanged — the CI gate (`--threshold`) still measures writing quality — and adds a **trust score** on top:
+
+```
+trust_score = quality_score × (0.7 + 0.3 × evidence_weight)
+```
+
+So an E0 lesson keeps 70% of its quality score and an E4 lesson keeps all of it. The scorer also prints the corpus distribution (`E0=344 E1=0 …`), which is the honest current picture: everything starts self-reported until maintainers begin promoting.
+
+### Where it shows up
+
+- **Search results** — a purple `E0`–`E4` badge on every card, with the meaning on hover (`docs/search/index.html`).
+- **Lesson pages** — `Evidence E2 — Local smoke reproduced` in the page metadata (`scripts/build_lesson_pages.py`).
+- **Index data** — `evidence_level` is emitted per lesson by `scripts/misakanet-index.py` into `lessons.json`.
+- **Schema** — `schemas/lesson.json` constrains the field to the E0–E4 enum.
+
+The canonical implementation is `misakanet/evidence.py`; use `normalize_evidence_level()` rather than reading the raw field, so unknown values keep degrading to E0.

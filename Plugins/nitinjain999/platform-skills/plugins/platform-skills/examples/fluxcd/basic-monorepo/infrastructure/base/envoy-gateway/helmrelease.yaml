@@ -1,0 +1,37 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: envoy-gateway
+  namespace: envoy-gateway-system
+spec:
+  interval: 30m
+  chartRef:
+    kind: OCIRepository
+    name: envoy-gateway
+  maxHistory: 3
+  install:
+    strategy:
+      name: RetryOnFailure
+      retryInterval: 3m
+  upgrade:
+    cleanupOnFail: true
+    strategy:
+      name: RetryOnFailure
+      retryInterval: 3m
+  uninstall:
+    keepHistory: false
+  values:
+    crds:
+      enabled: false  # Owned by the gateway-crds Flux Kustomizations (clusters/*/gateway-crds.yaml)
+    # Control plane only. Envoy proxy replicas are set per GatewayClass through
+    # the EnvoyProxy resource in infrastructure/configs.
+    deployment:
+      replicas: 2
+      envoyGateway:
+        resources:
+          requests:
+            cpu: 100m
+            memory: 256Mi
+          limits:
+            memory: 1024Mi

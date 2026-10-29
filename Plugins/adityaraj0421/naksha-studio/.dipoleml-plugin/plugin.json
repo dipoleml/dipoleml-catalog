@@ -1,0 +1,16 @@
+{
+  "name": "naksha-studio",
+  "displayName": "Naksha Studio",
+  "version": "6.0.0",
+  "description": "A virtual design team for DipoleML, Cursor, Windsurf, Gemini CLI, and Copilot — powered by Naksha. Assembles specialist roles — UI designer, UX researcher, content designer, Figma expert, data viz, email, social, motion, presentation, brand strategy, illustration, video, conversational, spatial, compliance, and more — for any design task. 30 roles, 70 commands, 16,000+ lines of expert design knowledge. Your agency's design brain, inside your terminal.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Adityaraj0421"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/Adityaraj0421/naksha-studio",
+  "repository": "https://github.com/Adityaraj0421/naksha-studio",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

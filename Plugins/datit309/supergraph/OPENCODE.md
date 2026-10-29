@@ -1,0 +1,51 @@
+# Supergraph for OpenCode
+
+Supergraph skills are installed as OpenCode skills. Use `/skills` and pick the skill name (`scan`, `analyze`, `plan`, `tdd`, `execute`, `fix`, `verify`, `review`, etc.). Do not use `/supergraph:*` slash commands in OpenCode.
+
+## Mandatory workflow
+
+1. Start every session with the `scan` skill.
+2. Run `analyze` to assess ambiguity/risk and select approach — required before `plan` (skip only for Micro: <20 lines, ≤2 files).
+3. For architectural, data model, or API contract changes, draft `sdd` before planning.
+4. Create plan with `plan` (graph-informed, plan-reviewer approval required).
+5. Implement through `tdd` or execute a saved plan with `execute`.
+6. After coding, use `fix`.
+7. Before claiming done, use `verify`.
+8. Before merge, use `review`.
+
+## Skill routing
+
+| Need | OpenCode skill |
+|---|---|
+| Start session / load graph | `scan` |
+| Ambiguous scope / risk analysis | `analyze` |
+| Software design & contracts | `sdd` |
+| Create implementation plan | `plan` |
+| Implement one task with RED → GREEN → REFACTOR | `tdd` |
+| Execute saved plan | `execute` |
+| Auto-fix tests/lint/graph issues | `fix` |
+| Integration/e2e checks | `integration` |
+| Evidence gate before done | `verify` |
+| Final independent review | `review` |
+| Unknown bug cause | `diagnose` |
+| Need module map | `zoom-out` |
+| Architecture report | `architecture` |
+| Requirements → PRD | `prd` |
+| Issue triage | `triage` |
+| Throwaway validation | `prototype` |
+| Session compaction | `handoff` |
+| Token compression style | `caveman` — always-on, ~75% reduction |
+
+## Hard rules
+
+- Never code without a plan unless the change is trivial (<10 lines, 1 file).
+- Never implement without a verified failing test first.
+- Never modify hub/bridge nodes without user approval.
+- Never claim done without fresh verification evidence.
+- Use graph MCP tools before assuming file relationships.
+- Use Serena MCP tools when available for diagnostics and symbol impact.
+- Caveman always-on: strip articles/filler, keep code/numbers/paths exact, bullets over prose, auto-suspend for safety warnings only.
+
+## OpenCode integration
+
+OpenCode skills are invoked through `/skills`, not `/supergraph:*` slash commands. Hooks are active via `plugins/supergraph.ts` (installed to `~/.config/opencode/plugins/` and `.opencode/plugins/`): bash-guard (destructive block), plan guard (warn if no plan), system injection (mandatory workflow + CONTEXT.md + handoff + caveman), prompt hints, and session progress. Restart OpenCode after `install.sh --platform opencode` to load the plugin.

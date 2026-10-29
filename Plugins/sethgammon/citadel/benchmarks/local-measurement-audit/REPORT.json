@@ -1,0 +1,40 @@
+{
+  "schema": 1,
+  "kind": "citadel-local-measurement-arithmetic-audit",
+  "studies": [
+    {
+      "study": "sentient-readiness",
+      "cells": 72,
+      "attempts": 75,
+      "energy_arithmetic": {
+        "status": "passed",
+        "formula": "average_watts * request_wall_duration_ms / 3600000000",
+        "tolerance_kwh": 1e-9,
+        "maximum_absolute_error_kwh": 4.98e-10,
+        "raw_power_samples_retained": false,
+        "sample_count_retained": true,
+        "average_watts_retained": true
+      },
+      "duration_semantics": "client request/attempt wall duration, not provider-only model duration",
+      "human_interventions_semantics": "operator-declared, not instrumented telemetry"
+    },
+    {
+      "study": "sentient-readiness-v2",
+      "cells": 72,
+      "attempts": 84,
+      "energy_arithmetic": {
+        "status": "passed",
+        "formula": "average_watts * request_wall_duration_ms / 3600000000",
+        "tolerance_kwh": 1e-9,
+        "maximum_absolute_error_kwh": 5e-10,
+        "raw_power_samples_retained": false,
+        "sample_count_retained": true,
+        "average_watts_retained": true
+      },
+      "duration_semantics": "client request/attempt wall duration, not provider-only model duration",
+      "human_interventions_semantics": "operator-declared, not instrumented telemetry"
+    }
+  ],
+  "boundary": "Arithmetic reconstruction validates stored average power times request wall duration. Raw 500 ms samples were not retained, so within-attempt power variance cannot be reconstructed.",
+  "report_digest": "sha256:a521decd95cf3ed4d7a7e6a8a062c9ced40932df2b465352b1142036ec6fe78a"
+}

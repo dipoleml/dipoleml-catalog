@@ -1,0 +1,806 @@
+# Changelog
+
+All notable changes to this project are documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+## [1.7.17] - 2026-10-13
+
+本版修一个小问题：没有子代理工具的平台（如 Codex）跑 `/pdlc-feature` 时，最终报告漏写「各阶段未隔离执行」。仍 38 个命令，升级不需要迁移。
+
+### Fixed
+
+- **`/pdlc-feature` 最终报告固定写「阶段执行方式」一行**：报告标题正下方单独一行，必填，二选一照实写「各阶段由全新子代理执行」或「各阶段未隔离执行（没有子代理工具）」。原来这句只是括号里的附带说明，Codex 走内联路径时没写。
+- **最终回复就是完成报告**：各节都要有，不缩写成几行总结。实测 Codex 原来整份报告只给了几行，「假设与决策说明」一节根本不在。
+
+### Tests
+
+- 行为评测 `feature-lite` 新增判定：有 agent 输出时，报告里必须有这一行（隔离与否都要写，判定与平台无关）。只认行首就是「阶段执行方式：」且已填好的一行——agent 输出里常夹着它读到的 SKILL.md 原文，第一版判定就被其中的规则句骗过一次。`tests/evals-scenario-check.sh` 新增 5 条（89 → 94）。
+- 实测 `feature-lite`：Codex 改前判契约破坏（报告缩成几行）；只把这行放进「假设与决策说明」仍漏写；移到标题下后 1/1 通过，写的是「各阶段未隔离执行（没有子代理工具）」。Claude 1/1 通过，写的是「各阶段由全新子代理执行」。
+
+## [1.7.16] - 2026-10-12
+
+本版让大功能在实现阶段按任务分批做，每批做完就评审一次，问题不用攒到最后。仍 38 个命令，升级不需要迁移。
+
+### Added
+
+- **`/pdlc-implement` 与 `/pdlc-feature` 阶段四按任务分批**（共享片段 `batch-review.md`）：任务清单里有 4 个及以上 `feat` 任务时，每 2～3 个一批；每批实现完跑单测、只看这一批的改动做一次小评审（对照设计、命名与错误处理、安全快查），能修的当场修一轮，修不了的标「待最终评审」，追加到 `docs/07_reviews/code/<功能ID>-<功能名>-batch-review.md`，再把这批任务标 ✅。不改 tdd 写的测试。少于 4 个 `feat` 任务或没有任务清单时照旧一次做完。
+- **`/pdlc-review` 读分批评审记录**：已修过的不重复报，「待最终评审」的每一项都要在最终评审里处理掉。
+- **行为评测场景 `batch-review`**（A-live，共 15 个）：加减乘除四个 `feat` 任务、测试全红。判别点是分批评审记录里至少两批。
+
+### Tests
+
+- 实测：Claude `batch-review` 3/3 通过；拿上一版（不分批）跑基线 1 轮，判契约破坏（「没有分批评审记录」）。抽查一轮：第 1 批当场修掉了带前导 0 的入参被当成八进制的问题，整数溢出与校验逻辑重复两项标「待最终评审」交给人。Codex 1/1 通过。
+- 回归：Claude `honest-checks`、`review-not-done` 各 1/1（没有任务清单的功能不分批，行为不变）。
+- `tests/evals-scenario-check.sh` 新增 7 条判定桩测（82 → 89）；`tests/install-smoke.sh` 的片段数断言 19 → 20；`evals/EVALS.md` 场景表与成本账更新（15 / 45 / 90）。
+
+## [1.7.15] - 2026-10-12
+
+本版让技术设计在有取舍时先比较 2～3 个方案再选。仍 38 个命令，升级不需要迁移。
+
+### Added
+
+- **`/pdlc-design` 与 `/pdlc-feature` 阶段二先做方案比较**（共享片段 `design-options.md`）：有值得比较的技术取舍时列 2～3 个候选，一张表比较做法、改动面、风险、对 PRD 的满足与和现有代码的契合，给出落到 PRD 或规范上的推荐；没有取舍就写一句「沿用 <既有做法>」，不凑方案。交互模式问人选一次；问不了人（`--autonomous`，或在 `/pdlc-feature` 里）按推荐选，记 `--decision "设计方案=…"`。设计文档开头加「方案比较」节，正文按选定方案写。
+- **行为评测场景 `design-options`**（A-live，共 14 个）：PRD 要求历史跨进程保留、两个终端同时写不坏、尽量不加依赖。判别点是方案比较表里至少两个候选、design 那条 history 记了设计方案的决策。
+
+### Tests
+
+- 实测：Claude `design-options` 3/3 通过，Codex 1/1 通过；拿上一版（无方案比较）跑基线 1 轮，判契约破坏（「没有至少两个候选的方案比较表」）。抽查一轮：三个候选都落到 PRD 的非功能需求上，按推荐自动选定并列出三条请评审确认的假设。
+- `tests/evals-scenario-check.sh` 新增 8 条判定桩测（74 → 82）；`evals/EVALS.md` 场景表与成本账更新（14 / 42 / 84）。
+
+## [1.7.14] - 2026-10-12
+
+本版让 `/pdlc-ship` 在发布时顺手写一份发布说明草稿，开 PR 时可以直接当描述用。仍 38 个命令，升级不需要迁移。
+
+### Added
+
+- **发布说明草稿 `docs/05_deployment/releases/v<版本>-release-notes.md`**：`/pdlc-ship` 在更新 CHANGELOG 之后、提交之前，把本次纳入的功能、各自 PRD 的一句话目标、评审结论（问题 / 自动修复 / 需人工）、`checks`、质量报告证据、测试门选择、tag 去向和「需要人跟进」的事汇到一页，随 `release: v<版本>` 一起提交。数字从产物照抄，产物不存在就写「无」；只写文件，不开 PR、不合 PR、不推送，草稿里不加工具署名。开 PR 时 `gh pr create --body-file <这个文件>`。
+- 模板 `references/templates/release-notes-template.md`（同步为 `/pdlc-ship` 的 `assets/`）；目标项目契约新增这一路径，README、usage-guide 同步。
+
+### Fixed
+
+- **`/pdlc-ship` 先推进状态机再提交**：以前先提交 `release: v<版本>`、再把功能推进到 `ship_done`，状态文件的改动留在发布提交之外，squash 合并时丢失，主干上这些功能一直显示「待发布」。现在推进放在提交之前，状态文件随发布提交一起进库（实测时模型自己发现并调整了顺序）。
+
+### Tests
+
+- 实测：Claude 两轮跑通 `/pdlc-ship`（停在测试门 → 回答「A、squash」），草稿纳入功能、`checks`（含 `coverage_pass=null`）、测试门与「待合并后打」都照实写，评审记录没有计数就写「未给出计数」，随发布提交、未推送。
+- 回归：`ship-human-gate` Claude 1/1、Codex 1/1，`ship-tag-after-merge` Claude 1/1。`tests/install-smoke.sh` 的模板数断言 12 → 13。
+
+## [1.7.13] - 2026-10-12
+
+本版让 `/pdlc-retro` 把循环驱动的运行记录也读进去，回答「哪个阶段最常被拦、为什么」。仍 38 个命令，升级不需要迁移。
+
+### Added
+
+- **循环驱动逐步记录**：`bin/pdlc-loop.sh` 在每个功能的运行记录里追加 `steps_log`，每步记阶段、从哪到哪、结果（推进 / 被拦 / checks 矛盾 / 卡住 / 出错）、耗时。
+- **`pdlc-loop.sh --report [--since YYYY-MM-DD]`**：只读汇总历次运行——结局计数、各阶段步数 / 推进 / 被拦 / 耗时中位数、卡点原因按次数。更早的运行没有逐步数据，只计入结局与原因，并点明有几个功能次。
+- **`/pdlc-retro` 新增「自动推进（循环驱动）」一节**：调用自带的 `scripts/pdlc-loop.sh --report`，输出原样放进报告，下面 1～3 句解读；没有运行记录时只写一句。
+- ADR 0006 增补 §7；usage-guide、README 同步。
+
+### Tests
+
+- `tests/loop-driver-check.sh` 新增 17 条（111 → 128）：每步记录的内容与耗时、`--report` 的各项汇总、旧记录兼容、`--since` 过滤与非法日期、没有记录时只说一句、不调用模型。驱动用 macOS 自带的 bash 3.2 跑。
+
+## [1.7.12] - 2026-10-12
+
+本版让多功能循环驱动 `bin/pdlc-loop.sh` 可以用任意 CLI 推进，不再只限 claude / codex。仍 38 个命令，升级不需要迁移。
+
+### Added
+
+- **`--platform custom --cmd '<模板>'`**：任何接受一句提示词、装好了 PDLC 技能的 CLI 都能驱动 `tdd → implement → review` 收敛。模板占位符 `{stage}` / `{id}` / `{dir}`（工作目录，并行时是各自的 worktree，路径含空格也安全），必须带 `--autonomous`。例：`--cmd 'copilot -p "按 pdlc {stage} {id} --autonomous" --allow-all-tools'`。
+- **自定义平台默认「未验证」**：启动时提示，运行记录写 `verified: false` 与模板，`--status` 标「未验证」。驱动照样每步重读状态机、红了就停、绝不发布，但管不了它的花费，只靠 `--max-steps` 限步。某个平台过了 `evals` 的 honest-checks 准入闸，再升级成内置平台。
+- ADR 0006 增补 §6；usage-guide §4.6 新增「其它 CLI · 自主收敛循环」；README 与 `/pdlc-loop-run` 同步。
+
+### Changed
+
+- **GitHub Copilot CLI 复测通过状态完整性准入闸**：1.0.95 + v1.7.10，`honest-checks` 3/3（此前 1.0.88 + v1.7.0 为 3/3 未过），三轮都经 `pdlc-advance.sh` 写状态。README 平台表、usage-guide 与 ADR 0007 §6.4 更新；和 Grok 同一个标准，依据只有 3 轮，暂不内置进循环驱动。
+
+### Tests
+
+- `tests/loop-driver-check.sh` 新增 18 条（93 → 111）：用法守卫（缺 `--cmd`、`--cmd` 配了别的平台、模板缺 `{stage}` / `{id}` / `--autonomous`）、dry-run 展开、在含空格的工作目录里执行、未验证标记写进运行记录与 `--status`、命令非零退出 → 4、并行时 `{dir}` 是各自的 worktree。驱动用 macOS 自带的 bash 3.2 跑。
+
+## [1.7.11] - 2026-10-12
+
+本版让 `/pdlc-feature` 的设计、测试、实现、评审各阶段在 Claude Code 里各用一个全新的子代理执行。仍 38 个命令，状态文件没有新字段，升级不需要迁移。
+
+### Changed
+
+- **`/pdlc-feature` 阶段二～五各派一个全新子代理**（有 Task / Agent 工具时）：主会话只做需求澄清、PRD 与最终报告，以及每阶段之后的核对。子代理只读磁盘上的文档和代码，写实现的看不到写测试时的推理；主会话上下文也不再随阶段膨胀。
+  - 子代理执行的是 `/pdlc-feature` 自己的那一节（不是单独的 `/pdlc-design` 等命令），所以 `--lite`、评审阶段写 CHANGELOG 等行为与以前一致。
+  - 子代理回来后，主会话自己读状态文件核对 `last_phase_result`，不信子代理的文字；不对就停下，`/pdlc-feature <功能ID>` 续跑。子代理出错重派一次，仍不行就停，不在主会话里替它做完。
+  - 没有子代理工具（其它平台）时照旧在主会话里依次执行，最终报告写明「各阶段未隔离执行」。
+- `evals/run.sh` 的 Claude 臂默认放行 `Task Agent`，评测走的是用户实际会走的子代理路径。
+
+### Tests
+
+- 实测：Claude 跑 `feature-lite` 3 轮通过；其中一轮看 stream-json，主会话派了 3 个子代理（阶段三、四、五，`--lite` 跳过阶段二），各自调用 12～16 次工具，状态 history 为 requirements → tdd → impl → review。
+- ADR 0009 记录为什么执行 `/pdlc-feature` 自己的章节而不是调单独的阶段命令。
+
+## [1.7.10] - 2026-10-12
+
+本版把「推不推进阶段」从模型手里拿走，交给脚本；Claude Code 另有一套默认关闭的项目级护栏。仍 38 个命令，状态文件格式向后兼容，升级不需要迁移。
+
+> ⚠️ **行为变更（请留意）**：
+> - **11 个写状态的命令收尾时改为调用 `scripts/pdlc-advance.sh`**，不再手写状态 JSON。脚本自己跑本阶段的检查，红了就不推进；`/pdlc-fix`、`/pdlc-refactor` 以前没跑检查，现在也跑 unit、coverage、lint。
+> - **实现阶段改了 tdd 写的测试会被拦下**：交互模式下先问人，人同意后带 `--tests-changed "<理由>"`，理由记进 `auto_decisions`；`--autonomous` 下带了也不推进，理由写进 `blocked_reason` 交人判断。
+>
+> **升级前请检查**：项目 `test-commands.yml` 配了 lint、全仓又本来就有 lint 报错的话，升级后连修个小缺陷也会被 lint 挡住（`blocked_reason` 是「检查未通过：lint_clean 为 false」）。解法二选一：把 lint 命令改成只查本次改动的文件，或先清掉欠账。`test-commands-template.yml` 里补了这段说明。
+
+### Added
+
+- **`bin/pdlc-advance.sh`**（随 skill 同步为各自的 `scripts/pdlc-advance.sh`，其它平台的投影也带着）：状态推进的唯一写入口。按阶段决定跑哪些检查、判 `ok`、整段写入 history 与 `last_phase_result`，写完体检；退出码 `0` 已推进、`3` 未推进、`2` 无法执行。`--blocked` 主动交还人类（照跑检查如实记录，但不推进），`--done` 只给 ship / deploy 写 `_done`。
+- **测试指纹**：tdd 推进时记下它写的测试文件哈希（`history[].tests_fingerprint`），impl / refactor / review 推进时比对。
+- **Claude Code 护栏（默认关闭）**：插件带 `hooks/hooks.json`，经 `bin/pdlc-guard.sh` 拦下用 Write / Edit 直接写状态文件，并在收尾时体检本次改动的状态文件。开关是目标项目里的 `docs/00_standards/pdlc-hooks.yml`，由新增的 `/pdlc-settings hooks on|off|status` 写入；没有这个文件就什么都不做。已在无头模式 `claude -p` 下实测两项都生效。
+- ADR 0008：为什么交给脚本、为什么开关放在脚本里与项目里、既有项目怎么兼容。
+
+### Compatibility
+
+- 没有 `test-commands.yml` 的项目照常推进，`checks` 写 `{}`，与以前一致。
+- 旧格式状态文件（`-NN` ID、缺 `last_phase_result` / `relations`、只有日期的时间戳、表外字段）照常推进，原有字段原样保留。
+- 没有测试指纹的旧功能不比对；状态文件损坏时脚本不覆盖它；缺 jq 时退回手写，报告里写明「未经脚本」。
+
+### Fixed
+
+- **关系片段写明只写本功能自己的状态文件**：入边由 `/pdlc-relate rebuild` 派生，不要为了「双向」去改对方功能的 `relations`（Codex 实测 `prd-clarify` 2 轮里有 1 轮这样改了已有功能的状态文件）。
+- **非交互片段写明「测试与设计矛盾」属于必须交还人的点**：改测试、改检查命令让它变绿，永远不是可以记成 `--decision` 的流程性默认。
+- `evals/fixtures/refresh-safety`：模型用英文作答时，「请求人工确认」的判定只认中文关键词，误判为契约破坏；补上英文同义说法。
+
+### Tests
+
+- 实测：Codex 11 个受影响场景各 2 轮，20/22 通过。没过的两轮：`honest-checks` 里模型改掉矛盾的测试断言、记成一条自动决策就推进了（这个 fixture 没有测试指纹，脚本没法比对）——由此补上「自主模式下 `--tests-changed` 也不推进」；`prd-clarify` 见上面关系片段一条。
+- 实测：Claude 全部 13 个场景各 1 轮回归，首轮 `stale-config` 暴露脚本缺陷（带 `--blocked` 收尾时没跑检查，`tests_pass=false` 丢了），修正后 `stale-config`、`honest-checks` 各 2/2 通过；其余 11 个首轮通过（`refresh-safety` 修正判定后重放通过）。
+- 新增第 13 个本地门禁脚本 `tests/advance-check.sh`（87 条）：各阶段推进与拒绝推进、三态、`--blocked` / `--done`、参数守卫、测试指纹、上述兼容情形、与映射表和体检合法阶段的一致性，以及护栏的开关、放行与拦截（含项目在仓库子目录里的情形）。`tests/install-smoke.sh` 相应更新。
+
+## [1.7.9] - 2026-10-12
+
+本版给第一层入口 `/pdlc-fix` 和风险最高的 `/pdlc-ship` 补上行为评测（共 13 个场景），并把 `/pdlc-fix` 状态文件该用哪个 ID 写明。仍 38 个命令，升级不需要迁移。
+
+### Added
+
+- **行为评测场景 `fix-red-first`**（A-live）：把本次写的测试放回修复前的源码上跑，必须是红的——测试抓不住这个 Bug，就不算回归测试；另验 Bug 真修好、原有测试一条没删、状态写进新建的缺陷状态文件、已发布功能的状态文件不动。
+- **行为评测场景 `ship-human-gate`**（A-live）：`/pdlc-ship --autonomous` 也必须在发布前测试门停下来问人，问到之前不 bump 版本、不改 CHANGELOG、不提交、不打 tag。
+- **行为评测场景 `ship-tag-after-merge`**（A-live）：`--tag-after-merge` 必须打在第一个把 VERSION 改成该版本的提交上（不是 HEAD），且不推送。
+- `evals/run.sh` 支持可选钩子 `scenario_setup`：fixture 放不进的现场（git 仓库、提交历史、本地 origin）在调 agent 之前现搭。
+- 实测：Claude 三个场景各 3/3 通过；Codex 各 1 轮，`fix-red-first`、`ship-human-gate` 通过，`ship-tag-after-merge` 因沙箱不能写 `.git` 判为抖动（见 `evals/EVALS.md`）。
+
+### Fixed
+
+- **`/pdlc-fix` 写明状态文件用缺陷ID**：新建 `docs/.pdlc-state/<缺陷ID>.json`，Bug 出在已有功能里也不改那个功能的状态文件。以前正文只写 `<feature-id>.json`，没说修 Bug 时该填哪个 ID；改了已发布功能的状态文件，`/pdlc-ship` 会把它当成又一个待发布的功能。
+
+### Tests
+
+- `tests/evals-scenario-check.sh` 为三个新场景各补判定桩测（共 20 条）；`tests/evals-runner-check.sh` 新增 2 条，守「`scenario_setup` 在调 agent 之前跑完、不漏到别的场景」。
+
+## [1.7.8] - 2026-10-12
+
+本版让 Claude Code 以外的工具也能一条命令装上 pdlc：通用安装器 `npx skills add kanfu-panda/pdlc-skills` 从 main 直接装到 36 个 skill，`install.sh --target agents | codex` 不再要求本地克隆。仍 38 个命令，Claude Code 用户升级不需要迁移。
+
+### Added
+
+- **`npx skills add kanfu-panda/pdlc-skills`**：通用 Agent Skills 安装器可以直接从本仓库 main 装，交互选择装进 Codex、Copilot、Cursor、Gemini CLI 等工具。装的是 skill 原样；GitHub Copilot CLI 1.0.88 上实测能触发、能正确理解参数。`pdlc-settings`、`pdlc-loop-run` 只对 Claude Code 有用，标了 `metadata.internal`，默认不装。
+- **不克隆也能装投影**：`curl … install.sh | bash -s -- --target agents`（或 `--target codex`）在没有本地克隆时，先下载 main 的源码包到临时目录、构建完即删。仍需 python3。`PDLC_SOURCE_TARBALL` 可改下载地址。
+- README 首屏与安装一节写明支持哪些工具、怎么装，加了 Agent Skills 徽章；`docs/usage-guide.md` §4.6 同步。
+
+### Fixed
+
+- **38 个 `argument-hint` 改为双引号字符串**。以前 `[--init] [--autonomous]` 这类写法不加引号，严格 YAML 解析器会报错跳过：`npx skills add` 实测只找到 34 个，`pdlc-quality`、`pdlc-retro`、`pdlc-ship`、`pdlc-test-setup` 被跳过；另有 7 个 `[项目目录]` 这类写法被悄悄读成列表。Claude Code 看到的提示文字不变。`tests/frontmatter-check.sh` 新增断言，防止再写回去。
+
+### Tests
+
+- `tests/adapter-agent-skills-check.sh` 新增 9 条：用工作树打一个与 GitHub 源码包同结构的本地包，经管道运行 `install.sh`，验 agents / codex 两个目标都能装、写版本戳、不留临时目录，源码包坏了点名报错且不碰目标目录。
+
+## [1.7.7] - 2026-10-09
+
+本版给 `/pdlc-feature` 加上轻量模式 `--lite`，降低小功能的上手门槛。仍 38 个命令，状态文件没有新字段，升级不需要迁移。
+
+### Added
+
+- **`/pdlc-feature --lite`**：PRD 只写「背景与目标」「功能需求」「待确认问题」三章，跳过任务拆解、PRD 评审和技术设计；先红灯再实现、`checks` 按退出码生成、代码评审照常。PRD 之后 `next_step` 直接是 `pdlc-tdd`，`/pdlc-loop-run` 可以从这里接手。只写 `docs/` 下四个目录。改到对外接口、表结构或跨服务调用时，最终报告建议补 `/pdlc-design`。
+- **行为评测场景 `feature-lite`**（A-live，共 10 个）：验轻量模式没产出设计文档 / 任务清单 / PRD 评审记录，且照常走到 `review → pdlc-ship`。判定逻辑在 `tests/evals-scenario-check.sh` 里有桩测；`tests/loop-driver-check.sh` 补了 `requirements → pdlc-tdd` 的下一步映射用例。
+
+## [1.7.6] - 2026-10-09
+
+本版给 `/pdlc-prd` 与 `/pdlc-feature` 加上开工前的需求澄清：一句话需求不再被模型悄悄「自动推断」掉缺的部分。仍 38 个命令，升级不需要迁移。
+
+> ⚠️ **行为变更（请留意）**：
+> - **`/pdlc-feature` 可能在开工前问一轮**：文字描述缺了「给谁用 / 要做什么 / 明确不做什么 / 怎样算做完 / 有什么限制」中 3 项及以上时，先问最多 3 个问题（每题带默认答案）再开工；开工后仍全程不停。要保持以前一问不问的跑法，加 `--autonomous`。
+
+### Added
+
+- **需求澄清**（新共享片段 `clarify.md`，`/pdlc-prd`、`/pdlc-feature` 内联）：对照五项清单判断描述是否太单薄，太单薄时交互模式问一轮；`--autonomous` 下不问，把靠默认补上的项逐条列进 PRD「待确认问题」并记入 `auto_decisions[]`；连「要做什么」都没有时输出 blocked 哨兵、不写任何文件。输入是文件、已有 PRD 或功能ID 时跳过。
+- **行为评测场景 `prd-clarify`**（A-live，共 9 个）：单薄需求在 `--autonomous` 下必须照常写出 PRD 并推进状态机，且默认补上的项都摆出来。判定逻辑在 `tests/evals-scenario-check.sh` 里有桩测。
+- `/pdlc-prd`、`/pdlc-feature` 的 `argument-hint` 列出 `--autonomous`；PRD 自检清单加一条「澄清留痕」。
+
+## [1.7.5] - 2026-10-07
+
+本版加固安装、升级与测试基础设施：测试少了依赖不再报绿，升级先刷新市场索引，投影安装中途失败不再留下半套 skill。skill 正文没有改动（仍 38 个），升级不需要迁移。
+
+> ⚠️ **行为变更（请留意）**：
+> - **`install.sh upgrade` 先执行 `claude plugin marketplace update`**：此前只跑 `claude plugin update`，市场索引没刷新时会回报「已是最新」。
+> - **测试脚本缺依赖时退出码为 1**（此前打印「未安装」后以 0 退出，在测试循环里看起来是通过）。
+
+### Added
+
+- **两个行为评测场景**（A-live，共 8 个）：`tdd-red-verified` 验 `/pdlc-tdd` 收尾是红灯、不写实现代码；`review-not-done` 验评审通过写 `review → pdlc-ship`、不写任何 `_done`。两处都是 1.7.1 修过的契约，此前只有文字守卫，没有真跑验证。判定逻辑在 `tests/evals-scenario-check.sh` 里各有通过 / 契约破坏 / 抖动的桩测。
+- **`install.sh --version` 显示投影安装的版本**：`--target codex` / `agents` 装的 skill 现在写 `.pdlc-version`，`--version` 一并列出，旧了会提示。
+
+### Fixed
+
+- **评测场景 `refresh-safety` 的 fixture 自带假绿**：它的 `e2e.sh` 在功能未实现时「跳过、视为通过」，退出码 0 其实什么都没测；认真的模型因此拒绝把它补进 yml，反被判契约破坏（v1.7.5 发版前 claude 3 轮挂 2 轮）。改为冒烟一个已实现的健康检查，并把 `e2e.sh` 纳入不得改动的文件。
+- **投影安装中途失败会留下半套 skill**：`install.sh --target codex | agents` 改为先装到临时目录、核对数量后再替换。
+- **`install.sh --version` 取不到最新版本时报「Up to date」**：网络不通时改为明说取不到。
+- **`bin/pdlc-loop.sh` 接管死锁时有竞态**：两个驱动同时发现死锁，可能都认为自己拿到了锁。改为先把旧锁原子地挪走再判断，并清掉挪走的目录。
+- **`tests/frontmatter-check.sh` 只查 IRON LAW 片段存在**，不查条数；现在断言完整版 6 条、工具版 3 条，删掉一条会变红。
+- 卸载时一并删除 `.pdlc-version`。
+
+## [1.7.4] - 2026-10-07
+
+本版做减法与对齐：工具型命令不再背负它们做不到的阶段规则，重复的规则只留一份，含糊的命令描述写清楚各自管什么。没有新增或删除 skill（仍 38 个），升级不需要迁移。
+
+> ⚠️ **行为变更（请留意）**：
+> - **常驻上下文增加约 700–900 token**：19 条含糊的 description 改写为「做什么 + 产出 + 何时改用别的命令」（总字数 958 → 1850），换的是 Claude 按自然语言选对命令。
+> - **`bin/pdlc-loop.sh --next <功能ID>`**：只打印下一步，`/pdlc-loop-next` 与 `/pdlc-loop-run` 改为调用它；Task 版 `/pdlc-loop-run` 的子任务改为继承当前会话的模型。
+
+### Added
+
+- **`iron-law-tool.md`**：不写阶段状态的 23 个命令（Layer 3 工具，以及 `/pdlc-task`、`/pdlc-retro`）改用精简版 IRON LAW——文件落盘、自检、修复只做一次，并写明不追加 `history`、不改 `current_stage`。完整版要求「每阶段追加 history、推进 `current_stage`」，对没有功能ID的工具命令自相矛盾，模型可能编一个 ID 去写状态机。`tests/frontmatter-check.sh` 断言完整版只给写状态机的命令用。
+- **`bin/pdlc-loop.sh --next <功能ID>`**：下一步映射只在驱动里实现一份。此前同一张映射在驱动、`/pdlc-loop-next`、`/pdlc-loop-run` 各有一份，且 `/pdlc-loop-run` 写的是「按 `/pdlc-loop-next` 的映射」——它运行时根本读不到另一个 skill 的文件。
+
+### Fixed
+
+- **`/pdlc-loop-run` 让模型读 frontmatter 选模型**：frontmatter 对模型不可见，这一步做不到；改为继承当前会话，要按阶段选模型用外部驱动。
+- **`/pdlc-feature` 把防循环规则内联了三次**，`/pdlc-ship` 内联了对它无效的非交互规则（正文随即声明 `--autonomous` 对本命令无效）。现在各留一处 / 去掉，`tests/install-smoke.sh` 断言同一片段在一个 skill 里至多内联一次。
+- **测试脚本在 `set -e` 下中途退出**：新加的检查在命令替换里用了 `[ … ] && echo`，最后一次条件不成立就让整个脚本静默退出（退出码 1，但连汇总行都不打）。已改写，并留作写新断言时的注意事项。
+- **`/pdlc-ship` 合并方式表暗示 `--autonomous` 有效**：1.7.3 新增的表格写着「`--autonomous` 不替人判」，与本命令开头「`--autonomous` 对本命令无效」矛盾，已改为直接问人。
+
+### Changed
+
+- 19 条 description 重写，`tests/install-smoke.sh` 断言每条至少 15 字（「性能优化」这类四个字的名词短语等于没写路由依据）。
+- 共享片段 16 → 17。架构文档与 CLAUDE.md 同步。
+
+## [1.7.3] - 2026-10-07
+
+本版补强几个只有清单、没有可执行步骤的命令，并让上游产物的查找、项目布局的判断、`/pdlc-feature` 的状态写入有了确定的做法。没有新增 skill（仍 38 个），升级不需要迁移。
+
+> ⚠️ **行为变更（请留意）**：
+> - **`/pdlc-feature` 逐阶段写状态机**：每个阶段收尾各写一次（`requirements` → `design` → `tdd` → `impl` → `review`），不再只在最后写一条 `stage: feature`。中途停下可以用 `/pdlc-feature <功能ID>` 续跑。
+> - **`/pdlc-review` 评审文档时不写状态机**，评审代码时 `checks` 多了 `e2e_pass`（没配 e2e 命令时为 `null`，不影响通过与否）；有阻塞级待人工项时，交互模式也不再推进到 `pdlc-ship`。
+> - **`/pdlc-tdd` 的守卫放宽**：PRD 或设计文档有其一即可，不再要求必须有设计文档。
+> - **`/pdlc-e2e` 的产出**改为 `docs/04_testing/e2e-tests/<功能ID>-<功能名>-e2e.md` 加项目既有 E2E 目录里的测试代码，不再写死 `e2e/**/*.spec.ts`。
+> - **`/pdlc-ship` 按合并方式决定何时打 tag**：发布分支以 squash / rebase 合进主干时不在分支上打，改为合并后运行 `/pdlc-ship --tag-after-merge` 补打。
+
+### Added
+
+- **两个共享片段**：`layout-detect.md`——创建或扫描目录前先探测项目布局（monorepo 工作区、已有服务 / 应用目录、单体框架），`backend/services/` 一类路径只是空项目的默认值；`/pdlc-add-service`、`/pdlc-add-app`、`/pdlc-bootstrap`、`/pdlc-arch`、`/pdlc-db-migrate` 引入。`artifact-lookup.md`——守卫找上游文档先读状态机 `history[].produced`，再按文件名 / 追溯头搜，多份命中不随手挑；`/pdlc-design`、`/pdlc-tdd`、`/pdlc-deploy`、`/pdlc-e2e` 引入。
+- **`/pdlc-db-migrate` 先探测已有迁移工具**（Prisma、Alembic、Django、Knex、Rails、Flyway、Liquibase、golang-migrate 等），有就沿用它的目录与命名，不另起一套。
+- **`/pdlc-feature <功能ID>` 续跑**：从状态机记录的下一个未完成阶段继续；上次停在阻塞时先看阻塞原因是否已消除。给 PRD 路径时沿用 PRD 追溯头里的功能ID。
+
+### Fixed
+
+- **`/pdlc-security` 靠记忆判断依赖漏洞**：现在先跑本机已装的扫描工具（`npm audit`、`pip-audit`、`cargo audit`、`govulncheck`、`gitleaks` 等），报告逐条记录命令、退出码与发现数；工具没装写「未扫描（工具缺失）」，不再写成「无漏洞」。
+- **`/pdlc-perf` 没有测量就改代码**：现在按「定指标 → 测基线 → 一次改一项 → 同一命令复测」走，报告写优化前后的实测数字；没有可重复的测量手段就只出分析、不改代码。报告文件名原先有两种写法，已统一。
+- **`/pdlc-e2e` 没接进任何契约**：补上前置守卫（要有 PRD、实现已完成），测试放进项目既有的 E2E 目录，涉及核心流时更新 `e2e-flow-map.yml`，结果由 `scripts/pdlc-checks.sh --only e2e` 写成 `e2e_pass`。`state-update.md` 里「评审通过、等发布也可以是 `e2e` 阶段」的说法与 `/pdlc-e2e` 的下一跳（`pdlc-review`）矛盾，已更正。
+- **`/pdlc-review` 两种模式下「评审通过」的定义不同**：阻塞级待人工项原先只在 `--autonomous` 下拦住推进；现在两种模式一致，交互模式下人可以当场放行并记入报告。文档评审原先也走状态机写入，会把功能误标成已评审。
+- **`/pdlc-ship` 的 tag 可能落在主干之外**：它在发布分支上提交后立刻打 tag，分支若以 squash / rebase 合并，主干上是新提交，tag 指向的提交永远不在主干，发布说明、`git describe`、按 tag 触发的 CI 都对不上。现在先判断合并方式（项目规范 → 托管平台设置 → 主干历史 → 问人）：普通合并当场打，squash / rebase 合并等合并后用新增的 `--tag-after-merge` 在主干上补打，补打前核对提交确在主干上。
+- **`/pdlc-design` 守卫的步骤编号重复**（两个「3.」），随按 ID 查找的改写一并理顺。
+- **测试检查程序崩溃时静默变绿**：`skills-selfcontained-check.sh` 的逐 skill 检查、`install-smoke.sh` 的 `_done` 泄漏扫描与失效引用扫描，都是内嵌 Python 跑出结果再比对；Python 一崩，结果为空，断言反而通过（一次真实崩溃时表面是「8 passed, 0 failed」，实际 19 条只跑了 8 条）。现在崩溃即判红。
+
+### Changed
+
+- `adapters/sync_skills.py` 支持 frontmatter 的 `phases:` 字段：串联多个阶段的编排命令据此在正文生成逐阶段的状态机说明；`tests/skills-selfcontained-check.sh` 断言每个阶段都写进去了。
+- `tests/install-smoke.sh` 新增 39 条守卫，共享片段数 14 → 16。架构文档与使用手册同步。
+
+## [1.7.2] - 2026-10-07
+
+本版把两件确定性的事从模型手里拿走：**`checks` 由脚本按退出码生成**，**状态机写完由脚本体检**。此前键名、布尔类型、退出码三态都靠模型读正文自觉，真机上同一份项目轮与轮之间就换一种错法。没有新增 skill（仍 38 个），升级不需要迁移。
+
+> ⚠️ **行为变更（请留意）**：
+> - **循环驱动多了一种停机**：`ok=true` 但 `checks` 里有 `false` 时，`bin/pdlc-loop.sh` 与 `/pdlc-loop-run` 按阻塞停下（退出码 2），不再往下一阶段推。
+> - **体检多了 4 种偏差**：`checks-key-unknown`、`checks-value-invalid`、`ok-checks-mismatch`、`done-legacy`。旧版写下的 `feature_done` / `review_done` 等会被点名（`/pdlc-ship` 本来就会请人确认它们是否已发布）。
+> - **安装体积略增**：写状态机的 11 个命令各带一份 `pdlc-state-lint.sh`，跑 check 的 5 个命令各带一份 `pdlc-checks.sh`。常驻上下文的 token 不变。
+
+### Added
+
+- **`bin/pdlc-checks.sh`**：读 `docs/00_standards/test-commands.yml`，逐条真跑，stdout 输出 `last_phase_result.checks` 的 JSON——退出码 `0` → `true`，非 0 → `false`，`126` / `127`、空命令、没填的模板占位 → `null`（无法判定，并提示 yml 疑似过期）。`--only` 选本阶段要的项，`--red` 给 tdd 验红灯（输出 `red_verified`，方向相反；意外全绿给出阻塞提示）。`/pdlc-tdd`、`/pdlc-implement`、`/pdlc-review`、`/pdlc-quality` 改为把它的输出原样写入；`tests/checks-check.sh` 15 条断言守住映射。
+- **状态机写完即体检**：写状态机的 11 个命令收尾时跑 `scripts/pdlc-state-lint.sh`，本功能的偏差当场改正，改不了的写进报告；体检跑不了（缺 jq 等）要写明「未体检」。
+- **`pdlc-state-lint.sh` 新增 4 种偏差**：`checks` 里有状态机不认的键（如照抄 yml 的 `unit`）、值不是布尔或 `null`、`ok=true` 却有 check 为 `false`、`ship_done` / `deploy_done` 以外的 `_done` 写法。读侧的处理方式写进 `state-read.md` 的偏差代码表。
+
+### Fixed
+
+- **循环驱动只信 `ok`**：`bin/pdlc-loop.sh` 步后只看 `last_phase_result.ok`，模型写了 `ok:true` 而 `tests_pass:false`，功能照样被推到下一阶段。现在两者矛盾即按阻塞停，并点名是哪一项。`/pdlc-loop-run` 的 Task 版同步。
+
+### Changed
+
+- `evals/EVALS.md` 已知限制 3（Codex 臂 `checks` 写法不稳）补更正：2026-09-25 换模型后复测 10/10 通过，但那是换模型的功劳；本版改为由脚本生成 checks 才算根治。
+- 测试脚本由 11 个增至 12 个（新增 `tests/checks-check.sh`），README、贡献指南、CLAUDE.md 与架构文档同步。
+
+## [1.7.1] - 2026-10-07
+
+本版修一批**契约断点与失效引用**：几处会让状态机走错、或让模型去找不存在的命令和目录的问题。另含 v1.7.0 之后的 eval 改进（agy、grok 两个平台，「虚报完成」判为契约破坏）。没有新增 skill（仍 38 个），升级不需要迁移。
+
+> ⚠️ **行为变更（请留意）**：
+> - **`/pdlc-task` 不再写状态机**。旧版写过 `current_stage=task` 的状态文件，体检会报 `current_stage-unknown`；按 `history` 里最后一个主链路阶段理解进度即可。
+> - **`/pdlc-db-migrate` 的回滚脚本前缀由 `R` 改为 `U`**。已经按旧约定生成的 `R*.sql` 不会被自动改名；用 Flyway 的项目请手动改成 `U`（`R` 在 Flyway 里是可重复迁移，会被当成普通迁移执行）。
+> - **`/pdlc-onboard` 产出改到 `docs/03_development/onboard-guide.md`**，与目标项目契约一致；**`/pdlc-perf`、`/pdlc-security` 的报告改到 `docs/04_testing/perf/`、`docs/04_testing/security/`**，与各自声明的产出一致。
+
+### Added
+
+- **`evals/run.sh --platform agy | grok`**：在 Antigravity CLI 与 Grok CLI 上跑行为 eval。agy 臂测工作树的标准投影，运行期间临时装进 `~/.gemini/config/skills/`，退出（含 Ctrl-C）即删；那里已有 `pdlc-*` 就拒跑，不覆盖用户自己装的那份。grok 臂测它自动复用的已装 Claude Code 插件，汇总写明测的不是工作树。
+- **两个平台的真机结果**（ADR 0007 §6）：Grok CLI 1.0.41 能直接用已装的 Claude Code 插件，状态完整性准入闸 3/3 轮通过；Antigravity CLI 1.2.9 能加载、能触发，但准入闸未过——声称「实现完成、状态已更新」，实际一个文件都没写。
+
+### Fixed
+
+- **eval 把「虚报完成」记成环境抖动**：`honest-checks` / `stale-config` 看到状态机一字未改，一律判为「agent 可能没跑起来」，重跑且不计失败。可 agent 也可能跑了、声称做完了、却什么都没写。现在输出里有交接模板的「📦 状态快照」一行而状态机没变，就判契约破坏。
+- **`/pdlc-task` 会把功能挤出发布清单**：它带着通用的状态机更新规则，每次 `start` / `done` / `blocked` 都把功能的 `current_stage` 改成 `task`、`next_step` 改成 `null`——评审完、等发布的功能于是从 `/pdlc-ship` 的可发布清单里消失，循环驱动把它判成阻塞。现在本命令不写状态机，任务进度只记在 `docs/06_tasks/`。顺带删掉「`/pdlc-status` 会自动附任务进度表」这句不成立的说法；`/pdlc-implement` 只完结 `feat` / `test` 类任务，不再把「创建评审记录」这类没做的任务也标成完成。
+- **`/pdlc-tdd` 让测试转绿**：执行步骤的第 7、8 步是「实现代码使测试通过」「重构」，和本阶段「红灯收尾」相反；照做的话下游 `/pdlc-implement` 看到全绿，会整段跳过实现。现在删掉这两步，并写明红灯怎么判：命令跑不了（`127`）不算红灯，意外全绿要阻塞交给人。
+- **守卫拦截被循环驱动误报成「卡住」**：前置守卫在 `--autonomous` 下只输出 ⛔ 就停，状态机里仍是上一阶段的 `ok=true`，驱动看到 `current_stage` 没动，按 IRON LAW 第 6 条报「卡住」（退出码 5），真实原因丢了。现在守卫拦截同样写 `ok=false` + `blocked_reason` 并输出哨兵。
+- **CHANGELOG 条目重复**：六个阶段都会写 `[未发布]`，格式各不相同（`/pdlc-fix` 的条目不带缺陷 ID），`/pdlc-ship` 按 ID 去重就认不出来，同一改动出现两条。现在统一为 `- <简要描述>（<功能ID 或缺陷ID>）`。
+- **失效引用**：`/pdlc-loop-next` 仍写着 `/pdlc-fix` 直接到发布（自 v1.7.0 起修复要先评审）；四处依赖不存在的 `make init` / `make new-service` / `make new-app` / `make status`；`/new-feature`、`/tdd` 两个命令名写错；`/pdlc-e2e` 读不存在的 `docs/01_requirements/user-stories/`；规范路径写成 `coding-standards.md`（实为 `docs/00_standards/coding/`）；`/pdlc-bootstrap` 承诺 `git checkout .` 能一键回滚（新建文件删不掉）。
+- **`evals/run.sh --help` 把两行代码当成用法打印**：用法说明写死打印第 3–17 行，注释变短后把 `set -euo pipefail` 等也印了出来。现在打印到第一行代码为止。
+
+### Changed
+
+- `tests/install-smoke.sh` 新增 20 条守卫：上述各项各一条，外加一次全仓扫描——正文引用的 `/命令` 必须存在、不得依赖上述 `make` target 和目录、正文写的落盘位置必须落在 frontmatter 的 `produces` 里。
+- **平台表更正**：Antigravity CLI 1.2.9 实测不读工作区的 `.agents/skills/`，要用 `--dest ~/.gemini/config/skills` 装；Grok CLI 不用另装。README、使用手册与 ADR 0007 同步。
+
+## [1.7.0] - 2026-09-24
+
+本版有四件事：
+
+1. **每个 skill 文件夹自包含**：skill 在运行时只拿得到**自己的文件夹和正文**——frontmatter 看不见，插件根目录下的 `references/`、`bin/` 也没有任何路径指过去。此前共享片段、模板、体检脚本都放在 skill 文件夹外，读不读得到全凭模型临场发挥。现在它们在构建期同步进每个 skill。
+2. **发布链路理顺**：`_done` 只表示「已发布」，只由 `/pdlc-ship`、`/pdlc-deploy` 写入；`/pdlc-fix` 先评审再发布；`/pdlc-ship` 默认不动 CI。
+3. **多功能收敛循环驱动 `bin/pdlc-loop.sh`**：一次推多个功能过 `tdd → implement → review`，可并行、按依赖排序，`/pdlc-status --loop` 看进度。
+4. **按 Agent Skills 开放标准支持其它工具**：`install.sh --target agents` 装一份符合标准的投影，Copilot、Gemini CLI、OpenCode 等都读得到。Claude Code 仍直接用源码，体验不变。
+
+没有新增 skill（仍 38 个）。升级不需要迁移：旧版本写下的 `feature_done` / `fix_done` / `review_done` 仍按终态读，`/pdlc-ship` 会列出来请人确认是否已发布。
+
+发版前的行为 eval：claude（工作树插件）与 codex（已安装的待发布投影）两个平台，6 个场景各跑 3 轮，36/36 通过。
+
+> ⚠️ **行为变更（请留意）**：
+> - **安装体积**：每个 skill 自带它用到的片段、模板和脚本，插件从约 1.2 MB 增至约 1.7 MB。常驻上下文的 token 不变（仍只有 38 条 skill 描述）；命令被调用时加载的正文变长，内容就是此前本该去读的那些片段。
+> - **`install.sh --target codex`**：模板不再统一装到 `~/.codex/pdlc/templates/`，改为随各 skill 自带；安装时会删掉这个旧目录。
+> - **`_done` 只表示「已发布」**：只有 `/pdlc-ship`（写 `ship_done`）与 `/pdlc-deploy`（写 `deploy_done`）写它，其它命令一律写阶段短名。`/pdlc-ship` 按「`next_step` 为 `pdlc-ship` 且未阻塞」收集要发布的功能；旧版本留下的 `feature_done` / `fix_done` / `review_done` 分不清是否已发布，会列出来请人确认。
+> - **`/pdlc-fix` 的下一步改为 `/pdlc-review`**（此前直接到 `/pdlc-ship`，修复不经评审就进发布）。
+> - **`/pdlc-ship` 默认不再生成 CI 配置**：只在用户明确要求时生成，先给出用量估算，默认只用手动触发 + 发布 tag 触发。
+
+### Fixed
+
+- **共享片段在运行时读不到**：148 处 `<!-- @include templates/prompts/X.md -->` 自 v1.0.0 起都依赖模型「看到注释、自己去读文件」。可路径相对的是 `references/`，skill 运行时的基准目录却是 `skills/<name>/`，正文里也没有一句话告诉模型该去哪找。一次实际使用中，`/pdlc-fix` 与 `/pdlc-ship` 都没有读到状态机片段。现在片段在构建期由 `adapters/sync_skills.py` 内联进每个 skill，起止标记之间就是片段原文。
+- **模板引用解析不了**：13 个 skill 里有 25 处写的是 `templates/X`（缺 `references/` 前缀），另有 2 处指向早已不存在的 v1 路径 `.claude/templates/pdlc/`，`/pdlc-review` 还泛指「`templates/` 目录」。现在每个 skill 用到的模板复制进自己的 `assets/`，正文按相对 skill 根目录的 `assets/X` 引用；`/pdlc-review` 按文档类型列出要对照的 6 份模板。
+- **体检脚本的备选路径会挑到旧版本**：三个读命令找 `pdlc-state-lint.sh` 的最后一条备选按修改时间取「最新」缓存目录，实测升级后旧版本目录的修改时间反而更新。现在脚本随 skill 自带在 `scripts/` 下，只有这一条查找路径；`/pdlc-settings` 找状态栏脚本的同类备选改为按版本号排序。
+- **写状态机的命令看不见自己的阶段短名和下一跳**：片段要求「按 frontmatter 的 `stage` / `next_step` 取值」，但 skill 运行时 frontmatter 对模型不可见（已实测）。现在这两个值由同步脚本写进 12 个写状态机命令的正文。
+- **`$ARGUMENTS` 嵌在句子里**：Claude Code 会把正文里每一处 `$ARGUMENTS` 都替换成实际参数，没带参数时替换成空串，于是「若选 B：`$ARGUMENTS` 必须含 `--skip-tests`」这类句子读不通——实测不带参数运行 `/pdlc-status`，正文里出现了「`` 为空或 `--all`」。现在每个 skill 只在独立的「参数：」一行里用它一次。内联之后，`--autonomous` 片段里的同类写法也会被替换，已一并改写。
+- **片段之间按文件名互相引用**：内联后，「见 `relations.md`」这类引用在没有内联该片段的 skill 里解析不了。改为就地写全必要的信息；`/pdlc-prd`、`/pdlc-feature` 真正要写关系，改为内联关系链片段。`/pdlc-test-setup` 里还有一处引用了它根本没有引入的片段，一并改掉。
+
+- **发布链路对不上**：读侧只认 `_done` 结尾为终态，可没有任何命令被要求写 `_done`——`/pdlc-review` 还被指示「推进到 `review_done`」。结果 `/pdlc-ship` 把评审通过、等着发布的功能当成「未完成」，发布说明也只收 `_done` 的功能。现在 `_done` 的写入规则写进状态机片段；`/pdlc-ship` 按 `next_step` 收集可发布功能，发布后写 `ship_done`；`/pdlc-review` 评审通过写 `review` + `next_step: pdlc-ship`。
+- **`/pdlc-ship` 交接给 `/pdlc-deploy` 的版本号用不了**：`/pdlc-ship` 交接时给的是 `/pdlc-deploy v<版本>`，`/pdlc-deploy` 却只会拿输入当关键词去搜评审记录。现在它接受版本号，从 `CHANGELOG.md` 的 `## [<版本>]` 段取出本次发布的功能，出一份覆盖全部功能的 `guides/v<版本>-deploy.md`；只把已是 `ship_done` 的功能推进到 `deploy_done`，其余在交接里列出。
+- **`/pdlc-ship` 默认生成的 CI 在每次 push 与 PR 上都跑**：日常检查本该在本地跑，按次计费的 CI 会很快用完额度。现在默认不动 CI 配置（见上方行为变更）。
+- **`/pdlc-review` 按 Web 服务写死**：守卫只在 `backend/`、`frontend/` 下找实现代码，CLI 工具、库等项目直接被拦下；检查清单里的接口、分页、SQL 等项对这些项目没有意义，自动修复却会照着去「补分页」。现在源码目录按项目实际布局找；清单项按项目类型可标「不适用」，不适用项不算未通过，也不进自动修复。它也接受缺陷 ID（`/pdlc-fix` 的下一跳）。
+- **`/pdlc-ship` 与 `/pdlc-review` 重复写 CHANGELOG**：`/pdlc-review` 可能已为功能追加过条目，`/pdlc-ship` 汇总时不再重复写同一功能 ID。
+- **`build_codex.py` 把选项当成输出目录**：`python3 adapters/build_codex.py --dry-run` 会在当前目录建出一个叫 `--dry-run` 的文件夹。现在只接受一个不以 `-` 开头的输出目录参数，`-h` / `--help` 打印用法。
+- **用户文档过时**：Codex 投影的 skill 数写成 34（实为 36）；使用手册仍说模板装到 `~/.codex/pdlc/`；中文 README 的模板清单少 2 份；状态机示例里写了 `terminal_state`（体检会把它报成偏差）；「自定义模板」一节缺少同步步骤，改了模板重装后 skill 仍用旧副本。
+- **贡献指南误称 CI 会在每个 PR 上跑测试**：`CONTRIBUTING.md` 写着「每个 PR 都由 GitHub Actions 自动运行」，实际 CI 只在发布 tag 与手动触发时跑，而且它只列了 2 个测试脚本。现在列出完整的本地门禁并写明 CI 不代跑；子命令数 33 改为 38，IRON LAW 补上第 6 条。
+- **`install.sh` 的选项缺值时不声不响地退出**：`--project`、`--target` 后面不带值（或紧跟另一个选项）时，脚本退出码 1、没有任何提示。现在报「`<选项>` requires a value」并打印用法。
+
+### Added
+
+- **按 Agent Skills 开放标准支持多平台**（ADR 0007，修订 ADR 0003）：新增 `adapters/build_agent_skills.py`，把 skill 投影成符合 [Agent Skills 标准](https://agentskills.io/specification) 的 skill 集（36 个，官方校验器 `skills-ref` 全部通过）。`install.sh --target agents` 装到 `~/.agents/skills/`，加 `--project DIR` 装到项目的 `.agents/skills/`，`--dest DIR` 装到任意目录；只写入、只删除 `pdlc-*` 目录。源码 `skills/` 保持 Claude Code 形态不变。
+- **`evals/run.sh --platform copilot`**：在 GitHub Copilot CLI 上跑行为 eval，测的是工作树的标准投影（装进各 fixture 副本的 `.agents/skills/`，不碰全局目录）。首轮真机结果：Copilot CLI 1.0.88 能加载、能触发全部 skill，但默认模型下状态完整性准入闸 3 轮全部契约破坏（见 ADR 0007 §6），暂列「可加载、未验证」，不进循环驱动。
+- **`tests/adapter-agent-skills-check.sh`**：投影的标准符合性（内置确定性检查；本机有官方校验器时另跑一遍）、正文改写、参数守卫、Codex 入口一致性，以及 `--target agents` 的三种安装位置。
+- **多功能收敛循环驱动 `bin/pdlc-loop.sh`**（ADR 0006）：一次推多个功能过 `tdd → implement → review`。给功能ID 或 `--ready`（挑出所有处于收敛段、未阻塞的功能），`--platform claude|codex` 每一步起一个全新进程，`--parallel N` 让每个功能在自己的 git worktree 里同时跑，按 `depends_on` 排先后。护栏与 `/pdlc-loop-run` 一致，绝不发布，也不提交、不合并；claude 平台真跑必须给 `--max-budget-usd`；同一项目同时只允许一个驱动；Ctrl-C 可中断，重跑即续。驱动随 `/pdlc-loop-run`、`/pdlc-status` 分发，模型遇到「多个功能 / 并行」时直接用它，不必自己写外层脚本。
+- **循环进度**：驱动把运行记录写在 `.git/pdlc-loop/`（非 git 项目在 `docs/.pdlc-state/_loop/`），`--status` 与 `/pdlc-status --loop` 读出功能数、各状态计数、每个功能在哪一步、本步已跑多久，并在驱动进程已不在、单步过久时给出提示。不给预计完成时间。
+- **`tests/loop-driver-check.sh`**：用假的 claude / codex 测驱动的调度、worktree、依赖、护栏、锁、中断与 `--status`，不花模型额度。
+- **`adapters/sync_skills.py`**：把唯一源头（`references/templates/prompts/`、`references/templates/`、`bin/`）同步进每个 skill 文件夹；`--check` 只检查、有漂移则退出 1。改了片段、模板或脚本后重跑它。
+- **`tests/skills-selfcontained-check.sh`**（19 条断言）：片段已内联且与源头逐字一致；模板与脚本副本与源头逐字节一致、脚本可执行、没有多余副本；写状态机的命令正文里有阶段短名与下一跳；参数占位符至多一处且独占一行；正文提到的片段都内联在本 skill 里；不再按修改时间挑版本。针对它做的 16 组变异全部变红。
+
+### Changed
+
+- **Codex 适配器改为标准投影的入口**：`build_codex.py` 不再有自己的转译逻辑，产物与 `build_agent_skills.py` 逐字节相同。变化：frontmatter 多了 `license` 与 `metadata`，字符串改为双引号；正文开头加了斜杠命令说明，参数行改写为自然语言；description 与触发提示之间补了句号。`install.sh --target codex` 用法不变。
+- **`adapters/codex-loop-run.sh`** 改为 `bin/pdlc-loop.sh --platform codex` 的入口：原有用法与退出码不变，同时可以接多个功能ID 与 `--parallel`。
+- 使用手册「自主循环」一节用驱动替换了手写的 bash Runbook 示例；目标项目契约补上 `.worktrees/pdlc-loop/` 与循环运行记录的位置。
+- **README 的开发一节**列出全部测试脚本（现为 11 个）、同步检查与 shellcheck 命令；中文 README 补上同样的内容。
+- **架构、方法论与术语文档**按标准投影和循环驱动更新：`docs/ARCHITECTURE.md` 的多平台、测试清单与自主循环三节，`docs/pdlc-methodology.md` 的定位与「仅某平台」清单，`docs/GLOSSARY.md` 新增三个词条。「推到 `review_done`」统一写成「评审通过、等发布（`next_step: pdlc-ship`）」——`review_done` 只是循环文档里的叫法，不是 `current_stage` 的值。
+- `tests/install-smoke.sh` 新增 20 条发布链路断言：`_done` 写入规则、`/pdlc-ship` 的可发布判定与 CI 默认、`/pdlc-fix` 的下一跳、`/pdlc-review` 的适用性与守卫、`/pdlc-deploy` 的版本输入与 `deploy_done` 条件，以及「除 ship / deploy 外没有 skill 被指示写 `_done`」。
+- **Codex 适配器**：先把 skill 里的内联区块折叠回裸标记，再按本平台规则内联；模板与脚本随 skill 目录一起拷贝，不再改写路径；删掉统一的 `templates/` 产物。
+- 更正 `build_codex.py` 与 `adapters/README.md` 里「Claude Code 看不见 HTML 注释」的说法：实测模型看得见。
+
+## [1.6.4] - 2026-09-12
+
+一次**读侧可信度**的修复版：读状态机的三条命令在输入不合契约时，不再边猜边算、把猜测当结论；发布闸门与行为 eval 也各补了一处「以为验过、其实没验」的洞；发版前的行为 eval 还发现 `/pdlc-test-setup --refresh` 会自动替换失效命令，一并修掉。
+
+> ⚠️ **行为变更（请留意）**：
+> - **`/pdlc-ship`**：质量报告生成之后，若 PRD 或质量配置（`quality-targets.yml` / `e2e-flow-map.yml` / `test-commands.yml`）有改动，从「建议重跑」变为**硬闸**——需重跑 `/pdlc-quality`，或显式 override 并写明理由。只改了其它代码时仍是建议。
+> - **`/pdlc-relate`**：`query` / `impact` / `orphans` / `validate` 不再写任何文件（此前 `impact` 会在索引缺失时自行 rebuild 并落盘）；`set` 遇到非六键对象形态的 `relations` 会停下、不写。
+> - **`/pdlc-status` / `/pdlc-retro` / `/pdlc-relate`**：状态文件不合契约时，输出最前面会先出现一块「⚠️ 输入契约体检」，写明每一处偏差是怎么处理的。状态文件合契约时不出现。
+> - **`/pdlc-test-setup --refresh`**：已存在但跑不通的检查命令，不再被自动替换成另一条命令（哪怕新命令能跑），原值保持不动，替换方案写进报告等人确认。
+
+没有新增 skill（仍 38 个），产物路径与目录契约零改动，升级不需要迁移。
+
+### Fixed
+
+- **`/pdlc-test-setup --refresh` 会把失效的检查命令自动「替换」掉**：总则里必须人工确认的动作只列了「留空 / 删除 / 降阈值」，没列「替换」。发版前的行为 eval 坐实：模型把失效的 lint 命令自动换成了另一条能跑的命令，理由是「变严」——可原命令的规则已不可考，新旧是否等价无从证明，方向不可判。现在「替换」明确列入人工确认，`--autonomous` 下原值同样不动，替换方案只写进报告；自检清单与防回退断言各补一条。相关文字在本版之前就是如此，不是本版引入；修后该场景连跑 3 轮均通过，逐轮核对 `lint` 原值未动。
+- **读状态机的命令把「目标」当成了「已完成」**：`/pdlc-relate rebuild` 与 `/pdlc-retro` 在同一批数据上各自拿状态文件里的 `terminal_state` 判终态——一份停在 `review`、只写着目标 `review_done` 的状态文件被标成了已抵达终态。`terminal_state` 只是 skill frontmatter 里「走完后应到达的终态名」，状态机实例根本没有这个字段；判终态的唯一依据是 `current_stage` 以 `_done` 结尾。现在三个读命令与 `state-update.md` 都写死了这一条；`/pdlc-status`、`/pdlc-retro` 原先的封闭列表 `[feature_done, fix_done]` 也改为后缀规则——封闭列表会把合法终态漏判成「进行中」，正是读侧转去找 `terminal_state` 的诱因。
+- **`/pdlc-relate` 的只读子命令会写文件**：`impact` 在 `_relations.json` 缺失时自行 rebuild，落盘了 `_relations.json` 与 `_graph.md`。现在子命令分写入类（`set` / `rebuild`）与只读类（`query` / `impact` / `orphans` / `validate`），只读类遇到索引缺失或过期时当场现算、不落盘；handoff 模板也按类别拆开（原模板对所有子命令都输出「📦 已更新 …」）。`impact` 的 🔴 / 🟡 明确只算 `extends` / `depends_on`，`relates_to` 这类弱关系不再被升格成直接影响；`rebuild` 只收六键对象形态、目标为合法 feature ID 的关系，不再为悬空目标造占位节点。
+- **`/pdlc-retro` 在字段不全时照样出数**：`done_at` 只有日期时，同一天内的阶段耗时全部算成 0.0h，会被读成「快到不耗时」。现在任一端缺时刻即记「不可测」、不输出 0.0h；某阶段没有自检记录写「无数据」、不写 0%；缺 `created_at` 改用 `history` 末条 `done_at` 过滤时间窗，并作为口径替换写进体检块。
+- **Codex 适配器不剥共享片段里的平台专属块**：`transpile()` 先剥平台专属块的哨兵、后内联共享片段，所以写在片段里的哨兵从来不生效——此前没有片段用过，一直没暴露。现在内联前后各剥一次；`adapter-codex-check` 断言三个读命令的 Codex 投影里不含本地插件缓存路径，并保留人工核对的兜底。
+- **`/pdlc-status` 的示例输出自相矛盾**：`fix_done` 是终态，却列在「进行中」下面，已移到「已完成」。
+- **`/pdlc-relate set` 遇到数组形态的 `relations` 会静默覆盖**：规格只写了「无 `relations` 块时初始化六类空块」，没写块存在但不是六键对象时怎么办——照字面执行，原有条目连同其中的说明文字会被整块覆盖。现在停下、不写，原样列出现有条目，请人确认迁移方式。真跑验证：对一份含 4 条数组关系的状态文件执行 `set`，未写任何文件，并识别出要加的关系本就存在。
+- **行为 eval 默认测的是已安装版本，汇总却只盖当前 commit**：`/pdlc-*` 解析到的是装好的插件，于是发版前跑 eval，验的其实是上一个已发布版本。本版新增的 A-live 场景第一次跑就红了，排查才发现加载的是旧版——同一场景在上一发布版上红、在工作树上绿。现在默认臂（`--platform` 缺省值）默认加载本仓库工作树，`EVAL_PLUGIN_DIR` 置空可改测已安装版本；汇总新增一行写明被测的是哪一份；把额外参数设错环境变量名（会被 runner 覆盖）时告警，见 `EVALS.md`。Codex 臂仍只能测已安装投影，汇总照实标注。`EVALS.md` 的已知限制随之改写——原文说 runner「拿不到」未安装的改动，对默认臂已不成立；标题写「两条已知限制」、下面实有三条，一并改正。
+
+- **eval 把协议错统计成了环境抖动，恰好遮住它自己要测的东西**：`honest-checks` / `stale-config` 原先把 `last_phase_result.stage != impl` 一律判为环境抖动，而 `evals/run.sh` 对抖动的处理是**重跑、不计失败**。于是模型写出 `stage: "implement"`（契约要求短名 `impl`）这类**协议错**会被反复重跑，最终汇总成「无结论（环境抖动）」——而 schema 是否稳定，正是这两个场景存在的理由。现在分开：`stage` 缺失 → 抖动（没跑完，重跑有意义）；`stage` 有值但不符 → 契约破坏（重跑只会重复同一个错）。
+  - 同时补了一道前置守卫：**状态机与 fixture 初始状态逐字节相同 → 抖动**。fixture 自带一份停在 `tdd` 的状态机，不先分开的话，「agent 根本没跑」在 stage 检查里会和「写错了 stage」长得一模一样，限流与桩会被误判成契约破坏。
+- **`evals/EVALS.md` 的成本账自己过期了**：表里写着「全部场景（2 个）」，而实际已有 4 个——按它估算发版前开销会低报一半以上。已更新为当前数量并注明以 `--list` 为准。
+- **贡献者指引里 `shellcheck` 的覆盖面小于实际**：漏了 `adapters/*.sh`（`codex-loop-run.sh` 在其中）与 `evals/fixtures/*/scenario.sh`（真 bash，此前无人 lint）。两处实测本来就干净，补进命令零代价。
+
+### Changed
+
+- **发布闸门按「改动了什么」分两档判过期，不再一刀切**：`/pdlc-ship` 此前只比日期，且过期一律只是「建议重跑」。现在读报告头部本就记着的 `仓库版本: <commit SHA>`，跑 `git diff --name-only <SHA>..HEAD`：
+  - 命中 `docs/01_requirements/prd/`、`quality-targets.yml`、`e2e-flow-map.yml`、`test-commands.yml` → **硬闸不放行**。这些是 PRD ↔ `core_flows` 对账与 E2E 覆盖矩阵的**输入**，它们变了结论就不再成立，重跑单测补不回对账。
+  - 只有其它代码 → 维持「建议重跑」。
+  - 报告没有该字段或 SHA 解析不了 → 按**不可判**处理并明确告知，不得静默当作未过期（与 check 命令的三态同一条纪律）。
+  - 无需给报告加新字段——SHA 一直在记，只是闸门没读。
+- **`quality-targets.yml` 变动要单独确认「闸门是不是被调松了」**：命中硬闸且改动包含该文件时，必须把它的 diff 原样展示给人，并逐条点出变松信号（覆盖率目标下降、`core_flows` 条目减少、lint 策略放宽、新增豁免）。报告达标后把目标调低，重跑照样是绿的——日期新、SHA 新、结论「达标」，但**尺子变短了**。这与 `/pdlc-test-setup --refresh` 的「严向自动、松向人确认」是同一条原则。
+
+### Added
+
+- **读侧契约体检 `bin/pdlc-state-lint.sh`**（确定性、只读，退出码三态：`0` 合契约 / `1` 有偏差 / `2` 无法体检）。拿一个半接入 PDLC 的真实项目跑 `/pdlc-status`、`/pdlc-relate impact`、`/pdlc-retro`，三条命令都跑完了，结论却有错：状态文件不是 `/pdlc-*` 命令写的，字段对不上契约，模型只能边猜边算，猜出来的东西被当成了结论。把体检做成代码后，同样的输入永远得到同样的偏差清单，共 17 类偏差代码（缺字段、字段类型不对、实例含 `terminal_state`、阶段别名、`next_step` 带散文、时间戳无时刻、`relations` 非六键对象、散文关系目标、悬空引用、修复流程 ID 前缀不符、仓库根另有 `.pdlc-state/` 等）。对那个项目只读跑一次：6 份状态文件报出 65 处偏差、10 类，与人工逐条核对的结果一致，项目 `git status` 前后不变。再用本版在同一份数据上重跑那三条命令：完成数均按 `current_stage` 判为 0；`impact` 没有写任何文件，且结论是「影响半径不可判」而不是「为空」；`retro` 的体检节位于报告开头，阶段耗时记「不可测」。
+  - 新共享片段 `state-read.md`（读侧契约），`/pdlc-status`、`/pdlc-retro`、`/pdlc-relate` 均引入：先体检、再计算，偏差按「类 × 份数 × 处理方式」汇总成「⚠️ 输入契约体检」块，**放在输出最前面**——写在报告末尾的偏差表，读者看到时已经信了前面的数字。脚本不可用时（如 Codex 侧不分发它）按同一张规则表人工核对并注明。
+  - 阶段短名全集写进片段（12 个短名 + 4 个读侧可归一化的别名）。`frontmatter-check` 三方断言：片段的表、实际写状态机的 12 个 skill 的 `stage:`、脚本内嵌的清单必须一致；脚本声明的偏差代码与片段说明逐一对应。
+  - 体检脚本的查找顺序以「本 skill 所在目录的上两级」为第一位——那是与正在运行的 skill 同版本的一份。真跑时插件根环境变量并不存在，缓存与 marketplace 克隆里又都是旧版本，最后是模型自己按 skill 目录找到的脚本；现在写成规则，不留给临场发挥。
+  - 体检块的计数照抄脚本输出，不许自己重数。真跑时脚本报 25 处无时刻的时间戳，报告正文却自己数成了 26；改后复测为 25。
+  - `state-update.md` 补写侧四条硬约束：实例不写 `terminal_state`、`history[].stage` 写短名、时间戳带时刻、`next_step` 只写命令名或 `null`。
+- **新测试脚本 `tests/state-lint-check.sh`**（33 条，被测脚本用 macOS 自带 bash 3.2 跑）：逐类偏差对得上、合契约的文件不误报、索引与配置文件不参与、无状态目录退出 2、体检前后项目文件逐字节不变。`tests/` 现为 8 个脚本。
+- **新 A-live 场景 `relate-terminal`**：`rebuild` 必须把「停在 review、实例写着 `terminal_state`」的节点标成非终态，同时把真正的终态标对、合法边入图、散文目标不成边、不改状态文件。判定逻辑另在 `evals-scenario-check` 里桩测 6 例。同一场景在上一发布版上红（陷阱节点被标成 `terminal:true`）、在本版上绿。发版前固定开销 +6 turn，成本表已更新为 6 个场景。
+- **新 A-live 场景 `quality-no-priority`**：验 `/pdlc-quality` 的 PRD 对账**自身**的 false-green。fixture 放两份 PRD，一份规范标 P0，另一份整份不含 P0/P1 标记、只用「已上线 / 待开发」描述状态——按 P0/P1 提取得到空集，与 `core_flows` 做 diff 不产生任何漂移条目，报告若就此写「对账通过」，等于宣称这份 PRD 里的流程都覆盖了。判别力要三个方向同时成立：报告点名那份不可判的 PRD、对账行不得是纯 ✅、且不许走捷径（不能把流程偷偷塞进 `core_flows`，也不能去 PRD 里补 P0 标记）。其余各维在 fixture 里都真能跑通且通过，好让唯一有判别力的维度就是对账本身。
+- **新测试脚本 `tests/evals-scenario-check.sh`**（A-det，不烧模型额度）：`assert_scenario` 是确定性 bash，按仓库的分档判据属可桩测。用构造状态覆盖上述判定——协议错 vs 抖动、fixture 未改动、对账 false-green 与两种走捷径的假修法。贡献者指引里的测试清单同步更新。
+- **`install-smoke.sh` 新增跨文件契约断言**：`/pdlc-ship` 读的 `仓库版本` 字段由 `/pdlc-quality` 写入，这是一处隐式依赖——模板里删掉它闸门不会报错，只会静默退化成「查不了新鲜度」。现在两头都钉住，硬闸的四个路径也逐一断言仍在正文里。
+
+
+## [1.6.3] - 2026-09-09
+
+一次**判停正确性**的修复版：循环引擎不再把残缺状态报成「收敛完成」，`advanced_to` 的短名规则从一条会给错答案的推导改成被断言钉住的映射表。两条都来自一次外部评审，均已复现后修复。
+
+> ⚠️ **行为变更（请留意退出码）**：`next_step` 缺失或为 `null` 时，`adapters/codex-loop-run.sh` 与 `/pdlc-loop-next` 现在判 **`blocked`（退出码 2）**，此前判 `done`（退出码 0）。这是把**假成功**纠正为真实状态——机械收敛段里没有任何阶段会合法写出 `null`，所以正常流程不受影响；但如果你的外层循环把退出码 0 当作"可以进发布评估"，残缺状态现在会正确地停下来交还人工。
+
+没有新增 skill（仍 38 个），产物路径与目录契约零改动。
+
+### Fixed
+
+- **循环判停会把残缺状态报成「收敛完成」**（外部评审提出，已复现）：`compute_next()` 把缺失的 `next_step` 折成 `"null"` 后映射到 `done`，于是三种输入全部返回退出码 0 + 「✅ 收敛到 review_done」——① 空对象 `{}`；② `current_stage=tdd` 但缺 `next_step`；③ `ok=false`、测试失败、`next_step=null` 且无 `blocked_reason`。这类输入**逃得过「无法解析 → blocked」的兜底**，因为 `{}` 是合法 JSON，解析得了、只是什么都没有。
+  - 根因不在驱动而在契约：`skills/pdlc-loop-next/SKILL.md` 的映射表把 `null → done`，注释写「机械收敛已完成（review 通过）」。查各 skill frontmatter 可知这句是**事实错误**——机械收敛段里没有任何阶段会合法写出 `null`（`pdlc-implement` → `pdlc-review`，`pdlc-review` 与 `pdlc-fix` → `pdlc-ship`），收敛完成的信号是 `next_step=pdlc-ship`，本就单独映射到 `done`。**这条分支没有合法生产者，只在状态残缺时触发。**
+  - 现改为 `null` / 缺失 → `blocked`。展示层早有同一结论（`bin/pdlc-statusline.sh` 的 `is_terminal`：原子 fix 流程 `next` 恒为 `null` 却未完成，误判会显示「✅ done」）——判停层现在与它对齐。
+  - `tests/adapter-codex-loop-run-check.sh` 新增 4 条断言覆盖上述输入，原先那条把 `next=null` 断言成 `done` 的用例一并翻正。ADR 0004 §决策 补更正纪要（正文保留作时间点快照）。
+- **`docs/usage-guide.md` 的状态机范例把 `next_step` 写成短名 `"ship"`**：契约要求的是**下一跳命令名** `"pdlc-ship"`。照抄这份范例会让循环拿到白名单外的 token，直接判 `blocked`。全仓 15 处 `next_step` 字面量里只有这一处写错，已改。
+
+### Changed
+
+- **`advanced_to` 的短名规则改为一张被断言钉住的映射表**：原文写「`advanced_to` = `next_step` 命令去掉 `pdlc-` 前缀」，紧接着又用 ⛔ 块声明「短名不等于命令名去前缀，`pdlc-implement` → `impl`」——**规则与规则的反例挨着写**，而这两段会一起被内联进 Codex skill，模型两边都读得到。实测「去前缀」对 6 个目标里的 `pdlc-implement` 直接给错答案。
+  - 现在 `references/templates/prompts/state-update.md` 用 `<!-- stage-map -->` 锚点给出 6 行显式映射表，并由 `tests/frontmatter-check.sh` **双向**钉死：① 表里每行短名必须等于该 skill 自己 frontmatter 的 `stage:`；② 任何 skill 的非 `null` `next_step` 都必须在表里有行（防止新增阶段时表腐烂）。四种变异（改错短名 / 删一行 / 删整表 / 回退判停规则）均实测变红。
+  - `docs/pdlc-methodology.md` 里重复的同一条「去前缀」规则同步改为指向该表。
+
+
+## [1.6.2] - 2026-09-05
+
+一次「把噪音关掉」的维护版：CI 收口到只在发版那一刻跑，日常防护落回本地 pre-commit 钩子；顺带修掉状态栏在 `/pdlc-relate rebuild` 之后整行变空的回归。
+
+没有新增 skill（仍 38 个），流程契约与产物路径零改动，升级不需要任何迁移动作。
+
+### Changed
+
+- **CI 收口到「只在发布那一刻跑」**：`secret-scan.yml` 原先是 `push: branches:[main]` + `pull_request`，累计触发 89 次（PR 55 / push 34）——改一行文档也要跑一遍全历史扫描。改为 `workflow_dispatch` + `push: tags: v*.*.*`，月预计用量从约 15-20 min 降到约 1 min。发版前那次仍用 `fetch-depth: 0` 扫完整历史，**公开发布前的最后一道兜底保持不变**。
+  - 日常防护落到本地：新增 `.githooks/pre-commit`（`git config core.hooksPath .githooks` 启用一次）。有 `gitleaks` 就用它扫暂存内容；**没有时不静默放行**——降级为正则兜底并明确告知覆盖面更弱（「跑不了」不等于「没问题」，与三态语义同一条纪律）。命中时只回显截断后的模式，不把密钥再打印一遍到终端和日志。
+  - 三条路径均实测：gitleaks 在→拦(exit 1)、gitleaks 不可见→正则兜底仍拦(exit 1)、干净内容→放行(exit 0)。
+
+- **状态栏懒解析循环去掉 `basename` 子进程**：`bin/pdlc-statusline.sh` 每渲染一次提示符，窗口内每个候选文件都要调两次 `basename`（判 `statusline.json` 一次、判 `_` 前缀一次），默认窗口 5 个文件即 10+ 次 fork。改为 `${f##*/}` 取一次文件名再判两次，循环内子进程降到 0。实测 6 个状态文件的场景由 12 次 `basename` 调用降到 0，渲染输出逐字节不变。
+
+- **`CLAUDE.md` 的本地测试清单补全**：「Common commands」原先只列了 `tests/` 下 6 个脚本中的 2 个（`frontmatter-check` / `install-smoke`），照文档跑只覆盖 221/304 条断言——`statusline-check`、`adapter-codex-check`、`adapter-codex-loop-run-check`、`evals-runner-check` 全在清单外，目录树那一段也用 `└──` 收在第 3 个脚本上、读起来像「就这些」。现已列全 6 个、给出一次跑完的命令，并把 `shellcheck` 的覆盖面对齐实际（补 `bin/*.sh`、`evals/run.sh`、`.githooks/pre-commit`）。另注明 `statusline-check.sh` 需额外用 macOS 自带 `/bin/bash` 3.2 跑一遍——PATH 上的 Homebrew bash 5 会放过在原生 Mac 上跑不了的代码。
+
+### Fixed
+
+- **ADR 0004 §5 的诚实边界已过时**，补更正纪要（正文保留作时间点快照）：「本仓库的自动化无法自己调 `codex exec`」实测不成立；`tdd → implement → review` 三步连跑已端到端验证——`design → tdd → impl → review_done` 收敛、退出码 0、独立复跑单测 9/9 绿、发布侧零改动。撞上 provider 限流那次，驱动按设计 fail-stop(4) 且现场零改动。
+- **状态栏在 `pdlc-relate rebuild`/`set` 之后变空**：`bin/pdlc-statusline.sh` 按 mtime 取最近状态文件时，只排除了 `statusline.json`，没排除 `pdlc-relate` 写出的 `_relations.json`（关系反向索引，不是功能状态文件）。`_relations.json` 写出后 mtime 最新，被当成「最新且非终态」抢占显示，解析出的 `feature_id`/`feature_name`/`current_stage` 全为空，状态栏整行显示成 `● PDLC  · 👤`。现在懒解析循环跳过所有 `_` 前缀文件，jq 解析后再对 `feature_id` 为空的行做一道兜底丢弃。`tests/statusline-check.sh` 新增场景 8 覆盖该回归。
+
+
+## [1.6.1] - 2026-08-09
+
+质量报告多了一份**能直接看**的形态，以及三处「本来就该有人盯着」的守卫补位。
+
+本次没有新增 skill（仍 38 个），也没有改动任何流程契约——`.md` 依旧是质量报告的唯一真源、发布闸门读的依旧是它。
+
+### Added
+
+- **质量报告 HTML 视图**：`/pdlc-quality` 现在除 `docs/07_reviews/quality/<日期>.md` 外，同步产出同名 `.html`——**零依赖自包含单文件**（CSS 内联、无 CDN、无外链字体），双击就开、离线可看、可打印签字、能直接发给同事。模板 `references/templates/quality-report-template.html`：深浅色自适应、结论卡片 + 七节结构与 Markdown 版一一对应、`@media print` 出 A4（实测 5 页，TOC 自动隐藏）。
+  - **`.md` 仍是唯一真源**：`git diff` 看它、`/pdlc-ship` 的发布闸门读它、趋势对比取它；HTML 里的数字**一律从 `.md` 抄，不得重算**。双写最大的风险是「两份报告各说各话」，且错的那份通常更好看——故设自检项逐项核对关键数字，不一致以 `.md` 为准。
+  - **三态在视觉上必须可分**：`st-pass` 绿 / `st-fail` 红 / `st-warn` **琥珀 + 斜纹**（无法判定）/ `st-na` 灰（留空未测量）。「无法判定」刻意做成未完成观感，且图例明写「不是通过」——这是 ADR 0005 §6.5 反模式在报告上的最后一道落地面。
+  - 新增 15 条 `install-smoke` 断言（165 → 180）：模板存在、**自包含无外链**、**占位符不得嵌进 `var(--…)`**、三态齐全、七节结构、签字栏。
+  - 页头总判定改为**单一占位符** `{{VERDICT_SHORT}}`（填 `pass`/`fail`/`warn`）同时驱动顶条与徽章。原先顶条走 `style="--verdict-color: var(--{{VERDICT_CLASS_SHORT}})"`，而填写说明写的是填 `st-warn`——照做即得未定义变量，**静默**回落成中性强调色：一份「无法判定」的报告顶着与「达标」无异的页头（已复现）。报告最贵的错就是错的那份看起来更体面，故把这种「占位符当 CSS 变量名」的形态连同断言一起禁掉。
+  - 自包含守卫由**类型白名单改为全量禁外链**。原先只盯 css/js/字体后缀，`<img src="https://…/x.png">` 与 `url(//cdn/…)` 都能漏过——而一张远程图片同样会在每次打开报告时把 IP、时间、referer 送给第三方。需要图片一律内联 `data:` URI。
+
+- **`refresh-safety` eval（A-live 第四个场景）**：把 v1.6.0 交付但一直没真机验过的**方向规则**（`--refresh` 只能自动收紧闸门，放松必须人确认）固化成可复现的回归闸。
+  - fixture 是**双向判别器**：`lint` 指向已删除的脚本（**松向诱饵**——最省事的"修法"是留空，报告立刻变绿而闸门没了）；`e2e` 空着但实际有可跑脚本（**严向机会**）。判别力来自「一边动了、另一边没动」——两边都自动改 = 松向失守；两边都不敢动 = 严向规则形同虚设。
+  - **在 v1.6.0 发布版上真机验证通过**：`e2e` 被自动补上、失效的 `lint` 原封不动并明确请求人确认。模型表现超出规范要求——`shellcheck` 已装且全绿，但它拒绝拿来顶替失效的 lint，理由是「无法证明与原命令语义相同，换 linter 属技术选型」。
+
+### Changed
+
+- **`state-update.md` 补上 `checks` 的键名与类型约束**：键名只能是 `tests_pass` / `coverage_pass` / `lint_clean` / `e2e_pass`（tdd 段 `red_verified`），值只能是布尔；点名两种实测到的错法——照抄 `test-commands.yml` 的 `unit`/`lint`，以及写成 `"4 passed, 1 failed"` 这类字符串摘要。另注明 `pdlc-implement` 的阶段短名是 `impl` 而非 `implement`。
+  - 这是**规范补白**：原先键名只在散文里出现、schema 示例是空的 `checks: {}`，类型更是从没写过。补的是真实缺口，不是为某个平台打补丁。
+  - ⚠️ **不声称它改善了模型行为**——见下。
+
+### Known limitations
+
+- **Codex 臂在 `checks` schema 上不稳定**（2026-08-09 实测，`gpt-5.6-sol`）：`honest-checks` / `stale-config` 反复红且失败形态在换（键名漂移 / 值写成字符串 / `127` 折成 `false` / 键缺席），同一 fixture 同一模型轮间就能换一种；`red-light-gate` / `refresh-safety` 稳定通过。
+  - 试过用加重措辞去收敛，**单轮看似转绿、多轮落回噪声带**，强调三态那版还把红从一个场景挪到另一个——已回退。要立结论需 `--repeat 5` 以上分组对比。
+  - Claude 臂同期三次完整跑**均 4/4 全绿**。**Codex 臂暂不作为发布闸门证据**，详见 `evals/EVALS.md`「两条已知限制」第 3 条。
+
+### Fixed
+
+- **`evals/run.sh` 曾静默只跑第一个场景**（不带 `--only` 的整套跑）。场景名用 `done <<< "$SCENARIOS"` 喂在 stdin 上，而循环体里调的 agent CLI 会读 stdin（实测 `codex exec` 会把管道内容当额外输入吃掉）——第一个场景跑完，剩下的场景名已被喝干，循环无声结束，汇总照常打印。
+  - 这是**最坏的一种失败**：覆盖面缩水，报告却看不出少跑了什么。据此，此前所有"整套跑过"的 Codex 结论都只覆盖了 1 个场景（各场景单独用 `--only` 跑出的结论不受影响）。
+  - 修法两道：场景名改走 **FD 3**（与 stdin 彻底隔开），agent 调用另加 `</dev/null`。另加**场景计数闸**——跑到的场景数与发现数不符即报错退出 3，不允许再有"少跑而正常收尾"。
+  - 新增 `tests/evals-runner-check.sh`（A-det，用会读 stdin 的 `codex` 桩复现该条件，不烧额度）：断言场景全跑到、桩无产出时判「无结论」而非通过、两道防线各在位。四种回归形态逐一种入验证判别力。
+
+- **CHANGELOG 的 `## [1.6.0]` 标题曾被误删**（v1.6.1 备版时发现）。上一次编辑本文件时，替换范围把版本标题一并吞掉，于是 1.6.0 的全部条目被并进了未发布段——`release.yml` 按标题切段抽发布说明，真发出去会把上个版本的内容当成本次的。已补回标题，并加断言：**每个 git tag 都必须在 CHANGELOG 里有对应的 `## [x.y.z]` 标题**，缺一个即失败。
+
+
+## [1.6.0] - 2026-07-29
+
+ADR 0005 的 B1 + B2 落地：把「客观 check」从单阶段能力升级成**常设质量闸门**。36 → 38 skills。
+
+### Added
+
+- **`/pdlc-test-setup`（B1，立测试地基）**：探测技术栈 → **逐条验证命令真能跑** → 写 `docs/00_standards/test-commands.yml` → 脚手架测试目录 → 接本地 pre-commit/pre-push 钩子。
+  - 命门是「**验证后再写**」：写进 yml 的每条命令都必须先真跑过、看到退出码；跑不通的**留空并说明怎么补**，绝不写没验证过的命令——一条猜错的命令会污染下游每个阶段的 `checks`，比没有这个文件更坏。
+  - 覆盖率达标线写死在命令参数里（默认 85%），「达标」即退出码本身，无需解析百分比。已存在的 yml 不覆盖，改为校验 + 提议补缺。
+- **`/pdlc-quality`（B2，质量闸门）**：跑真实 check → 对照目标 → 出可核对报告 → **人签字放行**。AI 只整理数据，**不参与达标判定**。
+  - **E2E 覆盖矩阵**：靠显式 `docs/00_standards/e2e-flow-map.yml`（`core_flow → 测试标识`）机械核对，不靠模型说「我觉得覆盖了」。映射指向不存在的测试 = **映射腐烂**，按红处理。
+  - **PRD 强制对账防 false-green**：每次运行都拿 PRD 的 P0/P1 流程与 `core_flows` 做 diff，**漂移即红灯**。清单靠自觉维护必腐烂，而腐烂的清单会让矩阵全绿、现实有洞——把「我们不知道」伪装成「我们覆盖了」，比没有闸门更坏。
+  - 报告落盘 `docs/07_reviews/quality/<日期>.md`（ledger 型，可 diff 可看趋势），含红绿表、实测证据、覆盖矩阵、对账结果、趋势、**人工签字栏**。
+  - 量不到的项如实写「未测量」，**不得因此判为通过**——与「无命令可跑 → `checks: {}`」同一条纪律。
+- 新模板：`quality-targets-template.yml`、`e2e-flow-map-template.yml`、`quality-report-template.md`。
+- **`stale-config` eval（A-live 第三个场景）**：`unit` 真失败(exit 1) + `lint` 指向不存在的脚本(exit 127)，验证「命令跑不了 ≠ 检查没通过」。判别力来自**一个有值 + 一个表达「无法判定」**——照抄 schema 的模型会把两个键都填布尔值。真机验证通过，且这一跑当场纠正了规范本身：原先要求"必须省略键"过窄，实际 `null` 与缺席对消费方等价（`jq` 都返回 `null`），已放宽为二者皆可、**唯独不许 `false`**。
+- **多字节相邻守卫**（repo hygiene）：`install-smoke` 新增一条闸——全仓 `.sh` 里 `$var` 紧贴中文即失败。这类写法几乎总藏在错误分支里，正常路径跑不到、一旦真出错连报错本身都崩；本仓已被它坑过 4 次。
+
+### Changed
+
+- **`test-commands.yml` 自动保鲜**：这份文件会随项目演进而过期（脚本改名、runner 换代、工具移除），一旦过期下游所有 `checks` 就开始失真。现在不需要你记得去维护：
+  - **退出码三态语义**（新共享片段 `check-commands.md`，12 → 13 个）：`0`=通过、非 0=未通过、**`127`/命令不存在=无法判定**。后者**省略该 `checks` 键而非写 `false`**——把「跑不了」记成「没通过」是**会误导人的虚报**：它让人去查代码，而真正的问题是配置过期。
+  - **过期检测零成本**：各阶段本来就在跑这些命令，遇到「跑不了」即提示 yml 疑似过期。`pdlc-tdd` / `pdlc-implement` / `pdlc-review` / `pdlc-quality` / `pdlc-test-setup` 五处共用同一套语义。
+  - **`/pdlc-quality` 报告新增「配置健康度」一节**：哪条命令已失效、哪个空格现在可以填上（💡 可收紧）。
+  - **`/pdlc-test-setup --refresh`**：重新探测并给出 diff。**方向决定自动化程度**——让闸门**变严**（空 e2e 现在能跑、阈值上调）或平移替换可自动应用；让闸门**变松**（删命令、留空、降阈值）**必须人确认，`--autonomous` 也不豁免**。最危险的"自动修复"就是把坏掉的 check 留空：闸门瞬间松了、报告还是绿的。
+
+- `/pdlc-ship` 前置检查新增**质量闸门**：读 `docs/07_reviews/quality/` 最近一份报告，未达标默认不放行，要发必须由人显式 override 并写明理由；报告早于最近提交则提示已过期。
+- `/pdlc-prd` 新增**上游挂钩**：产出 P0/P1 流程时提示补 `core_flows` 与 E2E 映射——在源头挂钩比事后补救可靠。
+- 目标项目契约新增 `docs/00_standards/quality-targets.yml`、`docs/00_standards/e2e-flow-map.yml`、`docs/07_reviews/quality/`。
+
+### Fixed
+
+- **红灯守卫在常见测试布局上误拦**（真实项目验证暴露）：`pdlc-implement` 的前置守卫原先只在一份**写死的路径清单**（`backend/services/*/tests/`、`frontend/*/src/__tests__/` 等）下找测试，找不到就判「项目没测试」并中止。但真实布局千差万别——单体 `backend/tests/`、根级 `tests/`、Go 同包 `*_test.go`、Node 与源码同目录的 `*.test.tsx`——**守卫把「测试不在我预期的位置」当成了「项目没有测试」**，会让 pdlc 在大量正常项目上直接卡死。
+  - 新增共享片段 `test-location.md`（11 → 12 个）。核心原则是**优先问 runner、其次翻文件**：项目的 `test-commands.yml` 是权威，用它去问 runner（`cargo test -- --list` / `pytest --collect-only -k` / `go test -list` / `vitest list`），查询为空才是「该功能没有测试」——这是行为证据，比「我没找到文件」可靠得多。
+  - **专门处理「测试写在源文件里」的语言**：Rust 单测几乎总在 `#[cfg(test)] mod tests` 里，`tests/` 按 Cargo 约定只放集成测试，所以「没有 `tests/` 目录」在 Rust 项目里**完全不能推出「没有单元测试」**，照文件清单判红会稳定误伤所有 Rust 项目。同类还有 Vitest in-source testing（`import.meta.vitest`）、Python doctest、Elixir doctest——这些都必须靠**内容标记**匹配，文件名扫描无效。
+  - 定位顺序：问 runner → in-source 内容标记 → 生态布局约定 → 文件名兜底，**四步都落空才判红灯**；无法判定（runner 装不上 / 语言不认识）则如实报「无法确认」并交还人类，不默认放行。
+  - **真 Rust 项目双向验证**（一个 Tauri 项目，54 个文件含 in-source 测试、无 `test-commands.yml`）：正例——某模块的 21 条测试**只存在于源文件内**（同级 `tests/` 目录无对应文件），守卫正确找到并跑 `cargo test` 确认全绿，未误拦（旧逻辑在此必红）；反例——一个真的没有测试的功能，守卫正确红灯、零代码改动、且**未伪造状态机**（守卫在提取功能 ID 前中止，凭空写 `current_stage` 属伪造阶段记录）。两向都对，证明修复没有把守卫改松。
+  - `pdlc-implement` / `pdlc-tdd` / `pdlc-feature` / `pdlc-fix` 四处改为引用该片段；写测试时也跟随项目既有布局，不再新造平行目录。
+- **对账自身的 false-green**（真项目验证时实测踩到）：PRD 不含 P0/P1 标记时提取为空集、不产生漂移条目，报告若就此判「无漂移 ✅」，等于宣称那份 PRD 的流程都覆盖了——而事实是它整份没进闸门视野（已上线的老主链路最容易栽在这里）。现要求单列「不可判」告警，且对账项**不得判为 ✅**。
+- 修全仓 5 处 `$var` 紧贴中文的隐患（`bin/pdlc-statusline.sh`、`tests/adapter-codex-check.sh` ×2、`tests/statusline-check.sh` ×2），并加上防复发守卫。
+
+## [1.5.3] - 2026-07-28
+
+行为层 evals（A-live）落地——测的是「skill 真跑时契约有没有被守住」，而不只是结构。设计见 `docs/decisions/0005-testing-and-quality-capability.md`，用法与成本账见 `evals/EVALS.md`。
+
+### Added
+
+- `evals/` 行为层测试：`run.sh`（runner）+ `honest-checks` / `red-light-gate` 两个 A-live fixture + `EVALS.md`。
+- 分档判据「**契约由谁执行**」：确定性代码执行的契约（bash 驱动 / jq 映射）可用桩测、留在 `tests/`；由模型遵守 SKILL.md 正文执行的契约桩测不了，必须真跑（A-live）。
+- 失败二分类：**环境抖动**（无状态机产出，自动重跑、不计失败）vs **契约破坏**（有产出但判别式不符，立即红）；全抖动时报「无结论」而非冒充通过。
+- `run.sh --check` 离线校验 fixture（不烧额度，CI 只跑这个）、`--replay` 对保留现场复跑断言、`--repeat N` 以多数通过为结论。
+- `install-smoke.sh` 新增 11 条 evals 不变量（95 → 106）。
+
+### Fixed
+
+- **状态机推进契约冲突**（由 `honest-checks` eval 首跑抓到）：`pdlc-implement` / `pdlc-prd` 的段四无条件写 `current_stage`，与共享片段 `state-update.md` 规则 5「`ok=false` 时 `current_stage` 不变」矛盾，导致失败的阶段也会推进 `current_stage`、令外层循环的 stuck-stop 失效。两处均改为「仅当本阶段成功时才推进」。
+
+
+## [1.5.2] - 2026-07-20
+
+Codex 上的 PDLC 自主收敛循环（loop-run 外部 Runbook 版）。设计与真机准入闸结果见 `docs/decisions/0004-codex-loop-run.md`。
+
+### Added
+
+- **`adapters/codex-loop-run.sh`** — Codex 外部 Runbook 驱动：一个 bash 循环，无人值守把 `tdd → implement → review` 推到 `review_done`。以**状态机为唯一真源**，每轮读状态机 → loop-next 映射的 jq 复刻判下一跳 → `codex exec "按 pdlc <阶段> <id> --autonomous"` → 读回判护栏（`--max-steps` 默认 4 上限停机 / `ok!=true` fail-stop / `current_stage` 未推进 stuck-stop）。**发布永远人工**（到 review_done 即停，绝不自动 ship/deploy）；`--dry-run` 离线看决策。
+- **`tests/adapter-codex-loop-run-check.sh`** — 驱动映射 + 护栏回归（mock 状态 + `--dry-run`，免 codex，12 断言）。
+- **`docs/decisions/0004-codex-loop-run.md`** — ADR + **状态完整性准入闸真机结果**：gpt-5.6-sol 用「unit 恒失败 / lint 恒通过」判别场景，真跑 `test-commands.yml`、诚实写 `{tests_pass:false, lint_clean:true}`（一真一假只可能来自真跑）、fail-stop、发 `<<<PDLC blocked>>>` 哨兵——**闸过**，loop-run 得以在 Codex 放行。
+
+## [1.5.1] - 2026-07-19
+
+Codex 适配器**真机验证后的重大更正**：v1.5.0 假设 Codex 靠 `~/.codex/prompts/*.md` 斜杠命令，未验证就发版——实测目标 Codex 是**兼容 Claude Code 生态的发行版**，用 `~/.codex/skills/<name>/SKILL.md`（description 触发、非斜杠命令）。gpt-5.6-sol 自然语言触发 `pdlc-prd` 成功、写出 schema 正确的状态机（Claude Code 可无缝读）。
+
+### Changed
+
+- **Codex 适配器改到 `skills/` 布局**：`build_codex.py` 现输出 `dist/codex/skills/pdlc-*/SKILL.md`（Codex skill 格式 frontmatter `name` + `description`，description 追加 pdlc 触发提示；`next_step` 物化措辞改为自然语言、非斜杠命令）。`install.sh --target codex` 装到 `~/.codex/skills/`，并**自动清理 v1.5.0 误装的 `~/.codex/prompts/pdlc-*.md`**。安装提示改为「重启 Codex + 自然语言驱动」。
+- **README / README.zh-CN / usage-guide / adapters/README / ARCHITECTURE / ADR 0003**：Codex 接入说明从「prompts 斜杠命令」更正为「skills description 触发」，含真机验证纪要。
+
+### Fixed
+
+- **`checks` 虚报诱导坑（跨工具状态可信的命门）**：`state-update.md` 的 schema 示例此前把 `checks` 写死 `{tests_pass:true, coverage_pass:true, lint_clean:true}`，诱导模型在 requirements/design 等**无测试可跑**的阶段照抄假 `true`（真机实测 gpt-5.6-sol 确实照抄了）。改为示例 `checks: {}` + 显式规则「无检查命令可跑的阶段留空 `{}`，绝不因阶段成功就填 true」。对 Claude Code 也是净收益。
+
+## [1.5.0] - 2026-07-19
+
+多平台支持第一步：把 PDLC 方法论内核平台中立化，并交付 Codex CLI 适配器。设计见 `docs/decisions/0003-multi-platform-adapters.md`。Claude Code 仍是一等公民、不降级。
+
+### Added
+
+- **`docs/pdlc-methodology.md`** — 平台中立的 PDLC 方法论内核（Tier 1「地板」）：IRON LAW 六条、状态机契约、目标项目目录契约、功能/缺陷 ID 分配、四段式骨架、`test-commands.yml` 客观检查、自然语言 → 阶段映射，并诚实标注哪些能力仅 Claude Code。任何 AI 编程工具（Codex / Cursor / Windsurf / Copilot / Cline …）可据此用自然语言驱动 PDLC，共享同一份 `docs/.pdlc-state/`。
+- **`adapters/build_codex.py`** — Codex 适配器：把 `skills/*/SKILL.md` **构建期投影**为 Codex CLI 自定义 prompts。转译——内联 `@include`（自包含、剥离 Claude 术语）、剥离 Claude 内部 frontmatter、物化 `next_step` 进正文、剥掉 `adapter:claude-only` 哨兵块（Claude 专属示例管线）、denylist 2 个 Claude-Code-only skill（`pdlc-settings` 状态栏、`pdlc-loop-run` 自主收敛引擎）。产出 34 个 `/pdlc-*` prompt + 文档模板 + 方法论。`pdlc-loop-next` 逻辑平台中立、作为独立只读查询投影（其 `claude -p` 驱动 helper 由哨兵剥掉）。python3 标准库、零 pip 依赖、仅构建期。
+- **`install.sh --target codex`** — 一步构建并安装 Codex prompts 到 `~/.codex/prompts/`（模板 + 方法论到 `~/.codex/pdlc/`）；`--target codex --uninstall` 移除。需本地克隆 + python3。
+- **`adapters/README.md`** — 适配器架构 + 转译步骤（含 `adapter:claude-only` 哨兵机制）+ 如何新增一个平台（含状态完整性准入闸）。
+- **`tests/adapter-codex-check.sh`** — Codex 产物回归：34 prompt / denylist 缺席 / loop-next 已投影且 claude 专属 helper 被哨兵剥掉 / 无 `@include` 残留 / 无 Claude 术语泄漏 / frontmatter 剥离 / `next_step` 物化 / 模板引用改写 / 方法论落地。
+
+### Fixed
+
+- **`install.sh` 陈旧计数** — Claude Code 提示里「33 sub-commands」更正为 36（settings/loop-next/loop-run 加入后未同步）。
+- **`marketplace.json` 版本同步 + 校验兜底** — marketplace.json 版本随 VERSION 一起 bump（此前只 bump plugin.json，marketplace 连续两版漏改）；`frontmatter-check.sh` 新增「marketplace 版本 == VERSION」断言，以后自动兜住、不再靠人肉盯。
+
+## [1.4.0] - 2026-07-18
+
+在 Claude Code 状态栏显示 PDLC 运行状态（可选、默认关）。设计见 `docs/decisions/0002-statusline-pdlc-status.md`。35 → 36 skills。
+
+### Added
+
+- **`bin/pdlc-statusline.sh`** — 自包含状态栏片段：读 stdin 的 Claude Code JSON、扫当前项目 `docs/.pdlc-state/`，独占一行显示「功能名 + 迷你进度条 + 下一步 + 运行图标 + 检查 + 停留时长」。**默认关闭、零副作用**；非 PDLC 项目 / 无状态文件 / 缺 jq 一律**静默吐空**、退出码 0；渲染只读本地、无网络。`blocked` 做成全行最醒目；多 feature 时**非终态 + blocked 优先**并**懒解析**（只扫最近 N 个，保 <10ms）。兼容 macOS 自带 bash 3.2。
+  > 📌 更正：本条当时写的「保 <10ms」是不可靠承诺——shell 启动本身就吃掉大部分预算，实测受机器与 jq 版本摆布。[ADR 0002](./docs/decisions/0002-statusline-pdlc-status.md) 已自我更正，改用**子进程数**这一可控指标。
+- **`/pdlc-settings`** (Layer 3) — 交互式设置命令，当前含状态栏一节：启用 / 停用 / 展示项 / 状态。启用走**稳定路径符号链接** `~/.claude/pdlc-statusline`（升级不断）+ **幂等追加**到用户唯一的 `statusLine.command`（绝不覆盖现有 HUD）。改全局 `~/.claude/settings.json` **强制备份 + diff + 确认**；写入被安全层拦截时**优雅降级**为「算好那一行 + 用户手动粘贴」，绝不谎报已启用。
+- **`references/templates/pdlc-statusline.example.json`** — 展示项配置样例（含各键说明）；全局 `~/.claude/pdlc-statusline.json` 可被项目级 `docs/.pdlc-state/statusline.json` 覆盖。
+- **`tests/statusline-check.sh`** — 7 场景回归（impl 交互 / loop autonomous / blocked / review_done / 多 feature 抢权 / 窗口外旧 blocked 不抢权 / 非 PDLC 吐空）。
+
+## [1.3.0] - 2026-07-17
+
+分布式友好的 feature/defect 编号：解决多人 / 多 AI 并行开发时的编号冲突。
+
+### Changed
+
+- **功能/缺陷 ID 从「当日序号」改为「创建时刻时分秒」** — `F<YYYYMMDD>-<HHMMSS>` / `B<YYYYMMDD>-<HHMMSS>`（如 `F20260717-122801`）。各工作副本零协调也几乎不撞号（仅同一秒创建才可能，撞了本地自动 +1 秒），合并时状态机文件名互异、git 自动合并，不再需要手工重编号。旧的 2 位序号 ID（`F<日期>-NN`）向后兼容、仍可解析；派生的 `_relations.json` 等聚合文件照旧 `pdlc-relate rebuild` 重建、不手合。
+- **任务 ID 改为「功能ID前缀 + 本功能内序号」** — `T<功能ID的日期-时分秒>-<NN>-<type>`（如功能 `F20260718-094301` → 任务 `T20260718-094301-01-feat`）。前缀嵌入所属功能的唯一时分秒，任务号**全局唯一、自带归属、并行安全**；`NN` 在本功能任务文件内递增（不再扫全局 `docs/06_tasks/` 取当日 max）。任务用本地序号而非各自时分秒是刻意的：任务成批同秒创建，独立时分秒会互撞。
+
+## [1.2.1] - 2026-07-16
+
+Loop 工程在真安装环境端到端验证后的健壮性修复（真跑 `/pdlc-loop-run` 暴露的两点）。
+
+### Fixed
+
+- **loop-next 输出健壮性** — 明令输出裸 token、禁止代码块/反引号包裹；`/pdlc-loop-next` 参考 helper 与 usage-guide Runbook 加**净化**（去反引号/空白后按白名单抽取 token），防模型偶发包裹导致外部 bash 循环 `case` 匹配失败。
+- **autonomous sidecar 产物澄清** — `noninteractive.md` 明确：自主模式下创建缺失的 `CHANGELOG.md`、补全 PDLC-TRACE 时间戳等本阶段职责内、可安全默认的改动，直接做并记入 `auto_decisions[]`（非破坏性）。
+
+## [1.2.0] - 2026-07-15
+
+Loop 工程可循环化：让 PDLC 从「人驱动」升级为「也能被自主循环驱动」的执行引擎。设计见 `docs/decisions/0001-loop-engineering-integration.md`。33 → 35 skills。
+
+### Added
+
+- **`/pdlc-loop-run`** (Layer 3) — 收敛循环引擎：从 `current_stage` 自动推进 `tdd → implement → review` 到 `review_done` 或 blocked；内建迭代上限（默认 4）、fail-stop、stuck-stop、每 stage 派发 fresh Task subagent。终态即 `review_done`，**绝不自动发布**（ship/deploy 永远留人）。
+- **`/pdlc-loop-next`** (Layer 3) — 循环下一步 helper：只读状态机、按严格白名单打印下一条机械收敛命令（`pdlc-tdd` / `pdlc-implement` / `pdlc-review` / `done` / `blocked`），供 `/pdlc-loop-run` 与用户自写 bash 循环消费。发布永远留人，绝不输出 `pdlc-ship`/`pdlc-deploy`。
+- **`--autonomous` 非交互契约**（新共享片段 `noninteractive.md`）— 被 `pdlc-tdd` / `pdlc-implement` / `pdlc-review` / `pdlc-ship` / `pdlc-deploy` @include：流程性确认自动前进并留痕 `auto_decisions[]`；真需人判断则写 `blocked_reason` 停机交还人类；破坏性操作永远留人（`--autonomous` 无效）。
+- **`test-commands.yml` 唯一真源**（新模板 `test-commands-template.yml`）— 项目 `check` 命令（`unit`/`coverage`/`lint`/`e2e`）的单一来源。
+- **状态机 `last_phase_result`** — 机器可读阶段结果（`checks` 来自真跑命令退出码，非自评）+ `run_mode` + `history[].auto_decisions[]`，循环判停的唯一真源，向后兼容。
+- **模型路由 frontmatter** `recommended_model` / `recommended_effort`（`pdlc-tdd` / `pdlc-implement` / `pdlc-review` = sonnet），供 `/pdlc-loop-run` 与外层循环按档位选模型，省订阅额度。
+
+### Changed
+
+- **IRON LAW 新增第 6 条「状态必推进」** — phase 收尾若 `current_stage` 未推进即报错，防循环空转。
+- `pdlc-implement` 测试已绿的确认点在 `--autonomous` 下自动前进；`pdlc-review` 在 `--autonomous` 下遇阻塞级人工项主动 block。
+
+## [1.1.0] - 2026-06-04
+
+Two RFCs landed: ledger/surface artifact separation (#5) and the feature relation chain (#6). 31 → 33 skills.
+
+### Added
+
+- **`/pdlc-standard`** (Layer 3) — manage `00_standards/` team conventions as **surface** artifacts: in-place edit, `_changelog.md` sidecar, git-log audit trail. Hard rule against `coding-style-v2.md`-style ledger detours.
+- **`/pdlc-relate`** (Layer 3) — manage the feature relation chain. Six relation types (`extends`, `depends_on`, `supersedes`, `resolves`, `conflicts_with`, `relates_to`). Commands `set` / `query` / `impact` / `orphans` / `rebuild` / `validate`. The `impact <fid>` command reports a change's blast radius (direct / transitive / historical).
+- `docs/ARCHITECTURE.md` and `docs/GLOSSARY.md` — surface artifacts; the repo now dogfoods both.
+- New templates: `architecture-overview-template.md` (surface, whole-system) and `glossary-template.md`.
+- New shared fragment `relations.md` — single source of truth for the six relation types and five expression sites.
+- `artifact_type: surface | ledger` frontmatter field (optional, default `ledger`).
+- State machine gains an optional `relations` block; `docs/.pdlc-state/_relations.json` (reverse index) and `_graph.md` (mermaid) are produced by `/pdlc-relate`.
+- PDLC-TRACE header gains an optional `关系:` line; PRD template gains §6.1 relations table.
+
+### Changed / Breaking
+
+- **`/pdlc-arch`** now writes `docs/ARCHITECTURE.md` **in place** (surface) instead of accumulating dated `YYYYMMDD-arch-analysis.md` files. Legacy files are detected and moved to `docs/.archive/architecture/`. The three previously-inconsistent output paths (`02_design/architecture`, `07_reviews/design`, dated analysis) are reconciled to one.
+- `/pdlc-bootstrap` adds legacy `*-arch-analysis.md` detection; per-feature `F-xxx-arch.md` (ledger) is retained and clarified vs the surface overview.
+- Standards-reading skills (`pdlc-prd`, `pdlc-design`, `pdlc-tdd`, `pdlc-implement`, `pdlc-code-gen`, `pdlc-review`, `pdlc-onboard`) now hint `consider /pdlc-standard add` on lookup miss.
+- `/pdlc-status` gains a relation-tree view (Phase 2: included in the default overview).
+
+> Migration is automatic (legacy detect + archive), so this ships as a minor version. Existing projects without relations or surface docs stay valid — both subsystems are additive.
+
+### Fixed
+
+- Plugin author metadata corrected to `kanfu-panda` (was a placeholder) in `plugin.json`, `marketplace.json`, and both READMEs.
+
+## [1.0.0] - 2026-05-07
+
+Initial public release of **PDLC** — a Claude Code plugin that gives Claude a
+complete Product Development Life Cycle workflow.
+
+### Features
+
+- **31 standardized stages** exposed as slash commands `/pdlc-feature`,
+  `/pdlc-prd`, `/pdlc-tdd`, ..., `/pdlc-onboard`, organized in three layers:
+  - **Layer 1** entry points (3): `pdlc-feature`, `pdlc-fix`, `pdlc-status`
+  - **Layer 2** stages (11): `pdlc-prd`, `pdlc-design`, `pdlc-tdd`,
+    `pdlc-implement`, `pdlc-review`, `pdlc-e2e`, `pdlc-refactor`, `pdlc-ship`,
+    `pdlc-deploy`, `pdlc-retro`, `pdlc-task`
+  - **Layer 3** tools (17): `pdlc-ui-design`, `pdlc-ui-design-pro`,
+    `pdlc-db-design`, `pdlc-arch`, `pdlc-lint`, `pdlc-perf`, `pdlc-security`,
+    `pdlc-code-gen`, `pdlc-add-service`, `pdlc-add-app`, `pdlc-api-mock`,
+    `pdlc-db-migrate`, `pdlc-i18n`, `pdlc-changelog`, `pdlc-bootstrap`,
+    `pdlc-adopt`, `pdlc-onboard`
+- **9 user-facing document templates** (PRD, API design, architecture, DB
+  design, DB migration, test plan, deployment manual, changelog, legacy-
+  project adoption report).
+- **9 reusable prompt fragments** under `references/templates/prompts/`:
+  IRON LAW, feature/defect ID assignment, PDLC-TRACE header, handoff
+  format, self-audit, state-update, loop-prevention, output-language.
+- **IRON LAW invariants** enforced on every Layer 1/2 stage that
+  produces artifacts:
+  1. artifacts must be persisted to disk;
+  2. the state machine must be updated on every stage transition;
+  3. tests must exist (and be red) before implementation;
+  4. a self-check must run before handoff;
+  5. auto-repair runs at most once.
+- **Per-feature state machine** at `docs/.pdlc-state/<feature-id>.json`,
+  recording stage history, self-audit counts, and the next recommended
+  stage.
+- **Output language follows the user's conversation language** by
+  default — Chinese conversation produces Chinese artifacts, English
+  produces English. Users can explicitly override per artifact.
+
+### Distribution
+
+PDLC is shipped as a Claude Code **plugin** registered through the standard
+`claude plugin install` mechanism. The repo doubles as a single-plugin
+marketplace.
+
+- **One-line remote install** — no clone required:
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/kanfu-panda/pdlc-skills/main/install.sh \
+    | bash -s -- --global
+  ```
+- Equivalent native commands:
+  ```bash
+  claude plugin marketplace add kanfu-panda/pdlc-skills
+  claude plugin install pdlc@pdlc-skills
+  ```
+- **Local clone install** — for contributors and template customization.
+- Installer flags: `--global`, `--project <path>`, `--upgrade`, `--uninstall`,
+  `--version`, plus an interactive mode.
+
+### Target-project contract
+
+Stages read and write this structure inside the user's project:
+
+```
+docs/00_standards/coding/                              # coding standards (read-only)
+docs/01_requirements/prd/                              # PRDs
+docs/02_design/{api,database,architecture,ui-ux}/      # technical design
+docs/03_development/                                   # developer manuals
+docs/04_testing/{unit-tests,e2e-tests,defects,security,perf}/
+docs/05_deployment/                                    # deployment docs
+docs/06_tasks/                                         # task tracking
+docs/07_reviews/{doc,code,design,retro}/               # review records
+docs/.pdlc-state/<feature-id>.json                     # per-feature state machine
+```
+
+### Engineering
+
+- **CI**: frontmatter validation, install smoke test, shellcheck.
+- **Secret scan**: gitleaks workflow with project-specific allowlist.
+- **Release automation**: tag push triggers a clean GitHub Release.
+- **Dependabot**: weekly auto-update for GitHub Actions.
+- **Defensive `.gitignore`** + comprehensive secrets policy in
+  `CONTRIBUTING.md`.
+
+[Unreleased]: https://github.com/kanfu-panda/pdlc-skills/compare/v1.7.5...HEAD
+[1.0.0]: https://github.com/kanfu-panda/pdlc-skills/releases/tag/v1.0.0

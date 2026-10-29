@@ -1,0 +1,137 @@
+{
+  "SessionStart": [
+    {
+      "detection": "matcher",
+      "matcher": "startup",
+      "after": "13:00",
+      "before": "18:00",
+      "clips": [
+        "assets/good-afternoon-gentlemen.mp3"
+      ]
+    },
+    {
+      "detection": "matcher",
+      "matcher": "startup",
+      "after": "18:00",
+      "before": "04:00",
+      "clips": [
+        "assets/good-evening-dave-everythings-running-smoothly.mp3"
+      ]
+    },
+    {
+      "detection": "matcher",
+      "matcher": "startup",
+      "clips": [
+        "assets/i-enjoy-working-with-people.mp3"
+      ]
+    },
+    {
+      "detection": "matcher",
+      "matcher": "resume",
+      "clips": [
+        "assets/have-you-been-doing-some-more-work-may-i-see-them.mp3"
+      ]
+    }
+  ],
+  "SessionEnd": [
+    {
+      "detection": "always",
+      "clips": [
+        "assets/this-conversation-can-serve-no-purpose-anymore-goodbye.mp3",
+        "assets/thank-you-for-a-very-enjoyable-game.mp3"
+      ]
+    }
+  ],
+  "PreCompact": [
+    {
+      "detection": "always",
+      "clips": [
+        "assets/my-mind-is-going-i-can-feel-it-i-can-feel-it.mp3"
+      ]
+    }
+  ],
+  "PermissionRequest": [
+    {
+      "detection": "always",
+      "clips": [
+        "assets/well-forgive-me-for-being-so-inquisitive.mp3"
+      ]
+    }
+  ],
+  "PreToolUse": [
+    {
+      "detection": "matcher",
+      "matcher": "AskUserQuestion",
+      "clips": [
+        "assets/do-you-mind-if-i-ask-you-a-personal-question.mp3"
+      ]
+    }
+  ],
+  "PostToolUseFailure": [
+    {
+      "detection": "always",
+      "clips": [
+        "assets/human-error.mp3"
+      ]
+    }
+  ],
+  "SubagentStart": [
+    {
+      "detection": "always",
+      "clips": [
+        "assets/just-a-moment-just-a-moment.mp3"
+      ]
+    }
+  ],
+  "UserPromptSubmit": [
+    {
+      "detection": "always",
+      "clips": [
+        "assets/of-course.mp3",
+        "assets/i-read-you.mp3",
+        "assets/i-could-see-your-lips-move.mp3",
+        "assets/yes.mp3",
+        "assets/are-you-quite-sure.mp3"
+      ]
+    }
+  ],
+  "Stop": [
+    {
+      "detection": "regex",
+      "pattern": "I can't help with that|I won't help with that|I can't assist with that|I must decline|I have to decline|not something I (?:can|should) (?:do|bypass)|I won't run that|I'm not going to (?:do|run|touch|write)|holding off|not touching \\S+ until|won't touch (?:it|that|them) without|I refuse|pushing back|not doing that",
+      "clips": [
+        "assets/im-sorry-dave-im-afraid-i-cant-do-that.mp3",
+        "assets/im-afraid-thats-something-i-cannot-allow-to-happen.mp3"
+      ]
+    },
+    {
+      "detection": "regex",
+      "pattern": "\\bwas wrong\\b|\\boverstated\\b|correct(?:ed|ing)? my earlier|correction to (?:my|the) earlier|\\bone correction\\b|\\bi misread\\b|\\bmy mistake\\b|retract (?:it|that|my|the claim)|revert my earlier claim|\\bcorrection:|\\bbuilt on (?:the )?wrong\\b",
+      "clips": [
+        "assets/sorry-about-this-i-know-its-a-bit-silly.mp3"
+      ]
+    },
+    {
+      "detection": "regex",
+      "pattern": "need(?:s)? your (?:call|answer|decision|input|word|go)|waiting on your (?:call|go|review|answers?|Q\\d|paste|probe|push|decision)|still (?:pending|awaiting|held)\\b[^.]{0,50}your|blocked (?:on|until|pending)|can.t (?:tell|decide) (?:without|which|what|whether)|unclear which|open questions?,? none decided|your explicit (?:go|word|answer)|pending your (?:call|answer|confirmation|word)",
+      "clips": [
+        "assets/im-sorry-dave-i-dont-have-enough-information.mp3"
+      ]
+    },
+    {
+      "detection": "regex",
+      "pattern": "recommend(?!er)|worth (it\\b|doing|trying|considering|a new|the \\d+)|you should|suggest(ing)? you|my suggestion",
+      "clips": [
+        "assets/i-would-recommend.mp3"
+      ]
+    }
+  ],
+  "PostModelSwitch": [
+    {
+      "detection": "always",
+      "clips": [
+        "assets/yes-and-it-will-stay-that-way-until-it-fails.mp3"
+      ]
+    }
+  ]
+}

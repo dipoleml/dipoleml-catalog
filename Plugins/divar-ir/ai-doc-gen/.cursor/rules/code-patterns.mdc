@@ -1,0 +1,54 @@
+---
+description: Python code style and recurring patterns (config, logging, errors, paths)
+globs:
+  - "src/**/*.py"
+alwaysApply: false
+---
+
+# Code Patterns
+
+## Style
+
+- Ruff: 120-char lines, 4-space indent, `target-version = "py313"`; import sorting enabled — run `uv run ruff format src/ && uv run ruff check src/`.
+- Type hints everywhere; `pathlib.Path` for all file paths (never strings); Pydantic `BaseModel` for all config/data structures.
+- Naming: snake_case files/functions, PascalCase classes, `_private` methods, UPPER_SNAKE constants, config classes end in `Config`.
+
+## Configuration
+
+```python
+class MyHandlerConfig(BaseHandlerConfig, MyAgentConfig):
+    exclude_feature: bool = Field(default=False, description="Exclude feature")  # description feeds CLI --help
+```
+
+- Every `Field` needs a `description` — CLI arguments are generated from it (`--exclude-feature`, store_true, default `None` = "not specified").
+- Load order: Pydantic defaults < `.ai/config.yaml` (dot-notation section keys) < CLI args, merged with `merge_dicts()`.
+- Env vars in `src/config.py`: required → `os.environ["KEY"]`; optional → `os.getenv("KEY", "default")` with `int()`/`float()`/`str_to_bool()` conversion.
+
+## Async and concurrency
+
+- All handler/agent operations are async; handlers implement `async def handle(self)`.
+- Bounded concurrency: use `WorkerPool` from `src/utils/worker_pool.py` (`WorkerPool(max_workers=0)` = CPU count) for many tasks; `asyncio.gather(*tasks, return_exceptions=True)` for a fixed small set.
+- Always isolate errors: check each result with `isinstance(result, Exception)`, log with `exc_info=True`, continue.
+
+## Error handling
+
+- Partial success is acceptable: warn and continue if some agents fail; raise `ValueError` only on complete failure.
+- Guarantee cleanup with try/finally (e.g., cronjob project cleanup).
+- Inside agent tools, raise `ModelRetry` (from pydantic_ai) for recoverable errors — file not found, permission denied.
+
+## Logging and tracing
+
+```python
+from utils import Logger
+
+Logger.init(logs_dir)                      # once per execution, before any use
+Logger.info("Agent completed", {"total_tokens": usage.total_tokens})  # structured dict payload
+Logger.error("Failed", exc_info=True)      # always exc_info=True for errors
+```
+
+- Wrap major operations in OpenTelemetry spans: `tracer.start_as_current_span(...)`, set attributes like `repo_path`, token counts.
+
+## Files
+
+- `Path` arithmetic (`repo_path / ".ai" / "docs"`), `mkdir(parents=True, exist_ok=True)` before writing, `read_text()`/`write_text()`.
+- Replace absolute paths with `.` in agent outputs before writing (portability).

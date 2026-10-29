@@ -1,0 +1,33 @@
+# Reach: Claude Code
+
+How this harness obtains a model for a [tier](../orchestration.md#tiers-what-kind-of-model-a-job-wants). Tier names and the routing precedence are defined in [`../orchestration.md`](../orchestration.md#tiers-what-kind-of-model-a-job-wants); this page is only about reach.
+
+## Mechanisms
+
+| Mechanism | Here |
+|---|---|
+| In-session model | **Yes** - chosen in the harness; it is the default executor for every unset tier. |
+| In-host subagent | **Yes** - subagents are spawned in-host, and an agent definition's model field is honored, so a tier can execute on a different model without leaving the session. On current builds the spawn also takes an `effort` (`low`, `medium`, `high`, `xhigh`, `max`, lowest first; observed on 2.1.296, absent on 2.1.283, so check the spawn's parameters before passing effort facts), which overrides an agent definition's `effort` field; a level the model lacks runs as the highest level it supports below it. A spawn without one runs at the session's effort: `--effort` or settings, else the model's default (documented 2026-10-16). |
+| Shell out to another CLI | **Yes** - the harness runs shell commands, so any CLI installed and authenticated on the machine is reachable, in either direction. |
+
+## What is unavailable
+
+Nothing structural. What can be missing is *situational*: a model your account cannot use, a CLI that is not installed or not logged in.
+
+## Degradation
+
+A tier naming a model this harness cannot reach falls back to the session model, says so once, and continues. No probing, no question, no failure - an unreachable name is a fact to report, not an error to prevent.
+
+## Models observed (2026-09-05)
+
+This harness serves Fable 5.1 (`claude-fable-5-1`) as the session model, and this build also exposes `fable` as an agent-definition alias. That is one observation on one machine on one date, not a roster - ask the harness for its own list before pinning an id.
+
+The `claude` review backend (`review.backend claude`, observed 2026-09-05) shells out to `claude -p` from here too, stepping the ranking `claude-fable-5-1` → `claude-opus-5-5` → `claude-opus-5` → `claude-sonnet-5-5` → `claude-sonnet-5` → `claude-haiku-5-5` → `claude-haiku-4-5` (ids probed 2026-09-05 to 2026-10-07 on Claude Code 2.1.260 to 2.1.293; an older CLI steps past the ids it does not recognize; the CLI lists no models, so the ladder steps that static ranking only) - but from this harness it is **same-family**: the receipt records `mode: "claude"` and the model, and the review skills say so once. For the reviewer tier's independent verdict prefer `codex`, or `host` with a cross-family `reviewer:` pin.
+
+## Driving unattended
+
+Run `/flow-next:flow --auto` by default. One invocation drives one ready item hop after hop to its PR, and the next invocation takes the next item. Under `/loop` or `/goal`, run one hop per interval with `/loop 30m /flow-next:flow --auto --tick` or `/goal keep running /flow-next:flow --auto --tick until PILOT_VERDICT=NO_WORK` (`/loop` jobs expire after 7 days). For an outcome larger than one spec, `/flow-next:flow --goal <spec-id or source> --until=merge` builds child specs toward it the same way; drive it with `/goal keep running /flow-next:flow --goal <goal> --until=merge until PILOT_VERDICT=GOAL_MET or a stop`.
+
+## Discover, then invoke
+
+Ask, don't assume. The harness lists the models it can run, and each installed CLI lists its own; read that list at the moment of use rather than trusting a value stored earlier. One command beats a stored fact that goes stale.

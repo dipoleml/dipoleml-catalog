@@ -1,0 +1,13 @@
+{
+  "name": "glean",
+  "version": "3.6.1",
+  "description": "Use Glean to search your company's knowledge, chat with Glean Assistant, and discover and use the skills and connected tools available to your organization.",
+  "author": {
+    "name": "Glean",
+    "email": "steve.calvert@glean.com",
+    "url": "https://glean.com"
+  },
+  "homepage": "https://docs.glean.com/administration/platform/mcp/about",
+  "repository": "https://github.com/gleanwork/agent-plugins",
+  "license": "MIT"
+}

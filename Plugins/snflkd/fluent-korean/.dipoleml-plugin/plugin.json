@@ -1,0 +1,16 @@
+{
+  "name": "fluent-korean",
+  "displayName": "Fluent Korean",
+  "version": "1.0.0",
+  "description": "DipoleML가 유창하고 자연스러운 한국어로 응답하게 하는 출력 스타일. 코딩 지침을 유지하는 판과 유지하지 않는 판 두 가지를 제공합니다.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Snflkd"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/snflkd/fluent-korean",
+  "repository": "https://github.com/snflkd/fluent-korean",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

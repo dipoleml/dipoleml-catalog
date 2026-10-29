@@ -1,0 +1,153 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{PYTHON}} \"{{HOOK_RUNNER}}\" session_start --invoker codex",
+            "timeout": 10,
+            "statusMessage": "audio-hooks: session start",
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Bash|apply_patch|Edit|Write|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{PYTHON}} \"{{HOOK_RUNNER}}\" pretooluse --invoker codex",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|apply_patch|Edit|Write|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{PYTHON}} \"{{HOOK_RUNNER}}\" posttooluse --invoker codex",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "Bash|apply_patch|Edit|Write|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{PYTHON}} \"{{HOOK_RUNNER}}\" permission_request --invoker codex",
+            "timeout": 10,
+            "statusMessage": "audio-hooks: permission request",
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "manual",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{PYTHON}} \"{{HOOK_RUNNER}}\" precompact --invoker codex",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      },
+      {
+        "matcher": "auto",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{PYTHON}} \"{{HOOK_RUNNER}}\" precompact --invoker codex",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "matcher": "manual",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{PYTHON}} \"{{HOOK_RUNNER}}\" postcompact --invoker codex",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      },
+      {
+        "matcher": "auto",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{PYTHON}} \"{{HOOK_RUNNER}}\" postcompact --invoker codex",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{PYTHON}} \"{{HOOK_RUNNER}}\" userpromptsubmit --invoker codex",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{PYTHON}} \"{{HOOK_RUNNER}}\" subagent_start --invoker codex",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{PYTHON}} \"{{HOOK_RUNNER}}\" subagent_stop --invoker codex",
+            "timeout": 10,
+            "async": true
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "{{PYTHON}} \"{{HOOK_RUNNER}}\" stop --invoker codex",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

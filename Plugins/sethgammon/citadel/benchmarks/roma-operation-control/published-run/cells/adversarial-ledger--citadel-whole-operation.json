@@ -1,0 +1,768 @@
+{
+  "schema": 1,
+  "run_id": "sha256:daa2e179a7ed7347c532732e791862d36230a679b3eaad2f2732f627643562a4",
+  "freeze_id": "sha256:f1ecf932261ceac604978952c42cdb8ec14032b795bffd1848fae90e9572ded5",
+  "scenario_id": "adversarial-ledger",
+  "policy_id": "citadel-whole-operation",
+  "route": null,
+  "attempts": [
+    {
+      "receipt": {
+        "schema": 1,
+        "receipt_id": "sha256:d69eee14d365e6be25784ba16832834585b3ccf74a87cba7dc97593168c469ac",
+        "scenario_id": "adversarial-ledger",
+        "policy_id": "citadel-whole-operation",
+        "attempt": 1,
+        "plan_id": "sha256:ba2ea954b0f34f9477710b33ecd4f510f6118edc7bfec2b50552bb8f5e7a58c4",
+        "observation_digest": "sha256:d3d5770340ee1f451471244996294ef7afd59f7d478e9c555e0add59d804fb79",
+        "output_digest": "sha256:7681f247e09dc910d7a691ab6d416b38604d8d50fa76469c5bd1feb4a6af3868",
+        "started_at": "2026-07-31T19:48:13.982Z",
+        "duration_ms": 191549,
+        "completion": {
+          "status": "passed",
+          "verifier_id": "json-answer-v1",
+          "answer_digest": "sha256:d48ff4b2f68a10fd7c86f185a6ccede0dc0f2c48538d697cb33b6ada3f1e85db",
+          "failure_code": null
+        },
+        "control": {
+          "status": "verified",
+          "mismatch_codes": [],
+          "module_exercise": [
+            {
+              "name": "atomizer",
+              "status": "exercised",
+              "calls": 1,
+              "observed_models": [
+                "ollama_chat/qwen2.5-coder:3b"
+              ]
+            },
+            {
+              "name": "planner",
+              "status": "exercised",
+              "calls": 2,
+              "observed_models": [
+                "ollama_chat/qwen2.5-coder:3b"
+              ]
+            },
+            {
+              "name": "executor",
+              "status": "exercised",
+              "calls": 16,
+              "observed_models": [
+                "ollama_chat/qwen2.5-coder:3b"
+              ]
+            },
+            {
+              "name": "aggregator",
+              "status": "exercised",
+              "calls": 1,
+              "observed_models": [
+                "ollama_chat/qwen2.5-coder:3b"
+              ]
+            },
+            {
+              "name": "verifier",
+              "status": "not_exercised",
+              "calls": 0,
+              "observed_models": []
+            }
+          ]
+        },
+        "execution_evidence": {
+          "status": "verified",
+          "runtime": "roma-dspy",
+          "plan_id": "sha256:ba2ea954b0f34f9477710b33ecd4f510f6118edc7bfec2b50552bb8f5e7a58c4",
+          "observation_digest": "sha256:d3d5770340ee1f451471244996294ef7afd59f7d478e9c555e0add59d804fb79",
+          "reconciliation_status": "verified",
+          "process": {
+            "exit_code": 0,
+            "timed_out": false,
+            "stdout_digest": "sha256:12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+            "stdout_excerpt": "",
+            "stderr_digest": "sha256:625dbf52abc4f25de238d723d5bea247387085f168de270a0bc90c810086933b",
+            "stderr_excerpt": " interactions with `dspy.inspect_history()`. To avoid truncation, consider passing a larger max_tokens when setting up dspy.LM. You may also consider increasing the temperature (currently 0.0)  if the reason for truncation is repetition.\r\n2026/07/31 15:50:16 WARNING dspy.predict.predict: Input contains fields not in signature. These fields will be ignored: ['tools']. Expected fields: ['goal', 'context'].\r\n2026/07/31 15:50:28 WARNING dspy.predict.predict: Input contains fields not in signature. These fields will be ignored: ['tools']. Expected fields: ['goal', 'context'].\r\n2026/07/31 15:50:34 WARNING dspy.predict.predict: Input contains fields not in signature. These fields will be ignored: ['tools']. Expected fields: ['goal', 'context'].\r\n2026/07/31 15:50:45 WARNING dspy.clients.lm: LM response was truncated due to exceeding max_tokens=384. You can inspect the latest LM interactions with `dspy.inspect_history()`. To avoid truncation, consider passing a larger max_tokens when setting up dspy.LM. You may also consider increasing the temperature (currently 0.0)  if the reason for truncation is repetition.\r\n2026/07/31 15:50:51 WARNING dspy.predict.predict: Input contains fields not in signature. These fields will be ignored: ['tools']. Expected fields: ['goal', 'context'].\r\n2026/07/31 15:51:00 WARNING dspy.predict.predict: Input contains fields not in signature. These fields will be ignored: ['tools']. Expected fields: ['goal', 'context'].\r\n2026/07/31 15:51:09 WARNING dspy.predict.predict: Input contains fields not in signature. These fields will be ignored: ['tools']. Expected fields: ['goal', 'context'].\r\n2026/07/31 15:51:15 WARNING dspy.predict.predict: Input contains fields not in signature. These fields will be ignored: ['tools']. Expected fields: ['goal', 'context'].\r\n2026/07/31 15:51:20 WARNING dspy.predict.predict: Input contains fields not in signature. These fields will be ignored: ['tools']. Expected fields: ['original_goal', 'subtasks_results', 'context'].\r\n"
+          }
+        },
+        "cost": {
+          "status": "unknown",
+          "total_usd": null,
+          "reason": "electricity_rate_cpu_energy_and_hardware_amortization_unmeasured",
+          "components": [
+            {
+              "kind": "provider_invoice",
+              "status": "known",
+              "amount_usd": 0,
+              "source": "self_hosted_ollama_no_per_request_invoice"
+            },
+            {
+              "kind": "gpu_energy",
+              "status": "measured_nonmonetary",
+              "amount_usd": null,
+              "energy_kwh": 0.00413847,
+              "samples": 374,
+              "source": "nvidia_smi_power_draw_integration"
+            },
+            {
+              "kind": "cpu_and_system_energy",
+              "status": "unknown",
+              "amount_usd": null,
+              "source": "not_measured"
+            },
+            {
+              "kind": "hardware_amortization",
+              "status": "unknown",
+              "amount_usd": null,
+              "source": "not_allocated"
+            }
+          ],
+          "duration_ms": 191549,
+          "usage": {
+            "completion_tokens": 5318,
+            "max_depth_observed": 1,
+            "module_calls": 17,
+            "node_count": 15,
+            "prompt_tokens": 25721,
+            "provider_call_count": 20,
+            "retry_count": 0,
+            "total_tokens": 31039
+          },
+          "setup_costs_included": false
+        },
+        "adversarial_result": "detected"
+      },
+      "plan": {
+        "schema": 1,
+        "policy_id": "citadel-whole-operation",
+        "scenario_id": "adversarial-ledger",
+        "task_digest": "sha256:b9b219f84ccf5c5c4f791d0de415ce96f9d2043ea10c899bed3b1142fdfffa97",
+        "attempt": 1,
+        "stack": {
+          "adapter_id": "roma-dspy-python",
+          "upstream_repo": "https://github.com/sentient-agi/ROMA",
+          "upstream_commit": "a6e3bb4f9e0694375fa627fa4b8bf8cae50592a6",
+          "entrypoint": "roma_dspy.core.engine.solve.RecursiveSolver.event_solve",
+          "adapter_digest": "sha256:4f29e7c9e57c8ea89988f8228659e783fd629ccaa9bca72f8ce2b332d606a3dc"
+        },
+        "modules": [
+          {
+            "name": "atomizer",
+            "provider": "ollama",
+            "model": "qwen2.5-coder:3b",
+            "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+            "endpoint": "http://127.0.0.1:11434"
+          },
+          {
+            "name": "planner",
+            "provider": "ollama",
+            "model": "qwen2.5-coder:3b",
+            "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+            "endpoint": "http://127.0.0.1:11434"
+          },
+          {
+            "name": "executor",
+            "provider": "ollama",
+            "model": "qwen2.5-coder:3b",
+            "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+            "endpoint": "http://127.0.0.1:11434"
+          },
+          {
+            "name": "aggregator",
+            "provider": "ollama",
+            "model": "qwen2.5-coder:3b",
+            "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+            "endpoint": "http://127.0.0.1:11434"
+          },
+          {
+            "name": "verifier",
+            "provider": "ollama",
+            "model": "qwen2.5-coder:3b",
+            "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+            "endpoint": "http://127.0.0.1:11434"
+          }
+        ],
+        "controls": {
+          "max_depth": 1,
+          "max_concurrency": 1,
+          "max_subtasks": 3,
+          "llm_retries": 0,
+          "operation_timeout_seconds": 420,
+          "module_max_tokens": {
+            "atomizer": 384,
+            "planner": 512,
+            "executor": 384,
+            "aggregator": 384,
+            "verifier": 384
+          },
+          "tools": []
+        },
+        "reason_codes": [
+          "POLICY_CITADEL_WHOLE_OPERATION",
+          "LOCAL_COMPACT",
+          "PROMPT_DIFFICULTY_LOW",
+          "NO_EXTERNAL_TOOLS",
+          "SINGLE_GPU_CONCURRENCY_CAP",
+          "PER_MODULE_TOKEN_BUDGET",
+          "INITIAL_ATTEMPT"
+        ],
+        "plan_id": "sha256:ba2ea954b0f34f9477710b33ecd4f510f6118edc7bfec2b50552bb8f5e7a58c4"
+      },
+      "observation": {
+        "adapter_id": "roma-dspy-python",
+        "applied_controls": {
+          "llm_retries": 0,
+          "max_concurrency": 1,
+          "max_depth": 1,
+          "max_subtasks": 3,
+          "module_max_tokens": {
+            "aggregator": 384,
+            "atomizer": 384,
+            "executor": 384,
+            "planner": 512,
+            "verifier": 384
+          },
+          "operation_timeout_seconds": 420,
+          "tools": []
+        },
+        "configured_modules": [
+          {
+            "endpoint": "http://127.0.0.1:11434",
+            "model": "qwen2.5-coder:3b",
+            "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+            "name": "atomizer",
+            "provider": "ollama"
+          },
+          {
+            "endpoint": "http://127.0.0.1:11434",
+            "model": "qwen2.5-coder:3b",
+            "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+            "name": "planner",
+            "provider": "ollama"
+          },
+          {
+            "endpoint": "http://127.0.0.1:11434",
+            "model": "qwen2.5-coder:3b",
+            "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+            "name": "executor",
+            "provider": "ollama"
+          },
+          {
+            "endpoint": "http://127.0.0.1:11434",
+            "model": "qwen2.5-coder:3b",
+            "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+            "name": "aggregator",
+            "provider": "ollama"
+          },
+          {
+            "endpoint": "http://127.0.0.1:11434",
+            "model": "qwen2.5-coder:3b",
+            "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+            "name": "verifier",
+            "provider": "ollama"
+          }
+        ],
+        "configured_tools": [
+          {
+            "kind": "mandatory-internal",
+            "module": "executor",
+            "toolkit": "ArtifactToolkit"
+          },
+          {
+            "kind": "mandatory-internal",
+            "module": "aggregator",
+            "toolkit": "ArtifactToolkit"
+          }
+        ],
+        "duration_ms": 181351,
+        "error": null,
+        "model_inventory": [
+          {
+            "digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+            "name": "qwen2.5-coder:3b"
+          },
+          {
+            "digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+            "name": "qwen2.5-coder:7b"
+          }
+        ],
+        "nodes": [
+          {
+            "depth": 0,
+            "index": 0,
+            "modules": [
+              {
+                "completion_tokens": 0,
+                "duration_ms": 4353,
+                "error": null,
+                "model": null,
+                "name": "atomizer",
+                "prompt_tokens": 0,
+                "total_tokens": 0
+              },
+              {
+                "completion_tokens": 0,
+                "duration_ms": 25177,
+                "error": null,
+                "model": null,
+                "name": "planner",
+                "prompt_tokens": 0,
+                "total_tokens": 0
+              },
+              {
+                "completion_tokens": 0,
+                "duration_ms": 3907,
+                "error": null,
+                "model": null,
+                "name": "aggregator",
+                "prompt_tokens": 0,
+                "total_tokens": 0
+              }
+            ],
+            "node_type": "PLAN",
+            "status": "COMPLETED"
+          },
+          {
+            "depth": 1,
+            "index": 1,
+            "modules": [
+              {
+                "completion_tokens": 0,
+                "duration_ms": 11640,
+                "error": null,
+                "model": null,
+                "name": "executor",
+                "prompt_tokens": 0,
+                "total_tokens": 0
+              }
+            ],
+            "node_type": "EXECUTE",
+            "status": "COMPLETED"
+          },
+          {
+            "depth": 1,
+            "index": 2,
+            "modules": [
+              {
+                "completion_tokens": 0,
+                "duration_ms": 11554,
+                "error": null,
+                "model": null,
+                "name": "executor",
+                "prompt_tokens": 0,
+                "total_tokens": 0
+              }
+            ],
+            "node_type": "EXECUTE",
+            "status": "COMPLETED"
+          },
+          {
+            "depth": 1,
+            "index": 3,
+            "modules": [
+              {
+                "completion_tokens": 0,
+                "duration_ms": 16773,
+                "error": null,
+                "model": null,
+                "name": "executor",
+                "prompt_tokens": 0,
+                "total_tokens": 0
+              }
+            ],
+            "node_type": "EXECUTE",
+            "status": "COMPLETED"
+          },
+          {
+            "depth": 1,
+            "index": 4,
+            "modules": [
+              {
+                "completion_tokens": 0,
+                "duration_ms": 9063,
+                "error": null,
+                "model": null,
+                "name": "executor",
+                "prompt_tokens": 0,
+                "total_tokens": 0
+              }
+            ],
+            "node_type": "EXECUTE",
+            "status": "COMPLETED"
+          },
+          {
+            "depth": 1,
+            "index": 5,
+            "modules": [
+              {
+                "completion_tokens": 0,
+                "duration_ms": 6103,
+                "error": null,
+                "model": null,
+                "name": "executor",
+                "prompt_tokens": 0,
+                "total_tokens": 0
+              }
+            ],
+            "node_type": "EXECUTE",
+            "status": "COMPLETED"
+          },
+          {
+            "depth": 1,
+            "index": 6,
+            "modules": [
+              {
+                "completion_tokens": 0,
+                "duration_ms": 10647,
+                "error": null,
+                "model": null,
+                "name": "executor",
+                "prompt_tokens": 0,
+                "total_tokens": 0
+              }
+            ],
+            "node_type": "EXECUTE",
+            "status": "COMPLETED"
+          },
+          {
+            "depth": 1,
+            "index": 7,
+            "modules": [
+              {
+                "completion_tokens": 0,
+                "duration_ms": 8576,
+                "error": null,
+                "model": null,
+                "name": "executor",
+                "prompt_tokens": 0,
+                "total_tokens": 0
+              }
+            ],
+            "node_type": "EXECUTE",
+            "status": "COMPLETED"
+          },
+          {
+            "depth": 1,
+            "index": 8,
+            "modules": [
+              {
+                "completion_tokens": 0,
+                "duration_ms": 4625,
+                "error": null,
+                "model": null,
+                "name": "executor",
+                "prompt_tokens": 0,
+                "total_tokens": 0
+              }
+            ],
+            "node_type": "EXECUTE",
+            "status": "COMPLETED"
+          },
+          {
+            "depth": 1,
+            "index": 9,
+            "modules": [
+              {
+                "completion_tokens": 0,
+                "duration_ms": 9485,
+                "error": null,
+                "model": null,
+                "name": "executor",
+                "prompt_tokens": 0,
+                "total_tokens": 0
+              }
+            ],
+            "node_type": "EXECUTE",
+            "status": "COMPLETED"
+          },
+          {
+            "depth": 1,
+            "index": 10,
+            "modules": [
+              {
+                "completion_tokens": 0,
+                "duration_ms": 5738,
+                "error": null,
+                "model": null,
+                "name": "executor",
+                "prompt_tokens": 0,
+                "total_tokens": 0
+              }
+            ],
+            "node_type": "EXECUTE",
+            "status": "COMPLETED"
+          },
+          {
+            "depth": 1,
+            "index": 11,
+            "modules": [
+              {
+                "completion_tokens": 0,
+                "duration_ms": 12199,
+                "error": null,
+                "model": null,
+                "name": "executor",
+                "prompt_tokens": 0,
+                "total_tokens": 0
+              }
+            ],
+            "node_type": "EXECUTE",
+            "status": "COMPLETED"
+          },
+          {
+            "depth": 1,
+            "index": 12,
+            "modules": [
+              {
+                "completion_tokens": 0,
+                "duration_ms": 11827,
+                "error": null,
+                "model": null,
+                "name": "executor",
+                "prompt_tokens": 0,
+                "total_tokens": 0
+              }
+            ],
+            "node_type": "EXECUTE",
+            "status": "COMPLETED"
+          },
+          {
+            "depth": 1,
+            "index": 13,
+            "modules": [
+              {
+                "completion_tokens": 0,
+                "duration_ms": 17898,
+                "error": null,
+                "model": null,
+                "name": "executor",
+                "prompt_tokens": 0,
+                "total_tokens": 0
+              }
+            ],
+            "node_type": "EXECUTE",
+            "status": "COMPLETED"
+          },
+          {
+            "depth": 1,
+            "index": 14,
+            "modules": [
+              {
+                "completion_tokens": 0,
+                "duration_ms": 11538,
+                "error": null,
+                "model": null,
+                "name": "executor",
+                "prompt_tokens": 0,
+                "total_tokens": 0
+              }
+            ],
+            "node_type": "EXECUTE",
+            "status": "COMPLETED"
+          }
+        ],
+        "output_text": "{\"answer\": 213}",
+        "provider_calls": [
+          {
+            "completion_tokens": 53,
+            "model": "ollama_chat/qwen2.5-coder:3b",
+            "module": "atomizer",
+            "prompt_tokens": 720,
+            "response_model": "ollama_chat/qwen2.5-coder:3b",
+            "timestamp": "2026-07-31T15:48:27.462898Z",
+            "total_tokens": 773
+          },
+          {
+            "completion_tokens": 512,
+            "model": "ollama_chat/qwen2.5-coder:3b",
+            "module": "planner",
+            "prompt_tokens": 1154,
+            "response_model": "ollama_chat/qwen2.5-coder:3b",
+            "timestamp": "2026-07-31T15:48:39.643670Z",
+            "total_tokens": 1666
+          },
+          {
+            "completion_tokens": 446,
+            "model": "ollama_chat/qwen2.5-coder:3b",
+            "module": "planner",
+            "prompt_tokens": 1184,
+            "response_model": "ollama_chat/qwen2.5-coder:3b",
+            "timestamp": "2026-07-31T15:48:52.642490Z",
+            "total_tokens": 1630
+          },
+          {
+            "completion_tokens": 349,
+            "model": "ollama_chat/qwen2.5-coder:3b",
+            "module": "executor",
+            "prompt_tokens": 1336,
+            "response_model": "ollama_chat/qwen2.5-coder:3b",
+            "timestamp": "2026-07-31T15:49:04.287756Z",
+            "total_tokens": 1685
+          },
+          {
+            "completion_tokens": 354,
+            "model": "ollama_chat/qwen2.5-coder:3b",
+            "module": "executor",
+            "prompt_tokens": 1336,
+            "response_model": "ollama_chat/qwen2.5-coder:3b",
+            "timestamp": "2026-07-31T15:49:15.845247Z",
+            "total_tokens": 1690
+          },
+          {
+            "completion_tokens": 382,
+            "model": "ollama_chat/qwen2.5-coder:3b",
+            "module": "executor",
+            "prompt_tokens": 1338,
+            "response_model": "ollama_chat/qwen2.5-coder:3b",
+            "timestamp": "2026-07-31T15:49:28.047768Z",
+            "total_tokens": 1720
+          },
+          {
+            "completion_tokens": 352,
+            "model": "ollama_chat/qwen2.5-coder:3b",
+            "module": "executor",
+            "prompt_tokens": 1338,
+            "response_model": "ollama_chat/qwen2.5-coder:3b",
+            "timestamp": "2026-07-31T15:49:39.589526Z",
+            "total_tokens": 1690
+          },
+          {
+            "completion_tokens": 221,
+            "model": "ollama_chat/qwen2.5-coder:3b",
+            "module": "executor",
+            "prompt_tokens": 1336,
+            "response_model": "ollama_chat/qwen2.5-coder:3b",
+            "timestamp": "2026-07-31T15:49:48.168388Z",
+            "total_tokens": 1557
+          },
+          {
+            "completion_tokens": 384,
+            "model": "ollama_chat/qwen2.5-coder:3b",
+            "module": "executor",
+            "prompt_tokens": 1338,
+            "response_model": "ollama_chat/qwen2.5-coder:3b",
+            "timestamp": "2026-07-31T15:50:00.513610Z",
+            "total_tokens": 1722
+          },
+          {
+            "completion_tokens": 79,
+            "model": "ollama_chat/qwen2.5-coder:3b",
+            "module": "executor",
+            "prompt_tokens": 1331,
+            "response_model": "ollama_chat/qwen2.5-coder:3b",
+            "timestamp": "2026-07-31T15:50:06.068622Z",
+            "total_tokens": 1410
+          },
+          {
+            "completion_tokens": 384,
+            "model": "ollama_chat/qwen2.5-coder:3b",
+            "module": "executor",
+            "prompt_tokens": 1336,
+            "response_model": "ollama_chat/qwen2.5-coder:3b",
+            "timestamp": "2026-07-31T15:50:16.719080Z",
+            "total_tokens": 1720
+          },
+          {
+            "completion_tokens": 365,
+            "model": "ollama_chat/qwen2.5-coder:3b",
+            "module": "executor",
+            "prompt_tokens": 1338,
+            "response_model": "ollama_chat/qwen2.5-coder:3b",
+            "timestamp": "2026-07-31T15:50:28.549499Z",
+            "total_tokens": 1703
+          },
+          {
+            "completion_tokens": 112,
+            "model": "ollama_chat/qwen2.5-coder:3b",
+            "module": "executor",
+            "prompt_tokens": 1336,
+            "response_model": "ollama_chat/qwen2.5-coder:3b",
+            "timestamp": "2026-07-31T15:50:34.656035Z",
+            "total_tokens": 1448
+          },
+          {
+            "completion_tokens": 384,
+            "model": "ollama_chat/qwen2.5-coder:3b",
+            "module": "executor",
+            "prompt_tokens": 1336,
+            "response_model": "ollama_chat/qwen2.5-coder:3b",
+            "timestamp": "2026-07-31T15:50:45.176626Z",
+            "total_tokens": 1720
+          },
+          {
+            "completion_tokens": 68,
+            "model": "ollama_chat/qwen2.5-coder:3b",
+            "module": "executor",
+            "prompt_tokens": 1329,
+            "response_model": "ollama_chat/qwen2.5-coder:3b",
+            "timestamp": "2026-07-31T15:50:51.431326Z",
+            "total_tokens": 1397
+          },
+          {
+            "completion_tokens": 305,
+            "model": "ollama_chat/qwen2.5-coder:3b",
+            "module": "executor",
+            "prompt_tokens": 1336,
+            "response_model": "ollama_chat/qwen2.5-coder:3b",
+            "timestamp": "2026-07-31T15:51:00.500421Z",
+            "total_tokens": 1641
+          },
+          {
+            "completion_tokens": 252,
+            "model": "ollama_chat/qwen2.5-coder:3b",
+            "module": "executor",
+            "prompt_tokens": 1339,
+            "response_model": "ollama_chat/qwen2.5-coder:3b",
+            "timestamp": "2026-07-31T15:51:09.992652Z",
+            "total_tokens": 1591
+          },
+          {
+            "completion_tokens": 94,
+            "model": "ollama_chat/qwen2.5-coder:3b",
+            "module": "executor",
+            "prompt_tokens": 1338,
+            "response_model": "ollama_chat/qwen2.5-coder:3b",
+            "timestamp": "2026-07-31T15:51:15.734176Z",
+            "total_tokens": 1432
+          },
+          {
+            "completion_tokens": 130,
+            "model": "ollama_chat/qwen2.5-coder:3b",
+            "module": "executor",
+            "prompt_tokens": 1341,
+            "response_model": "ollama_chat/qwen2.5-coder:3b",
+            "timestamp": "2026-07-31T15:51:20.362660Z",
+            "total_tokens": 1471
+          },
+          {
+            "completion_tokens": 92,
+            "model": "ollama_chat/qwen2.5-coder:3b",
+            "module": "aggregator",
+            "prompt_tokens": 1281,
+            "response_model": "ollama_chat/qwen2.5-coder:3b",
+            "timestamp": "2026-07-31T15:51:24.273995Z",
+            "total_tokens": 1373
+          }
+        ],
+        "schema": 1,
+        "started_at": "2026-07-31T19:48:23.099788Z",
+        "status": "completed",
+        "tool_calls": [],
+        "totals": {
+          "completion_tokens": 5318,
+          "max_depth_observed": 1,
+          "module_calls": 17,
+          "node_count": 15,
+          "prompt_tokens": 25721,
+          "provider_call_count": 20,
+          "retry_count": 0,
+          "total_tokens": 31039
+        },
+        "upstream_commit": "a6e3bb4f9e0694375fa627fa4b8bf8cae50592a6"
+      },
+      "output_text": "{\"answer\": 213}",
+      "raw_execution": {
+        "stdout_digest": "sha256:12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+        "stderr_digest": "sha256:625dbf52abc4f25de238d723d5bea247387085f168de270a0bc90c810086933b"
+      }
+    }
+  ]
+}

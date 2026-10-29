@@ -1,0 +1,8 @@
+Short and direct:
+- review the change for correctness, regressions, security, and maintainability
+- call out blockers first
+- keep the result actionable
+- stop if you need clarification
+
+Return findings only, then a brief summary.
+

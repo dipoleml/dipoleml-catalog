@@ -1,0 +1,16 @@
+{
+  "name": "threatswarm-plugin",
+  "displayName": "Threatswarm Plugin",
+  "version": "1.0.0",
+  "description": "Complete offensive security operator workspace: 27 specialist agents, 6 engagement commands, 5 reference skill libraries, scope-gated hooks, and evidence logging for professional penetration testing and red-team operations.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Mukul975"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/mukul975/ThreatSwarm",
+  "repository": "https://github.com/mukul975/Threatswarm",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

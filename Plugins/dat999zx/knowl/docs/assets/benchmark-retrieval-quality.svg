@@ -1,0 +1,64 @@
+<svg width="760" height="392" viewBox="0 0 760 392" fill="none" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, 'Segoe UI', sans-serif" role="img" aria-label="Retrieval quality on the 500-case suite with vector+BM25 fusion: Recall@3 98.6%, Recall@10 99.8%, MRR 95.2%, nDCG 96.4%">
+  <rect x="1" y="1" width="758" height="390" rx="16" fill="#161b22" stroke="#2c313a" stroke-width="1.5"/>
+
+  <text x="28" y="42" font-size="21" font-weight="700" fill="#ffffff">Retrieval quality</text>
+  <text x="28" y="66" font-size="14" fill="#898781">knowl eval retrieval --vector · 500 adversarial cases · vector + BM25 fusion · higher is better</text>
+
+  <g stroke="#2c2c2a" stroke-width="1">
+    <line x1="160" y1="96" x2="160" y2="316"/>
+    <line x1="285" y1="96" x2="285" y2="316"/>
+    <line x1="410" y1="96" x2="410" y2="316"/>
+    <line x1="535" y1="96" x2="535" y2="316"/>
+    <line x1="660" y1="96" x2="660" y2="316"/>
+  </g>
+  <g font-size="12" fill="#898781" text-anchor="middle">
+    <text x="160" y="334">0%</text>
+    <text x="285" y="334">25%</text>
+    <text x="410" y="334">50%</text>
+    <text x="535" y="334">75%</text>
+    <text x="660" y="334">100%</text>
+  </g>
+
+  <g font-size="14" fill="#c3c2b7" text-anchor="end" font-weight="600">
+    <text x="146" y="122">Recall@3</text>
+    <text x="146" y="176">Recall@10</text>
+    <text x="146" y="230">MRR</text>
+    <text x="146" y="284">nDCG</text>
+  </g>
+  <!--
+    Bar width is the value: the axis puts 0% at x=160 and 100% at x=660, so 5px per point.
+    Change a label and the width with it. These four decoded to 98.9 / 99.4 / 96.1 / 96.9 while
+    their labels read 98.8 / 100 / 95.3 / 96.4, because two rounds of label edits left the
+    geometry on the original minilm-era figures.
+  -->
+  <g>
+    <rect x="160" y="104" width="493" height="24" rx="6" fill="#39d3e5"/>
+    <rect x="160" y="158" width="499" height="24" rx="6" fill="#39d3e5"/>
+    <rect x="160" y="212" width="476" height="24" rx="6" fill="#39d3e5"/>
+    <rect x="160" y="266" width="481.8" height="24" rx="6" fill="#39d3e5"/>
+  </g>
+  <g font-size="14" font-weight="700" fill="#ffffff" text-anchor="start">
+    <text x="659.5" y="122">98.6%</text>
+    <text x="665.5" y="176">99.8%</text>
+    <text x="642.5" y="230">95.2%</text>
+    <text x="648.3" y="284">96.4%</text>
+  </g>
+
+  <g transform="translate(28,352)" font-size="13" font-weight="600">
+    <g>
+      <rect x="0" y="0" width="176" height="26" rx="13" fill="#152512" stroke="#295c1e"/>
+      <circle cx="16" cy="13" r="4" fill="#0ca30c"/>
+      <text x="26" y="18" fill="#90dc7f">497 / 500 cases hit</text>
+    </g>
+    <g transform="translate(190,0)">
+      <rect x="0" y="0" width="168" height="26" rx="13" fill="#1b2330" stroke="#2c313a"/>
+      <circle cx="16" cy="13" r="4" fill="#39d3e5"/>
+      <text x="26" y="18" fill="#c3c2b7">168 atoms · 20 domains</text>
+    </g>
+    <g transform="translate(372,0)">
+      <rect x="0" y="0" width="212" height="26" rx="13" fill="#1b2330" stroke="#2c313a"/>
+      <circle cx="16" cy="13" r="4" fill="#edbd00"/>
+      <text x="26" y="18" fill="#c3c2b7">stale + rejected distractor traps</text>
+    </g>
+  </g>
+</svg>

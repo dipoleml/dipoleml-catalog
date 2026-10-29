@@ -1,0 +1,29 @@
+{
+  "name": "cc10x",
+  "version": "12.10.0",
+  "description": "The Loop Engine: a harness for Claude Code. One router sends each request to one of eight workflows (build, debug, review, plan, QA, orient, triage, codebase health) run by specialist subagents, with fail-closed gates, workflow artifacts on disk, hook guardrails, test honesty gates, fresh-context verification, and memory that survives compaction.",
+  "author": {
+    "name": "Rom Iluz",
+    "email": "rom@iluz.net",
+    "url": "https://github.com/romiluz13"
+  },
+  "homepage": "https://github.com/romiluz13/cc10x",
+  "repository": "https://github.com/romiluz13/cc10x",
+  "license": "MIT",
+  "keywords": [
+    "workflow-routing",
+    "code-review",
+    "tdd",
+    "bdd",
+    "debugging",
+    "planning",
+    "architecture",
+    "frontend",
+    "verification",
+    "proof-of-work",
+    "hooks",
+    "qa",
+    "claude-code"
+  ],
+  "types": "./types/index.d.ts"
+}

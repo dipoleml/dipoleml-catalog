@@ -1,0 +1,23 @@
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+.superpowers/
+.worktrees/
+node_modules/
+__pycache__/
+*.py[cod]
+
+# Test files
+*.test.md
+test_resumes/
+
+# Private Job Apply QA recordings and local run evidence
+.qa-private/
+qa/runs/

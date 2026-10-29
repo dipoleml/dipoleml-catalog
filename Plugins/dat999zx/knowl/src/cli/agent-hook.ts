@@ -1,0 +1,119 @@
+import { findProjectRoot } from '../core/config.js';
+import { ProjectNotFoundError } from '../core/errors.js';
+import { closeDb, initDb } from '../store/database.js';
+import { getProjectByRootPath } from '../store/repository.js';
+import { handleHostLifecycleEvent } from '../session/host-lifecycle.js';
+import { assertKnowledgeDatabasePresent } from './database-presence.js';
+import { readLifecyclePayload } from './agents/lifecycle.js';
+import { IncompleteHostHookPayloadError, normalizeHostHook } from './agents/host-hook.js';
+import { hostProfile } from '../session/hosts/index.js';
+import { HookOutputOptions, reportHookFailure } from './agents/hook-failure.js';
+
+/**
+ * The agent lifecycle hook, in its own module and off the CLI's import graph.
+ *
+ * This runs once per agent tool call, as a fresh process, so its cost is paid hundreds of
+ * times a session -- and it is the only Knowl command with that property. Every other command
+ * is typed by a human at most a few times an hour.
+ *
+ * Bundling the dependencies (the previous perf commit) took the process from ~2900ms to
+ * ~175ms. What was left was the module graph the *entry* pulled in at import scope: the MCP
+ * server surface, the viewer, the code indexer, the config UI, the AI pipeline and every
+ * other command's transitive imports, all evaluated before commander had even looked at
+ * argv. A hook needs the store, the host-hook normaliser and nothing else.
+ *
+ * So `src/index.ts` is now a dispatcher that imports this directly and the command surface
+ * only when a command is actually being run. `catchUpTranscripts` stays a dynamic import
+ * inside the one branch that uses it, because it reaches the embedding provider and only
+ * turn-stop and session-stop events ever get there.
+ */
+export async function runAgentHook(host: string, event: string, options: HookOutputOptions = {}): Promise<void> {
+  try {
+    const payload = await readLifecyclePayload();
+    const normalized = normalizeHostHook(host, event, payload);
+    const root = await findProjectRoot(normalized.projectRoot);
+    normalized.projectRoot = root;
+    // Before the store is opened, because opening it is what creates it.
+    assertKnowledgeDatabasePresent(root);
+    await initDb(root);
+    const project = await getProjectByRootPath(root);
+    if (!project) throw new Error('Project not found in database.');
+    // Session start is always a command hook, so it is where a missing `knowl` MCP server is
+    // noticed and the `mcp_tool` hooks fall back. Imported here, not at the top: every other
+    // event pays for this module's graph otherwise.
+    if (normalized.event === 'session-start') {
+      const { checkMcpTransport } = await import('./agents/transport-fallback.js');
+      const notice = await checkMcpTransport(root, normalized.host);
+      if (notice) normalized.startNotice = notice;
+    }
+    const result = await handleHostLifecycleEvent(project.id, normalized);
+
+    // Best-effort and gated: returns null when transcript search is off, and never throws.
+    //
+    // `embed: false` because this process is fresh every turn and the embedding model is
+    // therefore always cold. See the option's docblock: paying the load here bought nothing --
+    // 0% vector coverage over 12,598 indexed messages -- and cost ~1.8s of every turn stop.
+    // The lexical pass stays; it needs no model.
+    if (normalized.event === 'turn-stop' || normalized.event === 'session-stop') {
+      const { catchUpTranscripts } = await import('../transcripts/catch-up.js');
+      await catchUpTranscripts(root, { embed: false });
+    }
+
+    // **This path must exit 0, including when the output is a refusal.**
+    //
+    // Claude Code reads a `PreToolUse` verdict from stdout only on exit 0. A non-zero exit is
+    // read as the hook having crashed, and the verdict is discarded -- so a `permissionDecision:
+    // "deny"` emitted alongside a failing exit code does not block anything, it just runs the
+    // tool. That is the single most common cause of "deny is ignored" reports upstream
+    // (anthropics/claude-code#37210 was closed as exactly this, on the reporter's own diagnosis),
+    // and it fails in the direction that is hardest to notice: every test still passes, because
+    // the refusal is computed correctly and only the process's exit status throws it away.
+    //
+    // So the deny returns normally from here. Do not add a `process.exit` to this branch, and do
+    // not "signal failure" from a hook that produced a verdict.
+    const profile = hostProfile(normalized.host);
+    if (result.hostOutput) console.log(JSON.stringify(result.hostOutput));
+    else if (!profile.nativeOutput) console.log(JSON.stringify(result));
+    await closeDb();
+
+    // A refusal always says why on stderr, whatever channel carried the verdict.
+    //
+    // For a host with `denyExitCode` that is the *only* place the reason can go -- there is no
+    // JSON verdict to put it in. For the rest it is a second copy, and worth it: without it a
+    // block on a host whose stdout verdict we got subtly wrong is completely silent, which is
+    // exactly how a gate becomes impossible to diagnose from a bug report.
+    //
+    // Reached only when a refusal was actually deliverable: `runWriteGate` leaves `denied`
+    // unset when the profile declined to build an envelope.
+    if (result.denied !== undefined) {
+      console.error(result.denied);
+      if (profile.denyExitCode !== undefined) process.exitCode = profile.denyExitCode;
+    }
+  } catch (error: any) {
+    // Two silences, for two things that are not faults.
+    //
+    // An incomplete payload is a host event this build does not carry enough of to record.
+    //
+    // An unresolvable project is the ordinary case for a hook installed in a host's global
+    // settings: it fires in every directory the agent visits, most of which are not Knowl
+    // repositories, and a renamed or moved repository puts a session permanently in that
+    // state. Reporting it printed an error and exited 1 on every single tool call, with no
+    // way to turn it off -- a channel that cries wolf on a normal condition is a channel
+    // nobody reads when something is actually wrong. A missing *database* still speaks up
+    // (see `assertKnowledgeDatabasePresent`); that one is neither normal nor permanent.
+    if (error instanceof IncompleteHostHookPayloadError || error instanceof ProjectNotFoundError) {
+      await closeDb().catch(() => {});
+      return;
+    }
+    await closeDb().catch(() => {});
+    // Both streams under `--json`, and the `refusesOnAnyNonZeroExit` rule, now live in
+    // `reportHookFailure` so the reminder obeys the same two. On those hosts a non-zero exit
+    // would deny the agent's edit rather than report our own crash, so the error still reaches
+    // stderr and only the status goes.
+    //
+    // `exitCode`, not `exit`: this path now writes an envelope to stdout first, and `process.exit`
+    // can truncate a pipe mid-write. The store is already closed, so nothing holds the loop -- as
+    // the refusing-host branch has relied on since it was added.
+    if (reportHookFailure(host, options, 'Error handling agent hook', error)) process.exitCode = 1;
+  }
+}

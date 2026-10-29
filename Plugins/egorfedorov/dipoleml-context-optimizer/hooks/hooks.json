@@ -1,0 +1,72 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "test -f \"${CLAUDE_PLUGIN_ROOT}/src/hook.js\" || exit 0; node \"${CLAUDE_PLUGIN_ROOT}/src/hook.js\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|Read|Edit|MultiEdit|Write|NotebookEdit|Glob|Grep|Agent|Task|WebFetch|WebSearch|mcp__.*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "test -f \"${CLAUDE_PLUGIN_ROOT}/src/hook.js\" || exit 0; node \"${CLAUDE_PLUGIN_ROOT}/src/hook.js\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "test -f \"${CLAUDE_PLUGIN_ROOT}/src/hook.js\" || exit 0; node \"${CLAUDE_PLUGIN_ROOT}/src/hook.js\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "test -f \"${CLAUDE_PLUGIN_ROOT}/src/hook.js\" || exit 0; node \"${CLAUDE_PLUGIN_ROOT}/src/hook.js\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "test -f \"${CLAUDE_PLUGIN_ROOT}/src/hook.js\" || exit 0; node \"${CLAUDE_PLUGIN_ROOT}/src/hook.js\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "test -f \"${CLAUDE_PLUGIN_ROOT}/src/hook.js\" || exit 0; node \"${CLAUDE_PLUGIN_ROOT}/src/hook.js\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}

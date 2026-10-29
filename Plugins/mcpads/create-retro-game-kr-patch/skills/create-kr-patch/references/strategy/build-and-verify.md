@@ -1,0 +1,123 @@
+# Build and verification
+
+Here, **product build**, **product artifact**, and **distribution output** have the meanings defined in `references/conventions/project-conventions.md` §2. Judge product build inputs, product artifacts, distribution outputs, artifact verification, and runtime verification by the criteria below. Read the applicable `references/platforms/` document for platform-specific checksums, sectors, and execution environments. Record evidence according to `references/conventions/project-records.md`. The target project chooses concrete files, commands, and serialization.
+
+## 1. Reproducible product build
+
+The product build and distribution path must satisfy all of these conditions:
+
+- Do not commit or distribute copyrighted source ROMs, disc images, or patched images. Follow `references/conventions/project-conventions.md` §6 for source handling.
+- Rebuild from an immutable source and declared inputs. Never use a previously patched image as the input to the next product build.
+- Reproduce every final change from product build inputs. A change discovered manually must enter the product build with its source, applicability, expected original state, and output rule.
+- When editing extracted assets, preserve stable entry identity, separate editable values from protected values, and retain undecoded data reversibly. Follow `references/conventions/project-conventions.md` §5.1 for unchanged reassembly equivalence.
+- Where the product build produces distribution output, derive it and the product artifact from the same verification graph. Applying the complete distribution output in its declared order must reproduce the complete product artifact.
+
+The primary product build combines every selected translation input and glyph asset with every adopted mapping, reinsertion rule, code change, and container change into one result made from the immutable source. Component checks and PoC artifacts do not prove integration. Judge applicable static and runtime claims on that cumulative product artifact. A product build under the development/PoC input policy follows `references/conventions/translation-artifacts.md` §5, but every adopted technical change still enters the same product build. Keep the product artifact reproducible for runtime verification and diagnosis, and attribute post-integration evidence to that exact artifact.
+
+The cumulative product build consumes adopted results, not the investigation or design procedures that produced them. Apply `references/conventions/project-conventions.md` §1 when promoting either a result or a procedure.
+
+For one supported revision, consume verified reverse-engineering conclusions only within their established applicability. A finite catalog enters the specification only after its population is established. Reopen analysis on a source or applicability mismatch, a reassessment condition, or contrary evidence. Derive addresses, sizes, and checksums that depend on current product build inputs, and do not promote heuristic candidates during a product build (`references/strategy/initial-survey.md` §3.1).
+
+Turn every criterion that can be decided mechanically from current inputs or artifact structure into a product build check by deriving the current value and comparing it with an independently established constraint; do not use an earlier derived result as the constraint. Keep runtime behavior under §4. Do not produce a verified artifact when an applicable encoding, glyph or space budget, layout, length, pointer, compression, or container invariant fails. A change that triggers `references/strategy/runtime-assets.md` §1 must pass both static storage/reference/capacity checks and runtime load/residency/consumption checks.
+
+The primary product build owns these rejections. Tests may exercise them with fixed inputs, but the product build must enforce them for its declared product inputs whenever it runs; apply the ownership rules in `references/conventions/project-conventions.md` §5.3.
+
+Every write from the source to the target image must satisfy the final-write verification rules in `references/conventions/project-conventions.md` §5.2. A failed write check must prevent artifact production.
+
+## 2. Distribution format and image changes
+
+Adopt a distribution format only when the project can prove that it:
+
+- distinguishes the supported source revision, size, and header, track, or sector representation before application;
+- compares the complete applied result with the product artifact;
+- represents file growth, final artifact membership and sizes, and the required write set without loss;
+- identifies each input and application order for multi-track or multi-artifact releases; and
+- fixes a reproducible user application path and distribution conditions.
+
+When file size or extent changes, choose in-place editing, partial relocation, full rebuild, or preservation of the original packing only if that path can verify every changed consumer condition. No option is safe by name alone. The chosen path must prove that:
+
+- boot and game loaders read the new locations, sizes, and alignments;
+- duplicate references and metadata at filesystem, container, and game layers identify the same targets;
+- untouched tracks, sectors, files, and intentionally irregular source structures remain unchanged outside the declared write scope; and
+- reparsed structures are valid and the real loader consumes the new assets.
+
+Failure to establish every reference for a partial relocation does not justify a full rebuild. If no candidate path can produce this evidence, the image change remains incomplete; return to the declared completion scope.
+
+## 3. Integrity verification
+
+Make an integrity field a product build responsibility only after establishing its consumer.
+
+- If a header, container, or game routine reads a checksum or size field, update it after every relevant write and verify the exact consumed range.
+- If the product build emits raw sectors, update error-detection and correction fields for changed sectors according to their actual sector mode. An irregular field in an untouched source sector may participate in protection or media behavior; do not normalize it without evidence.
+- If a file location, size, or entry layout changes, update every layer that duplicates those values and compare both reparsed structure and actual consumption.
+
+Successful boot or tolerance in one execution environment does not prove structural or sector integrity.
+
+Build and application entry points must enforce the same source-identification rules. A mismatch must prevent output. The complete applied result must match the product artifact.
+
+## 4. Runtime verification
+
+Set runtime scope from the consumer paths touched by the change and from the distribution claims. Do not turn asset count into an equal number of runtime trials. Use `references/strategy/runtime-assets.md` §2 to determine which items share a verified link and which exceptions require separate execution.
+
+If the route to a target state is unknown, or state intervention could reduce reproduction cost, establish the route and what the intervention can prove through `references/strategy/debugging.md` §2.1 first.
+
+- The development environment must expose observations that distinguish the current failure layer. Do not use absence of an event as negative evidence until the observation method's address, event, and input interpretation are known to cover the real consumer path.
+- When claiming support for a console, medium, loader, or execution environment, verify the final product artifact on that target path. Add a second environment when tolerance or implementation-specific behavior in the first environment is a current risk. Implementations that are not independent do not count as independent evidence.
+- Center execution on representative modified consumer paths. Add boot, exit, re-entry, shared state, and representative unchanged paths only when the change or support claim can affect them.
+- Add separate renderers, branches, user input or saves, disc or overlay transitions, and long-lived residency as conditional regressions when they can change consumption of the modified asset or state. Do not impose features absent from the game or unrelated to the change as universal requirements.
+
+Bind every runtime result and reusable state or input recording to the exact product artifact and environment that produced it, including every member needed for the observed route. Transfer the result to another product artifact only through byte identity or equivalent consumption at the relevant boundary. Intermediate product artifacts that make no runtime claim do not require their own runtime pass.
+
+Turn a repeated, objectively decidable regression into a reproducible runtime check. When the final semantic or visual judgment is not mechanically decidable, retain an explicit human review instead of reporting automated success. An unavailable observation is not that case: establish it through `references/strategy/debugging.md` §2.1, or report the check as not run.
+
+### 4.1 Requested playthrough review
+
+Use this mode when the human requests a playthrough or a review through the ending. Set the requested route and endpoint against the current product artifact; include credits, return to control, or clear-save reload when they are part of that claim. Use the selected emulator observation tools, such as emucap, to connect progress and findings to the artifact.
+
+Combine two coverage approaches according to the requested scope:
+
+- **Goal-directed progression (DFS-like):** Follow a route toward its endpoint, preserving branch checkpoints and a return queue for deferred paths. This establishes continuity through the observed route.
+- **Local coverage (BFS-like):** At a hub or system, enumerate the in-scope items and states before moving on. A shop pass can cover the stock list, descriptions, purchase and resulting inventory, plus applicable insufficient-funds, capacity, owned/equipped, and cancel states. Record the requested population and remaining members; distinguish actual actions from static coverage or proven consumer equivalence under §4.
+
+Include hidden routes, unlocks, omake, galleries, alternate endings, and post-clear modes when they belong to the requested scope or consume changed content. Track their discovery and entry conditions alongside ordinary progression. Separate evidence of unlocking a feature from inspecting its contents through an authorized shortcut. Keep unreached or unresolved content visible in the coverage record, and resume the goal route after local checks.
+
+- **Prepare the route.** Gather applicable controls, progression, major branches, and clear conditions into a short local play manual, using external references and target evidence under `references/strategy/debugging.md` §2.1. Reuse verified route knowledge where it still applies.
+- **Preserve resumable progress.** Save compatible checkpoints at chapter or area entry, before major branches, and around risky actions. Connect them to the artifact, environment, scene, and route; use native saves where useful. Leave the last verified point and next action clear enough to resume.
+- **Observe in context.** Capture representative normal scenes as well as suspected translation, graphics, and interaction defects. Follow suspect moments through preceding and following frames and inputs before classifying clipping, residue, freezes, or lost control. Record the visible effect separately from its proposed cause.
+- **Continue or repair from evidence.** Keep non-blocking findings in a backlog while the run remains informative. For a progression blocker, preserve the reproduction, diagnose it, correct the product build, and recheck the blocked route before continuing from the nearest compatible point. Apply the baseline and intervention criteria in `references/strategy/debugging.md` §2·§2.1; each segment retains its own artifact identity.
+- **Make the run reviewable.** Keep a local gallery of all captured images, with important, suspect, and representative-normal views easy to filter; HTML is suitable. Link issues and checkpoints to their observations. Summarize the reached endpoint, covered branches, interventions, unresolved findings, and remaining coverage for human review.
+
+Use gameplay aids only within the human's authorization for that run. An authorized HP/MP adjustment, for example, still requires evidence that it preserves the event, script, outcome-branch, and behavior prerequisites being checked. A completed assisted route supports those preserved claims; human presentation approval and release readiness follow §5·§6 separately.
+
+## 5. Text, presentation, and interaction QA
+
+Judge final text, presentation, and interaction changes on their actual consumer paths. For a finite text scope, evaluate every member against the encoding, width, row, page, and slot model established from that consumer. Activate only criteria present on the target path and plausibly affected by the change.
+
+- Translation review and the product build must use the same identities for established target constraints. Keep those constraints distinct from adopted design choices and measurements derived from current product build inputs under `references/strategy/translation-workflow.md` §4.1; failure under the selected design does not by itself reject the wording.
+- The product build must consume the exact wording and layout identities selected by its input policy and recorded under `references/strategy/translation-workflow.md` §5.6. It must not silently shorten, substitute, or switch to an unrecorded scope-specific wording selection.
+- Include automatic wrapping, control-token state transitions, and worst-case variable insertion when they affect the consumed result.
+- Judge dialogue, menus, and name entry separately when they use different consumers. For player-created text, apply the interaction, redisplay, and persistence scopes in `references/strategy/name-entry.md` §6.
+- A violation of an established fixed slot, encoding, or page limit must fail the product build. Treat scrolling as valid only when it belongs to the adopted design, and leave genuinely judgment-dependent presentation criteria to human review.
+- Judge glyphs and baked graphics text against the visual completion criteria in `references/strategy/font-strategy.md` §4 and `references/strategy/graphics-text.md` §4, using real backgrounds, palettes, and states.
+- When a window or frame changes size or position, verify actual anchors, clipping, screen bounds, and overlap with portraits, cursors, and adjacent UI.
+- When a change touches state-specific assets or placement, verify the distinctions and transitions among applicable default, focused, selected, and disabled states. Verify affected navigation, confirm and cancel events, repeat behavior, state transitions, and results against the target model.
+- When a change touches text progression or synchronization, verify applicable page, wait, scroll, auto-advance, skip, voice, and event timing within the declared tolerance.
+- For a changed display extent, verify the layout and clearing criteria in `references/strategy/reinsertion.md` §6 across transition, exit, and re-entry. Page or progression changes must not introduce empty pages or unintended early or duplicate advancement.
+
+Judge the release result from Korean-encoded output and verified consumer conditions, distinguishing observed source usage from confirmed capacity through `references/strategy/translation-workflow.md` §4.
+
+## 6. Issue closure and release readiness
+
+Close a defect as fixed through the completion conditions in `references/strategy/debugging.md` §1. Close an issue as original behavior, an accepted limitation, or out of scope only through the evidence and human-decision boundaries in `references/strategy/debugging.md` §6. Apply the status, authority, and evidence distinctions in `references/conventions/project-records.md` §1.1 and §7.
+
+Product closure is a bounded fixed point over the declared scope, denominators, and claims, not exhaustion of a planned edit list. All applicable conditions and their established dependencies must hold together on one cumulative product artifact; propagating that artifact's changes through those dependencies must introduce no unaccounted change, failing condition, or unresolved member. Human decisions about scope, quality, or acceptable loss bound this fixed point; the fixed-point test does not decide whether further improvement is worth pursuing. Completing planned edits, producing byte-identical rebuilds, or finding no new symptom in a sample does not establish closure. This boundary does not require exhausting unrelated investigations; contrary evidence reopens the affected claims and dependencies.
+
+Incomplete human review of the declared localization scope does not block product builds under the development/PoC input policy, technical verification, or a pre-release review candidate that collects it under `references/conventions/translation-artifacts.md` §5. A release candidate must satisfy all of these conditions:
+
+- Every declared change is regenerated from immutable source and adopted inputs through the primary product build, and component checks plus runtime evidence pass together on that exact product artifact.
+- The declared localization scope matches the population findings in `references/strategy/text-extraction.md` §1.4, §1.5, which record zero unresolved members and evidence for every exclusion.
+- Every check required by the current supported scope and release claims—whether enforced during the product build, patch application, artifact verification, or runtime verification—passes against its current recorded criterion. When a human decision changes a quality tolerance, scope, or claim, retain the earlier result against its original criterion and reassess the checks applicable to the new decision through `references/strategy/debugging.md` §6.
+- The current human-approved quality target and release claims are satisfied, and every known issue and accepted limitation is recorded with its decision authority, scope, player effect, and claim impact.
+- The declared localization scope satisfies the human-review and distribution-eligibility criteria in `references/strategy/translation-workflow.md` §6.
+- Applying the distribution output in its declared order reproduces the complete verified product artifact.
+- Player-facing release material states supported source revisions and representations, the verified application procedure and prerequisites, play-affecting limitations or exclusions, and save-data compatibility or required migration. It presents facts owned by the source profiles in `references/conventions/project-conventions.md` §6.2, the distribution path in `references/strategy/build-and-verify.md` §2, and current decision and QA records in `references/conventions/project-records.md` §1.1·§7; it does not redefine them.

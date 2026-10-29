@@ -1,0 +1,16 @@
+{
+  "name": "freshdesk",
+  "displayName": "Freshdesk",
+  "version": "1.0.13",
+  "description": "Freshdesk - cloud helpdesk/PSA ticketing for MSPs: tickets, conversations, contacts, companies, knowledge base, SLA policies, and business hours",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Wyre Ai"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/wyre-technology/msp-claude-plugins",
+  "repository": "https://github.com/WYRE-AI/msp-claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

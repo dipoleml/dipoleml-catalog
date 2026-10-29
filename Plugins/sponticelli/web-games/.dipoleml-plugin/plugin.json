@@ -1,0 +1,29 @@
+{
+  "name": "web-games",
+  "displayName": "Web Games",
+  "version": "1.0.0",
+  "description": "Browser games, WebGL, HTML5, PWA, and web-specific game development challenges",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Sponticelli"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/sponticelli/gamedev-claude-plugins",
+  "repository": "https://github.com/sponticelli/gamedev-claude-plugins",
+  "skills": [],
+  "commands": [
+    "./commands/webgl-audit.md",
+    "./commands/web-perf-report.md",
+    "./commands/pwa-spec.md",
+    "./commands/browser-compat-matrix.md",
+    "./commands/web-optimization-checklist.md"
+  ],
+  "agents": [
+    "./agents/webgl-specialist.md",
+    "./agents/browser-performance-expert.md",
+    "./agents/pwa-architect.md",
+    "./agents/web-audio-specialist.md",
+    "./agents/canvas-optimization-expert.md",
+    "./agents/web-input-handler.md"
+  ]
+}

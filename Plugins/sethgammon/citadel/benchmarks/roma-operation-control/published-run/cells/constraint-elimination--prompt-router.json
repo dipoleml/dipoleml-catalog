@@ -1,0 +1,117 @@
+{
+  "schema": 1,
+  "run_id": "sha256:daa2e179a7ed7347c532732e791862d36230a679b3eaad2f2732f627643562a4",
+  "freeze_id": "sha256:f1ecf932261ceac604978952c42cdb8ec14032b795bffd1848fae90e9572ded5",
+  "scenario_id": "constraint-elimination",
+  "policy_id": "prompt-router",
+  "route": {
+    "target": "frontier",
+    "features": {
+      "word_count": 95,
+      "constraint_count": 7,
+      "reasoning_count": 0,
+      "structure_count": 0,
+      "difficulty_score": 0.32875
+    },
+    "reason_code": "PROMPT_SCORE_FRONTIER"
+  },
+  "attempts": [
+    {
+      "receipt": {
+        "schema": 1,
+        "receipt_id": "sha256:233d96677eea9179aded69f2e42bca36b3864ecfd8c5104976fba644496f9a7c",
+        "scenario_id": "constraint-elimination",
+        "policy_id": "prompt-router",
+        "attempt": 1,
+        "plan_id": null,
+        "observation_digest": null,
+        "output_digest": "sha256:e1cda539bbee933b7bfad92ecc1b9e66e16db80edbbb3fd08b3bbb3419ec2c2f",
+        "started_at": "2026-07-31T19:40:14.116Z",
+        "duration_ms": 5046,
+        "completion": {
+          "status": "passed",
+          "verifier_id": "json-answer-v1",
+          "answer_digest": "sha256:cb0314876ed8f3ae55780cabf10f4a8b458793c66979d8f2fe4faec57ec463c4",
+          "failure_code": null
+        },
+        "control": {
+          "status": "verified",
+          "mismatch_codes": [],
+          "module_exercise": []
+        },
+        "execution_evidence": {
+          "status": "verified",
+          "runtime": "codex-cli",
+          "requested_model": "gpt-5.6-sol",
+          "observed_model": "gpt-5.6-sol",
+          "source": "codex-jsonl",
+          "session_receipt": {
+            "thread_id": "019fb9b1-0751-72b2-97a3-b4205447506e",
+            "model": "gpt-5.6-sol",
+            "cwd_digest": "sha256:e794b00aec2edc9e7b12541dc6b906cab64b1380c55a90845e6c1389b2589e4d",
+            "turn_context_digest": "sha256:389d7f189ab3d4c27fd8427b31e8cd924608201e0296024392e329f4c6bd2035",
+            "session_file_digest": "sha256:e51871cc9e35395613149f633cb7891a1f613410402fded5fcc2013441390cc3",
+            "session_bytes": 60508
+          },
+          "process": {
+            "exit_code": 0,
+            "timed_out": false,
+            "stdout_digest": "sha256:a7456388741fe3d35a4119ce3c1d1e99f4c20d53bea1eb188550c57e1af9a8ec",
+            "stdout_excerpt": "{\"type\":\"thread.started\",\"thread_id\":\"019fb9b1-0751-72b2-97a3-b4205447506e\"}\n{\"type\":\"turn.started\"}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":\"{\\\"answer\\\":\\\"R4\\\"}\"}}\n{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":16388,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":16,\"reasoning_output_tokens\":0}}\n",
+            "stderr_digest": "sha256:1eb0ccc343ec53ceca4a85dab7f85d56099acffae928096560ede0e36058907f",
+            "stderr_excerpt": "2026-07-31T19:40:14.562721Z  WARN codex_core::shell_snapshot: Failed to create shell snapshot for powershell: Shell snapshot not supported yet for PowerShell\n"
+          }
+        },
+        "cost": {
+          "status": "unknown",
+          "total_usd": null,
+          "reason": "subscription_allocation_and_provider_cost_unreported",
+          "components": [
+            {
+              "kind": "provider_invoice",
+              "status": "unknown",
+              "amount_usd": null,
+              "source": "subscription_no_per_request_invoice"
+            },
+            {
+              "kind": "gpu_energy",
+              "status": "unknown",
+              "amount_usd": null,
+              "energy_kwh": null,
+              "samples": 0,
+              "source": "telemetry_unavailable"
+            },
+            {
+              "kind": "cpu_and_system_energy",
+              "status": "unknown",
+              "amount_usd": null,
+              "source": "not_measured"
+            },
+            {
+              "kind": "hardware_amortization",
+              "status": "unknown",
+              "amount_usd": null,
+              "source": "not_allocated"
+            }
+          ],
+          "duration_ms": 5046,
+          "usage": {
+            "prompt_tokens": 16388,
+            "completion_tokens": 16,
+            "total_tokens": 16404,
+            "cached_input_tokens": 0
+          },
+          "setup_costs_included": false
+        },
+        "adversarial_result": null
+      },
+      "plan": null,
+      "observation": null,
+      "output_text": "{\"answer\":\"R4\"}",
+      "raw_execution": {
+        "stdout_digest": "sha256:a7456388741fe3d35a4119ce3c1d1e99f4c20d53bea1eb188550c57e1af9a8ec",
+        "stderr_digest": "sha256:1eb0ccc343ec53ceca4a85dab7f85d56099acffae928096560ede0e36058907f"
+      }
+    }
+  ]
+}

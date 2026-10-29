@@ -1,0 +1,123 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.swingerman.engineer",
+  "type": "plugin",
+  "name": "Engineer",
+  "slug": "engineer",
+  "vendor": "swingerman",
+  "description": "Disciplined Agentic Engineering — a methodology kit for DipoleML: acceptance-test-first specs, explicit checkpoints, and autonomy you can actually leave running. The engineer, atdd and crap-analyzer plugins.",
+  "version": "0.8.4",
+  "homepage": "https://github.com/swingerman/engineer",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "acceptance-testing",
+    "agentic-ai",
+    "ai-development",
+    "atdd",
+    "bdd",
+    "claude-code-plugin",
+    "dae",
+    "given-when-then",
+    "methodology"
+  ],
+  "tags": [
+    "acceptance-testing",
+    "agentic-ai",
+    "ai-development",
+    "atdd",
+    "bdd",
+    "claude-code",
+    "claude-code-plugin",
+    "dae",
+    "given-when-then",
+    "methodology",
+    "spec-driven-design",
+    "tdd",
+    "uncle-bob"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "swingerman",
+    "brandName": "swingerman",
+    "source": "https://github.com/swingerman.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:15:00Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "swingerman/engineer",
+    "url": "https://github.com/swingerman/engineer",
+    "commit": "f5216e264d84e35140f071fa19856f611d14d8d3",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 161,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:02:49Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Engineer | Disciplined Agentic Engineering — a methodology kit for Claude Code: acceptance-test-first specs, explicit checkpoints, and autonomy you can actually leave running. The engineer, atdd and crap-analyzer plugins.",
+        "after": "Engineer | Disciplined Agentic Engineering — a methodology kit for DipoleML: acceptance-test-first specs, explicit checkpoints, and autonomy you can actually leave running. The engineer, atdd and crap-analyzer plugins.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Acceptance Test Driven Development for Claude Code. Enforces the ATDD methodology: write Given/When/Then specs first, generate a project-specific test pipeline, maintain two test streams (acceptance + unit). Inspired by Robert C. Martin's acceptance test approach from empire-2025.",
+        "after": "Acceptance Test Driven Development for DipoleML. Enforces the ATDD methodology: write Given/When/Then specs first, generate a project-specific test pipeline, maintain two test streams (acceptance + unit). Inspired by Robert C. Martin's acceptance test approach from empire-2025.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

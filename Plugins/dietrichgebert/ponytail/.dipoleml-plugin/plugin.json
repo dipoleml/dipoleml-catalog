@@ -1,0 +1,16 @@
+{
+  "name": "ponytail",
+  "displayName": "Ponytail",
+  "version": "5.3.2",
+  "description": "Lazy senior dev mode. Forces the simplest, shortest solution that actually works: YAGNI, stdlib first, no unrequested abstractions.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Dietrichgebert"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/DietrichGebert/ponytail",
+  "repository": "https://github.com/DietrichGebert/ponytail",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

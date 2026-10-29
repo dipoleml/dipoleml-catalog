@@ -1,0 +1,27 @@
+{
+  "schema": 2,
+  "kind": "citadel_optimizer_public_random_selection_request",
+  "request_id": "sha256:25b0aaf4464ff601494643f294344e39726aea8266b4c947b20d56f5021770a9",
+  "scenario_set_id": "optimizer-scenarios-sha256:602e496906f3a293203750602234ba88a55a86b9e4f54f32239264098dcebe5b",
+  "frozen_at": "2026-07-30",
+  "holdout_scenario_ids": [
+    "citadel-short-executor-proof",
+    "p-limit-short-clear-queue",
+    "nanoid-size-consistency",
+    "citadel-safety-model-proof"
+  ],
+  "beacon": {
+    "provider": "league-of-entropy-drand",
+    "chain_hash": "8990e7a9aaed2ffed73dbd7092123d6f289930540d7651336225dc172e51b2ce",
+    "public_key": "868f005eb8e6e4ca0a47c8a77ceaa5309a47978a7c71bc5cce96366b5d7a569937c529eeda66c7293784a9402801af31",
+    "round": 6333716,
+    "round_time": "2026-07-30T20:15:00.000Z",
+    "source_urls": [
+      "https://api.drand.sh/public/6333716",
+      "https://api2.drand.sh/public/6333716",
+      "https://drand.cloudflare.com/public/6333716"
+    ],
+    "min_identical_sources": 3,
+    "selection_rule": "sha256(request_id_lf_randomness)_uint256_be_mod_holdout_count"
+  }
+}

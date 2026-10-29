@@ -1,0 +1,294 @@
+# Connector: BigQuery
+
+The first billed cloud connector. Namespace: `project.dataset.table`. Cost
+paradigm: **bytes scanned**. Read-only against data, enforced in depth.
+
+## Authentication: discover, don't ask
+
+Auth is Application Default Credentials (ADC), never a prompted or pasted key.
+The engine discovers credentials at runtime; if none exist it tells you the
+fix:
+
+```
+gcloud auth application-default login
+```
+
+Service accounts work through `GOOGLE_APPLICATION_CREDENTIALS`, Workload
+Identity Federation, impersonation (`--impersonate-service-account`), or the
+metadata server; whatever `google.auth.default()` resolves. The GCP project
+resolves in this order:
+
+1. `bigquery.project` in `.dex/config.yml`
+2. `GOOGLE_CLOUD_PROJECT` / `GCLOUD_PROJECT`
+3. the ADC default project
+4. the `project` of a `type: bigquery` target in a discovered dbt `profiles.yml`
+
+Only the principal's coarse type (user, service account, impersonated,
+federated) is ever surfaced; its identity and any key material never cross the
+envelope.
+
+## Config
+
+```yaml
+# .dex/config.yml
+connector: bigquery
+bigquery:
+  project: my-project            # billing/quota project jobs run in
+  datasets:                      # source allowlist; empty means every dataset
+    - raw                        #   bare names resolve against `project`
+    - bigquery-public-data.samples   # qualified names read another project
+  location: EU                   # optional job-location override
+  dev_dataset: dbt_dev           # where dbt dev builds write (never a source)
+  max_full_profile_bytes: null   # opt-in TABLESAMPLE threshold for huge tables
+budget:
+  ceiling: 1000000000            # per-command bytes (1 GB); --budget overrides
+  session_ceiling: 10000000000   # cumulative bytes per UTC day
+```
+
+## Cost model: preflight before spend, capped at the server
+
+- **Free:** `connect test`, `explore inventory`, all schema and row/byte-count
+  metadata (API calls, never `INFORMATION_SCHEMA`, which bills a 10 MB minimum
+  per query), and every dry-run.
+- **Billed:** profiling aggregates, `explore query`, relationship verification
+  probes, and `transform build`.
+
+`explore query` and `explore cluster` bill an auto-profile of an object this connection has that the `.dex/` cache cannot adjudicate, priced into the same handshake as the statements: see [`cost-controls.md`](cost-controls.md). Pass `--no-auto-profile` (or set `auto_profile: false` in `.dex/config.yml`) to be refused instead.
+
+Every billed command is estimated first with free dry-runs, which is why the
+estimate here is `exact` rather than modelled. Budgets are bytes; the handshake
+itself is in [`cost-controls.md`](cost-controls.md).
+
+On the confirmed run, every statement is dry-run again and charged against the
+budget, and every job carries a server-side `maximum_bytes_billed` cap, so a
+drifting estimate cannot overrun the budget. Where the billed bytes land
+afterwards, and when a ledger that cannot be read refuses a command, are in
+[`cost-controls.md`](cost-controls.md).
+
+BigQuery bills a 10 MB minimum per query; a remaining budget below that is
+refused with the math rather than letting the job fail server-side. Query-cache
+hits bill zero and are recorded as such.
+
+### What a profile estimate is made of
+
+A profile's cost is not one query per table. After the aggregate scan, a
+profile may issue up to three more queries against the same table: an exact
+distinct count for a near-unique column, a value-domain probe for a
+low-cardinality one, and a composite-key probe. Which of them run depends on
+the aggregate scan's own approximate results, so none can be dry-run before it,
+and the estimate holds one 10 MB floor apiece instead. A reserve is dropped only
+where an object's metadata already rules the query out: a table known to hold no
+rows, a table of nested or repeated columns only (no approximate distinct, which
+every probe starts from), a table too small for a value domain, or one with too
+few countable columns to form a composite pair.
+
+The reserve cannot mirror every reason a composite probe ends up issuing nothing.
+A pair built on a continuous measure, or one that merely completes a column
+already unique on almost every row, is excluded before the probe runs, and both
+verdicts come from distinct counts that do not exist at estimate time. So a table
+whose every candidate pair is excluded that way still carries its reserve and
+then spends nothing. That is the loose direction and it is the safe one:
+reserving for a query that does not run costs a caller headroom, while failing to
+reserve for one that does is an overrun.
+
+An object BigQuery keeps no row count for, meaning every view and every external
+table, reserves all three. Unknown is not empty: the count arrives inside the
+aggregate scan, so every probe can run, and at estimate time there is no number
+yet to narrow the hold with. That makes an external table's estimate four 10 MB
+floors rather than one, which is worth knowing before pointing a profile at a
+lakehouse of them. The reserve is released rather than spent when a probe does not
+run, so it costs headroom for the length of the command, not money.
+
+The reserve scales with object count rather than data size, so on a warehouse of
+many small tables it can be most of the number. Both the `needs_confirmation`
+payload and the over-ceiling refusal split it out, in prose and in
+`reserved_bytes` / `reserved_queries`, so a raised budget is a decision rather
+than a guess:
+
+```
+220,200,960 bytes of this estimate is escalation reserve: 21 queries at
+BigQuery's 10,485,760-byte per-query minimum, held for probes a profile may add
+after its aggregate scan and may never issue. The remaining 533,991,980 bytes
+is dry-run scan
+```
+
+A mid-command verify checkpoint prices overlap probes, which carry no reserve,
+so it reports none rather than repeating the profile's.
+
+### What a join overlap probe costs
+
+The 10 MB minimum is charged per table a query references, so a probe that reads
+a child and a parent floors at two of them. Issued one per join, a graph's probes
+therefore cost twice its edge count in floors, and a dimension five facts join
+pays its own floor five times. That is a bill set by how many joins exist rather
+than by how much data they cover, and it recurs on every run that verifies.
+
+So the probes are batched: the joins that share a child relation are measured
+against one read of it, and the batch's children are combined into a single
+statement. Each statement then names each of its tables once, and a graph of M
+tables floors at M times 10 MB however many joins connect them. On a nine-edge
+star schema over seven tables the estimate falls from 180 MiB to 70 MiB, against
+32 MiB of scan that both shapes pay: what the batching removes is floor, not
+measurement. The per-join results are identical, and `--infer-by-overlap`'s sweep
+is batched the same way, which matters more there because it runs up to fifty
+probes.
+
+### What a drift sweep costs
+
+`maintain grain` and the scanning half of `maintain check` ask each table several
+things: an exact distinct count over its proven keys, a distinct count per
+composite or declared grain, one per join whose declared arity makes that side a
+key, a null-fraction survey, and, under `check`, a distinct count for the
+categorical dimensions the semantic layer reads from it. Issued separately, each
+of those paid its own 10 MB floor on the same table, so a sweep's bill tracked how
+many questions it asked rather than what they read.
+
+So a table's probes run as one statement, and the sweep floors once per table it
+scans. The statement reads no column the separate probes would not have, and the
+findings are identical. A table that owes only one probe runs it exactly as
+before. A table large enough to be profiled from a block sample keeps its null
+survey as a statement of its own, since the survey reads the sample and the
+distinct counts must read every row. Where the remaining budget cannot cover the
+combined statement, each probe runs on its own and skips or narrows with its own
+note, as it always has.
+
+Folding several *tables* into one statement would save nothing: the floor is
+charged per table a statement references, not only per statement. `maintain
+volume` runs no query at all; it reads the row counts BigQuery keeps in table
+metadata.
+
+## Profiling behavior
+
+- Aggregates only (`COUNT`, `APPROX_COUNT_DISTINCT`, `MIN`/`MAX` on safe
+  columns), batched to keep statements bounded.
+- `RECORD`/`STRUCT` columns get a non-null count only; `REPEATED` (ARRAY)
+  columns get no aggregates (they cannot be NULL and distinct counts are
+  invalid on them); `JSON`/`GEOGRAPHY` are treated as nested.
+- Tables that require a partition filter are never scanned: they get a
+  metadata-only profile plus a data-quality note.
+- A row count is read from the metadata only for a base table, which is the only
+  kind BigQuery maintains one for. A view, a materialized view, an external table
+  and a snapshot all report `num_rows` as `0` whatever they hold, so that zero is
+  read as unknown rather than as empty, and the real count comes from the
+  aggregate scan's own `COUNT(*)`, which is already paid for. Until an object is
+  profiled its count and byte size are therefore `null`, which ranks it as if it
+  were small: profile it to rank it on its size. `empty table (no rows)` is
+  reported from the aggregate's zero, so it means the object is empty rather than
+  uncounted, and `maintain volume` names the objects it could not compare instead
+  of returning no finding for them.
+- With `bigquery.max_full_profile_bytes` set, larger tables are profiled from
+  a `TABLESAMPLE SYSTEM` block sample, flagged as approximate, and uniqueness
+  is not judged.
+- Exact distinct-count escalation (the uniqueness proof), the composite-key
+  probe, and the value-domain probe each spend only within the
+  already-confirmed budget, and degrade (to an approximate verdict, no
+  composite key, or no reported domain) plus a table note when the remaining
+  budget cannot cover them. The composite-key probe degrades in two steps: it
+  first narrows to the best-ranked candidate pairs the budget can cover, and
+  only skips outright when it cannot cover one. Either way the note says which
+  it was, because a missing composite key otherwise reads as a warehouse that
+  answered and had none.
+- The reserve holds one query minimum for the composite-key probe however many
+  pairs it carries, so on a wide table the probe's dry run can price above what
+  the estimate held for it. The per-statement gate, not the reserve, is what
+  bounds that: the probe is priced against the live remaining budget before it
+  runs, and narrows or skips rather than exceeding it.
+
+## Read-only, in depth
+
+BigQuery has no read-only connection mode, so the layers are: every statement
+passes the SELECT-only guard in the BigQuery dialect (scripting, DML, DDL,
+`EXPORT DATA`, `CALL`, and multi-statement input are refused); the adapter
+calls no mutating client API; and the recommended grants are read-only:
+
+- `roles/bigquery.dataViewer` on the datasets dex explores
+- `roles/bigquery.jobUser` on the billing project
+- `roles/bigquery.dataEditor` on the dedicated dev dataset only (for
+  `transform build`)
+
+## dbt
+
+The `[bigquery]` extra carries `dbt-bigquery`. Running
+`transform init --connector bigquery`
+renders a single `dev` target with `method: oauth` (ADC; no secret
+is ever written), pointed at `bigquery.dev_dataset` (default `dbt_dev`), and
+refuses a dev dataset that is also a source. When `budget.ceiling` is set, the
+profile carries `maximum_bytes_billed` so every statement dbt runs is capped
+server-side. `transform build` surfaces an upfront byte estimate: it runs a free
+`dbt compile`, dry-runs each compiled node the same way `explore` prices a query,
+and sums the result (downstream nodes whose dev inputs are not built yet cannot
+be dry-run, so on a cold target the total is a partial floor). It still requires
+`--confirm` and a `--budget`, and its billed bytes land in the spend ledger.
+
+`transform build --verify` costs only where the warehouse keeps no row
+count, so a table's count is free metadata; how the counts are priced into
+the build's own estimate is in
+[`cost-controls.md`](cost-controls.md).
+
+`--verify` also reads `bigquery.dev_dataset` for the length of that one command,
+because dbt writes the relations it is judging there and that dataset is refused
+as a source everywhere else. The dataset need not exist yet: dbt creates it on a
+first build. A build that writes every model into a custom schema never creates
+it, and row population is then suppressed with a reason that names the gap. How
+that read is bounded is under **Read scope** in
+[`command-contract.md`](command-contract.md).
+
+`transform test --mutate` prices the whole batch upfront and confirms it once.
+Each mutant is spliced into each of the model's compiled data tests and dry-run
+priced as the statement the warehouse will actually run, which matters here more
+than on any other connector: dropping or flipping a predicate on a partitioned
+table changes what the scan prunes, so a mutant can legitimately cost more than
+the model it came from and pricing the batch at the baseline's cost would
+under-report it. The breakdown names `(baseline)` and each mutant by id, so one
+`--budget` covers the run and the caller sees where it goes. Unit tests read
+fixtures rather than the warehouse and are not priced. If the confirmed budget
+runs out partway, the run stops and the remaining mutants come back `not_run`.
+Nothing is materialized: mutants build as ephemeral models, so no table or view
+is created in `bigquery.dev_dataset` and none of the run needs cleaning up.
+
+Comparing each survivor with the unmutated model on the dev data is opt-in here,
+with `--check-equivalence`, and goes into the same estimate rather than a second
+ask. The comparison is dry-run priced once as the self-check and once per mutant
+with the mutant spliced in, since a mutant that widens a partition scan widens
+its comparison too. It is priced as if every mutant survives, as
+`(equivalence checks, if every mutant survives)`, and only survivors run one,
+so the settled spend is at most that line. Each comparison is one statement, and
+the 10 MB per-query minimum applies to each. A comparison the dry run refuses
+turns the check off with a reason, before anything is spent. Without the flag,
+survivors report `equivalence.status: not_checked`.
+
+With `--downstream`, the tests of the models that read the mutated one run
+against each mutant too, routed through those models as ephemeral, so nothing
+is materialized there either. It is opt-in here because each downstream test
+recomputes the chain beneath it, and it is priced into the same single estimate:
+each mutant's line grows by the downstream tests it will run.
+Each downstream test is dry-run priced with the mutant spliced in beneath the
+models it reads, so the estimate is exact, and the 10 MB per-query minimum
+applies to each.
+
+
+
+With `--layered-schemas`, the scaffolded `generate_schema_name` override makes
+each layer build into its own sibling dataset in the profile's project
+(`staging_dev`, `intermediate_dev`, `marts_dev` on the `dev` target);
+dbt-bigquery creates them on first build. Init's content preflight lists each
+target dataset through the free `tables.list` metadata API (never
+`INFORMATION_SCHEMA`, which bills a minimum per query) and warns when one
+already holds tables or views.
+
+## JSON quirks
+
+Two BigQuery behaviors cost real debugging time when modeling JSON with
+dynamic (data-dependent) keys, the shape NoSQL-sourced CDC exports land in:
+
+- A JSON function's path argument must be a compile-time literal; building it
+  per row (string concatenation into `JSON_QUERY`) is rejected at compile
+  time. The subscript operator on the JSON value (`doc[key_expr]`) accepts a
+  computed key.
+- `JSON_KEYS` recurses into nested objects by default, silently returning
+  nested field names alongside the real top-level keys; pass an explicit
+  depth (`JSON_KEYS(doc, 1)`) to stop it. The symptom of the default is
+  quiet: extra rows that orphan a downstream join.
+
+The shipped `unpivot_json_object` macro (`transform macro unpivot_json_object`)
+bakes both fixes in; prefer it to hand-rolling this pattern.

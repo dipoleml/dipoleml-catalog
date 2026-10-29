@@ -1,0 +1,81 @@
+version: 2
+
+project_name: tld
+
+before:
+  hooks:
+    - go mod tidy
+    - >-
+      sh -c 'sed "s/Version = \".*\"/Version = \"{{ .Version }}\"/" cmd/version/version.go > cmd/version/version.go.tmp && mv cmd/version/version.go.tmp cmd/version/version.go'
+    - npm --prefix frontend version --no-git-tag-version --allow-same-version {{ .Version }}
+    - npm --prefix frontend ci
+    - npm --prefix frontend run build:app
+
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+    main: ./cmd/tld/main.go
+    binary: tld
+    tags:
+      - '{{ trim (mustReadFile ".go-build-tags") }}'
+    ldflags:
+      - -s -w -X github.com/mertcikla/tld/v2/cmd/version.Version={{.Version}}
+    hooks:
+      post:
+        # Signing must finish before GoReleaser creates archives and checksums.
+        # Snapshots remain usable locally without Apple credentials.
+        - cmd: '{{ if and (eq .Os "darwin") (not .IsSnapshot) }}bash scripts/ci/sign-notarize-cli.sh "{{ .Path }}"{{ else }}true{{ end }}'
+          output: true
+
+archives:
+  - formats:
+      - tar.gz
+    name_template: >-
+      {{ .ProjectName }}_
+      {{- title .Os }}_
+      {{- if eq .Arch "amd64" }}x86_64
+      {{- else if eq .Arch "386" }}i386
+      {{- else }}{{ .Arch }}{{ end }}
+      {{- if .Arm }}v{{ .Arm }}{{ end }}
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+
+homebrew_casks:
+  - repository:
+      owner: Mertcikla
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"
+    # Never publish prereleases (e.g. v2.3.4-beta.1) to the tap.
+    skip_upload: auto
+    binaries:
+      - tld
+    homepage: "https://tldiagram.com"
+    description: "CLI for the tlDiagram architecture diagramming system"
+    license: "Apache 2.0"
+
+checksum:
+  name_template: 'checksums.txt'
+
+release:
+  # Tags like v2.3.4-beta.1 must not hijack /releases/latest or install scripts.
+  # auto marks any tag with a prerelease indicator (e.g. -beta, -rc) as a GitHub prerelease.
+  prerelease: auto
+
+snapshot:
+  version_template: "{{ incpatch .Version }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'

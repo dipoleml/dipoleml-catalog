@@ -1,0 +1,4 @@
+interface:
+  display_name: "API Security Automation"
+  short_description: "REST/GraphQL/gRPC testing with OWASP API Top 10 coverage"
+  default_prompt: "Use $api-security-automation to assess APIs with authenticated, scoped, evidence-backed checks."

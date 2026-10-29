@@ -1,0 +1,4 @@
+interface:
+  display_name: "Gemini Tool Orchestrator"
+  short_description: "Drive nmap/nuclei/ffuf/semgrep/trivy pipelines from natural language"
+  default_prompt: "Use $gemini-tool-orchestrator to plan and run a safe, scoped security tool pipeline."

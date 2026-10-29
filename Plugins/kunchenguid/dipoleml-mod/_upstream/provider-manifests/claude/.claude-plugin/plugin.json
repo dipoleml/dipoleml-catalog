@@ -1,0 +1,69 @@
+{
+  "name": "compact-adviser",
+  "version": "0.1.14",
+  "license": "MIT",
+  "description": "Suggests (or, opt-in, runs) /compact at a completed checkpoint, judged by TypeSafe Jev. Its hooks module activates only when CLAUDE_CODE_ENABLE_FUNCTION_HOOKS is exactly 1 and is otherwise a complete no-op.",
+  "author": {
+    "name": "Kun Chen"
+  },
+  "homepage": "https://github.com/kunchenguid/compact-adviser#readme",
+  "repository": "https://github.com/kunchenguid/compact-adviser",
+  "keywords": [
+    "compact",
+    "context",
+    "context-management",
+    "checkpoint",
+    "productivity"
+  ],
+  "userConfig": {
+    "mode": {
+      "type": "string",
+      "title": "Mode",
+      "description": "hint shows advice; auto compacts at eligible checkpoints after a first-use confirmation from /compact-adviser; off disables the adviser (Claude Code's own auto-compact is unaffected).",
+      "options": [
+        "hint",
+        "auto",
+        "off"
+      ],
+      "default": "hint"
+    },
+    "minContextTokens": {
+      "type": "number",
+      "title": "Minimum context (tokens)",
+      "description": "A constant token count, not a percentage; no judgment below it.",
+      "default": 40000,
+      "min": 1
+    },
+    "contextBudgetTokens": {
+      "type": "number",
+      "title": "Context budget (tokens)",
+      "description": "Optional. The context size you want compacted by: the hint floor relaxes as the context approaches the smaller of it and Claude Code's auto-compact point (or the window). 0 turns it off.",
+      "default": 0,
+      "min": 0
+    },
+    "logRequests": {
+      "type": "boolean",
+      "title": "Log TypeSafe requests",
+      "description": "When on, each TypeSafe/Jev request and sanitized Jev outcome is appended to ~/.claude/compact-adviser-requests-<session-id>.jsonl. Off by default. Never logs the API key.",
+      "default": false
+    },
+    "profile": {
+      "type": "string",
+      "title": "Judge profile JSON",
+      "description": "Optional version-1 judge profile JSON. Empty uses shipped defaults. Invalid profiles disable advice. This does not grant auto consent.",
+      "default": ""
+    },
+    "beforeCompactPrompt": {
+      "type": "string",
+      "title": "Before-compact prompt",
+      "description": "Optional. Empty keeps automatic compaction immediate. In confirmed auto mode, a non-empty value runs as one turn, then compaction runs if that turn ends in a settled answer. A value that starts with / is a slash command (for example /stow); Claude Code does not expand slash commands or @file mentions in a plugin prompt, and it rejects a plugin prompt that starts with /. If you send your own prompt or run a command in between, or that turn is interrupted, errors, or does not finish within 5 minutes, nothing is compacted.",
+      "default": ""
+    },
+    "typesafeApiKey": {
+      "type": "string",
+      "title": "TypeSafe API key",
+      "description": "Saved from /compact-adviser. Hidden in /config so the value is never shown. A non-empty TYPESAFE_API_KEY in the launch environment wins. Do not commit this value.",
+      "default": ""
+    }
+  }
+}

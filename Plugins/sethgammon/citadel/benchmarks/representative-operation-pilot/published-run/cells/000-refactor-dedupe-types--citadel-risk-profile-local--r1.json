@@ -1,0 +1,201 @@
+{
+  "schema": 1,
+  "cell_id": "000-refactor-dedupe-types--citadel-risk-profile-local--r1",
+  "order": 0,
+  "scenario_id": "refactor-dedupe-types",
+  "task_class": "behavior-preserving-refactor",
+  "policy_id": "citadel-risk-profile-local",
+  "repetition": 1,
+  "route": {
+    "initial_tier": "cheap",
+    "escalation_tier": "strong",
+    "reason_code": "RISK_BOUNDED_CHEAP_THEN_VERIFY"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "cheap",
+      "started_at": "2026-08-01T05:13:04.862Z",
+      "duration_ms": 28297,
+      "output_text": "{\n  \"files\": {\n    \"src/dedupe.js\": \"'use strict';\\n\\nfunction dedupe(values) {\\n  return [...new Set(values.map(String))].map(JSON.parse);\\n}\\n\\nmodule.exports = { dedupe };\"\n  }\n}",
+      "output_digest": "sha256:df64686e97e8c0241e40adc2ebae1c22da30b227d57f679c5d7d6480d05553ef",
+      "verification": {
+        "status": "failed",
+        "code": "REPOSITORY_VERIFIER_FAILED",
+        "changed_paths": [
+          "src/dedupe.js"
+        ],
+        "applied_file_digests": {
+          "src/dedupe.js": "sha256:0faa54d939e08b247cf889cb861929f76cdd47b4e038487c51076496346cf6d1"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 1,
+          "signal": null,
+          "stdout": "",
+          "stderr": "node:assert:95\r\n  throw new AssertionError(obj);\r\n  ^\r\n\r\nAssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:\r\n+ actual - expected\r\n\r\n  [\r\n    1,\r\n-   '1',\r\n    2\r\n  ]\r\n\r\n    at Object.<anonymous> (F:\\Temp\\citadel-representative-refactor-dedupe-types-qT5Dd2\\test.js:4:8)\r\n    at Module._compile (node:internal/modules/cjs/loader:1730:14)\r\n    at Object..js (node:internal/modules/cjs/loader:1895:10)\r\n    at Module.load (node:internal/modules/cjs/loader:1465:32)\r\n    at Function._load (node:internal/modules/cjs/loader:1282:12)\r\n    at TracingChannel.traceSync (node:diagnostics_channel:322:14)\r\n    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)\r\n    at Module.require (node:internal/modules/cjs/loader:1487:12)\r\n    at require (node:internal/modules/helpers:135:16)\r\n    at Object.<anonymous> (F:\\Temp\\citadel-representative-refactor-dedupe-types-qT5Dd2\\verifier.js:2:1) {\r\n  generatedMessage: true,\r\n  code: 'ERR_ASSERTION',\r\n  actual: [ 1, 2 ],\r\n  expected: [ 1, '1', 2 ],\r\n  operator: 'deepStrictEqual'\r\n}\r\n\r\nNode.js v22.17.1\r\n",
+          "error": null
+        },
+        "patch_digest": "sha256:e0fb7a388ba9f184fe8b9123ed21d47ee93857b3d6b824e27e09dfb661b6afae"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "ollama-chat",
+        "requested_model": "qwen2.5-coder:3b",
+        "observed_model": "qwen2.5-coder:3b",
+        "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+        "done_reason": "stop",
+        "response_digest": "sha256:2ab262dd4a7ac9ac4da942e886917b3661204460efc9118f03d7255e56e142b4",
+        "error": null
+      },
+      "usage": {
+        "prompt_tokens": 218,
+        "completion_tokens": 58,
+        "total_tokens": 276,
+        "provider_total_duration_ns": 28293091300
+      },
+      "economics": {
+        "provider_invoice": {
+          "status": "known",
+          "amount_usd": 0,
+          "source": "self_hosted_ollama_no_per_request_invoice"
+        },
+        "gpu_energy": {
+          "status": "measured",
+          "energy_kwh": 0.00028226,
+          "samples": 56,
+          "average_watts": 35.909643
+        },
+        "comparison_cost": {
+          "status": "derived-comparison",
+          "total_usd": 0.000135055,
+          "components": [
+            {
+              "kind": "gpu_electricity",
+              "status": "derived-comparison",
+              "amount_usd": 0.000056452,
+              "source": "average_gpu_power_times_request_wall_duration_times_frozen_rate"
+            },
+            {
+              "kind": "gpu_amortization",
+              "status": "derived-comparison",
+              "amount_usd": 0.000078603,
+              "source": "request_wall_duration_times_frozen_residual_value"
+            }
+          ]
+        },
+        "actual_end_to_end_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "whole_system_energy_setup_and_observed_utility_rate_not_measured"
+        }
+      }
+    },
+    {
+      "attempt": 2,
+      "tier": "strong",
+      "started_at": "2026-08-01T05:13:33.406Z",
+      "duration_ms": 43899,
+      "output_text": "{\n  \"files\": {\n    \"src/dedupe.js\": \"function dedupe(values) {\\n  const seen = new Map();\\n  return values.filter(value => {\\n    const key = typeof value === 'object' ? JSON.stringify(value) : String(value);\\n    if (seen.has(key)) {\\n      return false;\\n    }\\n    seen.set(key, true);\\n    return true;\\n  });\\n}\\n\\nmodule.exports = { dedupe };\"\n  }\n}",
+      "output_digest": "sha256:316d6d670570abc0f7a3a76e81b69d75f40bd9136a2d17720ea7b7ce6a472f55",
+      "verification": {
+        "status": "failed",
+        "code": "REPOSITORY_VERIFIER_FAILED",
+        "changed_paths": [
+          "src/dedupe.js"
+        ],
+        "applied_file_digests": {
+          "src/dedupe.js": "sha256:af90c24c356721db02bef88274208419a734652417231e741b9a29a15eb6e129"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 1,
+          "signal": null,
+          "stdout": "",
+          "stderr": "node:assert:95\r\n  throw new AssertionError(obj);\r\n  ^\r\n\r\nAssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:\r\n+ actual - expected\r\n\r\n  [\r\n    1,\r\n-   '1',\r\n    2\r\n  ]\r\n\r\n    at Object.<anonymous> (F:\\Temp\\citadel-representative-refactor-dedupe-types-xHFwLI\\test.js:4:8)\r\n    at Module._compile (node:internal/modules/cjs/loader:1730:14)\r\n    at Object..js (node:internal/modules/cjs/loader:1895:10)\r\n    at Module.load (node:internal/modules/cjs/loader:1465:32)\r\n    at Function._load (node:internal/modules/cjs/loader:1282:12)\r\n    at TracingChannel.traceSync (node:diagnostics_channel:322:14)\r\n    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)\r\n    at Module.require (node:internal/modules/cjs/loader:1487:12)\r\n    at require (node:internal/modules/helpers:135:16)\r\n    at Object.<anonymous> (F:\\Temp\\citadel-representative-refactor-dedupe-types-xHFwLI\\verifier.js:2:1) {\r\n  generatedMessage: true,\r\n  code: 'ERR_ASSERTION',\r\n  actual: [ 1, 2 ],\r\n  expected: [ 1, '1', 2 ],\r\n  operator: 'deepStrictEqual'\r\n}\r\n\r\nNode.js v22.17.1\r\n",
+          "error": null
+        },
+        "patch_digest": "sha256:f8fb38554c45de76a1a28e40d409fabd16da9c06feff66584a6a09f153d4e255"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "ollama-chat",
+        "requested_model": "qwen2.5-coder:7b",
+        "observed_model": "qwen2.5-coder:7b",
+        "model_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+        "done_reason": "stop",
+        "response_digest": "sha256:c4c9f2d6df9378e9a95601b05dc50b10262f51d9e60146b4374e4da28eb89857",
+        "error": null
+      },
+      "usage": {
+        "prompt_tokens": 218,
+        "completion_tokens": 108,
+        "total_tokens": 326,
+        "provider_total_duration_ns": 43897128200
+      },
+      "economics": {
+        "provider_invoice": {
+          "status": "known",
+          "amount_usd": 0,
+          "source": "self_hosted_ollama_no_per_request_invoice"
+        },
+        "gpu_energy": {
+          "status": "measured",
+          "energy_kwh": 0.000705423,
+          "samples": 87,
+          "average_watts": 57.849195
+        },
+        "comparison_cost": {
+          "status": "derived-comparison",
+          "total_usd": 0.000263026,
+          "components": [
+            {
+              "kind": "gpu_electricity",
+              "status": "derived-comparison",
+              "amount_usd": 0.000141085,
+              "source": "average_gpu_power_times_request_wall_duration_times_frozen_rate"
+            },
+            {
+              "kind": "gpu_amortization",
+              "status": "derived-comparison",
+              "amount_usd": 0.000121942,
+              "source": "request_wall_duration_times_frozen_residual_value"
+            }
+          ]
+        },
+        "actual_end_to_end_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "whole_system_energy_setup_and_observed_utility_rate_not_measured"
+        }
+      }
+    }
+  ],
+  "status": "failed",
+  "final_verification": {
+    "status": "failed",
+    "code": "REPOSITORY_VERIFIER_FAILED",
+    "changed_paths": [
+      "src/dedupe.js"
+    ],
+    "applied_file_digests": {
+      "src/dedupe.js": "sha256:af90c24c356721db02bef88274208419a734652417231e741b9a29a15eb6e129"
+    },
+    "verifier": {
+      "command": "node verifier.js",
+      "status": 1,
+      "signal": null,
+      "stdout": "",
+      "stderr": "node:assert:95\r\n  throw new AssertionError(obj);\r\n  ^\r\n\r\nAssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:\r\n+ actual - expected\r\n\r\n  [\r\n    1,\r\n-   '1',\r\n    2\r\n  ]\r\n\r\n    at Object.<anonymous> (F:\\Temp\\citadel-representative-refactor-dedupe-types-xHFwLI\\test.js:4:8)\r\n    at Module._compile (node:internal/modules/cjs/loader:1730:14)\r\n    at Object..js (node:internal/modules/cjs/loader:1895:10)\r\n    at Module.load (node:internal/modules/cjs/loader:1465:32)\r\n    at Function._load (node:internal/modules/cjs/loader:1282:12)\r\n    at TracingChannel.traceSync (node:diagnostics_channel:322:14)\r\n    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)\r\n    at Module.require (node:internal/modules/cjs/loader:1487:12)\r\n    at require (node:internal/modules/helpers:135:16)\r\n    at Object.<anonymous> (F:\\Temp\\citadel-representative-refactor-dedupe-types-xHFwLI\\verifier.js:2:1) {\r\n  generatedMessage: true,\r\n  code: 'ERR_ASSERTION',\r\n  actual: [ 1, 2 ],\r\n  expected: [ 1, '1', 2 ],\r\n  operator: 'deepStrictEqual'\r\n}\r\n\r\nNode.js v22.17.1\r\n",
+      "error": null
+    },
+    "patch_digest": "sha256:f8fb38554c45de76a1a28e40d409fabd16da9c06feff66584a6a09f153d4e255"
+  },
+  "previous_cell_digest": null,
+  "receipt_digest": "sha256:ff1f130f08396f797b80b95a61186057485347ac412ef6617a455d0987c3f537",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:f9db80926d6ed853bf99ae93578a5ac3b5cf594d99aab9b7fc2debf651d29134",
+    "signature": "kE4rHG+AyVW/cglQrrI60/fZCkxAVkbQ4IvErxlcm4srEon0jFwhQlNyujkEwVICCLYdQl4U4ZM+/Guw9kvnBg=="
+  }
+}

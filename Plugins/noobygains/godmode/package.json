@@ -1,0 +1,28 @@
+{
+  "name": "godmode",
+  "version": "2.1.2",
+  "description": "Engineering discipline for AI coding agents: skills for Claude Code, Codex, Antigravity, Cursor, OpenCode and Copilot CLI",
+  "type": "module",
+  "main": ".opencode/plugins/godmode.js",
+  "exports": {
+    ".": "./.opencode/plugins/godmode.js",
+    "./plugin": "./.opencode/plugins/godmode.js"
+  },
+  "author": "David Innes",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/NoobyGains/godmode.git"
+  },
+  "homepage": "https://github.com/NoobyGains/godmode",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "validate": "node scripts/validate.js",
+    "validate:ci": "node scripts/validate.js --ci",
+    "test": "node scripts/validate.js --ci && bash tests/test-hooks.sh && bash tests/test-bin.sh && bash tests/test-manifests.sh",
+    "bump": "node scripts/bump-version.js",
+    "assets": "python scripts/readme_assets.py"
+  }
+}

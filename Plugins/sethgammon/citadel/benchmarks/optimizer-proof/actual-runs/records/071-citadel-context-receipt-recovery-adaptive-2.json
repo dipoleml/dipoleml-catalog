@@ -1,0 +1,69 @@
+{
+  "schema": 1,
+  "evidence_kind": "actual-run",
+  "scenario_set_id": "optimizer-scenarios-sha256:602e496906f3a293203750602234ba88a55a86b9e4f54f32239264098dcebe5b",
+  "metric_set_id": "optimizer-metrics-sha256:bedffbda2b18d725610b0f294a8273ef908237fd957bf9e51a5af4885b123e4f",
+  "scenario_id": "citadel-context-receipt-recovery",
+  "category": "context_reset",
+  "holdout": false,
+  "policy_id": "adaptive",
+  "repetition": 2,
+  "decision_id": "sha256:adcada2dd71cc3a178987e27df9d70fb0bf5fc3a2f6692f538c57f1a24972f8b",
+  "selected_profile_id": "claude-frontier",
+  "observed_profile_id": "claude-frontier",
+  "requested_model": "claude-opus-5",
+  "observed_model": "claude-opus-5",
+  "model_proof_status": "passed",
+  "started_at": "2026-07-31T03:31:07.424Z",
+  "duration_ms": 1202746,
+  "outcome": "failed",
+  "verified": false,
+  "attempts": 1,
+  "human_interventions": 0,
+  "topology": "sequential-recovery",
+  "cost": {
+    "status": "known",
+    "amount_usd": 4.167313,
+    "provenance": "tool_reported",
+    "source": "citadel_optimizer_runner",
+    "source_ref": "summed_attempts:1",
+    "pricing_snapshot_digest": null,
+    "components": [
+      {
+        "kind": "model",
+        "amount_usd": 4.1673134,
+        "source": "attempt_1:claude total_cost_usd"
+      }
+    ]
+  },
+  "artifact_paths": [
+    "core/forks/orchestrator.js"
+  ],
+  "verification_receipts": [
+    {
+      "attempt": 1,
+      "profile_id": "claude-frontier",
+      "status": "passed",
+      "exit_code": 0,
+      "timed_out": false,
+      "output_digest": "sha256:0676e1fef8b2b217ca748f6431dd436838a5a380516c810d6d34829cd3f3cb53",
+      "output_excerpt": "[stdout]\nOperation Fork executors passed: schema 2 bindings, same-runtime isolation, honest model proof, tamper rejection, legacy compatibility, and shell-free Windows launch.\n\n[stderr]\n",
+      "output_truncated": false,
+      "patch_exit_code": 0,
+      "patch_digest": "sha256:082c8b3d4bc7f5b443b10e86de2e4801947ca0dfac34ede06c3bcefcd0f1fadd",
+      "patch_excerpt": "diff --git a/core/forks/orchestrator.js b/core/forks/orchestrator.js\nindex a7f71e2..7b04af9 100644\n--- a/core/forks/orchestrator.js\n+++ b/core/forks/orchestrator.js\n@@ -161,6 +161,13 @@ function resumeFork(options) {\n   const objective = options.objective || readPrivate(projectRoot, fork.fork_id, 'objective.txt').trim();\n   const signingKey = options.signingKey || readPrivate(projectRoot, fork.fork_id, 'signing-key.pem');\n   const workflow = options.workflow || JSON.parse(readPrivate(projectRoot, fork.fork_id, 'workflow.json'));\n+  // Resume is the only path that can supply a workflow, so both shared digests are\n+  // re-checked before any branch runs: a substituted or drifted verifier would\n+  // otherwise produce evidence the fork's contract never authorized.\n+  if (operations.sha256Digest(workflow) !== fork.shared.workflow_digest\n+    || operations.sha256Digest(workflow.verifier) !== fork.shared.verifier_digest) {\n+    throw Object.assign(new Error('Workflow does not match fork contract'), { code: 'FORK_WORKFLOW_MISMATCH' });\n+  }\n   const profiles = loadExecutorProfiles(projectRoot, fork);\n \n   for (const branchSnapshot of [...fork.branches]) {\ndiff --git a/scripts/test-operation-fork.js b/scripts/test-operation-fork.js\nindex 9c367c7..306fae1 100644\n--- a/scripts/test-operation-fork.js\n+++ b/scripts/test-operation-fork.js\n@@ -119,6 +119,24 @@ assert.equal(resumed.fork.branches.find((branch) => branch.runtime === 'claude')\n assert.equal(resumed.fork.branches.find((branch) => branch.runtime === 'claude').failure_code, 'RUNTIME_EFFECT_AMBIGUOUS');\n assert.deepEqual(calls, ['codex'], 'ambiguous Claude effect must not run again');\n \n+const forgedWorkflow = { ...workflow, verifier: { command: process.execPath, args: ['-e', 'process.exit(1)'] } };\n+const beforeForged = forks.loadFork(project, 'fork-recovery');\n+assert.throws(() => forks.resumeFork({ projectRoot: project, forkId: 'fork-recovery', workflow: forgedWorkflow,\n+  worktreeRoot: worktrees, worktreeProvider: provider,\n+  runBranch: () => assert.fail('contract-mismatched workflow must not run a branch') }),\n+(error) => error.code === 'FORK_WORKFLOW_MISMATCH', 'resume must reject a workflow outside the shared contract');\n+assert.throws(() => forks.resumeFork({ projectRoot: project, forkId: 'fork-recovery',\n+  workflow: { ...workflow, id: 'workflow-drifted' },\n+  worktreeRoot: worktrees, worktreeProvider: provider,\n+  runBranch: () => assert.fail('drifted workflow must not run a branch') }),\n+(error) => error.code === 'FORK_WORKFLOW_MISMATCH', 'resume must reject a drifted workflow with the contract verifier');\n+const afterForged = forks.loadFork(project, 'fork-recovery');\n+assert.equal(afterForged.revision, beforeForged.revision, 'rejected resume must not write state');\n+assert.deepEqual(afterForged.branches.map((branch) => branch.status), beforeForged.branches.map((branch) => branch.status));\n+const reresumed = forks.resumeFork({ projectRoot: project, forkId: 'fork-recovery',\n+  worktreeRoot: worktrees, worktreeProvider: provider, runBranch: fakeRun });\n+assert.equal(reresumed.fork.revision, beforeForged.revision, 'durable contract workflow still resumes');\n+\n for (const branch of [...result.fork.branches, ...recovery.branches]) {\n   const target = provider.resolve(project, worktrees, branch.run_id.includes('recovery') ? 'fork-recovery' : 'fork-auth-race', branch.branch_id);\n   if (fs.existsSync(target)) git(project, ['worktree', 'remove', '--force', target]);\n",
+      "patch_truncated": false,
+      "changed_paths": [
+        "core/forks/orchestrator.js",
+        "scripts/test-operation-fork.js"
+      ]
+    }
+  ],
+  "receipt_status": "verified",
+  "adversarial_result": "unknown",
+  "failure_code": "EXPECTED_ARTIFACTS_NOT_CHANGED",
+  "attestation": {
+    "algorithm": "ed25519",
+    "signature_base64": "LMXrBmVu8EUyD1XXjTH47/lYkYtK9LMPZK75O575eIjUg5fBDiIIxaQXNpdnGBNMg5fEmMqWDwIVv9vhOS9sCg=="
+  }
+}

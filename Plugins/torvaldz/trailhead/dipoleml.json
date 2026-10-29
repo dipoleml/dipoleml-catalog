@@ -1,0 +1,116 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.torvaldz.trailhead",
+  "type": "plugin",
+  "name": "Trailhead",
+  "slug": "trailhead",
+  "vendor": "torvaldz",
+  "description": "Chart a project from a loose idea, then navigate it ticket by ticket on GitHub Issues.",
+  "version": "0.16.1",
+  "homepage": "https://github.com/ToRvaLDz/trailhead",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agent-skill",
+    "agentic",
+    "anthropic",
+    "claude-code-plugin",
+    "claude-code-skill",
+    "claude-plugin",
+    "codex",
+    "codex-cli",
+    "developer-tools"
+  ],
+  "tags": [
+    "agent-skill",
+    "agentic",
+    "ai-agents",
+    "anthropic",
+    "claude",
+    "claude-code",
+    "claude-code-plugin",
+    "claude-code-skill",
+    "claude-plugin",
+    "codex",
+    "codex-cli",
+    "developer-tools",
+    "github-issues",
+    "openai",
+    "openai-codex",
+    "orchestration",
+    "planning",
+    "project-management"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "github",
+    "brandName": "github",
+    "source": "https://cdn.simpleicons.org/github",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:15:09Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "ToRvaLDz/trailhead",
+    "url": "https://github.com/ToRvaLDz/trailhead",
+    "commit": "b5162162ff75bc8fc88b97af2d9f40ef281d379a",
+    "path": "plugins/trailhead",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 30,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:06:06Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

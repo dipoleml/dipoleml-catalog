@@ -1,0 +1,16 @@
+{
+  "name": "alcoa-guard",
+  "displayName": "Alcoa Guard",
+  "version": "0.1.0",
+  "description": "Deterministic ALCOA+ data-integrity linter for a record/dataset: checks Attributable / Contemporaneous / Complete / Accurate / Consistent in code, and surfaces the human-judgment slice (authorization, gap justification) as a 【待補】 checklist it never auto-concludes. DEGRADED mode lints any CSV/JSON record against a declared contract; FULL mode snaps onto an agentic-sop-kit run dir. The report is a DRAFT — a human owns the verdict. Domain-neutral engine, GMP-flavored ruleset. Pure stdlib.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "S0912758806p"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/s0912758806p/agentic-sop-to-work",
+  "repository": "https://github.com/s0912758806p/agentic-sop-to-work",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,214 @@
+#!/usr/bin/env bash
+# octo-compress — Standalone token compression CLI (v9.20.0)
+# Pipe tool output through this to compress before it enters context.
+#
+# Usage:
+#   some_command | octo-compress              # Auto-detect and compress
+#   octo-compress json < data.json            # Force JSON mode
+#   octo-compress logs < build.log            # Force log mode
+#   octo-compress html < page.html            # Force HTML mode
+#   octo-compress stats                       # Show session savings
+#   octo-compress config                      # Show current config
+#
+# In bash commands:  npm install 2>&1 | octo-compress
+# ═══════════════════════════════════════════════════════════════════════════════
+
+set -euo pipefail
+
+MODE="${1:-auto}"
+MIN_CHARS="${OCTOPUS_COMPRESS_MIN_CHARS:-1000}"
+MIN_ARRAY_ITEMS="${OCTOPUS_COMPRESS_MIN_ARRAY:-5}"
+ANALYTICS_DIR="${HOME}/.claude-octopus/analytics"
+ANALYTICS_FILE="${ANALYTICS_DIR}/compression.jsonl"
+
+# --- Subcommands ---
+case "$MODE" in
+    stats)
+        if [[ ! -f "$ANALYTICS_FILE" ]]; then
+            echo "No compression data yet."
+            exit 0
+        fi
+        session="${CLAUDE_CODE_SESSION_ID:-${CLAUDE_SESSION_ID:-}}"
+        if [[ -n "$session" ]]; then
+            filter=". | select(.session == \"$session\")"
+        else
+            filter="."
+        fi
+        if command -v jq &>/dev/null; then
+            total_saved=$(jq -s "[.[] | ${filter}] | map(.saved) | add // 0" "$ANALYTICS_FILE" 2>/dev/null)
+            total_events=$(jq -s "[.[] | ${filter}] | length" "$ANALYTICS_FILE" 2>/dev/null)
+            avg_ratio=$(jq -s "[.[] | ${filter}] | if length > 0 then (map(.ratio) | add / length | floor) else 0 end" "$ANALYTICS_FILE" 2>/dev/null)
+            echo "Compression Stats${session:+ (session: ${session:0:8}...)}:"
+            echo "  Events: ${total_events}"
+            echo "  Tokens saved: ~${total_saved}"
+            echo "  Avg compression: ${avg_ratio}%"
+            # Per-type breakdown
+            for t in json_array json_object logs html verbose; do
+                count=$(jq -s "[.[] | ${filter} | select(.type == \"$t\")] | length" "$ANALYTICS_FILE" 2>/dev/null)
+                [[ "$count" -gt 0 ]] && echo "  ${t}: ${count} events"
+            done
+        else
+            lines=$(wc -l < "$ANALYTICS_FILE" | tr -d ' ')
+            echo "Compression events: $lines (install jq for detailed stats)"
+        fi
+        exit 0
+        ;;
+    config)
+        echo "octo-compress configuration:"
+        echo "  Min chars: $MIN_CHARS"
+        echo "  Min array items: $MIN_ARRAY_ITEMS"
+        echo "  Analytics: $ANALYTICS_FILE"
+        echo "  Enabled: ${OCTOPUS_COMPRESS_ENABLED:-true}"
+        config_file="${HOME}/.claude-octopus/.compression-config.json"
+        if [[ -f "$config_file" ]]; then
+            echo "  Config file: $config_file"
+            cat "$config_file"
+        else
+            echo "  Config file: (none — using defaults)"
+        fi
+        exit 0
+        ;;
+    help|--help|-h)
+        echo "octo-compress — Token compression for Claude Code"
+        echo ""
+        echo "Usage: command | octo-compress [mode]"
+        echo ""
+        echo "Modes:"
+        echo "  auto    Auto-detect content type (default)"
+        echo "  json    Force JSON compression"
+        echo "  logs    Force log compression"
+        echo "  html    Force HTML tag stripping"
+        echo "  stats   Show compression statistics"
+        echo "  config  Show current configuration"
+        echo ""
+        echo "Examples:"
+        echo "  npm install 2>&1 | octo-compress"
+        echo "  curl -s api.example.com/data | octo-compress json"
+        echo "  cat build.log | octo-compress logs"
+        exit 0
+        ;;
+esac
+
+# --- Read stdin ---
+INPUT=""
+if [[ ! -t 0 ]]; then
+    INPUT=$(cat)
+fi
+
+if [[ -z "$INPUT" ]]; then
+    echo "octo-compress: no input (pipe data via stdin)" >&2
+    exit 1
+fi
+
+char_count=${#INPUT}
+line_count=$(echo "$INPUT" | wc -l | tr -d ' ')
+
+# Passthrough small inputs
+if [[ $char_count -lt $MIN_CHARS ]]; then
+    echo "$INPUT"
+    exit 0
+fi
+
+# --- Detect content type ---
+content_type="$MODE"
+if [[ "$content_type" == "auto" ]]; then
+    content_type="text"
+    if command -v jq &>/dev/null; then
+        jq_type=$(echo "$INPUT" | jq -r 'type' 2>/dev/null || echo "")
+        if [[ "$jq_type" == "array" ]]; then
+            content_type="json"
+        elif [[ "$jq_type" == "object" ]]; then
+            content_type="json"
+        fi
+    fi
+    if [[ "$content_type" == "text" ]] && echo "$INPUT" | head -3 | grep -qi '<html\|<!doctype'; then
+        content_type="html"
+    fi
+    if [[ "$content_type" == "text" && $line_count -gt 30 ]]; then
+        content_type="logs"
+    fi
+fi
+
+# --- Apply compression ---
+case "$content_type" in
+    json)
+        if command -v jq &>/dev/null; then
+            jq_type=$(echo "$INPUT" | jq -r 'type' 2>/dev/null || echo "unknown")
+            if [[ "$jq_type" == "array" ]]; then
+                arr_len=$(echo "$INPUT" | jq 'length' 2>/dev/null || echo 0)
+                if [[ $arr_len -le $MIN_ARRAY_ITEMS ]]; then
+                    echo "$INPUT"
+                    exit 0
+                fi
+                echo "$INPUT" | jq '{
+                    _octopus_compressed: true,
+                    total_items: length,
+                    sample_keys: (if length > 0 then (.[0] | keys? // []) else [] end),
+                    first_items: .[:3],
+                    last_items: .[-2:],
+                    summary: "\(length) items total — showing first 3 and last 2"
+                }'
+            elif [[ "$jq_type" == "object" ]]; then
+                key_count=$(echo "$INPUT" | jq 'keys | length' 2>/dev/null || echo 0)
+                if [[ $key_count -le 10 ]]; then
+                    echo "$INPUT"
+                    exit 0
+                fi
+                echo "$INPUT" | jq '{
+                    _octopus_compressed: true,
+                    total_keys: (keys | length),
+                    keys_preview: (keys[:15]),
+                    first_values: (to_entries[:5] | from_entries),
+                    summary: "\(keys | length) keys — showing first 15 keys and 5 values"
+                }'
+            else
+                echo "$INPUT"
+            fi
+        else
+            echo "$INPUT"
+        fi
+        ;;
+    html)
+        echo "[HTML compressed: ${char_count} chars → text extracted]"
+        echo "$INPUT" | sed 's/<style[^>]*>.*<\/style>//g; s/<script[^>]*>.*<\/script>//g; s/<[^>]*>//g' | sed '/^[[:space:]]*$/d' | head -50
+        [[ $line_count -gt 50 ]] && echo "[... $(( line_count - 50 )) lines omitted]"
+        ;;
+    logs)
+        echo "[Log compressed: ${line_count} lines, ${char_count} chars]"
+        echo "--- First 15 lines ---"
+        echo "$INPUT" | head -15
+        echo ""
+        echo "[... $(( line_count - 30 )) lines omitted ...]"
+        echo ""
+        echo "--- Last 15 lines ---"
+        echo "$INPUT" | tail -15
+        ;;
+    *)
+        # Generic text: head + tail
+        if [[ $line_count -gt 40 ]]; then
+            echo "[Output compressed: ${line_count} lines, ${char_count} chars]"
+            echo "--- First 20 lines ---"
+            echo "$INPUT" | head -20
+            echo ""
+            echo "[... $(( line_count - 40 )) lines omitted ...]"
+            echo ""
+            echo "--- Last 20 lines ---"
+            echo "$INPUT" | tail -20
+        else
+            echo "$INPUT"
+        fi
+        ;;
+esac
+
+# --- Log analytics ---
+after_chars=$(echo "$INPUT" | wc -c | tr -d ' ')
+before_tokens=$((char_count / 4))
+after_tokens=$((after_chars / 4))
+saved=$((before_tokens - after_tokens))
+[[ $saved -lt 0 ]] && saved=0
+ratio=0
+[[ $before_tokens -gt 0 ]] && ratio=$(( (saved * 100) / before_tokens ))
+
+mkdir -p "$ANALYTICS_DIR"
+echo "{\"ts\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\",\"session\":\"${CLAUDE_CODE_SESSION_ID:-${CLAUDE_SESSION_ID:-cli}}\",\"type\":\"${content_type}\",\"before\":${before_tokens},\"after\":${after_tokens},\"saved\":${saved},\"ratio\":${ratio}}" \
+    >> "$ANALYTICS_FILE" 2>/dev/null || true

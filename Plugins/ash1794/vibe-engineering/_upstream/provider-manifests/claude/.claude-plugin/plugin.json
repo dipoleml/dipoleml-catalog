@@ -1,0 +1,26 @@
+{
+  "name": "vibe-engineering",
+  "description": "33 engineering discipline skills for Claude Code, OpenAI Codex & Gemini CLI — research, quality gates, reward-hacking checks, testing patterns, deployment, gap analysis, spec sync, and more. Extracted from real-world development.",
+  "version": "2.3.0",
+  "author": {
+    "name": "Ashwin K",
+    "email": "ash1794@gmail.com"
+  },
+  "homepage": "https://github.com/ash1794/vibe-engineering",
+  "repository": "https://github.com/ash1794/vibe-engineering",
+  "license": "MIT",
+  "keywords": [
+    "skills",
+    "engineering",
+    "quality",
+    "testing",
+    "debugging",
+    "deployment",
+    "tdd",
+    "code-review",
+    "best-practices",
+    "workflows",
+    "vibe-coding",
+    "discipline"
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "name": "resume-forge",
+  "displayName": "Resume Forge",
+  "version": "0.8.3",
+  "description": "Record, build, tailor, and review resumes in a single-column ATS-safe house style: keeps an honest experience record the user owns, generates a formatted Google Doc from that record, an interview, or an existing resume file, aims a copy at a specific job description, and audits any resume against a pre-submission checklist without ever inventing achievements.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Huskar20"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/huskar20/huskar20-plugins",
+  "repository": "https://github.com/huskar20/huskar20-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

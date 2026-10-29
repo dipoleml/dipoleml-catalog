@@ -1,0 +1,449 @@
+#!/usr/bin/env python3
+"""chamnan-candidates — review what the workflow detector has found, quickly.
+
+`notice_workflow()` already writes one file per repeated command sequence under
+`.chamnan/candidates/` (see lib/candidates.py) the moment it crosses the detection threshold. This
+is the other half: looking at what accumulated, and deciding what to do with each one.
+
+  chamnan-candidates                       list what is waiting (same as `list`, `--list`, `-l`)
+  chamnan-candidates confirm <id>          mark its evidence reviewed (Status -> confirmed)
+  chamnan-candidates reject <id>           delete it — not a routine worth keeping
+  chamnan-candidates edit <id>             print the file's path, to open and adjust by hand
+  chamnan-candidates promote <id>          suggest where a CONFIRMED candidate belongs, decide nothing
+  chamnan-candidates promote <id> tool <name>   install a script SKELETON in .chamnan/tools/<name>
+  chamnan-candidates promote <id> skill         print what to hand to /chamnan:capture
+  chamnan-candidates demote <tool-name>         undo a tool promotion — flagged too often, send it back
+
+<id> (for confirm/reject/edit/promote) is either a candidate's position in the list above
+(1, 2, 3 — computed fresh each time, not cached from an earlier call) or its slug/filename, with or
+without `.md`. `demote` takes a TOOL's name instead — from `.chamnan/tools/`, or from the notice
+that suggested it (`chamnan-candidates demote deploy-check.sh`).
+
+**`confirm` does not promote anything into `skills/` or `tools/`.** It only records that a human
+looked at the candidate and thinks the routine is real — moving Status from `observed` to
+`confirmed`. Provenance stays visible beside that decision. `promote` requires that step to have
+already happened; it refuses an unconfirmed
+candidate rather than skip a link in evidence -> candidate -> human confirm -> memory.
+
+**Promoting to `tool` never writes real commands, because chamnan does not have them.** A
+candidate stores SIGNATURES (`git commit`, not the literal command that ran) — `promote ... tool`
+writes a skeleton with each step as a labelled placeholder and registers it in
+`.chamnan/tools/index.json` via the same machinery `chamnan-promote` uses, but the file is not
+runnable until you fill in the real commands. **Promoting to `skill` writes nothing at all** — a
+good skill needs prose explaining WHY, which this tool cannot honestly generate from a signature
+list, so it prints the sequence as a starting point and tells you to run `/chamnan:capture`
+yourself.
+"""
+import stat
+import sys
+from datetime import datetime
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent / "lib"))
+import candidates  # noqa: E402
+import tools_index  # noqa: E402
+import workspace as ws  # noqa: E402
+import redact  # noqa: E402
+import memory  # noqa: E402
+
+# Every `bin/` command shadows print with the scrubbing emitter, whether or not its output looks
+# like it could carry a secret today. Five findings running came from one store having a guarded
+# reader and an unguarded one, and the case-by-case judgement about which commands "only print
+# numbers" is exactly the judgement that was wrong each time. Uniform is cheaper to keep true than
+# correct-per-file. See redact.emit.
+print = redact.emit  # noqa: A001
+
+# A candidate must have passed through `confirm` (or been written by a human in the first place)
+# before `promote` will touch it -- the pipeline is evidence -> candidate -> human confirm ->
+# memory, and skipping the confirm step here would skip a link in it, not just a formality.
+CONFIRMED_PROVENANCE = ("ai-confirmed", "user")
+
+
+def _title(path):
+    # 🐛 [2026-09-13] `candidates.fields_of` reads the same file the same way and already guards
+    # this against OSError, returning a degraded value rather than raising -- this copy did not,
+    # so a candidate removed between `resolve()` and here (the background hook's own dedup unlink,
+    # or a second `chamnan-candidates` command racing this one) crashed `list`, `confirm`, `reject`
+    # and `promote` alike with a raw errno instead of the fallback title the function already has
+    # for a file with no `# ` heading. `path.stem` is that same fallback, not a new one.
+    try:
+        text = path.read_text(encoding="utf-8-sig", errors="replace")
+    except OSError:
+        return path.stem
+    for line in text.splitlines():
+        if line.startswith("# "):
+            return line[2:].strip()
+    return path.stem
+
+
+def cmd_list(root):
+    found = candidates.entries(root)
+    if not found:
+        print("chamnan: no candidates waiting for review")
+        return 0
+    print(f"{len(found)} candidate(s) waiting\n")
+    for i, p in enumerate(found, 1):
+        f = candidates.fields_of(p)
+        print(f"[{i}] {_title(p)}")
+        print(f"    observed {f.get('observed', '?')} time(s) · last seen {f.get('last seen', '?')} "
+              f"· {candidates.status_of(f)} · {f.get('provenance', '?')}")
+    # 🐛 [2026-09-08] Same gap as threads/ and sessions/, and the mildest of the three: this store
+    # is not injected into a session, so a person has to run this command before a collapsing pair
+    # does any harm. Warned anyway -- the call is already computed elsewhere and four lines here is
+    # cheaper than being the one member of the set that was left out again.
+    clash = memory.case_collisions(found)
+    for group in clash:
+        names = ", ".join(g.name for g in group)
+        print(f"\n  warning: {names} differ only by case or Unicode normalisation. A "
+              f"case-insensitive filesystem keeps ONE of them; rename one before confirming "
+              f"either.")
+    print("\nconfirm/reject/edit by number or by name — see `chamnan-candidates --help`")
+    return 0
+
+
+def _find_or_complain(root, ident):
+    p = candidates.resolve(root, ident)
+    if p is None:
+        print(f"chamnan: no candidate matches {ident!r} — run `chamnan-candidates` to list them",
+              file=sys.stderr)
+    return p
+
+
+def cmd_confirm(root, ident):
+    if ws.refuse_to_write():
+        return 1
+    p = _find_or_complain(root, ident)
+    if p is None:
+        return 1
+    candidates.set_status(p, "confirmed")
+    # Retained for older readers whose only status signal is provenance. New readers use Status,
+    # and the two fields on disk make the observed evidence distinct from the awarded adjective.
+    candidates.set_provenance(p, "ai-confirmed")
+    print(f"chamnan: confirmed — {_title(p)}")
+    print(f"  Status -> confirmed; evidence remains observed separately. To keep it, run:")
+    print(f"    chamnan-promote <script-file> <name>   (a tool)")
+    print(f"    /chamnan:capture                        (a written-out procedure)")
+    return 0
+
+
+def cmd_reject(root, ident):
+    if ws.refuse_to_write():
+        return 1
+    p = _find_or_complain(root, ident)
+    if p is None:
+        return 1
+    title = _title(p)
+    p.unlink()
+    print(f"chamnan: rejected and removed — {title}")
+    return 0
+
+
+def cmd_edit(root, ident):
+    p = _find_or_complain(root, ident)
+    if p is None:
+        return 1
+    print(p.relative_to(root).as_posix())
+    return 0
+
+
+def _sequence_of(fields):
+    return [s.strip() for s in fields.get("sequence", "").split(",") if s.strip()]
+
+
+def cmd_promote(root, ident, destination=None, name=None):
+    if ws.refuse_to_write():
+        return 1
+    p = _find_or_complain(root, ident)
+    if p is None:
+        return 1
+    fields = candidates.fields_of(p)
+    title = _title(p)
+    sequence = _sequence_of(fields)
+
+    if candidates.status_of(fields) != "confirmed":
+        print(f"chamnan: {title!r} has not been confirmed yet — run "
+              f"`chamnan-candidates confirm {ident}` first", file=sys.stderr)
+        return 1
+
+    if destination is None:
+        # No real signal exists to choose confidently from a signature list alone -- a candidate
+        # stores WHAT ran, never why, so this is a stated default with an honest caveat, never a
+        # score dressed up as a decision. See PLAN.md's standing rejection of invented Health/
+        # Confidence scores; the same objection applies here.
+        print(f"chamnan: {title}")
+        print("  Suggested: tool — this is a sequence of shell commands, which is what a tool is.")
+        print("  Choose skill instead if the real value is explaining WHY, or a judgement call at")
+        print("  one of the steps — chamnan cannot tell that from the sequence alone; you can.")
+        print(f"\n  chamnan-candidates promote {ident} tool <name>")
+        print(f"  chamnan-candidates promote {ident} skill")
+        return 0
+
+    if destination == "tool":
+        if not name:
+            print("chamnan: promote ... tool needs a name — chamnan-candidates promote <id> tool <name>",
+                  file=sys.stderr)
+            return 2
+        safe = ws.safe_tool_name(name)
+        if safe is None:
+            print(f"chamnan: {name!r} is not a usable tool name — it has to be a plain filename,\n"
+                  "  no directory separators, and no leading dot or dash. The registry stores the bare\n"
+                  "  name, so a path here would leave an entry pointing at a file nothing can find.",
+                  file=sys.stderr)
+            return 2
+        try:
+            tools = ws.ensure(root) / "tools"
+        except ws.NotAWorkspace as err:
+            print(f"chamnan: {err}", file=sys.stderr)
+            return 1
+        dest = tools / (safe if Path(safe).suffix else safe + ".sh")
+        # The sibling of the refusal in `chamnan-promote`, and it had the same defect: a file
+        # already sitting in `.chamnan/tools/` could never be registered, because the only command
+        # that registers refused it for being where it belongs. This one WRITES a fresh skeleton
+        # rather than copying an existing file, so "already there" really is a name collision here
+        # and refusing stays right — but the message has to say WHY, or it reads as the same dead
+        # end (2026-09-08).
+        if dest.exists():
+            print(f"chamnan: {dest.name} already exists — this writes a new skeleton, so pick "
+                  f"another name. To register a script already in .chamnan/tools/, run "
+                  f"`chamnan-promote .chamnan/tools/{dest.name} {dest.stem} --desc \"...\"`.",
+                  file=sys.stderr)
+            return 1
+        # 🐛 SHELL INJECTION, reproduced end to end. `step` comes from a candidate file's
+        # `**Sequence:**` field, and a candidate that reaches disk by any route other than
+        # `candidates.render()` — a hand edit, a merge, a stale checkout — carries whatever it likes.
+        # It was spliced into a DOUBLE-QUOTED echo inside a script this command then chmod +x's and
+        # invites you to run, so `$(touch /tmp/x)` in a step became a command substitution the shell
+        # executed. Step 1's `exit 1` hid it only until somebody did what the file tells them to do
+        # and replaced that line; then it fired. Proved with a real payload creating a real file
+        # (R20 agent 2).
+        #
+        # Not escaped — quoted by the language that owns the quoting. `shlex.quote` produces a
+        # single-quoted literal that no shell interprets, so the step is DATA in the generated
+        # script exactly as it was data in the candidate. Escaping by hand is how this class of bug
+        # is written a second time.
+        import shlex
+        lines = ["#!/bin/bash",
+                 f"# {dest.stem} — generated from a confirmed candidate, not a real script yet.",
+                 "# Detected sequence (observed "
+                 f"{shlex.quote(str(fields.get('observed', '?')))} time(s)): "
+                 + ", ".join(shlex.quote(x) for x in sequence),
+                 "# Replace every placeholder below with the ACTUAL command you run at that step.",
+                 "set -euo pipefail", ""]
+        for i, step in enumerate(sequence, 1):
+            lines.append(f"echo 'TODO step {i}: '{shlex.quote(step)} >&2; exit 1"
+                         f"  # replace this line")
+        ws.write_or_raise(dest, "\n".join(lines) + "\n")
+        dest.chmod(dest.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+        # 🐛 [2026-09-07] The same two-step shape `bin/chamnan-promote` documents twelve lines above
+        # its own rollback -- write the script, then register it -- and this copy never got the
+        # rollback. With a read-only `index.json`, register raised, the uncaught OSError reached the
+        # bottom-level handler, and that handler printed "nothing was written": a sentence written
+        # for a FIRST write failing, reused for a SECOND one after the first had already landed. On
+        # disk was an executable, unregistered skeleton in `.chamnan/tools/`, a directory this
+        # workspace commits on purpose — so `git add .chamnan` would have committed a script the
+        # user had just been told did not exist (R7 agent 1, 2026-09-07, finding 3).
+        try:
+            tools_index.register(root, {
+                "name": dest.name,
+                "desc": f"from a confirmed candidate: {title} — placeholders, not filled in yet",
+                "added": datetime.now().astimezone().isoformat(timespec="seconds"),
+                "origin": f"candidate:{p.stem}",
+            })
+        except OSError as err:
+            try:
+                dest.unlink()
+            except OSError:
+                pass
+            print(f"chamnan: could not register {dest.name!r} in the tools index: {err}",
+                  file=sys.stderr)
+            # 🐛 [2026-09-08] This guessed at permissions while the line above it now carries
+            # the real reason from `ws.write_failure_text` -- so under `CHAMNAN_READ_ONLY=1` the
+            # two printed together contradicted each other, and the guess is the one a reader
+            # acts on because it is the one phrased as advice. Say what is true instead.
+            print("  nothing was left behind -- the candidate is still there. Fix what the line "
+                  "above names and run this again.", file=sys.stderr)
+            return 1
+        p.unlink()
+        rel = dest.relative_to(root).as_posix()
+        print(f"chamnan: skeleton installed -> {rel}")
+        print(f"  it will exit non-zero until you replace the TODO lines with real commands")
+        print(f"  the candidate is removed — its finding now lives in {rel}")
+        return 0
+
+    if destination == "skill":
+        print(f"chamnan: {title} — hand this to /chamnan:capture:")
+        print(f"  Sequence: {', '.join(sequence)}")
+        print(f"  Observed {fields.get('observed', '?')} time(s), last seen "
+              f"{fields.get('last seen', '?')}")
+        print("  Nothing is written here — capture needs the reasoning only you have.")
+        return 0
+
+    print(f"chamnan: unknown destination {destination!r} — tool or skill", file=sys.stderr)
+    return 2
+
+
+def cmd_demote(root, tool_name):
+    """Undo a tool promotion: remove it from tools/index.json, delete the file, and write a new
+    candidate so the routine goes through review again rather than disappearing outright. The new
+    candidate's "sequence" is the tool's own description, not a reconstruction of the original
+    detected steps — precise replay is not recoverable from what the index stores, and a record
+    that reminds a reviewer what the tool was for is more honest than pretending otherwise."""
+    if ws.refuse_to_write():
+        return 1
+    # 🐛 `ws.workspace(root) / "tools" / tool_name` returns tool_name ITSELF when it is absolute --
+    # that is what `/` does with an absolute right-hand side -- so an absolute path here escaped the
+    # workspace and the archive step below renamed a file anywhere on disk, then crashed on the
+    # `relative_to` that follows. The name reaches this command from `tools/index.json`, which
+    # arrives with a clone, and `--list` prints it verbatim for somebody to paste.
+    #
+    # `safe_tool_name` is the same guard `chamnan-promote` applies on the way IN. Refusing rather
+    # than sanitising is deliberate there and here: quietly turning `../../x` into `x` acts on a
+    # file the user did not name.
+    if ws.safe_tool_name(tool_name) is None:
+        print(f"chamnan: {tool_name!r} is not a tool name — it must be a plain filename under "
+              f"{ws.workspace(root).name}/tools/", file=sys.stderr)
+        return 1
+    try:
+        entry = tools_index.remove(root, tool_name)
+    except TimeoutError as err:
+        # Distinct from "no such tool", which is what a None means. A demote that lost a race used
+        # to write back a pre-race snapshot and resurrect the tool it had just removed.
+        print(f"chamnan: {err} — try again in a moment", file=sys.stderr)
+        return 1
+    if entry is None:
+        print(f"chamnan: no promoted tool named {tool_name!r} — see `chamnan-promote --list`",
+              file=sys.stderr)
+        return 1
+    # 🐛 Deleted the file. A promoted tool ships as a SKELETON with each step as a placeholder --
+    # the docs above say so -- so every tool that is actually useful has hand-written commands in
+    # it, and "undo a promotion" destroyed them with no copy anywhere. The candidate written below
+    # is explicitly not a reconstruction: it carries one line of description. Un-register it,
+    # archive the file, and say where it went.
+    tool_path = ws.workspace(root) / "tools" / tool_name
+    archived = None
+    if tool_path.is_file():
+        archive_dir = ws.workspace(root) / "tools" / "archived"
+        try:
+            archive_dir.mkdir(parents=True, exist_ok=True)
+            dest = archive_dir / tool_name
+            if dest.exists():
+                stamp = datetime.now().astimezone().strftime("%Y%m%d-%H%M%S")
+                dest = archive_dir / f"{tool_name}.{stamp}"
+            tool_path.replace(dest)
+            archived = dest
+        except OSError:
+            # Better to leave the file where it is than to lose it because the archive failed.
+            archived = tool_path
+    sequence = [entry.get("desc") or tool_name]
+    today = datetime.now().astimezone().strftime("%Y-%m-%d")
+    # strict: the line printed below names this file, and the tool it describes has already been
+    # unregistered and moved by the time we get here. See `candidates._write`.
+    try:
+        new_path, _is_new = candidates.upsert(root, sequence, 1, today, provenance="ai-inferred",
+                                              strict=True)
+    except OSError as err:
+        print(f"chamnan: {tool_name} was removed as a tool, but the review record could not be "
+              f"written: {err}", file=sys.stderr)
+        if archived:
+            print(f"  the file itself is safe at {archived.relative_to(root).as_posix()} — "
+                  f"re-run this once the candidates directory is writable to recover the record.",
+                  file=sys.stderr)
+        return 1
+    print(f"chamnan: demoted {tool_name} — removed as a tool, back for review at "
+          f"{new_path.relative_to(root).as_posix()}")
+    if archived:
+        print(f"  the file itself is kept at {archived.relative_to(root).as_posix()} — the candidate above is "
+              f"one line of description, not the commands you wrote")
+    return 0
+
+
+# 🐛 [2026-09-08] Three of ten commands refused an unknown flag and seven ignored it, running
+# their default action with nothing on screen -- so a typo did something other than what was asked
+# and said nothing. `ws.unknown_flags` existed the whole time; the seven could not use it because
+# it read every VALUE as a flag, which is why it grew `takes_value`/`takes_rest` first. The set,
+# not the member this round happened to be pointed at (R7 agent 4, 2026-09-08).
+KNOWN_FLAGS = ('--list', '-l')
+TAKES_VALUE = ()
+TAKES_REST = ()
+
+
+def main(argv):
+    # \U0001f41b [2026-09-07] FIRST, before `find_root`. This block already carried the sentence
+    # "including one that would otherwise refuse the arguments beside it", and in this command it
+    # sat BELOW two such refusals -- the no-workspace exit and the config-disabled exit -- so
+    # `--version` printed the refusal instead of the version in exactly the two cases the comment
+    # names. Six of nine commands placed it first and three did not: the same rule applied to some
+    # members of a set and forgotten in the identical ones beside it (R12 agent 2, 2026-09-07).
+    #
+    # Before help, and before anything is parsed: "which build is this" must be
+    # answerable from any command, including one that would otherwise refuse the
+    # arguments beside it. See workspace.wants_version.
+    if ws.wants_version(argv):
+        print(ws.version_line())
+        return 0
+    root = ws.find_root()
+    wsdir = ws.workspace(root)
+    if not wsdir.is_dir():
+        # 🐛 [2026-09-06] A dead end in six of ten commands. `chamnan-context` was given the way
+        # out on 2026-09-05 and its siblings were not, and `chamnan-impact` carried BOTH — this
+        # sentence, and the actionable one 46 lines below it for a near-identical condition — so
+        # which of the two a user got depended on whether `.chamnan/` happened to exist yet, an
+        # ordering accident rather than anything they controlled. No test ran any of the six
+        # against a directory that genuinely has no workspace (R15 agent 3, 2026-09-06).
+        print(f"chamnan: no .chamnan/ workspace at {root}. Run `chamnan-map` there first — it "
+              f"creates the workspace and builds the index. (Inside Claude Code, "
+              f"`/chamnan:bootstrap` does that and records a baseline.)", file=sys.stderr)
+        return 1
+    if not ws.enabled("promote", root):
+        print("chamnan: promote is disabled in .chamnan/config.json — candidates are part of it")
+        return 0
+
+    if not argv or argv[0] in ("list", "-l", "--list"):
+        return cmd_list(root)
+    if ws.wants_help(argv):
+        print(__doc__.strip())
+        return 0
+
+    _bad = ws.unknown_flags(argv, KNOWN_FLAGS, TAKES_VALUE, TAKES_REST)
+    if _bad:
+        print(f"chamnan-candidates: unknown flag {_bad[0]} — try --help", file=sys.stderr)
+        return 2
+
+    cmd, *rest = argv
+    if cmd not in ("confirm", "reject", "edit", "promote", "demote"):
+        print(f"chamnan: unknown command {cmd!r} — list, confirm <id>, reject <id>, edit <id>, "
+              f"promote <id> [tool|skill], demote <tool-name>", file=sys.stderr)
+        return 2
+    if not rest:
+        if cmd == "demote":
+            print("chamnan: demote needs a tool name — see `chamnan-promote --list`",
+                  file=sys.stderr)
+        else:
+            print(f"chamnan: {cmd} needs a candidate — number or name from `chamnan-candidates`",
+                  file=sys.stderr)
+        return 2
+
+    if cmd == "demote":
+        return cmd_demote(root, rest[0])
+
+    if cmd == "promote":
+        ident, *pdest = rest
+        destination = pdest[0] if pdest else None
+        name = pdest[1] if len(pdest) > 1 else None
+        return cmd_promote(root, ident, destination, name)
+
+    return {"confirm": cmd_confirm, "reject": cmd_reject, "edit": cmd_edit}[cmd](root, rest[0])
+
+
+if __name__ == "__main__":
+    # 🐛 [2026-09-06] A write the user asked for by name now RAISES rather than being discarded --
+    # see `workspace.write_or_raise`. Caught here rather than at each command, so the message is
+    # the same one everywhere and a command added later is covered without knowing this exists.
+    # What it replaces: `chamnan-timeline new` on a read-only directory printed "declared", named
+    # the file, printed the follow-up command to add to it, and exited 0, with nothing on disk.
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except OSError as _err:
+        print(f"chamnan: {_err} — nothing was written", file=sys.stderr)
+        sys.exit(1)

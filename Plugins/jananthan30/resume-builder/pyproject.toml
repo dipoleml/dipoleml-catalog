@@ -1,0 +1,68 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "resumehq"
+version = "1.2.0"
+description = "Score resumes against job descriptions two ways — ATS parse simulation and recruiter-read simulation — with an open, auditable engine. Ships an MCP server for Claude and other AI assistants."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "ResumeHQ Contributors"}]
+keywords = ["resume", "ats", "hr", "scoring", "mcp", "claude", "job-search", "career"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: End Users/Desktop",
+    "Topic :: Office/Business",
+]
+dependencies = [
+    "pdfplumber>=0.10.0",
+    "python-docx>=1.1.0",
+    "sentence-transformers>=2.2.0",
+    "nltk>=3.8.0",
+    "textstat>=0.7.0",
+    "networkx>=3.0",
+    "rank-bm25>=0.2.2",
+    "numpy>=1.24.0",
+    "fastmcp>=3.0.0",
+]
+
+[project.urls]
+Homepage = "https://getresumehq.com"
+Repository = "https://github.com/jananthan30/Resume-Builder"
+Changelog = "https://github.com/jananthan30/Resume-Builder/blob/master/CHANGELOG.md"
+
+[project.scripts]
+resumehq-mcp = "mcp_scorer:main"
+
+[tool.setuptools]
+py-modules = ["ats_scorer", "hr_scorer", "mcp_scorer", "text_extractor", "legacy_rewrite_guard"]
+packages = ["cloud"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+markers = [
+    "slow: marks tests as slow (deselect with '-m \"not slow\"')",
+]
+addopts = "-v --tb=short"
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = [
+    "E501",  # Line length handled by line-length setting
+    # Legacy-debt suppressions so CI lint gates NEW debt only:
+    "E402",  # late module imports (lazy heavy deps pattern)
+    "E701",  # one-line compound statements in older modules
+    "E741",  # ambiguous single-letter names in older math code
+    "F841",  # unused locals kept for readability in older modules
+]
+
+[tool.mypy]
+python_version = "3.10"
+ignore_missing_imports = true

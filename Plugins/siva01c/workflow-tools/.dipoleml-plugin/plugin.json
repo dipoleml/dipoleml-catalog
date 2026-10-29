@@ -1,0 +1,16 @@
+{
+  "name": "workflow-tools",
+  "displayName": "Workflow Tools",
+  "version": "1.0.0",
+  "description": "Phased development workflows for Drupal projects — feature delivery, deployment, and tiny fixes with rigor scaled to risk",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Siva01c"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/siva01c/claude-plugins",
+  "repository": "https://github.com/siva01c/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

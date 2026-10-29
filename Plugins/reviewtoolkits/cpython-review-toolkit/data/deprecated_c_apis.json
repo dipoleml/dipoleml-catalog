@@ -1,0 +1,1156 @@
+{
+  "_meta": {
+    "description": "Deprecated CPython C APIs that CPython's OWN code still calls. Backs scan_deprecated_apis.py.",
+    "verified_against": "CPython main @ 4f3be1b5 (3.16.0a0)",
+    "verified_on": "2026-07-25",
+    "method": "Every entry was checked against the tree itself: Py_DEPRECATED / _Py_DEPRECATED_EXTERNALLY markers in Include/, `.. deprecated::` / `.. soft-deprecated::` directives in Doc/c-api/, and Doc/deprecations/c-api-pending-removal-in-*.rst. Nothing here is from memory.",
+    "tiers": {
+      "hard": "Py_DEPRECATED(...) marker in Include/. The compiler warns for external users AND for CPython's own build.",
+      "hard-internal": "_Py_DEPRECATED_EXTERNALLY(...) marker. Include/pyport.h:269-274 expands this to NOTHING under Py_BUILD_CORE, so -Wdeprecated-declarations is silent on CPython's own call sites. A scanner is the only way to find these -- this is the highest-value tier.",
+      "soft": "Documented as deprecated / soft-deprecated but carrying no compiler marker."
+    },
+    "severity_rule": "removed_in set -> FIX (the call will stop compiling in that release). Otherwise CONSIDER.",
+    "deliberately_excluded": {
+      "PyDict_GetItem": "NOT deprecated. Include/dictobject.h:22 is a plain PyAPI_FUNC and Doc/c-api/dict.rst carries only a 'Prefer PyDict_GetItemRef' note -- no .. deprecated:: directive. Discouraged != deprecated.",
+      "PyMapping_HasKey": "NOT deprecated. Include/abstract.h:845 plain; Doc/c-api/mapping.rst has a note only.",
+      "PyMapping_HasKeyString": "NOT deprecated. Include/abstract.h:838 plain.",
+      "PyWeakref_GetObject": "REMOVED in 3.15 (Doc/whatsnew/3.15.rst). Zero occurrences remain; scanning for it finds nothing.",
+      "PyEval_CallObject": "REMOVED in 3.13. Likewise PyEval_CallObjectWithKeywords / PyEval_CallFunction / PyEval_CallMethod / PyCFunction_Call.",
+      "PyUnicode_GetSize": "REMOVED in 3.12, along with PyUnicode_GET_SIZE / PyUnicode_AsUnicode / PyUnicode_AS_UNICODE.",
+      "PyObject_AsCharBuffer": "REMOVED in 3.13, with the rest of the old buffer protocol trio.",
+      "Py_TRASHCAN_SAFE_BEGIN": "REMOVED in 3.13.",
+      "PyOS_snprintf": "NOT deprecated. Include/pyerrors.h:324 plain; 26 live call sites.",
+      "PyImport_ImportModuleNoBlock": "REMOVED from Include/ (zero Include/ occurrences at 3.16.0a0) but the symbol survives for ABI compatibility at Python/import.c:3645. A LIVE TRAP: Modules/_testlimitedcapi/import.c:116 re-declares the prototype locally in order to test it and calls it at :123, under a comment reading 'removed in 3.15'. A word-matching scanner that added this name would report that call as a live deprecated call site -- a textbook false positive in test-support code.",
+      "PyWeakref_GET_OBJECT": "REMOVED. Zero occurrences anywhere in the tree.",
+      "PyUnicode_AsDecodedObject": "REMOVED from Include/ at 3.16.0a0; only its own definition survives in Objects/unicodeobject.c. No call site can exist.",
+      "PyUnicode_AsDecodedUnicode": "REMOVED from Include/; definition only, Objects/unicodeobject.c.",
+      "PyUnicode_AsEncodedObject": "REMOVED from Include/; definition only, Objects/unicodeobject.c.",
+      "PyUnicode_AsEncodedUnicode": "REMOVED from Include/; definition only, Objects/unicodeobject.c.",
+      "Py_GetPath": "REMOVED from Include/; definition only, Python/pathconfig.c.",
+      "Py_GetPrefix": "REMOVED from Include/; definition only, Python/pathconfig.c.",
+      "Py_GetExecPrefix": "REMOVED from Include/; definition only, Python/pathconfig.c.",
+      "Py_GetProgramName": "REMOVED from Include/; definition only, Python/pathconfig.c.",
+      "Py_GetProgramFullPath": "REMOVED from Include/; definition only, Python/pathconfig.c.",
+      "Py_GetPythonHome": "REMOVED from Include/; definition only, Python/pathconfig.c."
+    },
+    "schema": {
+      "drop_in": "true when `replacement` is a mechanical substitution. FALSE means applying the named replacement changes behaviour -- read `caveat` before migrating. This field exists because a scanner that confidently recommends a regression is worse than one that stays silent: the single FIX of the Modules/ run was _PyUnicodeWriter_WriteStr, whose named replacement reintroduces gh-148241.",
+      "caveat": "What breaks if the replacement is applied mechanically, and the verified drop-in to use instead. Required when drop_in is false.",
+      "compat_shim_files": "Repo-relative files where a use of this API is the API's own backwards-compatibility implementation, its definition, or a test that exercises it deliberately. Suppressed as ACCEPTABLE rather than reported -- without this the 21 Py_*Flag globals would land ~60 findings in Python/initconfig.c and Python/preconfig.c and look like the old scanner's definition-site problem returning."
+    },
+    "drop_in_rule": "drop_in: false REQUIRES a non-empty caveat. A replacement whose name contains Ref/Frame/New is suspect by construction: the PEP 667 family (PyEval_GetGlobals/Builtins/Locals) all returned STRONG references where the deprecated call returns BORROWED, and all three shipped as drop_in: true with an empty caveat. That is the second time this class of error reached a recommendation -- the first nearly reintroduced gh-148241, which is why these fields exist."
+  },
+  "apis": [
+    {
+      "name": "_PyUnicodeWriter_Init",
+      "tier": "hard-internal",
+      "deprecated_in": "3.14",
+      "removed_in": "3.18",
+      "replacement": "PyUnicodeWriter_Create(0)",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Include/cpython/unicodeobject.h:554. Suppressed under Py_BUILD_CORE, so CPython's own ~19 call sites compile silently."
+    },
+    {
+      "name": "_PyUnicodeWriter_Finish",
+      "tier": "hard-internal",
+      "deprecated_in": "3.14",
+      "removed_in": "3.18",
+      "replacement": "PyUnicodeWriter_Finish",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Include/cpython/unicodeobject.h:629."
+    },
+    {
+      "name": "_PyUnicodeWriter_Dealloc",
+      "tier": "hard-internal",
+      "deprecated_in": "3.14",
+      "removed_in": "3.18",
+      "replacement": "PyUnicodeWriter_Discard",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Include/cpython/unicodeobject.h:633."
+    },
+    {
+      "name": "_PyUnicodeWriter_WriteStr",
+      "tier": "hard-internal",
+      "deprecated_in": "3.14",
+      "removed_in": "3.18",
+      "replacement": "PyUnicodeWriter_WriteStr",
+      "drop_in": false,
+      "caveat": "PyUnicodeWriter_WriteStr() is NOT a drop-in: it tests `type == &PyUnicode_Type` EXACTLY (Objects/unicode_writer.c:364), so a str subclass falls through to PyObject_Str(obj) and runs a user __str__ -- that was gh-148241, and Modules/_json.c:407 carries a comment saying so two lines above the call. The verified drop-in is PyUnicodeWriter_WriteSubstring(writer, str, 0, PyUnicode_GET_LENGTH(str)): it type-checks with PyUnicode_Check (Objects/unicode_writer.c:443, accepts subclasses) and tail-calls _PyUnicodeWriter_WriteStr for the full range (Objects/unicode_writer.c:412-414), so it is behaviour-identical for three integer comparisons.",
+      "compat_shim_files": [],
+      "notes": "Include/cpython/unicodeobject.h:600."
+    },
+    {
+      "name": "_PyUnicodeWriter_WriteChar",
+      "tier": "hard-internal",
+      "deprecated_in": "3.14",
+      "removed_in": "3.18",
+      "replacement": "PyUnicodeWriter_WriteChar",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Include/cpython/unicodeobject.h:594."
+    },
+    {
+      "name": "_PyUnicodeWriter_WriteSubstring",
+      "tier": "hard-internal",
+      "deprecated_in": "3.14",
+      "removed_in": "3.18",
+      "replacement": "PyUnicodeWriter_WriteSubstring",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Include/cpython/unicodeobject.h:606."
+    },
+    {
+      "name": "_PyUnicodeWriter_WriteASCIIString",
+      "tier": "hard-internal",
+      "deprecated_in": "3.14",
+      "removed_in": "3.18",
+      "replacement": "PyUnicodeWriter_WriteASCII",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Include/cpython/unicodeobject.h:614."
+    },
+    {
+      "name": "_PyUnicodeWriter_WriteLatin1String",
+      "tier": "hard-internal",
+      "deprecated_in": "3.14",
+      "removed_in": "3.18",
+      "replacement": "PyUnicodeWriter_WriteUTF8",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Include/cpython/unicodeobject.h:621."
+    },
+    {
+      "name": "_PyUnicodeWriter_PrepareInternal",
+      "tier": "hard-internal",
+      "deprecated_in": "3.14",
+      "removed_in": "3.18",
+      "replacement": "",
+      "drop_in": false,
+      "caveat": "No replacement is named in the deprecation notice; removing the call (or open-coding what it did) is the migration.",
+      "compat_shim_files": [],
+      "notes": "Include/cpython/unicodeobject.h:571. No direct replacement -- restructure onto PyUnicodeWriter."
+    },
+    {
+      "name": "_PyUnicodeWriter_PrepareKindInternal",
+      "tier": "hard-internal",
+      "deprecated_in": "3.14",
+      "removed_in": "3.18",
+      "replacement": "",
+      "drop_in": false,
+      "caveat": "No replacement is named in the deprecation notice; removing the call (or open-coding what it did) is the migration.",
+      "compat_shim_files": [],
+      "notes": "Include/cpython/unicodeobject.h:588."
+    },
+    {
+      "name": "PyCode_New",
+      "tier": "hard-internal",
+      "deprecated_in": "3.12",
+      "removed_in": "",
+      "replacement": "PyUnstable_Code_New",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Include/cpython/code.h:198."
+    },
+    {
+      "name": "PyCode_NewWithPosOnlyArgs",
+      "tier": "hard-internal",
+      "deprecated_in": "3.12",
+      "removed_in": "",
+      "replacement": "PyUnstable_Code_NewWithPosOnlyArgs",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Include/cpython/code.h:208."
+    },
+    {
+      "name": "_PyCode_GetExtra",
+      "tier": "hard-internal",
+      "deprecated_in": "3.12",
+      "removed_in": "",
+      "replacement": "PyUnstable_Code_GetExtra",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Include/cpython/code.h:297."
+    },
+    {
+      "name": "_PyCode_SetExtra",
+      "tier": "hard-internal",
+      "deprecated_in": "3.12",
+      "removed_in": "",
+      "replacement": "PyUnstable_Code_SetExtra",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Include/cpython/code.h:302."
+    },
+    {
+      "name": "_PyEval_RequestCodeExtraIndex",
+      "tier": "hard-internal",
+      "deprecated_in": "3.12",
+      "removed_in": "",
+      "replacement": "PyUnstable_Eval_RequestCodeExtraIndex",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Include/cpython/ceval.h:19."
+    },
+    {
+      "name": "_PyBytes_Join",
+      "tier": "hard",
+      "deprecated_in": "3.14",
+      "removed_in": "3.18",
+      "replacement": "PyBytes_Join",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Include/cpython/bytesobject.h:38."
+    },
+    {
+      "name": "_PyUnicode_AsString",
+      "tier": "hard",
+      "deprecated_in": "3.14",
+      "removed_in": "3.18",
+      "replacement": "PyUnicode_AsUTF8",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Include/cpython/unicodeobject.h:655."
+    },
+    {
+      "name": "_PyThreadState_UncheckedGet",
+      "tier": "hard",
+      "deprecated_in": "3.14",
+      "removed_in": "3.18",
+      "replacement": "PyThreadState_GetUnchecked",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Include/cpython/pystate.h:266."
+    },
+    {
+      "name": "_PyDict_GetItemStringWithError",
+      "tier": "hard",
+      "deprecated_in": "3.14",
+      "removed_in": "3.18",
+      "replacement": "PyDict_GetItemStringRef",
+      "drop_in": false,
+      "caveat": "NOT a rename: the signature changes. This returns a BORROWED PyObject* (Include/cpython/dictobject.h:48); PyDict_GetItemStringRef returns an int status and writes a STRONG reference to a PyObject** out-parameter (Include/dictobject.h:68). Migration must add the out-parameter, switch to the three-state int return (-1 error / 0 absent / 1 found), and add a Py_DECREF for the new reference. A mechanical substitution does not compile.",
+      "compat_shim_files": [],
+      "notes": "Include/cpython/dictobject.h:48.",
+      "refcount_evidence": "borrowed -> strong AND pointer-return -> int-status-with-outparam; arity 2 -> 3."
+    },
+    {
+      "name": "_PyDict_Pop",
+      "tier": "hard",
+      "deprecated_in": "3.14",
+      "removed_in": "3.18",
+      "replacement": "PyDict_Pop",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Include/cpython/dictobject.h:73."
+    },
+    {
+      "name": "_PyLong_New",
+      "tier": "hard",
+      "deprecated_in": "3.14",
+      "removed_in": "3.18",
+      "replacement": "PyLongWriter_Create",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Include/cpython/longintrepr.h:103."
+    },
+    {
+      "name": "_PyLong_FromDigits",
+      "tier": "hard",
+      "deprecated_in": "3.14",
+      "removed_in": "3.18",
+      "replacement": "PyLongWriter_Create",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Include/cpython/longintrepr.h:108."
+    },
+    {
+      "name": "_PyLong_Sign",
+      "tier": "hard",
+      "deprecated_in": "3.14",
+      "removed_in": "3.18",
+      "replacement": "PyLong_GetSign",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Include/cpython/longobject.h:38."
+    },
+    {
+      "name": "_Py_HashPointer",
+      "tier": "hard",
+      "deprecated_in": "3.14",
+      "removed_in": "3.18",
+      "replacement": "Py_HashPointer",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Include/cpython/pyhash.h:46."
+    },
+    {
+      "name": "_Py_fopen_obj",
+      "tier": "hard",
+      "deprecated_in": "3.14",
+      "removed_in": "3.18",
+      "replacement": "Py_fopen",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Include/cpython/fileutils.h:10."
+    },
+    {
+      "name": "_PyObject_GetAttrId",
+      "tier": "hard",
+      "deprecated_in": "3.15",
+      "removed_in": "3.20",
+      "replacement": "PyUnicode_InternFromString + PyObject_GetAttr",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Include/cpython/object.h:310."
+    },
+    {
+      "name": "_PyUnicode_FromId",
+      "tier": "hard",
+      "deprecated_in": "3.15",
+      "removed_in": "3.20",
+      "replacement": "PyUnicode_InternFromString",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Include/cpython/unicodeobject.h:781."
+    },
+    {
+      "name": "_PyObject_CallMethodId",
+      "tier": "hard",
+      "deprecated_in": "3.15",
+      "removed_in": "3.20",
+      "replacement": "PyObject_CallMethod",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Include/cpython/abstract.h:9."
+    },
+    {
+      "name": "Py_UNICODE",
+      "tier": "hard",
+      "deprecated_in": "3.13",
+      "removed_in": "3.16",
+      "replacement": "wchar_t",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Include/cpython/unicodeobject.h:10. Beware: most textual hits in Modules/ are Argument Clinic docstring prose, not type uses -- the scanner strips strings and comments before matching."
+    },
+    {
+      "name": "PY_UNICODE_TYPE",
+      "tier": "hard",
+      "deprecated_in": "3.13",
+      "removed_in": "3.16",
+      "replacement": "wchar_t",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Include/cpython/unicodeobject.h:9."
+    },
+    {
+      "name": "PyEval_InitThreads",
+      "tier": "hard",
+      "deprecated_in": "3.9",
+      "removed_in": "",
+      "replacement": "",
+      "drop_in": false,
+      "caveat": "No replacement is named in the deprecation notice; removing the call (or open-coding what it did) is the migration.",
+      "compat_shim_files": [],
+      "notes": "Include/ceval.h:114. No-op since 3.9 -- delete the call."
+    },
+    {
+      "name": "PyOS_AfterFork",
+      "tier": "hard",
+      "deprecated_in": "3.7",
+      "removed_in": "",
+      "replacement": "PyOS_AfterFork_Child",
+      "drop_in": false,
+      "caveat": "PyOS_AfterFork_Child is the child-side half only. A parent process needs PyOS_AfterFork_Parent, and PyOS_BeforeFork belongs before the fork -- the single deprecated call maps to up to three.",
+      "compat_shim_files": [],
+      "notes": "Include/intrcheck.h:18."
+    },
+    {
+      "name": "PySlice_GetIndicesEx",
+      "tier": "hard",
+      "deprecated_in": "3.7",
+      "removed_in": "",
+      "replacement": "PySlice_Unpack + PySlice_AdjustIndices",
+      "drop_in": false,
+      "caveat": "Replaced by a PAIR of calls, PySlice_Unpack followed by PySlice_AdjustIndices, and the error handling differs -- Unpack returns -1 with an exception set. Modules/_elementtree.c:1833/1891 shows the migrated form.",
+      "compat_shim_files": [],
+      "notes": "Include/sliceobject.h:28. Doc/c-api/slice.rst:86 says 3.6.1; the marker says 3.7."
+    },
+    {
+      "name": "PyModule_GetFilename",
+      "tier": "hard",
+      "deprecated_in": "3.2",
+      "removed_in": "",
+      "replacement": "PyModule_GetFilenameObject",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Include/moduleobject.h:28."
+    },
+    {
+      "name": "PyCode_GetFirstFree",
+      "tier": "hard",
+      "deprecated_in": "3.13",
+      "removed_in": "",
+      "replacement": "PyUnstable_Code_GetFirstFree",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Include/cpython/code.h:180."
+    },
+    {
+      "name": "PyThread_exit_thread",
+      "tier": "hard",
+      "deprecated_in": "3.14",
+      "removed_in": "",
+      "replacement": "",
+      "drop_in": false,
+      "caveat": "No replacement is named in the deprecation notice; removing the call (or open-coding what it did) is the migration.",
+      "compat_shim_files": [],
+      "notes": "Include/pythread.h:38. Return from the thread function instead."
+    },
+    {
+      "name": "PyThread_create_key",
+      "tier": "hard",
+      "deprecated_in": "3.7",
+      "removed_in": "",
+      "replacement": "PyThread_tss_alloc",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Include/pythread.h:95."
+    },
+    {
+      "name": "PyThread_delete_key",
+      "tier": "hard",
+      "deprecated_in": "3.7",
+      "removed_in": "",
+      "replacement": "PyThread_tss_free",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Include/pythread.h:96."
+    },
+    {
+      "name": "PyThread_set_key_value",
+      "tier": "hard",
+      "deprecated_in": "3.7",
+      "removed_in": "",
+      "replacement": "PyThread_tss_set",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Include/pythread.h:97."
+    },
+    {
+      "name": "PyThread_get_key_value",
+      "tier": "hard",
+      "deprecated_in": "3.7",
+      "removed_in": "",
+      "replacement": "PyThread_tss_get",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Include/pythread.h:99."
+    },
+    {
+      "name": "PyThread_delete_key_value",
+      "tier": "hard",
+      "deprecated_in": "3.7",
+      "removed_in": "",
+      "replacement": "PyThread_tss_delete",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Include/pythread.h:100."
+    },
+    {
+      "name": "PyThread_ReInitTLS",
+      "tier": "hard",
+      "deprecated_in": "3.7",
+      "removed_in": "",
+      "replacement": "",
+      "drop_in": false,
+      "caveat": "No replacement is named in the deprecation notice; removing the call (or open-coding what it did) is the migration.",
+      "compat_shim_files": [],
+      "notes": "Include/pythread.h:103. Unneeded since 3.7."
+    },
+    {
+      "name": "Py_SetProgramName",
+      "tier": "hard",
+      "deprecated_in": "3.11",
+      "removed_in": "3.16",
+      "replacement": "PyConfig.program_name",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Include/pylifecycle.h:37."
+    },
+    {
+      "name": "Py_SetPythonHome",
+      "tier": "hard",
+      "deprecated_in": "3.11",
+      "removed_in": "3.16",
+      "replacement": "PyConfig.home",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Include/pylifecycle.h:38."
+    },
+    {
+      "name": "PySys_SetArgv",
+      "tier": "hard",
+      "deprecated_in": "3.11",
+      "removed_in": "3.16",
+      "replacement": "PyConfig.argv",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Include/sysmodule.h:16."
+    },
+    {
+      "name": "PySys_SetArgvEx",
+      "tier": "hard",
+      "deprecated_in": "3.11",
+      "removed_in": "3.16",
+      "replacement": "PyConfig.argv",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Include/sysmodule.h:17."
+    },
+    {
+      "name": "_PyBytes_Resize",
+      "tier": "soft",
+      "deprecated_in": "3.15",
+      "removed_in": "",
+      "replacement": "PyBytesWriter API",
+      "drop_in": false,
+      "caveat": "PyBytesWriter is a different API SHAPE, not a rename: create/grow/finish instead of allocate-then-resize-in-place. Migration is per-buffer restructuring. Modules/_pickle.c:2783-2836 has already migrated one buffer to it, so the target idiom is demonstrated in the same file as the four remaining call sites.",
+      "compat_shim_files": [],
+      "notes": "Doc/whatsnew/3.15.rst, Deprecated C APIs. 30 real call sites across Objects/ + Modules/."
+    },
+    {
+      "name": "PyModule_AddObject",
+      "tier": "soft",
+      "deprecated_in": "3.13",
+      "removed_in": "",
+      "replacement": "PyModule_Add or PyModule_AddObjectRef",
+      "drop_in": false,
+      "caveat": "Refcount semantics differ: PyModule_AddObject steals the reference ONLY on success, so the caller must Py_DECREF on failure; PyModule_AddObjectRef never steals and PyModule_Add always steals. A mechanical rename either leaks or double-frees depending on which replacement is chosen.",
+      "compat_shim_files": [],
+      "notes": "Doc/c-api/module.rst:1022 `.. soft-deprecated:: 3.13`. Steals a reference only on success -- the replacement does not, so refcount handling must be adjusted, not just the name."
+    },
+    {
+      "name": "PyErr_Fetch",
+      "tier": "soft",
+      "deprecated_in": "3.12",
+      "removed_in": "",
+      "replacement": "PyErr_GetRaisedException",
+      "drop_in": false,
+      "caveat": "PyErr_Fetch returns three separate, possibly un-normalized objects; PyErr_GetRaisedException returns one normalized exception instance. Code that inspects or rebuilds the (type, value, traceback) triple has to be restructured, and a PyErr_Fetch/PyErr_Restore pair maps to GetRaisedException/SetRaisedException only when nothing in between depends on the un-normalized form.",
+      "compat_shim_files": [],
+      "notes": "Doc/c-api/exceptions.rst:514; listed in Doc/deprecations/c-api-pending-removal-in-future.rst:9."
+    },
+    {
+      "name": "PyErr_Restore",
+      "tier": "soft",
+      "deprecated_in": "3.12",
+      "removed_in": "",
+      "replacement": "PyErr_SetRaisedException",
+      "drop_in": false,
+      "caveat": "The mirror of PyErr_Fetch: PyErr_SetRaisedException takes a single normalized exception instance and steals it, where PyErr_Restore takes three references. Convert the fetch and the restore together.",
+      "compat_shim_files": [],
+      "notes": "Doc/c-api/exceptions.rst:542."
+    },
+    {
+      "name": "PyErr_NormalizeException",
+      "tier": "soft",
+      "deprecated_in": "3.12",
+      "removed_in": "",
+      "replacement": "PyErr_GetRaisedException",
+      "drop_in": false,
+      "caveat": "There is no direct replacement: PyErr_GetRaisedException normalizes as part of fetching, so the correct migration deletes this call rather than renaming it.",
+      "compat_shim_files": [],
+      "notes": "Doc/c-api/exceptions.rst:567. Normalization is implicit in the raised-exception API."
+    },
+    {
+      "name": "PyErr_Display",
+      "tier": "soft",
+      "deprecated_in": "",
+      "removed_in": "",
+      "replacement": "PyErr_DisplayException",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Doc/deprecations/c-api-pending-removal-in-future.rst:23."
+    },
+    {
+      "name": "_PyErr_ChainExceptions",
+      "tier": "soft",
+      "deprecated_in": "",
+      "removed_in": "",
+      "replacement": "_PyErr_ChainExceptions1",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Doc/deprecations/c-api-pending-removal-in-future.rst:25."
+    },
+    {
+      "name": "PyUnicode_READY",
+      "tier": "soft",
+      "deprecated_in": "3.10",
+      "removed_in": "",
+      "replacement": "",
+      "drop_in": false,
+      "caveat": "No replacement is named in the deprecation notice; removing the call (or open-coding what it did) is the migration.",
+      "compat_shim_files": [],
+      "notes": "No-op since 3.12 -- delete the call. Doc/c-api/unicode.rst:1968. The docs contradict themselves: unicode.rst:1965 says there are no plans to remove it, while c-api-pending-removal-in-future.rst:21 lists it."
+    },
+    {
+      "name": "PyUnicode_IS_READY",
+      "tier": "soft",
+      "deprecated_in": "3.14",
+      "removed_in": "",
+      "replacement": "",
+      "drop_in": false,
+      "caveat": "No replacement is named in the deprecation notice; removing the call (or open-coding what it did) is the migration.",
+      "compat_shim_files": [],
+      "notes": "No-op since 3.12. Doc/c-api/unicode.rst:1982."
+    },
+    {
+      "name": "PyEval_GetBuiltins",
+      "tier": "soft",
+      "deprecated_in": "3.13",
+      "removed_in": "",
+      "replacement": "PyEval_GetFrameBuiltins",
+      "drop_in": false,
+      "caveat": "NOT a drop-in rename: the replacement returns a STRONG reference (Py_XNewRef) where this returns a BORROWED one, so a bare rename leaks the referent at every call site. Correct migration is rename + a matching Py_DECREF once the value is no longer needed. No-frame behaviour is identical (both return NULL without setting an exception), so the NULL guard needs no change.",
+      "compat_shim_files": [],
+      "notes": "Doc/c-api/reflection.rst:10 (PEP 667). Returns a borrowed reference.",
+      "refcount_evidence": "borrowed: Python/ceval.c:2633 -> _PyEval_GetBuiltins(tstate). Replacement Python/ceval.c:2881 returns Py_XNewRef(_PyEval_GetBuiltins(tstate))."
+    },
+    {
+      "name": "PyEval_GetGlobals",
+      "tier": "soft",
+      "deprecated_in": "3.13",
+      "removed_in": "",
+      "replacement": "PyEval_GetFrameGlobals",
+      "drop_in": false,
+      "caveat": "NOT a drop-in rename: the replacement returns a STRONG reference (Py_XNewRef) where this returns a BORROWED one, so a bare rename leaks the referent at every call site. Correct migration is rename + a matching Py_DECREF once the value is no longer needed. No-frame behaviour is identical (both return NULL without setting an exception), so the NULL guard needs no change.",
+      "compat_shim_files": [],
+      "notes": "Doc/c-api/reflection.rst:48 (PEP 667).",
+      "refcount_evidence": "borrowed: Python/ceval.c:2741 returns current_frame->f_globals raw. Replacement Python/ceval.c:2874 returns Py_XNewRef(...). Corroborated in-tree: Python/import.c annotates its call `// borrowed`, and Modules/_testlimitedcapi/eval.c must write Py_XNewRef(PyEval_GetGlobals()) to obtain new-ref semantics."
+    },
+    {
+      "name": "PyEval_GetLocals",
+      "tier": "soft",
+      "deprecated_in": "3.13",
+      "removed_in": "",
+      "replacement": "PyEval_GetFrameLocals",
+      "drop_in": false,
+      "caveat": "NOT a drop-in rename: the replacement returns a STRONG reference (Py_XNewRef) where this returns a BORROWED one, so a bare rename leaks the referent at every call site. Correct migration is rename + a matching Py_DECREF once the value is no longer needed. No-frame behaviour is identical (both return NULL without setting an exception), so the NULL guard needs no change.",
+      "compat_shim_files": [],
+      "notes": "Doc/c-api/reflection.rst:20 (PEP 667).",
+      "refcount_evidence": "borrowed by construction: Python/ceval.c:2653 says so in a comment ('We need to return a borrowed reference here, so some tricks are needed') and stashes the new reference from _PyFrame_GetLocals on the frame to achieve it. Replacement PyEval_GetFrameLocals returns a new reference."
+    },
+    {
+      "name": "PySequence_In",
+      "tier": "soft",
+      "deprecated_in": "3.14",
+      "removed_in": "",
+      "replacement": "PySequence_Contains",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Doc/c-api/sequence.rst:112."
+    },
+    {
+      "name": "Py_TPFLAGS_HAVE_FINALIZE",
+      "tier": "soft",
+      "deprecated_in": "3.8",
+      "removed_in": "",
+      "replacement": "",
+      "drop_in": false,
+      "caveat": "No replacement is named in the deprecation notice; removing the call (or open-coding what it did) is the migration.",
+      "compat_shim_files": [],
+      "notes": "Doc/c-api/typeobj.rst:1380. Unneeded since 3.8 -- the flag is always set."
+    },
+    {
+      "name": "PyMem_MALLOC",
+      "tier": "soft",
+      "deprecated_in": "2.0",
+      "removed_in": "",
+      "replacement": "PyMem_Malloc",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Doc/c-api/memory.rst:304."
+    },
+    {
+      "name": "PyMem_NEW",
+      "tier": "soft",
+      "deprecated_in": "2.0",
+      "removed_in": "",
+      "replacement": "PyMem_New",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Doc/c-api/memory.rst:304. 26 real call sites."
+    },
+    {
+      "name": "PyMem_RESIZE",
+      "tier": "soft",
+      "deprecated_in": "2.0",
+      "removed_in": "",
+      "replacement": "PyMem_Resize",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Doc/c-api/memory.rst:304."
+    },
+    {
+      "name": "PyMem_DEL",
+      "tier": "soft",
+      "deprecated_in": "2.0",
+      "removed_in": "",
+      "replacement": "PyMem_Free",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Doc/c-api/memory.rst:332."
+    },
+    {
+      "name": "PyMem_FREE",
+      "tier": "soft",
+      "deprecated_in": "2.0",
+      "removed_in": "",
+      "replacement": "PyMem_Free",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Doc/c-api/memory.rst:332."
+    },
+    {
+      "name": "ob_shash",
+      "tier": "hard",
+      "deprecated_in": "3.11",
+      "removed_in": "",
+      "replacement": "PyObject_Hash",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [],
+      "notes": "Include/cpython/bytesobject.h:7. Struct member, not a function."
+    },
+    {
+      "name": "_PyUnicodeWriter_Prepare",
+      "tier": "hard-internal",
+      "deprecated_in": "3.14",
+      "removed_in": "3.18",
+      "replacement": "",
+      "drop_in": false,
+      "caveat": "Doc/deprecations/c-api-pending-removal-in-3.18.rst lists this with '(no replacement)'. The public PyUnicodeWriter API has no prepare step at all -- it grows on demand -- so the migration is to move the whole writer to PyUnicodeWriter_Create and drop the prepare calls, not to substitute a name.",
+      "compat_shim_files": [],
+      "notes": "MACRO form of _PyUnicodeWriter_PrepareInternal, Include/cpython/unicodeobject.h:561. The vocabulary already carries the *Internal spelling; a word-boundary matcher will not match one from the other, so both must be present -- that naming asymmetry is why ~26 call sites were invisible. The macro inlines the bounds check on the fast path and never references the marked symbol, so even an external -Wdeprecated-declarations build warns inconsistently. Sites: Objects/unicodeobject.c (x12), Objects/unicode_formatter.c (x4), Objects/longobject.c (x3), Objects/unicode_format.c, Objects/unicode_writer.c, Modules/cjkcodecs/cjkcodecs.h:166. Uses inside Objects/unicode_writer.c are the family's own implementation and are ACCEPTABLE, same as the other nine _PyUnicodeWriter_* entries."
+    },
+    {
+      "name": "_PyUnicodeWriter_PrepareKind",
+      "tier": "hard-internal",
+      "deprecated_in": "3.14",
+      "removed_in": "3.18",
+      "replacement": "",
+      "drop_in": false,
+      "caveat": "Doc/deprecations/c-api-pending-removal-in-3.18.rst lists this with '(no replacement)'. The public PyUnicodeWriter API has no prepare step at all -- it grows on demand -- so the migration is to move the whole writer to PyUnicodeWriter_Create and drop the prepare calls, not to substitute a name.",
+      "compat_shim_files": [],
+      "notes": "MACRO form of _PyUnicodeWriter_PrepareKindInternal, Include/cpython/unicodeobject.h:581. The vocabulary already carries the *Internal spelling; a word-boundary matcher will not match one from the other, so both must be present -- that naming asymmetry is why ~26 call sites were invisible. The macro inlines the bounds check on the fast path and never references the marked symbol, so even an external -Wdeprecated-declarations build warns inconsistently. Sites: Objects/unicodeobject.c:5211, :7453. Uses inside Objects/unicode_writer.c are the family's own implementation and are ACCEPTABLE, same as the other nine _PyUnicodeWriter_* entries."
+    },
+    {
+      "name": "Py_DebugFlag",
+      "tier": "hard",
+      "deprecated_in": "3.12",
+      "removed_in": "3.16",
+      "replacement": "PyConfig.parser_debug / PyConfig_Get(\"parser_debug\")",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [
+        "Python/initconfig.c",
+        "Python/preconfig.c",
+        "Programs/_testembed.c"
+      ],
+      "notes": "Py_DEPRECATED(3.12) PyAPI_DATA at Include/cpython/pydebug.h:8; Doc/deprecations/c-api-pending-removal-in-3.16.rst, 'Global configuration variables'. 3.16 is the NEAREST removal date in this vocabulary -- nearer than the 3.18 writer family. The vocabulary previously harvested only the *function* half of that same doc page. compat_shim_files suppresses Python/initconfig.c and Python/preconfig.c (the variables' own definitions and the PyConfig bridge -- the API's own backwards compatibility implementation) and Programs/_testembed.c (the embedding test that exercises the deprecated API on purpose, the same shape as the _testlimitedcapi trap). What survives is the one genuine consumer read at Python/sysmodule.c:4533."
+    },
+    {
+      "name": "Py_VerboseFlag",
+      "tier": "hard",
+      "deprecated_in": "3.12",
+      "removed_in": "3.16",
+      "replacement": "PyConfig.verbose / PyConfig_Get(\"verbose\")",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [
+        "Python/initconfig.c",
+        "Python/preconfig.c",
+        "Programs/_testembed.c"
+      ],
+      "notes": "Py_DEPRECATED(3.12) PyAPI_DATA at Include/cpython/pydebug.h:9; Doc/deprecations/c-api-pending-removal-in-3.16.rst, 'Global configuration variables'. 3.16 is the NEAREST removal date in this vocabulary -- nearer than the 3.18 writer family. The vocabulary previously harvested only the *function* half of that same doc page. compat_shim_files suppresses Python/initconfig.c and Python/preconfig.c (the variables' own definitions and the PyConfig bridge -- the API's own backwards compatibility implementation) and Programs/_testembed.c (the embedding test that exercises the deprecated API on purpose, the same shape as the _testlimitedcapi trap). What survives is the one genuine consumer read at Python/sysmodule.c:4533."
+    },
+    {
+      "name": "Py_QuietFlag",
+      "tier": "hard",
+      "deprecated_in": "3.12",
+      "removed_in": "3.16",
+      "replacement": "PyConfig.quiet / PyConfig_Get(\"quiet\")",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [
+        "Python/initconfig.c",
+        "Python/preconfig.c",
+        "Programs/_testembed.c"
+      ],
+      "notes": "Py_DEPRECATED(3.12) PyAPI_DATA at Include/cpython/pydebug.h:10; Doc/deprecations/c-api-pending-removal-in-3.16.rst, 'Global configuration variables'. 3.16 is the NEAREST removal date in this vocabulary -- nearer than the 3.18 writer family. The vocabulary previously harvested only the *function* half of that same doc page. compat_shim_files suppresses Python/initconfig.c and Python/preconfig.c (the variables' own definitions and the PyConfig bridge -- the API's own backwards compatibility implementation) and Programs/_testembed.c (the embedding test that exercises the deprecated API on purpose, the same shape as the _testlimitedcapi trap). What survives is the one genuine consumer read at Python/sysmodule.c:4533."
+    },
+    {
+      "name": "Py_InteractiveFlag",
+      "tier": "hard",
+      "deprecated_in": "3.12",
+      "removed_in": "3.16",
+      "replacement": "PyConfig.interactive / PyConfig_Get(\"interactive\")",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [
+        "Python/initconfig.c",
+        "Python/preconfig.c",
+        "Programs/_testembed.c"
+      ],
+      "notes": "Py_DEPRECATED(3.12) PyAPI_DATA at Include/cpython/pydebug.h:11; Doc/deprecations/c-api-pending-removal-in-3.16.rst, 'Global configuration variables'. 3.16 is the NEAREST removal date in this vocabulary -- nearer than the 3.18 writer family. The vocabulary previously harvested only the *function* half of that same doc page. compat_shim_files suppresses Python/initconfig.c and Python/preconfig.c (the variables' own definitions and the PyConfig bridge -- the API's own backwards compatibility implementation) and Programs/_testembed.c (the embedding test that exercises the deprecated API on purpose, the same shape as the _testlimitedcapi trap). What survives is the one genuine consumer read at Python/sysmodule.c:4533."
+    },
+    {
+      "name": "Py_InspectFlag",
+      "tier": "hard",
+      "deprecated_in": "3.12",
+      "removed_in": "3.16",
+      "replacement": "PyConfig.inspect / PyConfig_Get(\"inspect\")",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [
+        "Python/initconfig.c",
+        "Python/preconfig.c",
+        "Programs/_testembed.c"
+      ],
+      "notes": "Py_DEPRECATED(3.12) PyAPI_DATA at Include/cpython/pydebug.h:12; Doc/deprecations/c-api-pending-removal-in-3.16.rst, 'Global configuration variables'. 3.16 is the NEAREST removal date in this vocabulary -- nearer than the 3.18 writer family. The vocabulary previously harvested only the *function* half of that same doc page. compat_shim_files suppresses Python/initconfig.c and Python/preconfig.c (the variables' own definitions and the PyConfig bridge -- the API's own backwards compatibility implementation) and Programs/_testembed.c (the embedding test that exercises the deprecated API on purpose, the same shape as the _testlimitedcapi trap). What survives is the one genuine consumer read at Python/sysmodule.c:4533."
+    },
+    {
+      "name": "Py_OptimizeFlag",
+      "tier": "hard",
+      "deprecated_in": "3.12",
+      "removed_in": "3.16",
+      "replacement": "PyConfig.optimization_level / PyConfig_Get(\"optimization_level\")",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [
+        "Python/initconfig.c",
+        "Python/preconfig.c",
+        "Programs/_testembed.c"
+      ],
+      "notes": "Py_DEPRECATED(3.12) PyAPI_DATA at Include/cpython/pydebug.h:13; Doc/deprecations/c-api-pending-removal-in-3.16.rst, 'Global configuration variables'. 3.16 is the NEAREST removal date in this vocabulary -- nearer than the 3.18 writer family. The vocabulary previously harvested only the *function* half of that same doc page. compat_shim_files suppresses Python/initconfig.c and Python/preconfig.c (the variables' own definitions and the PyConfig bridge -- the API's own backwards compatibility implementation) and Programs/_testembed.c (the embedding test that exercises the deprecated API on purpose, the same shape as the _testlimitedcapi trap). What survives is the one genuine consumer read at Python/sysmodule.c:4533."
+    },
+    {
+      "name": "Py_NoSiteFlag",
+      "tier": "hard",
+      "deprecated_in": "3.12",
+      "removed_in": "3.16",
+      "replacement": "PyConfig.site_import / PyConfig_Get(\"site_import\")",
+      "drop_in": false,
+      "caveat": "POLARITY IS INVERTED. CPython's own bridge table says so: Python/initconfig.c maps this with GLOBAL(&Py_NoSiteFlag, 1), where the second field is literally named `not`. Py_NoSiteFlag != 0 means the behaviour is DISABLED, while PyConfig.site_import != 0 means it is ENABLED. A mechanical rename inverts the behaviour.",
+      "compat_shim_files": [
+        "Python/initconfig.c",
+        "Python/preconfig.c",
+        "Programs/_testembed.c"
+      ],
+      "notes": "Py_DEPRECATED(3.12) PyAPI_DATA at Include/cpython/pydebug.h:14; Doc/deprecations/c-api-pending-removal-in-3.16.rst, 'Global configuration variables'. 3.16 is the NEAREST removal date in this vocabulary -- nearer than the 3.18 writer family. The vocabulary previously harvested only the *function* half of that same doc page. compat_shim_files suppresses Python/initconfig.c and Python/preconfig.c (the variables' own definitions and the PyConfig bridge -- the API's own backwards compatibility implementation) and Programs/_testembed.c (the embedding test that exercises the deprecated API on purpose, the same shape as the _testlimitedcapi trap). What survives is the one genuine consumer read at Python/sysmodule.c:4533."
+    },
+    {
+      "name": "Py_BytesWarningFlag",
+      "tier": "hard",
+      "deprecated_in": "3.12",
+      "removed_in": "3.16",
+      "replacement": "PyConfig.bytes_warning / PyConfig_Get(\"bytes_warning\")",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [
+        "Python/initconfig.c",
+        "Python/preconfig.c",
+        "Programs/_testembed.c"
+      ],
+      "notes": "Py_DEPRECATED(3.12) PyAPI_DATA at Include/cpython/pydebug.h:15; Doc/deprecations/c-api-pending-removal-in-3.16.rst, 'Global configuration variables'. 3.16 is the NEAREST removal date in this vocabulary -- nearer than the 3.18 writer family. The vocabulary previously harvested only the *function* half of that same doc page. compat_shim_files suppresses Python/initconfig.c and Python/preconfig.c (the variables' own definitions and the PyConfig bridge -- the API's own backwards compatibility implementation) and Programs/_testembed.c (the embedding test that exercises the deprecated API on purpose, the same shape as the _testlimitedcapi trap). What survives is the one genuine consumer read at Python/sysmodule.c:4533."
+    },
+    {
+      "name": "Py_FrozenFlag",
+      "tier": "hard",
+      "deprecated_in": "3.12",
+      "removed_in": "3.16",
+      "replacement": "PyConfig.pathconfig_warnings / PyConfig_Get(\"pathconfig_warnings\")",
+      "drop_in": false,
+      "caveat": "POLARITY IS INVERTED. CPython's own bridge table says so: Python/initconfig.c maps this with GLOBAL(&Py_FrozenFlag, 1), where the second field is literally named `not`. Py_FrozenFlag != 0 means the behaviour is DISABLED, while PyConfig.pathconfig_warnings != 0 means it is ENABLED. A mechanical rename inverts the behaviour.",
+      "compat_shim_files": [
+        "Python/initconfig.c",
+        "Python/preconfig.c",
+        "Programs/_testembed.c"
+      ],
+      "notes": "Py_DEPRECATED(3.12) PyAPI_DATA at Include/cpython/pydebug.h:16; Doc/deprecations/c-api-pending-removal-in-3.16.rst, 'Global configuration variables'. 3.16 is the NEAREST removal date in this vocabulary -- nearer than the 3.18 writer family. The vocabulary previously harvested only the *function* half of that same doc page. compat_shim_files suppresses Python/initconfig.c and Python/preconfig.c (the variables' own definitions and the PyConfig bridge -- the API's own backwards compatibility implementation) and Programs/_testembed.c (the embedding test that exercises the deprecated API on purpose, the same shape as the _testlimitedcapi trap). What survives is the one genuine consumer read at Python/sysmodule.c:4533."
+    },
+    {
+      "name": "Py_IgnoreEnvironmentFlag",
+      "tier": "hard",
+      "deprecated_in": "3.12",
+      "removed_in": "3.16",
+      "replacement": "PyConfig.use_environment / PyConfig_Get(\"use_environment\")",
+      "drop_in": false,
+      "caveat": "POLARITY IS INVERTED. CPython's own bridge table says so: Python/initconfig.c maps this with GLOBAL(&Py_IgnoreEnvironmentFlag, 1), where the second field is literally named `not`. Py_IgnoreEnvironmentFlag != 0 means the behaviour is DISABLED, while PyConfig.use_environment != 0 means it is ENABLED. A mechanical rename inverts the behaviour.",
+      "compat_shim_files": [
+        "Python/initconfig.c",
+        "Python/preconfig.c",
+        "Programs/_testembed.c"
+      ],
+      "notes": "Py_DEPRECATED(3.12) PyAPI_DATA at Include/cpython/pydebug.h:17; Doc/deprecations/c-api-pending-removal-in-3.16.rst, 'Global configuration variables'. 3.16 is the NEAREST removal date in this vocabulary -- nearer than the 3.18 writer family. The vocabulary previously harvested only the *function* half of that same doc page. compat_shim_files suppresses Python/initconfig.c and Python/preconfig.c (the variables' own definitions and the PyConfig bridge -- the API's own backwards compatibility implementation) and Programs/_testembed.c (the embedding test that exercises the deprecated API on purpose, the same shape as the _testlimitedcapi trap). What survives is the one genuine consumer read at Python/sysmodule.c:4533."
+    },
+    {
+      "name": "Py_DontWriteBytecodeFlag",
+      "tier": "hard",
+      "deprecated_in": "3.12",
+      "removed_in": "3.16",
+      "replacement": "PyConfig.write_bytecode / PyConfig_Get(\"write_bytecode\")",
+      "drop_in": false,
+      "caveat": "POLARITY IS INVERTED. CPython's own bridge table says so: Python/initconfig.c maps this with GLOBAL(&Py_DontWriteBytecodeFlag, 1), where the second field is literally named `not`. Py_DontWriteBytecodeFlag != 0 means the behaviour is DISABLED, while PyConfig.write_bytecode != 0 means it is ENABLED. A mechanical rename inverts the behaviour.",
+      "compat_shim_files": [
+        "Python/initconfig.c",
+        "Python/preconfig.c",
+        "Programs/_testembed.c"
+      ],
+      "notes": "Py_DEPRECATED(3.12) PyAPI_DATA at Include/cpython/pydebug.h:18; Doc/deprecations/c-api-pending-removal-in-3.16.rst, 'Global configuration variables'. 3.16 is the NEAREST removal date in this vocabulary -- nearer than the 3.18 writer family. The vocabulary previously harvested only the *function* half of that same doc page. compat_shim_files suppresses Python/initconfig.c and Python/preconfig.c (the variables' own definitions and the PyConfig bridge -- the API's own backwards compatibility implementation) and Programs/_testembed.c (the embedding test that exercises the deprecated API on purpose, the same shape as the _testlimitedcapi trap). What survives is the one genuine consumer read at Python/sysmodule.c:4533."
+    },
+    {
+      "name": "Py_NoUserSiteDirectory",
+      "tier": "hard",
+      "deprecated_in": "3.12",
+      "removed_in": "3.16",
+      "replacement": "PyConfig.user_site_directory / PyConfig_Get(\"user_site_directory\")",
+      "drop_in": false,
+      "caveat": "POLARITY IS INVERTED. CPython's own bridge table says so: Python/initconfig.c maps this with GLOBAL(&Py_NoUserSiteDirectory, 1), where the second field is literally named `not`. Py_NoUserSiteDirectory != 0 means the behaviour is DISABLED, while PyConfig.user_site_directory != 0 means it is ENABLED. A mechanical rename inverts the behaviour.",
+      "compat_shim_files": [
+        "Python/initconfig.c",
+        "Python/preconfig.c",
+        "Programs/_testembed.c"
+      ],
+      "notes": "Py_DEPRECATED(3.12) PyAPI_DATA at Include/cpython/pydebug.h:19; Doc/deprecations/c-api-pending-removal-in-3.16.rst, 'Global configuration variables'. 3.16 is the NEAREST removal date in this vocabulary -- nearer than the 3.18 writer family. The vocabulary previously harvested only the *function* half of that same doc page. compat_shim_files suppresses Python/initconfig.c and Python/preconfig.c (the variables' own definitions and the PyConfig bridge -- the API's own backwards compatibility implementation) and Programs/_testembed.c (the embedding test that exercises the deprecated API on purpose, the same shape as the _testlimitedcapi trap). What survives is the one genuine consumer read at Python/sysmodule.c:4533."
+    },
+    {
+      "name": "Py_UnbufferedStdioFlag",
+      "tier": "hard",
+      "deprecated_in": "3.12",
+      "removed_in": "3.16",
+      "replacement": "PyConfig.buffered_stdio / PyConfig_Get(\"buffered_stdio\")",
+      "drop_in": false,
+      "caveat": "POLARITY IS INVERTED. CPython's own bridge table says so: Python/initconfig.c maps this with GLOBAL(&Py_UnbufferedStdioFlag, 1), where the second field is literally named `not`. Py_UnbufferedStdioFlag != 0 means the behaviour is DISABLED, while PyConfig.buffered_stdio != 0 means it is ENABLED. A mechanical rename inverts the behaviour.",
+      "compat_shim_files": [
+        "Python/initconfig.c",
+        "Python/preconfig.c",
+        "Programs/_testembed.c"
+      ],
+      "notes": "Py_DEPRECATED(3.12) PyAPI_DATA at Include/cpython/pydebug.h:20; Doc/deprecations/c-api-pending-removal-in-3.16.rst, 'Global configuration variables'. 3.16 is the NEAREST removal date in this vocabulary -- nearer than the 3.18 writer family. The vocabulary previously harvested only the *function* half of that same doc page. compat_shim_files suppresses Python/initconfig.c and Python/preconfig.c (the variables' own definitions and the PyConfig bridge -- the API's own backwards compatibility implementation) and Programs/_testembed.c (the embedding test that exercises the deprecated API on purpose, the same shape as the _testlimitedcapi trap). What survives is the one genuine consumer read at Python/sysmodule.c:4533."
+    },
+    {
+      "name": "Py_HashRandomizationFlag",
+      "tier": "hard",
+      "deprecated_in": "3.12",
+      "removed_in": "3.16",
+      "replacement": "PyConfig.use_hash_seed + PyConfig.hash_seed",
+      "drop_in": false,
+      "caveat": "Not a one-to-one mapping: the single flag became two PyConfig members (use_hash_seed and hash_seed), and it has no entry in initconfig.c's GLOBAL bridge table at all.",
+      "compat_shim_files": [
+        "Python/initconfig.c",
+        "Python/preconfig.c",
+        "Programs/_testembed.c"
+      ],
+      "notes": "Py_DEPRECATED(3.12) PyAPI_DATA at Include/cpython/pydebug.h:21; Doc/deprecations/c-api-pending-removal-in-3.16.rst, 'Global configuration variables'. 3.16 is the NEAREST removal date in this vocabulary -- nearer than the 3.18 writer family. The vocabulary previously harvested only the *function* half of that same doc page. compat_shim_files suppresses Python/initconfig.c and Python/preconfig.c (the variables' own definitions and the PyConfig bridge -- the API's own backwards compatibility implementation) and Programs/_testembed.c (the embedding test that exercises the deprecated API on purpose, the same shape as the _testlimitedcapi trap). What survives is the one genuine consumer read at Python/sysmodule.c:4533."
+    },
+    {
+      "name": "Py_IsolatedFlag",
+      "tier": "hard",
+      "deprecated_in": "3.12",
+      "removed_in": "3.16",
+      "replacement": "PyConfig.isolated / PyConfig_Get(\"isolated\")",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [
+        "Python/initconfig.c",
+        "Python/preconfig.c",
+        "Programs/_testembed.c"
+      ],
+      "notes": "Py_DEPRECATED(3.12) PyAPI_DATA at Include/cpython/pydebug.h:22; Doc/deprecations/c-api-pending-removal-in-3.16.rst, 'Global configuration variables'. 3.16 is the NEAREST removal date in this vocabulary -- nearer than the 3.18 writer family. The vocabulary previously harvested only the *function* half of that same doc page. compat_shim_files suppresses Python/initconfig.c and Python/preconfig.c (the variables' own definitions and the PyConfig bridge -- the API's own backwards compatibility implementation) and Programs/_testembed.c (the embedding test that exercises the deprecated API on purpose, the same shape as the _testlimitedcapi trap). What survives is the one genuine consumer read at Python/sysmodule.c:4533."
+    },
+    {
+      "name": "Py_LegacyWindowsFSEncodingFlag",
+      "tier": "hard",
+      "deprecated_in": "3.12",
+      "removed_in": "3.16",
+      "replacement": "PyPreConfig.legacy_windows_fs_encoding / PyConfig_Get(\"legacy_windows_fs_encoding\")",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [
+        "Python/initconfig.c",
+        "Python/preconfig.c",
+        "Programs/_testembed.c"
+      ],
+      "notes": "Py_DEPRECATED(3.12) PyAPI_DATA at Include/cpython/pydebug.h:25; Doc/deprecations/c-api-pending-removal-in-3.16.rst, 'Global configuration variables'. 3.16 is the NEAREST removal date in this vocabulary -- nearer than the 3.18 writer family. The vocabulary previously harvested only the *function* half of that same doc page. compat_shim_files suppresses Python/initconfig.c and Python/preconfig.c (the variables' own definitions and the PyConfig bridge -- the API's own backwards compatibility implementation) and Programs/_testembed.c (the embedding test that exercises the deprecated API on purpose, the same shape as the _testlimitedcapi trap). What survives is the one genuine consumer read at Python/sysmodule.c:4533."
+    },
+    {
+      "name": "Py_LegacyWindowsStdioFlag",
+      "tier": "hard",
+      "deprecated_in": "3.12",
+      "removed_in": "3.16",
+      "replacement": "PyConfig.legacy_windows_stdio / PyConfig_Get(\"legacy_windows_stdio\")",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [
+        "Python/initconfig.c",
+        "Python/preconfig.c",
+        "Programs/_testembed.c"
+      ],
+      "notes": "Py_DEPRECATED(3.12) PyAPI_DATA at Include/cpython/pydebug.h:26; Doc/deprecations/c-api-pending-removal-in-3.16.rst, 'Global configuration variables'. 3.16 is the NEAREST removal date in this vocabulary -- nearer than the 3.18 writer family. The vocabulary previously harvested only the *function* half of that same doc page. compat_shim_files suppresses Python/initconfig.c and Python/preconfig.c (the variables' own definitions and the PyConfig bridge -- the API's own backwards compatibility implementation) and Programs/_testembed.c (the embedding test that exercises the deprecated API on purpose, the same shape as the _testlimitedcapi trap). What survives is the one genuine consumer read at Python/sysmodule.c:4533."
+    },
+    {
+      "name": "Py_FileSystemDefaultEncoding",
+      "tier": "hard",
+      "deprecated_in": "3.12",
+      "removed_in": "3.16",
+      "replacement": "PyConfig.filesystem_encoding / PyConfig_Get(\"filesystem_encoding\")",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [
+        "Python/initconfig.c",
+        "Python/preconfig.c",
+        "Programs/_testembed.c"
+      ],
+      "notes": "Py_DEPRECATED(3.12) PyAPI_DATA at Include/fileobject.h:22; Doc/deprecations/c-api-pending-removal-in-3.16.rst, 'Global configuration variables'. 3.16 is the NEAREST removal date in this vocabulary -- nearer than the 3.18 writer family. The vocabulary previously harvested only the *function* half of that same doc page. compat_shim_files suppresses Python/initconfig.c and Python/preconfig.c (the variables' own definitions and the PyConfig bridge -- the API's own backwards compatibility implementation) and Programs/_testembed.c (the embedding test that exercises the deprecated API on purpose, the same shape as the _testlimitedcapi trap). What survives is the one genuine consumer read at Python/sysmodule.c:4533."
+    },
+    {
+      "name": "Py_FileSystemDefaultEncodeErrors",
+      "tier": "hard",
+      "deprecated_in": "3.12",
+      "removed_in": "3.16",
+      "replacement": "PyConfig.filesystem_errors / PyConfig_Get(\"filesystem_errors\")",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [
+        "Python/initconfig.c",
+        "Python/preconfig.c",
+        "Programs/_testembed.c"
+      ],
+      "notes": "Py_DEPRECATED(3.12) PyAPI_DATA at Include/fileobject.h:24; Doc/deprecations/c-api-pending-removal-in-3.16.rst, 'Global configuration variables'. 3.16 is the NEAREST removal date in this vocabulary -- nearer than the 3.18 writer family. The vocabulary previously harvested only the *function* half of that same doc page. compat_shim_files suppresses Python/initconfig.c and Python/preconfig.c (the variables' own definitions and the PyConfig bridge -- the API's own backwards compatibility implementation) and Programs/_testembed.c (the embedding test that exercises the deprecated API on purpose, the same shape as the _testlimitedcapi trap). What survives is the one genuine consumer read at Python/sysmodule.c:4533."
+    },
+    {
+      "name": "Py_HasFileSystemDefaultEncoding",
+      "tier": "hard",
+      "deprecated_in": "3.12",
+      "removed_in": "3.16",
+      "replacement": "PyConfig.filesystem_encoding / PyConfig_Get(\"filesystem_encoding\")",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [
+        "Python/initconfig.c",
+        "Python/preconfig.c",
+        "Programs/_testembed.c"
+      ],
+      "notes": "Py_DEPRECATED(3.12) PyAPI_DATA at Include/fileobject.h:26; Doc/deprecations/c-api-pending-removal-in-3.16.rst, 'Global configuration variables'. 3.16 is the NEAREST removal date in this vocabulary -- nearer than the 3.18 writer family. The vocabulary previously harvested only the *function* half of that same doc page. compat_shim_files suppresses Python/initconfig.c and Python/preconfig.c (the variables' own definitions and the PyConfig bridge -- the API's own backwards compatibility implementation) and Programs/_testembed.c (the embedding test that exercises the deprecated API on purpose, the same shape as the _testlimitedcapi trap). What survives is the one genuine consumer read at Python/sysmodule.c:4533."
+    },
+    {
+      "name": "Py_UTF8Mode",
+      "tier": "hard",
+      "deprecated_in": "3.12",
+      "removed_in": "3.16",
+      "replacement": "PyPreConfig.utf8_mode / PyConfig_Get(\"utf8_mode\")",
+      "drop_in": true,
+      "caveat": "",
+      "compat_shim_files": [
+        "Python/initconfig.c",
+        "Python/preconfig.c",
+        "Programs/_testembed.c"
+      ],
+      "notes": "Py_DEPRECATED(3.12) PyAPI_DATA at Include/fileobject.h:29; Doc/deprecations/c-api-pending-removal-in-3.16.rst, 'Global configuration variables'. 3.16 is the NEAREST removal date in this vocabulary -- nearer than the 3.18 writer family. The vocabulary previously harvested only the *function* half of that same doc page. compat_shim_files suppresses Python/initconfig.c and Python/preconfig.c (the variables' own definitions and the PyConfig bridge -- the API's own backwards compatibility implementation) and Programs/_testembed.c (the embedding test that exercises the deprecated API on purpose, the same shape as the _testlimitedcapi trap). What survives is the one genuine consumer read at Python/sysmodule.c:4533."
+    },
+    {
+      "name": "PyGen_New",
+      "tier": "hard",
+      "deprecated_in": "3.16",
+      "removed_in": "3.18",
+      "replacement": "",
+      "drop_in": false,
+      "caveat": "Doc/deprecations/c-api-pending-removal-in-3.18.rst lists this with '(no replacement)': the frame-based constructor has no public successor.",
+      "compat_shim_files": [],
+      "notes": "Py_DEPRECATED(3.16) at Include/cpython/genobject.h:19; removal scheduled in Doc/deprecations/c-api-pending-removal-in-3.18.rst. Note the deliberate split -- the marker says 3.16 (when it was deprecated) and the doc says 3.18 (when it goes); they mean different things. Zero consumer call sites at 3.16.0a0: the only tree-wide occurrence is its own definition at Objects/genobject.c:1208. Added as a regression guard, and it exercises definition-site suppression on a fresh case."
+    },
+    {
+      "name": "PyGen_NewWithQualName",
+      "tier": "hard",
+      "deprecated_in": "3.16",
+      "removed_in": "3.18",
+      "replacement": "",
+      "drop_in": false,
+      "caveat": "Doc/deprecations/c-api-pending-removal-in-3.18.rst lists this with '(no replacement)': the frame-based constructor has no public successor.",
+      "compat_shim_files": [],
+      "notes": "Py_DEPRECATED(3.16) at Include/cpython/genobject.h:20; removal scheduled in Doc/deprecations/c-api-pending-removal-in-3.18.rst. Note the deliberate split -- the marker says 3.16 (when it was deprecated) and the doc says 3.18 (when it goes); they mean different things. Zero consumer call sites at 3.16.0a0: the only tree-wide occurrence is its own definition at Objects/genobject.c:1202. Added as a regression guard, and it exercises definition-site suppression on a fresh case."
+    },
+    {
+      "name": "PyCoro_New",
+      "tier": "hard",
+      "deprecated_in": "3.16",
+      "removed_in": "3.18",
+      "replacement": "",
+      "drop_in": false,
+      "caveat": "Doc/deprecations/c-api-pending-removal-in-3.18.rst lists this with '(no replacement)': the frame-based constructor has no public successor.",
+      "compat_shim_files": [],
+      "notes": "Py_DEPRECATED(3.16) at Include/cpython/genobject.h:32; removal scheduled in Doc/deprecations/c-api-pending-removal-in-3.18.rst. Note the deliberate split -- the marker says 3.16 (when it was deprecated) and the doc says 3.18 (when it goes); they mean different things. Zero consumer call sites at 3.16.0a0: the only tree-wide occurrence is its own definition at Objects/genobject.c:1573. Added as a regression guard, and it exercises definition-site suppression on a fresh case."
+    },
+    {
+      "name": "PyAsyncGen_New",
+      "tier": "hard",
+      "deprecated_in": "3.16",
+      "removed_in": "3.18",
+      "replacement": "",
+      "drop_in": false,
+      "caveat": "Doc/deprecations/c-api-pending-removal-in-3.18.rst lists this with '(no replacement)': the frame-based constructor has no public successor.",
+      "compat_shim_files": [],
+      "notes": "Py_DEPRECATED(3.16) at Include/cpython/genobject.h:43; removal scheduled in Doc/deprecations/c-api-pending-removal-in-3.18.rst. Note the deliberate split -- the marker says 3.16 (when it was deprecated) and the doc says 3.18 (when it goes); they mean different things. Zero consumer call sites at 3.16.0a0: the only tree-wide occurrence is its own definition at Objects/genobject.c:1895. Added as a regression guard, and it exercises definition-site suppression on a fresh case."
+    }
+  ]
+}

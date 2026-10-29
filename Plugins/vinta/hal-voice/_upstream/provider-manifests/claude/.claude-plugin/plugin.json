@@ -1,0 +1,50 @@
+{
+  "name": "hal-voice",
+  "displayName": "HAL Voice",
+  "version": "2.1.10",
+  "description": "Play HAL 9000 voice clips on Claude Code hook events",
+  "author": {
+    "name": "Vinta Chen",
+    "email": "vinta.chen@gmail.com"
+  },
+  "repository": "https://github.com/vinta/hal-9000",
+  "homepage": "https://vinta.ws/code/",
+  "documentationUrl": "https://github.com/vinta/hal-9000/blob/main/plugins/hal-voice/README.md",
+  "supportUrl": "https://github.com/vinta/hal-9000/issues",
+  "license": "MIT",
+  "icon": "./icon.png",
+  "keywords": [
+    "hal-9000",
+    "hooks",
+    "voice",
+    "audio"
+  ],
+  "userConfig": {
+    "volume": {
+      "type": "number",
+      "title": "Volume",
+      "description": "Playback volume, from 0 to 100",
+      "default": 50,
+      "min": 0,
+      "max": 100
+    },
+    "play_in_terminal": {
+      "type": "boolean",
+      "title": "Play in terminal",
+      "description": "Play clips in the terminal CLI",
+      "default": true
+    },
+    "play_in_desktop_app": {
+      "type": "boolean",
+      "title": "Play in desktop app",
+      "description": "Play clips in the Claude desktop app",
+      "default": false
+    },
+    "play_in_vscode": {
+      "type": "boolean",
+      "title": "Play in VS Code",
+      "description": "Play clips in the VS Code extension",
+      "default": false
+    }
+  }
+}

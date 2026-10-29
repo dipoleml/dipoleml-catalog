@@ -1,0 +1,42 @@
+{
+  "name": "arcgentic",
+  "version": "2.2.1",
+  "description": "Moirai-derived gated engineering workflow for AI coding with verified Codex V2 orchestration.",
+  "author": {
+    "name": "Arc Studio"
+  },
+  "homepage": "https://github.com/Arch1eSUN/Arcgentic",
+  "repository": "https://github.com/Arch1eSUN/Arcgentic",
+  "license": "MIT",
+  "keywords": [
+    "agentic-harness",
+    "round-driven-development",
+    "external-audit",
+    "reference-first",
+    "lesson-codification"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Arcgentic",
+    "shortDescription": "Turn AI coding into an orchestrated plan/dev/audit workflow.",
+    "longDescription": "Arcgentic packages Moirai-derived development discipline as reusable Codex skills backed by a Python CLI. Codex V2 is verified for automatic Orchestrator setup, role-thread dispatch, return handling, and gated closeout.",
+    "developerName": "Arc Studio",
+    "category": "Productivity",
+    "capabilities": [
+      "Round planning",
+      "Execution handoff",
+      "External audit",
+      "Reference tracking",
+      "Lesson codification",
+      "Cross-session handoff",
+      "Source intake",
+      "Spec governance",
+      "Project session mode",
+      "Verdict completeness",
+      "V2 Codex thread orchestration",
+      "Claude Code hook-backed broker",
+      "PASS-only close-round"
+    ],
+    "defaultPrompt": "Use arcgentic to plan, execute, audit, or hand off a development round."
+  }
+}

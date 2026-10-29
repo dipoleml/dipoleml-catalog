@@ -1,0 +1,124 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.joetawil7.first-pass",
+  "type": "plugin",
+  "name": "First Pass",
+  "slug": "first-pass",
+  "vendor": "joetawil7",
+  "description": " Rules and checks that make DipoleML look around a change, not just at the lines it writes: ten questions before code, a reviewer that didn't write it, proof before done, bugs fixed as a class.",
+  "version": "0.9.3",
+  "homepage": "https://github.com/joetawil7/first-pass",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agents-skills",
+    "agentskill",
+    "agentskills",
+    "ai-coding",
+    "ai-coding-assistant",
+    "claude-code-hooks",
+    "claude-code-marketplace",
+    "claude-code-plugin",
+    "claude-code-plugins"
+  ],
+  "tags": [
+    "agents-skills",
+    "agentskill",
+    "agentskills",
+    "ai-coding",
+    "ai-coding-assistant",
+    "claude-code",
+    "claude-code-hooks",
+    "claude-code-marketplace",
+    "claude-code-plugin",
+    "claude-code-plugins",
+    "claude-code-plugins-marketplace",
+    "claude-code-skill",
+    "claude-code-skills",
+    "code-repair",
+    "code-review",
+    "code-review-assistant",
+    "code-review-assistant-active",
+    "code-review-automation",
+    "code-reviews",
+    "developer-tools"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "joetawil7",
+    "brandName": "joetawil7",
+    "source": "https://github.com/joetawil7.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:13:30Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "joetawil7/first-pass",
+    "url": "https://github.com/joetawil7/first-pass",
+    "commit": "09925bf379bf6c2cd960dee544361e2db26921b0",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 125,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:03:37Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "First Pass |  Rules and checks that make Claude Code look around a change, not just at the lines it writes: ten questions before code, a reviewer that didn't write it, proof before done, bugs fixed as a class.",
+        "after": "First Pass |  Rules and checks that make DipoleML look around a change, not just at the lines it writes: ten questions before code, a reviewer that didn't write it, proof before done, bugs fixed as a class.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

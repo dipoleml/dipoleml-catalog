@@ -1,0 +1,11 @@
+{
+  "name": "swift-engineer",
+  "description": "Elite iOS and macOS development expertise with automatic skill activation for Swift, UIKit, AppKit, SwiftUI, Xcode, and Apple frameworks plus code formatting tools",
+  "version": "4.0.1",
+  "author": {
+    "name": "Scott",
+    "email": "scott.jungling@gmail.com"
+  },
+  "license": "MIT",
+  "keywords": ["swift", "ios", "macos", "xcode", "uikit", "appkit", "swiftui", "combine", "core-data", "formatting", "architecture"]
+}

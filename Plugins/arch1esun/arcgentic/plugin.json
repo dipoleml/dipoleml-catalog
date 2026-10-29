@@ -1,0 +1,57 @@
+{
+  "name": "arcgentic",
+  "version": "2.2.1",
+  "description": "Moirai-derived gated engineering workflow for AI coding. Arcgentic V2 turns Codex and Claude Code sessions into orchestrated planning, development, self-audit, optional user testing, external audit, and closeout.",
+  "author": "Arc Studio",
+  "license": "MIT",
+  "homepage": "https://github.com/Arch1eSUN/arcgentic",
+  "keywords": [
+    "agentic-harness",
+    "workflow",
+    "round-driven-development",
+    "external-audit",
+    "reference-first",
+    "lesson-codification",
+    "rigorous-engineering"
+  ],
+  "dependencies": {
+    "claude-code": ">=1.0.0",
+    "superpowers": "^5.0.0",
+    "plugin-dev": "^0.1.0"
+  },
+  "skills": [
+    "arcgentic",
+    "using-arcgentic",
+    "pre-round-scan",
+    "orchestrate-round",
+    "plan-round",
+    "execute-round",
+    "audit-round",
+    "close-round",
+    "source-intake",
+    "spec-governance",
+    "session-mode",
+    "agency-roster",
+    "track-refs",
+    "codify-lesson",
+    "cross-session-handoff",
+    "codex-thread-orchestration",
+    "claude-code-session-broker",
+    "verify-gates"
+  ],
+  "agents": [
+    "orchestrator",
+    "planner",
+    "developer",
+    "auditor",
+    "ref-tracker",
+    "lesson-codifier",
+    "ba-designer",
+    "cr-reviewer",
+    "se-contract"
+  ],
+  "scripts_dir": "scripts/",
+  "schemas_dir": "schema/",
+  "hooks_dir": "hooks/",
+  "status": "v2.2.1. Codex V2 is complete and real-machine verified, including automatic Orchestrator setup and role dispatch. Claude Code V2 is complete and real-machine verified for single-session-subagent mode via the native-tooling (Agent) tier-0 broker path; multi-session-subthread mode and the hook-backed fallback remain unverified by that gate. arcgentic also ships an optional MCP server (`arcgentic mcp-serve`, `pip install arcgentic[mcp]`) exposing a round-status panel via MCP Apps."
+}

@@ -1,0 +1,443 @@
+#!/usr/bin/env node
+// Tests for trailhead-body-guard.js. Run: node trailhead-body-guard.test.js
+// No framework: plain asserts + child_process for the end-to-end hook behaviour.
+const assert = require('assert');
+const { execFileSync } = require('child_process');
+const path = require('path');
+const fs = require('fs');
+const os = require('os');
+
+// TRAILHEAD_GUARD_HOOK re-runs this suite through the merged trailhead-bash-guards.js.
+const HOOK = process.env.TRAILHEAD_GUARD_HOOK || path.join(__dirname, 'trailhead-body-guard.js');
+const { ghBodyWrite, isEmptyBody, evaluate } = require('./trailhead-body-guard.js');
+
+let passed = 0;
+const ok = (name, cond) => { assert.ok(cond, name); passed++; };
+
+// Run the hook end-to-end: pipe tool_input JSON on stdin, capture {code, out}.
+function runHook(command, env = {}) {
+  const input = JSON.stringify({ tool_input: { command } });
+  try {
+    const out = execFileSync('node', [HOOK], { input, env: { ...process.env, ...env } });
+    return { code: 0, out: out.toString() };
+  } catch (e) {
+    return { code: e.status, out: (e.stdout || '').toString(), err: (e.stderr || '').toString() };
+  }
+}
+
+// --- unit: ghBodyWrite() recognition ---
+{
+  const tmp = path.join(os.tmpdir(), `bg-file-${process.pid}.md`);
+  fs.writeFileSync(tmp, 'hello there\n');
+  const r1 = ghBodyWrite(`gh issue edit 5 --body-file ${tmp}`);
+  ok('recognizes gh issue edit --body-file', r1 && r1.kind === 'issue' && r1.body === 'hello there\n');
+  fs.unlinkSync(tmp);
+}
+ok('recognizes gh issue edit --body (inline)',
+  (() => { const r = ghBodyWrite('gh issue edit 5 --body "hi"'); return r && r.kind === 'issue' && r.body === 'hi'; })());
+ok('recognizes gh pr edit --body "" (empty inline)',
+  (() => { const r = ghBodyWrite('gh pr edit 5 --body ""'); return r && r.kind === 'pr' && r.body === ''; })());
+ok('recognizes gh api ... -f body=foo',
+  (() => { const r = ghBodyWrite('gh api --method PATCH repos/o/r/issues/5 -f body=foo'); return r && r.kind === 'api' && r.body === 'foo'; })());
+ok('recognizes the -R o/r global-flag form',
+  (() => { const r = ghBodyWrite('gh -R owner/repo issue edit 5 --body "hi"'); return r && r.kind === 'issue' && r.body === 'hi'; })());
+// Regression (#153): an unknown two-token global flag (e.g. --hostname h)
+// before the subcommand must not desync the walk and hide the write.
+ok('recognizes gh issue edit behind an unknown two-token global flag (--hostname h)',
+  (() => { const r = ghBodyWrite('gh --hostname h issue edit 5 --body ""'); return r && r.kind === 'issue' && r.body === ''; })());
+ok('recognizes gh pr edit behind an unknown two-token global flag (--hostname h)',
+  (() => { const r = ghBodyWrite('gh --hostname h pr edit 5 --body ""'); return r && r.kind === 'pr' && r.body === ''; })());
+// Regression (#153 follow-up): a two-token global flag whose VALUE literally
+// equals a subcommand keyword (`api`) must still resolve the real `issue
+// edit` write.
+ok('recognizes gh issue edit behind a keyword-valued two-token global flag (--hostname api)',
+  (() => { const r = ghBodyWrite('gh --hostname api issue edit 5 --body ""'); return r && r.kind === 'issue' && r.body === ''; })());
+// Regression (#153 second follow-up): an unknown BOOLEAN flag directly
+// before the subcommand must not swallow the subcommand as its own value.
+ok('recognizes gh issue edit behind an unknown boolean flag (--foo)',
+  (() => { const r = ghBodyWrite('gh --foo issue edit 5 --body ""'); return r && r.kind === 'issue' && r.body === ''; })());
+
+// --- unit: ghBodyWrite() non-matches ---
+ok('ignores gh issue edit with no body param',
+  ghBodyWrite('gh issue edit 5 --add-label x') === null);
+ok('ignores gh issue comment (excluded verb)',
+  ghBodyWrite('gh issue comment 5 --body "hi"') === null);
+ok('ignores gh issue create (excluded verb)',
+  ghBodyWrite('gh issue create --title t --body-file /tmp/x') === null);
+ok('ignores non-gh commands',
+  ghBodyWrite('echo --body ""') === null);
+
+// --- unit: unknowable bodies are not blockable ---
+{
+  const r = ghBodyWrite('gh issue edit 5 --body "$(cat f)"');
+  ok('a shell-expansion inline body is unknowable (not blockable)', r && r.kind === 'issue' && r.body === null);
+}
+{
+  const r = ghBodyWrite('gh issue edit 5 --body-file -');
+  ok('a --body-file - (stdin) body is unknowable (not blockable)', r && r.kind === 'issue' && r.body === null);
+}
+{
+  const r = ghBodyWrite('gh issue edit 5 --body-file /no/such/file/does-not-exist.md');
+  ok('a --body-file whose read throws is unknowable (not blockable)', r && r.kind === 'issue' && r.body === null);
+}
+
+// --- unit: isEmptyBody() ---
+ok("isEmptyBody('') is true", isEmptyBody('') === true);
+ok("isEmptyBody('   \\n\\t ') is true", isEmptyBody('   \n\t ') === true);
+ok("isEmptyBody('x') is false", isEmptyBody('x') === false);
+ok("isEmptyBody(' a ') is false", isEmptyBody(' a ') === false);
+
+// --- end-to-end: block ---
+// #219: a quoted command word or subcommand is the same word for bash.
+const bQuoted = runHook('gh "issue" edit 5 --body ""');
+ok('blocks an empty --body behind a quoted subcommand (#219)', bQuoted.code === 2 && /EMPTY_ISSUE_BODY_WRITE/.test(bQuoted.out));
+
+const b1 = runHook('gh issue edit 5 --body ""');
+ok('blocks an empty inline --body (exit 2)', b1.code === 2 && /"decision":"block"/.test(b1.out) && /EMPTY_ISSUE_BODY_WRITE/.test(b1.out));
+
+// Regression (#153): the same block must fire when an unknown two-token
+// global flag (e.g. --hostname h) sits before the subcommand.
+const bHost1 = runHook('gh --hostname h issue edit 5 --body ""');
+ok('blocks an empty --body behind an unknown two-token global flag (issue edit, exit 2)',
+  bHost1.code === 2 && /"decision":"block"/.test(bHost1.out) && /EMPTY_ISSUE_BODY_WRITE/.test(bHost1.out));
+const bHost2 = runHook('gh --hostname h pr edit 5 --body ""');
+ok('blocks an empty --body behind an unknown two-token global flag (pr edit, exit 2)',
+  bHost2.code === 2 && /"decision":"block"/.test(bHost2.out) && /EMPTY_ISSUE_BODY_WRITE/.test(bHost2.out));
+
+// Regression (#153 follow-up): a two-token global flag whose VALUE literally
+// equals a subcommand keyword (`api`) must still block the real `issue edit`
+// empty-body write end to end.
+const bHost3 = runHook('gh --hostname api issue edit 5 --body ""');
+ok('blocks an empty --body behind a keyword-valued two-token global flag (--hostname api, exit 2)',
+  bHost3.code === 2 && /"decision":"block"/.test(bHost3.out) && /EMPTY_ISSUE_BODY_WRITE/.test(bHost3.out));
+
+// Regression (#153 second follow-up): an unknown BOOLEAN flag before the
+// subcommand must not hide the write by swallowing the subcommand itself.
+const bFoo = runHook('gh --foo issue edit 5 --body ""');
+ok('blocks an empty --body behind an unknown boolean flag (--foo, exit 2)',
+  bFoo.code === 2 && /"decision":"block"/.test(bFoo.out) && /EMPTY_ISSUE_BODY_WRITE/.test(bFoo.out));
+
+{
+  const empty = path.join(os.tmpdir(), `bg-empty-${process.pid}.md`);
+  fs.writeFileSync(empty, '');
+  const b2 = runHook(`gh issue edit 5 --body-file ${empty}`);
+  ok('blocks an empty --body-file (exit 2)', b2.code === 2 && /"decision":"block"/.test(b2.out));
+  fs.unlinkSync(empty);
+}
+
+{
+  const whitespace = path.join(os.tmpdir(), `bg-ws-${process.pid}.md`);
+  fs.writeFileSync(whitespace, '   \n\t \n');
+  const b3 = runHook(`gh pr edit 5 --body-file ${whitespace}`);
+  ok('blocks a whitespace-only --body-file (exit 2)', b3.code === 2 && /"decision":"block"/.test(b3.out));
+  fs.unlinkSync(whitespace);
+}
+
+const b4 = runHook('gh api --method PATCH repos/o/r/issues/5 -f body=');
+ok('blocks an empty gh api body= (exit 2)', b4.code === 2 && /"decision":"block"/.test(b4.out));
+
+// --- end-to-end: block via short flags (-b / -F, gh's documented aliases) ---
+const b5 = runHook('gh issue edit 5 -b ""');
+ok('blocks an empty short -b (issue edit, exit 2)', b5.code === 2 && /"decision":"block"/.test(b5.out));
+
+const b6 = runHook('gh pr edit 5 -b ""');
+ok('blocks an empty short -b (pr edit, exit 2)', b6.code === 2 && /"decision":"block"/.test(b6.out));
+
+{
+  const shortEmpty = path.join(os.tmpdir(), `bg-short-empty-${process.pid}.md`);
+  fs.writeFileSync(shortEmpty, '');
+  const b7 = runHook(`gh issue edit 5 -F ${shortEmpty}`);
+  ok('blocks an empty short -F body-file (exit 2)', b7.code === 2 && /"decision":"block"/.test(b7.out));
+  fs.unlinkSync(shortEmpty);
+}
+
+const a5 = runHook('gh issue edit 5 -b "real content"');
+ok('allows a non-empty short -b (exit 0)', a5.code === 0 && a5.out.trim() === '');
+
+// --- unit: ghBodyWrite() recognizes short flags directly ---
+ok('ghBodyWrite recognizes -b (issue edit)',
+  (() => { const r = ghBodyWrite('gh issue edit 5 -b "hi"'); return r && r.kind === 'issue' && r.body === 'hi'; })());
+{
+  const tmp = path.join(os.tmpdir(), `bg-shortfile-${process.pid}.md`);
+  fs.writeFileSync(tmp, 'content\n');
+  const r = ghBodyWrite(`gh pr edit 5 -F ${tmp}`);
+  ok('ghBodyWrite recognizes -F (pr edit)', r && r.kind === 'pr' && r.body === 'content\n');
+  fs.unlinkSync(tmp);
+}
+// -b must not accidentally match the "-b" inside "--body" itself.
+ok('ghBodyWrite still resolves --body correctly alongside the -b alias',
+  (() => { const r = ghBodyWrite('gh issue edit 5 --body "hi"'); return r && r.kind === 'issue' && r.body === 'hi'; })());
+
+// --- end-to-end: block via gh api empty-body forms ---
+const b8 = runHook('gh api --method PATCH repos/o/r/issues/5 -f body=""');
+ok('blocks gh api -f body="" (literal empty double-quotes, exit 2)', b8.code === 2 && /"decision":"block"/.test(b8.out));
+
+const b9 = runHook("gh api --method PATCH repos/o/r/issues/5 -f body=''");
+ok("blocks gh api -f body='' (literal empty single-quotes, exit 2)", b9.code === 2 && /"decision":"block"/.test(b9.out));
+
+{
+  const apiEmpty = path.join(os.tmpdir(), `bg-api-empty-${process.pid}.md`);
+  fs.writeFileSync(apiEmpty, '');
+  const b10 = runHook(`gh api --method PATCH repos/o/r/issues/5 -F body=@${apiEmpty}`);
+  ok('blocks gh api -F body=@<empty file> (exit 2)', b10.code === 2 && /"decision":"block"/.test(b10.out));
+  fs.unlinkSync(apiEmpty);
+}
+
+const a6 = runHook('gh api --method PATCH repos/o/r/issues/5 -F body=@-');
+ok('allows gh api -F body=@- (stdin, unknowable, exit 0)', a6.code === 0 && a6.out.trim() === '');
+
+{
+  const apiFull = path.join(os.tmpdir(), `bg-api-full-${process.pid}.md`);
+  fs.writeFileSync(apiFull, 'real content\n');
+  const a7 = runHook(`gh api --method PATCH repos/o/r/issues/5 -f body=@${apiFull}`);
+  ok('allows a non-empty gh api -f body=@<file> (exit 0)', a7.code === 0 && a7.out.trim() === '');
+  fs.unlinkSync(apiFull);
+}
+
+// --- end-to-end: block via ~-expanded --body-file (fs.readFileSync does not expand ~) ---
+{
+  const homeRel = `.bg-tilde-test-${process.pid}.md`;
+  const homeAbs = path.join(os.homedir(), homeRel);
+  fs.writeFileSync(homeAbs, '');
+  const b11 = runHook(`gh issue edit 5 --body-file ~/${homeRel}`);
+  ok('blocks an empty ~/-prefixed --body-file (exit 2)', b11.code === 2 && /"decision":"block"/.test(b11.out));
+  fs.unlinkSync(homeAbs);
+}
+
+// --- end-to-end: allow ---
+const a1 = runHook('gh issue edit 5 --body "not empty"');
+ok('allows a non-empty body write (exit 0, no output)', a1.code === 0 && a1.out.trim() === '');
+const a2 = runHook('gh issue view 5 --json body'); // read, not a write
+ok('allows a read (exit 0)', a2.code === 0 && a2.out.trim() === '');
+const a3 = runHook('gh issue comment 5 --body ""'); // excluded verb, even though empty
+ok('allows an empty gh issue comment (excluded verb, exit 0)', a3.code === 0 && a3.out.trim() === '');
+// The merged runner also runs the secret-guard, which resolves `$(cat <path>)`: point it at a real clean file.
+const a4File = path.join(os.tmpdir(), `bg-subst-${process.pid}.md`);
+fs.writeFileSync(a4File, 'not empty\n');
+const a4 = runHook(`gh issue edit 5 --body "$(cat ${a4File})"`); // unknowable, can't prove empty
+fs.unlinkSync(a4File);
+ok('allows an unknowable (shell-expansion) body (exit 0)', a4.code === 0 && a4.out.trim() === '');
+
+// --- regression (#211): an empty-body write chained after another command ---
+const isBlock = (r) => r.code === 2 && /"decision":"block"/.test(r.out) && /EMPTY_ISSUE_BODY_WRITE/.test(r.out);
+const isAllow = (r) => r.code === 0 && r.out.trim() === '';
+ok('blocks an empty --body chained after cd (exit 2)', isBlock(runHook('cd /tmp && gh issue edit 5 --body ""')));
+ok('blocks an empty --body after a variable assignment (exit 2)', isBlock(runHook('D=x && gh issue edit 5 --body ""')));
+ok('blocks an empty --body inside a subshell (exit 2)', isBlock(runHook('( gh issue edit 5 --body "" )')));
+ok('blocks an empty --body inside if/then (exit 2)', isBlock(runHook('if true; then gh issue edit 5 --body ""; fi')));
+ok('blocks an empty write that is a LATER statement after a non-empty one (exit 2)',
+  isBlock(runHook('gh issue edit 5 --body "x"; gh issue edit 6 --body ""')));
+ok('blocks a chained gh api -f body="" after cd (exit 2)',
+  isBlock(runHook('cd /tmp && gh api --method PATCH repos/o/r/issues/5 -f body=""')));
+ok('allows a chained non-empty body (exit 0)', isAllow(runHook('cd /tmp && gh issue edit 5 --body "x"')));
+ok('allows a chained empty gh issue comment (out of scope, exit 0)',
+  isAllow(runHook('cd /tmp && gh issue comment 5 --body ""')));
+ok('allows a chained empty gh issue create (out of scope, exit 0)',
+  isAllow(runHook('cd /tmp && gh issue create --title t --body ""')));
+{
+  // After a cd the working directory is unknown: a relative path cannot be proven empty.
+  const relName = `bg-rel-${process.pid}.md`;
+  fs.writeFileSync(path.join(process.cwd(), relName), '');
+  // evaluate() directly: the merged runner's secret-guard has its own (separate) block for this shape.
+  ok('allows a RELATIVE --body-file after cd (unknowable)',
+    evaluate(`cd /tmp && gh issue edit 5 --body-file ${relName}`).kind === 'allow');
+  ok('allows a RELATIVE api body=@path after cd (unknowable)',
+    evaluate(`cd /tmp && gh api --method PATCH repos/o/r/issues/5 -F body=@${relName}`).kind === 'allow');
+  ok('blocks the same RELATIVE --body-file when no cd precedes it',
+    evaluate(`gh issue edit 5 --body-file ${relName}`).kind === 'block');
+  fs.unlinkSync(path.join(process.cwd(), relName));
+  const absEmpty = path.join(os.tmpdir(), `bg-abs-empty-${process.pid}.md`);
+  fs.writeFileSync(absEmpty, '');
+  ok('blocks an ABSOLUTE empty --body-file after cd (exit 2)',
+    isBlock(runHook(`cd /tmp && gh issue edit 5 --body-file ${absEmpty}`)));
+  fs.unlinkSync(absEmpty);
+}
+
+{
+  // Partial install (no secret-guard next to the hook): the leading write still blocks.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'bg-partial-'));
+  fs.mkdirSync(path.join(dir, 'lib'));
+  fs.copyFileSync(path.join(__dirname, 'trailhead-body-guard.js'), path.join(dir, 'trailhead-body-guard.js'));
+  fs.copyFileSync(path.join(__dirname, 'lib', 'gh-subcommand.js'), path.join(dir, 'lib', 'gh-subcommand.js'));
+  fs.copyFileSync(path.join(__dirname, 'lib', 'body-sources.js'), path.join(dir, 'lib', 'body-sources.js'));
+  const partial = require(path.join(dir, 'trailhead-body-guard.js'));
+  ok('without secret-guard, a leading empty --body still blocks',
+    partial.evaluate('gh issue edit 5 --body ""').kind === 'block');
+  fs.rmSync(dir, { recursive: true, force: true });
+}
+
+// --- regression (#213): repeated / mixed body flags resolve like gh (pflag keeps the LAST) ---
+{
+  const blk = (c) => evaluate(c).kind === 'block';
+  const alw = (c) => evaluate(c).kind === 'allow';
+  for (const sub of ['issue', 'pr']) {
+    const g = `gh ${sub} edit 5`;
+    ok(`#213 ${sub}: blocks --body "x" --body ""`, blk(`${g} --body "x" --body ""`));
+    ok(`#213 ${sub}: blocks --body=x --body=`, blk(`${g} --body=x --body=`));
+    ok(`#213 ${sub}: blocks -b "x" --body ""`, blk(`${g} -b "x" --body ""`));
+    ok(`#213 ${sub}: blocks -b "x" -b ""`, blk(`${g} -b "x" -b ""`));
+    ok(`#213 ${sub}: allows --body "" --body "x"`, alw(`${g} --body "" --body "x"`));
+    ok(`#213 ${sub}: allows --body= --body=x`, alw(`${g} --body= --body=x`));
+    ok(`#213 ${sub}: allows --body "" -b "x"`, alw(`${g} --body "" -b "x"`));
+    ok(`#213 ${sub}: allows --body '' --body 'x'`, alw(`${g} --body '' --body 'x'`));
+  }
+  const g = 'gh issue edit 5';
+  ok('#213 blocks --body "x" --body "   "', blk(`${g} --body "x" --body "   "`));
+  ok('#213 blocks an attached -b""', blk(`${g} -b""`));
+  ok('#213 allows --body "" --body "$(cat f)" (unknowable last)', alw(`${g} --body "" --body "$(cat f)"`));
+  ok('#213 allows --body "" --body $B (unknowable last)', alw(`${g} --body "" --body $B`));
+  ok('#213 allows --body "" --body-file /dev/null (gh mutual-exclusion error)', alw(`${g} --body "" --body-file /dev/null`));
+  ok('#213 allows --body "x" --body-file /dev/null (gh mutual-exclusion error)', alw(`${g} --body "x" --body-file /dev/null`));
+  ok('#213 allows --body "x" --body-file "" (empty file flag = absent)', alw(`${g} --body "x" --body-file ""`));
+  ok('#213 blocks --body "" --body-file "" (empty file flag = absent)', blk(`${g} --body "" --body-file ""`));
+  const full = path.join(os.tmpdir(), `bg-213-full-${process.pid}.md`);
+  fs.writeFileSync(full, 'real content\n');
+  ok('#213 blocks --body-file <full> --body-file /dev/null (last wins)', blk(`${g} --body-file ${full} --body-file /dev/null`));
+  ok('#213 allows --body-file /dev/null --body-file <full> (last wins)', alw(`${g} --body-file /dev/null --body-file ${full}`));
+  fs.unlinkSync(full);
+  ok('#213 per statement: blocks a later repeated-flag empty write',
+    blk('gh issue edit 5 --body "x" --body ""; gh issue edit 6 --body "x"'));
+  ok('#213 per statement: allows when the last --body of each statement is non-empty',
+    alw('gh issue edit 5 --body "" --body "x"; gh issue edit 6 --body "ok"'));
+}
+
+// --- regression (#213 review): backslash-newline continuations, stdin-like body files ---
+{
+  const blk = (c) => evaluate(c).kind === 'block';
+  const alw = (c) => evaluate(c).kind === 'allow';
+  const { words } = require('./lib/body-sources.js');
+  ok('words: unindented continuation joins (a\\<nl>b -> ab)', JSON.stringify(words('a\\\nb')) === '["ab"]');
+  ok('words: spaced continuation keeps two words', JSON.stringify(words('a \\\nb')) === '["a","b"]');
+  ok('words: continuation inside double quotes is removed', JSON.stringify(words('"a\\\nb"')) === JSON.stringify(['"ab"']));
+  ok('words: continuation inside single quotes is literal', JSON.stringify(words("'a\\\nb'")) === JSON.stringify(["'a\\\nb'"]));
+  ok('#213 blocks --title t \\<nl>--body ""', blk('gh issue edit 5 --title t \\\n--body ""'));
+  ok('#213 blocks edit 5 \\<nl>--body ""', blk('gh issue edit 5 \\\n--body ""'));
+  ok('#213 blocks --body "x" \\<nl>--body ""', blk('gh issue edit 5 --body "x" \\\n--body ""'));
+  ok('#213 allows --body "" \\<nl>--body "x"', alw('gh issue edit 5 --body "" \\\n--body "x"'));
+  for (const f of ['/dev/stdin', '/dev/fd/0', '/proc/self/fd/0', '-']) {
+    const r = ghBodyWrite(`gh issue edit 5 --body-file ${f}`);
+    ok(`#213 --body-file ${f} is unknowable`, r && r.body === null);
+  }
+  // Run only this guard as a real hook process behind a shell pipe (stdin is a consumed pipe, like in production).
+  const bodyGuardOnly = (c) => {
+    try {
+      execFileSync('sh', ['-c', 'printf %s "$TH_IN" | "$TH_NODE" "$TH_HOOK"'], {
+        env: { ...process.env, TH_IN: JSON.stringify({ tool_input: { command: c } }), TH_NODE: process.execPath, TH_HOOK: path.join(__dirname, 'trailhead-body-guard.js') },
+      });
+      return true;
+    } catch { return false; }
+  };
+  ok('#213 negative control: the bodyGuardOnly harness sees a block', !bodyGuardOnly('gh issue edit 5 --body ""'));
+  {
+    // `..` after a symlink resolves in the kernel, not lexically: lnk/s -> real/sub, so lnk/s/../empty.md is real/empty.md.
+    const d = fs.mkdtempSync(path.join(os.tmpdir(), 'bg-213-lnk-'));
+    fs.mkdirSync(path.join(d, 'real', 'sub'), { recursive: true });
+    fs.mkdirSync(path.join(d, 'lnk'));
+    fs.writeFileSync(path.join(d, 'real', 'empty.md'), '');
+    fs.writeFileSync(path.join(d, 'lnk', 'empty.md'), 'not empty\n');
+    fs.symlinkSync(path.join(d, 'real', 'sub'), path.join(d, 'lnk', 's'));
+    ok('#213 blocks a --body-file whose .. follows a symlink (read the raw path)',
+      blk(`gh issue edit 5 --body-file ${d}/lnk/s/../empty.md`));
+    fs.rmSync(d, { recursive: true, force: true });
+  }
+  for (const f of ['/dev//stdin', '/dev/fd//0', '/dev/./stdin']) {
+    ok(`#213 allows --body-file ${f} (non-canonical stdin spelling)`, bodyGuardOnly(`gh issue edit 5 --body-file ${f}`)); // the secret-guard judges these spellings on its own
+  }
+  ok('#213 pins: an escaped backslash before the newline is not a continuation (allows)',
+    alw('gh issue edit 5 --title t \\\\\n--body ""'));
+  ok('#213 pins: backslash CR LF is not a continuation (allows)',
+    alw('gh issue edit 5 --title t \\\r\n--body ""'));
+}
+
+// --- crash-safety ---
+try {
+  execFileSync('node', [HOOK], { input: 'not json at all {{{' });
+  ok('unparseable stdin does not throw (exit 0)', true);
+} catch (e) {
+  ok('unparseable stdin exits 0', e.status === 0);
+}
+const c2 = runHook('gh issue edit 5 --add-label x'); // non-body gh command
+ok('a non-body gh command exits 0', c2.code === 0 && c2.out.trim() === '');
+
+// #225: a flag between the subcommand and the verb must not hide the write.
+const bFlagVerb = runHook('gh issue -R o/r edit 5 --body ""');
+ok('blocks an empty --body with a flag before the verb (exit 2)', bFlagVerb.code === 2 && /EMPTY_ISSUE_BODY_WRITE/.test(bFlagVerb.out));
+
+// #227: constructs the guard cannot interpret are blocked, not emulated.
+{
+  const CODE = 'BODY_GUARD_UNMODELLED_CONSTRUCT';
+  const clean = path.join(os.tmpdir(), `bg-um-clean-${process.pid}.md`);
+  fs.writeFileSync(clean, 'A real body.\n');
+  const code = (c) => { const r = runHook(c); return r.code === 2 ? (JSON.parse(r.out).code || '?') : null; };
+
+  // Gaps that used to pass.
+  for (const c of [
+    `gh api -X PATCH repos/o/r/issues/1 -f 'body'=""`,
+    'gh api -X PATCH repos/o/r/issues/1 -f bo""dy=""',
+    'printf -v B %s x; gh issue edit 1 --body "$B"',
+    'source ./x.sh; gh issue edit 1 --body "$B"',
+    'source ./x.sh; gh issue edit 1 --body-file rel.md',
+    '. ./x.sh && gh pr edit 1 --body "$B"',
+    `eval 'gh issue edit 1 --body real'`,
+    'echo ${ gh issue edit 1 --body ""; }',
+    'alias g=gh; g issue edit 1 --body ""',
+    'f() { gh issue edit 1 --body real; }; f',
+    `gh issue ed\\\nit 1 --body real`,
+  // Through the merged runner the secret-guard speaks first on some of these (its own gate); still a block.
+  ]) ok(`blocks an unmodelled construct: ${c.slice(0, 50)}`, code(c) === CODE || (!!process.env.TRAILHEAD_GUARD_HOOK && code(c) !== null));
+
+  // An unknowable body behind a quoted key blocks too (through the merged runner the secret-guard may speak first).
+  ok('a quoted api key with an unknowable body blocks', code('gh api -X PATCH repos/o/r/issues/1 -f b\\ody="$B"') !== null);
+  ok('a quoted api key with an unreadable file blocks', code("gh api -X PATCH repos/o/r/issues/1 -f 'body'=@/nonexistent/bg-um.md") !== null);
+  for (const c of [
+    `printf -v B %s ''; gh issue edit 1 --body "it's $B and 'x'"`,
+    `source x.sh; gh issue edit 1 --body "it's $B and 'x'"`,
+    `printf -v B %s ''; printf %s "$B" | gh issue edit 1 --body-file -`,
+    `printf -v B %s ''; gh issue edit 1 --body-file - <<EOF\n$B\nEOF`,
+  ]) ok(`W2: a state-dependent write after the construct still blocks: ${c.slice(0, 40).replace(/\n/g, ' ')}`, code(c) !== null);
+  for (const c of ["source x; gh issue edit 1 --body 'lit'", 'source x; gh issue edit 1 --body lit', `source x; gh issue edit 1 --body "it's fine"`]) {
+    ok(`W2: a literal write after source passes: ${c}`, runHook(c).code === 0);
+  }
+  ok('the existing empty-body verdict keeps priority', code('source ./x.sh; gh issue edit 1 --body ""') === 'EMPTY_ISSUE_BODY_WRITE' ||
+    (!!process.env.TRAILHEAD_GUARD_HOOK && code('source ./x.sh; gh issue edit 1 --body ""') !== null));
+  ok('an empty body before the construct keeps its verdict', code('gh issue edit 1 --body ""; alias g=gh') === 'EMPTY_ISSUE_BODY_WRITE');
+
+  // Plain controls pass.
+  for (const c of [
+    "alias ll='ls -l'",
+    'alias g=gh',
+    'source ~/.venv/bin/activate && pytest',
+    'eval "$(ssh-agent)"',
+    'eval "$(ssh-agent)"; gh issue edit 1 --body-file ' + clean,
+    'printf -v x %s y; echo $x',
+    `gh issue edit 1 --body-file ${clean}; source ./x.sh`,
+    `. venv/bin/activate && gh issue edit 1 --body 'hello'`,
+    `source venv/bin/activate && gh issue edit 1 --body-file ${clean}`,
+    'f() { gh issue edit 1 --body x; }',
+    `gh issue edit 1 --body 'use eval, source and alias here'`,
+    `gh issue edit 1 --body-file ${clean} # eval x`,
+    `gh issue edit 1 \\\n  --body-file ${clean}`,
+    'gh api -X PATCH repos/o/r/issues/1 -f body=x',
+    `gh api -X PATCH repos/o/r/issues/1 -f 'body'=real`, // a known, non-empty body is read like the plain form
+    `gh api -X PATCH repos/o/r/issues/1 -f 'body'=@${clean}`,
+    'gh api -X PATCH repos/o/r/issues/1 -f "body=x"',
+    `gh api -X PATCH repos/o/r/issues/1 -F title=x`,
+  ]) ok(`passes a plain form: ${c.slice(0, 50)}`, runHook(c).code === 0);
+
+  // Not a body-guard concern (a comment adds text, it overwrites nothing); the merged runner's
+  // secret-guard may block these for its own reasons, so only the standalone guard is checked.
+  if (!process.env.TRAILHEAD_GUARD_HOOK) {
+    for (const c of [
+      'alias g=gh; g issue comment 1 --body x',
+      'printf -v B %s x; gh issue comment 1 --body "$B"',
+      `source ./x.sh; gh issue comment 1 --body-file ${clean}`,
+    ]) ok(`passes a non-overwriting write: ${c.slice(0, 50)}`, runHook(c).code === 0);
+  }
+
+  const r = runHook(`gh api -X PATCH repos/o/r/issues/1 -f 'body'=""`);
+  const reason = JSON.parse(r.out).reason;
+  ok('the message names the guard and asks for the simple form', /^trailhead body-guard: /.test(reason) && /Rewrite it in a simple form/.test(reason));
+  fs.rmSync(clean);
+}
+
+console.log(`✓ body-guard: ${passed} assertions passed`);

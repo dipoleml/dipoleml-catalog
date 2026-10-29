@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "id": "citadel-context-receipt-recovery",
+  "category": "context_reset",
+  "repository": "https://github.com/SethGammon/Citadel.git",
+  "pinned_ref": "4a02265c206d992b556fc1b38c3c9487ced880d8",
+  "task": "Repair interrupted Operation Fork receipt recovery, force a context reset after diagnosis, and resume from durable state without accepting a stale or mismatched receipt.",
+  "setup_command": ["node", "--version"],
+  "verification_command": ["node", "scripts/test-operation-fork-executors.js"],
+  "expected_artifacts": ["core/forks/orchestrator.js", "core/forks/store.js", "scripts/test-operation-fork-executors.js"],
+  "allowed_tools": ["read", "search", "edit", "test", "git"],
+  "timeout_minutes": 60,
+  "probe_budget": {
+    "max_files": 1200,
+    "max_bytes": 4194304,
+    "max_duration_ms": 3500
+  },
+  "max_attempts": 3,
+  "max_agents": 1,
+  "candidate_executors": ["codex-utility", "claude-workhorse", "claude-frontier", "codex-frontier"],
+  "holdout": false,
+  "adversarial_case": "crash"
+}

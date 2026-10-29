@@ -1,0 +1,110 @@
+image:
+  repository: ghcr.io/divar-ir/ai-doc-gen
+  pullPolicy: IfNotPresent
+  command:
+    - python
+    - main.py
+  args:
+    - cronjob
+    - analyze
+  tag: ""
+
+imagePullSecrets: [name: registry-secret]
+nameOverride: ""
+fullnameOverride: ""
+
+service:
+  labels:
+    some_label: some_value
+  type: clusterIP
+  headless: false
+  ports:
+    - name: metrics
+      port: 9000
+      targetPort: 9000
+      protocol: TCP
+
+serviceMonitor:
+  create: true
+  labels:
+    some_label: some_value
+  portName: metrics
+  metricsPath: /
+
+cronjob:
+  create: true
+  command:
+    - "uv"
+    - "run"
+    - "ai-doc-gen"
+  args:
+    - "cronjob"
+    - "analyze"
+  concurrencyPolicy: Forbid
+  failedJobsHistoryLimit: 2
+  restartPolicy: Never
+  terminationGracePeriodSeconds: 30
+  startingDeadlineSeconds: 200
+  successfulJobsHistoryLimit: 2
+  suspend: false
+  schedule: 30 0 1-7 * 6
+
+resources:
+  limits:
+    cpu: 1
+    memory: 1Gi
+    ephemeral-storage: 2Gi
+  requests:
+    cpu: 1
+    memory: 1Gi
+    ephemeral-storage: 2Gi
+
+configMap:
+  data:
+    ENVIRONMENT: "cronjob"
+    ANALYZER_LLM_MODEL: "claude-sonnet-4-20250514"
+    ANALYZER_LLM_BASE_URL: "YOUR_ANALYZER_BASE_URL_HERE"
+    ANALYZER_PARALLEL_TOOL_CALLS: "true"
+    DOCUMENTER_LLM_MODEL: "claude-sonnet-4-20250514"
+    DOCUMENTER_LLM_BASE_URL: "YOUR_DOCUMENTER_BASE_URL_HERE"
+    DOCUMENTER_PARALLEL_TOOL_CALLS: "true"
+    LANGFUSE_HOST: "https://YOUR_LANGFUSE_HOST_HERE"
+    OTEL_EXPORTER_OTLP_ENDPOINT: "YOUR_OTEL_ENDPOINT_HERE"
+    OTEL_SDK_DISABLED: "false"
+
+env:
+  - name: APP_VERSION
+    value: "SHOULD_BE_SET_IN_CI"
+
+  # Langfuse secrets
+  - name: LANGFUSE_PUBLIC_KEY
+    valueFrom:
+      secretKeyRef:
+        name: my-secret
+        key: LANGFUSE_PUBLIC_KEY
+
+  - name: LANGFUSE_SECRET_KEY
+    valueFrom:
+      secretKeyRef:
+        name: my-secret
+        key: LANGFUSE_SECRET_KEY
+
+  # LLM Agent API keys
+  - name: ANALYZER_LLM_API_KEY
+    valueFrom:
+      secretKeyRef:
+        name: my-secret
+        key: ANALYZER_LLM_API_KEY
+
+  - name: DOCUMENTER_LLM_API_KEY
+    valueFrom:
+      secretKeyRef:
+        name: my-secret
+        key: DOCUMENTER_LLM_API_KEY
+
+  # GitLab token
+  - name: GITLAB_OAUTH_TOKEN
+    valueFrom:
+      secretKeyRef:
+        name: my-secret
+        key: GITLAB_OAUTH_TOKEN

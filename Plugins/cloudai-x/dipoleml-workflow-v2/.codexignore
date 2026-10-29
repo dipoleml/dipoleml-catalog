@@ -1,0 +1,17 @@
+.firecrawl/
+.git/
+.github/
+.venv/
+.pytest_cache/
+__pycache__/
+build/
+coverage/
+dist/
+logs/
+node_modules/
+*.log
+*.pyc
+*.pyo
+*.swp
+*.swo
+.DS_Store

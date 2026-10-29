@@ -1,0 +1,16 @@
+{
+  "name": "quality-tools",
+  "displayName": "Quality Tools",
+  "version": "1.0.0",
+  "description": "Design review skills — SOLID and DRY rules for code reviews, with severities and a clear line between a real design finding and style taste",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Siva01c"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/siva01c/claude-plugins",
+  "repository": "https://github.com/siva01c/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

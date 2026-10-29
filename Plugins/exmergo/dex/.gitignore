@@ -1,0 +1,135 @@
+# ─── Local Claude Code guidance (kept private) ───────────────────────────────
+# CLAUDE.md is kept local and opinionated for now (a private pointer to
+# AGENTS.md plus the principles), not committed. Revisit when splitting
+# baseline-shareable guidance from the private guidance.
+CLAUDE.md
+CLAUDE.local.md
+
+# ─── Private planning docs (maintainer's steering docs; NEVER commit) ─────────
+# The maintainer's private steering docs. They guide the project but are private;
+# committed files must never reference them or their versions.
+unversioned-docs/
+
+# ─── Secrets & credentials (NEVER commit — dex connects to prod warehouses) ──
+.env
+.env.*
+!.env.example
+!.env.template
+*.pem
+*.p8                      # Snowflake key-pair (RSA) private keys
+*.key
+credentials.json
+service-account*.json
+gcp-*.json
+connections.toml          # Snowflake ~/.snowflake/connections.toml if dropped locally
+.databrickscfg
+pg_service.conf
+# dbt profiles carry warehouse secrets; keep them in ~/.dbt, not the repo.
+# (Test fixtures that intentionally ship a profiles.yml can be force-added.)
+profiles.yml
+# Index credentials. Publishing runs through Trusted Publishing (OIDC), so no
+# PyPI or TestPyPI token should ever sit in the tree.
+*token*.txt
+*.token
+.pypirc
+
+# ─── dex runtime artifacts ───────────────────────────────────────────────────
+# .dex/ is meant to live in an END-USER's repo. In THIS dev repo a root-level
+# .dex/ is just local-testing residue. Anchored to root so test fixtures that
+# intentionally include a .dex/ deeper in the tree are preserved.
+/.dex/
+# The demo warehouse `dex demo` generates. Same reasoning: it belongs in an
+# end-user's directory, and in this repo it is only ever dogfooding residue.
+# Anchored to root, and the wal sibling covers a run interrupted mid-write.
+/dex_demo.duckdb
+/dex_demo.duckdb.wal
+
+# ─── Python ──────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+# Also holds the documentation site build (build/docs-site/): transformed copies
+# of references/, which must stay untracked because the documentation policy
+# tests count every untracked file that is not ignored.
+build/
+dist/
+wheels/
+*.egg
+*.egg-info/
+.eggs/
+MANIFEST
+# NOTE: uv.lock is committed on purpose (reproducible builds); do not add it.
+
+# ─── Virtual environments ────────────────────────────────────────────────────
+.venv/
+venv/
+env/
+ENV/
+
+# ─── Test / coverage / type-check / lint caches ──────────────────────────────
+.pytest_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+.cache/
+.tox/
+.nox/
+.hypothesis/
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.ruff_cache/
+.pytype/
+.pyre/
+
+# ─── Jupyter / notebooks ─────────────────────────────────────────────────────
+.ipynb_checkpoints/
+
+# ─── dbt build artifacts (generated; compiled manifest, packages, logs) ──────
+target/
+dbt_packages/
+dbt_modules/
+logs/
+.user.yml
+
+# ─── Benchmark run outputs (Tier-3 results; runners/config stay committed) ───
+# Adjust to match the harnesses' actual output dirs as they land in Phase 5.
+benchmarks/**/results/
+benchmarks/**/runs/
+benchmarks/**/.out/
+
+# ─── Node (two CI tools) ─────────────────────────────────────────────────────
+# This is a Python repo with two npm touchpoints: the CI job that runs
+# `explore diagram` output through the real Mermaid parser, and the Mintlify CLI
+# that validates the documentation site build. Both install outside the
+# checkout, but anyone reproducing either by hand from the repo root would
+# otherwise leave a large tree of untracked files behind.
+node_modules/
+package-lock.json
+
+# ─── Logs & temp ─────────────────────────────────────────────────────────────
+*.log
+tmp/
+*.tmp
+
+# ─── OS cruft ────────────────────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ─── Editors / IDEs ──────────────────────────────────────────────────────────
+# NOTE: .cursor/, .windsurf/, and .github/copilot-instructions.md are committed
+# cross-agent surfaces (Phase 0 deliverables) — intentionally NOT ignored.
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.fleet/
+.zed/

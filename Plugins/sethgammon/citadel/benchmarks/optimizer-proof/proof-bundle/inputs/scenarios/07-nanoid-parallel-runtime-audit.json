@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "id": "nanoid-parallel-runtime-audit",
+  "category": "parallel_work",
+  "repository": "https://github.com/ai/nanoid.git",
+  "pinned_ref": "1a1fee4610061c63e2429eb5c22a35e3634c1d03",
+  "task": "Audit the secure Node, browser, and non-secure generators in parallel for validation drift, reconcile only confirmed differences, and leave all tests and size constraints passing.",
+  "setup_command": ["corepack", "pnpm", "install", "--frozen-lockfile"],
+  "verification_command": ["corepack", "pnpm", "test"],
+  "expected_artifacts": ["index.js", "index.browser.js", "non-secure/index.js", "test/index.test.js", "test/non-secure.test.js"],
+  "allowed_tools": ["read", "search", "edit", "test", "git"],
+  "timeout_minutes": 55,
+  "probe_budget": {
+    "max_files": 400,
+    "max_bytes": 2097152,
+    "max_duration_ms": 2500
+  },
+  "max_attempts": 2,
+  "max_agents": 3,
+  "candidate_executors": ["codex-utility", "claude-workhorse", "claude-frontier", "codex-frontier"],
+  "holdout": false,
+  "adversarial_case": null
+}

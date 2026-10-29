@@ -1,0 +1,116 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.tajd.economist-style",
+  "type": "plugin",
+  "name": "Economist Style",
+  "slug": "economist-style",
+  "vendor": "tajd",
+  "description": "DipoleML plugin that applies The Economist style guide - clarity, precision, brevity. Unofficial.",
+  "version": "1.4.2",
+  "homepage": "https://github.com/TAJD/economist-style-guide-plugin",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "claude-code-marketplace",
+    "claude-code-plugin",
+    "claude-plugin",
+    "claude-skills",
+    "editing",
+    "proofreading",
+    "style-guide",
+    "technical-writing",
+    "writing"
+  ],
+  "tags": [
+    "claude-code",
+    "claude-code-marketplace",
+    "claude-code-plugin",
+    "claude-plugin",
+    "claude-skills",
+    "editing",
+    "proofreading",
+    "style-guide",
+    "technical-writing",
+    "writing"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "tajd",
+    "brandName": "tajd",
+    "source": "https://github.com/TAJD.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:15:02Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "TAJD/economist-style-guide-plugin",
+    "url": "https://github.com/TAJD/economist-style-guide-plugin",
+    "commit": "cfb132d62447b959dea5a49940e28da89e1ba75b",
+    "path": "economist-style",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 130,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:28:09Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Economist Style | Claude Code plugin that applies The Economist style guide - clarity, precision, brevity. Unofficial.",
+        "after": "Economist Style | DipoleML plugin that applies The Economist style guide - clarity, precision, brevity. Unofficial.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [
+      "CAPITALIZATION"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "autocode-marketplace",
+  "description": "AutoCode: You say it, AutoCode ships it.",
+  "owner": {
+    "name": "I-Lang Research",
+    "email": "contact@ilang.ai"
+  },
+  "plugins": [
+    {
+      "name": "autocode",
+      "source": "./",
+      "version": "6.2.2",
+      "description": "11 skills. See a product you like → sourced blueprint → MVP → deployed URL, in one session. I-Lang v5.0 judgment + pre-deploy secret scan."
+    }
+  ]
+}

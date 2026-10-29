@@ -1,0 +1,93 @@
+{
+  "name": "openqodex",
+  "version": "0.16.0",
+  "description": "Code review before you push, in Claude Code, Codex, Cursor and Cline. Scanners check your change and keep the findings on the lines you changed. Then a separate Claude Code or Codex reviewer answers every scanner finding. You or your agent can add a compatible scanner from GitHub.",
+  "type": "module",
+  "license": "Apache-2.0",
+  "homepage": "https://qodex.ai/openqodex",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/openqodex/openqodex.git",
+    "directory": "packages/cli"
+  },
+  "bugs": {
+    "url": "https://github.com/openqodex/openqodex/issues"
+  },
+  "keywords": [
+    "code-review",
+    "ai-code-review",
+    "code-review-tool",
+    "static-analysis",
+    "sast",
+    "security",
+    "secret-scanning",
+    "linter",
+    "code-quality",
+    "pre-commit",
+    "pre-push",
+    "git-hooks",
+    "claude-code",
+    "claude-code-plugin",
+    "agent-skills",
+    "cursor",
+    "codex",
+    "cline",
+    "coding-agent",
+    "semgrep",
+    "gitleaks",
+    "osv-scanner",
+    "cli"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "openqodex": {
+    "agentContract": 3,
+    "configFormat": 1
+  },
+  "bin": {
+    "openqodex": "./dist/bin.js"
+  },
+  "main": "./dist/lib.js",
+  "types": "./dist/lib.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/lib.d.ts",
+      "import": "./dist/lib.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "lenses",
+    "docs",
+    "skills",
+    "templates",
+    "demo",
+    "toolchain.json",
+    "locks",
+    "wasm",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@clack/prompts": "^1.8.1",
+    "@openqodex/core": "workspace:*",
+    "@openqodex/graph": "workspace:*",
+    "@openqodex/mcp": "workspace:*",
+    "@openqodex/review": "workspace:*",
+    "@openqodex/scanners": "workspace:*",
+    "@sigstore/bundle": "5.0.0",
+    "@sigstore/protobuf-specs": "0.5.2",
+    "@sigstore/verify": "4.1.2",
+    "commander": "^14.0.3",
+    "picocolors": "^1.1.1",
+    "yaml": "^2.9.1",
+    "zod": "^4.6.5"
+  }
+}

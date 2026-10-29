@@ -1,0 +1,29 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "investorclaw",
+  "description": "Claude Code plugin marketplace entry for InvestorClaw \u2014 deterministic portfolio analysis and market intelligence.",
+  "metadata": {
+    "description": "InvestorClaw marketplace \u2014 Claude Code plugin for portfolio analysis (holdings, performance, bonds, analyst consensus, news correlation, multi-factor synthesis, optimization). Container-first: pulls the public ic-engine image and drives it over MCP-HTTP. No source build, no uv bootstrap."
+  },
+  "owner": {
+    "name": "Jason Perlow",
+    "email": "jperlow@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "investorclaw",
+      "description": "Multi-account portfolio analysis: holdings snapshots, performance metrics, bond analytics (YTM, duration, FRED-backed benchmarks), analyst consensus, news correlation, multi-factor synthesis, optimization, CSV/Excel reporting, and CME futures pricing (Yahoo Finance by default; optional Massive for futures/premium). Deterministic signed-envelope pipeline; built-in financial-advice guardrails (educational output only). Runs the prebuilt ic-engine container over MCP-HTTP. Free by default (Yahoo Finance), no API key required.",
+      "category": "finance",
+      "tags": [
+        "portfolio-analysis",
+        "market-intelligence",
+        "bonds",
+        "futures",
+        "financial-education",
+        "csv-excel"
+      ],
+      "source": "./",
+      "homepage": "https://github.com/argonautsystems/InvestorClaw"
+    }
+  ]
+}

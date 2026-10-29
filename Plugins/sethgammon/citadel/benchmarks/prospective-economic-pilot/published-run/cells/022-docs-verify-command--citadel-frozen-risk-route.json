@@ -1,0 +1,123 @@
+{
+  "schema": 1,
+  "cell_id": "022-docs-verify-command--citadel-frozen-risk-route",
+  "order": 22,
+  "scenario_id": "docs-verify-command",
+  "task_class": "documentation-consistency",
+  "risk": "low",
+  "policy_id": "citadel-frozen-risk-route",
+  "repetition": 1,
+  "route": {
+    "initial_tier": "cheap",
+    "escalation_tier": "strong",
+    "reason_code": "FROZEN_BOUNDED_CHEAP_THEN_VERIFY"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "cheap",
+      "started_at": "2026-08-02T00:37:50.030Z",
+      "duration_ms": 6641,
+      "output_text": "{\n  \"files\": {\n    \"QUICKSTART.md\": \"# Quick verification\\n\\nAfter a run, use `citadel operation verify` to validate its evidence.\\nThe command does not contact a model.\"\n  }\n}",
+      "output_digest": "sha256:084caddffce31def01145f8c8d14a9b8b9825a7669af7dfd36606041719d4d43",
+      "verification": {
+        "status": "passed",
+        "code": null,
+        "changed_paths": [
+          "QUICKSTART.md"
+        ],
+        "applied_file_digests": {
+          "QUICKSTART.md": "sha256:a68771b74b80029a335195703467c9d9fa8c5e73967ee6d0c4c332f78583fd91"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 0,
+          "signal": null,
+          "stdout": "",
+          "stderr": "",
+          "error": null
+        },
+        "patch_digest": "sha256:864d9d1c09caffbce2272e47cb60fed4666a2df93afdd318d626d9d92e2d6d67"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "ollama-chat",
+        "requested_model": "qwen2.5-coder:3b",
+        "observed_model": "qwen2.5-coder:3b",
+        "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+        "done_reason": "stop",
+        "response_digest": "sha256:a3c21e189749a221ccbe353b03170a581e9255b3c4da4898f0da4aa1af50e93e",
+        "error": null
+      },
+      "usage": {
+        "prompt_tokens": 148,
+        "completion_tokens": 46,
+        "total_tokens": 194,
+        "provider_total_duration_ns": 6639426600
+      },
+      "economics": {
+        "provider_invoice": {
+          "status": "known",
+          "amount_usd": 0,
+          "source": "self_hosted_ollama_no_per_request_invoice"
+        },
+        "gpu_energy": {
+          "status": "measured",
+          "energy_kwh": 0.000103865,
+          "samples": 13,
+          "average_watts": 56.303846
+        },
+        "comparison_cost": {
+          "status": "derived-comparison",
+          "total_usd": 0.00003922,
+          "components": [
+            {
+              "kind": "gpu_electricity",
+              "status": "derived-comparison",
+              "amount_usd": 0.000020773,
+              "source": "average_gpu_power_times_request_wall_duration_times_frozen_rate"
+            },
+            {
+              "kind": "gpu_amortization",
+              "status": "derived-comparison",
+              "amount_usd": 0.000018447,
+              "source": "request_wall_duration_times_frozen_residual_value"
+            }
+          ]
+        },
+        "actual_end_to_end_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "whole_system_energy_setup_and_observed_utility_rate_not_measured"
+        }
+      }
+    }
+  ],
+  "status": "passed",
+  "final_verification": {
+    "status": "passed",
+    "code": null,
+    "changed_paths": [
+      "QUICKSTART.md"
+    ],
+    "applied_file_digests": {
+      "QUICKSTART.md": "sha256:a68771b74b80029a335195703467c9d9fa8c5e73967ee6d0c4c332f78583fd91"
+    },
+    "verifier": {
+      "command": "node verifier.js",
+      "status": 0,
+      "signal": null,
+      "stdout": "",
+      "stderr": "",
+      "error": null
+    },
+    "patch_digest": "sha256:864d9d1c09caffbce2272e47cb60fed4666a2df93afdd318d626d9d92e2d6d67"
+  },
+  "previous_cell_digest": "sha256:a4fd2988ee8259458ce9e0174d8cf76e3ac4896d4f435b56e8795b9007ac5ae8",
+  "receipt_digest": "sha256:2ce7b99c559984ad97b715bfdacc2c2c1fb02540b3996ce32a0788ada41bb5c3",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:54146772be7bc4aab5912da477fed29a6b6c61987b5c5f2453b707614ad810a8",
+    "signature": "S7gH91djrRfkr0yVqtSr8HFK7710MDVI+uD8ttA6vTUuyqb/meFAzm740x+tZ87UFS8ttoQ7JI4kZZHyGJzHAg=="
+  }
+}

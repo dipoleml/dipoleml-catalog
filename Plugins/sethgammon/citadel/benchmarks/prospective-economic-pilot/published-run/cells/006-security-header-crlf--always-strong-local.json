@@ -1,0 +1,123 @@
+{
+  "schema": 1,
+  "cell_id": "006-security-header-crlf--always-strong-local",
+  "order": 6,
+  "scenario_id": "security-header-crlf",
+  "task_class": "security-repair",
+  "risk": "high",
+  "policy_id": "always-strong-local",
+  "repetition": 1,
+  "route": {
+    "initial_tier": "strong",
+    "escalation_tier": null,
+    "reason_code": "BASELINE_ALWAYS_STRONG"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "strong",
+      "started_at": "2026-08-02T00:35:07.382Z",
+      "duration_ms": 10273,
+      "output_text": "{\n  \"files\": {\n    \"src/header.js\": \"'use strict';\\nfunction safeHeaderValue(value) {\\n  if (typeof value !== 'string') return null;\\n  return value.replace(/[\\r\\n]/g, '');\\n}\\nmodule.exports = { safeHeaderValue };\"\n  }\n}",
+      "output_digest": "sha256:14d31277b3834c2b4dbed7d098dbb88854f6260be6c0f270f800ccfa229bd375",
+      "verification": {
+        "status": "failed",
+        "code": "REPOSITORY_VERIFIER_FAILED",
+        "changed_paths": [
+          "src/header.js"
+        ],
+        "applied_file_digests": {
+          "src/header.js": "sha256:bb761dd27e365cc01ea667013ce1898dda90672c2eb5d49ff3fdddb1b9f25e48"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 1,
+          "signal": null,
+          "stdout": "",
+          "stderr": "<ISOLATED_WORKSPACE>\\src\\header.js:4\r\n  return value.replace(/[\r\n                       ^\r\n\r\nSyntaxError: Invalid regular expression: missing /\r\n    at wrapSafe (node:internal/modules/cjs/loader:1662:18)\r\n    at Module._compile (node:internal/modules/cjs/loader:1704:20)\r\n    at Object..js (node:internal/modules/cjs/loader:1895:10)\r\n    at Module.load (node:internal/modules/cjs/loader:1465:32)\r\n    at Function._load (node:internal/modules/cjs/loader:1282:12)\r\n    at TracingChannel.traceSync (node:diagnostics_channel:322:14)\r\n    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)\r\n    at Module.require (node:internal/modules/cjs/loader:1487:12)\r\n    at require (node:internal/modules/helpers:135:16)\r\n    at Object.<anonymous> (<ISOLATED_WORKSPACE>\\verifier.js:3:29)\r\n\r\nNode.js v22.17.1\r\n",
+          "error": null
+        },
+        "patch_digest": "sha256:8f9d1badf2cc8131c7e50f2cd6ab794eaaf650fafe9e2f6a1a28d1b043b94f05"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "ollama-chat",
+        "requested_model": "qwen2.5-coder:7b",
+        "observed_model": "qwen2.5-coder:7b",
+        "model_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+        "done_reason": "stop",
+        "response_digest": "sha256:85ac4b40925a366eb963b82f287858c9f6f94ca1291ede690ec886b6718e3a95",
+        "error": null
+      },
+      "usage": {
+        "prompt_tokens": 199,
+        "completion_tokens": 66,
+        "total_tokens": 265,
+        "provider_total_duration_ns": 10268356400
+      },
+      "economics": {
+        "provider_invoice": {
+          "status": "known",
+          "amount_usd": 0,
+          "source": "self_hosted_ollama_no_per_request_invoice"
+        },
+        "gpu_energy": {
+          "status": "measured",
+          "energy_kwh": 0.000223345,
+          "samples": 20,
+          "average_watts": 78.2675
+        },
+        "comparison_cost": {
+          "status": "derived-comparison",
+          "total_usd": 0.000073205,
+          "components": [
+            {
+              "kind": "gpu_electricity",
+              "status": "derived-comparison",
+              "amount_usd": 0.000044669,
+              "source": "average_gpu_power_times_request_wall_duration_times_frozen_rate"
+            },
+            {
+              "kind": "gpu_amortization",
+              "status": "derived-comparison",
+              "amount_usd": 0.000028536,
+              "source": "request_wall_duration_times_frozen_residual_value"
+            }
+          ]
+        },
+        "actual_end_to_end_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "whole_system_energy_setup_and_observed_utility_rate_not_measured"
+        }
+      }
+    }
+  ],
+  "status": "failed",
+  "final_verification": {
+    "status": "failed",
+    "code": "REPOSITORY_VERIFIER_FAILED",
+    "changed_paths": [
+      "src/header.js"
+    ],
+    "applied_file_digests": {
+      "src/header.js": "sha256:bb761dd27e365cc01ea667013ce1898dda90672c2eb5d49ff3fdddb1b9f25e48"
+    },
+    "verifier": {
+      "command": "node verifier.js",
+      "status": 1,
+      "signal": null,
+      "stdout": "",
+      "stderr": "<ISOLATED_WORKSPACE>\\src\\header.js:4\r\n  return value.replace(/[\r\n                       ^\r\n\r\nSyntaxError: Invalid regular expression: missing /\r\n    at wrapSafe (node:internal/modules/cjs/loader:1662:18)\r\n    at Module._compile (node:internal/modules/cjs/loader:1704:20)\r\n    at Object..js (node:internal/modules/cjs/loader:1895:10)\r\n    at Module.load (node:internal/modules/cjs/loader:1465:32)\r\n    at Function._load (node:internal/modules/cjs/loader:1282:12)\r\n    at TracingChannel.traceSync (node:diagnostics_channel:322:14)\r\n    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)\r\n    at Module.require (node:internal/modules/cjs/loader:1487:12)\r\n    at require (node:internal/modules/helpers:135:16)\r\n    at Object.<anonymous> (<ISOLATED_WORKSPACE>\\verifier.js:3:29)\r\n\r\nNode.js v22.17.1\r\n",
+      "error": null
+    },
+    "patch_digest": "sha256:8f9d1badf2cc8131c7e50f2cd6ab794eaaf650fafe9e2f6a1a28d1b043b94f05"
+  },
+  "previous_cell_digest": "sha256:c2af35848d74084616850730fd962c5567628ad41411a2ee4cdb5704f3281960",
+  "receipt_digest": "sha256:b83a5c6db33e9d292af1c5733535a0e781e9435dc541d213c298c98890033775",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:98ce9a9c9ab1165e0e82d4a43fc89a308584681748daf71c439fdf279c4bb66e",
+    "signature": "FU32MnjtyFS36SvC5q9UF7t1SCao9svGzTVFnljeKHVFRk4ke2GVc4sbRrkizB7ZOG8VpqOzCB6YsQUGxmn/Ag=="
+  }
+}

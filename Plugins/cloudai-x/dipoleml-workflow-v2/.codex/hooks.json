@@ -1,0 +1,70 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT:-$(git rev-parse --show-toplevel)}/hooks/log-commands.sh\"",
+            "statusMessage": "Logging command"
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT:-$(git rev-parse --show-toplevel)}/hooks/branch-protection.sh\"",
+            "statusMessage": "Checking branch protection"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT:-$(git rev-parse --show-toplevel)}/hooks/verify-on-complete.py\"",
+            "statusMessage": "Verifying completion"
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT:-$(git rev-parse --show-toplevel)}/hooks/suggest-doc-updates.py\"",
+            "statusMessage": "Checking documentation"
+          },
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT:-$(git rev-parse --show-toplevel)}/hooks/notify-complete.sh\"",
+            "statusMessage": "Sending completion notification"
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT:-$(git rev-parse --show-toplevel)}/hooks/track-metrics.py\"",
+            "statusMessage": "Tracking metrics"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT:-$(git rev-parse --show-toplevel)}/hooks/validate-environment.py\"",
+            "statusMessage": "Validating environment"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT:-$(git rev-parse --show-toplevel)}/hooks/validate-prompt.py\"",
+            "statusMessage": "Validating prompt"
+          }
+        ]
+      }
+    ]
+  }
+}

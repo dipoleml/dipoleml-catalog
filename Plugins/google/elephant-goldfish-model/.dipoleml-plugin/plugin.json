@@ -1,0 +1,26 @@
+{
+  "name": "elephant-goldfish-model",
+  "displayName": "Elephant Goldfish Model",
+  "version": "0.1.0",
+  "description": "Draft specs, review designs, and check implementation drift.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Google"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://egm.dev",
+  "repository": "https://github.com/google/elephant-goldfish-model",
+  "skills": [],
+  "commands": [],
+  "agents": [
+    "./.claude-plugin/agents/bootstrap_orchestrator.md",
+    "./.claude-plugin/agents/codebase_details.md",
+    "./.claude-plugin/agents/comprehension.md",
+    "./.claude-plugin/agents/design_critic.md",
+    "./.claude-plugin/agents/implementation_readiness.md",
+    "./.claude-plugin/agents/structural.md",
+    "./.claude-plugin/agents/style.md",
+    "./.claude-plugin/agents/synthesizer.md",
+    "./.claude-plugin/agents/zoom_out.md"
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "name": "open-steps",
+  "displayName": "Open Steps",
+  "version": "0.4.8",
+  "description": "Plain-language skills for coding agents, for the person running development who does not read code: session reports, decisions, next steps and the whole picture.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Kharmanskyi"
+  },
+  "license": "MIT",
+  "homepage": "https://opensteps.ai",
+  "repository": "https://github.com/kharmanskyi/open-steps",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

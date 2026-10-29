@@ -1,0 +1,16 @@
+{
+  "name": "ultraship",
+  "displayName": "Ultraship",
+  "version": "2.13.2",
+  "description": "DipoleML plugin — 41 tools, 45 skills, 13 agents. Currency Guard keeps DipoleML on current docs, not stale training data. Elite SEO strategy with AI traffic tracking, IndexNow, GSC-GA4 cross-reference, CTR anomalies, brand filtering, keyword intelligence, index doctor, codebase index, pentest, ship, launch, grow, rescue.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Houseofmvps"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/Houseofmvps/ultraship",
+  "repository": "https://github.com/Houseofmvps/ultraship",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

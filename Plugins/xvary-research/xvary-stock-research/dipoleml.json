@@ -1,0 +1,121 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.xvary-research.xvary-stock-research",
+  "type": "plugin",
+  "name": "Xvary Stock Research",
+  "slug": "xvary-stock-research",
+  "vendor": "xvary-research",
+  "description": "DipoleML stock analysis skill: SEC EDGAR + market data, /analyze /score /compare — free, local Python tools. By XVARY Research.",
+  "version": "1.0.0",
+  "homepage": "https://github.com/xvary-research/claude-code-stock-analysis-skill",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "ai-skills",
+    "anthropic",
+    "claude-plugin",
+    "edgar",
+    "equity-research",
+    "investing",
+    "sec-edgar",
+    "stock-analysis",
+    "xvary"
+  ],
+  "tags": [
+    "ai-skills",
+    "anthropic",
+    "claude-code",
+    "claude-plugin",
+    "edgar",
+    "equity-research",
+    "investing",
+    "python",
+    "sec-edgar",
+    "stock-analysis",
+    "xvary"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "xvary-research",
+    "brandName": "xvary-research",
+    "source": "https://github.com/xvary-research.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:15:26Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "xvary-research/claude-code-stock-analysis-skill",
+    "url": "https://github.com/xvary-research/claude-code-stock-analysis-skill",
+    "commit": "6323f19c3e613373cfcc56921ee53d4583d4a655",
+    "path": "plugins/xvary-stock-research",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 19,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:06:35Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Xvary Stock Research | Claude Code stock analysis skill: SEC EDGAR + market data, /analyze /score /compare — free, local Python tools. By XVARY Research.",
+        "after": "Xvary Stock Research | DipoleML stock analysis skill: SEC EDGAR + market data, /analyze /score /compare — free, local Python tools. By XVARY Research.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Institutional-style stock snapshots in Claude Code: /analyze, /score, /compare from public EDGAR + market data.",
+        "after": "Institutional-style stock snapshots in DipoleML: /analyze, /score, /compare from public EDGAR + market data.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

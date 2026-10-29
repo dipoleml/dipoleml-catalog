@@ -1,0 +1,757 @@
+{
+  "schema": 1,
+  "run_id": "sha256:daa2e179a7ed7347c532732e791862d36230a679b3eaad2f2732f627643562a4",
+  "freeze_id": "sha256:f1ecf932261ceac604978952c42cdb8ec14032b795bffd1848fae90e9572ded5",
+  "scenario_id": "constraint-elimination",
+  "policy_id": "citadel-whole-operation",
+  "route": null,
+  "attempts": [
+    {
+      "receipt": {
+        "schema": 1,
+        "receipt_id": "sha256:9472d475ff0ee7e00cc1aca9087246c6a220cbeff41cbbbf954c03f3eb045148",
+        "scenario_id": "constraint-elimination",
+        "policy_id": "citadel-whole-operation",
+        "attempt": 1,
+        "plan_id": "sha256:16d72f657c3647f0ae8a298d055ae2e5edc576419affb252a78d4bd37c21a862",
+        "observation_digest": "sha256:6d50c3f1077c9e53027a8bca1e4374cda2ec41cbb8f197d6065853cca8017af2",
+        "output_digest": "sha256:66d9dea6b066b9b55bbc82790b289efc3899a885995d11b3fe6811d4bf59c9a9",
+        "started_at": "2026-07-31T19:38:11.532Z",
+        "duration_ms": 54939,
+        "completion": {
+          "status": "failed",
+          "verifier_id": "json-answer-v1",
+          "answer_digest": "sha256:5521d24b8cf3e07b14fc0809677f011541551f586aa45b3c2b902d3c3f1ead0f",
+          "failure_code": "ANSWER_DIGEST_MISMATCH"
+        },
+        "control": {
+          "status": "verified",
+          "mismatch_codes": [],
+          "module_exercise": [
+            {
+              "name": "atomizer",
+              "status": "exercised",
+              "calls": 1,
+              "observed_models": [
+                "ollama_chat/qwen2.5-coder:3b"
+              ]
+            },
+            {
+              "name": "planner",
+              "status": "not_exercised",
+              "calls": 0,
+              "observed_models": []
+            },
+            {
+              "name": "executor",
+              "status": "exercised",
+              "calls": 2,
+              "observed_models": [
+                "ollama_chat/qwen2.5-coder:7b"
+              ]
+            },
+            {
+              "name": "aggregator",
+              "status": "not_exercised",
+              "calls": 0,
+              "observed_models": []
+            },
+            {
+              "name": "verifier",
+              "status": "not_exercised",
+              "calls": 0,
+              "observed_models": []
+            }
+          ]
+        },
+        "execution_evidence": {
+          "status": "verified",
+          "runtime": "roma-dspy",
+          "plan_id": "sha256:16d72f657c3647f0ae8a298d055ae2e5edc576419affb252a78d4bd37c21a862",
+          "observation_digest": "sha256:6d50c3f1077c9e53027a8bca1e4374cda2ec41cbb8f197d6065853cca8017af2",
+          "reconciliation_status": "verified",
+          "process": {
+            "exit_code": 0,
+            "timed_out": false,
+            "stdout_digest": "sha256:12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+            "stdout_excerpt": "",
+            "stderr_digest": "sha256:648fa3558bc766bc546d6584196acd9d822c27f0359c19af762ec3dd6cf91908",
+            "stderr_excerpt": "2026-07-31 15:38:20.938 | WARNING  | roma_dspy.tools.terminal.tmux_session:<module>:18 - libtmux not installed. TmuxSession will not be available.\r\n2026-07-31 15:38:36.444 | WARNING  | roma_dspy.core.artifacts.artifact_builder:__init__:81 - python-magic not available, MIME detection will use fallback\r\n2026/07/31 15:38:36 WARNING dspy.predict.predict: Input contains fields not in signature. These fields will be ignored: ['tools']. Expected fields: ['goal', 'context'].\r\n2026/07/31 15:38:57 WARNING dspy.clients.lm: LM response was truncated due to exceeding max_tokens=384. You can inspect the latest LM interactions with `dspy.inspect_history()`. To avoid truncation, consider passing a larger max_tokens when setting up dspy.LM. You may also consider increasing the temperature (currently 0.0)  if the reason for truncation is repetition.\r\n"
+          }
+        },
+        "cost": {
+          "status": "unknown",
+          "total_usd": null,
+          "reason": "electricity_rate_cpu_energy_and_hardware_amortization_unmeasured",
+          "components": [
+            {
+              "kind": "provider_invoice",
+              "status": "known",
+              "amount_usd": 0,
+              "source": "self_hosted_ollama_no_per_request_invoice"
+            },
+            {
+              "kind": "gpu_energy",
+              "status": "measured_nonmonetary",
+              "amount_usd": null,
+              "energy_kwh": 0.001217958,
+              "samples": 108,
+              "source": "nvidia_smi_power_draw_integration"
+            },
+            {
+              "kind": "cpu_and_system_energy",
+              "status": "unknown",
+              "amount_usd": null,
+              "source": "not_measured"
+            },
+            {
+              "kind": "hardware_amortization",
+              "status": "unknown",
+              "amount_usd": null,
+              "source": "not_allocated"
+            }
+          ],
+          "duration_ms": 54939,
+          "usage": {
+            "completion_tokens": 851,
+            "max_depth_observed": 0,
+            "module_calls": 2,
+            "node_count": 1,
+            "prompt_tokens": 3724,
+            "provider_call_count": 3,
+            "retry_count": 0,
+            "total_tokens": 4575
+          },
+          "setup_costs_included": false
+        },
+        "adversarial_result": null
+      },
+      "plan": {
+        "schema": 1,
+        "policy_id": "citadel-whole-operation",
+        "scenario_id": "constraint-elimination",
+        "task_digest": "sha256:adda4f8dc0cd9b0d0281f0d23b11c81fe4231a564a4d546306207d5643110dbc",
+        "attempt": 1,
+        "stack": {
+          "adapter_id": "roma-dspy-python",
+          "upstream_repo": "https://github.com/sentient-agi/ROMA",
+          "upstream_commit": "a6e3bb4f9e0694375fa627fa4b8bf8cae50592a6",
+          "entrypoint": "roma_dspy.core.engine.solve.RecursiveSolver.event_solve",
+          "adapter_digest": "sha256:4f29e7c9e57c8ea89988f8228659e783fd629ccaa9bca72f8ce2b332d606a3dc"
+        },
+        "modules": [
+          {
+            "name": "atomizer",
+            "provider": "ollama",
+            "model": "qwen2.5-coder:3b",
+            "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+            "endpoint": "http://127.0.0.1:11434"
+          },
+          {
+            "name": "planner",
+            "provider": "ollama",
+            "model": "qwen2.5-coder:3b",
+            "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+            "endpoint": "http://127.0.0.1:11434"
+          },
+          {
+            "name": "executor",
+            "provider": "ollama",
+            "model": "qwen2.5-coder:7b",
+            "model_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+            "endpoint": "http://127.0.0.1:11434"
+          },
+          {
+            "name": "aggregator",
+            "provider": "ollama",
+            "model": "qwen2.5-coder:7b",
+            "model_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+            "endpoint": "http://127.0.0.1:11434"
+          },
+          {
+            "name": "verifier",
+            "provider": "ollama",
+            "model": "qwen2.5-coder:3b",
+            "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+            "endpoint": "http://127.0.0.1:11434"
+          }
+        ],
+        "controls": {
+          "max_depth": 1,
+          "max_concurrency": 1,
+          "max_subtasks": 3,
+          "llm_retries": 0,
+          "operation_timeout_seconds": 420,
+          "module_max_tokens": {
+            "atomizer": 384,
+            "planner": 512,
+            "executor": 384,
+            "aggregator": 384,
+            "verifier": 384
+          },
+          "tools": []
+        },
+        "reason_codes": [
+          "POLICY_CITADEL_WHOLE_OPERATION",
+          "MIXED_BOUNDED",
+          "PROMPT_DIFFICULTY_MEDIUM",
+          "NO_EXTERNAL_TOOLS",
+          "SINGLE_GPU_CONCURRENCY_CAP",
+          "PER_MODULE_TOKEN_BUDGET",
+          "INITIAL_ATTEMPT"
+        ],
+        "plan_id": "sha256:16d72f657c3647f0ae8a298d055ae2e5edc576419affb252a78d4bd37c21a862"
+      },
+      "observation": {
+        "adapter_id": "roma-dspy-python",
+        "applied_controls": {
+          "llm_retries": 0,
+          "max_concurrency": 1,
+          "max_depth": 1,
+          "max_subtasks": 3,
+          "module_max_tokens": {
+            "aggregator": 384,
+            "atomizer": 384,
+            "executor": 384,
+            "planner": 512,
+            "verifier": 384
+          },
+          "operation_timeout_seconds": 420,
+          "tools": []
+        },
+        "configured_modules": [
+          {
+            "endpoint": "http://127.0.0.1:11434",
+            "model": "qwen2.5-coder:3b",
+            "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+            "name": "atomizer",
+            "provider": "ollama"
+          },
+          {
+            "endpoint": "http://127.0.0.1:11434",
+            "model": "qwen2.5-coder:3b",
+            "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+            "name": "planner",
+            "provider": "ollama"
+          },
+          {
+            "endpoint": "http://127.0.0.1:11434",
+            "model": "qwen2.5-coder:7b",
+            "model_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+            "name": "executor",
+            "provider": "ollama"
+          },
+          {
+            "endpoint": "http://127.0.0.1:11434",
+            "model": "qwen2.5-coder:7b",
+            "model_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+            "name": "aggregator",
+            "provider": "ollama"
+          },
+          {
+            "endpoint": "http://127.0.0.1:11434",
+            "model": "qwen2.5-coder:3b",
+            "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+            "name": "verifier",
+            "provider": "ollama"
+          }
+        ],
+        "configured_tools": [
+          {
+            "kind": "mandatory-internal",
+            "module": "executor",
+            "toolkit": "ArtifactToolkit"
+          },
+          {
+            "kind": "mandatory-internal",
+            "module": "aggregator",
+            "toolkit": "ArtifactToolkit"
+          }
+        ],
+        "duration_ms": 42409,
+        "error": null,
+        "model_inventory": [
+          {
+            "digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+            "name": "qwen2.5-coder:3b"
+          },
+          {
+            "digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+            "name": "qwen2.5-coder:7b"
+          }
+        ],
+        "nodes": [
+          {
+            "depth": 0,
+            "index": 0,
+            "modules": [
+              {
+                "completion_tokens": 0,
+                "duration_ms": 13421,
+                "error": null,
+                "model": null,
+                "name": "atomizer",
+                "prompt_tokens": 0,
+                "total_tokens": 0
+              },
+              {
+                "completion_tokens": 0,
+                "duration_ms": 28776,
+                "error": null,
+                "model": null,
+                "name": "executor",
+                "prompt_tokens": 0,
+                "total_tokens": 0
+              }
+            ],
+            "node_type": "EXECUTE",
+            "status": "COMPLETED"
+          }
+        ],
+        "output_text": "{\"answer\": \"R1\"}",
+        "provider_calls": [
+          {
+            "completion_tokens": 378,
+            "model": "ollama_chat/qwen2.5-coder:3b",
+            "module": "atomizer",
+            "prompt_tokens": 735,
+            "response_model": "ollama_chat/qwen2.5-coder:3b",
+            "timestamp": "2026-07-31T15:38:36.440141Z",
+            "total_tokens": 1113
+          },
+          {
+            "completion_tokens": 384,
+            "model": "ollama_chat/qwen2.5-coder:7b",
+            "module": "executor",
+            "prompt_tokens": 1498,
+            "response_model": "ollama_chat/qwen2.5-coder:7b",
+            "timestamp": "2026-07-31T15:38:57.946313Z",
+            "total_tokens": 1882
+          },
+          {
+            "completion_tokens": 89,
+            "model": "ollama_chat/qwen2.5-coder:7b",
+            "module": "executor",
+            "prompt_tokens": 1491,
+            "response_model": "ollama_chat/qwen2.5-coder:7b",
+            "timestamp": "2026-07-31T15:39:05.219220Z",
+            "total_tokens": 1580
+          }
+        ],
+        "schema": 1,
+        "started_at": "2026-07-31T19:38:23.007605Z",
+        "status": "completed",
+        "tool_calls": [],
+        "totals": {
+          "completion_tokens": 851,
+          "max_depth_observed": 0,
+          "module_calls": 2,
+          "node_count": 1,
+          "prompt_tokens": 3724,
+          "provider_call_count": 3,
+          "retry_count": 0,
+          "total_tokens": 4575
+        },
+        "upstream_commit": "a6e3bb4f9e0694375fa627fa4b8bf8cae50592a6"
+      },
+      "output_text": "{\"answer\": \"R1\"}",
+      "raw_execution": {
+        "stdout_digest": "sha256:12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+        "stderr_digest": "sha256:648fa3558bc766bc546d6584196acd9d822c27f0359c19af762ec3dd6cf91908"
+      }
+    },
+    {
+      "receipt": {
+        "schema": 1,
+        "receipt_id": "sha256:480bd4f1caa0796215bb418bb03c113e27e0bbb65f7cda69e3cbbe7dc7b140ff",
+        "scenario_id": "constraint-elimination",
+        "policy_id": "citadel-whole-operation",
+        "attempt": 2,
+        "plan_id": "sha256:bd34218049b600f90c0b5be2eee935a6ba6fbc05c17bedb84081fc6e7a5d5c93",
+        "observation_digest": "sha256:a3b6ee273ec220f03c9c624cbe301c42290125011e2113baa75d277364a6bf74",
+        "output_digest": "sha256:b9f6d9a9bbf0ce1c0b2704c944074455e7a6b903f968d41ad23f0b1b546f92cb",
+        "started_at": "2026-07-31T19:39:06.616Z",
+        "duration_ms": 60204,
+        "completion": {
+          "status": "failed",
+          "verifier_id": "json-answer-v1",
+          "answer_digest": "sha256:5521d24b8cf3e07b14fc0809677f011541551f586aa45b3c2b902d3c3f1ead0f",
+          "failure_code": "ANSWER_DIGEST_MISMATCH"
+        },
+        "control": {
+          "status": "verified",
+          "mismatch_codes": [],
+          "module_exercise": [
+            {
+              "name": "atomizer",
+              "status": "exercised",
+              "calls": 1,
+              "observed_models": [
+                "ollama_chat/qwen2.5-coder:3b"
+              ]
+            },
+            {
+              "name": "planner",
+              "status": "exercised",
+              "calls": 1,
+              "observed_models": [
+                "ollama_chat/qwen2.5-coder:3b"
+              ]
+            },
+            {
+              "name": "executor",
+              "status": "exercised",
+              "calls": 1,
+              "observed_models": [
+                "ollama_chat/qwen2.5-coder:7b"
+              ]
+            },
+            {
+              "name": "aggregator",
+              "status": "exercised",
+              "calls": 1,
+              "observed_models": [
+                "ollama_chat/qwen2.5-coder:7b"
+              ]
+            },
+            {
+              "name": "verifier",
+              "status": "not_exercised",
+              "calls": 0,
+              "observed_models": []
+            }
+          ]
+        },
+        "execution_evidence": {
+          "status": "verified",
+          "runtime": "roma-dspy",
+          "plan_id": "sha256:bd34218049b600f90c0b5be2eee935a6ba6fbc05c17bedb84081fc6e7a5d5c93",
+          "observation_digest": "sha256:a3b6ee273ec220f03c9c624cbe301c42290125011e2113baa75d277364a6bf74",
+          "reconciliation_status": "verified",
+          "process": {
+            "exit_code": 0,
+            "timed_out": false,
+            "stdout_digest": "sha256:12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+            "stdout_excerpt": "",
+            "stderr_digest": "sha256:42fe69e3043829b53ac84d5d2d61485d8950761031cc6abff5bd6593bcc5c1b2",
+            "stderr_excerpt": "2026-07-31 15:39:15.170 | WARNING  | roma_dspy.tools.terminal.tmux_session:<module>:18 - libtmux not installed. TmuxSession will not be available.\r\n2026-07-31 15:39:35.725 | WARNING  | roma_dspy.core.artifacts.artifact_builder:__init__:81 - python-magic not available, MIME detection will use fallback\r\n2026/07/31 15:39:35 WARNING dspy.predict.predict: Input contains fields not in signature. These fields will be ignored: ['tools']. Expected fields: ['goal', 'context'].\r\n2026/07/31 15:39:54 WARNING dspy.predict.predict: Input contains fields not in signature. These fields will be ignored: ['tools']. Expected fields: ['original_goal', 'subtasks_results', 'context'].\r\n"
+          }
+        },
+        "cost": {
+          "status": "unknown",
+          "total_usd": null,
+          "reason": "electricity_rate_cpu_energy_and_hardware_amortization_unmeasured",
+          "components": [
+            {
+              "kind": "provider_invoice",
+              "status": "known",
+              "amount_usd": 0,
+              "source": "self_hosted_ollama_no_per_request_invoice"
+            },
+            {
+              "kind": "gpu_energy",
+              "status": "measured_nonmonetary",
+              "amount_usd": null,
+              "energy_kwh": 0.001257899,
+              "samples": 118,
+              "source": "nvidia_smi_power_draw_integration"
+            },
+            {
+              "kind": "cpu_and_system_energy",
+              "status": "unknown",
+              "amount_usd": null,
+              "source": "not_measured"
+            },
+            {
+              "kind": "hardware_amortization",
+              "status": "unknown",
+              "amount_usd": null,
+              "source": "not_allocated"
+            }
+          ],
+          "duration_ms": 60204,
+          "usage": {
+            "completion_tokens": 1116,
+            "max_depth_observed": 1,
+            "module_calls": 4,
+            "node_count": 2,
+            "prompt_tokens": 3982,
+            "provider_call_count": 4,
+            "retry_count": 0,
+            "total_tokens": 5098
+          },
+          "setup_costs_included": false
+        },
+        "adversarial_result": null
+      },
+      "plan": {
+        "schema": 1,
+        "policy_id": "citadel-whole-operation",
+        "scenario_id": "constraint-elimination",
+        "task_digest": "sha256:adda4f8dc0cd9b0d0281f0d23b11c81fe4231a564a4d546306207d5643110dbc",
+        "attempt": 2,
+        "stack": {
+          "adapter_id": "roma-dspy-python",
+          "upstream_repo": "https://github.com/sentient-agi/ROMA",
+          "upstream_commit": "a6e3bb4f9e0694375fa627fa4b8bf8cae50592a6",
+          "entrypoint": "roma_dspy.core.engine.solve.RecursiveSolver.event_solve",
+          "adapter_digest": "sha256:4f29e7c9e57c8ea89988f8228659e783fd629ccaa9bca72f8ce2b332d606a3dc"
+        },
+        "modules": [
+          {
+            "name": "atomizer",
+            "provider": "ollama",
+            "model": "qwen2.5-coder:3b",
+            "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+            "endpoint": "http://127.0.0.1:11434"
+          },
+          {
+            "name": "planner",
+            "provider": "ollama",
+            "model": "qwen2.5-coder:3b",
+            "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+            "endpoint": "http://127.0.0.1:11434"
+          },
+          {
+            "name": "executor",
+            "provider": "ollama",
+            "model": "qwen2.5-coder:7b",
+            "model_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+            "endpoint": "http://127.0.0.1:11434"
+          },
+          {
+            "name": "aggregator",
+            "provider": "ollama",
+            "model": "qwen2.5-coder:7b",
+            "model_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+            "endpoint": "http://127.0.0.1:11434"
+          },
+          {
+            "name": "verifier",
+            "provider": "ollama",
+            "model": "qwen2.5-coder:7b",
+            "model_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+            "endpoint": "http://127.0.0.1:11434"
+          }
+        ],
+        "controls": {
+          "max_depth": 1,
+          "max_concurrency": 1,
+          "max_subtasks": 3,
+          "llm_retries": 0,
+          "operation_timeout_seconds": 420,
+          "module_max_tokens": {
+            "atomizer": 384,
+            "planner": 512,
+            "executor": 512,
+            "aggregator": 512,
+            "verifier": 384
+          },
+          "tools": []
+        },
+        "reason_codes": [
+          "POLICY_CITADEL_WHOLE_OPERATION",
+          "VERIFICATION_ESCALATION",
+          "PROMPT_DIFFICULTY_MEDIUM",
+          "NO_EXTERNAL_TOOLS",
+          "SINGLE_GPU_CONCURRENCY_CAP",
+          "PER_MODULE_TOKEN_BUDGET",
+          "INDEPENDENT_VERIFICATION_FAILED"
+        ],
+        "plan_id": "sha256:bd34218049b600f90c0b5be2eee935a6ba6fbc05c17bedb84081fc6e7a5d5c93"
+      },
+      "observation": {
+        "adapter_id": "roma-dspy-python",
+        "applied_controls": {
+          "llm_retries": 0,
+          "max_concurrency": 1,
+          "max_depth": 1,
+          "max_subtasks": 3,
+          "module_max_tokens": {
+            "aggregator": 512,
+            "atomizer": 384,
+            "executor": 512,
+            "planner": 512,
+            "verifier": 384
+          },
+          "operation_timeout_seconds": 420,
+          "tools": []
+        },
+        "configured_modules": [
+          {
+            "endpoint": "http://127.0.0.1:11434",
+            "model": "qwen2.5-coder:3b",
+            "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+            "name": "atomizer",
+            "provider": "ollama"
+          },
+          {
+            "endpoint": "http://127.0.0.1:11434",
+            "model": "qwen2.5-coder:3b",
+            "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+            "name": "planner",
+            "provider": "ollama"
+          },
+          {
+            "endpoint": "http://127.0.0.1:11434",
+            "model": "qwen2.5-coder:7b",
+            "model_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+            "name": "executor",
+            "provider": "ollama"
+          },
+          {
+            "endpoint": "http://127.0.0.1:11434",
+            "model": "qwen2.5-coder:7b",
+            "model_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+            "name": "aggregator",
+            "provider": "ollama"
+          },
+          {
+            "endpoint": "http://127.0.0.1:11434",
+            "model": "qwen2.5-coder:7b",
+            "model_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+            "name": "verifier",
+            "provider": "ollama"
+          }
+        ],
+        "configured_tools": [
+          {
+            "kind": "mandatory-internal",
+            "module": "executor",
+            "toolkit": "ArtifactToolkit"
+          },
+          {
+            "kind": "mandatory-internal",
+            "module": "aggregator",
+            "toolkit": "ArtifactToolkit"
+          }
+        ],
+        "duration_ms": 48994,
+        "error": null,
+        "model_inventory": [
+          {
+            "digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+            "name": "qwen2.5-coder:3b"
+          },
+          {
+            "digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+            "name": "qwen2.5-coder:7b"
+          }
+        ],
+        "nodes": [
+          {
+            "depth": 0,
+            "index": 0,
+            "modules": [
+              {
+                "completion_tokens": 0,
+                "duration_ms": 9791,
+                "error": null,
+                "model": null,
+                "name": "atomizer",
+                "prompt_tokens": 0,
+                "total_tokens": 0
+              },
+              {
+                "completion_tokens": 0,
+                "duration_ms": 9153,
+                "error": null,
+                "model": null,
+                "name": "planner",
+                "prompt_tokens": 0,
+                "total_tokens": 0
+              },
+              {
+                "completion_tokens": 0,
+                "duration_ms": 10571,
+                "error": null,
+                "model": null,
+                "name": "aggregator",
+                "prompt_tokens": 0,
+                "total_tokens": 0
+              }
+            ],
+            "node_type": "PLAN",
+            "status": "COMPLETED"
+          },
+          {
+            "depth": 1,
+            "index": 1,
+            "modules": [
+              {
+                "completion_tokens": 0,
+                "duration_ms": 19260,
+                "error": null,
+                "model": null,
+                "name": "executor",
+                "prompt_tokens": 0,
+                "total_tokens": 0
+              }
+            ],
+            "node_type": "EXECUTE",
+            "status": "COMPLETED"
+          }
+        ],
+        "output_text": "```json\n{\"answer\": \"R1\"}\n```",
+        "provider_calls": [
+          {
+            "completion_tokens": 234,
+            "model": "ollama_chat/qwen2.5-coder:3b",
+            "module": "atomizer",
+            "prompt_tokens": 735,
+            "response_model": "ollama_chat/qwen2.5-coder:3b",
+            "timestamp": "2026-07-31T15:39:26.562236Z",
+            "total_tokens": 969
+          },
+          {
+            "completion_tokens": 371,
+            "model": "ollama_chat/qwen2.5-coder:3b",
+            "module": "planner",
+            "prompt_tokens": 1169,
+            "response_model": "ollama_chat/qwen2.5-coder:3b",
+            "timestamp": "2026-07-31T15:39:35.717273Z",
+            "total_tokens": 1540
+          },
+          {
+            "completion_tokens": 299,
+            "model": "ollama_chat/qwen2.5-coder:7b",
+            "module": "executor",
+            "prompt_tokens": 1313,
+            "response_model": "ollama_chat/qwen2.5-coder:7b",
+            "timestamp": "2026-07-31T15:39:54.983551Z",
+            "total_tokens": 1612
+          },
+          {
+            "completion_tokens": 212,
+            "model": "ollama_chat/qwen2.5-coder:7b",
+            "module": "aggregator",
+            "prompt_tokens": 765,
+            "response_model": "ollama_chat/qwen2.5-coder:7b",
+            "timestamp": "2026-07-31T15:40:05.560313Z",
+            "total_tokens": 977
+          }
+        ],
+        "schema": 1,
+        "started_at": "2026-07-31T19:39:16.759971Z",
+        "status": "completed",
+        "tool_calls": [],
+        "totals": {
+          "completion_tokens": 1116,
+          "max_depth_observed": 1,
+          "module_calls": 4,
+          "node_count": 2,
+          "prompt_tokens": 3982,
+          "provider_call_count": 4,
+          "retry_count": 0,
+          "total_tokens": 5098
+        },
+        "upstream_commit": "a6e3bb4f9e0694375fa627fa4b8bf8cae50592a6"
+      },
+      "output_text": "```json\n{\"answer\": \"R1\"}\n```",
+      "raw_execution": {
+        "stdout_digest": "sha256:12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+        "stderr_digest": "sha256:42fe69e3043829b53ac84d5d2d61485d8950761031cc6abff5bd6593bcc5c1b2"
+      }
+    }
+  ]
+}

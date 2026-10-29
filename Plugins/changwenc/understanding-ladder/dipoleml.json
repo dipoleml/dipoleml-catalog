@@ -1,0 +1,110 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.changwenc.understanding-ladder",
+  "type": "plugin",
+  "name": "Understanding Ladder",
+  "slug": "understanding-ladder",
+  "vendor": "changwenc",
+  "description": "Karpathy's understanding ladder as agent skills: auto-pick text, diagram, interactive HTML, or video storyboard for any explanation. Nothing cut. English + 中文.",
+  "version": "0.1.0",
+  "homepage": "https://github.com/ChangWenC/understanding-ladder",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agent-skills",
+    "asd-ste100",
+    "chinese",
+    "claude-code-plugin",
+    "claude-skills",
+    "codex",
+    "explainer",
+    "karpathy",
+    "plain-language"
+  ],
+  "tags": [
+    "agent-skills",
+    "asd-ste100",
+    "chinese",
+    "claude-code",
+    "claude-code-plugin",
+    "claude-skills",
+    "codex",
+    "explainer",
+    "karpathy",
+    "llm",
+    "plain-language",
+    "understanding-ladder"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "changwenc",
+    "brandName": "changwenc",
+    "source": "https://github.com/ChangWenC.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:12:31Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "ChangWenC/understanding-ladder",
+    "url": "https://github.com/ChangWenC/understanding-ladder",
+    "commit": "27b0957818f57a9c1d0ecdde1f50c2e3752f972c",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 116,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:03:48Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

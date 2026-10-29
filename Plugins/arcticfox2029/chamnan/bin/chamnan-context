@@ -1,0 +1,708 @@
+#!/usr/bin/env python3
+"""chamnan-context — this repository's context block on stdout, for any tool on any OS.
+
+chamnan's block has only ever reached one place: Claude Code's SessionStart hook. This command is
+the same block with the harness taken out of the way -- one pipe anything can read.
+
+    chamnan-context                      the block, as text
+    chamnan-context --json               the block plus what was detected, for a wrapper
+    chamnan-context --window 32000       size it for the window the model actually has
+    chamnan-context --profile small-window          the same, by name
+    chamnan-context --model kimi         size it by model family, if you know that instead
+    chamnan-context --ceiling 9000       for a harness that truncates, like Claude Code's hook
+    chamnan-context --detect             what chamnan thinks this machine is, and nothing else
+    chamnan-context --preview            what can leave, led by what chamnan cannot control
+    chamnan-context --write cursor       set that agent up to read it
+    chamnan-context --emit gemini        the block in that agent's own wire format
+
+**Why the ceiling defaults to non-binding rather than to 9,000.** That number is Claude Code
+truncating a hook's stdout, and it is the tightest limit chamnan has ever worked under. A tool that
+reads a file off disk has no such limit, and inheriting it would throw away material that tool
+could have taken whole -- measured on the repository this was written in, the same block is 8,878
+bytes under the hook ceiling and 19,801 without it. The budgets are the lever here; the ceiling
+stays out of the way until a caller says otherwise.
+
+**The hook is imported and called, not spawned.** A subprocess would cost a process start on every
+invocation, and this repository holds one rule about `subprocess` that is worth more than the
+convenience: it is used only ever to run git. A command that shells out to a Python interpreter
+makes that rule a judgement call, and the rule's value is that it is not one.
+
+Nothing here calls a model and nothing reaches the network. The block is built from files in this
+repository and written to stdout; what reads it is the caller's business.
+"""
+import argparse
+import contextlib
+import hashlib
+import importlib.util
+import io
+import json
+import os
+import re
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent / "lib"))
+
+import adapters  # noqa: E402
+import fit  # noqa: E402
+import host  # noqa: E402
+import profiles  # noqa: E402
+import tokens as tokens_mod  # noqa: E402
+import redact  # noqa: E402
+import workspace as ws  # noqa: E402
+
+# Shadows the builtin for the whole module, so a print added later is scrubbed without its author
+# having to know this line exists. See `redact.emit`.
+print = redact.emit  # noqa: A001
+
+
+def _err(text):
+    """Write `text` to stderr through the same scrub and terminal filter as every print here.
+
+    🐛 [2026-09-28] (R82 acc4, 2026-09-28) Eight refusals and notices in this file called
+    `sys.stderr.write` directly and so skipped `redact.emit`, which every other line of output goes
+    through: a path argument holding an escape sequence (`chamnan-context "d\x1b[2Jx/nope"`) reached
+    the terminal intact, while the same bytes inside a note were stripped. One member of the set
+    of output routes was unguarded, the shape the outside incident (util-linux `wall`) had too.
+    """
+    print(text, end="", file=sys.stderr)
+
+HOOK = HERE.parent / "hooks" / "chamnan_session_start.py"
+
+# High enough not to bind on any repository measured, and still finite: an unbounded ceiling would
+# make a runaway MAP.md the caller's problem to discover at the far end of a pipe.
+NON_BINDING = 1_000_000
+
+
+_FENCE = re.compile(r"\[/?repo:([0-9a-f]{6})\]")
+
+
+def _stabilise_fence(body):
+    """Re-derive the block's fence marker from the block's own content.
+
+    🐛 The hook picks a RANDOM marker when there is no session id, which is correct for a hook —
+    it fires many times in one session and the id keeps it constant. Through this command there is
+    no session, so every regeneration produced a different marker and the file changed by 46 bytes
+    with nothing in the repository having changed. Measured on a one-file fixture.
+    
+    That costs the target agent its prompt cache. A rules file sits near the head of the prompt,
+    and cache reuse is an exact-prefix match — so a repository nobody touched still paid full
+    price for its context on the next run. It also makes the file impossible to diff: a reader
+    cannot tell "the repository changed" from "chamnan ran again".
+
+    Derived from a digest of the block with the marker masked out, so identical content gives an
+    identical file and any real change moves it.
+
+    **What this trades away, stated plainly.** The marker becomes predictable, where in a session
+    it cannot be guessed in advance. The nonce was always the SECOND layer: `section()` escapes any
+    literal occurrence of the closing mark inside a body before wrapping it, and that escape is
+    what actually holds. Predictability costs the defence in depth, not the defence — and a file on
+    disk is a different threat model from a live session anyway, since whoever can edit the file
+    does not need to forge a marker inside it.
+    """
+    # 🐛 [2026-09-10] Masking and unmasking were `str.replace` over the WHOLE document, so both
+    # steps reached content that was never part of a fence. Any `000000` already in the repository's
+    # own prose — a zero-padded id, a timestamp, a hex colour, an amount, `0.000000` in a
+    # measurement — came out of the second replace rewritten to the fence digest, in every output
+    # path and every vendor's file. And a nonce that happened to appear in the body was masked
+    # there too, so the digest was taken over content the masking had corrupted (R4 agent 1,
+    # finding 2).
+    #
+    # Scoped to the fence by substituting through `_FENCE` itself, which is the only thing that
+    # knows where a fence is. Nothing outside a `[repo:…]` / `[/repo:…]` marker is touched at
+    # either step, and the digest is taken over a body that differs from the input only inside
+    # those markers.
+    if not _FENCE.search(body):
+        return body
+    masked = _FENCE.sub(lambda m: m.group(0).replace(m.group(1), "0" * 6), body)
+    stable = hashlib.blake2s(masked.encode("utf-8"), digest_size=3).hexdigest()
+    return _FENCE.sub(lambda m: m.group(0).replace(m.group(1), stable), masked)
+
+
+def _load_hook():
+    """The SessionStart hook as an imported module.
+
+    Loadable by `spec_from_file_location` without a loader spelled out because it carries a `.py`
+    extension -- the `bin/` commands do not, which is a different problem and not this one's.
+    Imported under its own name rather than `__main__`, so its `if __name__` guard does not fire
+    and the module is inert until `main()` is called.
+    """
+    spec = importlib.util.spec_from_file_location("chamnan_session_start", HOOK)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def _capture_session_start(root, profile, ceiling, agent=None, payload=None, read_only=False):
+    """The real hook's stdout, unchanged, for one SessionStart payload.
+
+    The hook reads its root from the working directory and its payload from stdin, so both are
+    swapped for the duration and put back in a `finally` -- a command that leaves the process in
+    another directory is a bug that surfaces somewhere else entirely.
+    """
+    was_cwd, was_stdin = os.getcwd(), sys.stdin
+    was_profile = os.environ.get("CHAMNAN_CONTEXT_PROFILE")
+    was_agent = os.environ.get("CHAMNAN_CONTEXT_AGENT")
+    was_ceiling = os.environ.get("CHAMNAN_OUTPUT_CEILING")
+    was_read_only = os.environ.get(ws.READ_ONLY_ENV)
+    was_snapshot = os.environ.get("CHAMNAN_SNAPSHOT")
+    buffer = io.StringIO()
+    try:
+        if profile:
+            os.environ["CHAMNAN_CONTEXT_PROFILE"] = profile
+        # Parts of the block are addressed to the reader, and the reader is not always Claude Code.
+        if agent:
+            os.environ["CHAMNAN_CONTEXT_AGENT"] = agent
+        os.environ["CHAMNAN_OUTPUT_CEILING"] = str(ceiling)
+        # The hook's SNAPSHOT_ENV: this is a build of the block for a file or a preview, never a
+        # session, so the hook must not leave out what a previous AGENTS.md snapshot already held.
+        os.environ["CHAMNAN_SNAPSHOT"] = "1"
+        if read_only:
+            os.environ[ws.READ_ONLY_ENV] = "1"
+        os.chdir(str(root))
+        sys.stdin = io.StringIO(json.dumps(payload or {}))
+        with contextlib.redirect_stdout(buffer):
+            _load_hook().main()
+    finally:
+        os.chdir(was_cwd)
+        sys.stdin = was_stdin
+        for name, previous in (("CHAMNAN_CONTEXT_PROFILE", was_profile),
+                               ("CHAMNAN_CONTEXT_AGENT", was_agent),
+                               ("CHAMNAN_OUTPUT_CEILING", was_ceiling),
+                               (ws.READ_ONLY_ENV, was_read_only),
+                               ("CHAMNAN_SNAPSHOT", was_snapshot)):
+            if previous is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = previous
+    return buffer.getvalue()
+
+
+def build(root, profile, ceiling, agent=None):
+    """The stable block, as text. Runs the hook's own `main()`, then stabilises its fence."""
+    emitted = _capture_session_start(root, profile, ceiling, agent=agent)
+    return _stabilise_fence(emitted.rstrip("\n"))
+
+
+def privacy_preview(root, profile, ceiling, payload=None):
+    """An honest boundary report containing one exact, real SessionStart emission."""
+    payload = payload or {
+        "cwd": str(root),
+        "hook_event_name": "SessionStart",
+        "session_id": "privacy-preview",
+        "source": "startup",
+    }
+    emitted = _capture_session_start(root, profile, ceiling, payload=payload, read_only=True)
+    size = len(emitted.encode("utf-8"))
+    cost = tokens_mod.estimate(emitted)
+    return (
+        "chamnan privacy preview\n\n"
+        "NOT CONTROLLED — chamnan never sees or rewrites these results:\n"
+        "  Read, Grep and Glob — file contents, matched lines and paths\n"
+        "  Bash — stdout/stderr from commands other than bin/chamnan-*\n"
+        "  WebFetch and WebSearch — fetched and searched content\n"
+        "  a subagent's own transcript — its reasoning and tool results\n"
+        "  Their size is unknown and cannot be estimated by chamnan.\n\n"
+        "CONTROLLED BY CHAMNAN:\n"
+        f"  SessionStart: {size:,} bytes / ~{cost:,.0f} tokens, through redact.scrub, "
+        f"against the {ceiling:,}-byte hook ceiling.\n"
+        "  The exact bytes from the real SessionStart renderer are below. The live session's\n"
+        "  fence nonce changes with its session id; no second rendering is used here.\n\n"
+        "----- exact SessionStart bytes begin -----\n"
+        + emitted
+        + "----- exact SessionStart bytes end -----\n\n"
+        "CONTROLLED, BUT NOT YET DETERMINED:\n"
+        "  bulk-read notice, file pointer, scratch watch, agent result and subagent start\n"
+        "  are scrubbed by their real hooks, but their exact bytes depend on the matching event.\n"
+        "  They are not simulated here: four also write local bookkeeping when they run.\n"
+        "  bin/chamnan-* output is scrubbed too, and exists only when a command is run.\n\n"
+        "chamnan-corpus's redaction/recall.py measures coverage on credential-shaped test strings. It is not\n"
+        "measured or claimed for names, hostnames, project codenames, or other ordinary text.\n"
+        "This preview is not a sandbox and is not a preview of host tool results.\n")
+
+
+def _volatile_normalised(text):
+    """`text` with the lines that move on every commit neutralised, for a "did anything change" test.
+
+    Fence nonces become one fixed token, `Built from <sha>` becomes `Built from SHA`, and the
+    `_Last edited ...`, `_chamnan · ` status and snapshot-note lines are dropped,
+    and trailing whitespace goes. Only ever used to DECIDE whether to write; never written out.
+    """
+    out = []
+    for line in _FENCE.sub(lambda m: m.group(0).replace(m.group(1), "000000"), text).splitlines():
+        if line.startswith(("_Last edited ", "_chamnan · ",
+                            "_This file is a snapshot of the repository as it was on")):
+            continue
+        out.append(re.sub(r"Built from [0-9a-f]{7,40}", "Built from SHA", line).rstrip())
+    return "\n".join(out).strip()
+
+
+def _write_would_change_nothing(root, agent, body):
+    """True when the target already holds this body, ignoring only the per-commit volatile lines.
+
+    Reuses the adapters' own target resolution and reader. A marker-region adapter (`generic`) is
+    compared on its region only; a whole-file shared-writer adapter is compared on the file minus
+    its provenance marker. An adapter with its own merging install is never short-circuited.
+    """
+    adapter = adapters.for_agent(agent)
+    start, end = getattr(adapter, "START", None), getattr(adapter, "END", None)
+    if adapter is None or (hasattr(adapter, "install") and not (start and end)):
+        return False
+    try:
+        with adapters.held_target(root, adapter.TARGET) as target:
+            existing = adapters.read_target(target)
+    except (ValueError, OSError):
+        return False
+    if existing is None:
+        return False
+    new = adapter.render(body)
+    if start and end:
+        _h, opened, rest = existing.partition(start)
+        old, closed, _t = rest.partition(end)
+        if not (opened and closed):
+            return False
+        new = new.partition(start)[2].partition(end)[0]
+    else:
+        keep = lambda t: "\n".join(ln for ln in t.splitlines()
+                                   if not ln.lstrip().startswith(adapters._MARKER_OPENS))
+        old, new = keep(existing), keep(new)
+    return _volatile_normalised(old) == _volatile_normalised(new)
+
+
+def _snapshot_note(root, agent):
+    """One line saying how old this file is and how to refresh it.
+
+    Only on the `--write` path. `--emit` prints to stdout for a hook to consume fresh, and a hook's
+    output is never stale by construction -- a note about staleness there would be noise on every
+    session forever.
+    """
+    import datetime
+    import re as _re
+    when = datetime.date.today().isoformat()
+    # The commit comes out of MAP.md's own header, not from asking git. Two reasons, and the second
+    # is the one that matters: this command must not import `subprocess` at all -- on Windows the
+    # hook is an extensionless shebang script that cannot be executed by path, so the pipe imports
+    # it instead, and a guard in the suite enforces that. And the map's stamp is the honest number
+    # anyway: what this file contains is the INDEX, so the commit the index was built from is what
+    # its age should be measured against, not whatever HEAD happens to be now.
+    sha = ""
+    try:
+        head = (Path(root) / ".chamnan" / "MAP.md").read_text(
+            encoding="utf-8", errors="replace")[:600]
+        m = _re.search(r"\bBuilt from ([0-9a-f]{7,40})\.", head)
+        if m:
+            sha = f" from commit {m.group(1)}"
+    except OSError:
+        pass
+    return (f"\n_This file is a snapshot of the repository as it was on {when}{sha}. It does not "
+            f"update itself: run `chamnan-map && chamnan-context --write {agent}` after the shape "
+            f"of the repository changes._")
+
+
+def _budget_notice(body, profile):
+    """A line for stderr when the index could not be made as small as the caller asked for, or "".
+
+    🐛 Measured on this repository: `--profile small-window` (1,200 tokens) and the default
+    `standard` (3,000) deliver a BYTE-IDENTICAL block. That is not a bug in the fold -- the index
+    folds to one line per directory and lands at ~1,294 tokens, which is under 3,000 and over
+    1,200, and there is no representation in between. Forcing a difference would mean dropping
+    directories, which loses more than it saves; I tried it and the block came out LARGER.
+    
+    What was wrong is that nobody said so. A caller who asks for a small window and receives the
+    standard block has no way to tell whether the request was honoured, ignored, or impossible.
+    This says which. It goes to stderr, so a pipe still gets exactly the block and nothing else.
+    """
+    section = ""
+    if "### Architecture index" in body:
+        section = body.split("### Architecture index", 1)[1].split("\n### ", 1)[0]
+    if not section:
+        return ""
+    spent = tokens_mod.estimate(section)
+    asked = profiles.budgets(profile)["index_token_budget"]
+    if spent <= asked:
+        return ""
+    return (f"chamnan-context: the index is ~{spent:,.0f} tokens against the {asked:,} that "
+            f"`{profile}` asks for. It is already folded to one line per directory — the next step "
+            f"down drops directories entirely, which loses more than it saves. Delivered as is.\n")
+
+
+def main():
+    # This command takes no arguments, which is why it had no flag handling at all — but
+    # "which build is this" is a question about the INSTALL, not about the command, so it
+    # has to be answerable here too. Read straight off sys.argv since there is no argv
+    # parameter to consult.
+    if ws.wants_version(sys.argv[1:]):
+        print(ws.version_line())
+        return 0
+
+    parser = argparse.ArgumentParser(add_help=True, description=__doc__.splitlines()[0])
+    parser.add_argument("root", nargs="?", default=".")
+    parser.add_argument("--json", action="store_true", help="the block plus what was detected")
+    parser.add_argument("--detect", action="store_true", help="what was detected, and nothing else")
+    parser.add_argument("--preview", action="store_true",
+                        help="show what can leave, led by what chamnan cannot control")
+    parser.add_argument("--write", default=None, choices=adapters.names(),
+                        help="set this agent up to read the block")
+    parser.add_argument("--written-agents", action="store_true",
+                        help="name each agent whose context file exists here AND was written by "
+                             "chamnan, one per line; what the pre-commit hook loops over")
+    parser.add_argument("--emit", default=None, choices=adapters.names(),
+                        help="print the block in this agent's own wire format")
+    parser.add_argument("--window", type=int, default=None,
+                        help="context window in tokens; picks the profile for you")
+    parser.add_argument("--profile", default=None, choices=profiles.names(),
+                        help="pick the profile by name instead")
+    parser.add_argument("--model", default=None,
+                        help="model family (qwen, kimi, gemini, deepseek, glm, llama, ...); "
+                             "a dated convenience, --window is the authority")
+    parser.add_argument("--ceiling", type=int, default=NON_BINDING,
+                        help=f"byte ceiling for a harness that truncates "
+                             f"(default {NON_BINDING:,}, which does not bind)")
+    args = parser.parse_args()
+
+    # 🐛 [2026-09-29] (R47 acc5, 2026-09-29) `Path(".").resolve()` needs the OS cwd to build an
+    # absolute path, and raised a bare FileNotFoundError when it was gone; an explicit root is
+    # untouched, only the unspecified default routes through ws.current_dir()'s readable sentence.
+    # 🐛 [2026-09-30] (self-measured) Windows CI (Python 3.8) -- resolve() of a path with control characters raised
+    # OSError instead of the refusal below. `_err` filters the text, so they do not reach the terminal.
+    # `ws.current_dir()` stays OUTSIDE the try: WorkingDirectoryGone is an OSError and must reach
+    # the excepthook, which says the directory no longer exists.
+    base = Path(args.root if args.root != "." else ws.current_dir())
+    try:
+        root = base.resolve()
+    except OSError:
+        _err(f"chamnan: no such directory: {args.root}\n")
+        return 1
+    # 🐛 [2026-09-28] (R69 acc2, 2026-09-28) `ws.workspace(root)` is `find_root(root) / ".chamnan"`,
+    # and `find_root` walks UP from `root` looking for an ancestor workspace -- so a nonexistent
+    # `root` under a real repository (`chamnan-context zzq` inside this checkout) still found this
+    # repository's own `.chamnan/` on an ancestor and passed the check below. The crash then came
+    # three calls deeper, in `_capture_session_start`'s `os.chdir(str(root))`, as an uncaught
+    # `FileNotFoundError` traceback instead of a refusal. Checking that `root` itself exists, before
+    # anything asks what its ancestors are, is the same case `chamnan-map` and `chamnan-gotcha`
+    # already refuse this way.
+    if not root.is_dir():
+        _err(f"chamnan: no such directory: {root}\n")
+        return 1
+    if not ws.workspace(root).is_dir():
+        # 🐛 This named a Claude Code slash command and nothing else — to a reader who, by the
+        # very fact of running this command in a terminal, may not have Claude Code at all. The
+        # whole point of chamnan-context is setting up the OTHER agents, so the one error a
+        # non-Claude-Code user is most likely to hit sent them to a command they cannot run
+        # (R21 agent 3). `chamnan-map` creates the workspace and the index anywhere.
+        _err(f"chamnan: no .chamnan/ workspace at {root}. "
+                         f"Run `chamnan-map` there first — it creates the workspace and builds "
+                         f"the index. (Inside Claude Code, `/chamnan:bootstrap` does that and "
+                         f"records a baseline.)\n")
+        return 1
+
+    # --window and --profile answer the same question. Rather than silently preferring one, say so:
+    # a caller passing both has a wrong belief about what it is asking for, and only a message fixes
+    # that. --window wins because it is the more specific statement of the same fact.
+    if args.window is not None and args.profile is not None:
+        _err("chamnan-context: --window and --profile both set; using --window "
+                         f"({profiles.by_window(args.window)}).\n")
+    # Three ways to say the same thing, and the more specific one wins: an exact window beats a
+    # profile name, and a profile name beats a model family -- because the family table is a dated
+    # snapshot and the other two are statements about this deployment.
+    profile = args.profile
+    if args.model is not None:
+        guessed, note = profiles.by_model(args.model)
+        if note:
+            _err(f"chamnan-context: {note}\n")
+        profile = profile or guessed
+    if args.window is not None:
+        profile = profiles.by_window(args.window)
+
+    if args.preview:
+        # A preview is about the hook as the host runs it, so the host ceiling is the default here;
+        # an explicit --ceiling still wins. Written directly because the bytes between the markers
+        # are already the real hook's scrubbed stdout: passing them through `redact.emit` would be
+        # a second transform, and byte-for-byte would stop meaning byte-for-byte.
+        preview_ceiling = fit.CEILING if args.ceiling == NON_BINDING else args.ceiling
+        sys.stdout.write(privacy_preview(root, profile, preview_ceiling))
+        return 0
+
+    detected = {
+        "os": host.os_family(),
+        "agents": [{"name": n, "evidence": e} for n, e in host.agents(root=root)],
+        "profile": profile or profiles.DEFAULT,
+        "ceiling": args.ceiling,
+    }
+    if args.detect:
+        print(json.dumps(detected, indent=2))
+        return 0
+
+    # --emit is what an agent's own hook runs: the block, in that agent's wire format, on stdout.
+    if args.emit:
+        emitter = adapters.for_agent(args.emit)
+        declared = getattr(emitter, "CEILING", None)
+        if declared and args.ceiling == NON_BINDING:
+            # --emit prints render()'s output and writes no marker, so only the wrapper counts.
+            args.ceiling = max(1, declared - len(emitter.render("").encode()))
+        print(emitter.render(build(root, profile, args.ceiling, agent=args.emit)))
+        return 0
+
+    # An adapter that declares its own ceiling knows something this caller does not -- what the
+    # agent it writes for will truncate. It wins over the default, and loses to an explicit
+    # --ceiling, because a caller who typed a number meant it.
+    if args.write:
+        declared = getattr(adapters.for_agent(args.write), "CEILING", None)
+        if declared and args.ceiling == NON_BINDING:
+            # Minus what this adapter wraps around the block. The ceiling is a promise about the
+            # FILE, and the file is the block plus the wrapper plus the marker — sizing the block to
+            # the whole ceiling wrote over it every time the ceiling bound.
+            # 🐛 [2026-09-10] ...and the SNAPSHOT NOTE, which the write path appends AFTER this
+            # ceiling has already been applied and which `fixed_overhead` cannot see, because it is
+            # this command's line rather than the adapter's wrapper. It is 218-223 bytes, so every
+            # `--write` landed over the declared ceiling at every profile: measured 12,097 against
+            # 12,000 by default, 12,017 at `--profile small-window`, 12,169 for `--write
+            # antigravity`, and over in 4 of 4 forced-ceiling probes. The fix that added
+            # `fixed_overhead` landed on two of the three things the file gains around the block
+            # and was forgotten on the third, which shipped in the same release (R4 agent 1,
+            # finding 1).
+            #
+            # Worse than the overshoot: Windsurf and Antigravity truncate silently at 12,000, so
+            # what was cut was the note itself — the one line telling the reader the file is a
+            # snapshot and how to refresh it. And the warning printed at the overshoot told them to
+            # lower `index_token_budget` or pass a smaller `--window`, which NO value could satisfy,
+            # because the note was appended after every one of them. A tool that reports a
+            # violation and then gives advice that cannot clear it teaches the reader to skip the
+            # warning.
+            #
+            # Measured here rather than estimated: the note carries today's date, the map's commit
+            # and the agent's name, so its length is knowable exactly and only at this point.
+            _footer = len(("\n" + _snapshot_note(root, args.write) + "\n").encode())
+            args.ceiling = max(1, declared - adapters.fixed_overhead(args.write) - _footer)
+            detected["ceiling"] = declared
+
+    # Detection was inert: `host.agents()` had one consumer, `--detect`'s JSON dump, and nothing
+    # acted on it. Turned into a SUGGESTION rather than an action, deliberately.
+    #
+    # Never auto-write. Writing a file into another tool's configuration directory on a guess is
+    # the same class of mistake `safe_target` exists to prevent, and a machine can carry several
+    # agents' directories at once — this repository's own `--detect` reports three. Only REPO and
+    # RUNNING evidence counts; HOME is what the detection module's own docstring calls the weakest
+    # and stalest signal, and a suggestion built on it would fire on every repository on the
+    # machine. stderr, so a pipe still receives exactly the block.
+    if not args.write and not args.json and not args.detect:
+        # 🐛 Written as `for _name, _strength in detected["agents"]` — and those are DICTS, so the
+        # unpack silently bound the two KEY NAMES instead of the values. No exception, no match, no
+        # output: the suggestion never fired and nothing said why.
+        for _found in detected["agents"]:
+            _name, _strength = _found["name"], _found["evidence"]
+            if _strength in (host.RUNNING, host.REPO) and adapters.for_agent(_name) is not None:
+                _err(
+                    f"chamnan-context: this repository looks set up for `{_name}` "
+                    f"({_strength}). `chamnan-context --write {_name}` puts the block where it "
+                    f"reads it.\n")
+                break
+
+    body = build(root, profile, args.ceiling, agent=args.write)
+    _notice = _budget_notice(body, profile or profiles.DEFAULT)
+    if _notice:
+        _err(_notice)
+
+    # 🐛 [2026-09-08] `chamnan-map --install-git-hook` refreshed .chamnan/MAP.md on every commit and
+    # nothing else, so Claude Code and Gemini -- which get a live session hook and need no file --
+    # were the only agents kept current, while the twenty-one reading a written snapshot kept the
+    # one from the day they were set up. Reproduced: after a commit adding a file, MAP.md named it
+    # and `.cursor/rules/chamnan.mdc` had the identical md5 and always would. The README calls that
+    # hook the thing which automates exactly this (R2, 2026-09-08 adapters).
+    #
+    # This branch NAMES the agents and writes nothing; the hook loops and calls `--write` for each.
+    # Doing the writing here would mean either a second copy of the fifty-line write path below --
+    # which is the defect this repository pays for most often -- or a subprocess, and this command
+    # deliberately imports none: the session hook is an extensionless shebang script that Windows
+    # cannot execute by path, and the suite asserts the absence.
+    #
+    # Only files that EXIST and that chamnan wrote are named. A file somebody wrote themselves is
+    # never rewritten by a commit, and an agent never set up here does not acquire a config file
+    # because somebody committed.
+    if args.written_agents:
+        # ONE NAME PER FILE, not one per agent. Fourteen names resolve to the root `AGENTS.md`
+        # -- `generic` and its thirteen aliases -- and this list is what the pre-commit hook loops
+        # over calling `--write` on each. Naming all fourteen would rewrite the same file fourteen
+        # times per commit at a measured 0.77s each: ten seconds added to every commit that adds,
+        # deletes or renames a file, for a result identical to writing it once. The flag's own help
+        # says it is what the hook loops over, so answering per FILE is answering the question it
+        # was asked (2026-09-08).
+        seen = set()
+        for name in adapters.names_canonical_first():
+            adapter = adapters.for_agent(name)
+            target = getattr(adapter, "TARGET", None)
+            if not target or target in seen:
+                continue
+            try:
+                path = adapters.safe_target(root, target)
+                if path is None or not path.is_file():
+                    continue
+                # Asked of the adapter, not of the shared predicate: fifteen of these names write
+                # a format `_looks_generated` was never about, so this printed none of them and the
+                # hook's refresh loop refreshed none of them (2026-09-08).
+                if adapters.wrote_this(name, path.read_text(encoding="utf-8-sig",
+                                                            errors="replace")):
+                    seen.add(target)
+                    print(name)
+            except (ValueError, OSError):
+                continue
+        return 0
+
+    if args.write:
+        # 🐛 A written file is a SNAPSHOT and said nothing about being one. Claude Code and Gemini
+        # CLI get a session hook, so their block is rebuilt every session and cannot go stale; the
+        # other two dozen agents get a file that is exactly as old as the last time somebody ran
+        # this command. The headers said "generated by chamnan, do not edit" -- true, and it is the
+        # other half that matters: an index that has quietly stopped describing the repository is
+        # worse than none, because a reader trusts it. So the file says when it was written, from
+        # which commit, and the one command that refreshes it.
+        body = body.rstrip("\n") + "\n" + _snapshot_note(root, args.write) + "\n"
+        # The command the agent will run at session start, spelled absolutely: the agent's working
+        # directory when it fires is its own business, and a relative path would resolve against it.
+        run = f"{Path(__file__).resolve()} --emit {args.write}"
+        # 🐛 [2026-10-02] (R5 acc5, 2026-10-02) The pre-commit hook rewrote this file on every
+        # commit although nothing it describes had changed: 694 commits in this repository carry an
+        # AGENTS.md diff, and the last three changed only the `_Last edited <N>h ago` line, the
+        # snapshot note (today's date and the MAP.md commit the same hook just refreshed) and the
+        # fence nonce, which is a digest of the body and so moves whenever those two do. Those
+        # volatile lines are ignored ONLY for the decision to write; when the file IS rewritten it
+        # carries them as always.
+        _unchanged = _write_would_change_nothing(root, args.write, body)
+        try:
+            written = (Path(root) / adapters.for_agent(args.write).TARGET if _unchanged
+                       else adapters.install(root, args.write, body, run))
+        except ValueError as exc:
+            _err(f"chamnan-context: {exc}\n")
+            return 1
+        except OSError as exc:
+            # `.clinerules` is the live case: Cline accepts it as a FILE or as a DIRECTORY, and a
+            # repository using the file form makes `mkdir` fail. Refusing is right -- the file
+            # holds rules somebody wrote -- but a traceback is not a message, and this is what a
+            # user sees at the moment it happens.
+            _err(f"chamnan-context: cannot write {args.write}'s target: {exc}\n")
+            return 1
+        print(f"chamnan-context -> {written}" + (" (unchanged)" if _unchanged else ""))
+        # 🐛 [2026-09-08] Four vendors read their own file AND the root `AGENTS.md` -- Roo Code,
+        # Continue.dev, Windsurf/Devin and GitHub Copilot, each confirmed against the vendor's own
+        # documentation. A user who ran `--write generic` and then `--write roo` now sends the
+        # identical block to that tool twice on every session and pays for it twice: a token-waste
+        # defect in a tool whose whole purpose is to reduce tokens, and nothing said so.
+        #
+        # Said HERE, at the moment the second file is created, because that is the only moment the
+        # person paying has both the information and the choice (R8 agent 16, 2026-09-10).
+        # 🐛 [2026-09-10] Asked in ONE direction, of a set of canonical names, against a raw
+        # argument: `--write roo` then `--write generic` created the same duplicate in silence, and
+        # so did any alias. `duplicating_agents_md` asks it from whichever side is being written
+        # (R4 agent 1, 2026-09-10, finding 7).
+        _root_file = adapters.for_agent("generic").TARGET
+        _dupes = adapters.duplicating_agents_md(root, args.write)
+        if _dupes == [adapters.for_agent("generic").NAME]:
+            print(f"  ⚠ {args.write} also reads the root {_root_file}, which chamnan already wrote "
+                  f"here — so this block now reaches it twice every session, and costs twice. Keep "
+                  f"whichever suits you and delete the other: this file carries {args.write}'s own "
+                  f"frontmatter, {_root_file} is read by every agent that has no file of its own.")
+        elif _dupes:
+            _list = ", ".join(_dupes)
+            print(f"  ⚠ {_root_file} is also read by {_list}, which chamnan has already written a "
+                  f"file for here — so this block now reaches {'each of them' if len(_dupes) > 1 else 'it'} "
+                  f"twice every session, and costs twice. Keep whichever suits you and delete the "
+                  f"other: each of those files carries its own agent's frontmatter, {_root_file} is "
+                  f"read by every agent that has no file of its own.")
+        # 🐛 [2026-09-08] `CEILING` means "the byte limit that agent's delivery imposes, or None
+        # when there is none" -- a statement about the VENDOR. Fifteen of twenty-three adapters have
+        # None, and what fell out of that is a decision nobody made: an agent whose vendor imposes
+        # no limit is handed roughly twice what Claude Code's own hook is allowed. Measured on this
+        # repository, same information both ways: `--emit generic` 18,805 bytes / 7,959 tokens
+        # against the hook's 8,942 bytes / 3,799 (R7 agent 6, 2026-09-08).
+        #
+        # Not capped here, and that is deliberate: a file has no host truncation to protect it
+        # from, more of the index is genuinely useful to a tool that will not be re-handed it every
+        # turn, and silently halving what twenty vendors get is a bigger change than a round should
+        # make on its own. What was actually wrong is that the person who typed this command was
+        # never told the number. This is the moment they have both the figure and the choice, which
+        # is the same reasoning the duplicate-delivery warning above already runs on.
+        if written.is_file():
+            _cost = tokens_mod.estimate(written.read_text(encoding="utf-8", errors="replace"))
+            import fit as _fit
+            _hook = _fit.CEILING
+            print(f"  {_cost:,.0f} tokens, read by {args.write} at the start of every session it "
+                  f"opens here.")
+            if written.stat().st_size > _hook:
+                print(f"  Claude Code's own block is capped at {_hook:,} bytes because its host "
+                      f"truncates past that;")
+                print(f"  a file has no such limit, so this one carries more of the index. Delete "
+                      f"it to stop paying.")
+        limit = getattr(adapters.for_agent(args.write), "CEILING", None)
+        if limit and written.is_file():
+            size = written.stat().st_size
+            if size > limit:
+                # 🐛 "truncates silently" was hardcoded and is not true of every agent: CodeBuddy
+                # REJECTS a file past its limit and reads none of it (R12 agent 1). Being told the
+                # index is shortened when it is in fact absent is worse than not being warned, so
+                # the adapter declares which it does.
+                hard = getattr(adapters.for_agent(args.write), "CEILING_IS_HARD", False)
+                what = ("That agent reads NONE of a file past it — the whole file is rejected"
+                        if hard else "That agent truncates silently past it")
+                # 🐛 [2026-09-10] The advice was printed unconditionally and there are repositories
+                # where NO value of either setting can satisfy it. Both levers shrink the INDEX;
+                # what is left when the index is gone — the pinned sections, the rules, the wrapper,
+                # the snapshot line — is a floor the settings do not reach. Told to lower a number
+                # that cannot help, a reader tries it, watches nothing change, and learns to skip
+                # the warning. That costs more than the overshoot it was reporting (R4 agent 1,
+                # finding 1).
+                #
+                # Measured, not guessed: the block is rebuilt at a ceiling of 1, which is what this
+                # repository is when nothing droppable is left. Rebuilding is only paid on the path
+                # that is already over the limit.
+                _floor = (len(build(root, profile, 1, agent=args.write).encode())
+                          + adapters.fixed_overhead(args.write)
+                          + len(("\n" + _snapshot_note(root, args.write) + "\n").encode()))
+                if _floor > limit:
+                    _advice = (f"neither index_token_budget nor --window can clear it: with the "
+                               f"whole index dropped this file is still about {_floor:,} bytes, "
+                               f"which is the pinned sections, the rules and {args.write}'s own "
+                               f"wrapper. Shorten what is pinned, or write for an agent with more "
+                               f"room.")
+                else:
+                    _advice = ("lower index_token_budget in .chamnan/config.json, or pass "
+                               "--window smaller.")
+                print(f"  ⚠ {size:,} bytes, over {args.write}'s {limit:,}-byte limit by "
+                      f"{size - limit:,}. {what} — {_advice}")
+        # An agent that does not auto-discover its own context file is only half installed by
+        # writing it. Saying so is the difference between a working setup and a file nobody opens.
+        manual = getattr(adapters.for_agent(args.write), "MANUAL_STEP", "")
+        if manual:
+            print(f"  ⚠ {manual}")
+
+        line = adapters.ignore_line(args.write)
+        if line:
+            print("  generated and per-developer. Add this to .gitignore if it is not there yet:")
+            print(f"    {line}")
+        return 0
+
+    if args.json:
+        detected["context"] = body
+        detected["bytes"] = len(body.encode("utf-8"))
+        print(json.dumps(detected, indent=2))
+        return 0
+
+    # Through the module-level `print`, so the same scrub every other command applies covers this
+    # one -- the hook redacts each section as it builds it, and this is the second layer rather
+    # than the only one. Windows: text-mode stdout falls back to the process's ANSI code page when
+    # it is a pipe, and one character out of somebody's comment raises UnicodeEncodeError, which
+    # here would mean the caller gets nothing at all.
+    try:
+        print(body)
+    except UnicodeEncodeError:
+        # \U0001f41b [2026-09-07] `for_a_terminal` too. `print` here is the shadow that applies both
+        # halves; this fallback applied only the credential half, so the one path that exists
+        # BECAUSE the text contains an awkward character was the path that stopped filtering
+        # awkward characters. Same shape as the three hooks fixed this morning (R13 agent 2, 2026-09-07).
+        sys.stdout.buffer.write(
+            redact.for_a_terminal(redact.scrub(body)).encode("utf-8", "replace") + b"\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,111 @@
+{
+  "schema": 1,
+  "cell_id": "004-security-prototype-keys--always-claude-sonnet",
+  "order": 4,
+  "scenario_id": "security-prototype-keys",
+  "task_class": "security-repair",
+  "risk": "high",
+  "policy_id": "always-claude-sonnet",
+  "repetition": 1,
+  "route": {
+    "initial_tier": "cloud",
+    "escalation_tier": null,
+    "reason_code": "BASELINE_ALWAYS_CLAUDE"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "cloud",
+      "started_at": "2026-08-02T00:56:01.775Z",
+      "duration_ms": 5394,
+      "output_text": "{\"files\":{\"src/copy.js\":\"'use strict';\\nfunction copySafeOwn(input) {\\n  const output = {};\\n  const forbidden = new Set(['__proto__', 'constructor', 'prototype']);\\n  if (input === null || input === undefined) {\\n    return output;\\n  }\\n  for (const key of Object.keys(input)) {\\n    if (forbidden.has(key)) {\\n      continue;\\n    }\\n    if (!Object.prototype.hasOwnProperty.call(input, key)) {\\n      continue;\\n    }\\n    output[key] = input[key];\\n  }\\n  return output;\\n}\\nmodule.exports = { copySafeOwn };\\n\"}}",
+      "output_digest": "sha256:97236611bb60d815e7875596f310fc04cfbdd65125540386fb439fc6727ed2e0",
+      "verification": {
+        "status": "passed",
+        "code": null,
+        "changed_paths": [
+          "src/copy.js"
+        ],
+        "applied_file_digests": {
+          "src/copy.js": "sha256:c79a10694de5000c7ac98020c9e5c75a19e5ae49675e97bff99bc984069bd3f4"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 0,
+          "signal": null,
+          "stdout": "",
+          "stderr": "",
+          "error": null
+        },
+        "patch_digest": "sha256:643cdce5e43a85406bb37f73f9b4277af8ec3a33209c2db3131486b787e3d126"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "claude-code-print",
+        "requested_model": "sonnet",
+        "canonical_model": "claude-sonnet-5",
+        "cli_version": "2.1.219",
+        "response_digest": "sha256:316973ee673abd10bc33ebe0485097974dbd27eb780faf43cdae93743f57b39f",
+        "exit_status": 0,
+        "terminal_reason": "completed",
+        "error": null
+      },
+      "usage": {
+        "input_tokens": 472,
+        "output_tokens": 235,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0
+      },
+      "economics": {
+        "comparison_cost": {
+          "status": "provider-reported-equivalent",
+          "total_usd": 0.005764,
+          "source": "claude_code_total_cost_usd"
+        },
+        "provider_reported_equivalent_cost": {
+          "status": "provider-reported-equivalent",
+          "amount_usd": 0.005764,
+          "source": "claude_code_total_cost_usd"
+        },
+        "local_gpu_energy": {
+          "status": "not-applicable",
+          "energy_kwh": 0,
+          "samples": 0,
+          "average_watts": null
+        },
+        "actual_subscription_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "pro_subscription_cost_not_allocated_per_request"
+        }
+      }
+    }
+  ],
+  "status": "passed",
+  "final_verification": {
+    "status": "passed",
+    "code": null,
+    "changed_paths": [
+      "src/copy.js"
+    ],
+    "applied_file_digests": {
+      "src/copy.js": "sha256:c79a10694de5000c7ac98020c9e5c75a19e5ae49675e97bff99bc984069bd3f4"
+    },
+    "verifier": {
+      "command": "node verifier.js",
+      "status": 0,
+      "signal": null,
+      "stdout": "",
+      "stderr": "",
+      "error": null
+    },
+    "patch_digest": "sha256:643cdce5e43a85406bb37f73f9b4277af8ec3a33209c2db3131486b787e3d126"
+  },
+  "previous_cell_digest": "sha256:18070cc92356e30a87bafc6739e9e5a03fec6424e64ffdf75eea8c8be317a2cb",
+  "receipt_digest": "sha256:46b6c2e77d86d36c05c4d2f4f53cfc2b180ba6a7a5fc6ead88720d29820578f5",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:d2520d9f6be2c7d78f8ed81da91a6689759aa642febd366506c71997d99244a0",
+    "signature": "mI56lEQUoWXRFk1CQaoJdcP+CnXr0kUfTecqDkZPKTe5TVyl3rQn3pVKotzmeWxuc8WHg4DNtqeKZBzaPD3jAw=="
+  }
+}

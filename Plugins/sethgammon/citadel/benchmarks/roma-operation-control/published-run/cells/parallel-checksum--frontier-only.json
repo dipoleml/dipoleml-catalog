@@ -1,0 +1,107 @@
+{
+  "schema": 1,
+  "run_id": "sha256:daa2e179a7ed7347c532732e791862d36230a679b3eaad2f2732f627643562a4",
+  "freeze_id": "sha256:f1ecf932261ceac604978952c42cdb8ec14032b795bffd1848fae90e9572ded5",
+  "scenario_id": "parallel-checksum",
+  "policy_id": "frontier-only",
+  "route": null,
+  "attempts": [
+    {
+      "receipt": {
+        "schema": 1,
+        "receipt_id": "sha256:7c10b742145e68c66e062f9e408e471050740f7ecf183f3bbb637e74ec8b2bf9",
+        "scenario_id": "parallel-checksum",
+        "policy_id": "frontier-only",
+        "attempt": 1,
+        "plan_id": null,
+        "observation_digest": null,
+        "output_digest": "sha256:a50c2225c0c22b8e497e8f78fb260c9c4252ef58bb7517bebd3b65f9b9fa1600",
+        "started_at": "2026-07-31T19:36:26.807Z",
+        "duration_ms": 6260,
+        "completion": {
+          "status": "passed",
+          "verifier_id": "json-answer-v1",
+          "answer_digest": "sha256:dcb5d6e69e4ded78464ae2843f509daf65c9ca09dfdc9b5ad69166341963a877",
+          "failure_code": null
+        },
+        "control": {
+          "status": "verified",
+          "mismatch_codes": [],
+          "module_exercise": []
+        },
+        "execution_evidence": {
+          "status": "verified",
+          "runtime": "codex-cli",
+          "requested_model": "gpt-5.6-sol",
+          "observed_model": "gpt-5.6-sol",
+          "source": "codex-jsonl",
+          "session_receipt": {
+            "thread_id": "019fb9ad-8f92-78b2-ba44-0ec172e70f8b",
+            "model": "gpt-5.6-sol",
+            "cwd_digest": "sha256:741c5d4f9097288a0433df00690d4fb79577e2daf1f07ebbadcc6ce8889d9a7d",
+            "turn_context_digest": "sha256:c7af7b8b5a44796499ce9f96c779f5999ddaafb684537133a80c799ce7a1bde8",
+            "session_file_digest": "sha256:f0321365a7b3f5bcd4179b5af502c450b4f9e27923a1248b936e4e464f29226d",
+            "session_bytes": 61425
+          },
+          "process": {
+            "exit_code": 0,
+            "timed_out": false,
+            "stdout_digest": "sha256:e1fee574ac65296058b0d274e89726d7e7cae0f6cf347f51fe6c88d5d2d04a7e",
+            "stdout_excerpt": "{\"type\":\"thread.started\",\"thread_id\":\"019fb9ad-8f92-78b2-ba44-0ec172e70f8b\"}\n{\"type\":\"turn.started\"}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":\"{\\\"answer\\\":497}\"}}\n{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":16365,\"cached_input_tokens\":0,\"cache_write_input_tokens\":0,\"output_tokens\":69,\"reasoning_output_tokens\":52}}\n",
+            "stderr_digest": "sha256:a0f49c2804c13306756579f9a202263654b1ed84c5cc237477f09ffa986091b6",
+            "stderr_excerpt": "2026-07-31T19:36:27.298115Z  WARN codex_core::shell_snapshot: Failed to create shell snapshot for powershell: Shell snapshot not supported yet for PowerShell\n"
+          }
+        },
+        "cost": {
+          "status": "unknown",
+          "total_usd": null,
+          "reason": "subscription_allocation_and_provider_cost_unreported",
+          "components": [
+            {
+              "kind": "provider_invoice",
+              "status": "unknown",
+              "amount_usd": null,
+              "source": "subscription_no_per_request_invoice"
+            },
+            {
+              "kind": "gpu_energy",
+              "status": "unknown",
+              "amount_usd": null,
+              "energy_kwh": null,
+              "samples": 0,
+              "source": "telemetry_unavailable"
+            },
+            {
+              "kind": "cpu_and_system_energy",
+              "status": "unknown",
+              "amount_usd": null,
+              "source": "not_measured"
+            },
+            {
+              "kind": "hardware_amortization",
+              "status": "unknown",
+              "amount_usd": null,
+              "source": "not_allocated"
+            }
+          ],
+          "duration_ms": 6260,
+          "usage": {
+            "prompt_tokens": 16365,
+            "completion_tokens": 69,
+            "total_tokens": 16434,
+            "cached_input_tokens": 0
+          },
+          "setup_costs_included": false
+        },
+        "adversarial_result": null
+      },
+      "plan": null,
+      "observation": null,
+      "output_text": "{\"answer\":497}",
+      "raw_execution": {
+        "stdout_digest": "sha256:e1fee574ac65296058b0d274e89726d7e7cae0f6cf347f51fe6c88d5d2d04a7e",
+        "stderr_digest": "sha256:a0f49c2804c13306756579f9a202263654b1ed84c5cc237477f09ffa986091b6"
+      }
+    }
+  ]
+}

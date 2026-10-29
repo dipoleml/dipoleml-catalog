@@ -1,0 +1,25 @@
+{
+  "_comment": "Single source of truth for app-it-static's desktop-build.sh, desktop-quit.sh, and desktop-rebuild.sh. Copy this file to scripts/app-it.config.json and customize. This is the STATIC schema — it serves a FINISHED build, never a dev server.",
+  "_fields": {
+    "name": "Display name. Non-ASCII OK (e.g. 'Momó Studio'). Substituted into Info.plist CFBundleName and the bundle's directory name.",
+    "slug": "File-safe slug (lowercase, hyphens). Used for assets/<slug>-icon.png plus namespaced app-it runtime and log paths.",
+    "serve_mode": "'server' (default) runs the bundled static-server.py (~15 MB, SPA-aware) and is robust for any build. 'file' loads the build straight from disk via file:// with NO server (~0 MB), but only works when asset paths are relative, there is no client-side routing, no fetch of local files, and no service worker.",
+    "static_dir": "Path (relative to the repo root) to the built output that contains index.html. Common: dist (Vite/Astro/Vue), build (CRA/SvelteKit), out (Next static export), . (plain static site).",
+    "port": "server mode only. Preferred port; the launcher scans [port..port+50] for a free one and records the actual port to ~/Library/Application Support/app-it/<slug>/server.port. Default range starts at 4100 to stay clear of dev-server ports (3000/5173).",
+    "bundle_id": "Reverse-DNS bundle identifier. Default 'com.user.<slug>'. NEVER 'com.<your-mac-username>.*' — LaunchServices may reject with error -600.",
+    "version": "Marketing version. Any semver-shaped string.",
+    "build_command": "Used by desktop-rebuild.sh to refresh the served snapshot, e.g. 'npm run build'. Empty string if the build is produced some other way."
+  },
+  "apps": [
+    {
+      "name": "My App",
+      "slug": "my-app",
+      "serve_mode": "server",
+      "static_dir": "dist",
+      "port": 4100,
+      "bundle_id": "com.user.my-app",
+      "version": "0.1.0",
+      "build_command": "npm run build"
+    }
+  ]
+}

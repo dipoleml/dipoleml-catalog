@@ -1,0 +1,196 @@
+{
+  "schema": 2,
+  "cell_id": "054-numeric-expression-v2--citadel-capability-profile-local--r1",
+  "order": 54,
+  "scenario_id": "numeric-expression-v2",
+  "policy_id": "citadel-capability-profile-local",
+  "repetition": 1,
+  "route": {
+    "capability_class": "tiny",
+    "initial_tier": "tiny",
+    "escalation_tier": "strong",
+    "reason_code": "CAPABILITY_TINY"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "tiny",
+      "started_at": "2026-08-01T03:51:26.435Z",
+      "duration_ms": 4755,
+      "output_text": "{\n  \"answer\": 39\n}",
+      "output_digest": "sha256:69ab255d5bbcfa4a583414c7f7c48e031d15b857c83f8257f7e8f5a076d7c648",
+      "answer": 39,
+      "verification": {
+        "status": "failed",
+        "verifier_id": "exact-answer-v1",
+        "answer_digest": "sha256:0b918943df0962bc7a1824c0555a389347b4febdc7cf9d1254406d80ce44e3f9",
+        "failure_code": "ANSWER_DIGEST_MISMATCH"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "ollama-chat",
+        "requested_model": "qwen2.5-coder:1.5b",
+        "observed_model": "qwen2.5-coder:1.5b",
+        "model_digest": "sha256:d7372fd828518a4d38b1eb196c673c31a85f2ed302b3d1e406c4c2d1b64a0668",
+        "done_reason": "stop",
+        "response_digest": "sha256:1e96e6f9f37a6e0c39f4c98ebc4fdcbace76fc21fca6c9fa8f06dcae35b08c42",
+        "error": null
+      },
+      "usage": {
+        "prompt_tokens": 70,
+        "completion_tokens": 11,
+        "total_tokens": 81,
+        "provider_total_duration_ns": 4753943100
+      },
+      "economics": {
+        "provider_invoice": {
+          "status": "known",
+          "amount_usd": 0,
+          "source": "self_hosted_ollama_no_per_request_invoice"
+        },
+        "gpu_energy": {
+          "status": "measured",
+          "energy_kwh": 0.000069581,
+          "samples": 10,
+          "average_watts": 52.68
+        },
+        "comparison_cost": {
+          "status": "derived-comparison",
+          "total_usd": 0.000027125,
+          "components": [
+            {
+              "kind": "gpu_electricity",
+              "status": "derived-comparison",
+              "amount_usd": 0.000013916,
+              "energy_kwh": 0.000069581,
+              "rate_usd_per_kwh": 0.2,
+              "source": "nvidia_smi_energy_times_frozen_scenario_rate"
+            },
+            {
+              "kind": "gpu_amortization",
+              "status": "derived-comparison",
+              "amount_usd": 0.000013208,
+              "residual_value_usd": 100,
+              "useful_compute_hours": 10000,
+              "source": "duration_times_frozen_residual_value_scenario"
+            },
+            {
+              "kind": "provider_invoice",
+              "status": "known",
+              "amount_usd": 0,
+              "source": "self_hosted_ollama_no_per_request_invoice"
+            },
+            {
+              "kind": "cpu_memory_storage_display_energy",
+              "status": "unknown",
+              "amount_usd": null,
+              "source": "not_measured"
+            }
+          ]
+        },
+        "actual_end_to_end_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "whole_system_energy_and_actual_utility_rate_not_observed"
+        }
+      }
+    },
+    {
+      "attempt": 2,
+      "tier": "strong",
+      "started_at": "2026-08-01T03:51:31.298Z",
+      "duration_ms": 6784,
+      "output_text": "{\n  \"answer\": 47\n}",
+      "output_digest": "sha256:65d15fc34fd075b49763adc4e554933d8a0506dff7c44e3f2fc0126ade556f5c",
+      "answer": 47,
+      "verification": {
+        "status": "failed",
+        "verifier_id": "exact-answer-v1",
+        "answer_digest": "sha256:31489056e0916d59fe3add79e63f095af3ffb81604691f21cad442a85c7be617",
+        "failure_code": "ANSWER_DIGEST_MISMATCH"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "ollama-chat",
+        "requested_model": "qwen2.5-coder:7b",
+        "observed_model": "qwen2.5-coder:7b",
+        "model_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+        "done_reason": "stop",
+        "response_digest": "sha256:f8f0d9cc84c880d58751e3412970e6fd4403b6037d97479df84f8be954b0a377",
+        "error": null
+      },
+      "usage": {
+        "prompt_tokens": 70,
+        "completion_tokens": 11,
+        "total_tokens": 81,
+        "provider_total_duration_ns": 6781763000
+      },
+      "economics": {
+        "provider_invoice": {
+          "status": "known",
+          "amount_usd": 0,
+          "source": "self_hosted_ollama_no_per_request_invoice"
+        },
+        "gpu_energy": {
+          "status": "measured",
+          "energy_kwh": 0.000106376,
+          "samples": 14,
+          "average_watts": 56.449286
+        },
+        "comparison_cost": {
+          "status": "derived-comparison",
+          "total_usd": 0.00004012,
+          "components": [
+            {
+              "kind": "gpu_electricity",
+              "status": "derived-comparison",
+              "amount_usd": 0.000021275,
+              "energy_kwh": 0.000106376,
+              "rate_usd_per_kwh": 0.2,
+              "source": "nvidia_smi_energy_times_frozen_scenario_rate"
+            },
+            {
+              "kind": "gpu_amortization",
+              "status": "derived-comparison",
+              "amount_usd": 0.000018844,
+              "residual_value_usd": 100,
+              "useful_compute_hours": 10000,
+              "source": "duration_times_frozen_residual_value_scenario"
+            },
+            {
+              "kind": "provider_invoice",
+              "status": "known",
+              "amount_usd": 0,
+              "source": "self_hosted_ollama_no_per_request_invoice"
+            },
+            {
+              "kind": "cpu_memory_storage_display_energy",
+              "status": "unknown",
+              "amount_usd": null,
+              "source": "not_measured"
+            }
+          ]
+        },
+        "actual_end_to_end_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "whole_system_energy_and_actual_utility_rate_not_observed"
+        }
+      }
+    }
+  ],
+  "status": "failed",
+  "final_verification": {
+    "status": "failed",
+    "verifier_id": "exact-answer-v1",
+    "answer_digest": "sha256:31489056e0916d59fe3add79e63f095af3ffb81604691f21cad442a85c7be617",
+    "failure_code": "ANSWER_DIGEST_MISMATCH"
+  },
+  "previous_cell_digest": "sha256:3e5c624f806b7139964da80534f028fb9e8b4f5d36974b34dd997739ddef8571",
+  "receipt_digest": "sha256:1ff1431f857ae602d6b1c345c8e10c84b28b12794f15d9769cc3d3d82edc7e76",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:fa285fe2c9e469b9a3f5b53b282df14443ec3566fb4b8d0e0d4457f275cdabf6",
+    "signature": "c0fJPeUv0mK0WIQuii4CKLqUYgrA3fI9T1kN/6KNOCWIy3Tw+6zh0qwoFOwCGhVvjJfETnN/d0QrwIiYnuoDAQ=="
+  }
+}

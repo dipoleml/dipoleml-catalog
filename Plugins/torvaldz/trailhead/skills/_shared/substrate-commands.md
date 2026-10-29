@@ -1,0 +1,237 @@
+# Substrate: `gh` command cookbook + first-use repo setup
+
+The single command reference for every `gh` mechanic the GitHub Issues substrate uses. Cluster skills link here and never re-describe any of it. The conceptual model (Element table, State labels, Frontier definition, reconciliation) stays in `substrate.md` (and its SKILL.md mirror). Read this file at work time (creating tickets, wiring blockers, querying the frontier, refreshing the dashboard) and at chart/adopt (first-use setup).
+
+## Base commands
+```bash
+# create the map
+gh issue create --label "trailhead:map" --title "<destination>" --body-file <body>
+# create a child ticket (add trailhead:blocked too if it has an open blocker; add trailhead:map-<map> to scope it to its map)
+gh issue create --label "trailhead:ticket,trailhead:build,trailhead:map-<map>" --title "<question/goal>" --body-file <body>
+# create a whiteboard ticket (no map): the destination label is trailhead:whiteboard
+gh issue create --label "trailhead:ticket,trailhead:bug,trailhead:whiteboard" --title "<question/goal>" --body-file <body>
+# the full label set (trailhead:ticket + exactly one type + exactly one destination, a map OR the whiteboard) rides in the create call itself, never a later --add-label; the labels-guard hook blocks an incomplete set. On a host without a hook bus (Codex) read the labels back right after creating and fix in place with --add-label / --remove-label if anything is missing or doubled:
+gh issue view <n> --json labels
+# link the ticket to its map: native sub-issue (structure/UI) + the map label above (the query)
+gh api --method POST repos/{owner}/{repo}/issues/<map>/sub_issues -F sub_issue_id="$(gh api repos/{owner}/{repo}/issues/<ticket> --jq .id)"
+# wire a blocker: native dependency (visual frontier in the UI) + the trailhead:blocked label (the query)
+gh api --method POST repos/{owner}/{repo}/issues/<blocked>/dependencies/blocked_by -F issue_id="$(gh api repos/{owner}/{repo}/issues/<blocker> --jq .id)"
+# the label rides in the --label list at creation for a ticket already known-blocked (fires no issues.labeled event); use --add-label ONLY when a ticket becomes blocked LATER (a single event, never a bulk burst):
+gh issue edit <blocked> --add-label "trailhead:blocked"
+# the frontier: open, unassigned, not blocked, not unverified, not paused, one query (add --label trailhead:map-<map> to scope to one map when several are live; add -label:trailhead:whiteboard to a single-map repo-wide query to keep loose tickets off it)
+gh issue list --label "trailhead:ticket" --state open --search "no:assignee -label:trailhead:blocked -label:trailhead:unverified -label:trailhead:paused -label:trailhead:whiteboard"
+# the whiteboard frontier: map-less loose tickets, its own query
+gh issue list --label "trailhead:ticket" --label "trailhead:whiteboard" --state open --search "no:assignee -label:trailhead:blocked -label:trailhead:unverified -label:trailhead:paused"
+# unblock a ticket once its last blocker closes (label only; native edge auto-reflects)
+gh issue edit <n> --remove-label "trailhead:blocked"
+# claim
+gh issue edit <n> --add-assignee @me
+# resolve
+gh issue comment <n> --body-file <resolution>   &&   gh issue close <n>
+# then the map's Decisions so far line, in one guarded call (fallback: the Fail-safe body rewrites rule in substrate.md, by hand)
+node <templates>/trailhead-issue-body.js append --issue <map> --section "Decisions so far" --line "<pointer>"
+```
+The wiring commands above (sub-issue link, blocker dependency) are elaborated below as full same-pass procedures.
+
+## One fact in several views
+
+Two facts each get written in three places, all in the same pass, so they can never drift apart.
+
+**Child → map link (three views):**
+1. A `Parent: <map name>(link)` line in the ticket body (human readable).
+2. The native sub-issue edge:
+   ```bash
+   gh api --method POST repos/{owner}/{repo}/issues/<map>/sub_issues -F sub_issue_id="$(gh api repos/{owner}/{repo}/issues/<ticket> --jq .id)"
+   ```
+   This is the structure GitHub renders, including the map's progress bar.
+
+   The edge add is cap-aware: apply the `Parent:` line and the `trailhead:map-<n>` label FIRST (below), since they keep the ticket attached regardless of what happens next. Then, before the POST, read the map's current count:
+   ```bash
+   gh api repos/{owner}/{repo}/issues/<map> --jq '.sub_issues_summary.total'
+   ```
+   If it is >= 100, do NOT POST: tell the user the map is at GitHub's 100 sub-issue cap and offer `/trailhead:prune` to reclaim slots, then continue (the label already attached the ticket). If it is < 100, POST; if the POST itself still fails with a cap-signalling error (HTTP 422, or a "maximum number of sub-issues" message), treat it as at-cap and offer prune the same way. Any other POST failure is surfaced plainly as an ordinary error. Never silently drop the edge.
+3. The map's `trailhead:map-<n>` label on the ticket: the queryable key that scopes the frontier.
+
+Wire all three in the same pass; a ticket carrying only one or two has drifted. A whiteboard ticket has none of the three: no `Parent:` line, no sub-issue edge, no `trailhead:map-<n>` label.
+
+**Blocker (three moves):**
+1. A `## Blocked by` line in the ticket body, naming and linking the real blocker ticket.
+2. The native dependency:
+   ```bash
+   gh api --method POST repos/{owner}/{repo}/issues/<blocked>/dependencies/blocked_by -F issue_id="$(gh api repos/{owner}/{repo}/issues/<blocker> --jq .id)"
+   ```
+3. The `trailhead:blocked` label. **Set it at creation** (include it in the `gh issue create --label` list) for any ticket known-blocked up front, which is every bulk path (the chart/adopt wiring second pass, split children, an on-the-fly ticket with a known blocker): the label then rides in the ticket's `issues.opened` event and fires **no** `issues.labeled` event. Reserve the post-creation `--add-label` form for a ticket that becomes blocked **later**, after it already exists (a single, non-bursty event):
+   ```bash
+   gh issue edit <blocked> --add-label "trailhead:blocked"
+   ```
+   **Why at creation.** The repo-side label guard (`.github/workflows/trailhead-label-guard.yml`) fires on `issues.labeled`. A setup pass that adds `trailhead:blocked` to many freshly-created tickets via `--add-label` fires a burst of `issues.labeled` events, one guard run each; GitHub sheds a fraction of that concurrent burst as `startup_failure`/`cancelled`, reddening the Actions history with no-op runs (the labeler is the authorized maintainer). Riding the label in `issues.opened` avoids the burst; moves 1-2 (the `## Blocked by` prose and the native dependency edge) still wire together in the second pass and fire no label event.
+
+Same-blocker rule: all three must name the SAME blocker ticket, never a superseded parent, a split-origin, or a by-role placeholder ("child A"). Write the prose line and the native dependency from the same id, in the same pass, so they cannot point at different tickets.
+
+Unblock: remove the label the moment the last blocker closes:
+```bash
+gh issue edit <n> --remove-label "trailhead:blocked"
+```
+The native edge needs no cleanup; GitHub auto-reflects a closed blocker on its own.
+
+## Sub-issue cap and pruning
+
+GitHub caps native sub-issues at 100 per parent. The engine reads this count wherever it matters (edge-add pre-check, dashboard flag) and `/trailhead:prune` reclaims slots when a map is near or at it. The classification (closed -> remove, open+labelled -> keep, open+not-labelled orphan -> remove, labelled-but-missing -> add) and the preview/confirm live in `../trailhead-manage/references/pruning.md`; this cookbook only holds the `gh` mechanics.
+
+Read the count (>= 90 near cap, >= 100 at cap):
+```bash
+gh api repos/{owner}/{repo}/issues/<map> --jq '.sub_issues_summary.total'
+```
+
+List every native sub-issue edge, paginated (never a single page), capturing number, id, and state:
+```bash
+gh api repos/{owner}/{repo}/issues/<map>/sub_issues --paginate --jq '.[] | {number, id, state}'
+```
+
+Remove an edge (note the singular `sub_issue` on DELETE, vs the plural `sub_issues` on POST):
+```bash
+gh api --method DELETE repos/{owner}/{repo}/issues/<map>/sub_issue -F sub_issue_id=<id>
+```
+A DELETE that comes back 404 (Not Found) means the edge is not, or is no longer, a native sub-issue of this map: either it was never native, or it was detached after the caller read it (for example, a listing that raced a concurrent detach). Either way the slot is already free, so treat it as success (a no-op reclaim), never as an error, provided `<map>` itself already resolved earlier in the flow; a 404 caused by an invalid or vanished `<map>` is a genuine error, not this benign case.
+
+**Eager edge drop at close (superseded / out-of-scope only).** When a ticket is closed as `trailhead:superseded` or `trailhead:out-of-scope`, drop its native sub-issue edge from the map **at close, in this order: apply the state label first, then DELETE the edge, then `gh issue close`** (never close before the edge is gone: a DELETE that fails with anything other than 404 is a genuine error, so surface it and do not close, and a ticket never detaches without first carrying its state label). The DELETE is the one above (there is no prior listing step here, so resolve the closing ticket's internal id from its number the way the "Re-add a missing edge" POST below does: `-F sub_issue_id="$(gh api repos/{owner}/{repo}/issues/<ticket> --jq .id)"`, since you hold its issue *number*, not the internal id the endpoint needs), so its 404-as-success tolerance applies unchanged: a ticket with no edge to begin with (a whiteboard ticket, a dropped fog, an un-adopted inbound issue) is a no-op reclaim, never an error. A slot is reclaimed immediately and every reference stays: the state label, the map's `trailhead:map-<n>` label, the `Parent:` line, and any split-origin / blocker links, exactly as `/trailhead:prune` guarantees; only the native edge goes. **Only these two closes shed eagerly.** A genuinely-resolved close leaves its edge in place: GitHub renders each map's native sub-issue **progress bar** (`X of Y done`) and the dashboard delegates the per-map progress signal entirely to it, so a resolved edge is the map's visual record of done work. Superseded / out-of-scope edges carry no such progress meaning (those tickets delivered nothing and stay out of `Decisions so far`), so shedding them at close is free: no lost history, no falsified bar. Resolved edges stay until cap pressure forces the trade-off, which is `/trailhead:prune`'s job (its classification removes closed edges in bulk).
+
+Re-add a missing edge: the same native sub-issue POST as the Child -> map link above, resolving the ticket's internal id first (the label diff that finds a missing ticket yields its issue *number*, not the internal id the endpoint needs):
+```bash
+gh api --method POST repos/{owner}/{repo}/issues/<map>/sub_issues -F sub_issue_id="$(gh api repos/{owner}/{repo}/issues/<ticket> --jq .id)"
+```
+
+## Frontier queries
+
+Map frontier, single map, repo-wide (excludes whiteboard tickets so they don't leak in):
+```bash
+gh issue list --label "trailhead:ticket" --state open --search "no:assignee -label:trailhead:blocked -label:trailhead:unverified -label:trailhead:paused -label:trailhead:whiteboard"
+```
+
+Scoped map frontier, when several maps are live (add the map's label):
+```bash
+gh issue list --label "trailhead:ticket" --label "trailhead:map-<n>" --state open --search "no:assignee -label:trailhead:blocked -label:trailhead:unverified -label:trailhead:paused"
+```
+
+Whiteboard frontier (its own query, off every map's):
+```bash
+gh issue list --label "trailhead:ticket" --label "trailhead:whiteboard" --state open --search "no:assignee -label:trailhead:blocked -label:trailhead:unverified -label:trailhead:paused"
+```
+
+Blocked-by reconciliation read (drift check, advisory only, never auto-fix):
+```bash
+gh api repos/{owner}/{repo}/issues/<n>/dependencies/blocked_by
+```
+Compare the returned issue numbers against the ticket's `## Blocked by` prose. If the two sets differ, surface an advisory naming both sides; if the body has no parseable `## Blocked by`, report it uncheckable, never assume they agree.
+
+## Dashboard (pinned repo index)
+
+The dashboard is a single per-repo issue labelled `trailhead:dashboard`: the pinned index of the whole trailhead surface. It occupies the fixed 3rd pinned slot alongside `trailhead:codebase` and `trailhead:conventions` (a repo caps pinned issues at 3).
+
+**Ensure the label** (idempotent, safe to run every time):
+```bash
+gh label create trailhead:dashboard --color 5319E7 --description "Pinned index of the trailhead surface" 2>/dev/null || true
+```
+The whiteboard label needs the same idempotent ensure, since it is reachable outside chart/adopt (a whiteboard-routed capture, or `quick` creating a ticket):
+```bash
+gh label create trailhead:whiteboard --color C5DEF5 --description "Map-less ticket: lives on the whiteboard" 2>/dev/null || true
+```
+The paused label needs the same idempotent ensure, since pause can run before any first-use setup on an older repo:
+```bash
+gh label create trailhead:paused --color FBCA04 --description "Paused: a PAUSED checkpoint holds its next step" 2>/dev/null || true
+```
+The UAT label needs the same idempotent ensure, since a UAT follow-up can be opened before any first-use setup on an older repo:
+```bash
+gh label create trailhead:uat --color BFD4F2 --description "Pending UAT: an acceptance test still to run" 2>/dev/null || true
+```
+Tickets opened before the label existed are tagged by the idempotent backfill helper, `node <templates>/trailhead-uat-backfill.js [--repo <owner/name>] [--marker <path>]`: it ensures the label, tags every open ticket with a line starting `UAT of:`, and prints one JSON line `{"status","tagged":[...],"failed":[...]}` (a failed edit is reported, never fatal to the rest). With `--marker` it runs once per clone and exits `skipped` afterwards.
+
+The needs-you label needs the same idempotent ensure, since an autonomous run can park a ticket before any first-use setup on an older repo (the helper below also runs it):
+```bash
+gh label create trailhead:needs-you --color D93F0B --description "Needs you: an autonomous run parked it for the human" --force
+```
+An autonomous run parks a ticket for the human with `node <templates>/trailhead-needs-you.js park --issue <n> --reason <text> --repo <owner/name>` (all three required). It secret-scans the reason (fail closed: nothing written when the guard is missing or hits), ensures the label, then in this order posts a comment whose first line is exactly `NEEDS YOU`, a blank line, then the reason (skipped when the latest `NEEDS YOU` comment carries the same reason, whitespace-normalised; it only sees the comments `gh` returns, so on a very long thread the worst case is one duplicate comment, never a missing one), unassigns `@me`, and adds the label last, so a partial failure leaves the ticket visible. It prints `{"status":"ok","issue","commented","unassigned","labelled"}`. A `work`/`quick` claim clears the mark with `node <templates>/trailhead-needs-you.js clear --issue <n> --repo <owner/name>`, which removes the label when present and otherwise does nothing, printing `{"status":"ok","issue","cleared":bool}`. Any failed or unparseable `gh` step prints `{"status":"error","reason"}` and exits 1 (a usage error exits 2): never read an error as a success.
+
+Before an autonomous run opens a UAT follow-up, it looks for an existing one: `node <templates>/trailhead-uat-followup.js find --parent <n> --repo <owner/name>` (`--repo` required). It reads every `trailhead:uat` issue, open and closed, through a paginated GraphQL `repository.issues` query (`gh api graphql`), not `gh issue list --label`, which goes through the lagging search index and would miss a follow-up opened seconds earlier, keeps those with a line starting `UAT of:` that points at the parent (a link to that repo's issue `<n>`, or a bare `#<n>`), and prints one JSON line `{"status":"ok","parent":<n>,"open":[{"number","title"}],"closed":[...],"reuse":<lowest open number>|null}`. Only an open follow-up is reusable; closed ones are reported, never reused. A failed, unparseable or incomplete read (GraphQL errors, unexpected shape, page cap exceeded: more than 10,000 `trailhead:uat` issues) prints `{"status":"error","reason"}` and exits 1: treat it as unknown, never as none found.
+
+When an autonomous run leaves a slot branch unmerged, it records the branch with `node <templates>/trailhead-merge-ticket.js add --scope <map-<n>|whiteboard> --ticket <n> --file <path> [--file <path> ...] --workspace <path> --repo <owner/name>` (all required, `--file` repeatable, one per conflicting path; the branch is `trailhead/t<n>`). It finds the scope's merge ticket through a paginated GraphQL `repository.issues` query (`gh api graphql`) over the OPEN issues labelled with the scope (`trailhead:map-<n>` or `trailhead:whiteboard`), keeping those whose body carries the `<!-- trailhead:merge-ticket v1 <base64 JSON entries> -->` marker line, and reuses the lowest-numbered one. With none open it ensures the `trailhead:needs-you` label, secret-scans the body (fail closed), and opens a `trailhead:ticket` `trailhead:task` `trailhead:needs-you` ticket carrying the scope label (for a map, wired as a native sub-issue; a failed edge is a warning). With one open it upserts this ticket's entry through the guarded body write of `trailhead-issue-body.js` and re-renders the whole list from the entries (oldest ticket first, as a suggestion); the same ticket with the same files and workspace is `unchanged` and writes nothing. It prints `{"status":"ok","action":"created|updated|unchanged","issue","url","scope","entries","warnings"}`. A failed, unparseable or incomplete read, an unknown or undecodable marker, a secret hit or a write conflict prints `{"status":"error","reason"}` and exits 1 (a usage error exits 2): treat the merge ticket state as unknown, never as none found.
+
+**Find a singleton issue** (the dashboard, the codebase anchor, the conventions anchor). Fetch several results, never just the first:
+```bash
+gh issue list --label trailhead:dashboard --state open --json number,title --limit 10
+```
+Swap the label for `trailhead:codebase` or `trailhead:conventions`. Fail-closed rule for all three singleton labels: exactly one result, use it; none, take the create or self-heal path; more than one, do not pick one: surface the duplicates by title and number, and ask the user which to keep (the other is closed as a duplicate) before reading the conventions, patching the codebase issue or rewriting the dashboard. `trailhead-dashboard.js` applies the rule itself and aborts naming every duplicate.
+
+**Read the repo's pinned issues**, to know whether the dashboard is currently among them:
+```bash
+gh api graphql -f query='
+  query($owner:String!,$name:String!){
+    repository(owner:$owner,name:$name){
+      pinnedIssues(first:3){ nodes{ issue{ number } } }
+    }
+  }' -F owner={owner} -F name={repo}
+```
+
+**Two different ids, don't mix them.** GitHub exposes two different issue ids:
+- The **REST numeric database id**: `gh api repos/{owner}/{repo}/issues/<n> --jq .id`. Used as `issue_id` / `sub_issue_id` for the sub-issues and dependencies REST endpoints (Child → map link and Blocker above).
+- The **GraphQL node id**: `gh api repos/{owner}/{repo}/issues/<n> --jq .node_id`. Used for GraphQL mutations (`pinIssue` / `unpinIssue` below).
+
+Passing the wrong one to an endpoint fails; always check which id a given command expects before running it.
+
+**Pin / re-pin / unpin** (GraphQL, needs the node id):
+```bash
+DASH_NODE=$(gh api repos/{owner}/{repo}/issues/<n> --jq .node_id)
+gh api graphql -f query='mutation($id:ID!){ pinIssue(input:{issueId:$id}){ issue{ number } } }' -F id="$DASH_NODE"
+# unpin: mutation($id:ID!){ unpinIssue(input:{issueId:$id}){ issue{ number } } }
+```
+
+**Self-heal (three cases).** Run by every read-only entry point: bare `/trailhead`, the map render, the whiteboard render. Each time, first ensure the label (above), then:
+1. No dashboard issue exists: create it, write the body once, pin it.
+2. Dashboard issue exists but is not among the pinned issues: re-pin it.
+3. Dashboard issue exists and is already pinned: do nothing.
+
+These renders create and pin only when missing; they never rewrite the body.
+
+**Exhausted-map advisory (all three entry points).** Since each entry point already lists the open maps to self-heal the pin, it also runs the per-map exhaustion check: the `0 open scoped issues?` pre-filter, then a fog confirm on each candidate (the `gh issue view <map> --json body` read in Body generation below), and for a candidate with no remaining fog it surfaces a one-line `exhausted · closeable` advisory with an offer to close: route any un-parked deferred `## Out of scope` line first (as the map render's exhaustion check does), then `gh issue close` on an explicit yes, never auto-close, and never a body rewrite here. On `/trailhead:map <n>` skip the map being rendered (its own exhaustion check already covers it); the advisory is for any other exhausted-but-open map.
+
+**Body generation.** Default path: `node <templates>/trailhead-dashboard.js [--repo <owner/name>] [--dry-run]` gathers everything below, renders the whole body deterministically and writes it through the guarded write of `trailhead-issue-body.js` (it also does the label, create and pin self-heal above, and prints one line such as `dashboard #33: 4 maps, whiteboard 1, flags: map-14 exhausted, map-98 near cap 92/100`, with the old and new body sizes). `<templates>` is the same three-dir lookup as `trailhead-work-state.js` (**Work state file** in `teamwork.md`). **The body is fully generated**: the hand-written per-map summaries and long `Recently resolved` prose an older dashboard carried are replaced by tracker data (map links with an open count and flags, the last 10 resolved whiteboard titles, closed maps omitted); the earlier text stays in the issue's edit history. When the helper is missing, do it by hand as follows. This is a read-modify-write: see substrate.md's **Fail-safe body rewrites** rule (a non-zero exit, HTTP 5xx / non-200, or empty pre-write read is a hard abort, never a write). The body holds:
+- a link to every open `trailhead:map`, found with `gh issue list --label trailhead:map --state open`. The dashboard only links; GitHub renders each map's sub-issue progress bar natively, so the dashboard does not recompute per-ticket progress itself. **Per open map, additionally run one cheap `0 open scoped issues?` count** (below) as a **pre-filter**: zero open scoped issues makes a map a **candidate** for exhausted-but-open, not a verdict. The count cannot see fog (the map body's `## Not yet specified` prose is never a separate issue, and a `trailhead:fog` issue carries no `trailhead:map-<n>` label), and exhausted means **no open tickets AND no fog left**. So before flagging, confirm the candidate's body `## Not yet specified` is empty with one `gh issue view <map> --json body` read; only a candidate with no remaining fog is flagged in the Maps section as `exhausted · closeable`. The count runs for every open map, but the body read is bounded to the (rare) candidates, so this stays cheap and within the dashboard-only-links spirit. The flag is a signal, not an action: the `/trailhead:dashboard` render offers to close such a map, never auto-closes it (the never-close-unprompted rule holds);
+- **per open map, also flag GitHub's 100 sub-issue cap**: read `sub_issues_summary.total` (below) and flag `near cap · <total>/100` (total >= 90) or `at cap` (total >= 100). For only the (rare) at/near-cap maps, run one bounded native sub-issue list (see `## Sub-issue cap and pruning` above) to check for closed edges, exactly like the bounded fog-confirm above, and append `· prunable` when any are found. The render offers `/trailhead:prune` for such a map, never auto-prunes;
+- the whiteboard as a section, or a link to the `/trailhead:whiteboard` view;
+- dynamic counts: untriaged inbox size and whiteboard frontier size.
+- **the last-audit marker, carried through untouched.** If the existing body holds a hidden line `<!-- trailhead:last-audit <ISO-8601 UTC> -->` (written by `/trailhead:audit`, see `../trailhead-manage/references/auditing.md`), copy that line **verbatim** into every regenerated body, never dropped, reformatted, or re-dated. Only `/trailhead:audit` changes its value, and only on a confirmed marker advance: default path `node <templates>/trailhead-dashboard.js --set-last-audit <ISO-8601 UTC>` (the audit's only writer path: it regenerates the body with the new marker). By hand, through the same fail-safe read-modify-write:
+```bash
+# read the marker (empty output = no audit yet); the body was already read non-empty per the fail-safe rule
+gh issue view <dashboard> --json body --jq .body | grep -o '<!-- trailhead:last-audit [^ ]* -->'
+# write: replace the marker line if present, else append it, in the body-file you then pass to `gh issue edit <dashboard> --body-file`
+sed -i -E 's|<!-- trailhead:last-audit [^ ]* -->|<!-- trailhead:last-audit <ISO-8601 UTC> -->|' <body-file>   # or append the line when absent
+```
+
+Count queries, `--json ... --jq 'length'` style:
+```bash
+# untriaged inbox size: open issues carrying no trailhead:* label (section A of ../trailhead-chart/references/inbox.md), counted
+gh issue list --state open --json number,labels \
+  --jq '[.[] | select([.labels[].name] | any(startswith("trailhead:")) | not)] | length'
+# whiteboard frontier size: the whiteboard frontier query above, counted
+gh issue list --label "trailhead:ticket" --label "trailhead:whiteboard" --state open --search "no:assignee -label:trailhead:blocked -label:trailhead:unverified -label:trailhead:paused" --json number --jq 'length'
+# per-map exhaustion pre-filter: open issues scoped to map <n>; count == 0 makes it a candidate (not yet a verdict)
+gh issue list --label "trailhead:map-<n>" --state open --limit 1000 --json number --jq 'length'
+# open tickets across the repo (the `map` render's "Open across the repo" line): the open maps, then one count per map plus the whiteboard, summed.
+# The maps list is the dashboard's `maps` limit (200); a list that reaches it makes the line `at least N`.
+gh issue list --label trailhead:map --state open --limit 200 --json number --jq '.[].number'
+# per open map <n> (the dashboard helper's `scoped` limit, 1000: a count reaching it makes the line `at least N`)
+gh issue list --label "trailhead:map-<n>" --state open --limit 1000 --json number --jq length
+# the whiteboard (the helper's `whiteboard` limit, 200: a count reaching it makes the line `at least N`)
+gh issue list --label "trailhead:whiteboard" --state open --limit 200 --json number --jq length
+# confirm no fog before flagging a candidate closeable: its body's `## Not yet specified` must be empty
+gh issue view <map> --json body --jq .body
+# per-map sub-issue cap: total native sub-issues (>=90 near cap, >=100 at cap)
+gh api repos/{owner}/{repo}/issues/<map> --jq '.sub_issues_summary.total'
+```
+
+**When to refresh the body.** On structural events: a map is charted or exhausted (a map appears or disappears), a whiteboard ticket is born or resolved. And on demand via `/trailhead:dashboard`. NOT on every map-ticket resolve: that churns a pinned issue's notifications, and the native progress bar already tracks map-ticket progress on its own. The whiteboard has no native progress bar, so its ticket birth or close refreshes the dashboard, except a `quick`-born ticket (born and resolved in one session) refreshes at the handoff (Resolve, or pause), not at creation.
+
+## First-use repo setup (do ALL THREE, every chart or adopt, never skip any)
+1. Create any missing labels with `gh label create` (all twenty-one: `trailhead:map`, `trailhead:codebase`, `trailhead:conventions`, `trailhead:dashboard`, `trailhead:ticket`, the six type labels, `trailhead:blocked`, `trailhead:seed`, `trailhead:out-of-scope`, `trailhead:superseded`, `trailhead:unverified`, `trailhead:fog`, `trailhead:whiteboard`, `trailhead:paused`, `trailhead:uat`, `trailhead:needs-you`), then run the UAT backfill helper once (`node <templates>/trailhead-uat-backfill.js`) so a pending UAT follow-up opened before the label existed is tagged too; stay silent when it tagged nothing.
+2. **Check the label guard is installed and current**: `gh api repos/{owner}/{repo}/contents/.github/workflows/trailhead-label-guard.yml`; if it's absent (404), install it; if it's present, run the label guard sync script (`trailhead-label-guard-sync.js`, check-only) on the working root and, when it reports `outdated` (a pre-0.12.1 guard with no job-level `if:`, which starts a billed runner on every `issues: labeled` event), offer the upgrade: **read `teamwork.md` (Trust & provenance → Repo-side enforcement) for the exact steps**. This is part of standing up trailhead in a repo, not an optional extra: *check every time*, so a repo can never end up with the labels but no guard, or with a guard that burns Actions minutes.
+3. **Sync the commit-msg git hook**: run the commit-msg hook sync script (`trailhead-commit-msg-sync.js`; installs the `sh` wrapper plus its `trailhead-commit-msg.cjs` logic if absent, upgrades an outdated trailhead hook (including the legacy single-file one) in place, never touches a foreign one; a hook that cannot run, node off PATH or the `.cjs` missing, says so on stderr at each commit instead of failing silently) so trailhead's commit discipline (Conventional Commits subject, no `Co-Authored-By`, and a `Refs: #<n>` trailer while a `.trailhead/session-ticket` marker is active) runs on **every** `git commit` regardless of host (the Claude-Code `PreToolUse` guard stays too, defence in depth): **read `teamwork.md` (Trust & provenance → Repo-side enforcement) for the exact steps**. If the script is missing or node errors (missing means none of the three template dirs listed in `teamwork.md` has it: try them all first), fall back to inspecting the hooks dir (`git rev-parse --git-path hooks`) per `teamwork.md`, never a blind "not enforced". Like the label guard, *check every time*; unlike it, `.git/hooks/` is per-clone local state (untracked), so it is installed, never committed.

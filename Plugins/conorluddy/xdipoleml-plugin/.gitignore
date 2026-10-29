@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Build outputs (intentionally commit mcp-servers/*/dist for marketplace distribution)
+build/
+*.js
+*.js.map
+*.d.ts
+!mcp-servers/*/dist/
+!mcp-servers/*/dist/**
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Testing
+coverage/
+.pytest_cache/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Environment
+.env
+.env.local
+
+# Temporary files
+tmp/
+.cache/
+
+# OS
+Thumbs.db
+
+DESIGNSPEC

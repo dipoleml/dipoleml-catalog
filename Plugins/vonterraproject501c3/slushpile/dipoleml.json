@@ -1,0 +1,126 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.vonterraproject501c3.slushpile",
+  "type": "plugin",
+  "name": "Slushpile",
+  "slug": "slushpile",
+  "vendor": "vonterraproject501c3",
+  "description": "An adversarial job search that gets better as it goes: pool-anchored fit scoring, a resume and cover letter built against the job description, seven agents that try to reject you before a recruiter does, and a profile that keeps what they find.",
+  "version": "1.5.0",
+  "homepage": "https://github.com/VonTerraProject501c3/slushpile",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agent-skill",
+    "agent-skills",
+    "ats",
+    "ats-resume",
+    "claude-code-plugin",
+    "claude-code-skill",
+    "claude-code-skills",
+    "claude-plugin",
+    "codex-cli"
+  ],
+  "tags": [
+    "agent-skill",
+    "agent-skills",
+    "ats",
+    "ats-resume",
+    "claude-code",
+    "claude-code-plugin",
+    "claude-code-skill",
+    "claude-code-skills",
+    "claude-plugin",
+    "codex-cli",
+    "cover-letter",
+    "cursor-rules",
+    "gemini-cli",
+    "job-application",
+    "job-search",
+    "job-search-automation",
+    "resume",
+    "resume-builder",
+    "resume-optimization",
+    "subagents"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "vonterraproject501c3",
+    "brandName": "vonterraproject501c3",
+    "source": "https://github.com/VonTerraProject501c3.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:15:18Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "VonTerraProject501c3/slushpile",
+    "url": "https://github.com/VonTerraProject501c3/slushpile",
+    "commit": "c4c9b6f739f8b71f03404a61647dea6cebfb025d",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 27,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:06:13Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [
+      "SUBMIT_AS_PORTFOLIO_ONLY"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

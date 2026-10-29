@@ -1,0 +1,16 @@
+{
+  "name": "dipoleml-plugin-product-management",
+  "displayName": "DipoleML Plugin Product Management",
+  "version": "0.5.0",
+  "description": "DipoleML plugin for product managers: reusable PM skills (PRDs, roadmaps, prioritization, positioning) for DipoleML and Cowork.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Pmprompt"
+  },
+  "license": "MIT",
+  "homepage": "https://pmprompt.com/claude-product-management-plugin",
+  "repository": "https://github.com/pmprompt/claude-plugin-product-management",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

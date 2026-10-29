@@ -1,0 +1,16 @@
+{
+  "name": "personal-voice-capture",
+  "displayName": "Personal Voice Capture",
+  "version": "0.1.0",
+  "description": "A meta-skill that learns a person's writing voice from their own samples and iterative edits, then compiles it into a durable, reusable voice skill for future agents.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Eranshir"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/eranshir/personal-voice-capture",
+  "repository": "https://github.com/eranshir/personal-voice-capture",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

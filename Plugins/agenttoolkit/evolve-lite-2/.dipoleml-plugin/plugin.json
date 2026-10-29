@@ -1,0 +1,16 @@
+{
+  "name": "evolve-lite-2",
+  "displayName": "Evolve Lite",
+  "version": "1.1.0",
+  "description": "Recall, save, and share reusable Evolve entities.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Agenttoolkit"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/AgentToolkit/altk-evolve",
+  "repository": "https://github.com/AgentToolkit/altk-evolve",
+  "skills": "./skills/evolve-lite/",
+  "commands": [],
+  "agents": []
+}

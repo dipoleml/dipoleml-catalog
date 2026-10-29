@@ -1,0 +1,16 @@
+{
+  "name": "start",
+  "displayName": "Start",
+  "version": "4.0.0",
+  "description": "Workflow orchestration commands for agentic software development",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Rsmdt"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/rsmdt/the-startup",
+  "repository": "https://github.com/rsmdt/the-startup",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

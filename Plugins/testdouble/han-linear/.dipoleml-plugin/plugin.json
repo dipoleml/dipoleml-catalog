@@ -1,0 +1,16 @@
+{
+  "name": "han-linear",
+  "displayName": "Han Linear",
+  "version": "1.1.2",
+  "description": "Linear-facing extensions to the Han suite. Adds work-items-to-linear, which creates one Linear issue per slice from a work-items file. Works through the Linear MCP server and requires it to be configured. Depends on no other Han plugin. Opt-in: installed on its own, not pulled in by the han meta-plugin.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Testdouble"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/testdouble/han",
+  "repository": "https://github.com/testdouble/han",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

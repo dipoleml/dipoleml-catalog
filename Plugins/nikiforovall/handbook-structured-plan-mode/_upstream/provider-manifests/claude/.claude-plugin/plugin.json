@@ -1,0 +1,20 @@
+{
+  "name": "handbook-structured-plan-mode",
+  "version": "1.19.6",
+  "description": "Structured planning methodology for complex feature implementations through systematic task decomposition",
+  "author": {
+    "name": "nikiforovall",
+    "url": "https://github.com/nikiforovall"
+  },
+  "homepage": "https://nikiforovall.blog/claude-code-rules/",
+  "repository": "https://github.com/nikiforovall/claude-code-rules",
+  "license": "MIT",
+  "keywords": [
+    "planning",
+    "task-management",
+    "project-management",
+    "workflow",
+    "feature-development",
+    "productivity"
+  ]
+}

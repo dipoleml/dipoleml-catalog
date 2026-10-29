@@ -1,0 +1,114 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.closedloop-ai.code-review",
+  "type": "plugin",
+  "name": "Code Review",
+  "slug": "code-review",
+  "vendor": "closedloop-ai",
+  "description": "Open-source DipoleML plugins for multi-agent software delivery. Plan-first SDLC workflow, code review, LLM quality judges, and self-learning — grounded in your codebase.  Bootstrap, Plan, & Ship.   ",
+  "version": "3.13.0",
+  "homepage": "https://github.com/closedloop-ai/claude-plugins",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agentic-ai",
+    "anthropic",
+    "automation",
+    "developer-tools",
+    "devtools",
+    "multi-agent"
+  ],
+  "tags": [
+    "agentic-ai",
+    "ai-agents",
+    "anthropic",
+    "automation",
+    "claude-code",
+    "developer-tools",
+    "devtools",
+    "llm",
+    "multi-agent"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "closedloop-ai",
+    "brandName": "closedloop-ai",
+    "source": "https://github.com/closedloop-ai.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:12:33Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "closedloop-ai/claude-plugins",
+    "url": "https://github.com/closedloop-ai/claude-plugins",
+    "commit": "b4b6ad8889c6a1ceb5dc023652a77cb851a76fb1",
+    "path": "plugins/code-review",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 123,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:49:05Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Code Review | Open-source Claude Code plugins for multi-agent software delivery. Plan-first SDLC workflow, code review, LLM quality judges, and self-learning — grounded in your codebase.  Bootstrap, Plan, & Ship.   ",
+        "after": "Code Review | Open-source DipoleML plugins for multi-agent software delivery. Plan-first SDLC workflow, code review, LLM quality judges, and self-learning — grounded in your codebase.  Bootstrap, Plan, & Ship.   ",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [
+      "CONTEXT_KEY"
+    ],
+    "credentials": [
+      "CONTEXT_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

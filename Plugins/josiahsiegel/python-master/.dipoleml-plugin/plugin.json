@@ -1,0 +1,16 @@
+{
+  "name": "python-master",
+  "displayName": "Python Master",
+  "version": "2.3.6",
+  "description": "Comprehensive Python 3.13+ expertise covering modern Python, async, types, performance, and cloud deployment. PROACTIVELY activate for: (1) any Python task, (2) 3.13+ features (free-threading, JIT), (3) asyncio and concurrency, (4) type hints with mypy/pyright, (5) package management (uv/pip/poetry), (6) project layout, (7) FastAPI, (8) Pydantic, (9) pytest, (10) Cloudflare Workers/Containers Python, (11) GitHub Actions workflows, (12) profiling, (13) OWASP security, (14) Ruff linting. Provides: production patterns, memory profiling, dataclass vs Pydantic guidance.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Josiahsiegel"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/JosiahSiegel/claude-plugin-marketplace/tree/main/plugins/python-master",
+  "repository": "https://github.com/JosiahSiegel/claude-plugin-marketplace",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

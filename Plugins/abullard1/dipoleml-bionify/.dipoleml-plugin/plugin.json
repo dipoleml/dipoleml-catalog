@@ -1,0 +1,16 @@
+{
+  "name": "dipoleml-bionify",
+  "displayName": "DipoleML Bionify",
+  "version": "1.1.0",
+  "description": "Bionic reading for DipoleML's responses that bolds the leading part of each word to guide your eyes and enable you to read faster.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Abullard1"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/abullard1/claude-bionify",
+  "repository": "https://github.com/abullard1/claude-bionify",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

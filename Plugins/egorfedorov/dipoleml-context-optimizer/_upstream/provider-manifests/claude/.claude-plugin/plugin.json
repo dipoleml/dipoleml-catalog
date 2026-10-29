@@ -1,0 +1,29 @@
+{
+  "name": "context-optimizer",
+  "version": "5.1.1",
+  "description": "See what Claude costs you and spend less of it. In chat: hand a long chat over to a new one, digest long documents, set up Projects, check tokens, sharpen prompts. In Claude Code: Haiku 5.5 subagents for reading and test runs; /cco audit of your own transcripts. Local, no telemetry.",
+  "author": {
+    "name": "Egor Fedorov"
+  },
+  "repository": "https://github.com/egorfedorov/claude-context-optimizer",
+  "license": "MIT",
+  "keywords": [
+    "context optimizer",
+    "context",
+    "tokens",
+    "token usage",
+    "usage limits",
+    "cost",
+    "handoff",
+    "new chat",
+    "document summary",
+    "projects",
+    "prompt",
+    "haiku",
+    "subagents",
+    "claude code",
+    "cowork"
+  ],
+  "homepage": "https://egorfedorov.github.io/claude-context-optimizer/",
+  "privacyPolicyUrl": "https://github.com/egorfedorov/claude-context-optimizer#privacy"
+}

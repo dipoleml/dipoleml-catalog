@@ -1,0 +1,16 @@
+{
+  "name": "anidoodle",
+  "displayName": "Anidoodle",
+  "version": "0.9.6",
+  "description": "Code-drawn stills, drawing timelapses, films, explainers and interactive web animations in 32 styles, with scores composed in code.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Alexgreensh"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/alexgreensh/anidoodle",
+  "repository": "https://github.com/alexgreensh/anidoodle",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

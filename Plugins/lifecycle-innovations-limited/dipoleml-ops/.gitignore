@@ -1,0 +1,70 @@
+node_modules/
+.env
+.env.*
+!templates/**/.env.example
+!scripts/systemd/secrets.env.example
+
+# Pocket pipeline secrets — installed at /etc/pocket/{secrets.env,doppler-token}
+# mode 600 root-owned. Never check these files (or any copy of them) into git.
+secrets.env
+pocket-secrets.env
+doppler-token
+pocket-doppler-token*
+.DS_Store
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+telegram-server/node_modules/
+.planning/
+.claude/worktrees/
+*.log
+
+# Per-user config — never commit. Copy registry.example.json to registry.json
+# and fill in your own project list. preferences.json holds secrets (tokens,
+# owner identity) and is managed by /ops:setup.
+scripts/registry.json
+scripts/preferences.json
+
+# Per-user runtime state written by /ops:setup and the ops-daemon. These
+# normally live under $CLAUDE_PLUGIN_DATA_DIR, NOT inside the repo — these
+# patterns defend against an accidental drop-in during development.
+scripts/daemon-services.json
+scripts/daemon-services.json.bak.*
+scripts/daemon-health.json
+scripts/*.health
+scripts/credentials/
+scripts/logs/
+scripts/cache/
+
+# Launchd plists copied into the repo dir (template stays, per-user copies don't)
+com.claude-ops.daemon.plist.bak.*
+com.claude-ops.wacli-keepalive.plist.bak.*
+
+# Temp files from autolink scripts
+/tmp/
+ops-*.out
+ops-*.log
+telegram-code.txt
+telegram-password.txt
+slack-login-done
+
+# Playwright
+.claude-ops/
+
+# Package locks from sub-dirs (root only committed)
+telegram-server/package-lock.json
+
+# Python bytecode (calibrate.py)
+__pycache__/
+*.pyc
+
+# GCP / Google ADC credentials — never committed; live in ~/.gcp/
+*.json.bak-ga4-*
+
+# Local PII denylist — gitignored so users can add personal handles without committing them
+.githooks/pii-denylist.local
+
+# Operator PII denylist (out-of-repo)
+.pii-denylist

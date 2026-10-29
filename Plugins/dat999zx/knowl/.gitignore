@@ -1,0 +1,77 @@
+# Dependencies
+node_modules/
+
+# Production Build Output
+dist/
+
+# Local databases, configs, and test instances
+.knowl/
+.knowl-*/
+
+# Environments
+.env
+.env.local
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+eslint-debug.log*
+*.log
+
+# OS Metadata
+.DS_Store
+Thumbs.db
+__pycache__/
+*.pyc
+
+# Temp
+.tmp/
+# Scratch scripts written against the live database while debugging. They sit in the project
+# root because that is where `node` resolves the repo's own modules from, which also means
+# `git add -A` sweeps them into whatever commit is being made -- one reached a PR branch before
+# it was caught.
+ledger-tmp.cjs
+zz-*.mjs
+zz-*.cjs
+# Stryker's vitest runner drops a setup shim per runner process in the project root and does
+# not always collect them (`stryker-setup-0.js`, `-1.js`, ...). They are scratch, not source.
+stryker-setup-*.js
+.npm-cache
+benchmarks/accuracy/results/
+
+.codex/
+.claude/
+.agents/
+.mcp.json
+# ...except this repository's own, which IS the Claude Code plugin's MCP declaration.
+# `.mcp.json` at the plugin root is the ONLY form the runtime reads: an inline `mcpServers`
+# block in plugin.json and a custom path both register nothing, verified by installing the
+# plugin and reading `claude plugin details` (0 servers vs 1). So it has to be committed.
+# A contributor who runs `knowl init` here will overwrite it with a local-build command;
+# git will show that as a modification rather than hiding it, which is the point.
+!/.mcp.json
+# Benchmark datasets (LongMemEval_S is ~265MB; download per docs/evals/longmemeval.md)
+data/
+.dist-bench/
+docs/evals/results/shards/
+.benchmark-dist/
+# The MAB bridge builds to its own directory: `bench:cr` cleans .benchmark-dist on every run,
+# which would delete a bridge built alongside the CLI mid-experiment.
+.bridge-dist/
+.verify-dist/
+.benchmark-tsc/
+benchmarks/*/data/
+
+# `drizzle-kit generate` and `check` write here. Knowl runs its own migrations from
+# `store/bootstrap.ts`, so this output is a scratch artifact rather than something to commit --
+# it has never been in the tree, and it appeared as untracked noise the moment anyone ran the tool.
+drizzle/
+
+# Agent instruction files are machine-maintained (`knowl init` rewrites the marked section) and
+# carry local guidance, so they are not tracked. Gitignore alone does nothing to a file already
+# in the index, which is why this landed with a `git rm --cached`.
+AGENTS.md
+
+# PatchMesh ledger, journal and snapshot
+.patchmesh/

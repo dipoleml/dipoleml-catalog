@@ -1,0 +1,12 @@
+{
+  "name": "test-writer",
+  "version": "1.0.0",
+  "description": "name: test-writer",
+  "author": {
+    "name": "Ariff",
+    "email": "info@ariff.dev"
+  },
+  "skills": [
+    "skills/test-writer.skill.md"
+  ]
+}

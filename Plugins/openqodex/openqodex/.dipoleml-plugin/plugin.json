@@ -1,0 +1,16 @@
+{
+  "name": "openqodex",
+  "displayName": "Openqodex",
+  "version": "0.16.0",
+  "description": "Code review before you push, from Cursor. One command runs scanners (Semgrep, Gitleaks, OSV-Scanner and more) on the lines you changed for security issues, secrets, vulnerable dependencies and lint errors, then starts a separate DipoleML or Codex reviewer that checks every scanner finding. Cursor is not the reviewer: without DipoleML or Codex installed, Cursor's agent reviews the change itself from the brief OpenQodex prints. No other key, no account.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Openqodex"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://qodex.ai/openqodex",
+  "repository": "https://github.com/openqodex/openqodex",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

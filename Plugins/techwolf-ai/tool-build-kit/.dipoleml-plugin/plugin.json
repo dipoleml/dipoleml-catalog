@@ -1,0 +1,16 @@
+{
+  "name": "tool-build-kit",
+  "displayName": "Tool Build Kit",
+  "version": "1.7.0",
+  "description": "Build an MCP server and bundle your tools into a shareable plugin, end to end. Two skills: build-mcp scaffolds one server; build-plugin packages skills, hooks, agents, and MCP servers into an installable plugin and ships it via a marketplace. Both branch on audience (personal, org, public).",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Techwolf Ai"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/techwolf-ai/ai-first-toolkit",
+  "repository": "https://github.com/techwolf-ai/ai-first-toolkit",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,128 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.reflexioai.plugin",
+  "type": "plugin",
+  "name": "Plugin",
+  "slug": "plugin",
+  "vendor": "reflexioai",
+  "description": "Turns corrections into Preferences, Project-specific skills, and Shared skills for DipoleML, Codex, and OpenCode.",
+  "version": "0.3.16",
+  "homepage": "https://github.com/ReflexioAI/claude-smart",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agent-memory",
+    "ai-agent-memory",
+    "claude-code-plugin",
+    "codex",
+    "codex-plugin",
+    "local-first",
+    "memory",
+    "opencode",
+    "opencode-plugin"
+  ],
+  "tags": [
+    "agent-memory",
+    "ai-agent-memory",
+    "ai-agents",
+    "claude",
+    "claude-code",
+    "claude-code-plugin",
+    "codex",
+    "codex-plugin",
+    "local-first",
+    "memory",
+    "opencode",
+    "opencode-plugin",
+    "self-improvement",
+    "self-improving-ai"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "reflexioai",
+    "brandName": "reflexioai",
+    "source": "https://github.com/ReflexioAI.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:14:36Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "ReflexioAI/claude-smart",
+    "url": "https://github.com/ReflexioAI/claude-smart",
+    "commit": "5fa44c273a619f4f6c8867a19058035bbc9bc46e",
+    "path": "plugin",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 789,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:59:28Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Plugin | Turns corrections into Preferences, Project-specific skills, and Shared skills for Claude Code, Codex, and OpenCode.",
+        "after": "Plugin | Turns corrections into Preferences, Project-specific skills, and Shared skills for DipoleML, Codex, and OpenCode.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Self-improving Claude Code, Codex, and OpenCode plugin that turns corrections and successful workflows into Preferences, Project-specific skills, and Shared skills",
+        "after": "Self-improving DipoleML, Codex, and OpenCode plugin that turns corrections and successful workflows into Preferences, Project-specific skills, and Shared skills",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "claude-smart"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

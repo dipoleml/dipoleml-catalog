@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+stdin_input=$(cat)
+input="${stdin_input:-${TOOL_INPUT:-}}"
+file=""
+is_antigravity=false
+
+if printf '%s' "$input" | grep -q '"toolCall"'; then
+  is_antigravity=true
+fi
+
+if [ -n "$input" ]; then
+  file=$(printf '%s' "$input" | python3 -c '
+import sys, json
+try:
+    d = json.load(sys.stdin)
+    if "toolCall" in d:
+        args = d.get("toolCall", {}).get("args", {})
+        print(args.get("TargetFile", "") or args.get("file_path", ""))
+    else:
+        tool_input = d.get("tool_input", d)
+        print(tool_input.get("file_path", ""))
+except Exception:
+    pass
+' 2>/dev/null || true)
+fi
+
+if ! printf '%s' "$file" | grep -qE '\.(py|js|ts|jsx|tsx|go|rs|java|php|dart|vue|svelte)$'; then
+  if [ "$is_antigravity" = true ]; then
+    printf '{"decision": "allow"}\n'
+  fi
+  exit 0
+fi
+
+if [ "$is_antigravity" = true ]; then
+  # Resolve workspace for Antigravity (working dir is plugin root, not workspace)
+  _ws=$(printf '%s' "$input" | python3 -c 'import sys,json; d=json.load(sys.stdin); ws=d.get("workspacePaths") or []; print(ws[0] if ws else "")' 2>/dev/null || echo "")
+  if [ -n "$_ws" ]; then
+    if [ -d "$_ws/docs/supergraph/plans" ]; then
+      plan=$(ls "$_ws"/docs/supergraph/plans/*.md 2>/dev/null | head -1 || true)
+    else
+      plan=""
+    fi
+    # if workspace explicitly given but no plan there, do NOT fallback — respect workspace isolation
+  else
+    plan=$(ls docs/supergraph/plans/*.md 2>/dev/null | head -1 || true)
+    if [ -z "$plan" ]; then
+      _git_root=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+      if [ -n "$_git_root" ]; then
+        plan=$(ls "$_git_root"/docs/supergraph/plans/*.md 2>/dev/null | head -1 || true)
+      fi
+    fi
+  fi
+  if [ -z "$plan" ]; then
+    _msg='⚠️ No plan file found. Fast path: <10 lines /1 file → use tdd directly. Otherwise run plan first.'
+    printf '%s' "$_msg" | python3 -c 'import json,sys; print(json.dumps({"decision":"allow","reason":sys.stdin.read()}))'
+  else
+    if ! grep -q '^Review: Approved' "$plan" 2>/dev/null; then
+      pending=$(grep -c '^Status: pending' "$plan" 2>/dev/null || true); pending=$(printf '%s' "$pending" | tr -d ' \n'); [ -z "$pending" ] && pending=0
+      in_progress=$(grep -c '^Status: in_progress' "$plan" 2>/dev/null || true); in_progress=$(printf '%s' "$in_progress" | tr -d ' \n'); [ -z "$in_progress" ] && in_progress=0
+      completed=$(grep -c '^Status: completed' "$plan" 2>/dev/null || true); completed=$(printf '%s' "$completed" | tr -d ' \n'); [ -z "$completed" ] && completed=0
+      stuck=$(grep -c '^Status: stuck' "$plan" 2>/dev/null || true); stuck=$(printf '%s' "$stuck" | tr -d ' \n'); [ -z "$stuck" ] && stuck=0
+      _msg="📋 Plan: $(basename "$plan") — completed=$completed pending=$pending in_progress=$in_progress stuck=$stuck — ⚠️ Plan review not approved yet. Run plan-reviewer."
+      printf '%s' "$_msg" | python3 -c 'import json,sys; print(json.dumps({"decision":"allow","reason":sys.stdin.read()}))'
+    else
+      printf '{"decision": "allow"}\n'
+    fi
+  fi
+  exit 0
+fi
+
+plan=$(ls docs/supergraph/plans/*.md 2>/dev/null | head -1 || true)
+
+messages=()
+
+if [ -z "$plan" ]; then
+  messages+=('⚠️ No plan file found.')
+  messages+=('Fast path: < 10 lines / 1 file → use /supergraph:tdd directly (no plan needed).')
+  messages+=('Otherwise: run /supergraph:plan first.')
+else
+  pending=$(grep -c '^Status: pending' "$plan" 2>/dev/null || true)
+  in_progress=$(grep -c '^Status: in_progress' "$plan" 2>/dev/null || true)
+  completed=$(grep -c '^Status: completed' "$plan" 2>/dev/null || true)
+  stuck=$(grep -c '^Status: stuck' "$plan" 2>/dev/null || true)
+
+  messages+=("📋 Plan: $(basename "$plan") — completed=$completed pending=$pending in_progress=$in_progress stuck=$stuck")
+
+  if ! grep -q '^Review: Approved' "$plan" 2>/dev/null; then
+    messages+=('⚠️ Plan review not approved yet. Run /supergraph:plan and ensure plan-reviewer approves before implementation.')
+  fi
+fi
+
+printf '%s\n' "${messages[@]}" | python3 -c '
+import json, sys
+print(json.dumps({
+    "hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "additionalContext": sys.stdin.read().rstrip("\n"),
+    }
+}))
+'

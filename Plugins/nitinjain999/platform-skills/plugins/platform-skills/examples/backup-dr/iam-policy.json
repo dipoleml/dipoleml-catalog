@@ -1,0 +1,90 @@
+{
+  "Version": "2012-10-17",
+  "Statement": [
+    {
+      "Sid": "DescribeInOneRegion",
+      "Effect": "Allow",
+      "Action": [
+        "ec2:DescribeVolumes",
+        "ec2:DescribeSnapshots"
+      ],
+      "Resource": "*",
+      "Condition": {
+        "StringEquals": { "aws:RequestedRegion": "eu-north-1" }
+      }
+    },
+    {
+      "Sid": "SnapshotAnyVolume",
+      "Effect": "Allow",
+      "Action": "ec2:CreateSnapshot",
+      "Resource": "arn:aws:ec2:eu-north-1:111122223333:volume/*"
+    },
+    {
+      "Sid": "CreateOnlyVeleroTaggedSnapshots",
+      "Effect": "Allow",
+      "Action": "ec2:CreateSnapshot",
+      "Resource": "arn:aws:ec2:eu-north-1::snapshot/*",
+      "Condition": {
+        "Null": { "aws:RequestTag/velero.io/backup": "false" }
+      }
+    },
+    {
+      "Sid": "RestoreOnlyFromVeleroSnapshots",
+      "Effect": "Allow",
+      "Action": "ec2:CreateVolume",
+      "Resource": "arn:aws:ec2:eu-north-1::snapshot/*",
+      "Condition": {
+        "Null": { "aws:ResourceTag/velero.io/backup": "false" }
+      }
+    },
+    {
+      "Sid": "RestoredVolumesCarryTheBackupTag",
+      "Effect": "Allow",
+      "Action": "ec2:CreateVolume",
+      "Resource": "arn:aws:ec2:eu-north-1:111122223333:volume/*",
+      "Condition": {
+        "Null": { "aws:RequestTag/velero.io/backup": "false" }
+      }
+    },
+    {
+      "Sid": "TagOnlyWhileCreating",
+      "Effect": "Allow",
+      "Action": "ec2:CreateTags",
+      "Resource": [
+        "arn:aws:ec2:eu-north-1::snapshot/*",
+        "arn:aws:ec2:eu-north-1:111122223333:volume/*"
+      ],
+      "Condition": {
+        "StringEquals": { "ec2:CreateAction": ["CreateSnapshot", "CreateVolume"] }
+      }
+    },
+    {
+      "Sid": "DeleteOnlyVeleroSnapshots",
+      "Effect": "Allow",
+      "Action": "ec2:DeleteSnapshot",
+      "Resource": "arn:aws:ec2:eu-north-1::snapshot/*",
+      "Condition": {
+        "Null": { "aws:ResourceTag/velero.io/backup": "false" }
+      }
+    },
+    {
+      "Sid": "BackupObjects",
+      "Effect": "Allow",
+      "Action": [
+        "s3:GetObject",
+        "s3:DeleteObject",
+        "s3:PutObject",
+        "s3:PutObjectTagging",
+        "s3:AbortMultipartUpload",
+        "s3:ListMultipartUploadParts"
+      ],
+      "Resource": "arn:aws:s3:::example-velero-backups-eu-north-1/*"
+    },
+    {
+      "Sid": "BackupBucket",
+      "Effect": "Allow",
+      "Action": "s3:ListBucket",
+      "Resource": "arn:aws:s3:::example-velero-backups-eu-north-1"
+    }
+  ]
+}

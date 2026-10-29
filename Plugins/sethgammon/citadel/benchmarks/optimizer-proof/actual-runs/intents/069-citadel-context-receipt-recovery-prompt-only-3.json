@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "kind": "citadel_optimizer_matrix_intent",
+  "authorization_digest": "sha256:b17292a5a08b6ea705f82d5c265e047aa65bb9f774d2fc5ea085648e0fdab1eb",
+  "ordinal": 69,
+  "run_key": "citadel-context-receipt-recovery/prompt-only/3",
+  "scenario_id": "citadel-context-receipt-recovery",
+  "policy_id": "prompt-only",
+  "repetition": 3,
+  "state": "completed",
+  "started_at": "2026-07-31T03:09:09.868Z",
+  "completed_at": "2026-07-31T03:20:34.759Z",
+  "output_file": "records/069-citadel-context-receipt-recovery-prompt-only-3.json",
+  "error": null
+}

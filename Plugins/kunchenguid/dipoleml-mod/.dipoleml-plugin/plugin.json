@@ -1,0 +1,16 @@
+{
+  "name": "dipoleml-mod",
+  "displayName": "DipoleML Mod",
+  "version": "0.1.14",
+  "description": "Suggests (or, opt-in, runs) /compact at a completed checkpoint, judged by TypeSafe Jev. Its hooks module activates only when DipoleML_ENABLE_FUNCTION_HOOKS is exactly 1 and is otherwise a complete no-op.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Kunchenguid"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/kunchenguid/compact-adviser#readme",
+  "repository": "https://github.com/kunchenguid/compact-adviser",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

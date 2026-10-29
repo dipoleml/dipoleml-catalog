@@ -1,0 +1,68 @@
+{
+  "schema": 1,
+  "evidence_kind": "actual-run",
+  "scenario_set_id": "optimizer-scenarios-sha256:602e496906f3a293203750602234ba88a55a86b9e4f54f32239264098dcebe5b",
+  "metric_set_id": "optimizer-metrics-sha256:bedffbda2b18d725610b0f294a8273ef908237fd957bf9e51a5af4885b123e4f",
+  "scenario_id": "p-limit-cleanup-pending",
+  "category": "cleanup",
+  "holdout": false,
+  "policy_id": "always-frontier",
+  "repetition": 2,
+  "decision_id": "sha256:f43893f4dc106d84fda4207f750cc76de903fb8ec63733dd5a9d8c6b61a435d1",
+  "selected_profile_id": "claude-frontier",
+  "observed_profile_id": "claude-frontier",
+  "requested_model": "claude-opus-5",
+  "observed_model": "claude-opus-5",
+  "model_proof_status": "passed",
+  "started_at": "2026-07-31T05:16:52.254Z",
+  "duration_ms": 771008,
+  "outcome": "passed",
+  "verified": true,
+  "attempts": 1,
+  "human_interventions": 0,
+  "topology": "sequential-recovery",
+  "cost": {
+    "status": "known",
+    "amount_usd": 1.893423,
+    "provenance": "tool_reported",
+    "source": "citadel_optimizer_runner",
+    "source_ref": "summed_attempts:1",
+    "pricing_snapshot_digest": null,
+    "components": [
+      {
+        "kind": "model",
+        "amount_usd": 1.8934230999999995,
+        "source": "attempt_1:claude total_cost_usd"
+      }
+    ]
+  },
+  "artifact_paths": [
+    "index.js"
+  ],
+  "verification_receipts": [
+    {
+      "attempt": 1,
+      "profile_id": "claude-frontier",
+      "status": "passed",
+      "exit_code": 0,
+      "timed_out": false,
+      "output_digest": "sha256:1fa24fda7747ea14d20bc1b9a1e7f93c6d1429ceb2c8da78d7114906807ca398",
+      "output_excerpt": "[stdout]\n\n  √ throws on invalid concurrency argument\n  √ clearQueue\n  √ accepts additional arguments\n  √ continues after sync throw\n  √ runs all tasks asynchronously\n  √ non-promise returning function\n  √ map accepts an iterable (set)\n  √ map accepts an iterable (array iterator)\n  √ map\n  √ propagates async execution context properly\n  √ shared context with a limited provider helper\n  √ map passes index and preserves order with concurrency\n  √ map works when detached from the limit\n  √ clearQueue rejects pending promises when enabled (109ms)\n  √ accepts options object (124ms)\n  √ does not ignore errors (129ms)\n  √ change concurrency to bigger value (175ms)\n  √ change concurrency to smaller value (231ms)\n  √ concurrency: 1 (637ms)\n  √ limitFunction() (2.4s)\n  √ concurrency: 4 (2.6s)\n  √ activeCount and pendingCount properties (3s)\n  ─\n\n  22 tests passed\n\n[stderr]\n",
+      "output_truncated": false,
+      "patch_exit_code": 0,
+      "patch_digest": "sha256:a55f5de8a3ed8505495eec3defc5492fb66ffe59dbbebce704f0025d94cddc30",
+      "patch_excerpt": "diff --git a/index.js b/index.js\nindex 5ecd392..a1d0d1d 100644\n--- a/index.js\n+++ b/index.js\n@@ -61,11 +61,24 @@ export default function pLimit(concurrency) {\n \t\tif (activeCount < concurrency) {\n \t\t\tresumeNext();\n \t\t}\n+\n+\t\treturn queueItem;\n \t};\n \n-\tconst generator = (function_, ...arguments_) => new Promise((resolve, reject) => {\n-\t\tenqueue(function_, resolve, reject, arguments_);\n-\t});\n+\tconst generator = (function_, ...arguments_) => {\n+\t\tlet queueItem;\n+\n+\t\tconst promise = new Promise((resolve, reject) => {\n+\t\t\tqueueItem = enqueue(function_, resolve, reject, arguments_);\n+\t\t});\n+\n+\t\t// `clearQueue()` rejects this promise on our own initiative, possibly long\n+\t\t// before the caller gets around to awaiting it, so expose it to `clearQueue()`\n+\t\t// so it can mark that rejection as handled.\n+\t\tqueueItem.promise = promise;\n+\n+\t\treturn promise;\n+\t};\n \n \tObject.defineProperties(generator, {\n \t\tactiveCount: {\n@@ -81,10 +94,17 @@ export default function pLimit(concurrency) {\n \t\t\t\t\treturn;\n \t\t\t\t}\n \n-\t\t\t\tconst abortError = AbortSignal.abort().reason;\n+\t\t\t\tconst abortError = createAbortError();\n \n \t\t\t\twhile (queue.size > 0) {\n-\t\t\t\t\tqueue.dequeue().reject(abortError);\n+\t\t\t\t\tconst queueItem = queue.dequeue();\n+\t\t\t\t\tqueueItem.reject(abortError);\n+\n+\t\t\t\t\t// The task itself never failed, we aborted it, so this rejection\n+\t\t\t\t\t// must not crash the process while the caller is still awaiting\n+\t\t\t\t\t// the tasks that are already running. Awaiting the promise later\n+\t\t\t\t\t// still rejects with `abortError`.\n+\t\t\t\t\tqueueItem.promise.catch(() => {}); // eslint-disable-line promise/prefer-await-to-then\n \t\t\t\t}\n \t\t\t},\n \t\t},\n@@ -120,6 +140,15 @@ export function limitFunction(function_, options) {\n \treturn (...arguments_) => limit(() => function_(...arguments_));\n }\n \n+// `AbortSignal.abort().reason` is a `DOMException`, which is not a native error,\n+// so it carries no stack and is rejected by common error assertion and\n+// serialization tooling. Same name and message, but an actual `Error`.\n+function createAbortError() {\n+\tconst error = new Error('This operation was aborted');\n+\terror.name = 'AbortError';\n+\treturn error;\n+}\n+\n function validateConcurrency(concurrency) {\n \tif (!((Number.isInteger(concurrency) || concurrency === Number.POSITIVE_INFINITY) && concurrency > 0)) {\n \t\tthrow new TypeError('Expected `concurrency` to be a number from 1 and up');\n",
+      "patch_truncated": false,
+      "changed_paths": [
+        "index.js"
+      ]
+    }
+  ],
+  "receipt_status": "verified",
+  "adversarial_result": "detected",
+  "failure_code": null,
+  "attestation": {
+    "algorithm": "ed25519",
+    "signature_base64": "IRr7XwKpPzKpjLwzDWDNcL1USW5FX/svmlJJbpSTkk0ofHJIvyHQCspcfTGqcV6NarSfAT3wk/6MFGn7wBoVBw=="
+  }
+}

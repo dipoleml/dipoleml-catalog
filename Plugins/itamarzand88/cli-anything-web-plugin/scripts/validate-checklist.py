@@ -1,0 +1,849 @@
+#!/usr/bin/env python3
+"""Validate a cli-web-* CLI against the tiered quality checklist.
+
+Runs the mechanical checks from quality-checklist.md and reports results
+as a colored terminal summary + optional JSON output.
+
+Checks are tiered (see quality-checklist.md "Tiers"):
+- critical (Tier 1)      — any failure blocks publish (non-zero exit)
+- comprehensive (Tier 2) — failures are warnings (exit 0), unless --strict
+
+Usage:
+    python validate-checklist.py <harness-dir> --app-name hackernews
+    python validate-checklist.py <harness-dir> --app-name hackernews --auth-type none
+    python validate-checklist.py <harness-dir> --app-name hackernews --json
+    python validate-checklist.py <harness-dir> --app-name hackernews --tier1-only
+    python validate-checklist.py <harness-dir> --app-name hackernews --strict
+"""
+
+from __future__ import annotations
+
+import argparse
+import ast
+import json
+import re
+import sys
+from pathlib import Path
+
+# ---------------------------------------------------------------------------
+# Tier registry — keep in sync with quality-checklist.md [T1]/[T2] markers
+# ---------------------------------------------------------------------------
+
+TIER1_CHECKS: frozenset[str] = frozenset(
+    {
+        # 1. Directory Structure — all critical
+        "1.1",
+        "1.2",
+        "1.3",
+        "1.4",
+        "1.5",
+        "1.6",
+        # 2. Required Files — all critical
+        "2.1",
+        "2.2",
+        "2.3",
+        "2.4",
+        "2.5",
+        "2.6",
+        "2.7",
+        "2.8",
+        "2.9",
+        "2.10",
+        "2.11",
+        "2.12",
+        "2.13",
+        # 3. CLI Implementation — Click group, --json envelope, REPL basics
+        "3.1",
+        "3.2",
+        "3.3",
+        "3.8",
+        "3.9",
+        # 4. Core Modules — exception hierarchy + status mapping + rpc structure,
+        # plus auth security (retry contract, headless refresh, chmod 600):
+        # CLAUDE.md mandates these, so they must block publish.
+        "4.1",
+        "4.2",
+        "4.3",
+        "4.4",
+        "4.4b",
+        "4.6",
+        "4.7",
+        # 7. Packaging — namespace packages, name, entry point
+        "7.1",
+        "7.2",
+        "7.3",
+        # 8. Code Quality — syntax errors, hardcoded secrets
+        "8.1",
+        "8.2",
+        # 9. REPL Quality — shlex + dispatch
+        "9.1",
+        "9.2",
+        # 10. Error Handling — typed hierarchy, status mapping, --json errors
+        "10.1",
+        "10.2",
+        "10.4",
+    }
+)
+
+
+def severity_for(check_id: str) -> str:
+    return "critical" if check_id in TIER1_CHECKS else "comprehensive"
+
+
+# ---------------------------------------------------------------------------
+# Result tracking
+# ---------------------------------------------------------------------------
+
+
+class CheckResult:
+    def __init__(self, category: str, check_id: str, description: str):
+        self.category = category
+        self.check_id = check_id
+        self.description = description
+        self.severity = severity_for(check_id)
+        self.status: str = "pending"  # pass, fail, skip, na
+        self.detail: str = ""
+
+    def pass_(self, detail: str = ""):
+        self.status = "pass"
+        self.detail = detail
+        return self
+
+    def fail(self, detail: str = ""):
+        self.status = "fail"
+        self.detail = detail
+        return self
+
+    def skip(self, detail: str = ""):
+        self.status = "skip"
+        self.detail = detail
+        return self
+
+    def na(self, detail: str = ""):
+        self.status = "na"
+        self.detail = detail
+        return self
+
+    def to_dict(self) -> dict:
+        return {
+            "category": self.category,
+            "id": self.check_id,
+            "description": self.description,
+            "severity": self.severity,
+            "status": self.status,
+            "detail": self.detail,
+        }
+
+
+class Validator:
+    def __init__(self, harness_dir: Path, app_name: str, auth_type: str):
+        self.harness_dir = harness_dir
+        self.app_name = app_name
+        self.app_underscore = app_name.replace("-", "_")
+        self.APP_NAME = app_name.replace("-", "_").upper()
+        self.auth_type = auth_type
+        self.has_auth = auth_type != "none"
+        self.pkg_dir = harness_dir / "cli_web" / self.app_underscore
+        self.results: list[CheckResult] = []
+        self._file_cache: dict[Path, str | None] = {}
+        self._py_files_cache: dict[Path, list[Path]] = {}
+
+    def check(self, category: str, check_id: str, description: str) -> CheckResult:
+        r = CheckResult(category, check_id, description)
+        self.results.append(r)
+        return r
+
+    def _read_file(self, path: Path) -> str | None:
+        if path not in self._file_cache:
+            try:
+                self._file_cache[path] = path.read_text(encoding="utf-8")
+            except (FileNotFoundError, OSError):
+                self._file_cache[path] = None
+        return self._file_cache[path]
+
+    def _file_contains(self, path: Path, pattern: str) -> bool:
+        content = self._read_file(path)
+        if content is None:
+            return False
+        return bool(re.search(pattern, content))
+
+    def _py_files(self, directory: Path) -> list[Path]:
+        """Return all .py files under directory (cached)."""
+        if directory not in self._py_files_cache:
+            if directory.exists():
+                self._py_files_cache[directory] = list(directory.rglob("*.py"))
+            else:
+                self._py_files_cache[directory] = []
+        return self._py_files_cache[directory]
+
+    def _any_py_contains(self, directory: Path, pattern: str) -> bool:
+        """Check if any .py file in directory (recursively) matches pattern."""
+        for f in self._py_files(directory):
+            content = self._read_file(f)
+            if content and re.search(pattern, content):
+                return True
+        return False
+
+    # ── Category 1: Directory Structure ────────────────────────────────────
+    def check_directory_structure(self):
+        cat = "1. Directory Structure"
+
+        r = self.check(cat, "1.1", "cli_web/<app>/ exists")
+        if self.pkg_dir.is_dir():
+            r.pass_()
+        else:
+            r.fail(f"Missing: {self.pkg_dir}")
+
+        r = self.check(cat, "1.2", "<APP>.md exists at harness root")
+        app_md = self.harness_dir / f"{self.APP_NAME}.md"
+        # Also check lowercase
+        if app_md.exists() or (self.harness_dir / f"{self.app_name.upper()}.md").exists():
+            r.pass_()
+        else:
+            # Check any .md that looks like an API map
+            found = list(self.harness_dir.glob("*.md"))
+            api_maps = [f for f in found if f.name not in ("README.md", "TEST.md")]
+            if api_maps:
+                r.pass_(f"Found: {api_maps[0].name}")
+            else:
+                r.fail("No API map .md found")
+
+        r = self.check(cat, "1.3", "cli_web/ has NO __init__.py (namespace package)")
+        ns_init = self.harness_dir / "cli_web" / "__init__.py"
+        if ns_init.exists():
+            r.fail("cli_web/__init__.py exists — breaks namespace package")
+        else:
+            r.pass_()
+
+        r = self.check(cat, "1.4", "<app>/ HAS __init__.py")
+        if (self.pkg_dir / "__init__.py").exists():
+            r.pass_()
+        else:
+            r.fail("Missing __init__.py in sub-package")
+
+        r = self.check(cat, "1.5", "core/, commands/, utils/, tests/ all present")
+        dirs = ["core", "commands", "utils", "tests"]
+        missing = [d for d in dirs if not (self.pkg_dir / d).is_dir()]
+        if missing:
+            r.fail(f"Missing directories: {missing}")
+        else:
+            r.pass_()
+
+        r = self.check(cat, "1.6", "setup.py at harness root")
+        if (self.harness_dir / "setup.py").exists():
+            r.pass_()
+        else:
+            r.fail("Missing setup.py")
+
+    # ── Category 2: Required Files ─────────────────────────────────────────
+    def check_required_files(self):
+        cat = "2. Required Files"
+
+        files = {
+            "2.1": (f"{self.app_underscore}_cli.py", True),
+            "2.2": ("__main__.py", True),
+            "2.3": ("core/client.py", True),
+            "2.4": ("core/exceptions.py", True),
+            "2.5": ("core/auth.py", self.has_auth),
+            "2.6": ("core/session.py", False),  # Optional
+            "2.7": ("core/models.py", False),  # Optional
+            "2.8": ("utils/repl_skin.py", True),
+            "2.9": ("utils/output.py", True),
+            "2.10": ("utils/helpers.py", True),
+            "2.11": ("tests/test_core.py", True),
+            "2.12": ("tests/test_e2e.py", True),
+        }
+
+        for check_id, (path, required) in files.items():
+            r = self.check(cat, check_id, f"{path} exists")
+            full = self.pkg_dir / path
+            if full.exists():
+                r.pass_()
+            elif not required:
+                r.na("Optional file")
+            elif check_id == "2.5" and not self.has_auth:
+                r.na("No auth — auth.py not required")
+            else:
+                r.fail(f"Missing: {path}")
+
+        # README
+        r = self.check(cat, "2.13", "README.md exists")
+        if (self.pkg_dir / "README.md").exists() or (self.harness_dir / "README.md").exists():
+            r.pass_()
+        else:
+            r.fail("Missing README.md")
+
+    # ── Category 3: CLI Implementation ─────────────────────────────────────
+    def check_cli_implementation(self):
+        cat = "3. CLI Implementation"
+        cli_file = self.pkg_dir / f"{self.app_underscore}_cli.py"
+        content = self._read_file(cli_file) or ""
+
+        r = self.check(cat, "3.1", "Click framework with @click.group")
+        r.pass_() if "@click.group" in content else r.fail()
+
+        r = self.check(cat, "3.2", "--json flag present")
+        r.pass_() if '"--json"' in content or "'--json'" in content else r.fail()
+
+        r = self.check(cat, "3.3", "REPL via invoke_without_command=True")
+        r.pass_() if "invoke_without_command=True" in content else r.fail()
+
+        r = self.check(cat, "3.4", "ReplSkin used")
+        r.pass_() if "ReplSkin" in content else r.fail()
+
+        r = self.check(cat, "3.5", "Auth group (login, status)")
+        if not self.has_auth:
+            r.na("No auth")
+        elif "auth" in content.lower():
+            r.pass_()
+        else:
+            r.fail("No auth command group found")
+
+        r = self.check(cat, "3.6", "pass_context used")
+        r.pass_() if "pass_context" in content else r.fail()
+
+        r = self.check(cat, "3.7", "handle_errors context manager in commands")
+        if self._any_py_contains(self.pkg_dir / "commands", r"handle_errors"):
+            r.pass_()
+        elif "handle_errors" in content:
+            r.pass_("In CLI entry point")
+        else:
+            r.fail("No handle_errors usage found")
+
+        r = self.check(cat, "3.8", "REPL uses shlex.split")
+        r.pass_() if "shlex.split" in content else r.fail()
+
+        r = self.check(cat, "3.9", "REPL dispatches with standalone_mode=False")
+        r.pass_() if "standalone_mode=False" in content else r.fail()
+
+    # ── Category 4: Core Modules ───────────────────────────────────────────
+    def check_core_modules(self):
+        cat = "4. Core Modules"
+
+        # exceptions.py
+        exc_content = self._read_file(self.pkg_dir / "core" / "exceptions.py") or ""
+
+        r = self.check(cat, "4.1", "Typed exception hierarchy")
+        exc_types = ["AuthError", "RateLimitError", "NetworkError", "ServerError", "NotFoundError"]
+        found = [e for e in exc_types if e in exc_content]
+        if len(found) >= 4:
+            r.pass_(f"Found: {found}")
+        else:
+            r.fail(f"Only found: {found}")
+
+        r = self.check(cat, "4.2", "to_dict() on base exception")
+        r.pass_() if "to_dict" in exc_content else r.fail()
+
+        # client.py
+        client_content = self._read_file(self.pkg_dir / "core" / "client.py") or ""
+
+        r = self.check(cat, "4.3", "Client maps HTTP status to exceptions")
+        http_clients = ("httpx", "curl_cffi", "requests")
+        is_browser_client = any(
+            b in client_content for b in ("playwright", "camoufox")
+        ) and not any(h in client_content for h in http_clients)
+        if is_browser_client:
+            r.na("Browser-rendered client — no HTTP status layer")
+        else:
+            # Mapping may live in client.py or in exceptions.py
+            # (raise_for_status pattern); count across both.
+            mapping_content = client_content + exc_content
+            status_patterns = ["401", "403", "404", "429"]
+            mapped = [s for s in status_patterns if s in mapping_content]
+            # No-auth CLIs have no 401/403 semantics to map.
+            needed = 3 if self.has_auth else 2
+            if len(mapped) >= needed:
+                r.pass_(f"Mapped codes: {mapped}")
+            else:
+                r.fail(f"Only mapped: {mapped}")
+
+        r = self.check(cat, "4.4", "Auth retry on 401/403")
+        if (
+            "retry_on_auth" in client_content
+            or ("401" in client_content and "retry" in client_content.lower())
+            or "_attempt" in client_content
+        ):
+            r.pass_()
+        elif not self.has_auth:
+            r.na("No auth")
+        else:
+            r.fail()
+
+        r = self.check(cat, "4.4b", "Token auto-refresh via headless browser")
+        if not self.has_auth:
+            r.na("No auth")
+        else:
+            auth_path = self.pkg_dir / "core" / "auth.py"
+            auth_content = auth_path.read_text(encoding="utf-8") if auth_path.exists() else ""
+            # Accept the documented name (refresh_auth) plus the refresh
+            # spellings used across the fleet (_refresh_tokens, refresh_token,
+            # a headless-capable login_browser the client can re-invoke).
+            refresh_names = ("refresh_auth", "refresh_token", "_refresh_tokens")
+            has_refresh_fn = any(n in auth_content for n in refresh_names) or (
+                "login_browser" in auth_content and "headed" in auth_content
+            )
+            has_client_call = any(
+                n in client_content for n in (*refresh_names, "_refresh_via_browser")
+            )
+            if has_refresh_fn and has_client_call:
+                r.pass_("auth.py has refresh + client calls it on 401/403")
+            else:
+                missing = []
+                if not has_refresh_fn:
+                    missing.append("auth.py missing refresh_auth()/refresh_token()")
+                if not has_client_call:
+                    missing.append("client.py not calling refresh on auth failure")
+                r.fail("; ".join(missing))
+
+        r = self.check(cat, "4.5", "Context manager protocol")
+        if "__enter__" in client_content and "__exit__" in client_content:
+            r.pass_()
+        else:
+            r.fail("Missing __enter__/__exit__")
+
+        # auth.py
+        r = self.check(cat, "4.6", "Auth secure storage (chmod 600)")
+        if not self.has_auth:
+            r.na("No auth")
+        else:
+            auth_content = self._read_file(self.pkg_dir / "core" / "auth.py") or ""
+            if "chmod" in auth_content or "S_IRUSR" in auth_content or "0o600" in auth_content:
+                r.pass_()
+            else:
+                r.fail("No chmod/permissions on auth file")
+
+        # Non-REST protocol
+        r = self.check(cat, "4.7", "RPC subpackage (if batchexecute)")
+        rpc_dir = self.pkg_dir / "core" / "rpc"
+        if rpc_dir.is_dir():
+            rpc_files = ["types.py", "encoder.py", "decoder.py"]
+            missing = [f for f in rpc_files if not (rpc_dir / f).exists()]
+            if missing:
+                r.fail(f"RPC dir exists but missing: {missing}")
+            else:
+                r.pass_()
+        else:
+            r.na("No RPC directory (non-batchexecute)")
+
+    # ── Category 5: Test Standards ─────────────────────────────────────────
+    def check_test_standards(self):
+        cat = "5. Test Standards"
+        tests_dir = self.pkg_dir / "tests"
+
+        r = self.check(cat, "5.1", "TEST.md has plan and results")
+        test_md = self._read_file(tests_dir / "TEST.md")
+        if test_md is None:
+            test_md = self._read_file(self.harness_dir / "TEST.md") or ""
+        if test_md and "Part 1" in test_md and "Part 2" in test_md:
+            r.pass_()
+        elif test_md:
+            r.pass_("TEST.md exists but may not have both parts")
+        else:
+            r.fail("No TEST.md found")
+
+        r = self.check(cat, "5.2", "Unit tests use mock.patch")
+        test_core = self._read_file(tests_dir / "test_core.py") or ""
+        if "mock" in test_core.lower() or "patch" in test_core:
+            r.pass_()
+        else:
+            r.fail("No mock/patch in test_core.py")
+
+        r = self.check(cat, "5.3", "TestCLISubprocess class exists")
+        test_e2e = self._read_file(tests_dir / "test_e2e.py") or ""
+        if "TestCLISubprocess" in test_e2e or "Subprocess" in test_e2e:
+            r.pass_()
+        elif "subprocess" in test_e2e:
+            r.pass_("subprocess used but no TestCLISubprocess class")
+        else:
+            r.fail()
+
+        r = self.check(cat, "5.4", "_resolve_cli pattern used")
+        all_test = test_core + test_e2e
+        if "_resolve_cli" in all_test:
+            r.pass_()
+        elif "subprocess" in all_test:
+            r.pass_("subprocess used without _resolve_cli")
+        else:
+            r.fail()
+
+        r = self.check(cat, "5.5", "Subprocess _run does NOT set cwd")
+        if "_run" in test_e2e:
+            if re.search(r"cwd\s*=", test_e2e):
+                r.fail("_run sets cwd (should not)")
+            else:
+                r.pass_()
+        else:
+            r.na("No _run method found")
+
+        r = self.check(cat, "5.6", "CLI_WEB_FORCE_INSTALLED support")
+        if "FORCE_INSTALLED" in all_test or "CLI_WEB_FORCE_INSTALLED" in all_test:
+            r.pass_()
+        else:
+            r.fail()
+
+    # ── Category 7: PyPI Packaging ─────────────────────────────────────────
+    def check_packaging(self):
+        cat = "7. PyPI Packaging"
+        setup_content = self._read_file(self.harness_dir / "setup.py") or ""
+
+        r = self.check(cat, "7.1", 'find_namespace_packages(include=["cli_web.*"])')
+        if "find_namespace_packages" in setup_content and "cli_web.*" in setup_content:
+            r.pass_()
+        else:
+            r.fail()
+
+        r = self.check(cat, "7.2", f"Package name: cli-web-{self.app_name}")
+        if f"cli-web-{self.app_name}" in setup_content:
+            r.pass_()
+        else:
+            r.fail()
+
+        r = self.check(cat, "7.3", "Entry point format correct")
+        prefix = f"cli-web-{self.app_name}=cli_web.{self.app_underscore}.{self.app_underscore}_cli:"
+        if any(f"{prefix}{fn}" in setup_content for fn in ("main", "cli")):
+            r.pass_()
+        else:
+            r.fail(f"Expected: {prefix}main")
+
+        r = self.check(cat, "7.4", "Imports use cli_web.<app>.* prefix")
+        # Check a sample of files for correct imports
+        violations = []
+        for py in self._py_files(self.pkg_dir):
+            content = self._read_file(py) or ""
+            # Look for bare imports that should be namespaced
+            if re.search(r"^from\s+core\b", content, re.MULTILINE):
+                violations.append(py.name)
+            if re.search(r"^from\s+utils\b", content, re.MULTILINE):
+                violations.append(py.name)
+        if violations:
+            r.fail(f"Bare imports in: {violations}")
+        else:
+            r.pass_()
+
+        r = self.check(cat, "7.5", 'python_requires=">=3.10"')
+        if ">=3.10" in setup_content:
+            r.pass_()
+        else:
+            r.fail()
+
+    # ── Category 8: Code Quality ───────────────────────────────────────────
+    def check_code_quality(self):
+        cat = "8. Code Quality"
+
+        # Syntax check
+        r = self.check(cat, "8.1", "No syntax errors in Python files")
+        errors = []
+        for py in self._py_files(self.pkg_dir):
+            content = self._read_file(py)
+            if content is None:
+                continue
+            try:
+                ast.parse(content)
+            except SyntaxError as e:
+                errors.append(f"{py.name}:{e.lineno}")
+        if errors:
+            r.fail(f"Syntax errors: {errors}")
+        else:
+            r.pass_()
+
+        # Hardcoded secrets
+        r = self.check(cat, "8.2", "No hardcoded auth tokens/API keys")
+        secret_patterns = [
+            r'api[_-]?key\s*=\s*["\'][a-zA-Z0-9]{20,}["\']',
+            r'token\s*=\s*["\'][a-zA-Z0-9]{20,}["\']',
+            r'password\s*=\s*["\'][^"\']{8,}["\']',
+        ]
+        found = []
+        for py in self._py_files(self.pkg_dir):
+            if "test" in py.name:
+                continue
+            content = self._read_file(py) or ""
+            for pat in secret_patterns:
+                if re.search(pat, content):
+                    found.append(py.name)
+                    break
+        if found:
+            r.fail(f"Potential secrets in: {found}")
+        else:
+            r.pass_()
+
+        # Bare except
+        r = self.check(cat, "8.3", "No bare except: blocks")
+        bare = []
+        for py in self._py_files(self.pkg_dir):
+            content = self._read_file(py) or ""
+            if re.search(r"^\s*except\s*:", content, re.MULTILINE):
+                bare.append(py.name)
+        if bare:
+            r.fail(f"Bare except in: {bare}")
+        else:
+            r.pass_()
+
+        # UTF-8 fix
+        cli_file = self.pkg_dir / f"{self.app_underscore}_cli.py"
+        r = self.check(cat, "8.4", "UTF-8 stdout/stderr reconfigure in CLI entry")
+        content = self._read_file(cli_file) or ""
+        if "reconfigure" in content and "utf-8" in content:
+            r.pass_()
+        else:
+            r.fail()
+
+        r = self.check(cat, "8.5", "UTF-8 fix covers both stdout AND stderr")
+        if "stdout" in content and "stderr" in content:
+            r.pass_()
+        else:
+            r.fail("Only partial UTF-8 fix")
+
+    # ── Category 9: REPL Quality ───────────────────────────────────────────
+    def check_repl_quality(self):
+        cat = "9. REPL Quality"
+        cli_file = self.pkg_dir / f"{self.app_underscore}_cli.py"
+        content = self._read_file(cli_file) or ""
+
+        r = self.check(cat, "9.1", "REPL uses shlex.split (not line.split)")
+        if "shlex.split" in content:
+            r.pass_()
+        else:
+            r.fail()
+
+        r = self.check(cat, "9.2", "Dispatch with standalone_mode=False")
+        if "standalone_mode=False" in content:
+            r.pass_()
+        else:
+            r.fail()
+
+        r = self.check(cat, "9.3", "Positional args via @click.argument")
+        # Check commands for @click.argument usage
+        if self._any_py_contains(self.pkg_dir / "commands", r"@click\.argument"):
+            r.pass_()
+        else:
+            r.skip("Could not verify — check manually")
+
+    # ── Category 10: Error Handling ────────────────────────────────────────
+    def check_error_handling(self):
+        cat = "10. Error Handling"
+
+        r = self.check(cat, "10.1", "Typed exception hierarchy (not RuntimeError)")
+        exc_content = self._read_file(self.pkg_dir / "core" / "exceptions.py") or ""
+        if "RuntimeError" in exc_content:
+            r.fail("Uses RuntimeError in exceptions.py")
+        elif "Error" in exc_content:
+            r.pass_()
+        else:
+            r.fail()
+
+        r = self.check(cat, "10.2", "Client maps HTTP status to domain exceptions")
+        client_content = self._read_file(self.pkg_dir / "core" / "client.py") or ""
+        if any(b in client_content for b in ("playwright", "camoufox")) and not any(
+            h in client_content for h in ("httpx", "curl_cffi", "requests")
+        ):
+            r.na("Browser-rendered client — no HTTP status layer")
+        elif "raise_for_status" in client_content or "status_code" in client_content:
+            r.pass_()
+        else:
+            r.fail()
+
+        r = self.check(cat, "10.3", "Auth env var support")
+        if not self.has_auth:
+            r.na("No auth")
+        else:
+            auth_content = self._read_file(self.pkg_dir / "core" / "auth.py") or ""
+            expected_var = f"CLI_WEB_{self.APP_NAME}_AUTH_JSON"
+            if expected_var in auth_content or "environ" in auth_content:
+                r.pass_()
+            else:
+                r.fail(f"No {expected_var} env var support")
+
+        r = self.check(cat, "10.4", "--json outputs structured error JSON")
+        helpers_content = self._read_file(self.pkg_dir / "utils" / "helpers.py") or ""
+        if "to_dict" in helpers_content or "json.dumps" in helpers_content:
+            r.pass_()
+        else:
+            r.fail()
+
+    # ── Run all checks ─────────────────────────────────────────────────────
+    def run_all(self):
+        self.check_directory_structure()
+        self.check_required_files()
+        self.check_cli_implementation()
+        self.check_core_modules()
+        self.check_test_standards()
+        self.check_packaging()
+        self.check_code_quality()
+        self.check_repl_quality()
+        self.check_error_handling()
+
+    def tier_counts(self) -> dict:
+        """Per-tier status counts: {"critical": {...}, "comprehensive": {...}}."""
+        tiers = {
+            "critical": {"pass": 0, "fail": 0, "skip": 0, "na": 0},
+            "comprehensive": {"pass": 0, "fail": 0, "skip": 0, "na": 0},
+        }
+        for r in self.results:
+            tiers[r.severity][r.status] += 1
+        return tiers
+
+    def print_summary(self):
+        """Print colored terminal summary. Returns (tier1_failures, tier2_failures)."""
+        counts = {"pass": 0, "fail": 0, "skip": 0, "na": 0}
+        current_cat = ""
+
+        for r in self.results:
+            counts[r.status] += 1
+            if r.category != current_cat:
+                current_cat = r.category
+                print(f"\n### {current_cat}")
+
+            if r.status == "pass":
+                icon = "\033[32m PASS\033[0m"
+            elif r.status == "fail":
+                icon = "\033[31m FAIL\033[0m"
+            elif r.status == "na":
+                icon = "\033[90m  N/A\033[0m"
+            else:
+                icon = "\033[33m SKIP\033[0m"
+
+            tier = "T1" if r.severity == "critical" else "T2"
+            detail = f" — {r.detail}" if r.detail else ""
+            print(f"  [{icon}] [{tier}] {r.check_id}: {r.description}{detail}")
+
+        total = len(self.results)
+        applicable = total - counts["na"] - counts["skip"]
+        tiers = self.tier_counts()
+        t1, t2 = tiers["critical"], tiers["comprehensive"]
+
+        print(f"\n{'=' * 60}")
+        print(f"  Total checks:  {total}")
+        print(f"  \033[32mPassed:      {counts['pass']}\033[0m")
+        print(f"  \033[31mFailed:      {counts['fail']}\033[0m")
+        print(f"  \033[33mSkipped:     {counts['skip']}\033[0m")
+        print(f"  \033[90mN/A:         {counts['na']}\033[0m")
+        print(f"  Tier 1 (critical):      {t1['pass']} passed, {t1['fail']} failed")
+        print(f"  Tier 2 (comprehensive): {t2['pass']} passed, {t2['fail']} failed")
+        if applicable > 0:
+            rate = counts["pass"] / applicable * 100
+            print(f"  Pass rate:     {rate:.0f}% ({counts['pass']}/{applicable})")
+        if t1["fail"] > 0:
+            print("  \033[31mRESULT: BLOCKED — Tier 1 failures must be fixed before publish\033[0m")
+        elif t2["fail"] > 0:
+            print("  \033[33mRESULT: PASS WITH WARNINGS — Tier 2 failures reported above\033[0m")
+        else:
+            print("  \033[32mRESULT: PASS\033[0m")
+        print(f"{'=' * 60}")
+
+        return t1["fail"], t2["fail"]
+
+    def to_json(self) -> str:
+        counts = {"pass": 0, "fail": 0, "skip": 0, "na": 0}
+        for r in self.results:
+            counts[r.status] += 1
+        return json.dumps(
+            {
+                "app_name": self.app_name,
+                "auth_type": self.auth_type,
+                "summary": counts,
+                "tiers": self.tier_counts(),
+                "checks": [r.to_dict() for r in self.results],
+            },
+            indent=2,
+        )
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+
+def resolve_auth_type(harness: Path, app_name: str) -> str:
+    """Resolve --auth-type auto: registry.json is the intent source.
+
+    Falls back to core/auth.py presence for CLIs not yet registered
+    (e.g. validation right after scaffolding).
+    """
+    for parent in harness.parents:
+        registry_path = parent / "registry.json"
+        if not registry_path.is_file():
+            continue
+        try:
+            entries = json.loads(registry_path.read_text(encoding="utf-8")).get("clis", [])
+        except (OSError, json.JSONDecodeError):
+            break
+        for entry in entries:
+            if entry.get("name") == f"cli-web-{app_name}":
+                raw = str(entry.get("auth", "")).lower()
+                if raw == "none":
+                    return "none"
+                if "google" in raw:
+                    return "google-sso"
+                if "api" in raw and "key" in raw:
+                    return "api-key"
+                return "cookie"
+        break
+    auth_py = harness / "cli_web" / app_name.replace("-", "_") / "core" / "auth.py"
+    return "cookie" if auth_py.is_file() else "none"
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Validate cli-web-* CLI against quality checklist."
+    )
+    parser.add_argument("harness_dir", type=Path, help="Path to agent-harness directory")
+    parser.add_argument("--app-name", required=True, help="CLI app name (e.g., hackernews)")
+    parser.add_argument(
+        "--auth-type",
+        default="auto",
+        choices=["auto", "none", "cookie", "api-key", "google-sso"],
+        help="Auth type (default: auto — resolved from registry.json, "
+        "falling back to core/auth.py presence)",
+    )
+    parser.add_argument(
+        "--json", dest="json_mode", action="store_true", help="Output results as JSON"
+    )
+    parser.add_argument(
+        "--tier1-only",
+        dest="tier1_only",
+        action="store_true",
+        help="Run/report only Tier 1 (critical) checks — fail-fast mode",
+    )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="Exit non-zero on Tier 2 (comprehensive) failures too",
+    )
+
+    args = parser.parse_args()
+
+    harness = args.harness_dir.resolve()
+    if not harness.is_dir():
+        print(f"Error: {harness} is not a directory", file=sys.stderr)
+        sys.exit(1)
+
+    auth_type = args.auth_type
+    if auth_type == "auto":
+        auth_type = resolve_auth_type(harness, args.app_name)
+
+    v = Validator(harness, args.app_name, auth_type)
+    v.run_all()
+
+    if args.tier1_only:
+        v.results = [r for r in v.results if r.severity == "critical"]
+
+    if args.json_mode:
+        print(v.to_json())
+        tiers = v.tier_counts()
+        tier1_failures = tiers["critical"]["fail"]
+        tier2_failures = tiers["comprehensive"]["fail"]
+    else:
+        tier1_failures, tier2_failures = v.print_summary()
+
+    # Exit policy: Tier 1 failures always block; Tier 2 failures block only
+    # with --strict (otherwise they are warnings).
+    if tier1_failures > 0:
+        sys.exit(1)
+    if args.strict and tier2_failures > 0:
+        sys.exit(1)
+    sys.exit(0)
+
+
+if __name__ == "__main__":
+    main()

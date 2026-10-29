@@ -1,0 +1,123 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.c80361619.dipoleml-toolkit",
+  "type": "plugin",
+  "name": "DipoleML Toolkit",
+  "slug": "dipoleml-toolkit",
+  "vendor": "c80361619",
+  "description": "DipoleML 桌面客户端增强插件：思考档位配置（3.14+ 原生 optionSpecs）、用量图表全量、TPS 状态栏、思考强度滑条、一键增强提示词、设置页模型拉取。纯 Python 标准库，全部可检查、可精确还原、可在插件详情页逐项开关。",
+  "version": "0.6.22",
+  "homepage": "https://github.com/c80361619/zcode-toolkit",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "desktop-enhancement",
+    "electron",
+    "patch",
+    "prompt-engineering",
+    "reasoning-effort",
+    "zcode-plugin"
+  ],
+  "tags": [
+    "desktop-enhancement",
+    "electron",
+    "llm",
+    "patch",
+    "plugin",
+    "prompt-engineering",
+    "python",
+    "reasoning-effort",
+    "zcode",
+    "zcode-plugin"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "c80361619",
+    "brandName": "c80361619",
+    "source": "https://github.com/c80361619.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:12:25Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "c80361619/zcode-toolkit",
+    "url": "https://github.com/c80361619/zcode-toolkit",
+    "commit": "e8eea27513d88789d9ec25b6a54c9d96ddeee233",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 18,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:06:38Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "zcode",
+    "changes": [
+      {
+        "file": ".zcode-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/zcode/.zcode-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Zcode Toolkit | ZCode 桌面客户端增强插件：思考档位配置（3.14+ 原生 optionSpecs）、用量图表全量、TPS 状态栏、思考强度滑条、一键增强提示词、设置页模型拉取。纯 Python 标准库，全部可检查、可精确还原、可在插件详情页逐项开关。",
+        "after": "DipoleML Toolkit | DipoleML 桌面客户端增强插件：思考档位配置（3.14+ 原生 optionSpecs）、用量图表全量、TPS 状态栏、思考强度滑条、一键增强提示词、设置页模型拉取。纯 Python 标准库，全部可检查、可精确还原、可在插件详情页逐项开关。",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "ZCode 桌面客户端全方位原生体验增强套件：TPS 实时状态栏、思考强度悬浮滑条、提示词多模型智能润色、用量图表去截断、模型浮窗加宽与设置页模型拉取。内置客户端升级自动感知与无感自愈看护，全量幂等、安全可还原，支持按需逐项开关。",
+        "after": "DipoleML 桌面客户端全方位原生体验增强套件：TPS 实时状态栏、思考强度悬浮滑条、提示词多模型智能润色、用量图表去截断、模型浮窗加宽与设置页模型拉取。内置客户端升级自动感知与无感自愈看护，全量幂等、安全可还原，支持按需逐项开关。",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "zcode-toolkit",
+        "after": "dipoleml-toolkit",
+        "reason": "provider token neutralized in slug/id"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "zcode"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

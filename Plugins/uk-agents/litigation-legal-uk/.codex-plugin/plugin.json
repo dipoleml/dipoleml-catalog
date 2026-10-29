@@ -1,0 +1,15 @@
+{
+  "name": "litigation-legal-uk",
+  "version": "1.0.0",
+  "description": "Manages a UK litigation portfolio — matters, CPR deadlines, preservation notices, Letters Before Action, external solicitors and counsel — and does the work: claim charts (patent and civil under English law), chronologies, cross-examination prep, LPP logs, skeleton argument drafting. Adapts to how you work litigation in England & Wales, Scotland, and Northern Ireland: in-house, firm, or solo.",
+  "author": {
+    "name": "uk-agents"
+  },
+  "homepage": "https://bouch.dev/products/uk-legal-plugins/litigation-legal-uk",
+  "repository": "https://github.com/uk-agents/uk-legal-plugins",
+  "license": "MIT",
+  "displayName": "Litigation Legal UK",
+  "category": "legal",
+  "keywords": ["uk-law", "legal", "cpr", "litigation", "lba", "skeleton-argument", "lpp", "claim-chart", "english-procedure"],
+  "tags": ["litigation", "cpr", "uk-law", "legal"]
+}

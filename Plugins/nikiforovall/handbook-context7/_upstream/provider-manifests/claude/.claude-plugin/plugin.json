@@ -1,0 +1,19 @@
+{
+  "name": "handbook-context7",
+  "version": "1.19.5",
+  "description": "Context7 MCP server for fetching latest library documentation from official sources",
+  "author": {
+    "name": "nikiforovall",
+    "url": "https://github.com/nikiforovall"
+  },
+  "homepage": "https://nikiforovall.blog/claude-code-rules/",
+  "repository": "https://github.com/nikiforovall/claude-code-rules",
+  "license": "MIT",
+  "keywords": [
+    "documentation",
+    "context7",
+    "mcp",
+    "library-docs",
+    "api-reference"
+  ]
+}

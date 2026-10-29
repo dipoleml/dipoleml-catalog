@@ -1,0 +1,33 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Go Logic Schema",
+  "description": "Schema for the go logic type in Corezoid processes",
+  "type": "object",
+  "required": ["type", "to_node_id"],
+  "additionalProperties": false,
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": ["go"],
+      "description": "Specifies this is an unconditional routing logic block"
+    },
+    "to_node_id": {
+      "type": "string",
+      "description": "ID of the next node in the flow"
+    },
+    "chunkify": {
+      "type": ["boolean", "string", "number"],
+      "description": "Server-emitted execution flag. Not authored by hand — Corezoid adds it to deployed nodes, so pull-process round-trips carry it back. Declared here so the plugin's own pull -> edit -> lint -> push loop does not fail on its own output."
+    }
+  },
+  "examples": [
+    {
+      "type": "go",
+      "to_node_id": "6808a919513aa065de25250a"
+    },
+    {
+      "type": "go",
+      "to_node_id": "680a3bc3513aa065de6bf632"
+    }
+  ]
+}

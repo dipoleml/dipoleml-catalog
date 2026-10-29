@@ -1,0 +1,16 @@
+{
+  "name": "cache-meter",
+  "displayName": "Cache Meter",
+  "version": "0.0.1",
+  "description": "Prompt-cache meter above the prompt: the hit rate and the prompt as read + wrote + new, a live countdown to expiry, named misses, and when to /compact or /clear. Slash commands like /effort never reset it.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Francize"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/francize/my-better-claude/tree/main/plugins/cache-meter",
+  "repository": "https://github.com/francize/my-better-claude",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

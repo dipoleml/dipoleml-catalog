@@ -1,0 +1,113 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.nagisanzenin.engram",
+  "type": "plugin",
+  "name": "Engram",
+  "slug": "engram",
+  "vendor": "nagisanzenin",
+  "description": "Evidence-based learning engine — first-principles curricula, free-recall verification with receipts, FSRS-scheduled memory, and explorable artifacts. Learn anything; keep it.",
+  "version": "1.15.1",
+  "homepage": "https://github.com/nagisanzenin/engram",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "claude-code-plugin",
+    "education",
+    "fsrs",
+    "learning",
+    "learning-science",
+    "spaced-repetition"
+  ],
+  "tags": [
+    "claude-code",
+    "claude-code-plugin",
+    "education",
+    "fsrs",
+    "learning",
+    "learning-science",
+    "spaced-repetition"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "nagisanzenin",
+    "brandName": "nagisanzenin",
+    "source": "https://github.com/nagisanzenin.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:14:11Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "nagisanzenin/engram",
+    "url": "https://github.com/nagisanzenin/engram",
+    "commit": "0590eb8f008680acbfb5aaa4dbc73bf63ca643dd",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1465,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:58:45Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude,zcode",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".zcode-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/zcode/.zcode-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "opencode-engram-learning"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude",
+      "zcode"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

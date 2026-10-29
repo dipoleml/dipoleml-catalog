@@ -1,0 +1,16 @@
+{
+  "name": "solana-finance-dipoleml-plugin",
+  "displayName": "Solana Finance DipoleML Plugin",
+  "version": "1.2.0",
+  "description": "Develop financial products as Solana Programs in Anchor 1, 2 or Quasar. The companion plugin to the book \"Building Financial Software on Solana\".",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Quicknode"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/quicknode/solana-finance-claude-plugin",
+  "repository": "https://github.com/quicknode/solana-finance-claude-plugin",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

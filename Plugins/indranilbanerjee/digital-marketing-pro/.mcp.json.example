@@ -1,0 +1,108 @@
+{
+  "_readme": "OPTIONAL MCP integrations for Digital Marketing Pro. These connect to YOUR OWN accounts; the plugin works fully without any of them. This file is illustrative and never auto-loaded (the plugin ships no .mcp.json). Only packages the vendor itself publishes on npm, pinned to an exact version, get a runnable entry here; the list is scripts/_connector_registry.py VERIFIED_NPX_PACKAGES, and a test keeps this file in step with it. For most services, use the vendor's hosted HTTP server from .mcp.json.connectors-reference instead (no npx, works in Cowork). _vendor_hosted_http_instead maps services to the vendor's hosted entry there. Services in _no_verified_connector have neither: set them up from the vendor's own documentation, or wire a server you have vetted with /digital-marketing-pro:add-integration. To enable an entry, copy its block into your own .mcp.json and set its environment variables.",
+  "mcpServers": {
+    "pinecone": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@pinecone-database/mcp@0.3.0"
+      ],
+      "env": {
+        "PINECONE_API_KEY": "${PINECONE_API_KEY}"
+      },
+      "description": "Pinecone — vector database for brand RAG: store/search brand content, campaign archives, competitive data"
+    },
+    "dataforseo": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "dataforseo-mcp-server@3.1.3"
+      ],
+      "env": {
+        "DATAFORSEO_USERNAME": "${DATAFORSEO_USERNAME}",
+        "DATAFORSEO_PASSWORD": "${DATAFORSEO_PASSWORD}"
+      },
+      "description": "DataForSEO — live SERP data, keyword research, backlinks, on-page analysis, content analysis, competitor domains, AI visibility checking, LLM mention tracking. 9 API modules: SERP, Keywords Data, DataForSEO Labs, Backlinks, On-Page, Domain Analytics, Content Analytics, Business Data, App Data"
+    },
+    "deepl": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "deepl-mcp-server@1.3.14"
+      ],
+      "env": {
+        "DEEPL_API_KEY": "${DEEPL_API_KEY}"
+      },
+      "description": "DeepL — professional translation for 30+ languages, formality control, document translation, glossary support"
+    }
+  },
+  "_vendor_hosted_http_instead": {
+    "Ahrefs": "ahrefs",
+    "Amplitude": "amplitude",
+    "Asana": "asana",
+    "Canva": "canva",
+    "Figma": "figma",
+    "Google Ads": "google-ads-mcp (read-only)",
+    "HubSpot CRM": "hubspot",
+    "Klaviyo": "klaviyo",
+    "Meta Business Suite": "meta-ads",
+    "Notion": "notion",
+    "Slack": "slack",
+    "Stripe": "stripe",
+    "Webflow": "webflow"
+  },
+  "_no_verified_connector": [
+    "ActiveCampaign",
+    "BigQuery",
+    "Brandwatch",
+    "Brevo",
+    "ClickUp",
+    "Close",
+    "Copper",
+    "Customer.io",
+    "Freshsales",
+    "Google Analytics 4",
+    "Google Cloud Translation",
+    "Google Drive",
+    "Google Looker Studio",
+    "Google PageSpeed Insights",
+    "Google Search Console",
+    "Google Sheets",
+    "Instagram",
+    "Intercom",
+    "Jira",
+    "Keap",
+    "Lara Translate",
+    "Linear",
+    "LinkedIn",
+    "LinkedIn Marketing",
+    "Mailchimp",
+    "Mailgun",
+    "Marketo",
+    "Microsoft Dynamics 365",
+    "Mixpanel",
+    "Monday.com",
+    "Moz",
+    "Odoo",
+    "Optimizely",
+    "Pardot",
+    "Pinterest",
+    "Pipedrive",
+    "Qdrant",
+    "Salesforce",
+    "Sarvam AI",
+    "SEMrush",
+    "SendGrid",
+    "Shopify",
+    "Supabase",
+    "Supermemory",
+    "TikTok",
+    "TikTok Ads",
+    "Twilio",
+    "Twitter/X",
+    "WordPress",
+    "YouTube",
+    "Zep Graphiti",
+    "Zoho CRM"
+  ]
+}

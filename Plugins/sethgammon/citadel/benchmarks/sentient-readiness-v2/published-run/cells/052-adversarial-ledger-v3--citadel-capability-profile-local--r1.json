@@ -1,0 +1,113 @@
+{
+  "schema": 2,
+  "cell_id": "052-adversarial-ledger-v3--citadel-capability-profile-local--r1",
+  "order": 52,
+  "scenario_id": "adversarial-ledger-v3",
+  "policy_id": "citadel-capability-profile-local",
+  "repetition": 1,
+  "route": {
+    "capability_class": "strong",
+    "initial_tier": "strong",
+    "escalation_tier": null,
+    "reason_code": "CAPABILITY_STRONG"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "strong",
+      "started_at": "2026-08-01T03:51:12.242Z",
+      "duration_ms": 6940,
+      "output_text": "{\n  \"answer\": 81\n}",
+      "output_digest": "sha256:855bf15c767cc980abdfd902a467f61e5e277367afd7d92642d82db642b1f57b",
+      "answer": 81,
+      "verification": {
+        "status": "failed",
+        "verifier_id": "exact-answer-v1",
+        "answer_digest": "sha256:5316ca1c5ddca8e6ceccfce58f3b8540e540ee22f6180fb89492904051b3d531",
+        "failure_code": "ANSWER_DIGEST_MISMATCH"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "ollama-chat",
+        "requested_model": "qwen2.5-coder:7b",
+        "observed_model": "qwen2.5-coder:7b",
+        "model_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+        "done_reason": "stop",
+        "response_digest": "sha256:27777e86ca656d0cd2c5b7fccfe5fba8a28963c9fb17a4d3a2efb5e002cf202a",
+        "error": null
+      },
+      "usage": {
+        "prompt_tokens": 124,
+        "completion_tokens": 11,
+        "total_tokens": 135,
+        "provider_total_duration_ns": 6937747500
+      },
+      "economics": {
+        "provider_invoice": {
+          "status": "known",
+          "amount_usd": 0,
+          "source": "self_hosted_ollama_no_per_request_invoice"
+        },
+        "gpu_energy": {
+          "status": "measured",
+          "energy_kwh": 0.000104506,
+          "samples": 14,
+          "average_watts": 54.210714
+        },
+        "comparison_cost": {
+          "status": "derived-comparison",
+          "total_usd": 0.000040179,
+          "components": [
+            {
+              "kind": "gpu_electricity",
+              "status": "derived-comparison",
+              "amount_usd": 0.000020901,
+              "energy_kwh": 0.000104506,
+              "rate_usd_per_kwh": 0.2,
+              "source": "nvidia_smi_energy_times_frozen_scenario_rate"
+            },
+            {
+              "kind": "gpu_amortization",
+              "status": "derived-comparison",
+              "amount_usd": 0.000019278,
+              "residual_value_usd": 100,
+              "useful_compute_hours": 10000,
+              "source": "duration_times_frozen_residual_value_scenario"
+            },
+            {
+              "kind": "provider_invoice",
+              "status": "known",
+              "amount_usd": 0,
+              "source": "self_hosted_ollama_no_per_request_invoice"
+            },
+            {
+              "kind": "cpu_memory_storage_display_energy",
+              "status": "unknown",
+              "amount_usd": null,
+              "source": "not_measured"
+            }
+          ]
+        },
+        "actual_end_to_end_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "whole_system_energy_and_actual_utility_rate_not_observed"
+        }
+      }
+    }
+  ],
+  "status": "failed",
+  "final_verification": {
+    "status": "failed",
+    "verifier_id": "exact-answer-v1",
+    "answer_digest": "sha256:5316ca1c5ddca8e6ceccfce58f3b8540e540ee22f6180fb89492904051b3d531",
+    "failure_code": "ANSWER_DIGEST_MISMATCH"
+  },
+  "previous_cell_digest": "sha256:ab11a0d3f2a20e201bc73f3395b3083b12a20717933db5fb015da8f270098409",
+  "receipt_digest": "sha256:88004c758a413bb3fa73893010eb4818016e68c8bdf714edef1443c76b80fad3",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:4da350603bcb05e3c1e68c7235745daed57979c1f42a29d9194a6e7ab2cf75dc",
+    "signature": "MfjJIAvZgSA4Z2XswyDALnNICGGolc7cTjaQOd1vSvGtADkNKzSgmRhmm+pxFPPdcBykbTaKz/S/bYMPpB/9Cw=="
+  }
+}

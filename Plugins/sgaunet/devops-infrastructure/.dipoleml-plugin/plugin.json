@@ -1,0 +1,16 @@
+{
+  "name": "devops-infrastructure",
+  "displayName": "Devops Infrastructure",
+  "version": "0.7.0",
+  "description": "Infrastructure as Code (Terraform, Ansible, CloudFormation), CI/CD pipelines (GitHub Actions, GitLab CI, Forgejo Actions via fgj), and database specialists (PostgreSQL, MySQL) for DevOps workflows. Skills: analyze-db-performance (PostgreSQL query and index analysis).",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Sgaunet"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/sgaunet/claude-plugins#readme",
+  "repository": "https://github.com/sgaunet/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

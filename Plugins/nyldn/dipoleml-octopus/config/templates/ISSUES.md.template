@@ -1,0 +1,34 @@
+# Project Issues
+
+> Cross-session issue tracking for {{PROJECT_NAME}}
+
+## Open Issues
+
+| ID | Severity | Category | Description | Created | Phase |
+|----|----------|----------|-------------|---------|-------|
+| <!-- Issues will be appended here --> |
+
+## Resolved Issues
+
+| ID | Severity | Category | Description | Created | Resolved | Resolution |
+|----|----------|----------|-------------|---------|----------|------------|
+| <!-- Resolved issues moved here --> |
+
+---
+
+**Issue ID Format:** ISS-YYYYMMDD-NNN (e.g., ISS-20260203-001)
+
+**Severity Levels:**
+- critical: Blocks progress
+- high: Significant impact
+- medium: Should address
+- low: Nice to fix
+
+**Categories:**
+- logic-error: Incorrect behavior or wrong output
+- integration: Cross-component or API compatibility issues
+- quality-gate: Quality gate failures during workflows
+- security: Security vulnerabilities or concerns
+- performance: Speed, memory, or scalability issues
+- ux: User experience or usability problems
+- architecture: Structural or design pattern issues

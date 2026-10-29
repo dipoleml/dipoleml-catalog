@@ -1,0 +1,80 @@
+{
+  "schema": 1,
+  "kind": "citadel_optimizer_calibration_record",
+  "authorization_digest": "sha256:10eea416b5ec8da41229a0b48bb935f646d8e48950cddf3c51f5a092620a5919",
+  "scenario_set_id": "optimizer-scenarios-sha256:d9e0a9eab6c005ae8fdabbc69696397cecab2a0f45009b88357c989818103a7a",
+  "executor_set_id": "optimizer-executors-sha256:00f184d107a29f367a1cbfabea7ec01e1893692398f30afcdad2bcb400ded750",
+  "access_basis": "subscription",
+  "quota_budget": {
+    "max_cli_runs": 12,
+    "max_model_runtime_minutes": 620
+  },
+  "started_at": "2026-07-30T14:26:01.097Z",
+  "completed_at": "2026-07-30T14:40:04.720Z",
+  "status": "failed",
+  "planned_run_count": 12,
+  "completed_run_count": 2,
+  "stop_reason": "CALIBRATION_EVIDENCE_FAILED",
+  "runs": [
+    {
+      "scenario_id": "citadel-long-cost-provenance",
+      "profile_id": "codex-utility",
+      "selected_profile_id": "codex-utility",
+      "observed_profile_id": "codex-utility",
+      "requested_model": "gpt-5.6-luna",
+      "observed_model": "gpt-5.6-luna",
+      "model_proof_status": "passed",
+      "receipt_status": "verified",
+      "cost": {
+        "status": "known",
+        "amount_usd": 0.274007,
+        "provenance": "tool_reported",
+        "source": "citadel_optimizer_runner",
+        "source_ref": "summed_attempts:1",
+        "pricing_snapshot_digest": "sha256:25b513c37e29469432a02426ef9fee93c190489cfada0548ae6c3376ec4b5ae1",
+        "components": [
+          {
+            "kind": "model",
+            "amount_usd": 0.274007,
+            "source": "attempt_1:openai/gpt-5.6-luna token pricing"
+          }
+        ]
+      },
+      "task_outcome": "failed",
+      "task_verified": false,
+      "duration_ms": 114141,
+      "failure_code": "EXPECTED_ARTIFACTS_NOT_CHANGED",
+      "evidence_status": "passed"
+    },
+    {
+      "scenario_id": "citadel-long-cost-provenance",
+      "profile_id": "claude-workhorse",
+      "selected_profile_id": "claude-workhorse",
+      "observed_profile_id": "claude-workhorse",
+      "requested_model": "claude-sonnet-5",
+      "observed_model": null,
+      "model_proof_status": "unknown",
+      "receipt_status": "verified",
+      "cost": {
+        "status": "known",
+        "amount_usd": 2.913611,
+        "provenance": "tool_reported",
+        "source": "citadel_optimizer_runner",
+        "source_ref": "summed_attempts:1",
+        "pricing_snapshot_digest": null,
+        "components": [
+          {
+            "kind": "model",
+            "amount_usd": 2.9136108999999997,
+            "source": "attempt_1:claude total_cost_usd"
+          }
+        ]
+      },
+      "task_outcome": "passed",
+      "task_verified": false,
+      "duration_ms": 729468,
+      "failure_code": "EXECUTION_EVIDENCE_UNKNOWN",
+      "evidence_status": "failed"
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Forensics Triage"
+  short_description: "DFIR across disk, memory, network, cloud, identity"
+  default_prompt: "Use $forensics-triage to acquire, parse, and reconstruct an incident timeline with defensible evidence."

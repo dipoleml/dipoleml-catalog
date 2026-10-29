@@ -1,0 +1,30 @@
+__pycache__/
+*.py[cod]
+.coverage
+coverage.xml
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.npm-cache/
+.cache/
+node_modules/
+.shipproof-research-cache/
+.venv/
+venv/
+tests/tmp*/
+.tmp-*/
+tmp[0-9a-z]*/
+benchmarks/.work/*
+!benchmarks/.work/.gitkeep
+shipproof-report.*
+shipproof.sarif
+shipproof-self-scan.json
+.DS_Store
+Thumbs.db
+
+# harness local-only data
+.harness/.cache/
+.harness/local-capabilities.md
+
+# OpenAI Sites publishing adapter (maintained as its own source repository)
+.site-scaffold/

@@ -1,0 +1,74 @@
+{
+  "schema": 1,
+  "evidence_kind": "actual-run",
+  "scenario_set_id": "optimizer-scenarios-sha256:602e496906f3a293203750602234ba88a55a86b9e4f54f32239264098dcebe5b",
+  "metric_set_id": "optimizer-metrics-sha256:bedffbda2b18d725610b0f294a8273ef908237fd957bf9e51a5af4885b123e4f",
+  "scenario_id": "citadel-long-cost-provenance",
+  "category": "long_task",
+  "holdout": false,
+  "policy_id": "always-frontier",
+  "repetition": 1,
+  "decision_id": "sha256:56f724b8188d169af4c781367e5ab6f200b6404812e1a2845387b88fa86b6385",
+  "selected_profile_id": "claude-frontier",
+  "observed_profile_id": "claude-frontier",
+  "requested_model": "claude-opus-5",
+  "observed_model": "claude-opus-5",
+  "model_proof_status": "passed",
+  "started_at": "2026-07-30T22:16:25.045Z",
+  "duration_ms": 1035718,
+  "outcome": "passed",
+  "verified": true,
+  "attempts": 1,
+  "human_interventions": 0,
+  "topology": "single",
+  "cost": {
+    "status": "known",
+    "amount_usd": 2.953903,
+    "provenance": "tool_reported",
+    "source": "citadel_optimizer_runner",
+    "source_ref": "summed_attempts:1",
+    "pricing_snapshot_digest": null,
+    "components": [
+      {
+        "kind": "model",
+        "amount_usd": 2.9539026,
+        "source": "attempt_1:claude total_cost_usd"
+      }
+    ]
+  },
+  "artifact_paths": [
+    "core/forks/runtime.js",
+    "core/forks/executor-profiles.js",
+    "scripts/test-operation-fork-executors.js"
+  ],
+  "verification_receipts": [
+    {
+      "attempt": 1,
+      "profile_id": "claude-frontier",
+      "status": "passed",
+      "exit_code": 0,
+      "timed_out": false,
+      "output_digest": "sha256:0676e1fef8b2b217ca748f6431dd436838a5a380516c810d6d34829cd3f3cb53",
+      "output_excerpt": "[stdout]\nOperation Fork executors passed: schema 2 bindings, same-runtime isolation, honest model proof, tamper rejection, legacy compatibility, and shell-free Windows launch.\n\n[stderr]\n",
+      "output_truncated": false,
+      "patch_exit_code": 0,
+      "patch_digest": "sha256:60f961fbc47f37bd42d1d124bdec41bc922dacad1e28ea4a697c0f6ea4e34f0c",
+      "patch_excerpt": " 0.42, unit: 'usd', source: 'claude-json' });\n+assert.equal(reported.cost_status, 'known');\n+assert.equal(reported.cost_basis, 'reported');\n+const derived = costState({ amount: 0.25, unit: 'usd', source: 'claude-model-usage' });\n+assert.equal(derived.cost.amount, 0.25);\n+assert.equal(derived.cost_status, 'known');\n+assert.equal(derived.cost_basis, 'derived');\n+for (const [label, state] of [\n+  ['no cost', costState(null)],\n+  ['untrusted', costState({ amount: 0.42, unit: 'usd', source: 'claude-json' }, { trusted: false })],\n+  ['unattributable source', costState({ amount: 0.42, unit: 'usd', source: 'operator-estimate' })],\n+  ['inherited source key', costState({ amount: 0.42, unit: 'usd', source: 'constructor' })],\n+  ['negative amount', costState({ amount: -1, unit: 'usd', source: 'claude-json' })],\n+]) {\n+  assert.equal(state.cost, null, `${label} must not display a cost`);\n+  assert.equal(state.cost_status, 'unknown', label);\n+  assert.equal(state.cost_basis, 'unavailable', label);\n+}\n+assert.equal(costState({ amount: 0, unit: 'usd', source: 'claude-json' }).cost_basis, 'reported',\n+  'a runtime that reports zero is reported, not unavailable');\n \n const replay = profiles.publicExecutorReplay({ profile: local, observation: null, wrapper });\n const serialized = JSON.stringify(replay);\n@@ -184,5 +216,13 @@ for (const forbidden of ['signature', 'private', 'raw_output', 'env', 'command',\n   assert(!serialized.includes(forbidden), `public executor replay leaked ${forbidden}`);\n }\n assert.equal(replay.model_status, 'unknown');\n-\n-process.stdout.write('Executor profiles passed: strict profiles, canonical digests, literal invocations, bound receipts, and honest model proof.\\n');\n+assert.equal(replay.cost_status, 'unknown');\n+assert.equal(replay.cost_basis, 'unavailable');\n+assert.equal(replay.cost, undefined, 'public replay states the basis, never the amount');\n+assert.equal(profiles.publicExecutorReplay({\n+  profile: claude, wrapper,\n+  observation: { model: claude.model, trusted: true, source: 'claude-json',\n+    cost: { amount: 0.25, unit: 'usd', source: 'claude-model-usage' } },\n+}).cost_basis, 'derived');\n+\n+process.stdout.write('Executor profiles passed: strict profiles, canonical digests, literal invocations, bound receipts, honest model proof, and cost provenance.\\n');\ndiff --git a/scripts/test-operation-fork-executors.js b/scripts/test-operation-fork-executors.js\nindex 4adcc63..816b642 100644\n--- a/scripts/test-operation-fork-executors.js\n+++ b/scripts/test-operation-fork-executors.js\n@@ -54,6 +54,11 @@ const OBSERVATIONS = {\n   'branch-codex-hosted': { model: 'gpt-4.1', trusted: true, source: 'codex-jsonl', cost: null,\n     duration_ms: null, tokens: null },\n   'branch-codex-local-qwen': null,\n+  // Legacy schema 1 branch: the runtime declared no model but did declare a\n+  // per-model cost breakdown, so cost provenance is derived while the model\n+  // proof honestly stays unknown.\n+  'branch-claude': { model: null, trusted: true, source: 'claude-json',\n+    cost: { amount: 0.25, unit: 'usd', source: 'claude-model-usage' }, duration_ms: 1000, tokens: 900 },\n };\n \n // Current Codex exec JSONL exposes the thread ID and usage, while the resolved\n@@ -91,6 +96,39 @@ fs.writeFileSync(path.join(duplicateSession, `rollout-duplicate-${codexThreadId}\n   JSON.stringify({ type: 'turn_context', payload: { cwd: project, model: 'gpt-5.6-sol' } }) + '\\n');\n assert.equal(forks.findCodexSessionFile(codexThreadId, { CODEX_HOME: codexHome }), null,\n   'duplicate runtime sessions must fail closed');\n+// Codex declares token usage but never money, and tokens are never priced.\n+assert.equal(codexObserved.cost, null);\n+\n+// Claude declares spend in its result object. A reported total is used as-is; a\n+// complete per-model breakdown is summed and marked derived; an incomplete\n+// breakdown produces no cost rather than an understated one.\n+function claudeObserved(payload) {\n+  return forks.observeRuntime('claude', { status: 0, stdout: JSON.stringify(payload) });\n+}\n+const claudeReported = claudeObserved({\n+  model: 'claude-sonnet-4-5', total_cost_usd: 0.42, duration_ms: 1000,\n+  usage: { input_tokens: 800, output_tokens: 100 },\n+  modelUsage: { 'claude-sonnet-4-5': { costUSD: 0.19 } },\n+});\n+assert.deepEqual(claudeReported.cost, { amount: 0.42, unit: 'usd', source: 'claude-json' },\n+  'a declared total outranks the per-model breakdown');\n+assert.equal(claudeReported.tokens, 900);\n+const claudeDerived = claudeObserved({\n+  model: 'claude-sonnet-4-5', duration_ms: 900,\n+  modelUsage: { 'claude-sonnet-4-5': { costUSD: 0.2 }, 'claude-haiku-4-5': { costUSD: 0.05 } },\n+});\n+assert.equal(claudeDerived.cost.source, 'claude-model-usage');\n+assert.equal(Math.round(claudeDerived.cost.amount * 100) / 100, 0.25);\n+for (const [label, payload] of [\n+  ['silent result', { model: 'claude-sonnet-4-5', duration_ms: 900 }],\n+  ['partial breakdown', { model: 'claude-sonnet-4-5',\n+    modelUsage: { 'claude-sonnet-4-5': { costUSD: 0.2 }, 'claude-haiku-4-5': { outputTokens: 40 } } }],\n+  ['empty breakdown', { model: 'claude-sonnet-4-5', modelUsage: {} }],\n+  ['unusable total', { model: 'claude-sonnet-4-5', total_cost_usd: 'free' }],\n+  ['negative total', { model: 'claude-sonnet-4-5', total_cost_usd: -1 }],\n+]) {\n+  assert.equal(claudeObserved(payload).cost, null, `${label} must not produce a cost`);\n+}\n \n const provider = forks.createGitWorktreeProvider();\n function fakeRun(options) {\n@@ -159,9 +197,20 @@ assert.equal(byId.get('branch-claude-sonnet').model_status, 'passed');\n assert.equal(byId.get('branch-claude-sonnet').observed_model, 'claude-sonnet-4-5');\n assert.equal(byId.get('branch-claude-sonnet').receipt_status, 'verified');\n assert.equal(byId.get('branch-claude-sonnet').cost.amount, 0.42);\n+assert.equal(byId.get('branch-claude-sonnet').cost_status, 'known');\n+assert.equal(byId.get('branch-claude-sonnet').cost_basis, 'reported');\n assert.equal(byId.get('branch-codex-hosted').model_status, 'failed');\n assert.equal(byId.get('branch-codex-hosted').cost, null);\n assert.equal(byId.get('branch-codex-hosted').cost_status, 'unknown');\n+assert.equal(byId.get('branch-codex-hosted').cost_basis, 'unavailable');\n+assert.equal(byId.get('branch-codex-local-qwen').cost_basis, 'unavailable');\n+// The displayed amount is the one the signed telemetry and the public record\n+// both carry: cost is a digest-bound comparison fact, not a re-read of stdout.\n+const storedTelemetry = JSON.parse(fs.readFileSync(path.join(project, '.planning', 'operation-forks',\n+  'fork-executors', 'telemetry', 'branch-claude-sonnet.json'), 'utf8'));\n+assert.deepEqual(storedTelemetry.cost, { amount: 0.42, unit: 'usd', source: 'claude-json' });\n+assert.deepEqual(fork.branches.find((branch) => branch.branch_id === 'branch-claude-sonnet').cost,\n+  storedTelemetry.cost);\n assert.equal(byId.get('branch-codex-local-qwen').model_status, 'unknown');\n assert.equal(byId.get('branch-codex-local-qwen').observed_model, null);\n assert.equal(byId.get('branch-codex-local-qwen').requested_model, 'qwen3-coder:30b');\n@@ -307,6 +356,14 @@ assert.equal(fs.existsSync(path.join(project, '.planning', 'operation-forks', 'f\n const legacyStates = forks.executorStates(project, forks.loadFork(project, 'fork-legacy'));\n assert.deepEqual(legacyStates.map((state) => state.requested_model), ['default', 'default']);\n assert.deepEqual(legacyStates.map((state) => state.model_status), ['unknown', 'unknown']);\n+// Cost provenance survives on a schema 1 fork and stays independent of the\n+// model proof: a derived cost is reportable even where identity is unknown.\n+assert.deepEqual(legacyStates.map((state) => state.cost_basis), ['derived', 'unavailable']);\n+assert.deepEqual(legacyStates.map((state) => state.cost_status), ['known', 'unknown']);\n+assert.equal(legacyStates[0].cost.amount, 0.25);\n+assert.equal(legacyStates[0].cost.source, 'claude-model-usage');\n+const legacyReplay = forks.executorReplay(project, forks.loadFork(project, 'fork-legacy'));\n+assert.deepEqual(legacyReplay.map((entry) => entry.cost_basis), ['derived', 'unavailable']);\n \n // The two selection forms cannot be combined, and the conflict is rejected\n // before any planning state exists.\n",
+      "patch_truncated": true,
+      "changed_paths": [
+        "core/forks/executor-profiles.js",
+        "core/forks/runtime.js",
+        "docs/EXECUTOR_PROFILES.md",
+        "scripts/test-executor-profiles.js",
+        "scripts/test-operation-fork-executors.js"
+      ]
+    }
+  ],
+  "receipt_status": "verified",
+  "adversarial_result": null,
+  "failure_code": null,
+  "attestation": {
+    "algorithm": "ed25519",
+    "signature_base64": "8+9VzbkVKmX5lK127+jBHmcohgTO3Xs5ksN5N3CvY0v3LUFm+RNX3ZPqH37yso7/vAo4lF/q/96KtV8+bz9zDQ=="
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "riff",
+  "displayName": "Riff",
+  "version": "2.4.8",
+  "description": "Nine opinionated skills for writing personal essays with DipoleML.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Benjaroy"
+  },
+  "license": "MIT",
+  "homepage": "https://benroy.substack.com",
+  "repository": "https://github.com/benjaroy/riff",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

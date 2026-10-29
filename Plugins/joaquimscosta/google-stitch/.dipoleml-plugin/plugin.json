@@ -1,0 +1,16 @@
+{
+  "name": "google-stitch",
+  "displayName": "Google Stitch",
+  "version": "2.0.0",
+  "description": "DipoleML + Google Stitch workflow toolkit with MCP integration (prompt authoring, screen generation, design extraction)",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Joaquimscosta"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/joaquimscosta/arkhe-claude-plugins",
+  "repository": "https://github.com/joaquimscosta/arkhe-claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

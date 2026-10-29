@@ -1,0 +1,209 @@
+import { useCallback, useEffect, useState } from 'react'
+import { Box, Button, Flex, IconButton, Spinner, Text, Tooltip } from '@chakra-ui/react'
+import { CheckIcon, ChevronRightIcon, CopyIcon } from '@chakra-ui/icons'
+import { api } from '../api/client'
+import { copyTextToClipboard } from '../utils/clipboard'
+import { toast } from '../utils/toast'
+import { MarkdownIcon } from './Icons'
+import { MarkdownPreview } from './ViewMarkdownPanel/MarkdownPreview'
+import { markdownPanelBodySx } from './ViewMarkdownPanel/styles'
+import { MermaidHeaderActionsContext } from './ViewMarkdownPanel/mermaidContext'
+
+type MermaidPaneState =
+  | { status: 'idle'; markdown: string; warnings: string[]; error: '' }
+  | { status: 'loading'; markdown: string; warnings: string[]; error: '' }
+  | { status: 'ready'; markdown: string; warnings: string[]; error: '' }
+  | { status: 'error'; markdown: string; warnings: string[]; error: string }
+
+// The backend projects a bounded Mermaid diagram from the full canvas scene.
+export default function RepositoryChangeMermaid({
+  embeddedMarkdown,
+  repositoryId,
+  comparisonKey,
+  version,
+  plain,
+  open,
+  collapsed = false,
+  onExpand,
+  onDock,
+}: {
+  embeddedMarkdown?: string
+  repositoryId: string
+  comparisonKey: string
+  version?: string
+  /** Applies change-focused, flat Mermaid presentation. */
+  plain: boolean
+  open: boolean
+  /** Rail form: show only the Markdown expand button. */
+  collapsed?: boolean
+  /** Whether the pane is covering the canvas. */
+  overlay?: boolean
+  onExpand?: () => void
+  onDock?: () => void
+}) {
+  const [remoteState, setState] = useState<MermaidPaneState>({ status: 'idle', markdown: '', warnings: [], error: '' })
+  const state: MermaidPaneState = embeddedMarkdown == null ? remoteState : { status: 'ready', markdown: embeddedMarkdown, warnings: [], error: '' }
+  const [copied, setCopied] = useState(false)
+  const [zoom, setZoom] = useState(1)
+
+  useEffect(() => {
+    if (embeddedMarkdown != null || !open || !repositoryId || !comparisonKey) return undefined
+    const controller = new AbortController()
+    setState({ status: 'loading', markdown: '', warnings: [], error: '' })
+    void api.repositories
+      .impactMermaid(repositoryId, comparisonKey, { plain, markdown: true, signal: controller.signal })
+      .then((result) => {
+        if (!controller.signal.aborted) setState({ status: 'ready', markdown: result.markdown, warnings: result.warnings, error: '' })
+      })
+      .catch((err: unknown) => {
+        if (controller.signal.aborted || (err instanceof Error && err.name === 'AbortError')) return
+        setState({ status: 'error', markdown: '', warnings: [], error: err instanceof Error ? err.message : 'Could not load the change diagram' })
+      })
+    return () => controller.abort()
+  }, [open, repositoryId, comparisonKey, version, plain, embeddedMarkdown])
+
+  useEffect(() => {
+    setCopied(false)
+    setZoom(1)
+  }, [state.markdown])
+
+  const handleCopy = useCallback(async () => {
+    if (!state.markdown) return
+    try {
+      await copyTextToClipboard(state.markdown)
+      setCopied(true)
+      toast({ status: 'success', title: 'Copied change diagram as Markdown' })
+    } catch {
+      toast({ status: 'error', title: 'Copy failed', description: 'Could not write the change diagram to the clipboard.' })
+    }
+  }, [state.markdown])
+
+  if (collapsed) {
+    return (
+      <Flex
+        direction="column"
+        w="full"
+        h="full"
+        minW={0}
+        minH={0}
+        flexShrink={0}
+        gap={2}
+        align="center"
+        justify="center"
+        bg="var(--bg-canvas)"
+        borderLeft="1px solid"
+        borderColor="whiteAlpha.100"
+        data-testid="repository-change-mermaid-pane"
+      >
+        <Tooltip label="Expand change diagram" placement="left" openDelay={200}>
+          <IconButton
+            size="xs"
+            variant="ghost"
+            color="var(--accent)"
+            aria-label="Expand change diagram"
+            icon={<MarkdownIcon size={24} />}
+            w="32px"
+            h="32px"
+            onClick={onExpand}
+            data-testid="repository-change-mermaid-expand"
+          />
+        </Tooltip>
+      </Flex>
+    )
+  }
+
+  return (
+    <Flex
+      direction="column"
+      h="full"
+      minW={0}
+      minH={0}
+      flexShrink={0}
+      bg="var(--bg-canvas)"
+      borderLeft="1px solid"
+      borderColor="whiteAlpha.100"
+      data-testid="repository-change-mermaid-pane"
+    >
+
+      <Flex
+        px={3}
+        h="40px"
+        flexShrink={0}
+        gap={2}
+        align="center"
+        borderBottom="1px solid"
+        borderColor="whiteAlpha.100"
+      >
+        <Tooltip label="Collapse change diagram to rail" placement="bottom" openDelay={200}>
+          <IconButton
+            size="xs"
+            variant="ghost"
+            aria-label="Collapse change diagram to rail"
+            icon={<ChevronRightIcon />}
+            onClick={onDock}
+            data-testid="repository-change-mermaid-dock"
+          />
+        </Tooltip>
+        <Box flex={1} />
+
+        <Button
+          size="xs"
+          variant="ghost"
+          color={copied ? 'green.300' : 'gray.300'}
+          leftIcon={copied ? <CheckIcon /> : <CopyIcon />}
+          isDisabled={!state.markdown}
+          onClick={() => void handleCopy()}
+          data-testid="repository-change-mermaid-copy"
+          whiteSpace="nowrap"
+        >
+          Copy as Markdown
+        </Button>
+      </Flex>
+      <Box
+        flex={1}
+        minH={0}
+        overflow="auto"
+        bg="var(--bg-main)"
+        sx={{
+          ...markdownPanelBodySx,
+          '& .tld-markdown-preview': { padding: 0, minHeight: 0 },
+          '& .tld-mermaid-preview': { margin: 0, border: 0, borderRadius: 0, overflow: 'visible', background: 'var(--bg-main)' },
+          '& .tld-mermaid-preview__header': { position: 'sticky', top: 0, left: 0, zIndex: 1 },
+          '& .tld-mermaid-preview__body': { padding: 0, minHeight: 0, overflow: 'visible' },
+          '.tld-mermaid-preview__body > div': { width: `${zoom * 100}%` },
+          '.tld-mermaid-preview__body svg': { display: 'block', width: '100%', maxWidth: 'none !important', height: 'auto', margin: 0 },
+        }}
+        data-testid="repository-change-mermaid"
+      >
+        {state.status === 'loading' ? (
+          <Flex h="full" align="center" justify="center">
+            <Spinner size="sm" color="var(--accent)" />
+          </Flex>
+        ) : state.status === 'error' ? (
+          <Text p={4} fontSize="sm" color="red.300">
+            {state.error}
+          </Text>
+        ) : state.markdown ? (
+          <Box>
+            {state.warnings.length > 0 && (
+              <Text mb={2} fontSize="xs" color="orange.300">
+                {state.warnings.join(' ')}
+              </Text>
+            )}
+            <MermaidHeaderActionsContext.Provider value={<>
+              <Button size="xs" variant="ghost" aria-label="Zoom out diagram" isDisabled={zoom <= 0.5} onClick={() => setZoom((value) => Math.max(0.5, value - 0.25))}>−</Button>
+              <Button size="xs" variant="ghost" aria-label="Reset diagram zoom" onClick={() => setZoom(1)}>{Math.round(zoom * 100)}%</Button>
+              <Button size="xs" variant="ghost" aria-label="Zoom in diagram" isDisabled={zoom >= 4} onClick={() => setZoom((value) => Math.min(4, value + 0.25))}>+</Button>
+            </>}>
+              <MarkdownPreview markdown={state.markdown} />
+            </MermaidHeaderActionsContext.Provider>
+          </Box>
+        ) : (
+          <Text p={4} fontSize="sm" color="gray.500">
+            No change diagram to preview yet.
+          </Text>
+        )}
+      </Box>
+    </Flex>
+  )
+}

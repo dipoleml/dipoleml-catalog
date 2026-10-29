@@ -1,0 +1,133 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.kanfu-panda.pdlc-skills",
+  "type": "plugin",
+  "name": "Pdlc Skills",
+  "slug": "pdlc-skills",
+  "vendor": "kanfu-panda",
+  "description": "Skills that make your AI coding agent prove its work: PRD → TDD → implement → review → ship, where exit codes — not the AI saying \"done\" — decide every step. A DipoleML plugin, plus one-command install for Codex, GitHub Copilot, Cursor, Gemini CLI and other Agent Skills tools.",
+  "version": "1.7.17",
+  "homepage": "https://github.com/kanfu-panda/pdlc-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agent-skills",
+    "agentic-workflow",
+    "ai-coding",
+    "claude-plugin",
+    "claude-skills",
+    "code-generation",
+    "codex",
+    "cursor",
+    "devtools"
+  ],
+  "tags": [
+    "agent-skills",
+    "agentic-workflow",
+    "ai-agent",
+    "ai-coding",
+    "claude-code",
+    "claude-plugin",
+    "claude-skills",
+    "code-generation",
+    "codex",
+    "cursor",
+    "devtools",
+    "gemini-cli",
+    "github-copilot",
+    "llm-tools",
+    "prd",
+    "slash-commands",
+    "tdd"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "github",
+    "brandName": "github",
+    "source": "https://cdn.simpleicons.org/github",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:13:39Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "kanfu-panda/pdlc-skills",
+    "url": "https://github.com/kanfu-panda/pdlc-skills",
+    "commit": "ef05bf20f9dc82fa5b90b9df7f11fb7d63d1d3fb",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 18,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:50:54Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Pdlc Skills | Skills that make your AI coding agent prove its work: PRD → TDD → implement → review → ship, where exit codes — not the AI saying \"done\" — decide every step. A Claude Code plugin, plus one-command install for Codex, GitHub Copilot, Cursor, Gemini CLI and other Agent Skills tools.",
+        "after": "Pdlc Skills | Skills that make your AI coding agent prove its work: PRD → TDD → implement → review → ship, where exit codes — not the AI saying \"done\" — decide every step. A DipoleML plugin, plus one-command install for Codex, GitHub Copilot, Cursor, Gemini CLI and other Agent Skills tools.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Turn AI software engineering into an auditable, on-disk state machine. A staged PDLC workflow (PRD, design, TDD, implement, review, ship, retro) enforces hard contracts — artifacts on disk, per-feature state machine, tests-before-code, objective checks from real command exit codes, single-shot auto-repair — so AI work produces real, reviewable files instead of chat-only output. Because the checks are objective, an autonomous loop can drive tdd→implement→review to convergence unattended (fail-stop / budget guards); because the state machine lives in your repo, it's tool-agnostic — richest integration in Claude Code, plus Codex and others via adapters.",
+        "after": "Turn AI software engineering into an auditable, on-disk state machine. A staged PDLC workflow (PRD, design, TDD, implement, review, ship, retro) enforces hard contracts — artifacts on disk, per-feature state machine, tests-before-code, objective checks from real command exit codes, single-shot auto-repair — so AI work produces real, reviewable files instead of chat-only output. Because the checks are objective, an autonomous loop can drive tdd→implement→review to convergence unattended (fail-stop / budget guards); because the state machine lives in your repo, it's tool-agnostic — richest integration in DipoleML, plus Codex and others via adapters.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

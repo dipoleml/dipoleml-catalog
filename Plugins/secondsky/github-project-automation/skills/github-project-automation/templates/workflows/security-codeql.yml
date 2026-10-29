@@ -1,0 +1,71 @@
+# CodeQL Security Scanning Workflow
+# Prevents Error #13 (CodeQL not running on Dependabot PRs), #15 (compiled language setup)
+#
+# Triggers on: push, pull requests, schedule
+# Scans: JavaScript/TypeScript (add languages as needed)
+# Frequency: Weekly scan on schedule
+
+name: CodeQL Security Scan
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  schedule:
+    # Run weekly on Sundays at 00:00 UTC
+    - cron: '0 0 * * 0'
+
+# Least privilege: read access for source checkout plus write access only
+# for uploading SARIF results to the security tab.
+permissions:
+  contents: read
+  actions: read
+  security-events: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  analyze:
+    name: Analyze Code
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+
+    strategy:
+      fail-fast: false
+      matrix:
+        # Supported languages: 'c-cpp', 'csharp', 'go', 'java-kotlin', 'javascript-typescript', 'python', 'ruby', 'swift'
+        language: ['javascript-typescript']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@5595ccaf912efad79be6eef63a5619ff05969be3  # v4.37.6
+        with:
+          languages: ${{ matrix.language }}
+          # Optionally specify additional queries
+          # queries: security-extended,security-and-quality
+
+      # For compiled languages (Java, C++, C#), add build steps here:
+      # - name: Build project
+      #   run: |
+      #     ./mvnw clean install  # For Java/Maven
+      #     # OR
+      #     dotnet build          # For C#
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@5595ccaf912efad79be6eef63a5619ff05969be3  # v4.37.6
+        with:
+          category: "/language:${{ matrix.language }}"
+
+      - name: Upload SARIF results
+        uses: github/codeql-action/upload-sarif@5595ccaf912efad79be6eef63a5619ff05969be3  # v4.37.6
+        if: always()
+        with:
+          sarif_file: ../results

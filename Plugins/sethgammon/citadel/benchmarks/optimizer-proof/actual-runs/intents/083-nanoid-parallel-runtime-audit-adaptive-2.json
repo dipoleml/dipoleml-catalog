@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "kind": "citadel_optimizer_matrix_intent",
+  "authorization_digest": "sha256:b17292a5a08b6ea705f82d5c265e047aa65bb9f774d2fc5ea085648e0fdab1eb",
+  "ordinal": 83,
+  "run_key": "nanoid-parallel-runtime-audit/adaptive/2",
+  "scenario_id": "nanoid-parallel-runtime-audit",
+  "policy_id": "adaptive",
+  "repetition": 2,
+  "state": "completed",
+  "started_at": "2026-07-31T04:05:29.183Z",
+  "completed_at": "2026-07-31T04:05:33.418Z",
+  "output_file": "records/083-nanoid-parallel-runtime-audit-adaptive-2.json",
+  "error": null
+}

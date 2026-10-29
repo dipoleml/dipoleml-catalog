@@ -1,0 +1,275 @@
+---
+name: check
+description: Quick-check code against ADRs and specs for drift. Use when the user says "check for drift", "does this match the spec", or wants a fast alignment check on a specific file or directory.
+allowed-tools: Bash, Read, Glob, Grep
+argument-hint: "[target] [--module <name>]"
+---
+
+# Quick Drift Check
+
+> **Harness portability.** This skill runs on any agent harness that loads Agent Skills — Claude Code, Codex CLI, OpenCode, Crush. Tool names used below (`AskUserQuestion`, `Task`, `TeamCreate`, `SendMessage`, `TaskCreate`, `ToolSearch`, `mcp__*`, `${CLAUDE_PLUGIN_ROOT}`) denote *capabilities*, not hard requirements: map each to your harness's equivalent or use the documented fallback per `${CLAUDE_PLUGIN_ROOT}/references/harness-compat.md`. References to `CLAUDE.md` mean the project memory file (`CLAUDE.md`, `AGENTS.md`, or `CRUSH.md`) per harness-compat § "Project Memory File". A citation of the form `shared-patterns.md § "Section"` names one `##` heading in that file — load only that section (see its "How to Read This File" note), never the whole file. **Invocation and arguments.** Where your harness has no command layer (Crush, Codex CLI, OpenCode) this skill is reached from its `description`, not a slash command: the `/sdd:{name}` form below is Claude Code namespacing. `$ARGUMENTS` means whatever arrived with the invocation: take the target and any `--flags` from the request that triggered this skill, and when neither is present follow this skill's documented no-argument path instead of reporting missing arguments (harness-compat § "Invocation and Arguments").
+
+You are performing a fast, focused drift check on a specific target. This skill detects whether code aligns with its governing ADRs and specs.
+
+## Process
+
+<!-- Governing: ADR-0016 (Workspace Mode), SPEC-0014 REQ "Artifact Path Resolution" -->
+
+0. **Resolve artifact paths**: Follow the **Artifact Path Resolution** pattern from `${CLAUDE_PLUGIN_ROOT}/references/shared-patterns.md` § "Artifact Path Resolution" to determine the ADR, spec, and PRD directories. If `$ARGUMENTS` contains `--module <name>`, resolve paths relative to that module; otherwise, in a workspace, aggregate across all modules. The resolved ADR directory is `{adr-dir}`, spec directory is `{spec-dir}`, and PRD directory is `{prd-dir}` (default `docs/prds/`, per ADR-0036). PRDs are optional: when `{prd-dir}` does not exist, skip every PRD check silently.
+
+   <!-- Governing: ADR-0016 (Workspace Mode), SPEC-0014 REQ "Cross-Module Aggregation" -->
+
+   **Cross-module aggregation**: When in aggregate mode (no `--module`, workspace detected), check all modules and group findings by module in the output. Add a `Module` column to the findings table and organize findings under per-module subheadings. When `--module` is provided, check only that module — no module labels needed. When in single-module mode (no workspace), operate normally.
+
+   0a. **Resolve the project constitution**: Follow `${CLAUDE_PLUGIN_ROOT}/references/shared-patterns.md` § "Constitution Resolution" once for the run; the resolved file is `{constitution-path}` and its parsed rules are `{constitution}`. In aggregate mode, resolve per module. When a project has no constitution, skip step 5b silently: no finding, no output line, no suggestion to create one (Governing: ADR-0037).
+
+1. **Parse the target**: Extract the target from `$ARGUMENTS`.
+   - A file path: `src/auth/login.ts`
+   - A directory path: `src/auth/`
+   - An ADR reference: `ADR-0001`
+   - A SPEC reference: `SPEC-0001`
+   - If `$ARGUMENTS` is empty, check all artifacts against the entire codebase.
+
+2. **Validate the target exists**:
+   - For file/directory targets: verify the path exists. If not, report: "Target not found: `{target}`. Provide a valid file path, directory, ADR reference (ADR-XXXX), or SPEC reference (SPEC-XXXX)."
+   - For ADR references: glob `{adr-dir}/ADR-{number}-*.md`. If not found, report: "ADR-{XXXX} not found in `{adr-dir}`. Run `/sdd:list adr` to see available ADRs."
+   - For SPEC references: glob `{spec-dir}/*/spec.md` and search for the matching SPEC number. If not found, report: "SPEC-{XXXX} not found in `{spec-dir}`. Run `/sdd:list spec` to see available specs."
+
+3. **Locate design artifacts**:
+   - Scan `{adr-dir}` for ADR files. If the directory does not exist, report: "The `{adr-dir}` directory does not exist. Run `/sdd:adr [description]` to create your first ADR."
+   - Scan `{spec-dir}` for spec files. If the directory does not exist, report: "The `{spec-dir}` directory does not exist. Run `/sdd:spec [capability]` to create your first spec."
+   - If neither ADRs nor specs exist, report: "No design artifacts found. Create an ADR with `/sdd:adr` or a spec with `/sdd:spec` first."
+   - It is valid for only ADRs or only specs to exist -- proceed with whatever is available.
+
+3a. **Tier 3 staleness check** (v5.0.0+):
+
+   <!-- Governing: ADR-0026 (Tiered Index Freshness), SPEC-0019 REQ "Tier 3 Staleness Threshold for Consumer Skills" -->
+
+   On entry, check the qmd index's last-modified timestamp for this repo's collections (use the exact-prefix match algorithm from `${CLAUDE_PLUGIN_ROOT}/references/qmd-helpers.md` § "This-Repo Collection Identification" to identify them, then take the maximum `lastUpdated` across them). If that timestamp is older than the configured staleness threshold, run a silent `qmd update` first.
+
+   The threshold default is **120 minutes** and is configurable in CLAUDE.md `### SDD Configuration` `#### Index Freshness` `**Staleness Threshold**` (e.g., `30m`, `4h`). Read it via the **Config Resolution** pattern in `${CLAUDE_PLUGIN_ROOT}/references/shared-patterns.md` § "Config Resolution".
+
+   On stale → update path, emit a one-line note in the report header: `Index was {age} stale — refreshed before running.` On fresh, proceed silently. On qmd update failure, surface the error per `${CLAUDE_PLUGIN_ROOT}/references/qmd-helpers.md` § "Error Handling" and continue (best-effort; the check still runs against the existing index).
+
+4. **Determine relevant artifacts**:
+
+   <!-- Governing: ADR-0024 (qmd as hard dependency), SPEC-0019 REQ "qmd-Smart Drift Skills" -->
+
+   Use qmd hybrid retrieval to identify the top-K candidate ADRs and specs governing the target before reading any artifact in full. The pre-v5 "read all ADRs and specs to find which ones govern the target" path is removed in v5.0.0 — qmd retrieval is the canonical mechanism.
+
+   - **If the target is a file or directory**: construct a hybrid query per `${CLAUDE_PLUGIN_ROOT}/references/qmd-helpers.md` § "Hybrid Retrieval" derived from the target's content. The query SHOULD include:
+     - `lex`: the file path basename, exported symbol names from a quick scan, and any `Governing:` comment block content (if present)
+     - `vec`: a one-sentence summary of what the target file/dir does (e.g., for `src/auth/login.go` → "user authentication via JWT-based session login flow")
+     - `intent: "/sdd:check {target} — find ADRs and specs governing this code"`
+
+     Filter to `collections: ["{repo}-adrs", "{repo}-specs"]` (or per-module variants in workspace mode). Set `limit: 8` and `minScore: 0.3`. Read the top-K candidates in full before evaluating drift.
+
+   - **If the target is an ADR (`ADR-XXXX`)**: read the ADR directly. Then qmd-search `{repo}-specs` for related specs (those that implement or reference the ADR) and `{repo}-code` for code that should implement the decision. Same query structure as the file/dir case, with the ADR's title and decision as the `vec` query.
+
+   - **If the target is a SPEC (`SPEC-XXXX`)**: read the spec directly. Then qmd-search `{repo}-adrs` for governing ADRs and `{repo}-code` for implementing files. Same pattern.
+
+   On qmd unreachable / timeout per `qmd-helpers.md` § "Error Handling", surface the error and stop. Per ADR-0024 and SPEC-0019 REQ "qmd Assumption in Consumer Skills", fallback paths were eliminated in v5; the failure mode is "fix qmd, retry" not "scan the entire corpus."
+
+5. **Validate spec artifact pairing**: For each spec directory found under `{spec-dir}`, check that both `spec.md` and `design.md` exist. If a `spec.md` exists without a corresponding `design.md` (or vice versa), report as `[WARNING]` under "Code vs. Spec" with finding: "Unpaired spec artifact: {path} exists but {missing-file} is missing. Per ADR-0003, spec.md and design.md are a paired unit." (Governing: ADR-0003, SPEC-0003)
+
+5a. **Validate PRD status gates and success criteria** (per SPEC-0037; skip entirely when `{prd-dir}` does not exist). PRDs are optional and client-facing-only — **the absence of a PRD is never a finding**, so never report an ADR or spec for lacking one (ADR-0036 commitment 1).
+
+   For each `PRD-*.md` under `{prd-dir}`:
+
+   - **Status enum**: `status:` MUST be exactly one of `draft`, `client-review`, `approved`, `shipped`. Anything else is `[WARNING]`: "PRD {id} declares unknown status `{value}`. Per SPEC-0037 the gates are draft → client-review → approved → shipped."
+   - **EARS-shaped success criteria**: every bullet under `## Success criteria` MUST match an EARS pattern — ubiquitous (`The <system> shall …`), event-driven (`When <trigger>, the <system> shall …`), state-driven (`While <state>, the <system> shall …`), unwanted behaviour (`If <condition>, then the <system> shall …`), optional-feature (`Where <feature is included>, the <system> shall …`), or the complex form combining precondition and trigger. A criterion with no `shall` and no leading EARS keyword is an aspiration, not a gate — report `[WARNING]`: "PRD {id} success criterion is not EARS-shaped: \"{criterion}\". Per SPEC-0037 criteria must be checks an execution agent can run."
+   - **Committed PRDs govern something**: a PRD with status `approved` or `shipped` MUST declare at least one `governs:` target that resolves to an existing ADR or spec. Otherwise `[WARNING]`: "PRD {id} is {status} but governs no existing artifact." A `draft` or `client-review` PRD with an empty `governs:` list is correct — do not report it.
+   - **Open questions block approval**: a PRD with status `approved` or `shipped` MUST NOT have unresolved entries under `## Open questions` (an entry is resolved when it records an owner and a date, or is struck through). Otherwise `[WARNING]`: "PRD {id} is {status} with unresolved open questions."
+   - **Shipped criteria carry evidence**: a PRD with status `shipped` MUST show met evidence (a test, run, or verification reference) or an explicit waiver for every success criterion. Otherwise `[CRITICAL]`: "PRD {id} is shipped but criterion \"{criterion}\" has no met evidence and no waiver."
+
+5b. **Constitution vs. Design** (skip entirely when `{constitution-path}` does not exist). A constitution states decisions that are supposed to follow from design records; when the record moves and the rule does not, an unattended run will keep applying an answer nobody owns anymore. Findings use category **Constitution vs. Design** (Governing: ADR-0037).
+
+   For each non-retired rule in `{constitution}`:
+
+   - **Contradiction with its own source**: where the rule declares `Governs`, read that ADR decision or spec requirement and compare it with the rule's `Decision`. A rule whose decision the source rules out is `[CRITICAL]`: "Rule {N} ({title}) contradicts {ADR-XXXX / SPEC-XXXX Req N}: {one line on the conflict}. The rule and its source cannot both be followed."
+   - **Dangling pointer**: `Governs` names an `ADR-XXXX` or `SPEC-XXXX` that does not exist under `{adr-dir}` / `{spec-dir}` — `[WARNING]`: "Rule {N} points at {target}, which is not in this repo's design records."
+   - **Deprecated source**: `Governs` targets an artifact whose status is `deprecated` or `superseded`, while the rule is still live — `[WARNING]`: "Rule {N} cites {target} ({status}); the rule needs a decision."
+   - **Malformed rule**: a rule missing `Decision` (and not marked `retired`), a duplicated rule number, or an `Applies to` value naming a skill outside `work, respond, review, check, status` — `[WARNING]`, one finding per problem, quoting the rule heading.
+   - **Rules section missing**: the file exists but has no `## Rules` heading — `[WARNING]`: "{constitution-path} has no `## Rules` section, so no skill can apply it."
+
+   A constitution whose rules carry no `Governs` pointer cannot contradict a design record: report nothing rather than guessing that a rule should cite one.
+
+6. **Security lint scan**: Scan source code files in the target for dangerous patterns that indicate security risks. Use text-based pattern matching (Grep tool with regex), NOT AST analysis. False positives are acceptable — flag patterns for human review.
+
+   <!-- Governing: ADR-0018 (Security-by-Default), ADR-0019 (Frontend Quality Standards), SPEC-0016 REQ "Security Lint Patterns" -->
+
+   For each pattern below, search applicable source files and report any matches as findings in the output table. All security lint findings use category **Security Lint** and severity **[WARNING]**.
+
+   **Pattern 1 — Unbounded body read**: Reading an HTTP request body without enforcing a size limit allows a single request to allocate arbitrary memory.
+   - Go: `io.ReadAll(r.Body)` or `ioutil.ReadAll(r.Body)` without `http.MaxBytesReader` wrapping the body in the same function or file.
+   - JS/Node: `req.on('data'` accumulating chunks without a size check, or body-parser / express.json without a `limit` option.
+   - Python: Reading `request.body` or `request.data` without `DATA_UPLOAD_MAX_MEMORY_SIZE` or equivalent framework-level limit.
+   - Remediation: "Wrap the body with a size-limiting reader (e.g., `http.MaxBytesReader` in Go, `{ limit: '1mb' }` in Express, `DATA_UPLOAD_MAX_MEMORY_SIZE` in Django) before reading."
+
+   **Pattern 2 — Template safety bypass**: Disabling template auto-escaping injects raw HTML into rendered output, enabling XSS.
+   - Go: `template.HTML(` casting user-supplied or unsanitized content.
+   - JS/React: `dangerouslySetInnerHTML` usage.
+   - Python/Jinja: `|safe` filter or `{% autoescape false %}` in Jinja/Django templates.
+   - Remediation: "Avoid bypassing template auto-escaping. If raw HTML is required, sanitize the content with a trusted library before marking it safe."
+
+   **Pattern 3 — User-controlled redirect**: HTTP redirects where the target URL comes from request parameters allow open redirect attacks.
+   - Go: `http.Redirect(` where the URL argument references `r.URL.Query()`, `r.FormValue`, or `r.PostFormValue`.
+   - JS/Express: `res.redirect(req.query` or `res.redirect(req.body` or `res.redirect(req.params`.
+   - Python/Django: `redirect(request.GET[` or `redirect(request.POST[` or `HttpResponseRedirect(request.GET[`.
+   - Remediation: "Validate redirect targets against an allowlist of trusted URLs or paths. Never redirect to a raw user-supplied URL."
+
+   **Pattern 4 — Missing auth middleware**: Route or endpoint registration without authentication middleware in the handler chain leaves the endpoint publicly accessible.
+   - Go: `http.HandleFunc(` or `router.GET(` / `router.POST(` / `mux.Handle(` where the handler chain does not reference an auth middleware function in the same registration block.
+   - JS/Express: `app.get(` / `app.post(` / `router.get(` / `router.post(` without an `auth` or `authenticate` or `requireAuth` middleware in the argument list.
+   - Python/Django: View functions or class-based views without `@login_required`, `@permission_required`, or equivalent auth decorator.
+   - Remediation: "Add authentication middleware to the handler chain. If this endpoint is intentionally public, add a comment: `// Public: [justification]`."
+
+   **Pattern 5 — DOM injection**: Assigning to `innerHTML` bypasses DOM sanitization and is a common XSS vector.
+   - JS/HTML: `.innerHTML =` or `.innerHTML +=` assignments in JavaScript files or inline `<script>` blocks.
+   - Remediation: "Prefer `textContent` for text content or use a DOM sanitization library (e.g., DOMPurify) before assigning to `innerHTML`."
+
+   **Pattern 6 — CDN without SRI**: Loading external scripts or stylesheets without Subresource Integrity attributes allows compromised CDNs to inject malicious code.
+   - HTML: `<script src="https://` or `<script src="http://` without an `integrity` attribute on the same tag. Also `<link href="https://` or `<link href="http://` with `rel="stylesheet"` without an `integrity` attribute.
+   - Remediation: "Add `integrity` and `crossorigin` attributes to all CDN-loaded `<script>` and `<link>` tags. Generate SRI hashes with `shasum` or an online SRI hash generator."
+
+   Each finding MUST include: the file path with line number in the Location column, the matched pattern in the Finding column, and the remediation suggestion. Report findings even if they may be false positives — the goal is to flag patterns for human review.
+
+7. **Template quality scan**: Scan HTML templates, JavaScript files, and frontend assets in the target for template quality patterns. Use text-based pattern matching (Grep tool) to detect the following 5 patterns. All template quality findings use category **Template Quality**.
+
+   <!-- Governing: ADR-0019 (Frontend Quality Standards), SPEC-0016 REQ "Template Quality Detection" -->
+
+   **Pattern 1 — Duplicate inline `<script>` blocks** (Severity: **[WARNING]**): Identical or near-identical `<script>` blocks appearing in the same file or across multiple template files indicate code duplication.
+   - Detection: Search for inline `<script>` blocks (not `<script src=`). Compare content of inline script blocks within the same file and across template files. Flag when the same block (or substantially similar content) appears more than once.
+   - Remediation: "Duplicate inline script detected in [files]. Extract to a shared JavaScript file or template partial."
+
+   **Pattern 2 — Duplicate form structure** (Severity: **[INFO]**): The same form structure (same `action`, same field names) appearing in multiple template files signals a refactoring opportunity.
+   - Detection: Search for `<form` tags across template files. Compare form `action` attributes and field `name` attributes. Flag when two or more templates contain forms with the same structure.
+   - Remediation: "Similar form structure found in [files]. Consider extracting to a shared form partial or component."
+
+   **Pattern 3 — Duplicate navigation/sidebar** (Severity: **[WARNING]**): Navigation or sidebar markup rendered in multiple templates without using a shared partial creates layout inconsistency risk.
+   - Detection: Search for `<nav` elements or elements with `role="navigation"` across template files. Flag when navigation markup appears in more than one template file without evidence of a shared partial/include (e.g., Go `{{ template "nav" }}`, Jinja `{% include "nav.html" %}`, EJS `<%- include('nav') %>`).
+   - Remediation: "Navigation markup appears in multiple templates: [files]. Extract to a shared partial/include to prevent layout drift."
+
+   **Pattern 4 — Dev-only CDN URLs** (Severity: **[WARNING]**): CDN URLs intended only for development (such as `cdn.tailwindcss.com`) should not appear in production templates.
+   - Detection: Search for `<script` or `<link` tags referencing known dev-only CDN URLs: `cdn.tailwindcss.com`, `unpkg.com` (when used for production), or any CDN URL containing `/dev/` or `/debug/` in the path.
+   - Remediation: "Dev-only CDN detected: `[url]`. Replace with a production build (bundler, CLI tool, or self-hosted asset)."
+
+   **Pattern 5 — Multiple JS interaction frameworks** (Severity: **[INFO]**): Loading more than one JS interaction framework (e.g., HTMX + Alpine.js + Hyperscript, or React + jQuery) signals framework sprawl and a missing architectural decision.
+   - Detection: Search across all project files for references to JS interaction frameworks: HTMX (`htmx.org`, `hx-get`, `hx-post`, `hx-swap`), Alpine.js (`alpinejs`, `x-data`, `x-bind`), Hyperscript (`hyperscript.org`, `_="on`), React (`react.`, `ReactDOM`, `jsx`), jQuery (`jquery`, `$(document)`, `$(function`), Vue (`vue.js`, `v-bind`, `v-model`), Stimulus (`stimulus`, `data-controller`). Flag when more than one distinct framework is detected.
+   - Remediation: "Multiple JS interaction frameworks detected: [list]. Consider an ADR to document the rationale for each framework or consolidate to one."
+
+   Each finding MUST include the affected file paths in the Location column and the remediation suggestion.
+
+8. **Analyze for drift** across three categories:
+
+   **Code vs. Spec**: Does the implementation match the spec's requirements and scenarios?
+   - Check MUST/SHALL requirements -- violations are `[CRITICAL]`
+   - Check SHOULD/RECOMMENDED requirements -- violations are `[WARNING]`
+   - Check scenario coverage -- missing scenarios are `[WARNING]`
+
+   **Code vs. ADR**: Does the implementation follow the accepted ADR decisions?
+   - Check that the chosen option/approach is implemented, not a rejected alternative -- violations are `[CRITICAL]`
+   - Check that architectural constraints from the decision are followed -- violations are `[WARNING]`
+
+   **ADR vs. Spec**: Are the ADR decisions consistent with spec requirements?
+   - Check for contradictions between ADR decisions and spec requirements -- contradictions are `[CRITICAL]`
+   - Check for terminology or approach mismatches -- mismatches are `[WARNING]`
+
+   **Constitution vs. Design** (from step 5b, omitted when there is no constitution): does each standing rule still agree with the ADR or spec requirement it points at?
+   - Contradictions between a rule and its `Governs` target -- `[CRITICAL]`
+   - Dangling or deprecated pointers, and malformed rules -- `[WARNING]`
+
+9. **Produce the findings table** using the standard format:
+
+   ```
+   ## Drift Check: {target}
+
+   Checked {N} ADRs and {M} specs against {target}. Found {X} findings.
+
+   ### Findings
+
+   | Severity | Category | Finding | Source | Location |
+   |----------|----------|---------|--------|----------|
+   | [CRITICAL] | Code vs. Spec | {one-sentence description} | SPEC-XXXX | src/path/file.ts:NN |
+   | [WARNING] | Code vs. ADR | {one-sentence description} | ADR-XXXX | src/path/file.ts:NN |
+   | [WARNING] | Security Lint | {pattern name}: {matched code}. {remediation} | ADR-0018 | src/path/file.go:NN |
+   | [WARNING] | Template Quality | {pattern name}: {description}. {remediation} | ADR-0019 | templates/page.html:NN |
+
+   ### Summary
+   - Critical: {N}
+   - Warning: {N}
+   - Info: {N}
+   ```
+
+10. **Add suggested actions** at the end based on findings:
+   - If critical issues exist, suggest `/sdd:audit {target} --review` for deeper analysis
+   - If stale artifact findings exist, suggest `/sdd:status` to update
+   - If coverage gaps suggest a missing spec, suggest `/sdd:spec`
+   - Always provide at least one actionable fix suggestion for the highest-severity finding
+
+11. **Handle clean results**: If no drift is found, report:
+
+   ```
+   ## Drift Check: {target}
+
+   Checked {N} ADRs and {M} specs against {target}. No drift detected.
+
+   All implementation in {target} aligns with governing ADRs and specs.
+   ```
+
+12. **Workspace aggregate output**: When in aggregate mode, use per-module grouping:
+
+   ```
+   ## Drift Check: {target}
+
+   Checked {N} ADRs and {M} specs across {K} modules against {target}. Found {X} findings.
+
+   ### [api] Findings
+
+   | Severity | Category | Finding | Source | Location |
+   |----------|----------|---------|--------|----------|
+   | [CRITICAL] | Code vs. Spec | {description} | SPEC-XXXX | services/api/src/file.ts:NN |
+
+   ### [worker] Findings
+
+   | Severity | Category | Finding | Source | Location |
+   |----------|----------|---------|--------|----------|
+   | [WARNING] | Code vs. ADR | {description} | ADR-XXXX | services/worker/src/file.ts:NN |
+
+   ### Summary
+   | Module | Critical | Warning | Info | Total |
+   |--------|----------|---------|------|-------|
+   | [api] | N | N | N | N |
+   | [worker] | N | N | N | N |
+   | **Total** | **N** | **N** | **N** | **N** |
+   ```
+
+   If a module has no findings, omit its section and show "No drift detected" in the summary row.
+
+## Severity Assignment Rules
+
+- A finding that contradicts a MUST, SHALL, or MUST NOT requirement is always `[CRITICAL]`
+- A finding that contradicts a SHOULD or RECOMMENDED requirement is always `[WARNING]`
+- A coverage gap (no governing artifact) is always `[INFO]`
+- A stale artifact (status does not match reality) is `[WARNING]`
+- An inconsistency between ADR and spec (e.g., ADR says X, spec says Y) is `[CRITICAL]`
+- A constitution rule that contradicts the ADR or spec requirement in its `Governs` pointer is `[CRITICAL]`; a dangling or deprecated pointer, and any malformed rule, is `[WARNING]` (Governing: ADR-0037)
+- A project with no constitution produces no constitution finding of any kind, including an `[INFO]` suggesting one (Governing: ADR-0037)
+- All security lint pattern matches are `[WARNING]` (false positives are acceptable — flag for human review)
+- Template quality patterns use their individually defined severity: duplicate scripts and duplicate nav are `[WARNING]`, duplicate forms and framework sprawl are `[INFO]`, dev-only CDN is `[WARNING]`
+
+## Rules
+
+- This skill is always single-agent. It does NOT support `--review`.
+- Analyzes three drift categories (Code vs. Spec, Code vs. ADR, ADR vs. Spec), plus Constitution vs. Design when the project has a constitution, plus two code quality scans (Security Lint, Template Quality). Coverage gaps, stale artifacts, and policy violations are NOT checked — use `/sdd:audit` for a comprehensive six-category analysis.
+- Keep analysis focused and fast. Read only the files relevant to the target, not the entire codebase.
+- Always use full artifact identifiers in output: `ADR-0001`, `SPEC-0002`, `Req 3`. Do not abbreviate.
+- Include file paths with line numbers in the Location column when possible (e.g., `src/auth/login.ts:45`).
+- Use `##` for the top-level heading (report title) and `###` for sections within the report.
+- When the target is a single file, the Category column may be omitted from the findings table if all findings are in the same category.
+- In workspace aggregate mode, MUST group findings by module under per-module subheadings (Governing: ADR-0016, SPEC-0014 REQ "Cross-Module Aggregation")
+- In workspace aggregate mode, MUST include a per-module summary table
+- When `--module` is provided, check only that module — do not scan other modules
+- **v5.0.0+**: MUST run Tier 3 staleness check on entry per Step 3a — if the index is older than the configured threshold (default 120m, set in CLAUDE.md `### SDD Configuration` `#### Index Freshness` `**Staleness Threshold**`), trigger silent `qmd update` and emit a one-line note. On fresh, proceed silently (Governing: ADR-0026, SPEC-0019 REQ "Tier 3 Staleness Threshold for Consumer Skills")
+- **v5.0.0+**: MUST use qmd hybrid retrieval per `${CLAUDE_PLUGIN_ROOT}/references/qmd-helpers.md` to identify top-K candidate ADRs/specs; deep-read only those candidates. The pre-v5 read-everything-then-filter path is removed — qmd retrieval is the canonical mechanism (Governing: ADR-0024, SPEC-0019 REQ "qmd-Smart Drift Skills")
+- **v5.0.0+**: On qmd unreachable / timeout, MUST surface the error and stop. NEVER fall back to corpus scan (per ADR-0024 / SPEC-0019 REQ "qmd Assumption in Consumer Skills" — fallback paths were eliminated in v5)

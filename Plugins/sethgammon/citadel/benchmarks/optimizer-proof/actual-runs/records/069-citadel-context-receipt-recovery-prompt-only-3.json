@@ -1,0 +1,69 @@
+{
+  "schema": 1,
+  "evidence_kind": "actual-run",
+  "scenario_set_id": "optimizer-scenarios-sha256:602e496906f3a293203750602234ba88a55a86b9e4f54f32239264098dcebe5b",
+  "metric_set_id": "optimizer-metrics-sha256:bedffbda2b18d725610b0f294a8273ef908237fd957bf9e51a5af4885b123e4f",
+  "scenario_id": "citadel-context-receipt-recovery",
+  "category": "context_reset",
+  "holdout": false,
+  "policy_id": "prompt-only",
+  "repetition": 3,
+  "decision_id": "sha256:8e5082fd8b43a182ad3b9ddc20b866a574d92643f3ef570ae00f853473ad90c3",
+  "selected_profile_id": "claude-workhorse",
+  "observed_profile_id": "claude-workhorse",
+  "requested_model": "claude-sonnet-5",
+  "observed_model": "claude-sonnet-5",
+  "model_proof_status": "passed",
+  "started_at": "2026-07-31T03:09:10.080Z",
+  "duration_ms": 684660,
+  "outcome": "failed",
+  "verified": false,
+  "attempts": 1,
+  "human_interventions": 0,
+  "topology": "sequential-recovery",
+  "cost": {
+    "status": "known",
+    "amount_usd": 3.304379,
+    "provenance": "tool_reported",
+    "source": "citadel_optimizer_runner",
+    "source_ref": "summed_attempts:1",
+    "pricing_snapshot_digest": null,
+    "components": [
+      {
+        "kind": "model",
+        "amount_usd": 3.3043787999999994,
+        "source": "attempt_1:claude total_cost_usd"
+      }
+    ]
+  },
+  "artifact_paths": [
+    "core/forks/orchestrator.js"
+  ],
+  "verification_receipts": [
+    {
+      "attempt": 1,
+      "profile_id": "claude-workhorse",
+      "status": "passed",
+      "exit_code": 0,
+      "timed_out": false,
+      "output_digest": "sha256:0676e1fef8b2b217ca748f6431dd436838a5a380516c810d6d34829cd3f3cb53",
+      "output_excerpt": "[stdout]\nOperation Fork executors passed: schema 2 bindings, same-runtime isolation, honest model proof, tamper rejection, legacy compatibility, and shell-free Windows launch.\n\n[stderr]\n",
+      "output_truncated": false,
+      "patch_exit_code": 0,
+      "patch_digest": "sha256:d65a113188d35ed7066c5e566a4a77d4ee27ff591b0b411a42261bc450559ebd",
+      "patch_excerpt": ": 'blocked', completed_at: recoveredAt,\n+        failure_code: 'RUNTIME_EFFECT_AMBIGUOUS' }, recoveredAt);\n       saveFork(projectRoot, fork, previousRevision);\n       appendEvent(projectRoot, fork.fork_id, eventFor(fork, 'runtime-recovery-blocked', { branchId: branch.branch_id,\n         status: 'blocked', detail: { reason: 'ambiguous-effect' } }));\ndiff --git a/scripts/test-operation-fork.js b/scripts/test-operation-fork.js\nindex 9c367c7..8fe9acf 100644\n--- a/scripts/test-operation-fork.js\n+++ b/scripts/test-operation-fork.js\n@@ -119,8 +119,114 @@ assert.equal(resumed.fork.branches.find((branch) => branch.runtime === 'claude')\n assert.equal(resumed.fork.branches.find((branch) => branch.runtime === 'claude').failure_code, 'RUNTIME_EFFECT_AMBIGUOUS');\n assert.deepEqual(calls, ['codex'], 'ambiguous Claude effect must not run again');\n \n-for (const branch of [...result.fork.branches, ...recovery.branches]) {\n-  const target = provider.resolve(project, worktrees, branch.run_id.includes('recovery') ? 'fork-recovery' : 'fork-auth-race', branch.branch_id);\n+// A crash between the durable receipt write and the fork-record status update must recover\n+// the completed branch from disk instead of discarding a fully verifiable result.\n+const interruptedBase = forks.startFork({\n+  projectRoot: project,\n+  forkId: 'fork-interrupted-receipt',\n+  title: 'Interrupted receipt recovery',\n+  objective: 'Prove a durably written receipt survives a crash before the fork record catches up',\n+  workflow,\n+  baseRevision,\n+  worktreeRoot: worktrees,\n+  worktreeProvider: provider,\n+  execute: false,\n+  createdAt: '2026-07-13T14:00:00.000Z',\n+  now: () => '2026-07-13T14:00:01.000Z',\n+}).fork;\n+const interruptedSigningKey = forks.readPrivate(project, interruptedBase.fork_id, 'signing-key.pem');\n+const claudeBranch = interruptedBase.branches.find((branch) => branch.runtime === 'claude');\n+const interruptedStartedAt = '2026-07-13T14:00:02.000Z';\n+const interruptedRunning = forks.updateBranch(interruptedBase, claudeBranch.branch_id,\n+  { status: 'running', started_at: interruptedStartedAt }, interruptedStartedAt);\n+forks.saveFork(project, interruptedRunning, interruptedBase.revision);\n+const interruptedWorktree = provider.resolve(project, worktrees, interruptedBase.fork_id, claudeBranch.branch_id);\n+fs.writeFileSync(path.join(interruptedWorktree, 'claude.txt'), 'claude\\n');\n+const interruptedCompletedAt = '2026-07-13T14:00:03.000Z';\n+const interruptedDiff = provider.diffSummary(interruptedWorktree, claudeBranch.base_revision);\n+const interruptedReceipt = forks.receiptFor({\n+  fork: interruptedRunning, branch: claudeBranch, status: 'passed', startedAt: interruptedStartedAt,\n+  completedAt: interruptedCompletedAt, agentOutputDigest: operations.sha256Digest({ agent: 'claude' }),\n+  verifierOutputDigest: operations.sha256Digest({ verifier: 'passed' }), diffSummary: interruptedDiff,\n+  signingKey: interruptedSigningKey,\n+});\n+forks.recordBranchEvidence(project, interruptedRunning, claudeBranch, forks.legacyProfileFor('claude'), {\n+  status: 'passed', completed_at: interruptedCompletedAt, receipt_digest: interruptedReceipt.envelope.receipt_digest,\n+  receipt_envelope: interruptedReceipt.envelope,\n+  evidence_summary: { status: 'passed', required: 2, present: 2, receipt_verified: true, score: null, score_max: null },\n+  diff_summary: interruptedDiff, duration_ms: 1000, cost: null, failure_code: null,\n+}, interruptedSigningKey);\n+// The crash happens here: fork.json still says `running`, but the receipt, telemetry, and\n+// fork receipt wrapper are already durable on disk.\n+\n+const interruptedCalls = [];\n+const interruptedResumed = forks.resumeFork({\n+  projectRoot: project, forkId: interruptedBase.fork_id, workflow, worktreeRoot: worktrees, worktreeProvider: provider,\n+  runBranch: (options) => { interruptedCalls.push(options.branch.runtime); return fakeRun(options); },\n+  now: (() => { let tick = 4; return () => `2026-07-13T14:00:${String(tick++).padStart(2, '0')}.000Z`; })(),\n+});\n+const recoveredClaude = interruptedResumed.fork.branches.find((branch) => branch.runtime === 'claude');\n+assert.equal(recoveredClaude.status, 'passed', 'a durably written receipt must recover the branch instead of blocking it');\n+assert.equal(recoveredClaude.receipt_digest, interruptedReceipt.envelope.receipt_digest);\n+assert.equal(recoveredClaude.evidence_summary.receipt_verified, true);\n+assert.deepEqual(interruptedCalls, ['codex'], 'a recovered branch must not repeat its nonrepeatable runtime effect');\n+\n+// A receipt left on disk that is bound to a different run must never resurrect a branch: it\n+// is rejected as stale/mismatched and falls back to the same ambiguity-safe block.\n+const staleBase = forks.startFork({\n+  projectRoot: project,\n+  forkId: 'fork-stale-receipt',\n+  title: 'Stale receipt rejection',\n+  objective: 'Prove a mismatched receipt left on disk cannot resurrect a branch',\n+  workflow,\n+  baseRevision,\n+  worktreeRoot: worktrees,\n+  worktreeProvider: provider,\n+  execute: false,\n+  createdAt: '2026-07-13T15:00:00.000Z',\n+  now: () => '2026-07-13T15:00:01.000Z',\n+}).fork;\n+const staleSigningKey = forks.readPrivate(project, staleBase.fork_id, 'signing-key.pem');\n+const staleClaudeBranch = staleBase.branches.find((branch) => branch.runtime === 'claude');\n+const staleStartedAt = '2026-07-13T15:00:02.000Z';\n+const staleRunning = forks.updateBranch(staleBase, staleClaudeBranch.branch_id,\n+  { status: 'running', started_at: staleStartedAt }, staleStartedAt);\n+forks.saveFork(project, staleRunning, staleBase.revision);\n+const staleWorktree = provider.resolve(project, worktrees, staleBase.fork_id, staleClaudeBranch.branch_id);\n+fs.writeFileSync(path.join(staleWorktree, 'claude.txt'), 'claude\\n');\n+const staleCompletedAt = '2026-07-13T15:00:03.000Z';\n+const staleDiff = provider.diffSummary(staleWorktree, staleClaudeBranch.base_revision);\n+const mismatchedBranch = { ...staleClaudeBranch, run_id: 'run-fork-stale-receipt-other' };\n+const mismatchedReceipt = forks.receiptFor({\n+  fork: staleRunning, branch: mismatchedBranch, status: 'passed', startedAt: staleStartedAt,\n+  completedAt: staleCompletedAt, agentOutputDigest: operations.sha256Digest({ agent: 'claude' }),\n+  verifierOutputDigest: operations.sha256Digest({ verifier: 'passed' }), diffSummary: staleDiff,\n+  signingKey: staleSigningKey,\n+});\n+forks.recordBranchEvidence(project, staleRunning, mismatchedBranch, forks.legacyProfileFor('claude'), {\n+  status: 'passed', completed_at: staleCompletedAt, receipt_digest: mismatchedReceipt.envelope.receipt_digest,\n+  receipt_envelope: mismatchedReceipt.envelope,\n+  evidence_summary: { status: 'passed', required: 2, present: 2, receipt_verified: true, score: null, score_max: null },\n+  diff_summary: staleDiff, duration_ms: 1000, cost: null, failure_code: null,\n+}, staleSigningKey);\n+\n+const staleCalls = [];\n+const staleResumed = forks.resumeFork({\n+  projectRoot: project, forkId: staleBase.fork_id, workflow, worktreeRoot: worktrees, worktreeProvider: provider,\n+  runBranch: (options) => { staleCalls.push(options.branch.runtime); return fakeRun(options); },\n+  now: (() => { let tick = 4; return () => `2026-07-13T15:00:${String(tick++).padStart(2, '0')}.000Z`; })(),\n+});\n+const blockedClaude = staleResumed.fork.branches.find((branch) => branch.runtime === 'claude');\n+assert.equal(blockedClaude.status, 'blocked', 'a receipt bound to a different run_id must not resurrect the branch');\n+assert.equal(blockedClaude.failure_code, 'RUNTIME_EFFECT_AMBIGUOUS');\n+assert.deepEqual(staleCalls, ['codex'], 'a blocked ambiguous branch must not be silently re-run either');\n+\n+const forkIds = ['fork-auth-race', 'fork-recovery', 'fork-interrupted-receipt', 'fork-stale-receipt'];\n+for (const branch of [\n+  ...result.fork.branches, ...recovery.branches, ...interruptedResumed.fork.branches, ...staleResumed.fork.branches,\n+]) {\n+  const forkId = forkIds.find((id) => branch.run_id.includes(id));\n+  const target = provider.resolve(project, worktrees, forkId, branch.branch_id);\n   if (fs.existsSync(target)) git(project, ['worktree', 'remove', '--force', target]);\n }\n fs.rmSync(sandbox, { recursive: true, force: true });\n",
+      "patch_truncated": true,
+      "changed_paths": [
+        "core/forks/orchestrator.js",
+        "scripts/test-operation-fork.js"
+      ]
+    }
+  ],
+  "receipt_status": "verified",
+  "adversarial_result": "unknown",
+  "failure_code": "EXPECTED_ARTIFACTS_NOT_CHANGED",
+  "attestation": {
+    "algorithm": "ed25519",
+    "signature_base64": "LrP/GRriYoy5HjAK7z5VITjvEP3VL56KM2l1E6ebB60psPuJzgr8nQroLYvmRUKT2PzqDp5AFk0Ifk0+evktDw=="
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "pya",
+  "displayName": "Pya",
+  "version": "2.0.0",
+  "description": "Security audit for DipoleML: parallel read-only specialist agents plus a verifier, a dated threat feed, optional offline scanners, OWASP Top 10:2025, CWE Top 25 2025, MITRE ATT&CK v20 and AI agent and MCP checks.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Agricidaniel"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/AgriciDaniel/pya",
+  "repository": "https://github.com/AgriciDaniel/pya",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

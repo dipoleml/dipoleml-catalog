@@ -1,0 +1,16 @@
+{
+  "name": "x402-sdk-dev",
+  "displayName": "X402 SDK Dev",
+  "version": "1.2.0",
+  "description": "Bankr SDK integration for AI-assisted Web3 development with multi-chain DeFi and x402 micropayments",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Bankrbot"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/BankrBot/claude-plugins",
+  "repository": "https://github.com/BankrBot/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

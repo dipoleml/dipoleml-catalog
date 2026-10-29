@@ -1,0 +1,16 @@
+{
+  "name": "dipoleml-skillify",
+  "displayName": "DipoleML Skillify",
+  "version": "1.0.0",
+  "description": "Capture repeatable session workflows into reusable SKILL.md files. An open-source reimplementation of the internal /skillify skill.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "0xmh"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/0xMH/claude-skillify",
+  "repository": "https://github.com/0xMH/claude-skillify",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

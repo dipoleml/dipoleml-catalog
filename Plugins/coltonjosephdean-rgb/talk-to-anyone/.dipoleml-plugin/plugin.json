@@ -1,0 +1,16 @@
+{
+  "name": "talk-to-anyone",
+  "displayName": "Talk to Anyone",
+  "version": "1.1.0",
+  "description": "Turn any public figure into your personal coach, living or historical. /coach <name> researches the person across the web, pulls real transcripts when they have video anywhere on YouTube, builds a persona, and talks to you as them until you switch or end.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Coltonjosephdean Rgb"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/coltonjosephdean-rgb/talk-to-anyone",
+  "repository": "https://github.com/coltonjosephdean-rgb/talk-to-anyone",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

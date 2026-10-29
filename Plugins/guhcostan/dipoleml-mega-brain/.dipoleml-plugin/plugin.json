@@ -1,0 +1,16 @@
+{
+  "name": "dipoleml-mega-brain",
+  "displayName": "DipoleML Mega Brain",
+  "version": "0.2.1",
+  "description": "OKF-powered knowledge context for DipoleML — injects your project knowledge base at every session",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Guhcostan"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/guhcostan/claude-mega-brain",
+  "repository": "https://github.com/guhcostan/claude-mega-brain",
+  "skills": "./skills",
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,13 @@
+node_modules/
+.DS_Store
+.claude/settings.local.json
+.claude/worktrees/
+docs-generated/
+docs-site/node_modules/
+docs-site/build/
+docs-site/.docusaurus/
+templates/docs-generated/
+__pycache__/
+*.pyc
+.sdd-graph-backfill-skip
+.sdd/

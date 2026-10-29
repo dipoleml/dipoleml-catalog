@@ -1,0 +1,16 @@
+{
+  "name": "ai-dev-kit",
+  "displayName": "Ai Dev Kit",
+  "version": "1.1.0",
+  "description": "Production-ready AI dev workflow scaffold with 59 skills, 33 agents, hooks, and rules.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Noah Sheldon"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/noah-sheldon/ai-dev-kit",
+  "repository": "https://github.com/noah-sheldon/ai-dev-kit",
+  "skills": "./skills/",
+  "commands": [],
+  "agents": []
+}

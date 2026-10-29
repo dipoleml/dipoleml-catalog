@@ -1,0 +1,11 @@
+{
+  "name": "s1a",
+  "description": "S1A: System 1 decision models in the model slot of openJiuwen agents. A browser subagent for page tasks with enumerable controls, game agents, and one 400 ms pick over options you enumerate.",
+  "version": "0.1.0",
+  "author": {
+    "name": "ThinkFlowLab",
+    "url": "https://github.com/ThinkFlowLab"
+  },
+  "repository": "https://github.com/ThinkFlowLab/system1-agents",
+  "license": "Apache-2.0"
+}

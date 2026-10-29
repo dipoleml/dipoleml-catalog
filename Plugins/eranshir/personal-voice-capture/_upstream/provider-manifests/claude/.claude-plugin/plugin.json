@@ -1,0 +1,19 @@
+{
+  "name": "personal-voice-capture",
+  "description": "A meta-skill that learns a person's writing voice from their own samples and iterative edits, then compiles it into a durable, reusable voice skill for future agents.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Eran Shir"
+  },
+  "homepage": "https://github.com/eranshir/personal-voice-capture",
+  "repository": "https://github.com/eranshir/personal-voice-capture",
+  "license": "MIT",
+  "keywords": [
+    "voice",
+    "writing-style",
+    "personalization",
+    "skill-generator",
+    "calibration",
+    "tone"
+  ]
+}

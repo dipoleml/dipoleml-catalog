@@ -1,0 +1,16 @@
+{
+  "name": "trident-secops-skills",
+  "displayName": "Trident Secops Skills",
+  "version": "3.0.0",
+  "description": "24 security Agent Skills for offensive security, defensive operations, cloud and Kubernetes hardening, detection engineering, threat intel, DFIR, and secure programming.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Garyson26"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/Garyson26/Trident-SecOps-Skills",
+  "repository": "https://github.com/Garyson26/Trident-SecOps-Skills",
+  "skills": "./skills/",
+  "commands": [],
+  "agents": []
+}

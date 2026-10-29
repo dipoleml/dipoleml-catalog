@@ -1,0 +1,16 @@
+{
+  "name": "super-oracle",
+  "displayName": "Super Oracle",
+  "version": "0.6.0",
+  "description": "Run independent DipoleML and Codex reviews, cross-pollinate findings, and return one synthesis.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Parlance Labs"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/parlance-labs/super-oracle",
+  "repository": "https://github.com/parlance-labs/super-oracle",
+  "skills": "./skills/",
+  "commands": [],
+  "agents": []
+}

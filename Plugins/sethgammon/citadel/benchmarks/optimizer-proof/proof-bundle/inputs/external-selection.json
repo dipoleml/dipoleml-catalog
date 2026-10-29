@@ -1,0 +1,22 @@
+{
+  "schema": 1,
+  "kind": "citadel_optimizer_public_random_selection",
+  "request_id": "sha256:25b0aaf4464ff601494643f294344e39726aea8266b4c947b20d56f5021770a9",
+  "scenario_set_id": "optimizer-scenarios-sha256:602e496906f3a293203750602234ba88a55a86b9e4f54f32239264098dcebe5b",
+  "observed_at": "2026-07-30T20:15:31.940Z",
+  "beacon": {
+    "round": 6333716,
+    "randomness": "45a02850ca527b86d17ca17ddabbe0e7d36434e420442ca3358df215aaaa9121",
+    "signature": "a29e3a22fac015767e4c007a2f745ca2632742346247cec065143f79537a1acd92aa633ac9ff559a2d9da19ad99dc5a60222524e28eb53bda6dee8b22cc40c079f7864b388c44ca3544739a770ec2358703b7a88a42d0166b82a3d0ad9af2bbf",
+    "previous_signature": "970f27f53c29083a2e94a82f5708edc917158783df633d3d8318194a0fba8318d7d1d8b3d69854a46087d867dc9bd81713e99cde217d9c8fd0123b16123e4be8f7da5e2e29b0a3e935bd402e26783b92dfa41f4863af47326e8a4ddb7196bff6"
+  },
+  "source_urls": [
+    "https://api.drand.sh/public/6333716",
+    "https://api2.drand.sh/public/6333716",
+    "https://drand.cloudflare.com/public/6333716"
+  ],
+  "verified_relay_count": 3,
+  "selection_index": 0,
+  "scenario_id": "citadel-short-executor-proof",
+  "selection_digest": "sha256:234e805981ef070475960905f65243fa01fbfffa7b7e7babf39ee3dc982f3de1"
+}

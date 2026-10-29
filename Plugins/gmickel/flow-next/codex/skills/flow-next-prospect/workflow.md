@@ -1,0 +1,769 @@
+# /flow-next:prospect workflow
+
+Execute these phases in order. Each gates on the prior. Stop on user-blocking error — never plow through with bad state.
+
+## Preamble
+
+```bash
+set -e
+FLOWCTL="${CODEX_HOME:-$HOME/.codex}/scripts/flowctl"
+[ -x "$FLOWCTL" ] || FLOWCTL="<plugin-root>/scripts/flowctl"   # <plugin-root> = the directory two levels above this skill's SKILL.md file (the harness gave you that file's absolute path when the skill loaded); substitute it literally
+[ -x "$FLOWCTL" ] || FLOWCTL=".flow/bin/flowctl"
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+PROSPECTS_DIR="$REPO_ROOT/.flow/prospects"
+TODAY="$(date -u +%Y-%m-%d)"
+
+# Python picker — CANONICAL copy. Resolve Python 3.11+ once per bash block
+# (functionality/version probe — the Windows Store python3 alias stub satisfies
+# `command -v` but exits 9009; the probe skips it). Order mirrors the shared
+# scripts/lib/pick-python.sh resolver.
+PY=""
+for _c in "${PYTHON_BIN:-}" "py -3" python3 python; do
+  [ -n "$_c" ] || continue
+  $_c -c "import sys; raise SystemExit(0 if sys.version_info >= (3, 11) else 3)" >/dev/null 2>&1 && { PY="$_c"; break; }
+done
+[ -n "$PY" ] || { echo "prospect: no working Python 3.11+ interpreter found" >&2; exit 1; }
+```
+
+`jq` and Python 3.11+ (`python3`, `python`, or `py -3` on Windows) must be on PATH. **Bash vars do not survive across prompt turns.** Any later bash block that uses `$PY` (Phase 0 §0.2, Phase 2 §2.4, Phase 5 §5.2–5.3) re-declares the whole Preamble block verbatim at its top (it also defines `$FLOWCTL`, `$PROSPECTS_DIR` and `$TODAY`) before invoking `$PY`; a block that invoked `$PY` without that re-declaration has broken this. The skill prefers stdlib-only Python for any frontmatter parsing — see Phase 0.
+
+---
+
+## Autonomy block
+
+SKILL.md's autonomy block has already run: an autonomous run exits there and never reaches this file.
+
+**No env-var opt-in.** An autonomous run cannot decide what a repo should build next — that's a human judgement call. The block runs before `mkdir`, before any user prompt, before any scan; the artifact directory is not created and no question is surfaced.
+
+---
+
+## Phase 0: Resume check
+
+**Goal:** if the user already has an active prospect artifact <30 days old, surface it and ask whether to start fresh or open it. Corrupt artifacts must be detected and listed with `status: corrupt` so the user knows they exist, but never offered for extension or promote.
+
+### 0.1 — Discover candidates (gate)
+
+```bash
+ACTIVE=0
+# NO pipelines in the probe — a failed producer masked by a healthy consumer
+# fails CLOSED. Capture raw first, rc-checked; parse separately.
+mkdir -p "$PROSPECTS_DIR" 2>/dev/null || ACTIVE=1                 # probe ERROR ⇒ ACTIVE (fail open)
+if [ "$ACTIVE" = "0" ]; then
+  RAW="$(find "$PROSPECTS_DIR" -maxdepth 1 -type f -name '*.md' 2>/dev/null)" || ACTIVE=1   # probe ERROR ⇒ ACTIVE
+fi
+if [ "$ACTIVE" = "0" ]; then
+  FIRST="$(printf '%s' "${RAW%%$'\n'*}")" || ACTIVE=1             # parse ERROR ⇒ ACTIVE
+  [ -n "$FIRST" ] && ACTIVE=1
+fi
+if [ "$ACTIVE" = "1" ]; then
+  echo "GATE ACTIVE — STOP. Read references/resume-artifacts.md before continuing."
+fi
+```
+
+**Ask the user via plain text.** Render the options below as a numbered list `1.` … `N.`, followed by a final option `N+1. Other — type your own answer`. Print the question, then the numbered list, then **stop and wait for the user's next message before continuing**. Parse the reply as: a bare number `1`–`N+1` → that option; the literal text of an option label → that option; free text after `Other` → custom answer.
+
+When the sentinel prints, STOP and Read [references/resume-artifacts.md](references/resume-artifacts.md) before any further step — it carries §0.2 parse + classify, §0.3 surface rules, §0.4 the frozen `fresh | open N` plain-text numbered prompt, and §0.5 routing. When the sentinel does not print, `.flow/prospects/` holds no artifacts: skip the rest of Phase 0 — go straight to Phase 1.
+
+### Done when
+
+- The gate has been evaluated, and — when it fired — the reference's routing has resolved to fresh or exited on open.
+- Corrupt artifacts, if any, are listed with `status: corrupt` and excluded from extension.
+
+---
+
+## Phase 1: Ground
+
+**Goal:** produce a structured 30-50 line snapshot of repo state relevant to the focus hint. Each data source has a graceful-degradation fallback that records `scanned: none (reason)` rather than erroring. Titles + tags only; **never raw file bodies** — bloated context measurably degrades downstream generation quality.
+
+### 1.1 — Focus-hint resolution
+
+```bash
+FOCUS_HINT="${ARGUMENTS:-}"
+FOCUS_KIND="open-ended"   # one of: open-ended | concept | path | constraint | volume
+FOCUS_PATH=""
+```
+
+Classify the hint by surface:
+
+- Empty → `FOCUS_KIND=open-ended`. No further checks.
+- Looks like a path (contains `/`, no spaces, `realpath -m "$REPO_ROOT/$FOCUS_HINT"` resolves under `$REPO_ROOT`) → `FOCUS_KIND=path`, set `FOCUS_PATH="$FOCUS_HINT"`.
+- Matches one of `top N`, `N ideas`, `raise the bar` → `FOCUS_KIND=volume`. Volume semantics are interpreted in Phase 2; record verbatim here.
+- Anything else → `FOCUS_KIND=concept`. Hint flows to Phase 2 prompts as-is.
+
+If `FOCUS_KIND == path` and `[[ ! -e "$REPO_ROOT/$FOCUS_PATH" ]]`, the hint resolves to nothing on disk. Ask via plain-text numbered prompt whether to (a) continue open-ended, (b) re-enter a different hint, or (c) abort. Do not assume open-ended silently — the user typed a path for a reason.
+
+### 1.2 — Collect signals (graceful degradation per source)
+
+Each subsection writes a small structured block into a single snapshot buffer. Empty / missing sources record `scanned: none (<reason>)` and contribute zero noise.
+
+#### git log (last 30 days)
+
+```bash
+if [[ -e "$REPO_ROOT/.git" ]] && command -v git >/dev/null 2>&1; then
+  GIT_FILES=$(git -C "$REPO_ROOT" log --since="30 days ago" --name-only --pretty=format: 2>/dev/null \
+    | grep -v '^$' | sort -u)
+  GIT_COUNT=$(printf "%s\n" "$GIT_FILES" | grep -c . || true)
+  GIT_TOP=$(printf "%s\n" "$GIT_FILES" | head -10)
+  GIT_BLOCK="git_log_30d: ${GIT_COUNT} files modified
+top:
+$(printf "%s\n" "$GIT_TOP" | sed 's/^/  - /')"
+else
+  GIT_BLOCK="git_log_30d: scanned: none (no git repo)"
+fi
+```
+
+#### Open specs
+
+```bash
+SPECS_JSON=$("$FLOWCTL" specs --json 2>/dev/null || echo '{"specs":[]}')
+OPEN_SPECS=$(jq '[.specs[] | select(.status == "open")]' <<< "$SPECS_JSON" 2>/dev/null || echo '[]')
+SPECS_COUNT=$(jq 'length' <<< "$OPEN_SPECS" 2>/dev/null || echo 0)
+if [[ "$SPECS_COUNT" -gt 0 ]]; then
+  SPECS_BLOCK="open_specs: ${SPECS_COUNT}
+$(jq -r '.[] | "  - \(.id): \(.title)"' <<< "$OPEN_SPECS")"
+else
+  SPECS_BLOCK="open_specs: scanned: none (no open specs)"
+fi
+```
+
+`flowctl specs --json` returns all specs; filter by `status == "open"` via jq. Status values used by flowctl are `open` and `done` (sometimes `closed`); the filter can be widened to `status != "done"` if `closed` shows up.
+
+The Phase 2 prompt uses this list as anti-duplication grounding — candidates that overlap an open spec must surface in Phase 3 critique under `duplicates-open-epic` (frozen taxonomy slug, kept stable for artifact round-trip; the prose semantics now read "duplicates-open-spec").
+
+#### CHANGELOG (top 50 lines)
+
+```bash
+if [[ -f "$REPO_ROOT/CHANGELOG.md" ]]; then
+  CHANGELOG_HEAD=$(head -50 "$REPO_ROOT/CHANGELOG.md")
+  # distill: keep only entry headers (lines starting with ##) + first bullet under each
+  CHANGELOG_BLOCK="changelog_recent:
+$(printf "%s\n" "$CHANGELOG_HEAD" | awk '
+  /^## / { print "  " $0; getline; while ($0 == "" && (getline) > 0); if ($0 ~ /^[-*]/) print "    " $0; next
+  }')"
+else
+  CHANGELOG_BLOCK="changelog_recent: scanned: none (no CHANGELOG.md)"
+fi
+```
+
+Distillation keeps version headers + first bullet per entry — recent-shipped signal without bloating context.
+
+#### Memory matches (gated on `memory.enabled` + initialised)
+
+```bash
+MEMORY_ENABLED=$("$FLOWCTL" config get memory.enabled --json 2>/dev/null \
+  | jq -r '.value // false')
+
+if [[ "$MEMORY_ENABLED" == "true" && "$FOCUS_KIND" == "concept" && -n "$FOCUS_HINT" ]]; then
+  # memory search writes its error JSON to stdout AND exits non-zero when memory
+  # isn't initialised — so the response is the source of truth, not the exit code.
+  MEMORY_RESP=$("$FLOWCTL" memory search "$FOCUS_HINT" --limit 5 --json 2>/dev/null \
+    || true)
+  # `memory search --json` returns {"success": false, "error": "..."} on
+  # uninitialised memory. Bare `.success // true` returns true for false (jq's
+  # `//` only substitutes null/false), so probe `has("error")` instead.
+  MEMORY_BAD=$(jq -r 'has("error")' <<< "$MEMORY_RESP" 2>/dev/null || echo true)
+  if [[ "$MEMORY_BAD" == "true" ]]; then
+    MEMORY_BLOCK="memory_matches: scanned: none (memory not initialised)"
+  else
+    HITS_COUNT=$(jq '(.matches // []) | length' <<< "$MEMORY_RESP" 2>/dev/null \
+      || echo 0)
+    if [[ "$HITS_COUNT" -gt 0 ]]; then
+      MEMORY_BLOCK="memory_matches: ${HITS_COUNT}
+$(jq -r '.matches[] | "  - [\(.track)/\(.category)] \(.title) — tags: \((.tags // []) | join(","))"' <<< "$MEMORY_RESP")"
+    else
+      MEMORY_BLOCK="memory_matches: scanned: none (no hits for \"$FOCUS_HINT\")"
+    fi
+  fi
+elif [[ "$MEMORY_ENABLED" == "true" ]]; then
+  MEMORY_BLOCK="memory_matches: scanned: skipped (no concept focus)"
+else
+  MEMORY_BLOCK="memory_matches: scanned: none (memory disabled)"
+fi
+```
+
+Title + tags only. Never paste memory bodies — that's exactly the kind of grounding bloat to avoid. The response-shape check (`.success`) handles the "enabled but not yet initialised" case where `memory search --json` returns an error JSON and a non-zero exit; treating both signals as authoritative keeps the snapshot clean.
+
+#### Memory audit stale entries (optional, present iff `/flow-next:audit` has run)
+
+```bash
+AUDIT_DIR="$REPO_ROOT/.flow/memory/_audit"
+if [[ -d "$AUDIT_DIR" ]]; then
+  LATEST_AUDIT=$(ls -1t "$AUDIT_DIR"/*.md 2>/dev/null | head -1)
+  if [[ -n "$LATEST_AUDIT" ]]; then
+    # Read only the stale-flagged section if present; cap at 20 lines.
+    AUDIT_EXCERPT=$(awk '/^## Stale/,/^## /' "$LATEST_AUDIT" | head -20)
+    if [[ -n "$AUDIT_EXCERPT" ]]; then
+      AUDIT_BLOCK="memory_audit_stale:
+$(printf "%s\n" "$AUDIT_EXCERPT" | sed 's/^/  /')"
+    else
+      AUDIT_BLOCK="memory_audit_stale: scanned: none (no stale entries flagged)"
+    fi
+  else
+    AUDIT_BLOCK="memory_audit_stale: scanned: none (no audit reports)"
+  fi
+else
+  AUDIT_BLOCK="memory_audit_stale: scanned: none (audit not run)"
+fi
+```
+
+#### Strategy snapshot (optional, present iff STRATEGY.md has at least one populated section)
+
+Verbatim emit pattern (mirrors CE-ideate's "emit approach and active tracks verbatim"). Pulls the `name`, `target_problem`, `approach`, `tracks` (raw markdown — `### <track-name>` H3 sub-blocks; downstream prompt context handles parsing), and `last_updated` from `flowctl strategy read --json`. Husk-vs-presence gate uses `sections_filled >= 1` from `flowctl strategy status --json`, NOT `[[ -f STRATEGY.md ]]`.
+
+```bash
+STRATEGY_STATUS_JSON=$("$FLOWCTL" strategy status --json 2>/dev/null || echo '{"exists":false,"sections_filled":0}')
+STRATEGY_FILLED=$(jq -r '.sections_filled // 0' <<< "$STRATEGY_STATUS_JSON" 2>/dev/null || echo 0)
+
+if [[ "$STRATEGY_FILLED" -ge 1 ]]; then
+  STRATEGY_JSON=$("$FLOWCTL" strategy read --json 2>/dev/null || echo '{}')
+  STRATEGY_NAME=$(jq -r '.name // "(unnamed)"' <<< "$STRATEGY_JSON")
+  STRATEGY_PROBLEM=$(jq -r '.target_problem // ""' <<< "$STRATEGY_JSON")
+  STRATEGY_APPROACH=$(jq -r '.approach // ""' <<< "$STRATEGY_JSON")
+  STRATEGY_TRACKS=$(jq -r '.tracks // ""' <<< "$STRATEGY_JSON")
+  STRATEGY_UPDATED=$(jq -r '.last_updated // "(unknown)"' <<< "$STRATEGY_JSON")
+  STRATEGY_BLOCK="strategy:
+  name: ${STRATEGY_NAME}
+  last_updated: ${STRATEGY_UPDATED}
+  target_problem: |
+$(printf "%s\n" "$STRATEGY_PROBLEM" | sed 's/^/    /')
+  approach: |
+$(printf "%s\n" "$STRATEGY_APPROACH" | sed 's/^/    /')
+  tracks: |
+$(printf "%s\n" "$STRATEGY_TRACKS" | sed 's/^/    /')"
+else
+  STRATEGY_BLOCK="strategy: scanned: none (no STRATEGY.md signal)"
+fi
+```
+
+The `target_problem`, `approach`, and `tracks` strings are emitted **verbatim** — no paraphrasing, no field-extraction. `tracks` is a raw markdown string with `### <track-name>` H3 sub-blocks; downstream prompt context (Phase 2 generation, Phase 3 critique) handles the parsing. Empty section bodies surface as `""` (empty string), not null — `(.field // "")` style fallbacks keep the snapshot well-formed even when an optional section is missing.
+
+### 1.3 — Emit snapshot
+
+Concatenate the blocks under a single `## Grounding snapshot` heading. Order is fixed (git log → open specs → changelog → memory → memory audit → strategy) so the snapshot is comparable across runs. Cap each block by line-count so total output stays in the 30-50 line target window.
+
+The snapshot flows directly into Phase 2's generation prompt (and, verbatim, into the Phase 3 critique and the Phase 5 artifact) — compose it once here:
+
+```bash
+cat <<EOF
+## Grounding snapshot
+
+focus_hint: ${FOCUS_HINT:-(none — open-ended)}
+focus_kind: $FOCUS_KIND
+$( [[ -n "$FOCUS_PATH" ]] && echo "focus_path: $FOCUS_PATH" )
+
+$GIT_BLOCK
+
+$SPECS_BLOCK
+
+$CHANGELOG_BLOCK
+
+$MEMORY_BLOCK
+
+$AUDIT_BLOCK
+
+$STRATEGY_BLOCK
+EOF
+```
+
+### Done when
+
+- All six sources have contributed a block or a `scanned: none (<reason>)` line, in the fixed order.
+- The snapshot fits 30-50 lines and carries titles + tags only — no raw file bodies.
+- `FOCUS_KIND` is resolved, and a path hint that resolves to nothing on disk was answered by the user rather than silently downgraded.
+
+---
+
+## Phase 2: Generate — divergent-convergent + persona seeding
+
+**Goal:** produce a flat candidate list with **wide spread** by running one divergent generation pass anchored by ≥2 distinct persona voices. Phase 2 does **not** self-judge or pre-rank — that is Phase 3's job, on a separate prompt without this prompt's framing.
+
+### 2.1 — Resolve volume from focus hint
+
+Volume comes from `FOCUS_HINT` (Phase 1 §1.1). Default if no hint:
+
+```bash
+VOLUME_TARGET_MIN=15
+VOLUME_TARGET_MAX=25
+REJECTION_FLOOR=0.40   # Phase 3 default
+```
+
+Hint patterns (case-insensitive, leading/trailing whitespace tolerated):
+
+| Hint | Generation target | Phase 3 rejection floor |
+|---|---|---|
+| _(none)_ or `concept` / `path` / `constraint` | 15-25 candidates | 0.40 |
+| `top N` (with N integer) | `ceil(N * 1.8)` candidates | 0.40 (must leave ≥N survivors) |
+| `N ideas` (with N integer) | `≥N` candidates (LLM may exceed) | 0.40 |
+| `raise the bar` | 25-30 candidates | 0.60-0.70 |
+
+`top N` math: with a 0.40 rejection floor, `ceil(N * 1.8)` keeps ≥N alive in expectation (`1.8 * 0.6 ≈ 1.08`, so the count survives even when the LLM rejects slightly more than the floor). When `top N` and `raise the bar` both appear, take the stricter floor (0.60) and bump generation to `ceil(N * 3.0)` to keep ≥N survivors.
+
+Stash the resolved settings in shell:
+
+```bash
+GENERATION_TARGET="${VOLUME_TARGET_MIN}-${VOLUME_TARGET_MAX}"   # display-only string
+SURVIVOR_TARGET=""                                              # set only when "top N" hint
+```
+
+### 2.2 — Pick personas
+
+Apply the selection rule from `personas.md` based on `FOCUS_KIND` plus hint flavor:
+
+- `open-ended` / `path` / `constraint` / generic `concept` / `top N` / `N ideas` → **senior-maintainer + first-time-user**
+- `concept` matching `/audit|harden|secur|review|polish|risk|qual/i` → **senior-maintainer + adversarial-reviewer**
+- `raise the bar` → **all three** (senior-maintainer + first-time-user + adversarial-reviewer)
+
+The selected persona texts are read from `personas.md` and concatenated under `## Personas` in the Phase 2 prompt. Order: senior-maintainer first, then the others in the order listed by the rule.
+
+### 2.3 — Run the divergent generation pass
+
+Issue **one** prompt. Inputs: the Phase 1 grounding snapshot, the focus hint, the persona texts, the generation target. **Do not** include any critique-pass scaffolding — the generator must not self-judge. The critique runs as a separate prompt in Phase 3 without these instructions.
+
+Prompt template (fill in the bracketed slots):
+
+```
+You are generating candidate ideas for a `/flow-next:prospect` artifact. This is the divergent generation pass — produce a wide net. Critique runs separately afterwards; do not self-judge here.
+
+## Focus
+
+focus_hint: [FOCUS_HINT or "(open-ended)"]
+focus_kind: [FOCUS_KIND]
+[focus_path: <FOCUS_PATH> if path]
+
+## Grounding snapshot
+
+[Phase 1 snapshot verbatim — git log, open specs, CHANGELOG, memory, audit]
+
+## Personas
+
+[Concatenated persona texts from personas.md, in selection-rule order]
+
+Generate as if alternating between these voices. Let each voice claim ideas the others would miss. Do **not** flatten them into a single neutral perspective.
+
+## Generation target
+
+Produce [GENERATION_TARGET_DESCRIPTION] candidates. Wide net — encourage contrarian, unobvious takes. Repeating the obvious 3-5 ideas everyone would suggest is failure.
+
+## Output format
+
+Emit a flat YAML list. **One item per candidate.** No nesting, no preamble, no commentary outside YAML. The list is consumed verbatim by the next prompt — extra prose breaks the parser. Title, summary, and risk_notes prose follows the artifact prose contract in [docs/prose.md](../../docs/flow-next/prose.md); proceed without it when the doc is absent.
+
+```yaml
+candidates:
+  - title: <short title, ≤80 chars>
+    summary: <one-line summary, ≤120 chars>
+    affected_areas:
+      - <path or subsystem>
+      - <path or subsystem>
+    size: <S | M | L | XL>
+    risk_notes: <one-line risk / unknown / caveat — ≤120 chars>
+    persona: <senior-maintainer | first-time-user | adversarial-reviewer>
+  - title: ...
+```
+
+Constraints:
+
+- Each candidate must list at least one `affected_areas` entry.
+- `size` is one of S (≤200 LOC), M (200-800 LOC), L (800-2000 LOC), XL (>2000 LOC).
+- `persona` records which voice's lens the idea came from (used by Phase 3 only as metadata; do not let it bias the generation).
+- `risk_notes` is the one-line caveat — *what could make this a bad call* — not a sales pitch.
+- Do not add scores, rankings, or "priority" fields. Phase 4 ranks; you generate.
+```
+
+The `GENERATION_TARGET_DESCRIPTION` slot:
+
+| Hint | Slot text |
+|---|---|
+| _(default)_ | `15-25` |
+| `top N` | `ceil(N*1.8) — generate at least <K> so that ≥N survive critique` (substitute K) |
+| `N ideas` | `at least N (you may exceed N if the wide net produces more)` |
+| `raise the bar` | `25-30 — broader net, the critique pass will be stricter` |
+
+### 2.4 — Validate the YAML
+
+Write the model output, fenced or bare, with the **Write tool** to a literal unique path (e.g. `/tmp/flow-prospect-candidates-<suffix>.md`, your resolved temp dir) and validate it with a stdlib-only reader for the §2.3 shape. The path is an argument because the heredoc owns stdin:
+
+```bash
+# Re-declare the whole Preamble block verbatim here first (vars die across prompt turns).
+
+$PY - "/tmp/flow-prospect-candidates-<suffix>.md" <<'PY'
+import json, re, sys
+
+text = open(sys.argv[1], encoding="utf-8").read()
+m = re.search(r"```yaml\s*\n(.*?)\n```", text, re.DOTALL)
+body = m.group(1) if m else text
+
+def scalar(v):
+    v = v.strip()
+    return v[1:-1] if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'" else v
+
+# A list of flat mappings; affected_areas is the one list value (block or [a, b]).
+cands, cur, list_key, item_indent = [], None, None, 0
+for raw in body.splitlines():
+    s = raw.strip()
+    if not s or s.startswith("#") or s == "candidates:":
+        continue
+    indent = len(raw) - len(raw.lstrip())
+    if s.startswith("- ") and list_key and indent > item_indent:
+        cur[list_key].append(scalar(s[2:]))
+        continue
+    if s.startswith("- "):
+        cur, list_key, item_indent = {}, None, indent
+        cands.append(cur)
+        s = s[2:]
+    key, sep, value = s.partition(":")
+    if cur is None or not sep:
+        continue
+    key, value = key.strip(), value.strip()
+    if not value:
+        cur[key], list_key = [], key
+    elif value.startswith("[") and value.endswith("]"):
+        cur[key], list_key = [scalar(x) for x in value[1:-1].split(",") if x.strip()], None
+    else:
+        cur[key], list_key = scalar(value), None
+
+valid = []
+for i, c in enumerate(cands):
+    missing = [f for f in ("title", "summary", "affected_areas") if not c.get(f)]
+    if missing:
+        print(f"Phase 2: dropped malformed candidate at index {i}: missing {', '.join(missing)}", file=sys.stderr)
+    else:
+        valid.append(c)
+print(json.dumps(valid))
+PY
+```
+
+Any candidate missing `title`, `summary`, or `affected_areas` is dropped before Phase 3 with the stderr warning above.
+
+Hand the printed JSON list (valid YAML) to Phase 3 as `CANDIDATES_YAML`, so downstream prompts get a clean shape.
+
+If fewer than `floor(GENERATION_TARGET_MIN * 0.7)` valid candidates survive validation: read
+[references/failure-branches.md § Under-volume](references/failure-branches.md#under-volume) and ask its plain-text numbered prompt.
+
+### Done when
+
+- `CANDIDATES_YAML` holds a validated flat list, every entry carrying `title`, `summary`, and at least one `affected_areas` value.
+- The count meets the resolved generation target, or the under-volume question was answered and `generation_under_volume` recorded.
+- No ranking, score, or self-critique field leaked into the generated list.
+
+---
+
+## Phase 3: Critique — separate prompt, rejection floor enforced
+
+**Goal:** evaluate every candidate from Phase 2 with explicit `keep|drop` verdicts plus a fixed taxonomy reason. **The critique never sees Phase 2's system prompt, the personas, or the focus hint.** A critique dispatch carrying any of the three has broken this — it becomes self-critique of one's own generations, the exact sycophancy this pass exists to prevent ("the generator wanted X, the critic finds reasons to keep X").
+
+**The exclusion is structural, not an instruction.** The critique runs as a **fresh-context read-only subagent** (a single `Task` dispatch — `subagent_type: Explore`, or `general-purpose` if unavailable, or the host's generic read-only dispatch on hosts with neither builtin (e.g. Cursor)) whose prompt contains only the grounding snapshot + the candidate list + the taxonomy/floor instructions below. A separate context window physically cannot attend to the personas / focus hint / generation prompt — where a same-window "separate prompt" section could. This is the **one** subagent dispatch in this otherwise-inline skill, and it is safe: the critique is non-interactive (it emits verdicts, asks nothing), so `plain-text numbered prompt` reachability — the reason the rest of the skill stays inline — is unaffected; the floor-violation question (§3.2) runs on the main thread after the subagent returns.
+
+### 3.1 — Build the critique prompt (the subagent's only inputs)
+
+Inputs handed to the critique subagent: `CANDIDATES_YAML` (Phase 2 §2.4) + the Phase 1 grounding snapshot + the taxonomy + the target rejection rate. **Never included in the dispatch:** `FOCUS_HINT`, persona texts, the Phase 2 prompt (they live in THIS context, not the subagent's — the point of the split). The subagent returns the per-candidate `keep|drop|taxonomy|reason` YAML, which §3.2 parses on the main thread.
+
+Rejection taxonomy (anchor — frozen string list):
+
+```
+duplicates-open-epic       — material overlap with an open spec in the grounding snapshot (slug kept stable for artifact round-trip; semantics now read "duplicates-open-spec")
+out-of-scope               — outside what this codebase / the focus area should tackle
+out-of-scope-vs-strategy   — contradicts an active track in the strategy snapshot (advisory only — user can override at promote time)
+insufficient-signal        — speculative without evidence in grounding snapshot
+too-large                  — XL or undermined by size; should be split or deferred
+backward-incompat          — would break public contracts / users without strong justification
+other                      — explain in `reason` field; use sparingly
+```
+
+`out-of-scope-vs-strategy` is **advisory only**. It fires when a candidate's direction contradicts an active track from the strategy snapshot (Phase 1 §1.2). The rejection cites the violated track verbatim: `Rejected: [out-of-scope-vs-strategy] — contradicts active track "<track-name>"`. Promote reads only survivors, so a rejected idea cannot be promoted; to pursue it anyway, capture it with `/flow-next:capture`. When the strategy snapshot scanned `none`, this category is unreachable — Phase 3 will not emit it.
+
+Prompt template:
+
+```
+You are critiquing candidate ideas for a `/flow-next:prospect` artifact. You are the second pass — you did **not** generate these. Your job is to reject what does not belong.
+
+## Grounding snapshot
+
+[Phase 1 snapshot verbatim]
+
+## Candidates
+
+[CANDIDATES_YAML — one entry per candidate]
+
+## Critique instructions
+
+Evaluate each candidate against the grounding snapshot. Reject aggressively. "Could be useful someday" is not a reason to keep — that is exactly what `insufficient-signal` is for.
+
+For each candidate, emit a verdict: `keep` or `drop`. If `drop`, the `taxonomy` field must be one of:
+
+- `duplicates-open-epic` — same direction as a listed open spec (slug kept stable for artifact round-trip)
+- `out-of-scope` — not aligned with this codebase or the focus area
+- `out-of-scope-vs-strategy` — contradicts an active track in the strategy snapshot; cite the violated track name verbatim in `reason` (advisory — user can override)
+- `insufficient-signal` — no grounding evidence supports this being worth doing now
+- `too-large` — XL size or scope creep without commensurate payoff
+- `backward-incompat` — breaks contracts / users without strong justification
+- `other` — explain specifically in `reason`
+
+If `keep`, leave `taxonomy: null`. The `reason` field is required for both verdicts and should be one specific sentence — no hedging, no "could be a good idea but" language.
+
+Target rejection rate: **[REJECTION_FLOOR_PCT]%**. Below that floor, the run will surface a violation and ask the user to regenerate, loosen, or ship anyway. Aim above the floor. If you cannot in good conscience reject the floor's worth of these candidates, that is a signal the generation pass was already too narrow.
+
+## Output format
+
+```yaml
+critiques:
+  - index: 0       # zero-indexed position in the input list
+    verdict: keep | drop
+    taxonomy: null | duplicates-open-epic | out-of-scope | out-of-scope-vs-strategy | insufficient-signal | too-large | backward-incompat | other
+    reason: <one specific sentence>
+  - index: 1
+    ...
+```
+
+Emit one entry per candidate, in order. No preamble, no commentary outside YAML.
+```
+
+`REJECTION_FLOOR_PCT` is `40` (default), `60` (under `raise the bar`).
+
+### 3.2 — Parse + apply the floor
+
+Pair each critique entry with its candidate by `index`. Compute:
+
+```
+rejection_rate = drops / total
+```
+
+If `rejection_rate < REJECTION_FLOOR`: read [references/failure-branches.md § Critique floor](references/failure-branches.md#critique-floor) and ask
+its plain-text numbered prompt with the frozen options.
+
+### 3.3 — Hand off survivors + drops to Phase 4
+
+Materialize:
+
+- `SURVIVORS` — list of `{candidate, critique}` pairs where `critique.verdict == "keep"`. Order preserved from Phase 2.
+- `DROPS` — list of `{candidate, critique}` pairs where `critique.verdict == "drop"`. Used by Phase 5 to populate the `## Rejected` section.
+
+If `len(SURVIVORS) == 0`, surface a plain-text numbered prompt:
+
+```
+Critique rejected every candidate. Options:
+  regenerate — re-run Phase 2 + Phase 3 with a fresh prompt
+  abort — exit; no artifact written
+```
+
+No third option here — shipping zero survivors produces a useless artifact.
+
+### Done when
+
+- Every candidate has exactly one verdict, and every `drop` carries a taxonomy slug from the frozen list plus a one-sentence reason.
+- The rejection rate clears the floor, or the floor-violation question was answered and `floor_violation` recorded.
+- `SURVIVORS` is non-empty and `DROPS` is materialized for Phase 5.
+
+---
+
+## Phase 4: Rank survivors — bucketed, prose-only
+
+**Goal:** assign each survivor to one of three labeled buckets and stamp it with a forced-format leverage sentence. **No numeric scores.** Past position 5, ranking is near-random across reruns; bucketing stabilizes the top-3 while keeping the rest legible.
+
+### 4.1 — Build the rank prompt
+
+Inputs: `SURVIVORS` (Phase 3 §3.3) + the Phase 1 grounding snapshot. Personas and focus hint are **not** re-introduced — Phase 4 ranks on grounding-evidence, not on the generator's framing.
+
+Buckets (anchor — frozen labels):
+
+```
+High leverage (1-3) — small-diff, large-impact wins; top-3 cap
+Worth considering (4-7) — solid mid-leverage; positions 4-7
+If you have the time (8+) — lower priority; positions 8 and beyond
+```
+
+Prompt template:
+
+```
+You are ranking survivors of a critique pass for a `/flow-next:prospect` artifact. You did not generate or critique these — your job is to bucket and order.
+
+## Grounding snapshot
+
+[Phase 1 snapshot verbatim]
+
+## Survivors
+
+[SURVIVORS — yaml list with original candidate fields + the critique reason that kept each one]
+
+## Ranking instructions
+
+Assign each survivor to exactly one bucket and a position within that bucket. Cap the top bucket at 3 entries — High leverage is a scarce label, not a default. Most survivors land in Worth considering; only the genuinely lower-priority ones land in If you have the time.
+
+Each survivor gets a **leverage sentence** in this exact forced format:
+
+`Small-diff lever because <X>; impact lands on <Y>.`
+
+- `<X>` names the structural reason this is a small change (one or two existing files, well-isolated boundary, additive, etc.).
+- `<Y>` names what the impact reaches (which call sites, which user flows, which subsystems benefit).
+- One sentence. No hedging. No "could potentially" / "might enable" / "would be nice" — those are signals to drop the candidate, not to rank it.
+
+Do **not** emit numeric scores, percentage estimates, "leverage values", or rank weights. Prose only.
+
+## Output format
+
+```yaml
+ranking:
+  high_leverage:           # 0-3 entries
+    - position: 1
+      original_index: <int>   # the index from the Phase 3 SURVIVORS list
+      leverage: "Small-diff lever because ...; impact lands on ..."
+    - position: 2
+      ...
+  worth_considering:       # 0-N entries
+    - position: 4
+      original_index: <int>
+      leverage: "..."
+    ...
+  if_you_have_the_time:    # 0-N entries
+    - position: 8
+      original_index: <int>
+      leverage: "..."
+    ...
+```
+
+Position numbers run 1-indexed, sequential, and stable across the buckets (positions 1-3 in High leverage, 4-7 in Worth considering, 8+ in If you have the time). Skip positions if a bucket is shorter than its slot — e.g., if High leverage has only 2 entries, Worth considering still starts at position 4. Buckets may be empty.
+```
+
+### 4.2 — Validate the ranking
+
+Parse the model output. Reject and re-prompt **once** if any of:
+
+- `high_leverage` has more than 3 entries.
+- A `position` number is reused or non-sequential within its bucket.
+- An `original_index` is out of range or duplicated across buckets.
+- A `leverage` sentence does not match the regex `^Small-diff lever because .+; impact lands on .+\.$` — the format is the forced function, not a suggestion.
+- Any numeric scoring leaks in (regex-check for `score:`, `priority:`, `weight:`, `\d+/10`, `\d+%`).
+
+On re-prompt, send a single corrective message: `Output rejected — <specific reason>. Re-emit the ranking in the exact format above.` After one retry, fall through with whatever validates and surface a stderr warning.
+
+### 4.3 — Hand off to Phase 5
+
+Materialize `RANKED` — the parsed ranking with each survivor's full candidate record (title, summary, affected_areas, size, risk_notes, persona) joined in by `original_index`. Order:
+
+1. High leverage entries by position
+2. Worth considering entries by position
+3. If you have the time entries by position
+
+`RANKED` plus `DROPS` (Phase 3 §3.3) is the input to Phase 5 — the artifact writer.
+
+### Done when
+
+- Every survivor sits in exactly one bucket with a unique, sequential position; `high_leverage` holds at most 3.
+- Every leverage sentence matches the forced format, and no numeric score survived the §4.2 checks.
+- `RANKED` carries each survivor's full candidate record joined by `original_index`.
+
+---
+
+## Phase 5: Write artifact
+
+**Goal:** atomically write a single markdown artifact to `.flow/prospects/<slug>-<date>.md` so it survives Ctrl-C, concurrent runs, and resume on the next session. **Artifact lands on disk before Phase 6 fires.** Never gate the write on the handoff prompt.
+
+### 5.1 — Render the host-authored payload
+
+Show the payload skeleton once:
+
+```bash
+$FLOWCTL prospect write --skeleton
+```
+
+Fill it with Phase 1's focus and grounding snapshot, Phase 4's ranked buckets
+(each survivor has position, title, summary, leverage and size), and Phase 3's
+drops (title, taxonomy, reason). Write that JSON with the Write tool to a unique
+file under `${TMPDIR:-/tmp}`. Include `floor_violation` or
+`generation_under_volume` only when upstream set them.
+
+```bash
+$FLOWCTL prospect write --from-json "$PROSPECT_INPUT" --json
+```
+
+The verb allocates the same-day collision-safe artifact id, derives volume,
+survivor/rejected counts and rejection rate, validates every item, and renders
+and writes atomically. On invalid input it reports all errors without writing;
+correct those fields and retry. Keep the returned path for Phase 6. No Python
+imports or hand-authored frontmatter are needed.
+
+### 5.5 — Body section ordering (frozen)
+
+The writer emits body sections in this exact order:
+
+```
+## Focus
+## Grounding snapshot
+## Survivors
+  ### High leverage (1-3)
+  ### Worth considering (4-7)
+  ### If you have the time (8+)
+## Rejected
+```
+
+Each survivor block:
+
+```
+#### <position>. <title>
+**Summary:** <one line>
+**Leverage:** Small-diff lever because <X>; impact lands on <Y>.
+**Size:** <S|M|L|XL>
+**Affected areas:** <comma-joined list>      # only when present
+**Risk notes:** <one line>                   # only when present
+**Persona:** <senior-maintainer | first-time-user | adversarial-reviewer>   # only when present
+**Next step:** promote, then /flow-next:flow <spec-id>
+```
+
+`**Next step:**` is a hard-coded template line - not a candidate field (flowctl's `write_prospect_artifact` emits it verbatim). It points at `/flow-next:flow` on the promoted spec so the router decides the next stage (refine only when a named decision is open). Chart routing is a handoff-time judgment (Phase 6 + the chart boundary in SKILL.md), never a per-candidate artifact field.
+
+Empty buckets render `_(none)_`. Empty `## Rejected` renders `_(none)_`.
+
+### Done when
+
+- `.flow/prospects/<artifact-id>.md` exists on disk, written through `write_prospect_artifact` (never hand-rolled YAML), with no `.tmp.*` file left behind.
+- Frontmatter validated; `floor_violation` / `generation_under_volume` present only when upstream set them.
+- The artifact is on disk before Phase 6 fires.
+
+---
+
+## Phase 6: Handoff prompt
+
+**Goal:** offer the user a one-keystroke path from "artifact saved" to a spec (via `flowctl prospect promote`), chart (only when the selected candidate is still singular + oversized + unclear), interview, or a clean exit. The artifact already exists on disk by the time this phase fires - Ctrl-C here loses nothing.
+
+### 6.1 — Use the plain-text numbered prompt
+
+Use `plain-text numbered prompt`. If the tool is unreachable, print the frozen-string format §6.2 points to and read the user's reply from chat.
+
+If the tool is available, use it with these labelled choices (one per survivor + chart when warranted + skip + refine):
+
+- `Promote #<position>: <title>` (the survivor's artifact position)
+- ... (one per survivor across all buckets)
+- `Chart #N: <title>` (offer **only** when that survivor is still singular, oversized, and unclear - never for clear candidates)
+- `Skip`
+- `Refine instead`
+
+The tool's free-text `description` field gets the artifact path so the user has it visible while choosing. Chart is optional discovery after selection, not a mandatory hop and not a fixed prospect -> chart -> capture conveyor.
+
+### 6.2 — Frozen numbered-options fallback
+
+When plain text is the prompt mechanism (or the platform tool errors): print the exact frozen menu in
+[references/failure-branches.md § Numbered-options fallback](references/failure-branches.md#numbered-options-fallback).
+
+### 6.3 — Reply parsing
+
+Normalize the reply (strip whitespace, lowercase). Route by exact match:
+
+| Reply | Action |
+|-------|--------|
+| A survivor position, or a `Promote #<position>` label | Run `flowctl prospect promote <artifact-id> --idea <position>`. Echo the new spec id and exit. |
+| `s`, `skip`, `Skip`, empty string | Print `Skipped. Artifact saved at .flow/prospects/<artifact-id>.md` and exit. |
+| `c`, `chart` | Print suggestion: `Run $flow-next-chart on the selected survivor only if it is still singular, oversized, and unclear; otherwise capture/promote. Artifact saved at .flow/prospects/<artifact-id>.md`. **Do not auto-invoke.** |
+| `i`, `refine`, `interview` | Print suggestion: `Run $flow-next-refine <spec-or-task-id> to refine. Artifact saved at .flow/prospects/<artifact-id>.md`. **Do not auto-invoke** - the user picks the target id. |
+| anything else | Reprint the menu once with `Unrecognized choice: <reply>`. On second invalid reply, print `Skipped (no valid choice). Artifact saved at .flow/prospects/<artifact-id>.md` and exit cleanly. |
+
+**Host command form:** print every copy-pasteable flow-next command here in the spelling this host invokes — the flat `/flow-next-<name>` form when the resolved plugin root carries `.flow-next-opencode-manifest` (an OpenCode install — the same signal setup's host detection uses); on any other or indeterminate host, exactly as spelled here.
+
+### 6.4 — Exit cleanly regardless
+
+The artifact is on disk. Phase 6 does not retry, does not extend, does not delete. If `flowctl prospect promote` errors, surface its stderr verbatim and exit non-zero — the user can re-run promote manually with the artifact id printed in the saved-to line.
+
+### Done when
+
+- The user was offered the choice once (blocking tool or the frozen numbered fallback) and the reply was routed per §6.3.
+- Chart and refine were suggested, never auto-invoked.
+- The artifact path was printed on every exit path.

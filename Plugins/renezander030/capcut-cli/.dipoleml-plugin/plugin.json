@@ -1,0 +1,16 @@
+{
+  "name": "capcut-cli",
+  "displayName": "Capcut CLI",
+  "version": "0.2.0",
+  "description": "Edit CapCut and JianYing (剪映) projects from DipoleML — subtitles and SRT/ASS import, timing, speed, volume, keyframes, masks, filters and effects, templates, lint --fix, render previews, and cutting long-form to shorts.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Renezander030"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/renezander030/capcut-cli",
+  "repository": "https://github.com/renezander030/capcut-cli",
+  "skills": "./skills/",
+  "commands": [],
+  "agents": []
+}

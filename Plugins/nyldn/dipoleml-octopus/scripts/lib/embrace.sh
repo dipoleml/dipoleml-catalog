@@ -1,0 +1,184 @@
+#!/usr/bin/env bash
+# lib/embrace.sh — Embrace/probe workflow coordination
+# Extracted from orchestrate.sh
+# Functions: get_dispatch_strategy, load_blind_spot_checklist
+
+if ! declare -f _is_cursor_agent_binary >/dev/null 2>&1; then
+    _embrace_lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    source "${_embrace_lib_dir}/cursor-agent.sh" 2>/dev/null || true
+fi
+
+if ! declare -f qwen_is_usable >/dev/null 2>&1; then
+    _embrace_lib_dir="${_embrace_lib_dir:-$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)}"
+    source "${_embrace_lib_dir}/auth.sh" 2>/dev/null || true
+    source "${_embrace_lib_dir}/qwen.sh" 2>/dev/null || true
+fi
+
+# Provider allowlist gate used across get_dispatch_strategy. No-op (returns 0 /
+# allowed) when octo_provider_allowed is undefined or the allowlist is unset, so
+# default setups are unaffected; when an allowlist IS set every CLI seat — not
+# just agy — is filtered consistently so stale binaries can't bypass it (#524).
+_gds_provider_allowed() {
+    ! declare -f octo_provider_allowed >/dev/null 2>&1 || octo_provider_allowed "$1"
+}
+
+# Providers that just failed the current run's smoke test are marked
+# quota/auth-dead for the rest of the session (quota-watcher.sh); every other
+# dispatch path (is_agent_available_v2, build-fleet.sh, check-providers.sh)
+# already excludes on that marker. get_dispatch_strategy() did not, so a
+# provider that had just failed smoke testing was still selected into the
+# fleet a moment later. (#840)
+_gds_not_quota_dead() {
+    ! declare -f octo_quota_is_dead >/dev/null 2>&1 || ! octo_quota_is_dead "$1"
+}
+
+get_dispatch_strategy() {
+    local prompt="$1"
+    local workflow="${2:-auto}"
+    local strategy="${OCTOPUS_DISPATCH_STRATEGY:-smart}"
+
+    case "$strategy" in
+        full)
+            local all_p="claude-sonnet"
+            _gds_provider_allowed codex && _gds_not_quota_dead codex && command -v codex >/dev/null 2>&1 && all_p="codex,${all_p}"
+            # Antigravity (agy) is the Google seat since the Gemini CLI sunset (#524)
+            _gds_provider_allowed agy && _gds_not_quota_dead agy && command -v agy >/dev/null 2>&1 && all_p="agy,${all_p}"
+            local _full_count; _full_count=$(awk -F, '{print NF}' <<< "$all_p")
+            echo "${_full_count}:${all_p}:high"
+            return 0 ;;
+        minimal)
+            # AGY is the sole Google seat.
+            if _gds_provider_allowed agy && _gds_not_quota_dead agy && command -v agy >/dev/null 2>&1; then echo "2:agy,claude-sonnet:high"
+            elif _gds_provider_allowed codex && _gds_not_quota_dead codex && command -v codex >/dev/null 2>&1; then echo "2:codex,claude-sonnet:high"
+            else echo "1:claude-sonnet:high"; fi
+            return 0 ;;
+    esac
+
+    # Auto-detect workflow from prompt if not specified
+    if [[ "$workflow" == "auto" ]]; then
+        local p_lower
+        p_lower=$(echo "$prompt" | tr '[:upper:]' '[:lower:]')
+        local _re_sec='security|vulnerabilit|cve|owasp|injection|xss|csrf'
+        local _re_rev='review|code.review|pull.request|bug.*find|audit|quality'
+        local _re_arch='architect|system.design|trade.?off|debate|compare|vs([[:space:]]|$)|versus'
+        if [[ "$p_lower" =~ $_re_sec ]]; then
+            workflow="security"
+        elif [[ "$p_lower" =~ $_re_rev ]]; then
+            workflow="review"
+        elif [[ "$p_lower" =~ $_re_arch ]]; then
+            workflow="architecture"
+        else
+            workflow="research"
+        fi
+    fi
+
+    # v9.10.0: Detect all available providers for dispatch strategy
+    # v9.45.1: agy (Antigravity) added as the Google seat — the probe/discover
+    # fan-out never seated it before, so Antigravity-only setups fell back to
+    # Claude-only dispatch (Gemini CLI sunset 2026-06-18, #524).
+    local has_codex=false has_copilot=false has_qwen=false has_ollama=false has_cursor_agent=false has_agy=false
+    _gds_provider_allowed codex  && _gds_not_quota_dead codex  && command -v codex  >/dev/null 2>&1 && has_codex=true
+    _gds_provider_allowed agy    && _gds_not_quota_dead agy    && command -v agy    >/dev/null 2>&1 && has_agy=true
+    _gds_provider_allowed copilot && _gds_not_quota_dead copilot && command -v copilot >/dev/null 2>&1 && has_copilot=true
+    if _gds_provider_allowed qwen && _gds_not_quota_dead qwen; then
+        if declare -f qwen_is_usable >/dev/null 2>&1; then
+            qwen_is_usable && has_qwen=true
+        elif command -v qwen >/dev/null 2>&1; then
+            has_qwen=true
+        fi
+    fi
+    _gds_provider_allowed ollama && _gds_not_quota_dead ollama && command -v ollama >/dev/null 2>&1 && curl -sf http://localhost:11434/api/tags &>/dev/null && has_ollama=true
+    if _gds_provider_allowed cursor-agent && _gds_not_quota_dead cursor-agent; then
+        # lib/cursor-agent.sh owns binary identity and auth (env key or session).
+        if declare -f cursor_agent_is_available >/dev/null 2>&1 && cursor_agent_is_available; then
+            has_cursor_agent=true
+        fi
+    fi
+
+    # Build available CLI providers list (excluding Claude which is always available)
+    local -a cli_providers=()
+    [[ "$has_codex" == true ]] && cli_providers+=(codex)
+    [[ "$has_agy" == true ]] && cli_providers+=(agy)
+    [[ "$has_copilot" == true ]] && cli_providers+=(copilot)
+    [[ "$has_qwen" == true ]] && cli_providers+=(qwen)
+    [[ "$has_cursor_agent" == true ]] && cli_providers+=(cursor-agent)
+    local cli_count=${#cli_providers[@]}
+
+    case "$workflow" in
+        review|security)
+            # Each provider misses different bugs — more perspectives = better coverage
+            if [[ $cli_count -ge 2 ]]; then
+                local providers_str
+                providers_str=$(IFS=,; echo "${cli_providers[*]}")
+                echo "$((cli_count + 1)):${providers_str},claude-sonnet:high"
+            elif [[ "$has_agy" == true ]]; then echo "2:agy,claude-sonnet:high"
+            elif [[ "$has_codex" == true ]]; then echo "2:codex,claude-sonnet:high"
+            elif [[ "$has_qwen" == true ]]; then echo "2:qwen,claude-sonnet:medium"
+            else echo "1:claude-sonnet:medium"; fi ;;
+        architecture)
+            # Maximize training bias diversity
+            if [[ $cli_count -ge 2 ]]; then
+                local providers_str
+                providers_str=$(IFS=,; echo "${cli_providers[*]}")
+                echo "${cli_count}:${providers_str}:high"
+            elif [[ $cli_count -eq 1 ]]; then
+                echo "2:${cli_providers[0]},claude-sonnet:medium"
+            else echo "1:claude-sonnet:low"; fi ;;
+        research|*)
+            # Research benefits from diverse perspectives
+            if [[ $cli_count -ge 2 ]]; then
+                local providers_str
+                providers_str=$(IFS=,; echo "${cli_providers[*]}")
+                echo "$((cli_count + 1)):${providers_str},claude-sonnet:high"
+            elif [[ "$has_agy" == true ]]; then echo "2:agy,claude-sonnet:high"
+            elif [[ "$has_codex" == true ]]; then echo "2:codex,claude-sonnet:medium"
+            elif [[ "$has_qwen" == true ]]; then echo "2:qwen,claude-sonnet:medium"
+            elif [[ "$has_copilot" == true ]]; then echo "2:copilot,claude-sonnet:medium"
+            else echo "1:claude-sonnet:medium"; fi ;;
+    esac
+}
+
+load_blind_spot_checklist() {
+    local prompt="$1"
+    local blind_spots_dir="${SCRIPT_DIR}/../config/blind-spots"
+    local manifest="${blind_spots_dir}/manifest.json"
+
+    [[ ! -f "$manifest" ]] && return
+
+    local prompt_lower
+    prompt_lower=$(echo "$prompt" | tr '[:upper:]' '[:lower:]')
+
+    # Find matching domain files via manifest trigger keywords
+    local matched_files
+    matched_files=$(jq -r --arg p "$prompt_lower" '
+        .domains[] |
+        select([.trigger_keywords[] as $kw | $p | test($kw; "i")] | any) |
+        .file
+    ' "$manifest" 2>/dev/null | sort -u)
+
+    [[ -z "$matched_files" ]] && return
+
+    # Collect relevant blind spot prompts from matched domains
+    local checklist=""
+    while IFS= read -r domain_file; do
+        [[ -z "$domain_file" ]] && continue
+        local file="${blind_spots_dir}/${domain_file}"
+        [[ ! -f "$file" ]] && continue
+
+        local spots
+        spots=$(jq -r --arg p "$prompt_lower" '
+            .blind_spots[] |
+            select([.trigger_keywords[] as $kw | $p | test($kw; "i")] | any) |
+            .injection_prompt
+        ' "$file" 2>/dev/null)
+
+        while IFS= read -r spot; do
+            [[ -z "$spot" ]] && continue
+            checklist="${checklist}
+- ${spot}"
+        done <<< "$spots"
+    done <<< "$matched_files"
+
+    [[ -z "$checklist" ]] && return
+    echo "$checklist"
+}

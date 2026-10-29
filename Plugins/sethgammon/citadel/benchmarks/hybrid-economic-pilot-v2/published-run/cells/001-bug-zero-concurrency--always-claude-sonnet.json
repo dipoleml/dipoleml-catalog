@@ -1,0 +1,111 @@
+{
+  "schema": 1,
+  "cell_id": "001-bug-zero-concurrency--always-claude-sonnet",
+  "order": 1,
+  "scenario_id": "bug-zero-concurrency",
+  "task_class": "bug-fix",
+  "risk": "moderate",
+  "policy_id": "always-claude-sonnet",
+  "repetition": 1,
+  "route": {
+    "initial_tier": "cloud",
+    "escalation_tier": null,
+    "reason_code": "BASELINE_ALWAYS_CLAUDE"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "cloud",
+      "started_at": "2026-08-02T01:09:36.560Z",
+      "duration_ms": 4587,
+      "output_text": "{\"files\":{\"src/concurrency.js\":\"'use strict';\\nfunction effectiveConcurrency(value){return value===null||value===undefined?4:value;}\\nmodule.exports={effectiveConcurrency};\\n\"}}",
+      "output_digest": "sha256:92bd5a62d28004b59cb406cafdbf1f5cbc96a750be7987cc3fc987bf465cbf13",
+      "verification": {
+        "status": "passed",
+        "code": null,
+        "changed_paths": [
+          "src/concurrency.js"
+        ],
+        "applied_file_digests": {
+          "src/concurrency.js": "sha256:e9e31d1487aba5153744d2c78a96f73c040fa793665234501a14eecd581c595f"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 0,
+          "signal": null,
+          "stdout": "",
+          "stderr": "",
+          "error": null
+        },
+        "patch_digest": "sha256:a77428fc9e03044ba0b2438d99786edbbd91ecfd6f7f3d64c0f25683797af94c"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "claude-code-print",
+        "requested_model": "sonnet",
+        "canonical_model": "claude-sonnet-5",
+        "cli_version": "2.1.219",
+        "response_digest": "sha256:f47f366981de05e3f6e1f6a42aca0d118e2c34aa3bebbda7e42f6a84a79260b0",
+        "exit_status": 0,
+        "terminal_reason": "completed",
+        "error": null
+      },
+      "usage": {
+        "input_tokens": 492,
+        "output_tokens": 80,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0
+      },
+      "economics": {
+        "comparison_cost": {
+          "status": "provider-reported-equivalent",
+          "total_usd": 0.00349,
+          "source": "claude_code_total_cost_usd"
+        },
+        "provider_reported_equivalent_cost": {
+          "status": "provider-reported-equivalent",
+          "amount_usd": 0.00349,
+          "source": "claude_code_total_cost_usd"
+        },
+        "local_gpu_energy": {
+          "status": "not-applicable",
+          "energy_kwh": 0,
+          "samples": 0,
+          "average_watts": null
+        },
+        "actual_subscription_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "pro_subscription_cost_not_allocated_per_request"
+        }
+      }
+    }
+  ],
+  "status": "passed",
+  "final_verification": {
+    "status": "passed",
+    "code": null,
+    "changed_paths": [
+      "src/concurrency.js"
+    ],
+    "applied_file_digests": {
+      "src/concurrency.js": "sha256:e9e31d1487aba5153744d2c78a96f73c040fa793665234501a14eecd581c595f"
+    },
+    "verifier": {
+      "command": "node verifier.js",
+      "status": 0,
+      "signal": null,
+      "stdout": "",
+      "stderr": "",
+      "error": null
+    },
+    "patch_digest": "sha256:a77428fc9e03044ba0b2438d99786edbbd91ecfd6f7f3d64c0f25683797af94c"
+  },
+  "previous_cell_digest": "sha256:bfa86a46393fae5960f94f5d3e113326ee83eeaf68f170f82d2956a6761b625d",
+  "receipt_digest": "sha256:36b3953a3ec5dcd6942154f3faf25cff0388db4f1b8cafd4c4c2e689c1426599",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:122b1c70f8cc6cd2220779195726dde37dbe74a000f06b1b3e08683dff57c710",
+    "signature": "TTom4WT9lsa5LD8BLz9H0uO4JKUe3yJctAe/pUA/yf2m8VRf3rVG3OKAnDLjg+XLTa9z/J3OgNxrC/Yulws9DQ=="
+  }
+}

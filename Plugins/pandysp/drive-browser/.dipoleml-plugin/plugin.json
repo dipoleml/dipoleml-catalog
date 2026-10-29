@@ -1,0 +1,16 @@
+{
+  "name": "drive-browser",
+  "displayName": "Drive Browser",
+  "version": "1.0.3",
+  "description": "Drive a browser with Playwright as a dual-mode superset. Resilient locators for debugging your own web app and a vision/coordinate loop for opaque real sites, on a fresh browser or the user's real logged-in session.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Pandysp"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/pandysp/claude-plugins",
+  "repository": "https://github.com/pandysp/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

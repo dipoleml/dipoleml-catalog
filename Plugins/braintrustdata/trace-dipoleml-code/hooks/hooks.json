@@ -1,0 +1,167 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bt",
+            "args": ["trace", "hook", "--source", "claude-code"],
+            "async": false
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bt",
+            "args": ["trace", "hook", "--source", "claude-code"],
+            "async": false
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bt",
+            "args": ["trace", "hook", "--source", "claude-code"],
+            "async": false
+          }
+        ]
+      }
+    ],
+    "PermissionDenied": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bt",
+            "args": ["trace", "hook", "--source", "claude-code"],
+            "async": false
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bt",
+            "args": ["trace", "hook", "--source", "claude-code"],
+            "async": false
+          }
+        ]
+      }
+    ],
+    "PostToolUseFailure": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bt",
+            "args": ["trace", "hook", "--source", "claude-code"],
+            "async": false
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bt",
+            "args": ["trace", "hook", "--source", "claude-code"],
+            "async": false
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bt",
+            "args": ["trace", "hook", "--source", "claude-code"],
+            "async": false
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bt",
+            "args": ["trace", "hook", "--source", "claude-code"],
+            "async": false
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bt",
+            "args": ["trace", "hook", "--source", "claude-code"],
+            "async": false
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bt",
+            "args": ["trace", "hook", "--source", "claude-code"],
+            "async": false
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bt",
+            "args": ["trace", "hook", "--source", "claude-code"],
+            "async": false
+          }
+        ]
+      }
+    ],
+    "UserPromptExpansion": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bt",
+            "args": ["trace", "hook", "--source", "claude-code"],
+            "async": false
+          }
+        ]
+      }
+    ]
+  }
+}

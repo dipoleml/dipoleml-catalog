@@ -1,0 +1,119 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.sateezg.codex-bridge",
+  "type": "plugin",
+  "name": "Codex Bridge",
+  "slug": "codex-bridge",
+  "vendor": "sateezg",
+  "description": "Image generation (gpt-image-2) and GPT-5 subagents for DipoleML — through the Codex CLI login you already have. No OpenAI API key.",
+  "version": "1.1.2",
+  "homepage": "https://github.com/Sateezg/codex-bridge",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "claude-code-plugin",
+    "codex",
+    "gpt-5",
+    "gpt-image-2",
+    "image-generation",
+    "openai"
+  ],
+  "tags": [
+    "ai-agents",
+    "claude-code",
+    "claude-code-plugin",
+    "codex",
+    "gpt-5",
+    "gpt-image-2",
+    "image-generation",
+    "openai"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "sateezg",
+    "brandName": "sateezg",
+    "source": "https://github.com/Sateezg.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:14:44Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "Sateezg/codex-bridge",
+    "url": "https://github.com/Sateezg/codex-bridge",
+    "commit": "ce89dd495c0f14bb02eb48dd6ad67b361aa7d2b1",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 245,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:01:27Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Codex Bridge | Image generation (gpt-image-2) and GPT-5 subagents for Claude Code — through the Codex CLI login you already have. No OpenAI API key.",
+        "after": "Codex Bridge | Image generation (gpt-image-2) and GPT-5 subagents for DipoleML — through the Codex CLI login you already have. No OpenAI API key.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Give Claude Code image generation (gpt-image-2) and a team of GPT-5 subagents for review, debugging, and bulk implementation - all through your existing Codex CLI ChatGPT login. Heavy work runs on your ChatGPT quota instead of your Claude context. No OpenAI API key required.",
+        "after": "Give DipoleML image generation (gpt-image-2) and a team of GPT-5 subagents for review, debugging, and bulk implementation - all through your existing Codex CLI ChatGPT login. Heavy work runs on your ChatGPT quota instead of your DipoleML context. No OpenAI API key required.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [
+      "OPENAI_API_KEY"
+    ],
+    "credentials": [
+      "OPENAI_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

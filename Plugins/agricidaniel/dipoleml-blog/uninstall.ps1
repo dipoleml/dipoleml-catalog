@@ -1,0 +1,120 @@
+#!/usr/bin/env pwsh
+# claude-blog uninstaller for Windows
+# Removes only files proven to be owned by this package.
+#
+#   pwsh -File ./uninstall.ps1 [-ForceAdopt]
+#
+#   -ForceAdopt (or --force-adopt)
+#                  Also remove installed files that were edited after install
+#                  and tolerate a deleted managed file. Each edited file is
+#                  first copied to ~/.claude/claude-blog-backups/<timestamp>/.
+
+param(
+    [switch]$ForceAdopt,
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]]$RemainingArguments
+)
+
+$ErrorActionPreference = "Stop"
+
+function Write-Color($Color, $Text) { Write-Host $Text -ForegroundColor $Color }
+
+function Assert-NoReparseChain($Path) {
+    $full = [System.IO.Path]::GetFullPath($Path)
+    $root = [System.IO.Path]::GetPathRoot($full)
+    $current = $root
+    foreach ($part in @($full.Substring($root.Length).Split([System.IO.Path]::DirectorySeparatorChar) | Where-Object { $_ })) {
+        $current = Join-Path $current $part
+        if (-not (Test-Path -LiteralPath $current)) { break }
+        $item = Get-Item -LiteralPath $current -Force
+        if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "unsafe reparse point in ownership helper path: $current"
+        }
+    }
+}
+
+function Resolve-OwnershipHelper($ClaudeDir, $Manifest) {
+    if ($PSScriptRoot) {
+        $repositoryHelper = Join-Path $PSScriptRoot "scripts/windows_installer_ownership.ps1"
+        if (Test-Path -LiteralPath $repositoryHelper -PathType Leaf) {
+            Assert-NoReparseChain $repositoryHelper
+            return $repositoryHelper
+        }
+    }
+    $installedHelper = Join-Path $ClaudeDir "scripts/windows_installer_ownership.ps1"
+    if (-not (Test-Path -LiteralPath $installedHelper -PathType Leaf) -or -not (Test-Path -LiteralPath $Manifest -PathType Leaf)) {
+        throw "Windows ownership helper is unavailable. Run uninstall.ps1 from the complete reviewed repository."
+    }
+    Assert-NoReparseChain $Manifest
+    Assert-NoReparseChain $installedHelper
+    try { $receipt = Get-Content -LiteralPath $Manifest -Raw | ConvertFrom-Json -ErrorAction Stop }
+    catch { throw "the installed ownership helper cannot be trusted without a valid v2 receipt" }
+    if ($receipt.schema_version -ne 2 -or $receipt.owner -ne "claude-blog-windows-installer") {
+        throw "the installed ownership helper cannot be trusted without a valid v2 receipt"
+    }
+    $records = @($receipt.files | Where-Object { $_.path -eq "scripts/windows_installer_ownership.ps1" })
+    if ($records.Count -ne 1 -or ([string]$records[0].sha256) -notmatch '^[0-9a-f]{64}$') {
+        throw "the v2 receipt does not uniquely prove ownership of the installed helper"
+    }
+    $actual = (Get-FileHash -LiteralPath $installedHelper -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actual -ne ([string]$records[0].sha256).ToLowerInvariant()) {
+        throw "the installed ownership helper was modified"
+    }
+    return $installedHelper
+}
+
+function Resolve-LegacyInventory {
+    if ($PSScriptRoot) {
+        $candidate = Join-Path $PSScriptRoot "data/legacy-install-ownership.json"
+        if (Test-Path -LiteralPath $candidate -PathType Leaf) { return $candidate }
+    }
+    return $null
+}
+
+function Main {
+    $ClaudeDir = Join-Path $env:USERPROFILE ".claude"
+    $Manifest = Join-Path $ClaudeDir "claude-blog-manifest.txt"
+    Write-Color Cyan "=== Uninstalling claude-blog ==="
+    Write-Host ""
+
+    if (-not (Test-Path -LiteralPath $Manifest)) {
+        Write-Color Yellow "  No installation manifest found at $Manifest."
+        Write-Color Yellow "  Nothing was removed: this uninstaller only deletes files that a manifest proves it installed."
+        Write-Color Yellow "  Installed as a Claude Code plugin? Remove it with: /plugin uninstall claude-blog@agricidaniel-blog"
+        Write-Color Yellow "  Installed by an older release? Files under ~/.claude are left untouched; review them yourself first."
+        return
+    }
+
+    $OwnershipHelper = Resolve-OwnershipHelper $ClaudeDir $Manifest
+    $LegacyInventory = Resolve-LegacyInventory
+    . $OwnershipHelper
+    Invoke-ClaudeBlogUninstall $ClaudeDir $Manifest $LegacyInventory $script:ForceAdoptRequested
+
+    Write-Color Yellow "  Shared Google credentials under ~/.config/claude-seo were left intact."
+    Write-Host ""
+    Write-Color Cyan "=== claude-blog uninstalled ==="
+    Write-Host ""
+    Write-Color Yellow "Restart Claude Code to complete removal."
+}
+
+$script:ForceAdoptRequested = [bool]$ForceAdopt
+foreach ($Argument in @($RemainingArguments | Where-Object { $null -ne $_ })) {
+    switch ($Argument) {
+        "--force-adopt" { $script:ForceAdoptRequested = $true }
+        { $_ -in @("-h", "--help", "-?") } {
+            Write-Host "Usage: pwsh -File ./uninstall.ps1 [-ForceAdopt | --force-adopt] [--help]"
+            Write-Host "  -ForceAdopt  Also remove installed files edited after install (each is backed up to ~/.claude/claude-blog-backups/<timestamp>/ first)."
+            exit 0
+        }
+        default {
+            [Console]::Error.WriteLine("ERROR: unknown option: $Argument (supported: -ForceAdopt, --force-adopt, --help)")
+            exit 2
+        }
+    }
+}
+
+try { Main }
+catch {
+    Write-Error "claude-blog uninstall refused without complete ownership proof: $($_.Exception.Message)"
+    exit 1
+}

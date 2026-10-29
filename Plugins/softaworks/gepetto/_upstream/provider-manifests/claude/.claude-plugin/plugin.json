@@ -1,0 +1,20 @@
+{
+  "name": "gepetto",
+  "description": "AI-assisted spec crafting through research, interviews, and multi-LLM review. Like Geppetto carved Pinocchio from wood, transform rough ideas into living implementation plans.",
+  "version": "1.0.2",
+  "author": {
+    "name": "Leonardo Flores",
+    "url": "https://github.com/leonardocouy"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/softaworks/gepetto",
+  "homepage": "https://github.com/softaworks/gepetto",
+  "keywords": [
+    "planning",
+    "specification",
+    "architecture",
+    "research",
+    "ai-assisted"
+  ],
+  "skills": "./skills"
+}

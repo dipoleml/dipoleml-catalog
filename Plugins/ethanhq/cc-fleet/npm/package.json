@@ -1,0 +1,51 @@
+{
+  "name": "@ethanhq/cc-fleet",
+  "version": "0.4.5",
+  "description": "Run any model with an Anthropic- or OpenAI-compatible API — even your Codex subscription — as Claude Code workflows, agent-team teammates, or one-shot subagents. Your main session's own auth (OAuth or API key) is untouched.",
+  "bin": {
+    "cc-fleet": "bin/launcher.js",
+    "ccf": "bin/launcher.js"
+  },
+  "scripts": {
+    "postinstall": "node install.js"
+  },
+  "files": [
+    "bin/launcher.js",
+    "install.js",
+    "README.md"
+  ],
+  "os": [
+    "linux",
+    "darwin",
+    "win32"
+  ],
+  "cpu": [
+    "x64",
+    "arm64"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "claude-code",
+    "provider",
+    "teammates",
+    "subagent",
+    "tmux",
+    "deepseek",
+    "glm",
+    "kimi",
+    "qwen",
+    "minimax"
+  ],
+  "license": "Apache-2.0",
+  "author": "Ethan Guo <ethanguo.dev@gmail.com>",
+  "homepage": "https://github.com/ethanhq/cc-fleet",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ethanhq/cc-fleet.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ethanhq/cc-fleet/issues"
+  }
+}

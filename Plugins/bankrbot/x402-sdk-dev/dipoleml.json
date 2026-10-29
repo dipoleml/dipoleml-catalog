@@ -1,0 +1,99 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.bankrbot.x402-sdk-dev",
+  "type": "plugin",
+  "name": "X402 SDK Dev",
+  "slug": "x402-sdk-dev",
+  "vendor": "bankrbot",
+  "description": "Public DipoleML plugins for Web3 development with Bankr's multi-chain DeFi infrastructure.",
+  "version": "1.2.0",
+  "homepage": "https://github.com/BankrBot/claude-plugins",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "bankrbot",
+    "brandName": "bankrbot",
+    "source": "https://github.com/BankrBot.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:12:18Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "BankrBot/claude-plugins",
+    "url": "https://github.com/BankrBot/claude-plugins",
+    "commit": "67d33d4ee8e1680ce823eb9fe9ad371326c6b5ec",
+    "path": "x402-sdk-dev",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 88,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:49:21Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "X402 SDK Dev | Public Claude Code plugins for Web3 development with Bankr's multi-chain DeFi infrastructure.",
+        "after": "X402 SDK Dev | Public DipoleML plugins for Web3 development with Bankr's multi-chain DeFi infrastructure.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [
+      "BANKR_PRIVATE_KEY",
+      "BANKR_API_URL"
+    ],
+    "credentials": [
+      "BANKR_PRIVATE_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

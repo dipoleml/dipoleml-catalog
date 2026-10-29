@@ -1,0 +1,48 @@
+{
+  "name": "craftcms-claude-skills",
+  "description": "Production-ready skills and agents for Craft CMS 5 development. Plugin development (elements, services, controllers, migrations, events, testing, headless, configuration), site development (content modeling, Twig templates, atomic design, multi-site), a name-routed index of 24 plugin references (config, Twig/PHP API, migrations, deployment, pitfalls), Craft Cloud and Servd managed hosting (deploy pipelines, static/edge caching, ephemeral filesystem, asset storage, plugin compatibility), Garnish JS UI toolkit (modals, HUDs, drag-sort, menus, selection, accessibility), Pest testing (craft-pest-core harness, database isolation, factories, HTTP/queue/DB assertions, CI test jobs), and plugin release mechanics (tagging, Packagist verification, GitHub releases, path repositories). 13 skills, 6 specialized agents with explicit build-verify gates, project scaffolding.",
+  "version": "1.21.0",
+  "homepage": "https://github.com/michtio/craftcms-claude-skills",
+  "author": {
+    "name": "michtio"
+  },
+  "keywords": [
+    "craft-cms",
+    "craftcms",
+    "craft-cms-5",
+    "twig",
+    "php",
+    "ddev",
+    "plugin-development",
+    "content-modeling",
+    "site-development",
+    "atomic-design",
+    "headless",
+    "multi-site",
+    "pest",
+    "testing"
+  ],
+  "skills": [
+    "./skills/craftcms",
+    "./skills/craft-site",
+    "./skills/craft-plugins",
+    "./skills/craft-content-modeling",
+    "./skills/craft-twig-guidelines",
+    "./skills/craft-php-guidelines",
+    "./skills/craft-pest",
+    "./skills/craft-plugin-release",
+    "./skills/ddev",
+    "./skills/craft-project-setup",
+    "./skills/craft-garnish",
+    "./skills/craft-cloud",
+    "./skills/servd"
+  ],
+  "agents": [
+    "./agents/craft-planner.md",
+    "./agents/craft-debugger.md",
+    "./agents/craft-feature-builder.md",
+    "./agents/craft-code-reviewer.md",
+    "./agents/craft-code-reviewer-deep.md",
+    "./agents/craft-site-builder.md"
+  ]
+}

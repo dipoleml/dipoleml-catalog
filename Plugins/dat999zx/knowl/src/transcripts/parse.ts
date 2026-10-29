@@ -1,0 +1,358 @@
+import { createReadStream } from 'node:fs';
+import { extractCopilotProse } from './copilot.js';
+import { extractHermesProse, isHermesSessionPath, streamHermesProseFrom } from './hermes.js';
+
+export type ProseMessage = {
+  /** 1-indexed line within the `.jsonl`. This is the pointer stored instead of the text. */
+  line: number;
+  role: 'user' | 'assistant';
+  text: string;
+  timestamp: string | null;
+};
+
+type Extracted = Omit<ProseMessage, 'line'>;
+
+/**
+ * The prose in one transcript entry, or null if it holds none.
+ *
+ * `tool_use` and `tool_result` blocks are dropped rather than down-weighted. They are the bulk
+ * of the archive by bytes -- prose is 2.7% of it -- and almost none of the value; a search for
+ * "embedding crash" should hit the discussion, not forty log lines containing the word.
+ *
+ * `thinking` blocks are dropped for a different reason: they are not what was said. They are
+ * a third of assistant entries in this archive, and indexing them would surface reasoning the
+ * user never saw as though it were the answer they were given.
+ */
+export function extractProse(entry: unknown): Extracted | null {
+  if (!entry || typeof entry !== 'object') return null;
+  const record = entry as Record<string, unknown>;
+
+  // Dispatched on the record's own shape rather than on a harness passed down from discovery.
+  // The two are disjoint by construction -- Claude Code puts the role in `type`, Codex puts
+  // `response_item` there and the role inside `payload` -- so a record matches one reader or
+  // neither, and no caller has to know which archive a line came from.
+  if (record.type === 'response_item') return extractCodexProse(record);
+  if (record.type === 'user.message' || record.type === 'assistant.message') return extractCopilotProse(record);
+  if ((record.role === 'user' || record.role === 'assistant') && typeof record.content === 'string') {
+    return extractHermesProse(record);
+  }
+
+  const role = record.type;
+  if (role !== 'user' && role !== 'assistant') return null;
+
+  const message = record.message;
+  if (!message || typeof message !== 'object') return null;
+  const content = (message as Record<string, unknown>).content;
+
+  let text = '';
+  if (typeof content === 'string') {
+    text = content;
+  } else if (Array.isArray(content)) {
+    for (const block of content) {
+      if (!block || typeof block !== 'object') continue;
+      const typed = block as Record<string, unknown>;
+      if (typed.type === 'text' && typeof typed.text === 'string') text += typed.text;
+    }
+  }
+
+  text = text.trim();
+  if (!text) return null;
+
+  const timestamp = typeof record.timestamp === 'string' ? record.timestamp : null;
+  return { role, text, timestamp };
+}
+
+/**
+ * The prose in one Codex `response_item`, or null.
+ *
+ * **`response_item` is read and `event_msg` is ignored, and that is a deduplication rather than a
+ * preference.** Codex writes each assistant turn twice: once as `event_msg`/`agent_message` for
+ * its UI stream and once as the `response_item` that went to the model. Indexing both would put
+ * every assistant message in the index twice, and `response_item` is the one that matches the
+ * invariant the Claude reader already holds -- one record per conversational message.
+ *
+ * `reasoning` items are dropped for exactly the reason Claude's `thinking` blocks are: they are
+ * not what was said. Here they are also unreadable, arriving as `encrypted_content`.
+ *
+ * The `developer` role is dropped too. It carries the sandbox and permissions preamble the
+ * harness injects, which is identical across every session and is not a participant speaking.
+ */
+function extractCodexProse(record: Record<string, unknown>): Extracted | null {
+  const payload = record.payload;
+  if (!payload || typeof payload !== 'object') return null;
+  const typed = payload as Record<string, unknown>;
+  if (typed.type !== 'message') return null;
+
+  const role = typed.role;
+  if (role !== 'user' && role !== 'assistant') return null;
+
+  const content = typed.content;
+  let text = '';
+  if (typeof content === 'string') {
+    text = content;
+  } else if (Array.isArray(content)) {
+    for (const block of content) {
+      if (!block || typeof block !== 'object') continue;
+      const part = block as Record<string, unknown>;
+      // `input_text` on the way in, `output_text` on the way out. Both are the message; the
+      // distinction is direction, not kind.
+      if ((part.type === 'input_text' || part.type === 'output_text') && typeof part.text === 'string') {
+        text += part.text;
+      }
+    }
+  }
+
+  text = text.trim();
+  if (!text) return null;
+
+  const timestamp = typeof record.timestamp === 'string' ? record.timestamp : null;
+  return { role, text, timestamp };
+}
+
+/**
+ * Name ranks. Higher wins, and a later entry only replaces an earlier one at the *same* rank
+ * or above -- a generated title appended after a user's rename must not overwrite it.
+ */
+export const NAME_KIND = { none: 0, ai: 1, agent: 2, custom: 3 } as const;
+
+export type SessionNaming = { name: string; kind: number };
+
+/**
+ * The naming information in one transcript entry, or null.
+ *
+ * Claude Code writes the session's own title into the transcript: `custom-title` when the user
+ * renames it, `agent-name` for a subagent, `ai-title` for a generated one. Every shipped tool
+ * surveyed for this feature ignores them and falls back to filenames or first prompts -- while
+ * the user's own rename sits unread in the file.
+ *
+ * Measured against this machine's archive before it was relied on: 3,233 naming entries across
+ * every project, in all three shapes, and every one carried a `sessionId` equal to the name of
+ * the file holding it -- so a file's naming entries always describe that file's own session.
+ */
+export function readSessionNaming(entry: unknown): SessionNaming | null {
+  if (!entry || typeof entry !== 'object') return null;
+  const record = entry as Record<string, unknown>;
+
+  const named = (value: unknown, kind: number): SessionNaming | null => {
+    if (typeof value !== 'string') return null;
+    const name = value.trim();
+    return name ? { name, kind } : null;
+  };
+
+  if (record.type === 'custom-title') return named(record.customTitle, NAME_KIND.custom);
+  if (record.type === 'agent-name') return named(record.agentName, NAME_KIND.agent);
+  if (record.type === 'ai-title') return named(record.aiTitle, NAME_KIND.ai);
+  return null;
+}
+
+/**
+ * Turns Claude Code injects into the user role that are not the user speaking.
+ *
+ * Measured on this machine's archive: 91 of 232 first user turns across every project open with
+ * one of these. Taking them verbatim gives unrelated sessions the *identical* opening -- "Caveat:
+ * The messages below were generated by the user while running local commands" -- which is the one
+ * thing a directory meant to answer "which session was about X" cannot afford.
+ */
+const INJECTED_OPENERS = new Set([
+  'local-command-caveat',
+  'local-command-stdout',
+  'system-reminder',
+  'task-notification',
+  'ide_opened_file',
+  'ide_selection',
+  // Codex's equivalent, and it opens *every* session in that archive rather than 39% of them:
+  // the first user-role item is always `<environment_context>` naming the cwd, shell and date.
+  // Left in, every Codex session in the directory would be titled with the same boilerplate.
+  'environment_context',
+  'user_instructions',
+]);
+
+/**
+ * The user's actual ask in one prose message, or null when the message is not one.
+ *
+ * A slash command is unwrapped rather than skipped: `<command-args>` is literally what the user
+ * typed, and the command name is the intent, so `/goal make knowl work across repos` describes
+ * the session better than either half alone.
+ */
+export function readOpeningAsk(text: string): string | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+
+  if (trimmed.startsWith('<command-')) {
+    const name = /<command-name>\s*([^<]*?)\s*<\/command-name>/.exec(trimmed)?.[1]?.trim() ?? '';
+    const args = /<command-args>([\s\S]*?)<\/command-args>/.exec(trimmed)?.[1]?.trim() ?? '';
+    return [name, args].filter(Boolean).join(' ') || null;
+  }
+
+  // Anchored, so prose that merely mentions a tag later is untouched.
+  const opener = /^<([a-zA-Z_-]+)>/.exec(trimmed);
+  if (opener && INJECTED_OPENERS.has(opener[1])) return null;
+
+  return trimmed;
+}
+
+/**
+ * Whether a stored row still describes the message now parsed at its line.
+ *
+ * The text itself cannot be compared: the FTS table is contentless, so nothing in the database
+ * holds a body to compare against. Role, length and timestamp are what a row keeps, and together
+ * they tell an unchanged line from a rewritten one. The accepted limit is the same shape as the
+ * anchor's: a rewrite that puts a message of the same role, the same length and the same
+ * timestamp on the same line reads as unchanged.
+ *
+ * Shared by the two places that meet a row they did not just write -- the index pass repairing a
+ * stranded index, and the offset backfill deciding whether a line is still where a row says.
+ */
+export function describesSameMessage(
+  row: Record<string, unknown>,
+  message: ProseMessage,
+): boolean {
+  const ts = row.ts === null || row.ts === undefined ? null : String(row.ts);
+  return String(row.role) === message.role
+    && Number(row.chars) === message.text.length
+    && ts === message.timestamp;
+}
+
+export type ProseWatermark = { bytesConsumed: number; linesConsumed: number };
+
+export type ProseChunk = {
+  message: ProseMessage;
+  /**
+   * Absolute offset of the first byte of this message's line.
+   *
+   * Stored with the pointer so reading one message back is a seek rather than a scan. The
+   * indexer has this for free -- it is mid-stream when it yields -- and throwing it away is
+   * what made rendering a single hit cost a pass over the whole transcript.
+   */
+  byteOffset: number;
+  /**
+   * The watermark that becomes correct once this message is committed: the byte offset just
+   * past its line, and the line count including it.
+   *
+   * Carried per message so the indexer can advance `bytes_indexed` in the *same* transaction
+   * as the rows. Committing rows and the watermark separately is not crash-safe -- a crash
+   * between them replays those lines into `UNIQUE(path, line)` on the next pass.
+   */
+  bytesConsumed: number;
+  linesConsumed: number;
+};
+
+/**
+ * Stream prose from `startByte`, continuing line numbering from `startLine`.
+ *
+ * Peak memory is one read chunk plus one partial line, whatever the file's size. Buffering the
+ * remainder instead would scale with session length and make the caller's time budgets
+ * unenforceable -- a multi-megabyte allocation happens before any budget can be checked.
+ *
+ * The returned watermark is the offset of the last *complete* line, never the file length. A
+ * transcript being appended to while this runs has a partial final record; committing past it
+ * would skip that message forever once the rest arrives.
+ */
+export async function* streamProseFrom(
+  filePath: string,
+  startByte: number,
+  startLine: number,
+  /** Called for each naming entry seen. Ignored by callers that do not index session names. */
+  onNaming?: (naming: SessionNaming) => void,
+): AsyncGenerator<ProseChunk, ProseWatermark> {
+  if (isHermesSessionPath(filePath)) {
+    return yield* streamHermesProseFrom(filePath, startByte, startLine, onNaming);
+  }
+  let carry = Buffer.alloc(0);
+  /** Absolute file offset of `carry[0]`. */
+  let consumed = startByte;
+  let line = startLine;
+
+  // A file that has been deleted, or that cannot be opened, yields nothing and reports the
+  // watermark it was given -- it must not throw at the caller.
+  //
+  // **The guard has to be around the iteration, not around `createReadStream`.** That call
+  // succeeds on a path that does not exist: `fs.ReadStream` opens lazily and reports ENOENT by
+  // emitting `error`, which rejects the `for await` below. Wrapping only the construction caught
+  // nothing a real archive produces, so a transcript deleted between discovery and this read
+  // aborted `knowl transcripts extract` mid-run -- after the model had been paid for the sessions
+  // before it -- and `backfillOffsets` with it, both under comments promising the opposite.
+  //
+  // Only the open is protected. A failure part-way through iteration is a truncated read of a
+  // file that IS there, and returning the watermark for it would commit the caller to a position
+  // past lines it never saw; that has to keep propagating.
+  const stream = createReadStream(filePath, { start: startByte });
+  let delivered = false;
+
+  try {
+    for await (const chunk of stream) {
+      delivered = true;
+      carry = carry.length === 0 ? Buffer.from(chunk) : Buffer.concat([carry, Buffer.from(chunk)]);
+      let cursor = 0;
+
+      for (;;) {
+        const newline = carry.indexOf(0x0a, cursor);
+        if (newline === -1) break;
+
+        const lineStart = consumed + cursor;
+        // Safe to decode here: 0x0a cannot occur inside a multi-byte UTF-8 sequence, so a
+        // complete line is always a complete sequence of characters.
+        const raw = carry.subarray(cursor, newline).toString('utf8');
+        cursor = newline + 1;
+        line++;
+
+        const trimmed = raw.trim();
+        if (trimmed) {
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(trimmed);
+          } catch {
+            // One unreadable line must not cost the rest of the file.
+            parsed = undefined;
+          }
+          const prose = parsed === undefined ? null : extractProse(parsed);
+          if (prose) {
+            yield {
+              message: { line, ...prose },
+              byteOffset: lineStart,
+              bytesConsumed: consumed + cursor,
+              linesConsumed: line,
+            };
+          } else if (parsed !== undefined && onNaming) {
+            // Naming entries are not prose and must not become messages -- they carry no line the
+            // reader would ever want to open. Surfaced by callback so no existing caller changes.
+            const naming = readSessionNaming(parsed);
+            if (naming) onNaming(naming);
+          }
+        }
+      }
+
+      consumed += cursor;
+      carry = carry.subarray(cursor);
+    }
+  } catch (error) {
+    // Nothing arrived, so the stream failed to open: the file is gone, or is not ours to read.
+    // Report the watermark unmoved and let the caller carry on with the rest of the archive.
+    //
+    // A failure AFTER a chunk has been delivered is a different thing -- a truncated read of a
+    // file that is really there -- and returning a watermark for it would tell the caller it had
+    // seen lines it never did. That keeps propagating.
+    if (delivered) throw error;
+    return { bytesConsumed: startByte, linesConsumed: startLine };
+  }
+
+  // Past any trailing non-prose lines, which advanced the watermark without yielding.
+  return { bytesConsumed: consumed, linesConsumed: line };
+}
+
+/** Drain `streamProseFrom` into an array. For tests and small files; the indexer streams. */
+export async function readProseFrom(
+  filePath: string,
+  startByte: number,
+  startLine: number,
+): Promise<{ messages: ProseMessage[]; bytesRead: number; linesRead: number }> {
+  const messages: ProseMessage[] = [];
+  const iterator = streamProseFrom(filePath, startByte, startLine);
+  for (;;) {
+    const next = await iterator.next();
+    if (next.done) {
+      return { messages, bytesRead: next.value.bytesConsumed, linesRead: next.value.linesConsumed };
+    }
+    messages.push(next.value.message);
+  }
+}

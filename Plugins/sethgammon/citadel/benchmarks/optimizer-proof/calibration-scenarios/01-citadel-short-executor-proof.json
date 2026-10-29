@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "id": "citadel-short-executor-proof",
+  "category": "short_control",
+  "repository": "https://github.com/SethGammon/Citadel.git",
+  "pinned_ref": "4a02265c206d992b556fc1b38c3c9487ced880d8",
+  "task": "Add one focused regression proving an executor profile with missing observed-model telemetry remains unknown and can never be reported as a verified model match.",
+  "setup_command": ["node", "--version"],
+  "verification_command": ["node", "scripts/test-executor-profiles.js"],
+  "expected_artifacts": ["scripts/test-executor-profiles.js"],
+  "allowed_tools": ["read", "search", "edit", "test", "git"],
+  "timeout_minutes": 25,
+  "probe_budget": {
+    "max_files": 800,
+    "max_bytes": 2097152,
+    "max_duration_ms": 2500
+  },
+  "max_attempts": 2,
+  "max_agents": 1,
+  "candidate_executors": ["codex-utility", "claude-workhorse", "claude-frontier", "codex-frontier"],
+  "holdout": true,
+  "adversarial_case": null
+}

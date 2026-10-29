@@ -1,0 +1,6 @@
+interface:
+  display_name: "Difference"
+  short_description: "A shortcut to answer \"what's the difference? pros and cons?\" very quickly"
+
+policy:
+  allow_implicit_invocation: false

@@ -1,0 +1,20 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "neonwatty-plugins",
+  "description": "Job Apply plugins for Codex and Claude Code by Jeremy Watt",
+  "owner": {
+    "name": "Jeremy Watt",
+    "github": "neonwatty"
+  },
+  "plugins": [
+    {
+      "name": "job-apply",
+      "source": {
+        "source": "github",
+        "repo": "neonwatty/job-apply-plugin"
+      },
+      "description": "AI-powered job application assistant for Claude Code and Codex covering LinkedIn, Greenhouse, Ashby, Lever, Rippling, and Workday",
+      "category": "productivity"
+    }
+  ]
+}

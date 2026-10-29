@@ -1,0 +1,135 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.iurykrieger.dipoleml-bedrock",
+  "type": "plugin",
+  "name": "DipoleML Bedrock",
+  "slug": "dipoleml-bedrock",
+  "vendor": "iurykrieger",
+  "description": "Second Brain automation for Obsidian vaults — entity management, ingestion, compression, and sync via DipoleML skills",
+  "version": "1.6.0",
+  "homepage": "https://github.com/iurykrieger/claude-bedrock",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "claude-code-plugin",
+    "claude-code-skill",
+    "framework",
+    "knowledge-graph",
+    "knowledge-management",
+    "note-taking",
+    "obsidian",
+    "obsidian-plugin",
+    "productivity"
+  ],
+  "tags": [
+    "ai",
+    "claude-code",
+    "claude-code-plugin",
+    "claude-code-skill",
+    "framework",
+    "knowledge-graph",
+    "knowledge-management",
+    "note-taking",
+    "obsidian",
+    "obsidian-plugin",
+    "productivity",
+    "second-brain",
+    "zettelkasten"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "iurykrieger",
+    "brandName": "iurykrieger",
+    "source": "https://github.com/iurykrieger.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:13:24Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "iurykrieger/claude-bedrock",
+    "url": "https://github.com/iurykrieger/claude-bedrock",
+    "commit": "7cac16ceb6064b7fbb4ec45c3ad4be31b9d9c9f0",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 108,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:04:13Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Claude Bedrock | Second Brain automation for Obsidian vaults — entity management, ingestion, compression, and sync via Claude Code skills",
+        "after": "DipoleML Bedrock | Second Brain automation for Obsidian vaults — entity management, ingestion, compression, and sync via DipoleML skills",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Second Brain automation for Obsidian vaults — entity management, ingestion, compression, and sync via Claude Code skills",
+        "after": "Second Brain automation for Obsidian vaults — entity management, ingestion, compression, and sync via DipoleML skills",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "claude-bedrock",
+        "after": "dipoleml-bedrock",
+        "reason": "provider token neutralized in slug/id"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "name": "genshijin",
+  "private": true,
+  "scripts": {
+    "dev": "npx serve docs",
+    "test": "node tests/run-tests.mjs"
+  }
+}

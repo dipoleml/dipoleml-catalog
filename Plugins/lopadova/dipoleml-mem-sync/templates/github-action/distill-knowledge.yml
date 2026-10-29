@@ -1,0 +1,90 @@
+name: Distill Team Knowledge
+on:
+  workflow_run:
+    workflows: ["Merge Developer Memories"]
+    types:
+      - completed
+  workflow_dispatch:
+
+concurrency:
+  group: distill-knowledge
+  cancel-in-progress: false
+
+jobs:
+  distill:
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install claude-mem-sync
+        run: |
+          git clone --depth 1 https://github.com/lopadova/claude-mem-sync.git /tmp/claude-mem-sync
+          cd /tmp/claude-mem-sync && bun install && bun run build
+          chmod +x /tmp/claude-mem-sync/dist/cli.js
+          sudo ln -sf /tmp/claude-mem-sync/dist/cli.js /usr/local/bin/mem-sync
+
+      - name: Run knowledge distillation
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          python3 << 'PYEOF'
+          import os, json, glob
+          repo = os.environ.get('GITHUB_REPOSITORY', 'owner/repo')
+          projects = {}
+          for path in sorted(glob.glob('merged/*/latest.json')):
+              proj = path.split('/')[1]
+              projects[proj] = {'enabled': True, 'remote': {'repo': repo}}
+          config = {
+              'global': {
+                  'devName': 'ci-bot',
+                  'distillation': {
+                      'enabled': True,
+                      'allowExternalApi': True,
+                      'provider': 'github-copilot',
+                      'model': 'gpt-4o',
+                      'minObservations': 1,
+                      'maxTokenBudget': 100000,
+                  },
+              },
+              'projects': projects,
+          }
+          os.makedirs(os.path.expanduser('~/.claude-mem-sync'), exist_ok=True)
+          with open(os.path.expanduser('~/.claude-mem-sync/config.json'), 'w') as f:
+              json.dump(config, f, indent=2)
+          print('Config created for projects:', list(projects.keys()))
+          PYEOF
+          mem-sync distill \
+            --all \
+            --output-dir merged/ \
+            --contributions-dir contributions/
+
+      - name: Create PR with distilled knowledge
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          BRANCH="distill/$(date +%Y-%m-%d-%H%M%S)"
+          git config user.name "mem-sync-bot"
+          git config user.email "mem-sync-bot@users.noreply.github.com"
+          git checkout -b "$BRANCH"
+          git add distilled/
+          git diff --cached --quiet && echo "No changes to commit" && exit 0
+          git commit -m "chore: distill team knowledge [mem-sync]"
+          git push -u origin "$BRANCH"
+          REVIEWER_ARGS=""
+          if [ -n "${{ vars.DISTILL_REVIEWERS }}" ]; then
+            REVIEWER_ARGS="--reviewer ${{ vars.DISTILL_REVIEWERS }}"
+          fi
+          gh pr create \
+            --title "Knowledge Distillation $(date +%Y-%m-%d)" \
+            --body "Auto-generated rules and knowledge base from team observations. Please review before merging." \
+            $REVIEWER_ARGS

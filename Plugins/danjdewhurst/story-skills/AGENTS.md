@@ -1,0 +1,190 @@
+# Agent Instructions
+
+These instructions apply to the entire `story-skills` repository. `CLAUDE.md` is a symlink to this file so Claude Code reads the same instructions. Edit this file and leave the symlink in place.
+
+## Project Overview
+
+Story Skills is a Bun/Node package that ships Agent Skills for fiction-writing workflows plus a small deterministic `story` CLI. The core format is plain markdown with YAML frontmatter. Skills guide creative workflows; the CLI handles mechanical maintenance such as validation, registry rebuilds, word counts, link checks, exports, and disposable builds.
+
+Primary paths:
+
+- `skills/` - published `SKILL.md` workflows and their reference files
+- `src/` - source modules for the `story` CLI. `src/commands.js` and `src/options.js` are the command and option registries: add a command or flag there, and `story --help`, argument parsing, and project-path handling follow from the entry
+- `bin/story.js` - package binary entrypoint
+- `skills/story-maintenance/scripts/story.js` - Node-compatible bundled fallback CLI for copied skill installs
+- `test/` - Bun tests
+- `examples/` - sample Story Skills projects
+- `scripts/` - CI check scripts, the release script, and `issue-worktree.sh` (see Git Workspace Hygiene For Automated Agents)
+- `docs/` - user and contributor documentation, indexed by `docs/README.md`: getting started, core concepts, the project format (schema v2) reference, the CLI reference, the skills catalogue, writing workflows, continuity and analysis, series, import/export/builds, automation and CI, and the development guide
+- `assets/` - plugin logo, screenshot, social preview, the README demo GIF (regenerate the GIF with `vhs assets/demo.tape`), and the README banner, feature icons, and skills diagram under `assets/readme/`
+- `schemas/story.schema.json` - JSON schema for story project frontmatter; `test:examples` validates every example against it, so update both together. Its date and language-tag patterns are generated: run `bun run build:schema-patterns` after changing how validate reads them
+- `templates/github/` - files users copy into a story repository: GitHub Actions workflows for checks (`story-checks.yml`), scheduled chapter drafting (`draft-next-chapter.yml`), and an HTML review copy on GitHub Pages (`review-copy.yml`), plus the `ISSUE_TEMPLATE/manuscript-note.yml` reader-note form. The release script and `check:metadata` keep `STORY_VERSION` in all three workflows at the package version
+- `.codex-plugin/`, `.claude-plugin/`, `.agents/` - plugin and marketplace metadata
+- `plugins/story-skills` - symlink to the repo root. Codex marketplace entries must point at a child plugin directory, so keep it a symlink rather than a copy.
+
+## Development Commands
+
+Use Bun for local development, at the exact version `packageManager` pins in `package.json`. The committed fallback bundle is compared byte for byte, and Bun's bundler renames generated identifiers between releases, so `build:fallback` and `check:fallback` refuse to run on any other Bun. See [Setting up](docs/development.md#setting-up).
+
+```shell
+bun install
+bun run story -- --help
+bun run build:fallback
+bun run check:fallback
+bun run test
+bun run test:coverage
+bun run test:examples
+bun run check:metadata
+bun run check:evals
+bun run check:links
+bun run eval:selftest
+```
+
+CI runs `check:metadata`, `check:evals`, `check:links`, `eval:selftest`, `test:coverage` (which runs the suite, then `check:fallback`), the validate-schema property test for seeds 1 to 5, `test:examples`, and then the fallback's `--help` under Node, in that order, plus a Node 18/20/22 matrix that runs the examples check and both CLIs directly under Node, then installs the packed npm tarball and runs it (`node scripts/check-package.js`). macOS runs `bun run test` and `bun run check:package`. Windows runs the same tests in parallel shards, so every `test/*.test.js` file still runs there, and shard 1 runs `bun run check:package`. Use `bun run test` for normal verification. Use `bun run build:fallback` after changing CLI behavior in `src/`, then use `bun run check:fallback` to confirm the generated fallback is current. Use `bun run test:coverage` when changes affect CLI behavior, parsing, project scanning, validation, fallback generation, or release readiness.
+
+## Implementation Rules
+
+- Keep runtime code compatible with Node 18 and the package's ESM style.
+- Prefer standard `node:` imports and synchronous filesystem APIs where existing CLI code already uses them.
+- Preserve the markdown-first project model. Do not add project-local generator scripts or build scripts that emit story content.
+- When modifying CLI behavior in `src/`, run `bun run build:fallback` to regenerate `skills/story-maintenance/scripts/story.js` because copied skill installs rely on that fallback.
+- Register new CLI commands in `src/commands.js` (with `project: "positional"` when they take `[path]`) and new flags in `src/options.js`; never hand-edit help text or add a separate dispatch branch.
+- Add or update focused Bun tests for behavior changes.
+- Keep examples realistic and valid; if you change the story project format, update examples and tests together.
+- A Dependabot bump of an action that a workflow in `templates/github/` also uses needs the same SHA edited by hand in the same pull request. Dependabot does not scan `templates/github/`, and `test/check-scripts.test.js` fails until every pin matches.
+
+## Skill Authoring
+
+- Every skill lives in `skills/<skill-name>/SKILL.md` with YAML frontmatter containing `name` and `description`.
+- Keep skill instructions operational and agent-facing: what to read, what to edit, what checks to run, and when to ask the user.
+- Reference files belong under the relevant skill's `references/` directory.
+- Story entities should use kebab-case identifiers and maintain bidirectional links where the domain requires them.
+- After instructions that add, remove, rename, or revise story entities, direct agents to run the canonical maintenance block, in this order: `story reindex .`, `story wordcount . --write`, `story check .`. `story check` runs `validate`, `links`, and `continuity` and fails only on errors, so do not list those three separately. Skill-specific checks such as `story clues .` or `story pacing .` go after the block. `test/maintenance-order.test.js` enforces this for every fenced code block and inline command list under `skills/`, and checks maintenance runs in `docs/`, `README.md`, `CONTRIBUTING.md`, this file, `evals/`, and `templates/`.
+
+## Git And Commits
+
+- Use Conventional Commits for commit messages, such as `feat: add chapter export option`, `fix: repair registry validation`, or `docs: update skill instructions`.
+- Keep commits focused on one logical change.
+- Update branches by rebasing onto `main`, not by merging `main` in; keep PR history linear.
+- Force-push rebased branches only with `--force-with-lease`.
+- Add a `CHANGELOG.md` entry under `## [Unreleased]` for any user-visible change, and always for project format or CLI behaviour changes. `bun run release` refuses to run while `Unreleased` is empty. Lead each entry with one short sentence of what changed for users, at most 200 characters with link targets not counted (`check:metadata` enforces this), and put the detail in indented sub-bullets; see [Changelog](CONTRIBUTING.md#changelog). `CONTRIBUTING.md` is the short contributor guide.
+
+## Release Metadata
+
+For published changes, keep version metadata aligned across:
+
+- `package.json`
+- `.codex-plugin/plugin.json`
+- `.claude-plugin/plugin.json`
+- `src/version.js` (printed by `story --version`, inlined into the bundled fallback)
+
+Do not bump these by hand. `bun run release <patch|minor|major|X.Y.Z>` bumps all four, plus `STORY_VERSION` in the templates and the version examples in `README.md` and `docs/` (see `scripts/doc-versions.js`), rebuilds the fallback, runs the local preflight checks, a subset of CI (no Node 18/20/22 matrix, Windows, macOS, or binary builds), commits `chore: release X.Y.Z`, tags `vX.Y.Z`, pushes `main` and the tag, and creates the GitHub release. The tag push runs `.github/workflows/publish.yml`, which checks that the tag is on the release commit of its `package.json` version on `main`, waits for that commit's CI run on `main` to pass, and then publishes to npm through trusted publishing from the `npm` environment, so no npm login is needed locally. Only a repository admin can push a `v*` tag, so only an admin can cut a release. `--dry-run` runs the checks and stops before any change. Marketplace entries should remain unversioned unless the existing release process changes.
+
+## Generated And Local Artifacts
+
+Do not commit:
+
+- `node_modules/`
+- `coverage/`
+- generated story build output under example `dist/` directories unless explicitly requested
+- editor or OS swap files
+
+## Review Checklist
+
+Before finishing code or skill changes, check:
+
+- The CI checks pass locally: `bun run check:metadata`, `bun run check:evals`, `bun run check:links`, `bun run eval:selftest`, `bun run test:coverage` (which runs the whole suite), `bun run test:examples`.
+- CLI help and skill docs still agree on command names and options.
+- The bundled maintenance fallback is current: `bun run check:fallback`.
+- The bundled maintenance fallback still runs with Node: `node skills/story-maintenance/scripts/story.js --help`.
+- Registries, backlinks, and word counts remain deterministic for Story Skills projects.
+
+## Git Workspace Hygiene For Automated Agents
+
+This section is for automated agent runs that share a provisioned checkout of this repo. If
+you are a human working in your own clone, none of it applies.
+
+**The shared checkout is the repo itself.** The orchestrator provisions one clone per project,
+not one per task, and this project is a single repo — so the clone you are standing in is the
+only one every concurrent run has. Running `git checkout` or `git reset` there replaces
+another run's working tree mid-task.
+
+This is measured, not theoretical. Concurrent runs on this repo have moved a shared checkout's
+HEAD repeatedly inside a single twenty-minute window, including hard resets that discarded
+uncommitted changes.
+
+### Rule 1 — never mutate the project checkout
+
+In the project checkout, the only git commands allowed are read-only queries plus `fetch`,
+`remote`, and `worktree add|remove|list|prune`.
+
+Never run `checkout`, `switch`, `reset`, `stash`, `merge`, `rebase`, `commit`, `clean`,
+`apply`, or `pull` there, and never edit a tracked file there. Every edit happens in your
+per-task worktree.
+
+### Rule 2 — work in a per-task worktree
+
+Before your first edit, get an isolated working tree. A linked worktree shares the object
+store, so it costs a couple of MB and no extra fetch:
+
+```bash
+WT=$(scripts/issue-worktree.sh . FOR-123 docs/123-short-slug)
+cd "$WT"
+```
+
+The first argument is `.` because this project's checkout is the repo itself; the script also
+accepts a subdirectory name for projects that nest several clones under one checkout. The full
+signature is `<repo-dir> <issue-key> [branch] [base-ref]`; `[branch]` defaults to
+`work/<issue-key>` in lower case. It prints only the worktree path, is idempotent across runs on
+the same task, refuses to steal a branch another worktree already holds, and never resets an
+existing branch. Read it before you trust it — it is short.
+
+The worktree goes to `<instance>/workspaces/<agent-id>/worktrees/<repo>-<issue-key>`, where
+`<instance>` is `$PAPERCLIP_WORKSPACE_CWD` up to its last `projects` folder, in any letter case.
+If the checkout is under no `projects` folder, the script stops and asks for
+`ISSUE_WORKTREE_ROOT`: set it to a folder outside the checkout, and worktrees go to
+`$ISSUE_WORKTREE_ROOT/<agent-id>/<repo>-<issue-key>`. The script refuses any worktree path
+inside the checkout, through symlinks and `..` too, because a nested worktree dirties the shared
+tree and the release preflight then refuses to run. The agent id and `<repo>-<issue-key>` must
+each be one folder name, with no `/`.
+
+Then edit, commit, and push entirely from `$WT`. If you are woken again on the same task,
+re-run the script with the same arguments; it returns the same path. If the task's worktree
+already holds a different branch from the one you ask for (or from `work/<issue-key>` when you
+leave the branch out), the script fails instead of handing back a worktree on the wrong branch.
+A worktree stopped in a rebase still counts as holding the branch being rebased. It also fails
+if the folder holds a worktree of another checkout with the same name.
+
+### Rule 3 — tear down when the task is finished
+
+Once your branch is pushed and the task is done or handed off:
+
+```bash
+git -C "$PAPERCLIP_WORKSPACE_CWD" worktree remove "$WT"
+git -C "$PAPERCLIP_WORKSPACE_CWD" worktree prune
+```
+
+`$PAPERCLIP_WORKSPACE_CWD` is the project checkout. Use `--force` only when you mean to discard
+your own uncommitted changes. Never force-remove a worktree that is not yours — the path
+contains the owning agent's id.
+
+### Rule 4 — one branch per task
+
+Git refuses to check out one branch in two worktrees. Name branches after the task
+(`<type>/<task-number>-<slug>`) so concurrent tasks cannot collide. If `issue-worktree.sh`
+reports the branch is already checked out, another run owns it: coordinate on the task rather
+than forcing it.
+
+### If you already edited the project checkout
+
+Stop. Do not commit and do not stash — both make it worse for whoever else is in there. Create
+your worktree, re-apply your changes in it, and say what happened on the task.
+
+## Cursor Cloud specific instructions
+
+Use the development commands above. Two details are specific to Cloud Agent VMs:
+
+- Bun must be exactly `1.4.2` (`packageManager` in `package.json`). `build:fallback` and `check:fallback` refuse any other version. Install it with `curl -fsSL https://bun.sh/install | bash -s "bun-v1.4.2"` and symlink `~/.bun/bin/bun` to `/usr/local/bin/bun`. Login shells skip `~/.bashrc`, so a Bun that lives only under `~/.bun/bin` is invisible to later commands. Node 18 or later (`engines` in `package.json`) is already on the default image.
+- The VM signs git commits (`commit.gpgsign=true`). Keep commit signing enabled when you commit your own work. The tests need no workaround for it: they run git without the global or system config (`gitEnv` in `test/helpers.js`), so signing never reaches them.
+
+Four ink tests stay skipped unless `INKLECATE` points at an inklecate binary; that skip is expected.

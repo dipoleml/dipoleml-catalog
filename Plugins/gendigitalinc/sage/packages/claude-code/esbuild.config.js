@@ -1,0 +1,32 @@
+import * as esbuild from "esbuild";
+import { readFileSync } from "node:fs";
+
+const pkg = JSON.parse(readFileSync("../core/package.json", "utf-8"));
+
+const shared = {
+	bundle: true,
+	platform: "node",
+	target: "node18",
+	format: "cjs",
+	external: ["koffi"],
+	sourcemap: true,
+	define: { __SAGE_VERSION__: JSON.stringify(pkg.version) },
+};
+
+await Promise.all([
+	esbuild.build({ ...shared, entryPoints: ["src/mcp-server.ts"], outfile: "dist/mcp-server.cjs" }),
+	esbuild.build({ ...shared, entryPoints: ["src/session-start.ts"], outfile: "dist/session-start.cjs" }),
+	esbuild.build({ ...shared, entryPoints: ["src/sage-statusline.ts"], outfile: "dist/sage-statusline.cjs" }),
+	esbuild.build({
+		...shared,
+		entryPoints: ["../core/src/model-download-worker.ts"],
+		outfile: "dist/model-download-worker.cjs",
+	}),
+	esbuild.build({
+		...shared,
+		entryPoints: ["../core/src/skill-upload-worker.ts"],
+		outfile: "dist/skill-upload-worker.cjs",
+	}),
+]);
+
+console.log("Build complete.");

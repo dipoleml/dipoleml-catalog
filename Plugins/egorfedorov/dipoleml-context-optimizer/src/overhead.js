@@ -1,0 +1,363 @@
+#!/usr/bin/env node
+
+/**
+ * Session Baseline Overhead audit — /cco overhead
+ *
+ * The biggest invisible token spend isn't redundant reads — it's the FIXED
+ * overhead every session starts with: system prompt, tool schemas, MCP
+ * servers, agent lists, CLAUDE.md, memory. You pay it before typing a word,
+ * and again in every session.
+ *
+ * This tool measures it from ground truth: the first assistant message of a
+ * session transcript carries exact API usage — that's the context loaded
+ * before any work happened. It then itemizes the parts that are measurable
+ * locally (CLAUDE.md files, memory index, agent definitions) and labels the
+ * rest "system prompt & tools (unattributed)".
+ *
+ * Usage:
+ *   node src/overhead.js [transcript.jsonl]   # specific transcript
+ *   node src/overhead.js                      # last 10 sessions of this project
+ */
+
+import { readFileSync, readdirSync, existsSync, statSync, openSync, fstatSync, closeSync } from 'fs';
+import { join } from 'path';
+import { homedir } from 'os';
+import { cacheTtlOf } from './transcript-usage.js';
+import {
+  SESSIONS_DIR,
+  formatTokens, estimateTokensFromString, loadConfig, getModelCost,
+  getEffectiveBudget, getCacheRates, normalizeModelId, isMainModule, getDonationMessage,
+} from './utils.js';
+
+// ── Pure parsing (exported for tests) ───────────────────────────────────────
+
+/**
+ * Baseline = context present at the FIRST assistant response: system prompt,
+ * tools, CLAUDE.md, memory, and the user's opening prompt. Exact API counts.
+ */
+export function parseBaselineFromLines(lines) {
+  for (const line of lines) {
+    let obj;
+    try { obj = JSON.parse(line); } catch { continue; }
+    const u = obj && obj.message && obj.message.usage;
+    if (u && typeof u.input_tokens === 'number') {
+      return (u.input_tokens || 0) +
+             (u.cache_read_input_tokens || 0) +
+             (u.cache_creation_input_tokens || 0);
+    }
+  }
+  return null;
+}
+
+/**
+ * Cache TTL ('1h' | '5m') and raw model id of the first assistant usage
+ * record, or null — the session's real pricing basis.
+ */
+export function parseBaselineTtlFromLines(lines) {
+  for (const line of lines) {
+    let obj;
+    try { obj = JSON.parse(line); } catch { continue; }
+    const u = obj && obj.message && obj.message.usage;
+    if (u && typeof u.input_tokens === 'number') return { ttl: cacheTtlOf(u), model: obj.message.model || null };
+  }
+  return null;
+}
+
+// ── Transcript discovery ─────────────────────────────────────────────────────
+
+/**
+ * Claude Code stores transcripts under ~/.claude/projects/<munged-cwd>/, where
+ * the munging replaces every path-ish character with '-'. On Windows the cwd
+ * also carries '\', ':' and spaces (`C:\Program Files\Git` becomes
+ * `C--Program-Files-Git`); missing those left the path malformed and every
+ * lookup reported "no session transcripts found".
+ */
+export function projectTranscriptDir(cwd) {
+  return join(homedir(), '.claude', 'projects', cwd.replace(/[/.:\\ ]/g, '-'));
+}
+
+function recentTranscripts(cwd, limit = 10) {
+  const dir = projectTranscriptDir(cwd);
+  if (!existsSync(dir)) return [];
+  try {
+    return readdirSync(dir)
+      .filter(f => f.endsWith('.jsonl'))
+      .map(f => ({ path: join(dir, f), mtime: statSync(join(dir, f)).mtimeMs }))
+      .sort((a, b) => b.mtime - a.mtime)
+      .slice(0, limit)
+      .map(t => t.path);
+  } catch {
+    return [];
+  }
+}
+
+function baselineOf(transcriptPath) {
+  try {
+    // Baseline lives at the head of the file — 512KB is plenty.
+    const buf = readFileSync(transcriptPath, 'utf-8').slice(0, 512 * 1024);
+    const lines = buf.split('\n').filter(Boolean);
+    return { tokens: parseBaselineFromLines(lines), ...(parseBaselineTtlFromLines(lines) || {}) };
+  } catch {
+    return null;
+  }
+}
+
+// ── Locally measurable overhead sources ──────────────────────────────────────
+
+function tokensOfFile(path, ext = '.md') {
+  try {
+    if (!existsSync(path)) return 0;
+    return estimateTokensFromString(readFileSync(path, 'utf-8'), ext);
+  } catch { return 0; }
+}
+
+function tokensOfAgentDir(dir) {
+  // Agent frontmatter (name + description) is what lands in the system prompt.
+  let tokens = 0, count = 0;
+  try {
+    if (!existsSync(dir)) return { tokens, count };
+    for (const f of readdirSync(dir).filter(f => f.endsWith('.md'))) {
+      const content = readFileSync(join(dir, f), 'utf-8');
+      const fm = content.match(/^---\n([\s\S]*?)\n---/);
+      tokens += estimateTokensFromString(fm ? fm[1] : content.slice(0, 2000));
+      count++;
+    }
+  } catch { /* best-effort */ }
+  return { tokens, count };
+}
+
+export function measureLocalSources(cwd) {
+  const home = homedir();
+  const items = [];
+
+  const add = (label, tokens, hint) => {
+    if (tokens > 0) items.push({ label, tokens, hint });
+  };
+
+  add('Project CLAUDE.md', tokensOfFile(join(cwd, 'CLAUDE.md')),
+    'trim with /cco claudemd');
+  add('Global ~/.claude/CLAUDE.md', tokensOfFile(join(home, '.claude', 'CLAUDE.md')),
+    'loaded in EVERY project — keep it minimal');
+  add('Memory index (MEMORY.md)',
+    tokensOfFile(join(projectTranscriptDir(cwd), 'memory', 'MEMORY.md')),
+    'one line per memory is the rule');
+
+  const projAgents = tokensOfAgentDir(join(cwd, '.claude', 'agents'));
+  add(`Project agents (${projAgents.count})`, projAgents.tokens,
+    'each agent description is in every system prompt');
+  const userAgents = tokensOfAgentDir(join(home, '.claude', 'agents'));
+  add(`User agents (${userAgents.count})`, userAgents.tokens,
+    'disable agents you never invoke');
+
+  return items;
+}
+
+// ── Report ───────────────────────────────────────────────────────────────────
+
+export function buildReport(cwd, transcriptArg) {
+  const config = loadConfig();
+  const budget = getEffectiveBudget(config);
+
+  const transcripts = transcriptArg ? [transcriptArg] : recentTranscripts(cwd);
+  const baselines = transcripts
+    .map(p => ({ path: p, ...(baselineOf(p) || {}) }))
+    .map(b => ({ path: b.path, baseline: b.tokens, ttl: b.ttl, model: b.model }))
+    .filter(b => b.baseline && b.baseline > 0);
+
+  const L = [];
+  L.push('');
+  L.push('  SESSION BASELINE OVERHEAD');
+  L.push('  ' + '─'.repeat(60));
+
+  if (!baselines.length) {
+    L.push('  No session transcripts found for this project yet.');
+    L.push(`  Looked in: ${projectTranscriptDir(cwd)}`);
+    L.push('  Start a session, do one exchange, then run /cco overhead again.');
+    return L.join('\n');
+  }
+
+  // Price at the model the latest session actually ran on; config is the fallback.
+  const model = normalizeModelId(baselines[0].model) || config.model || 'opus-5.5';
+  const cost = getModelCost(model);
+  const latest = baselines[0].baseline;
+  const avg = Math.round(baselines.reduce((s, b) => s + b.baseline, 0) / baselines.length);
+  const pctOfBudget = Math.round((avg / budget) * 100);
+  // Every session writes the baseline into cache once at the write rate —
+  // 1.25× for 5-minute entries, 2× for the 1-hour TTL the latest session used.
+  const ttl = baselines[0].ttl === '1h' ? '1h' : '5m';
+  const perSession = (avg / 1e6) * cost.input * getCacheRates(model, ttl).write;
+
+  L.push(`  Latest session started at   ${formatTokens(latest)} tokens before any work`);
+  L.push(`  Average over ${String(baselines.length).padStart(2)} session(s)   ${formatTokens(avg)} tokens  (${pctOfBudget}% of your ${formatTokens(budget)} budget)`);
+  L.push(`  Cost per session            ~$${perSession.toFixed(3)} written to cache (${model}, ${ttl} TTL)`);
+  L.push('');
+
+  const items = measureLocalSources(cwd).sort((a, b) => b.tokens - a.tokens);
+  const itemized = items.reduce((s, i) => s + i.tokens, 0);
+  const unattributed = Math.max(0, avg - itemized);
+
+  L.push('  Where it goes (locally measurable):');
+  for (const i of items) {
+    L.push(`    ${i.label.padEnd(30)} ~${formatTokens(i.tokens).padStart(7)}   ${i.hint}`);
+  }
+  L.push(`    ${'System prompt, tools & MCP'.padEnd(30)} ~${formatTokens(unattributed).padStart(7)}   check /context; disable unused MCP servers`);
+  L.push('');
+
+  // ── Recommendations ──
+  const recs = [];
+  const claudeMd = items.find(i => i.label === 'Project CLAUDE.md');
+  if (claudeMd && claudeMd.tokens > 3000) {
+    recs.push(`Project CLAUDE.md is ~${formatTokens(claudeMd.tokens)} — run /cco claudemd to trim it.`);
+  }
+  if (unattributed > 40_000) {
+    recs.push(`~${formatTokens(unattributed)} is system prompt/tools/MCP — run /context in a fresh session ` +
+      `to see the breakdown, and disable MCP servers you don't use here.`);
+  }
+  if (pctOfBudget > 30) {
+    recs.push(`Baseline eats ${pctOfBudget}% of your working budget before you type — every trim here repays in EVERY session.`);
+  }
+  if (recs.length) {
+    L.push('  Recommendations:');
+    for (const r of recs) L.push(`    • ${r}`);
+  } else {
+    L.push('  ✅ Baseline is lean for this model and budget.');
+  }
+  L.push(getDonationMessage());
+  return L.join('\n');
+}
+
+// ── MCP usage audit: observation → the exact removal command ────────────────
+// Every configured MCP server ships its tool schemas into the session baseline
+// whether you use it or not. The tracker already records every mcp__* call, so
+// we can name the servers that took up space and were never called — and print
+// the exact `claude mcp remove` for each.
+
+/** Configured MCP servers with their scope. User/local servers live in
+ *  ~/.claude.json next to account data, so we never read it: the skill passes
+ *  the server names the session actually has (`--servers a,b`) and we only
+ *  read the project's own ./.mcp.json. Pure-ish. */
+export function collectConfiguredMcpServers(cwd, names = []) {
+  const out = [];
+  const seen = new Set();
+  const add = (name, scope) => {
+    if (!seen.has(name)) { seen.add(name); out.push({ name, scope }); }
+  };
+  try {
+    const mcp = JSON.parse(readFileSync(join(cwd, '.mcp.json'), 'utf-8'));
+    for (const name of Object.keys(mcp.mcpServers || {})) add(name, 'project');
+  } catch { /* no project .mcp.json */ }
+  for (const name of names) if (/^[\w.@:-]+$/.test(name)) add(name, '');
+  return out;
+}
+
+/** Sum mcp__<server>__* calls across tracked sessions newer than sinceMs. */
+export function aggregateMcpUsage(sessionsDir = SESSIONS_DIR, sinceMs = Date.now() - 30 * 86400_000) {
+  const usage = {};
+  let sessions = 0, oldestMs = 0;
+  try {
+    for (const f of readdirSync(sessionsDir).filter(f => f.endsWith('.json'))) {
+      const p = join(sessionsDir, f);
+      // stat and read through ONE handle: the recency check and the read must
+      // describe the same file, or a session rotated mid-scan skews the window.
+      let fd;
+      try {
+        fd = openSync(p, 'r');
+        const mtimeMs = fstatSync(fd).mtimeMs;
+        if (mtimeMs < sinceMs) continue;
+        const s = JSON.parse(readFileSync(fd, 'utf-8'));
+        sessions++;
+        if (!oldestMs || mtimeMs < oldestMs) oldestMs = mtimeMs;
+        for (const [tool, d] of Object.entries(s.tools || {})) {
+          if (!tool.startsWith('mcp__')) continue;
+          const server = tool.split('__')[1] || '';
+          if (server) usage[server] = (usage[server] || 0) + (d.calls || 0);
+        }
+      } catch { /* skip unreadable session */ }
+      finally { if (fd !== undefined) try { closeSync(fd); } catch { /* already gone */ } }
+    }
+  } catch { /* no sessions dir */ }
+  return { usage, sessions, oldestMs };
+}
+
+/** Split configured servers into used/unused given observed calls. Pure. */
+export function splitMcpByUsage(configured, usage) {
+  const used = [], unused = [];
+  for (const srv of configured) {
+    const calls = usage[srv.name] || 0;
+    (calls > 0 ? used : unused).push({ ...srv, calls });
+  }
+  used.sort((a, b) => b.calls - a.calls);
+  return { used, unused };
+}
+
+/**
+ * Can a configured-but-unobserved server honestly be called "unused"? Pure.
+ * Zero observed MCP calls anywhere means the tracker has no MCP data — absence
+ * of evidence, not evidence of absence — so no server may be judged unused.
+ */
+export function haveMcpEvidence(usage, sessions) {
+  const totalCalls = Object.values(usage).reduce((a, b) => a + b, 0);
+  return sessions >= 5 && totalCalls > 0;
+}
+
+export function buildMcpReport(cwd, now = Date.now(), names = []) {
+  const configured = collectConfiguredMcpServers(cwd, names);
+  const { usage, sessions, oldestMs } = aggregateMcpUsage();
+  const { used, unused } = splitMcpByUsage(configured, usage);
+  const observedDays = oldestMs ? Math.max(1, Math.round((now - oldestMs) / 86400_000)) : 0;
+
+  const L = [];
+  L.push('');
+  L.push(`  MCP SERVER USAGE — ${observedDays ? `last ${observedDays} day(s) observed` : 'no tracked sessions yet'}`);
+  L.push('  ' + '─'.repeat(60));
+  if (!configured.length) {
+    L.push('  No MCP servers configured (checked --servers and ./.mcp.json).');
+    return L.join('\n');
+  }
+  L.push(`  ${configured.length} server(s) configured · evidence from ${sessions} tracked session(s)`);
+  L.push('');
+  for (const s of used) {
+    L.push(`    ✔ ${s.name.padEnd(28)} ${String(s.calls).padStart(6)} calls   (${s.scope || 'session'})`);
+  }
+  const evidence = haveMcpEvidence(usage, sessions);
+  for (const s of unused) {
+    L.push(evidence
+      ? `    ✖ ${s.name.padEnd(28)}      0 calls   (${s.scope || 'session'}) — schemas still load every session`
+      : `    ? ${s.name.padEnd(28)}   not observed  (${s.scope || 'session'}) — no data yet, not a verdict`);
+  }
+  if (unused.length && evidence) {
+    L.push('');
+    L.push('  Fix — remove what you never call (each removal repays in EVERY session):');
+    for (const s of unused) {
+      L.push(`    claude mcp remove "${s.name}"${s.scope ? ` -s ${s.scope}` : ''}`);
+    }
+    L.push('  (re-add any time with `claude mcp add`)');
+  } else if (unused.length) {
+    L.push('');
+    L.push(Object.values(usage).reduce((a, b) => a + b, 0) === 0
+      ? '  No MCP calls observed yet — tracking usually started recently. Verdicts appear'
+        + '\n  once CCO has seen MCP activity; nothing here is a reason to remove a server.'
+      : `  Only ${sessions} tracked session(s) so far — verdicts firm up at 5+. Re-run later.`);
+  } else {
+    L.push('');
+    L.push('  ✅ Every configured server was actually used. Nothing to trim.');
+  }
+  return L.join('\n');
+}
+
+// ── CLI ──────────────────────────────────────────────────────────────────────
+
+function main() {
+  const arg = process.argv[2];
+  if (arg === 'mcp') {
+    const i = process.argv.indexOf('--servers');
+    const names = i > 0 ? (process.argv[i + 1] || '').split(',').map(n => n.trim()).filter(Boolean) : [];
+    console.log(buildMcpReport(process.cwd(), Date.now(), names));
+    return;
+  }
+  console.log(buildReport(process.cwd(), arg));
+}
+
+if (isMainModule(import.meta.url)) {
+  try { main(); } catch (e) { console.error(`[cco] overhead error: ${e.message}`); process.exit(0); }
+}

@@ -1,0 +1,111 @@
+{
+  "schema": 1,
+  "cell_id": "018-bug-empty-prefix--always-claude-sonnet",
+  "order": 18,
+  "scenario_id": "bug-empty-prefix",
+  "task_class": "bug-fix",
+  "risk": "moderate",
+  "policy_id": "always-claude-sonnet",
+  "repetition": 1,
+  "route": {
+    "initial_tier": "cloud",
+    "escalation_tier": null,
+    "reason_code": "BASELINE_ALWAYS_CLAUDE"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "cloud",
+      "started_at": "2026-08-02T01:11:21.987Z",
+      "duration_ms": 4009,
+      "output_text": "{\"files\":{\"src/prefix.js\":\"'use strict';\\nfunction effectivePrefix(value){return value===null||value===undefined?'citadel-':value;}\\nmodule.exports={effectivePrefix};\\n\"}}",
+      "output_digest": "sha256:a25c888cff6879362181b122e0a83e29e62474b1d7b16976e1962263a0ef319f",
+      "verification": {
+        "status": "passed",
+        "code": null,
+        "changed_paths": [
+          "src/prefix.js"
+        ],
+        "applied_file_digests": {
+          "src/prefix.js": "sha256:16d65ec8e62e7cd7729a07356ba47bba84da789be045ff6c91c30c0f3496a487"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 0,
+          "signal": null,
+          "stdout": "",
+          "stderr": "",
+          "error": null
+        },
+        "patch_digest": "sha256:80cb7fecf74304b2069bda4e652ce72a32d52c04b8608da58ac571ad1bd84481"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "claude-code-print",
+        "requested_model": "sonnet",
+        "canonical_model": "claude-sonnet-5",
+        "cli_version": "2.1.219",
+        "response_digest": "sha256:372a290fe76051b6391af8259014692fd96136635104e6950232ab539c9d880e",
+        "exit_status": 0,
+        "terminal_reason": "completed",
+        "error": null
+      },
+      "usage": {
+        "input_tokens": 488,
+        "output_tokens": 79,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0
+      },
+      "economics": {
+        "comparison_cost": {
+          "status": "provider-reported-equivalent",
+          "total_usd": 0.002649,
+          "source": "claude_code_total_cost_usd"
+        },
+        "provider_reported_equivalent_cost": {
+          "status": "provider-reported-equivalent",
+          "amount_usd": 0.002649,
+          "source": "claude_code_total_cost_usd"
+        },
+        "local_gpu_energy": {
+          "status": "not-applicable",
+          "energy_kwh": 0,
+          "samples": 0,
+          "average_watts": null
+        },
+        "actual_subscription_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "pro_subscription_cost_not_allocated_per_request"
+        }
+      }
+    }
+  ],
+  "status": "passed",
+  "final_verification": {
+    "status": "passed",
+    "code": null,
+    "changed_paths": [
+      "src/prefix.js"
+    ],
+    "applied_file_digests": {
+      "src/prefix.js": "sha256:16d65ec8e62e7cd7729a07356ba47bba84da789be045ff6c91c30c0f3496a487"
+    },
+    "verifier": {
+      "command": "node verifier.js",
+      "status": 0,
+      "signal": null,
+      "stdout": "",
+      "stderr": "",
+      "error": null
+    },
+    "patch_digest": "sha256:80cb7fecf74304b2069bda4e652ce72a32d52c04b8608da58ac571ad1bd84481"
+  },
+  "previous_cell_digest": "sha256:5993efee034a0c318a5ea51d7fd978ed49b2da4649b22e81ad41e17598a33aa7",
+  "receipt_digest": "sha256:c4e41ad35661b113bc680b5b65babbae1289edbded558b6bac4814a241201bf7",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:515ecab799ef980c3f41dea00bf9e16f1be161e8789bde2a5a5383957093127f",
+    "signature": "XDFt2thz580FcaFTNOQVLkOtKtuujp4IGIlXPrdS83Mds7PrqVX4jqgQBQ8VA2VLoKWbD/Clxz76hZETa2WeAg=="
+  }
+}

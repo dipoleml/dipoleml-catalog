@@ -1,0 +1,12 @@
+{
+  "mcp_servers": {
+    "codebase-memory-mcp": {
+      "command": "codebase-memory-mcp",
+      "args": []
+    },
+    "serena": {
+      "command": "serena",
+      "args": ["start-mcp-server", "--context=codex", "--project-from-cwd"]
+    }
+  }
+}

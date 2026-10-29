@@ -1,0 +1,16 @@
+{
+  "name": "idempotency-handling",
+  "displayName": "Idempotency Handling",
+  "version": "3.9.0",
+  "description": "Idempotent API operations with idempotency keys, Redis caching, DB constraints. Use for payment systems, webhook retries, safe retries, or encountering duplicate processing, race conditions, key expiry errors.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Secondsky"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/secondsky/claude-skills",
+  "repository": "https://github.com/secondsky/claude-skills",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,16 @@
+{
+  "name": "php-expert",
+  "displayName": "Php Expert",
+  "version": "1.0.10",
+  "description": "Expert modern PHP 8.5/8.4 for non-Laravel projects — libraries, standalone Symfony components, Slim, API-first apps, and CLI tools, with PER Coding Style 3.1, PHPStan, and SOLID principles",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Fusengine"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/fusengine/agents",
+  "repository": "https://github.com/Fusengine/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

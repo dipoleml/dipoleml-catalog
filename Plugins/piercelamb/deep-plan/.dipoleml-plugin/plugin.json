@@ -1,0 +1,16 @@
+{
+  "name": "deep-plan",
+  "displayName": "Deep Plan",
+  "version": "0.3.2",
+  "description": "AI-assisted deep planning with research, interview, external LLM review, and TDD approach",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Piercelamb"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/piercelamb/deep-plan",
+  "repository": "https://github.com/piercelamb/deep-plan",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

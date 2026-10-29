@@ -1,0 +1,16 @@
+{
+  "name": "dipoleml-ad",
+  "displayName": "DipoleML Ad",
+  "version": "0.1.0",
+  "description": "DipoleML skills, agents and commands for Active Directory penetration testing: recon, Kerberoasting, AS-REP roasting, ADCS ESC1-17, DCSync, ACL abuse, coercion/NTLM relay, delegation, attack-path reasoning, environment constraints, OPSEC telemetry and conceptual compliance mapping.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Adscanpro"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/ADScanPro/Claude-AD",
+  "repository": "https://github.com/ADScanPro/Claude-AD",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

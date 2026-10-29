@@ -1,0 +1,10 @@
+{
+  "name": "stitch-kit",
+  "description": "Your agent designs terrible UI. stitch-kit wires it into Google Stitch MCP and teaches it the whole pipeline — ideation, screen generation, design systems, and production components across 7 frameworks.",
+  "version": "1.12.0",
+  "author": {
+    "name": "gabelul"
+  },
+  "repository": "https://github.com/gabelul/stitch-kit",
+  "license": "Apache-2.0"
+}

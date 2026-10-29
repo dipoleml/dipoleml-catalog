@@ -1,0 +1,84 @@
+# Craft CMS 5 Plugin Development
+
+@.claude/rules/coding-style.md
+@.claude/rules/architecture.md
+@.claude/rules/git-workflow.md
+@.claude/rules/scaffolding.md
+@.claude/rules/security.md
+@.claude/rules/migrations.md
+@.claude/rules/testing.md
+
+## General
+
+Be critical. We're equals — push back when something doesn't make sense.
+
+Do not excessively use emojis. Do not include AI attribution in commits, PRs, issues, or comments.
+
+Do not include "Test plan" sections in PR descriptions.
+
+## Tools
+
+Use `ddev` shorthand commands: `ddev composer`, `ddev craft`, `ddev npm`. Never run `php`, `composer`, or `npm` on the host — everything goes through DDEV.
+
+Use `gh` for all GitHub operations.
+
+## Environment
+
+```bash
+ddev composer check-cs               # ECS code style
+ddev composer fix-cs                 # ECS auto-fix
+ddev composer phpstan                # PHPStan analysis
+ddev exec --dir /var/www/html/vendor/acme/my-plugin vendor/bin/pest   # Pest, from the plugin's own root
+ddev craft up                        # Migrations + project config
+ddev composer install                # Install deps (auto-runs craft up)
+```
+
+## Craft CMS Plugin Structure
+
+```
+src/
+├── Forum.php                # Entry point — class name matches the plugin handle in PascalCase
+├── assetbundles/            # CP asset bundles
+├── base/                    # Abstract base classes, shared traits
+├── behaviors/               # Yii2 behaviors
+├── console/controllers/     # CLI commands
+├── controllers/             # CP web controllers
+├── db/                      # Table constants
+├── elements/                # Custom element types
+│   ├── actions/             # Element index actions
+│   ├── conditions/          # Element condition rules
+│   ├── db/                  # Element queries
+│   └── exporters/           # Element exporters
+├── enums/                   # PHP backed enums
+├── errors/                  # Custom exceptions
+├── events/                  # Event classes
+├── fieldlayoutelements/     # Custom field layout elements
+├── fields/                  # Custom field types
+├── gql/                     # GraphQL types, queries, mutations
+├── helpers/                 # Static utility helpers
+├── jobs/                    # Queue jobs
+├── migrations/              # Database migrations + Install.php
+├── models/                  # Settings, data models
+├── records/                 # ActiveRecord classes
+├── services/                # Business logic services
+├── templates/               # CP Twig templates
+├── translations/            # Translation files
+├── utilities/               # CP utilities
+├── validators/              # Custom validators
+├── variables/               # Twig variable classes
+├── web/                     # Twig extensions, asset bundles
+└── widgets/                 # Dashboard widgets
+```
+
+## Documentation
+
+- Plugin development guide: https://craftcms.com/docs/5.x/extend/
+- Class/API reference: https://docs.craftcms.com/api/v5/
+- Scaffolding (Generator): https://craftcms.com/docs/5.x/extend/generator.html
+- Craft source code: `vendor/craftcms/cms/src/`
+
+Use `WebFetch` on these URLs when skills don't cover a specific pattern.
+
+## Project-Specific Skills
+
+Check `.claude/skills/` in this repo for project-specific patterns.

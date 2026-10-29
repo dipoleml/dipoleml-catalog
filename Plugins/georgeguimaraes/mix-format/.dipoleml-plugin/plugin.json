@@ -1,0 +1,16 @@
+{
+  "name": "mix-format",
+  "displayName": "Mix Format",
+  "version": "2.0.0",
+  "description": "Auto-format Elixir files with mix format after edits",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Georgeguimaraes"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/georgeguimaraes/elixir-agent-tools",
+  "repository": "https://github.com/georgeguimaraes/elixir-agent-tools",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

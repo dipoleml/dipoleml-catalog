@@ -1,0 +1,117 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.celiktech24-cell.smart-task-router",
+  "type": "plugin",
+  "name": "Smart Task Router",
+  "slug": "smart-task-router",
+  "vendor": "celiktech24-cell",
+  "description": "DipoleML skill + plugin that picks the right model and effort for every task: Opus plans, Haiku/Sonnet build, every step is verified, and it escalates only on failure. Save tokens without losing quality.",
+  "version": "1.0.0",
+  "homepage": "https://github.com/celiktech24-cell/smart-task-router",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "anthropic",
+    "claude-plugin",
+    "claude-skills",
+    "model-routing",
+    "subagents",
+    "token-optimization"
+  ],
+  "tags": [
+    "ai-agents",
+    "anthropic",
+    "claude",
+    "claude-code",
+    "claude-plugin",
+    "claude-skills",
+    "llm",
+    "model-routing",
+    "subagents",
+    "token-optimization"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "celiktech24-cell",
+    "brandName": "celiktech24-cell",
+    "source": "https://github.com/celiktech24-cell.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:12:29Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "celiktech24-cell/smart-task-router",
+    "url": "https://github.com/celiktech24-cell/smart-task-router",
+    "commit": "1a76c954885c78a44628034842f9dd32a116d80c",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 23,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:50:33Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Smart Task Router | Claude skill + plugin that picks the right model and effort for every task: Opus plans, Haiku/Sonnet build, every step is verified, and it escalates only on failure. Save tokens without losing quality.",
+        "after": "Smart Task Router | DipoleML skill + plugin that picks the right model and effort for every task: Opus plans, Haiku/Sonnet build, every step is verified, and it escalates only on failure. Save tokens without losing quality.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Strong model plans, cheap models build, real checks decide. Routes every task and subtask to the cheapest Claude model + effort that can succeed, verifies, and escalates only on failure.",
+        "after": "Strong model plans, cheap models build, real checks decide. Routes every task and subtask to the cheapest DipoleML model + effort that can succeed, verifies, and escalates only on failure.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

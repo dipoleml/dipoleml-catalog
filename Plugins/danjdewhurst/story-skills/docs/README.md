@@ -1,0 +1,143 @@
+# Story Skills documentation
+
+This is the documentation for Story Skills: Agent Skills for writing fiction, plus the `story` CLI that checks and maintains the project files. Use this page to find the right guide, whether you are writing a book, looking up a command or field, or changing Story Skills itself.
+
+If you have not used Story Skills before, start with [Getting started](getting-started.md). If you write in claude.ai and don't use a terminal, start with [Writers: start here](writers-start-here.md) instead.
+
+## How the pieces fit
+
+A story project is a folder of markdown files with YAML frontmatter. The skills do the creative work, such as outlining, drafting, and revising, and write those files. The `story` CLI does the mechanical work: it validates the files, rebuilds registries, counts words, checks links and continuity, and builds the finished book. It never composes or revises prose. [Core concepts](concepts.md) explains the model in full.
+
+```mermaid
+flowchart LR
+    You([You]) -->|ask in plain words| Agent
+    Agent -->|loads| Skills["Skills<br/>(creative work)"]
+    Skills -->|write| Project[("Story project<br/>markdown + YAML")]
+    Agent -->|runs| CLI["story CLI<br/>(mechanical checks)"]
+    CLI -->|checks, reindexes, builds| Project
+```
+
+## Start here
+
+Pick the route that matches what you came to do. Each one takes four pages; read the rest as you need them.
+
+### I'm writing a book
+
+1. [Getting started](getting-started.md): install the skills and the CLI, then create a project and draft chapter 1.
+2. [Writing workflows](writing-workflows.md): which skills to use, in what order, from a first idea to a submission package or a published book.
+3. [Skills catalogue](skills.md): what each skill does and when your agent picks it up.
+4. [Continuity and analysis](continuity.md): what the checks catch and how to act on their findings.
+
+### I'm installing skills for an agent or team
+
+1. [Install the skills](getting-started.md#install-the-skills): Claude Code, Codex, the Agent Skills CLI, or a manual copy.
+2. [How skills work](skills.md#how-skills-work): how an agent picks up a skill and finds the `story` CLI.
+3. [The bundled fallback CLI](concepts.md#the-bundled-fallback-cli): the copy of the CLI that ships inside the skills for installs without the npm package.
+4. [Automation and CI](automation.md): run the checks on every pull request, draft chapters on a schedule, and publish a review copy for readers.
+
+### I'm changing Story Skills
+
+1. [Core concepts](concepts.md): how a project is laid out, and how ids, registries, backlinks, and word counts work.
+2. [Project format reference](project-format.md): every file, frontmatter field, and allowed value the CLI enforces.
+3. [CLI reference](cli-reference.md): every `story` command and option, with its output and exit codes.
+4. [Development guide](development.md): repository layout, tests, the bundled fallback, CI, and releases.
+
+## All pages
+
+### Guides
+
+| Page | What it covers |
+|------|----------------|
+| [Writers: start here](writers-start-here.md) | For writers without a terminal: downloading skill zips, uploading them to claude.ai, and what works without the CLI |
+| [Getting started](getting-started.md) | Installing the skills and CLI, and a first session from `story init` to a clean maintenance pass |
+| [Core concepts](concepts.md) | The project model: files, frontmatter, entity kinds, ids, registries, backlinks, word counts, and how the work is split between skills and CLI |
+| [Writing workflows](writing-workflows.md) | End-to-end sessions: testing a premise, plotting first, discovery drafting, scene craft, theme and voice, research, revision passes, line editing, feedback and editorial review, submission, self-publishing, and adaptation |
+| [Continuity and analysis](continuity.md) | The continuity engine (including travel times over location routes), exemptions, and the `knowledge`, `context`, `timeline`, `prose`, `voices`, `pacing`, `clues`, `grid`, `names`, `diagram`, `progress`, `compare`, `report`, `next`, and `doctor` commands |
+| [Writing in other languages](languages.md) | What works in each language and script: counting in words or characters, dialogue and sentences, word lists, build labels, fonts, right-to-left and vertical text, ids, and adding a language pack |
+| [Series](series.md) | Linking sequels and prequels, `story series`, carrying characters and facts between books, and laying out a short-story collection or anthology |
+| [Import, export, and builds](manuscripts.md) | Importing an existing draft, front and back matter, publishing metadata, and building markdown, EPUB, DOCX, Shunn, HTML review copy, print interior, narration script, retailer metadata sheet, Fountain screenplay skeleton, Twine and ink stories, story bible site (codex), and synopsis output |
+| [Editor integration](editors.md) | `story lsp` in VS Code, Neovim, Helix, Emacs, and other editors: findings as you type, go to definition, references, hover, id completion, rename, and quick fixes |
+| [Automation and CI](automation.md) | The GitHub Actions templates (checks, scheduled drafting, and the review copy with its reader-note issue form), exit codes and output streams, and pre-commit hooks |
+
+### Reference
+
+| Page | What it covers |
+|------|----------------|
+| [Skills catalogue](skills.md) | All 24 skills: triggers, the files each one reads and writes, the commands it runs, and its reference files |
+| [CLI reference](cli-reference.md) | Every `story` command and option, with usage, output, and exit codes |
+| [Project format reference](project-format.md) | The schema v2 file contract: every file, frontmatter field, allowed value, and registry, plus migration from older projects |
+
+### For contributors
+
+| Page | What it covers |
+|------|----------------|
+| [Contributing](https://github.com/danjdewhurst/story-skills/blob/main/CONTRIBUTING.md) | The short version: adding a skill or a CLI command, the checks to run, commit style, and changelog entries |
+| [Development guide](development.md) | Repository layout, CLI architecture, tests, the bundled fallback, schema and metadata checks, evals, skill authoring, CI, and releases |
+| [Changelog](../CHANGELOG.md) | User-visible changes in each release, including project format and CLI behaviour changes |
+| [Code of Conduct](https://github.com/danjdewhurst/story-skills/blob/main/CODE_OF_CONDUCT.md) | The Contributor Covenant 2.1, which applies to everyone taking part |
+
+## Find it by task
+
+| You want to... | Read |
+|----------------|------|
+| Install Story Skills | [Getting started](getting-started.md#install-the-skills) |
+| Use the skills in claude.ai without a terminal | [Writers: start here](writers-start-here.md) |
+| Test whether an idea will carry a book, and pick its form | [Writing workflows](writing-workflows.md) and the premise-workshop entry in the [Skills catalogue](skills.md) |
+| Start a new book | [Getting started](getting-started.md#your-first-session), then [Writing workflows](writing-workflows.md#plotting-first-from-premise-to-chapter-one) |
+| Draft without an outline | [Writing workflows](writing-workflows.md#discovery-drafting) |
+| Bring in a draft you already have | [Import, export, and builds](manuscripts.md#import-an-existing-manuscript) |
+| Pick the right skill for a request | [Skills catalogue](skills.md#which-skill-do-i-want) |
+| Look up a command or flag | [CLI reference](cli-reference.md) |
+| Look up a frontmatter field or allowed value | [Project format reference](project-format.md) |
+| Understand a continuity error or warning | [Continuity and analysis](continuity.md) |
+| Dismiss a finding on purpose | [Continuity and analysis](continuity.md#exemptions) |
+| Check pacing, scene outcomes, and chapter hooks | [Continuity and analysis](continuity.md) (`story pacing`) |
+| Check a mystery's clues play fair | [Continuity and analysis](continuity.md) (`story clues`) |
+| See which chapters advance each arc, as a table or CSV | [Continuity and analysis](continuity.md) (`story grid`) |
+| Check that characters sound different | [Continuity and analysis](continuity.md) (`story voices`) |
+| Check a new name before using it | [Continuity and analysis](continuity.md) (`story names`) |
+| Draw a family tree, route map, timeline, or clue diagram | [Continuity and analysis](continuity.md) (`story diagram`) |
+| Check travel times between places | [Continuity and analysis](continuity.md) and location `routes` in the [Project format reference](project-format.md) |
+| Revise in named passes, from structure down to proof | [Writing workflows](writing-workflows.md) (`story passes`) |
+| Line edit or copyedit without losing the author's voice | [Writing workflows](writing-workflows.md) and the line-editing entry in the [Skills catalogue](skills.md) |
+| Work with sensitivity readers, editors, permissions, or a co-author | [Writing workflows](writing-workflows.md) and the editorial-review entry in the [Skills catalogue](skills.md) |
+| Write a book in a language other than English | [Writing in other languages](languages.md) |
+| Write a sequel or prequel | [Series](series.md) |
+| Put together a short-story collection or anthology | [Series](series.md#short-story-collections-and-anthologies) |
+| Build an EPUB, DOCX, or submission manuscript | [Import, export, and builds](manuscripts.md#build-a-book) |
+| Build an HTML review copy, a print interior, a narration script, a retailer metadata sheet, or a screenplay skeleton | [Import, export, and builds](manuscripts.md) |
+| Browse or share the story bible as a website | [Story bible site](manuscripts.md#story-bible-site-codex) |
+| Self-publish: metadata, ISBNs, copyright page, print, launch | [Writing workflows](writing-workflows.md), [Import, export, and builds](manuscripts.md), and the publishing entry in the [Skills catalogue](skills.md) |
+| Adapt the book for audio, screen, comics, or translation | [Writing workflows](writing-workflows.md) and the adaptation entry in the [Skills catalogue](skills.md) |
+| Run the checks on every pull request | [Automation and CI](automation.md) |
+| Pick out files by frontmatter, such as draft chapters or the scenes a character is in | [CLI reference](cli-reference.md#list) (`story list`), and [Saved queries](project-format.md#saved-queries) for the filters you run often |
+| Share a review copy that readers can annotate by paragraph | [Automation and CI](automation.md) (`review-copy.yml` and the manuscript-note issue form) |
+| Upgrade an older project | [Project format reference](project-format.md#migrating-older-projects) |
+| Change the CLI or a skill | [Contributing](https://github.com/danjdewhurst/story-skills/blob/main/CONTRIBUTING.md), then the [Development guide](development.md) |
+| See what changed in a release | [Changelog](../CHANGELOG.md) |
+
+## Example projects
+
+The repository includes eleven sample projects in [`examples/`](../examples/). The pages above use them for their sample output.
+
+| Example | Shows |
+|---------|-------|
+| [`the-last-ember`](../examples/the-last-ember/) | A fantasy project with a style sheet, front matter, and an arc. Book 1 of a two-book series. |
+| [`the-fall-of-the-citadel`](../examples/the-fall-of-the-citadel/) | The prequel to *The Last Ember*, linked with `precedes` and shared `fact` ids |
+| [`harbor-of-second-light`](../examples/harbor-of-second-light/) | A science-fiction coastal mystery with populated continuity state, knowledge entries, publishing metadata, a location route, a pronunciation, and a chapter `beat` |
+| [`the-gull-rock-light`](../examples/the-gull-rock-light/) | A short second-person branching story: chapter `choices` for `story build --format twee` and `--format ink` |
+| [`bo-and-the-missing-moon`](../examples/bo-and-the-missing-moon/) | A 32-page picture book (`form: picture-book`): one chapter per spread, a scene record and page-turn `hook` per spread, and a pagination plan with spread briefs |
+| [`the-left-luggage-office`](../examples/the-left-luggage-office/) | The first three episodes of a weekly serial (`form: serial`): `season-goal`, `episode-question`, per-episode `target-words` and `hook`, and a promise paid off in an episode not yet written |
+| [`salt-and-lantern`](../examples/salt-and-lantern/) | An anthology of three short stories: the editor in story.md `editor`, each story's writer in its chapter `author`, title-only headings through the `chapter-heading` label, and an acknowledgements page |
+| [`the-unraveled-thread`](../examples/the-unraveled-thread/) | A village mystery that is broken on purpose to show the main kinds of continuity finding, plus clues (one a red herring) for `story clues` and scene outcomes and chapter hooks for `story pacing` |
+| [`quatre-heures-dix-sept`](../examples/quatre-heures-dix-sept/) | A short story in French (`language: fr`): dialogue in guillemets with French no-break spaces, the French word lists, and French build labels |
+| [`kirimi-eki-no-wasuremono`](../examples/kirimi-eki-no-wasuremono/) | A short story in Japanese (`language: ja`): counted in characters, `target-characters`, corner-bracket dialogue, and `writing-mode: vertical` |
+| [`laysat-lil-bay`](../examples/laysat-lil-bay/) | A short story in Arabic (`language: ar`): right-to-left builds and Arabic punctuation |
+
+## Other resources
+
+- [README](../README.md): the project overview.
+- [`schemas/story.schema.json`](../schemas/story.schema.json): the project format as a JSON schema.
+- [`schemas/result.schema.json`](../schemas/result.schema.json): the `--json` output of the CLI as a JSON schema.
+- [`templates/github/`](../templates/github/): the GitHub Actions workflows and the reader-note issue form to copy into a story repository.
+- [`AGENTS.md`](https://github.com/danjdewhurst/story-skills/blob/main/AGENTS.md): the short rules for coding agents working on this repository.

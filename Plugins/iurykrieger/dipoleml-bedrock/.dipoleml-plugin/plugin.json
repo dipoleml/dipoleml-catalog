@@ -1,0 +1,16 @@
+{
+  "name": "dipoleml-bedrock",
+  "displayName": "DipoleML Bedrock",
+  "version": "1.6.0",
+  "description": "Second Brain automation for Obsidian vaults — entity management, ingestion, compression, and sync via DipoleML skills",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Iurykrieger"
+  },
+  "license": "MIT",
+  "homepage": "https://claude-bedrock.vercel.app",
+  "repository": "https://github.com/iurykrieger/claude-bedrock",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

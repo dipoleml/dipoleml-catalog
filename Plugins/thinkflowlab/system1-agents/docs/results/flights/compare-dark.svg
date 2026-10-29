@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1084" height="358" viewBox="0 0 1084 358" font-family="ui-sans-serif, system-ui, -apple-system, Segoe UI, Helvetica, Arial, sans-serif" font-size="12">
+<rect width="1084" height="358" fill="#1a1a19" rx="8"/>
+<text x="24" y="26" font-size="15" font-weight="600" fill="#ffffff">Google Flights, Zurich to London: where each arm's seconds go</text>
+<text x="24" y="44" fill="#c3c2b7">Median run of three per arm. Total is first decision request to final answer.</text>
+<rect x="24" y="54" width="12" height="12" rx="3" fill="#3987e5"/>
+<text x="41" y="64" fill="#c3c2b7">waiting on Jev</text>
+<rect x="157" y="54" width="12" height="12" rx="3" fill="#d95926"/>
+<text x="174" y="64" fill="#c3c2b7">waiting on the page</text>
+<rect x="325" y="54" width="12" height="12" rx="3" fill="#199e70"/>
+<text x="342" y="64" fill="#c3c2b7">browser actions</text>
+<rect x="465" y="54" width="12" height="12" rx="3" fill="#c98500"/>
+<text x="482" y="64" fill="#c3c2b7">other</text>
+<line x1="314.0" y1="66" x2="314.0" y2="306" stroke="#383835" stroke-width="1"/>
+<text x="314.0" y="322" text-anchor="middle" fill="#c3c2b7" font-size="11">0 s</text>
+<line x1="414.8" y1="66" x2="414.8" y2="306" stroke="#383835" stroke-width="1"/>
+<text x="414.8" y="322" text-anchor="middle" fill="#c3c2b7" font-size="11">10 s</text>
+<line x1="515.5" y1="66" x2="515.5" y2="306" stroke="#383835" stroke-width="1"/>
+<text x="515.5" y="322" text-anchor="middle" fill="#c3c2b7" font-size="11">20 s</text>
+<line x1="616.3" y1="66" x2="616.3" y2="306" stroke="#383835" stroke-width="1"/>
+<text x="616.3" y="322" text-anchor="middle" fill="#c3c2b7" font-size="11">30 s</text>
+<line x1="717.1" y1="66" x2="717.1" y2="306" stroke="#383835" stroke-width="1"/>
+<text x="717.1" y="322" text-anchor="middle" fill="#c3c2b7" font-size="11">40 s</text>
+<text x="24" y="86" fill="#ffffff" font-weight="600">JJ browser-use driver, day before</text>
+<text x="24" y="100" fill="#c3c2b7" font-size="11">3 of 3 verified</text>
+<rect x="314.0" y="76" width="43.3" height="16" rx="3" fill="#3987e5"/>
+<rect x="359.3" y="76" width="24.5" height="16" rx="3" fill="#d95926"/>
+<text x="760" y="86" fill="#ffffff" font-weight="600">7.3 s</text>
+<text x="760" y="100" fill="#c3c2b7" font-size="11">Jev 4.5 · page 2.6 · browser 0.2 · other 0.0</text>
+<text x="24" y="126" fill="#ffffff" font-weight="600">JJ browser-use driver, today</text>
+<text x="24" y="140" fill="#c3c2b7" font-size="11">3 of 3 verified</text>
+<rect x="314.0" y="116" width="50.0" height="16" rx="3" fill="#3987e5"/>
+<rect x="366.0" y="116" width="55.1" height="16" rx="3" fill="#d95926"/>
+<rect x="423.2" y="116" width="6.5" height="16" rx="3" fill="#199e70"/>
+<text x="760" y="126" fill="#ffffff" font-weight="600">11.8 s</text>
+<text x="760" y="140" fill="#c3c2b7" font-size="11">Jev 5.2 · page 5.7 · browser 0.8 · other 0.2</text>
+<text x="24" y="166" fill="#ffffff" font-weight="600">JJ Playwright stock MCP, today (OpenRouter)</text>
+<text x="24" y="180" fill="#c3c2b7" font-size="11">2 of 3 verified</text>
+<rect x="314.0" y="156" width="65.9" height="16" rx="3" fill="#3987e5"/>
+<rect x="381.9" y="156" width="209.9" height="16" rx="3" fill="#d95926"/>
+<rect x="593.8" y="156" width="147.3" height="16" rx="3" fill="#199e70"/>
+<text x="760" y="166" fill="#ffffff" font-weight="600">42.7 s</text>
+<text x="760" y="180" fill="#c3c2b7" font-size="11">Jev 6.7 · page 21.0 · browser 14.8 · other 0.1</text>
+<text x="24" y="206" fill="#ffffff" font-weight="600">JJ Playwright no settle, today</text>
+<text x="24" y="220" fill="#c3c2b7" font-size="11">2 of 3 verified</text>
+<rect x="314.0" y="196" width="45.4" height="16" rx="3" fill="#3987e5"/>
+<rect x="361.4" y="196" width="70.0" height="16" rx="3" fill="#d95926"/>
+<rect x="433.4" y="196" width="27.9" height="16" rx="3" fill="#199e70"/>
+<text x="760" y="206" fill="#ffffff" font-weight="600">14.9 s</text>
+<text x="760" y="220" fill="#c3c2b7" font-size="11">Jev 4.7 · page 7.2 · browser 3.0 · other 0.1</text>
+<text x="24" y="246" fill="#ffffff" font-weight="600">JJ Playwright no settle, batched, today</text>
+<text x="24" y="260" fill="#c3c2b7" font-size="11">3 of 3 verified</text>
+<rect x="314.0" y="236" width="51.2" height="16" rx="3" fill="#3987e5"/>
+<rect x="367.2" y="236" width="4.0" height="16" rx="3" fill="#d95926"/>
+<rect x="373.2" y="236" width="42.4" height="16" rx="3" fill="#199e70"/>
+<text x="760" y="246" fill="#ffffff" font-weight="600">10.4 s</text>
+<text x="760" y="260" fill="#c3c2b7" font-size="11">Jev 5.3 · page 0.6 · browser 4.4 · other 0.2</text>
+<text x="24" y="286" fill="#ffffff" font-weight="600">jev-ultrafast, today</text>
+<text x="24" y="300" fill="#c3c2b7" font-size="11">3 of 3 verified</text>
+<rect x="314.0" y="276" width="90.1" height="16" rx="3" fill="#3987e5"/>
+<rect x="406.1" y="276" width="48.3" height="16" rx="3" fill="#c98500"/>
+<text x="760" y="286" fill="#ffffff" font-weight="600">14.1 s</text>
+<text x="760" y="300" fill="#c3c2b7" font-size="11">Jev 9.1 · other 5.0</text>
+</svg>

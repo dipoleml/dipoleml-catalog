@@ -1,0 +1,503 @@
+// Purpose: P1-2/P2 — proxy helpers: outbound proxy detection, task identity, body metadata, and the request rewrite
+// (placeholder swap, re-encoding, and the cases where the original bytes must be forwarded).
+// Input: synthetic env, headers, request bodies and temporary rollouts; output: Node test assertions only.
+
+import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+import zlib from "node:zlib";
+import { claudeIdentity, describeBody, forwardHeaders, hasUnchecked, hasUnsafeInteger, imageSizesOf, macProxy, needsRewrite, outboundProxy, redactImages, rewriteBody, requestIdentity, routeOf } from "../../plugin/src/proxy.ts";
+import { writeSelection } from "../../plugin/src/selection.ts";
+import { png } from "./testkit.ts";
+
+// These tests check the Chinese wording: the language is fixed, so neither the system's language nor one a panel
+// reported on this machine decides it (v0.1-14).
+process.env.CAM_LANG = "zh";
+
+const none = () => null;
+
+test("outbound proxy comes from the environment, then Windows settings", () => {
+  assert.deepEqual(outboundProxy({ HTTPS_PROXY: "http://127.0.0.1:8888", NO_PROXY: "localhost,127.0.0.1,::1,.local" }, none), { host: "127.0.0.1", port: 8888 });
+  assert.deepEqual(outboundProxy({}, () => "http=10.0.0.1:80;https=10.0.0.2:8080"), { host: "10.0.0.2", port: 8080 });
+  assert.deepEqual(outboundProxy({}, () => "127.0.0.1:7890"), { host: "127.0.0.1", port: 7890 });
+  assert.equal(outboundProxy({}, none), null);
+});
+
+test("the macOS system proxy is read from scutil: HTTPS first, then HTTP, only when enabled", () => {
+  const scutil = (lines: string[]) => `<dictionary> {\n  ExceptionsList : <array> {\n    0 : *.local\n  }\n${lines.map((line) => `  ${line}\n`).join("")}}\n`;
+  assert.equal(macProxy(scutil(["HTTPEnable : 1", "HTTPPort : 8080", "HTTPProxy : 10.0.0.1", "HTTPSEnable : 1", "HTTPSPort : 7890", "HTTPSProxy : 127.0.0.1"])), "127.0.0.1:7890");
+  assert.equal(macProxy(scutil(["HTTPEnable : 1", "HTTPPort : 8080", "HTTPProxy : 10.0.0.1", "HTTPSEnable : 0"])), "10.0.0.1:8080");
+  assert.equal(macProxy(scutil(["HTTPSEnable : 0", "SOCKSEnable : 1", "SOCKSPort : 1080", "SOCKSProxy : 127.0.0.1"])), null);
+  assert.deepEqual(outboundProxy({}, () => macProxy(scutil(["HTTPSEnable : 1", "HTTPSPort : 7890", "HTTPSProxy : 127.0.0.1"]))), { host: "127.0.0.1", port: 7890 });
+});
+
+test("NO_PROXY entries covering the upstream host mean a direct connection", () => {
+  for (const entry of ["chatgpt.com", ".chatgpt.com", "*"]) {
+    assert.equal(outboundProxy({ HTTPS_PROXY: "http://127.0.0.1:8888", NO_PROXY: `localhost,${entry}` }, none), null);
+  }
+});
+
+test("the task a request belongs to is read from x-codex-turn-metadata", () => {
+  const headers = { "x-codex-turn-metadata": JSON.stringify({ thread_id: "thread-a", turn_id: "turn-1" }), "x-codex-window-id": "thread-a:0" };
+  assert.deepEqual(requestIdentity(headers), { threadId: "thread-a", turnId: "turn-1", windowId: "thread-a:0", forkedFrom: null, parentThreadId: null, subagentKind: null, turnTrigger: null });
+  assert.deepEqual(requestIdentity({ "x-codex-turn-metadata": "not json" }), { threadId: null, turnId: null, windowId: null, forkedFrom: null, parentThreadId: null, subagentKind: null, turnTrigger: null });
+});
+
+// v0.7: as Codex 0.162 sends them (docs/v0.7/plan.md §3).
+test("a side chat's requests name the task it was forked from, a subagent's its parent", () => {
+  const side = { "x-codex-turn-metadata": JSON.stringify({ thread_id: "side", session_id: "side", turn_id: "turn-s", forked_from_thread_id: "main" }) };
+  assert.deepEqual(requestIdentity(side), { threadId: "side", turnId: "turn-s", windowId: null, forkedFrom: "main", parentThreadId: null, subagentKind: null, turnTrigger: null });
+  const child = { "x-codex-turn-metadata": JSON.stringify({ thread_id: "child", session_id: "main", turn_id: "turn-c", parent_thread_id: "main", subagent_kind: "thread_spawn" }), "x-codex-parent-thread-id": "main", "x-openai-subagent": "collab_spawn" };
+  assert.deepEqual(requestIdentity(child), { threadId: "child", turnId: "turn-c", windowId: null, forkedFrom: null, parentThreadId: "main", subagentKind: "thread_spawn", turnTrigger: null });
+  // Codex's own header, when the metadata does not say.
+  assert.equal(requestIdentity({ "x-codex-turn-metadata": JSON.stringify({ thread_id: "child" }), "x-codex-parent-thread-id": "main" }).parentThreadId, "main");
+});
+
+test("request metadata counts images in messages and in tool outputs, without content", () => {
+  const body = {
+    model: "m",
+    prompt_cache_key: "thread-a",
+    stream: true,
+    input: [
+      { type: "message", role: "user", content: [{ type: "input_text", text: "secret words" }, { type: "input_image", image_url: "data:image/png;base64,AAAA" }] },
+      { type: "custom_tool_call_output", call_id: "c1", output: [{ type: "input_image", image_url: "data:image/png;base64,BBBBBBBB" }] },
+    ],
+  };
+  const described = describeBody("/backend-api/codex/responses", body);
+  assert.deepEqual(described, { kind: "responses", model: "m", inputItems: 2, images: 2, imageBytes: "data:image/png;base64,AAAA".length + "data:image/png;base64,BBBBBBBB".length, stream: true, promptCacheKey: "thread-a" });
+  assert.doesNotMatch(JSON.stringify(described), /secret words/);
+  assert.equal(describeBody("/backend-api/codex/images/edits", { model: "gpt-image", images: [{}, {}], size: "1024x1024" }).kind, "image_edit");
+});
+
+test("the size baseline names each image by its index key, with its base64 length and nothing else", () => {
+  const input = [
+    { type: "message", id: "msg_1", role: "user", content: [{ type: "input_text", text: "secret words" }, { type: "input_image", image_url: "data:image/png;base64,AAAA" }] },
+    { type: "custom_tool_call_output", call_id: "c1", output: [{ type: "input_image", image_url: "data:image/png;base64,BBBBBBBB" }] },
+  ];
+  assert.deepEqual(imageSizesOf(input), { "msg_1#0": 4, "custom_tool_call_output:c1#0": 8 });
+});
+
+test("integers JavaScript cannot hold exactly are detected outside strings only", () => {
+  assert.equal(hasUnsafeInteger('{"a":12345678901234567}'), true);
+  assert.equal(hasUnsafeInteger('{"a":"order 12345678901234567","b":1790246521.5642291234567,"c":[1,-2,3e25]}'), false);
+  assert.equal(hasUnsafeInteger('{"a":9007199254740991}'), false);
+});
+
+// P2: a zstd request for a thread whose rollout and selection live in temporary directories.
+function fixture() {
+  const threadId = "01a0d301-0000-7000-8000-00000000000c";
+  const root = mkdtempSync(join(tmpdir(), "cam-proxy-"));
+  const sessions = join(root, "sessions");
+  const selections = join(root, "selection");
+  mkdirSync(join(sessions, "2026", "09", "24"), { recursive: true });
+  // A noisy 64×64 image, large enough that its placeholder is smaller than the image itself.
+  const red = `data:image/png;base64,${png(64, 64, (x, y) => [255, (x * 37 + y * 101) % 256, (x * y) % 256]).toString("base64")}`;
+  const blue = `data:image/png;base64,${png(8, 8, () => [0, 0, 255]).toString("base64")}`;
+  const message = {
+    type: "message", id: "msg_1", role: "user",
+    content: [
+      { type: "input_text", text: "两张图" },
+      { type: "input_text", text: String.raw`<image name=[Image #1] path="C:\w\a.png">` }, { type: "input_image", image_url: red }, { type: "input_text", text: "</image>" },
+      { type: "input_text", text: String.raw`<image name=[Image #2] path="C:\w\b.png">` }, { type: "input_image", image_url: blue }, { type: "input_text", text: "</image>" },
+    ],
+    internal_chat_message_metadata_passthrough: { turn_id: "t1" },
+  };
+  const rollout = [{ type: "session_meta", payload: { id: threadId } }, { type: "event_msg", payload: { type: "task_started", turn_id: "t1" } }, { type: "response_item", payload: message }];
+  writeFileSync(join(sessions, "2026", "09", "24", `rollout-2026-09-24T10-00-00-${threadId}.jsonl`), rollout.map((r) => JSON.stringify(r)).join("\n") + "\n");
+  const body = (extra = "") => zlib.zstdCompressSync(Buffer.from(`{"model":"m","input":[${JSON.stringify(message)}],"stream":true${extra}}`));
+  return { threadId, sessions, selections, red, blue, body };
+}
+
+test("rewriteBody swaps the unchecked image for a placeholder and re-encodes the body", () => {
+  const { threadId, sessions, selections, red, blue, body } = fixture();
+  assert.equal(hasUnchecked(threadId, selections), false);
+  writeSelection({ threadId, unchecked: { "msg_1#0": { id: "IMG-001", at: "2026-09-24T10:00:00Z" } } }, selections);
+  assert.equal(hasUnchecked(threadId, selections), true);
+  const original = body();
+  const { body: out, report } = rewriteBody(original, "zstd", threadId, sessions, selections);
+  const text = zlib.zstdDecompressSync(out).toString("utf8");
+  assert.ok(!text.includes(red.slice(30)), "the unchecked image is gone");
+  assert.ok(text.includes(blue.slice(30)), "the checked image is still there");
+  assert.match(text, /\[图片 IMG-001（\[Image #1\]） 已省略｜a\.png｜用户上传｜第 1 轮｜64×64]/);
+  assert.deepEqual(report.replaced, [{ id: "IMG-001", kind: "upload", mode: "plain", sameAs: null, base64Chars: red.length - "data:image/png;base64,".length }]);
+  assert.ok(report.decodedAfter < report.decodedBefore);
+  assert.equal(text, JSON.stringify(JSON.parse(text)), "re-serialized as compact JSON, like Codex's own bodies");
+});
+
+test("rewriteBody forwards the original bytes when nothing applies or the body is not safe to re-serialize", () => {
+  const { threadId, sessions, selections, body } = fixture();
+  writeSelection({ threadId, unchecked: { "msg_other#0": { id: "IMG-009", at: "2026-09-24T10:00:00Z" } } }, selections);
+  // v0.8: a request with images gets the feature line note (next test), so nothing applies to one without any.
+  const original = zlib.zstdCompressSync(Buffer.from('{"model":"m","input":[{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]}],"stream":true}'));
+  assert.equal(rewriteBody(original, "zstd", threadId, sessions, selections).body, original);
+  writeSelection({ threadId, unchecked: { "msg_1#0": { id: "IMG-001", at: "2026-09-24T10:00:00Z" } } }, selections);
+  const risky = body(',"big":12345678901234567');
+  const { body: out, report } = rewriteBody(risky, "zstd", threadId, sessions, selections);
+  assert.equal(out, risky);
+  assert.match(report.skipped, /2\^53/);
+});
+
+// v0.3: automatic selection. The request belongs to turn 2, which the rollout has not recorded yet.
+test("with automatic selection, rewriteBody leaves out earlier turns' images that are not pinned", () => {
+  const { threadId, sessions, selections, red, blue, body } = fixture();
+  assert.equal(needsRewrite(threadId, selections, sessions), false);
+  writeSelection({ threadId, unchecked: {}, auto: true, autoAt: "2026-10-06T10:00:00Z", autoSince: "2026-10-06T10:00:00Z", pinned: { "msg_1#1": { id: "IMG-002", at: "2026-10-06T10:00:00Z" } } }, selections);
+  assert.equal(needsRewrite(threadId, selections, sessions), true);
+  const json = JSON.parse(zlib.zstdDecompressSync(body()).toString("utf8"));
+  json.input.push({ type: "message", role: "user", content: [{ type: "input_text", text: "再看看" }] });
+  const original = zlib.zstdCompressSync(Buffer.from(JSON.stringify(json)));
+  const { body: out, report } = rewriteBody(original, "zstd", threadId, sessions, selections, "t2");
+  const text = zlib.zstdDecompressSync(out).toString("utf8");
+  assert.ok(!text.includes(red.slice(30)), "turn 1's IMG-001 is left out");
+  assert.ok(text.includes(blue.slice(30)), "the pinned IMG-002 is still sent");
+  assert.match(text, /\[图片 IMG-001（\[Image #1\]） 已省略｜a\.png｜用户上传｜第 1 轮｜64×64\]\\n需要原图时调用 cam_view_image/);
+  assert.match(text, /\[图片 IMG-002（\[Image #2\]） 已提供｜b\.png/);
+  assert.match(text, /上下文管理说明（来自用户安装的上下文素材管理工具）：这个任务开着“自动选图”/);
+  assert.deepEqual([report.auto, report.replaced.map((r: Record<string, unknown>) => [r.id, r.mode])], [true, [["IMG-001", "plain"]]]);
+  // Turn 1's own requests send its images, each with its id now (v0.8), under the feature line note.
+  const own = rewriteBody(original, "zstd", threadId, sessions, selections, "t1");
+  const ownText = zlib.zstdDecompressSync(own.body).toString("utf8");
+  assert.ok(ownText.includes(red.slice(30)) && ownText.includes(blue.slice(30)), "turn 1's own requests send its images");
+  assert.deepEqual([own.report.replaced, own.report.featureAt, own.report.labeled], [[], 0, 2]);
+  assert.match(ownText, /特征行说明（来自用户安装的上下文素材管理工具）/);
+  assert.match(ownText, /\[图片 IMG-001（\[Image #1\]） 已提供｜a\.png/);
+});
+
+// v0.4: Claude Code through the same engine.
+test("legacy Claude requests retain their native destination and Codex paths retain theirs", () => {
+  const claude = { "anthropic-version": "2023-06-01" };
+  assert.equal(routeOf("/v1/messages", claude)?.host, "api.anthropic.com");
+  assert.equal(routeOf("/v1/messages/count_tokens", claude)?.host, "api.anthropic.com");
+  assert.equal(routeOf("/backend-api/codex/responses", {})?.host, "chatgpt.com");
+  assert.equal(routeOf("/backend-api/codex/images/generations", {})?.host, "chatgpt.com");
+  assert.equal(forwardHeaders({ host: "127.0.0.1:17891", "anthropic-beta": "oauth-2025-04-20", connection: "keep-alive" }, "api.anthropic.com").host, "api.anthropic.com");
+  assert.equal(forwardHeaders({ authorization: "Bearer x" }, "api.anthropic.com").authorization, "Bearer x");
+  assert.equal(forwardHeaders({ connection: "keep-alive" }, "api.anthropic.com").connection, undefined);
+});
+
+// 2026-10-22: Codex logged in with an API key keeps the plugin's base URL and sends its key; chatgpt.com does not take
+// API keys, so those requests go where Codex would send them without the plugin.
+test("Codex's API-key requests go to api.openai.com/v1, its ChatGPT-login and Claude's ones as before", () => {
+  const key = { authorization: "Bearer sk-test-not-a-real-key" };
+  assert.deepEqual(routeOf("/backend-api/codex/responses", key), { host: "api.openai.com", url: "/v1/responses" });
+  assert.deepEqual(routeOf("/backend-api/codex/responses/compact?x=1", key), { host: "api.openai.com", url: "/v1/responses/compact?x=1" });
+  assert.deepEqual(routeOf("/backend-api/codex/models?client_version=1", key), { host: "api.openai.com", url: "/v1/models?client_version=1" });
+  // ChatGPT login: an access token and the account id.
+  const chatgpt = { authorization: "Bearer eyJ.synthetic.token", "chatgpt-account-id": "acct" };
+  assert.deepEqual(routeOf("/backend-api/codex/responses", chatgpt), { host: "chatgpt.com", url: "/backend-api/codex/responses" });
+  assert.deepEqual(routeOf("/backend-api/codex/responses", { ...key, "chatgpt-account-id": "acct" }), { host: "chatgpt.com", url: "/backend-api/codex/responses" });
+  assert.deepEqual(routeOf("/backend-api/codex/responses", {}), { host: "chatgpt.com", url: "/backend-api/codex/responses" });
+  // Claude's subscription token also starts with sk- (sk-ant-oat…): its /v1/ requests stay with Anthropic.
+  assert.deepEqual(routeOf("/v1/messages?beta=true", { authorization: "Bearer sk-ant-oat01-synthetic" }), { host: "api.anthropic.com", url: "/v1/messages?beta=true" });
+});
+
+test("Claude credentials never fall through to a Codex destination when its request path changes", () => {
+  const headers = { "x-claude-code-session-id": "synthetic", "anthropic-version": "2023-06-01", authorization: "Bearer sk-ant-oat01-synthetic", "x-api-key": "sk-ant-synthetic" };
+  assert.deepEqual(routeOf("/new-endpoint?beta=true", headers), { host: "api.anthropic.com", url: "/new-endpoint?beta=true" });
+  assert.equal(routeOf("/backend-api/codex/responses", headers), null, "a contradictory legacy endpoint is refused");
+  assert.equal(routeOf("/unknown", {}), null, "unknown requests are refused locally");
+  assert.equal(routeOf("/v1/responses", { authorization: "Bearer sk-proj-synthetic" }), null, "an OpenAI key is not sent to Anthropic based only on /v1/");
+  assert.equal(forwardHeaders({ "chatgpt-account-id": "synthetic" }, "api.anthropic.com")["chatgpt-account-id"], undefined);
+  assert.equal(forwardHeaders({ "x-api-key": "sk-ant-synthetic" }, "chatgpt.com")["x-api-key"], undefined);
+});
+
+test("NO_PROXY is checked against each upstream host on its own", () => {
+  const env = { HTTPS_PROXY: "http://127.0.0.1:8888", NO_PROXY: "chatgpt.com" };
+  assert.equal(outboundProxy(env, none, "chatgpt.com"), null);
+  assert.deepEqual(outboundProxy(env, none, "api.anthropic.com"), { host: "127.0.0.1", port: 8888 });
+});
+
+test("a Claude Code session and a subagent's loop are read from their headers", () => {
+  assert.deepEqual(claudeIdentity({ "x-claude-code-session-id": "11111111-2222-4333-8444-555555555555" }), { sessionId: "11111111-2222-4333-8444-555555555555", agentId: null });
+  assert.deepEqual(claudeIdentity({ "x-claude-code-session-id": "s", "x-claude-code-agent-id": "a1" }), { sessionId: "s", agentId: "a1" });
+  assert.deepEqual(claudeIdentity({}), { sessionId: null, agentId: null });
+});
+
+test("Messages metadata counts images in user messages and tool results, and thinking blocks, without content", () => {
+  const data = png(4, 4, () => [1, 2, 3]).toString("base64");
+  const body = {
+    model: "claude-haiku-5-5", stream: true, thinking: { type: "adaptive" },
+    messages: [
+      { role: "user", content: [{ type: "image", source: { type: "base64", media_type: "image/png", data } }, { type: "text", text: "secret" }] },
+      { role: "assistant", content: [{ type: "thinking", thinking: "", signature: "s" }, { type: "tool_use", id: "t", name: "Read", input: {} }] },
+      { role: "user", content: [{ type: "tool_result", tool_use_id: "t", content: [{ type: "image", source: { type: "base64", media_type: "image/png", data } }] }] },
+    ],
+  };
+  const described = describeBody("/v1/messages", body);
+  assert.deepEqual(described, { kind: "messages", model: "claude-haiku-5-5", messages: 3, images: 2, imageBytes: data.length * 2, thinkingBlocks: 1, thinking: "adaptive", stream: true, tools: 0 });
+  assert.ok(!JSON.stringify(described).includes("secret"));
+  const redacted = JSON.stringify(redactImages({ ...body, messages: [{ role: "user", content: [{ type: "image", source: { type: "base64", data: "A".repeat(400) } }] }] }));
+  assert.ok(!redacted.includes("A".repeat(300)));
+  assert.match(redacted, /<sha256:[0-9a-f]{16} chars:400>/);
+});
+
+test("the panel's last request is the session's conversation, not Claude Desktop's side requests in it", async () => {
+  const { claudeConversationRequest } = await import("../../plugin/src/proxy.ts");
+  const tool = { name: "Read", description: "", input_schema: { type: "object" } };
+  // Claude Code's main loop: the conversation, with its tools.
+  const main = describeBody("/v1/messages", { model: "claude-sonnet-5-5", stream: true, tools: [tool, tool], messages: [{ role: "user", content: "hi" }] });
+  assert.equal(main.tools, 2);
+  assert.equal(claudeConversationRequest(main), true);
+  // The desktop's status summary while the user is away, or auto mode's safety check: no tools, no images.
+  const summary = describeBody("/v1/messages", { model: "claude-sonnet-5-5", max_tokens: 3072, messages: [{ role: "user", content: "Current state: done" }] });
+  assert.equal(claudeConversationRequest(summary), false);
+  assert.equal(claudeConversationRequest(describeBody("/backend-api/codex/responses", { input: [] })), false);
+});
+
+test("a Claude Code request is rewritten from the session's transcript and selection, with images also with nothing unchecked", async () => {
+  const { usualSession, usualRequest } = await import("./claude-fixtures.ts");
+  const { claudeNeedsRewrite, rewriteClaudeBody, claudeImageSizes } = await import("../../plugin/src/proxy.ts");
+  const { buildClaudeIndex } = await import("../../plugin/src/claude-index.ts");
+  const home = mkdtempSync(join(tmpdir(), "cam-claude-home-"));
+  const dir = mkdtempSync(join(tmpdir(), "cam-claude-sel-"));
+  const session = "11111111-2222-4333-8444-555555555555";
+  const { t, p1 } = usualSession();
+  mkdirSync(join(home, "projects", "D--work"), { recursive: true });
+  writeFileSync(join(home, "projects", "D--work", `${session}.jsonl`), t.records.map((record) => JSON.stringify(record)).join("\n") + "\n");
+  const body = Buffer.from(JSON.stringify({ model: "claude-haiku-5-5", thinking: { type: "adaptive" }, messages: usualRequest() }));
+  // v0.8: a session with images is rewritten with nothing unchecked too: the feature line note follows the first
+  // image's message, and every image says its id.
+  assert.equal(claudeNeedsRewrite(session, dir, home), true);
+  const plain = rewriteClaudeBody(body, undefined, session, dir, home, {});
+  assert.deepEqual([plain.report.replaced, plain.report.featureAt, plain.report.labeled], [[], 1, 4]);
+  assert.equal(JSON.parse(plain.body.toString("utf8")).messages[1].role, "system");
+  writeSelection({ threadId: session, unchecked: { [`${p1}#1`]: { id: "IMG-002", at: "2026-10-10T00:00:00Z" } } }, dir);
+  assert.equal(claudeNeedsRewrite(session, dir), true);
+  const out = rewriteClaudeBody(body, undefined, session, dir, home, {});
+  assert.notEqual(out.body, body);
+  assert.deepEqual(out.report.replaced.map((entry: any) => [entry.id, entry.mode]), [["IMG-002", "plain"]]);
+  assert.equal(out.report.noteAt, 1);
+  assert.equal(out.report.thinkingBlocks, 1);
+  const json = JSON.parse(out.body.toString("utf8"));
+  assert.equal(json.messages[1].role, "system");
+  assert.deepEqual(json.thinking, { type: "adaptive" });
+  // The experiment switch asks Anthropic to check the thinking, and names the beta header to add.
+  const experiment = rewriteClaudeBody(body, undefined, session, dir, home, { CAM_EXPERIMENT_BLOCK_BINDING: "error" });
+  assert.deepEqual(JSON.parse(experiment.body.toString("utf8")).thinking, { type: "adaptive", block_binding: { prefix_mismatch_behavior: "error" } });
+  assert.equal(experiment.report.experiment.beta, "thinking-binding-controls-2026-08-01");
+  // What to send in turn: the rewrite, then the original as Claude Code built it.
+  assert.deepEqual(out.attempts.map((attempt: any) => [attempt.body === body, attempt.report.fallback ?? null]), [[false, null], [true, "thinking-signature"]]);
+  // Image sizes by key, as the panel's baseline.
+  const sizes = claudeImageSizes(usualRequest(), buildClaudeIndex(session, t.records));
+  assert.deepEqual(Object.keys(sizes).length, 4);
+});
+
+test("an account that refuses thinking after an edited history gets the rewrite without the thinking that no longer fits", async () => {
+  const { usualSession, usualRequest, text } = await import("./claude-fixtures.ts");
+  const { rewriteClaudeBody } = await import("../../plugin/src/proxy.ts");
+  const { newThinkingRecord, recordSent } = await import("../../plugin/src/claude-thinking.ts");
+  const home = mkdtempSync(join(tmpdir(), "cam-claude-home-"));
+  const dir = mkdtempSync(join(tmpdir(), "cam-claude-sel-"));
+  const session = "11111111-2222-4333-8444-555555555555";
+  const { t, p1 } = usualSession();
+  mkdirSync(join(home, "projects", "D--work"), { recursive: true });
+  writeFileSync(join(home, "projects", "D--work", `${session}.jsonl`), t.records.map((record) => JSON.stringify(record)).join("\n") + "\n");
+  // Claude Code's main loop: the conversation, with its tools.
+  const request = (messages: any[]) => Buffer.from(JSON.stringify({ model: "claude-haiku-5-5", thinking: { type: "adaptive" }, tools: [{ name: "Read", input_schema: { type: "object" } }], messages }));
+  const body = request(usualRequest());
+  writeSelection({ threadId: session, unchecked: { [`${p1}#1`]: { id: "IMG-002", at: "2026-10-10T00:00:00Z" } } }, dir);
+  const record = newThinkingRecord();
+  const steps = (out: any) => out.attempts.map((attempt: any) => [attempt.report.retry ?? null, attempt.report.fallback ?? null, attempt.report.thinking ?? null]);
+  // Not known yet: the rewrite as it is, then without the thinking after the placeholder, then the original.
+  const first = rewriteClaudeBody(body, undefined, session, dir, home, {}, record);
+  assert.deepEqual(steps(first), [
+    [null, null, null],
+    ["thinking-signature", null, { kept: 0, left: 1 }],
+    [null, "thinking-signature", null],
+  ]);
+  const fitted = JSON.parse(first.attempts[1].body.toString("utf8")).messages;
+  assert.equal(fitted[1].role, "system");
+  assert.deepEqual(fitted[2].content.map((block: any) => block.type), ["text"]);
+  // Known: that rewrite first.
+  record.strict = true;
+  const strict = rewriteClaudeBody(body, undefined, session, dir, home, {}, record);
+  assert.deepEqual(steps(strict), [[null, null, { kept: 0, left: 1 }], [null, "thinking-signature", null]]);
+  const went = strict.attempts[0];
+  recordSent(record, went.history!, went.sent!, went.made);
+  // The next request carries thinking made after that; with the image checked again it no longer fits. v0.8: neither
+  // does the thinking made before the edit, which v0.7 put back: with the feature line note and the ids the history
+  // never goes back to how Claude Code built it (in a session that had them from its first image, that thinking was
+  // made after them, and fits). Should the record be wrong, the request goes as built.
+  const next = [...usualRequest(), { role: "assistant", content: [{ type: "thinking", thinking: "", signature: "sig-9" }, text("Blue.")] }, { role: "user", content: [text("More?")] }];
+  writeSelection({ threadId: session, unchecked: {} }, dir);
+  const again = rewriteClaudeBody(request(next), undefined, session, dir, home, {}, record);
+  assert.deepEqual(steps(again), [[null, null, { kept: 0, left: 2 }], [null, "thinking-signature", null]]);
+  assert.deepEqual(again.attempts.map((attempt: any) => attempt.sure), [true, false]);
+  const sent = JSON.parse(again.attempts[0].body.toString("utf8")).messages;
+  assert.match(sent[1].content, /^特征行说明/);
+  assert.deepEqual(sent[2].content.map((block: any) => block.type), ["text"]);
+  assert.deepEqual(sent[10].content.map((block: any) => block.type), ["text"]);
+  // An account not known to check: the rewrite with all its thinking first, the request as built last.
+  const lenient = rewriteClaudeBody(request(next), undefined, session, dir, home, {}, { ...record, strict: false });
+  assert.deepEqual(steps(lenient), [[null, null, null], ["thinking-signature", null, { kept: 0, left: 2 }], [null, "thinking-signature", null]]);
+  assert.equal(lenient.attempts[0].body.equals(request(next)), false);
+  assert.equal(lenient.attempts.at(-1)!.body.equals(request(next)), true);
+  // Another image unchecked: nothing made so far fits.
+  writeSelection({ threadId: session, unchecked: { [`${p1}#0`]: { id: "IMG-001", at: "2026-10-10T00:00:00Z" } } }, dir);
+  const other = rewriteClaudeBody(request(next), undefined, session, dir, home, {}, record);
+  assert.deepEqual(steps(other), [[null, null, { kept: 0, left: 2 }], [null, "thinking-signature", null]]);
+  // Side requests (no tools) are not the conversation: nothing of them is remembered.
+  const side = rewriteClaudeBody(Buffer.from(JSON.stringify({ model: "claude-haiku-5-5", messages: next })), undefined, session, dir, home, {}, record);
+  assert.deepEqual(side.attempts.map((attempt: any) => attempt.history), [null, null]);
+});
+
+test("Anthropic refusing the thinking after an edited history is told apart from other 400s", async () => {
+  const { thinkingRejected } = await import("../../plugin/src/proxy.ts");
+  const rejected = JSON.stringify({ type: "error", error: { type: "invalid_request_error", message: "messages.3.content.0: Invalid `signature` in `thinking` block. The block is bound to a different conversation." } });
+  assert.equal(thinkingRejected(400, rejected), true);
+  assert.equal(thinkingRejected(400, JSON.stringify({ error: { message: "max_tokens: too large" } })), false);
+  assert.equal(thinkingRejected(500, rejected), false);
+});
+
+test("v0.5: after a compaction, the images from before it go back after the summary: sent again when kept, else placeholders", async () => {
+  const { image, pngA, pngB, pngC, text, transcript } = await import("./claude-fixtures.ts");
+  const { claudeNeedsRewrite, rewriteClaudeBody } = await import("../../plugin/src/proxy.ts");
+  const home = mkdtempSync(join(tmpdir(), "cam-claude-home-"));
+  const dir = mkdtempSync(join(tmpdir(), "cam-claude-sel-"));
+  const session = "11111111-2222-4333-8444-555555555555";
+  const t = transcript();
+  const p1 = t.prompt([image(pngA), text("first")]);
+  t.assistant(text("A red square."));
+  t.prompt("Read c.png");
+  t.assistant({ type: "tool_use", id: "toolu_1", name: "Read", input: { file_path: "C:\\work\\c.png" } });
+  t.toolResult("toolu_1", [image(pngC)]);
+  t.assistant(text("A white rectangle."));
+  mkdirSync(join(home, "projects", "D--work"), { recursive: true });
+  const file = join(home, "projects", "D--work", `${session}.jsonl`);
+  writeFileSync(file, t.records.map((record) => JSON.stringify(record)).join("\n") + "\n");
+  // Before the compaction, with nothing unchecked: rewritten only for the feature line note and the ids (v0.8).
+  assert.equal(claudeNeedsRewrite(session, dir, home), true);
+  t.boundary();
+  t.summary();
+  const p3 = t.prompt([image(pngB), text("And now?")]);
+  writeFileSync(file, t.records.map((record) => JSON.stringify(record)).join("\n") + "\n");
+  assert.equal(claudeNeedsRewrite(session, dir, home), true);
+  const request = Buffer.from(JSON.stringify({ model: "claude-haiku-5-5", thinking: { type: "adaptive" }, tools: [{ name: "Read", input_schema: { type: "object" } }], messages: [
+    { role: "user", content: "summary" },
+    { role: "assistant", content: [text("A white rectangle.")] },
+    { role: "user", content: [image(pngB), text("And now?")] },
+  ] }));
+  const sent = (out: any) => JSON.parse(out.body.toString("utf8")).messages;
+  const partsOf = (message: any) => message.content.map((block: any) =>
+    block.type === "image" ? `image:${block.source.data === pngA ? "A" : block.source.data === pngB ? "B" : "C"}`
+      : /^\[图片 (IMG-\d+) 已提供/.exec(block.text)?.[1] ?? /^\[图片 (IMG-\d+) 已省略/.exec(block.text)?.[1].replace(/^/, "omitted:") ?? block.text);
+  // Nothing unchecked: every image from before the compaction goes out again, and a short note follows.
+  const all = rewriteClaudeBody(request, undefined, session, dir, home, {});
+  assert.deepEqual(all.report.compacted, { at: 0, listed: 2, resent: ["IMG-001", "IMG-002"] });
+  assert.deepEqual(partsOf(sent(all)[0]), ["summary", "IMG-001", "image:A", "IMG-002", "image:C"]);
+  assert.equal(sent(all)[1].role, "system");
+  assert.match(sent(all)[1].content, /^上下文管理说明（来自用户安装的上下文素材管理工具）：上面这条消息里，摘要之前的对话中有这些图片/);
+  assert.equal(all.report.noteAt, undefined);
+  // An unchecked one stays out: its placeholder after the summary, and the full note naming it.
+  writeSelection({ threadId: session, unchecked: { [`${p1}#0`]: { id: "IMG-001", at: "2026-10-12T00:00:00Z" } } }, dir);
+  const some = rewriteClaudeBody(request, undefined, session, dir, home, {});
+  assert.deepEqual(some.report.compacted.resent, ["IMG-002"]);
+  assert.deepEqual(partsOf(sent(some)[0]), ["summary", "omitted:IMG-001", "IMG-002", "image:C"]);
+  assert.match(sent(some)[1].content, /^上下文管理说明（来自用户安装的上下文素材管理工具）：为了节省上下文/);
+  assert.match(sent(some)[1].content, /这次没有提供的是 IMG-001/);
+  assert.equal(some.report.noteAt, 1);
+  // One unchecked after the compaction too: its message gets only the short note, the full one being after the summary.
+  writeSelection({ threadId: session, unchecked: { [`${p1}#0`]: { id: "IMG-001", at: "2026-10-12T00:00:00Z" }, [`${p3}#0`]: { id: "IMG-003", at: "2026-10-12T00:00:00Z" } } }, dir);
+  const both = sent(rewriteClaudeBody(request, undefined, session, dir, home, {}));
+  assert.deepEqual(both.map((message: any) => message.role), ["user", "system", "assistant", "user", "system"]);
+  assert.deepEqual(partsOf(both[3]), ["omitted:IMG-003", "And now?"]);
+  // v0.8: IMG-003 is also the request's own first image, so the feature line note joins its short note, first.
+  assert.deepEqual(both[4].content.map((block: any) => block.text.slice(0, 5)), ["特征行说明", "上下文管理"]);
+  assert.match(both[4].content[1].text, /^上下文管理说明：上面这条消息里的 IMG-003/);
+  // Automatic selection: only the pinned ones go out again; the others are placeholders in its words.
+  writeSelection({ threadId: session, unchecked: {}, auto: true, autoSince: "2026-10-12T00:00:00Z", pinned: { "tool:toolu_1#0": { id: "IMG-002", at: "2026-10-12T00:00:00Z" } } } as any, dir);
+  const auto = rewriteClaudeBody(request, undefined, session, dir, home, {});
+  assert.deepEqual(auto.report.compacted.resent, ["IMG-002"]);
+  assert.deepEqual(partsOf(sent(auto)[0]), ["summary", "omitted:IMG-001", "IMG-002", "image:C"]);
+  assert.match(sent(auto)[0].content[1].text, /cam_view_image/);
+});
+
+test("v0.5: the request writing a second summary is rewritten as usual; after it, the images from before both go back", async () => {
+  const { image, pngA, pngB, text, transcript } = await import("./claude-fixtures.ts");
+  const { rewriteClaudeBody } = await import("../../plugin/src/proxy.ts");
+  const home = mkdtempSync(join(tmpdir(), "cam-claude-home-"));
+  const dir = mkdtempSync(join(tmpdir(), "cam-claude-sel-"));
+  const session = "11111111-2222-4333-8444-666666666666";
+  mkdirSync(join(home, "projects", "D--work"), { recursive: true });
+  const t = transcript();
+  const save = () => writeFileSync(join(home, "projects", "D--work", `${session}.jsonl`), t.records.map((record) => JSON.stringify(record)).join("\n") + "\n");
+  const body = (messages: any[]) => Buffer.from(JSON.stringify({ model: "claude-haiku-5-5", tools: [{ name: "Read", input_schema: { type: "object" } }], messages }));
+  const sent = (out: any) => JSON.parse(out.body.toString("utf8")).messages;
+  const partsOf = (message: any) => message.content.map((block: any) =>
+    block.type === "image" ? `image:${block.source.data === pngA ? "A" : "B"}` : /^\[图片 (IMG-\d+) 已提供/.exec(block.text)?.[1] ?? block.text);
+  t.prompt([image(pngA), text("first")]);
+  t.assistant(text("A red square."));
+  t.boundary();
+  t.summary("first summary");
+  t.prompt([image(pngB), text("second")]);
+  t.assistant(text("A blue disc."));
+  save();
+  // Writing the second summary: the history since the first one, with B as Claude Code sends it; A goes back after the
+  // first summary, so the model writing it sees what the conversation saw.
+  const writing = rewriteClaudeBody(body([
+    { role: "user", content: "first summary" },
+    { role: "assistant", content: [text("A red square.")] },
+    { role: "user", content: [image(pngB), text("second")] },
+    { role: "assistant", content: [text("A blue disc.")] },
+    { role: "user", content: [text("CRITICAL: Respond with TEXT ONLY.")] },
+  ]), undefined, session, dir, home, {});
+  assert.deepEqual(writing.report.compacted, { at: 0, listed: 1, resent: ["IMG-001"] });
+  assert.deepEqual(partsOf(sent(writing)[0]), ["first summary", "IMG-001", "image:A"]);
+  // v0.8: B, the request's own first image, says its id; the feature line note follows its message.
+  assert.deepEqual(partsOf(sent(writing)[3]), ["IMG-002", "image:B", "second"]);
+  assert.match(sent(writing)[4].content, /^特征行说明/);
+  // After the second compaction both are from before it: listed, and sent again after the new summary.
+  t.boundary();
+  t.summary("second summary");
+  t.prompt("And now?");
+  save();
+  const after = rewriteClaudeBody(body([
+    { role: "user", content: "second summary" },
+    { role: "assistant", content: [text("A blue disc.")] },
+    { role: "user", content: [text("And now?")] },
+  ]), undefined, session, dir, home, {});
+  assert.deepEqual(after.report.compacted, { at: 0, listed: 2, resent: ["IMG-001", "IMG-002"] });
+  assert.deepEqual(partsOf(sent(after)[0]), ["second summary", "IMG-001", "image:A", "IMG-002", "image:B"]);
+});
+
+// v0.7: a side chat. Codex keeps it in memory only, so it has no rollout; its requests carry the task's history and
+// name that task (forked_from_thread_id).
+test("a side chat's request is rewritten with the images of the task it came from; with the switch off it goes out as it is", () => {
+  const { threadId, sessions, selections, red, blue, body } = fixture();
+  const SIDE = "01a0d307-0000-7000-8000-0000000000b1";
+  // The task's own switch is off and nothing is unchecked there: the side chat still leaves the images out.
+  assert.equal(needsRewrite(SIDE, selections, sessions, threadId), true);
+  const json = JSON.parse(zlib.zstdDecompressSync(body()).toString("utf8"));
+  json.input.push({ type: "message", role: "user", content: [{ type: "input_text", text: "主任务在做什么？" }] });
+  const original = zlib.zstdCompressSync(Buffer.from(JSON.stringify(json)));
+  const { body: out, report } = rewriteBody(original, "zstd", SIDE, sessions, selections, "side-turn", threadId);
+  const text = zlib.zstdDecompressSync(out).toString("utf8");
+  assert.ok(!text.includes(red.slice(30)) && !text.includes(blue.slice(30)), "the task's images are left out, those of its latest turn too");
+  assert.match(text, /\[图片 IMG-001（\[Image #1\]） 已省略｜a\.png｜用户上传｜第 1 轮｜64×64\]/);
+  assert.deepEqual([report.auto, report.sideChatOf, report.replaced.map((r: Record<string, unknown>) => r.id)], [true, threadId, ["IMG-001", "IMG-002"]]);
+  // Pinned in the task: still sent.
+  const pinned = { "msg_1#1": { id: "IMG-002", at: "2026-10-06T10:00:00Z" } };
+  writeSelection({ threadId, unchecked: {}, auto: true, autoAt: "2026-10-06T10:00:00Z", autoSince: "2026-10-06T10:00:00Z", pinned }, selections);
+  const kept = zlib.zstdDecompressSync(rewriteBody(original, "zstd", SIDE, sessions, selections, "side-turn", threadId).body).toString("utf8");
+  assert.ok(!kept.includes(red.slice(30)) && kept.includes(blue.slice(30)));
+  // v0.8: a switch v0.7 turned off in the task's panel changes nothing.
+  writeSelection({ threadId, unchecked: {}, auto: true, autoAt: "2026-10-06T10:00:00Z", autoSince: "2026-10-06T10:00:00Z", pinned, childrenAuto: false } as Parameters<typeof writeSelection>[0], selections);
+  assert.equal(needsRewrite(SIDE, selections, sessions, threadId), true);
+  assert.notEqual(rewriteBody(original, "zstd", SIDE, sessions, selections, "side-turn", threadId).body, original);
+  // A thread with a rollout of its own is no side chat, whatever its requests say (a fork the user made).
+  assert.equal(needsRewrite(threadId, selections, sessions, "01a0d307-0000-7000-8000-0000000000b9"), true);
+});
+
+// Only child-list classification changes: prediction requests still retain their attachment-management context.
+test("composer predictions retain their trigger and inherited image rewriting", () => {
+  const { threadId, sessions, selections, body } = fixture();
+  const identity = requestIdentity({ "x-codex-turn-metadata": JSON.stringify({ thread_id: "prediction", forked_from_thread_id: threadId, turn_trigger: "composer_predictions" }) });
+  assert.equal(identity.turnTrigger, "composer_predictions");
+  assert.equal(identity.forkedFrom, threadId);
+  assert.equal(needsRewrite(identity.threadId, selections, sessions, identity.forkedFrom), true);
+  const result = rewriteBody(body(), "zstd", identity.threadId!, sessions, selections, null, identity.forkedFrom);
+  assert.equal(result.report.auto, true);
+  assert.equal(result.report.replaced.length, 2);
+});

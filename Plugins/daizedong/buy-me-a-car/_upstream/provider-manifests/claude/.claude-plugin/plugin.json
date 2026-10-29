@@ -1,0 +1,33 @@
+{
+  "name": "buy-me-a-car",
+  "version": "0.2.2",
+  "description": "Sixteen skills for US car research, verified OTD calculations, constrained dealer drafts, durable inbox imports and evidence-backed dossiers. Real records require a private companion. External mail, scheduling and bookings depend on authorized host integrations.",
+  "author": {
+    "name": "DaizeDong"
+  },
+  "homepage": "https://github.com/DaizeDong/buy-me-a-car",
+  "license": "MIT",
+  "keywords": [
+    "car-buying",
+    "used-car",
+    "dealer-negotiation",
+    "OTD",
+    "CARFAX",
+    "lease",
+    "trade-in",
+    "EV",
+    "CPO",
+    "PPI",
+    "insurance",
+    "negotiation",
+    "multi-skill",
+    "Subaru",
+    "Honda",
+    "Toyota",
+    "Ford",
+    "automotive",
+    "workflow",
+    "gmail",
+    "skill"
+  ]
+}

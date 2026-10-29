@@ -1,0 +1,16 @@
+{
+  "name": "dex",
+  "displayName": "Dex",
+  "version": "1.16.4",
+  "description": "Analytics engineering for DipoleML and any agent: data warehouse exploration, dbt transformation and semantic modeling, and schema-drift maintenance on dbt.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Exmergo"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://docs.exmergo.com/dex",
+  "repository": "https://github.com/exmergo/dex",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

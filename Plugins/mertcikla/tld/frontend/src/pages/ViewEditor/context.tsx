@@ -1,0 +1,40 @@
+import { createContext, useContext } from 'react'
+import type { LibraryElement, Connector } from '../../types'
+import { useStore } from '../../store/useStore'
+
+export interface ViewEditorContextValue {
+  viewId: number | null
+  canEdit: boolean
+  isOwner: boolean
+  isFreePlan: boolean
+  snapToGrid: boolean
+  setSnapToGrid: (snap: boolean) => void
+  autoLayoutMode: boolean
+  setAutoLayoutMode: (enabled: boolean) => void
+  selectedElement: LibraryElement | null
+  selectedConnector: Connector | null
+  isMarkdownOpen?: boolean
+  markdownPaneWidth?: number
+  leftPanelOffset?: number
+  sidePanelStyle?: 'flat'
+}
+
+export const ViewEditorContext = createContext<ViewEditorContextValue | null>(null)
+
+export function useViewEditorContext(): ViewEditorContextValue {
+  const context = useContext(ViewEditorContext)
+  const viewId = useStore((state) => state.viewId)
+  const canEdit = useStore((state) => state.canEdit)
+  const isOwner = useStore((state) => state.isOwner)
+  const isFreePlan = useStore((state) => state.isFreePlan)
+  const snapToGrid = useStore((state) => state.snapToGrid)
+  const setSnapToGrid = useStore((state) => state.setSnapToGrid)
+  const autoLayoutMode = useStore((state) => state.autoLayoutMode)
+  const setAutoLayoutMode = useStore((state) => state.setAutoLayoutMode)
+  const selectedElement = useStore((state) => state.selectedElement)
+  const selectedConnector = useStore((state) => state.selectedConnector)
+
+  if (context) return context
+
+  return { viewId, canEdit, isOwner, isFreePlan, snapToGrid, setSnapToGrid, autoLayoutMode, setAutoLayoutMode, selectedElement, selectedConnector }
+}

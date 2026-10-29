@@ -1,0 +1,446 @@
+package main
+
+import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"sync/atomic"
+	"testing"
+	"time"
+)
+
+// ---- checkError ------------------------------------------------------------
+
+func TestCheckError_OK(t *testing.T) {
+	rsp := map[string]interface{}{
+		"request_proc": "ok",
+		"ops": []interface{}{
+			map[string]interface{}{"proc": "ok"},
+		},
+	}
+	e := &Executor{}
+	if err := e.checkError(rsp); err != nil {
+		t.Errorf("expected nil error for ok response, got: %v", err)
+	}
+}
+
+func TestCheckError_Nil(t *testing.T) {
+	e := &Executor{}
+	if err := e.checkError(nil); err == nil {
+		t.Error("expected error for nil response, got nil")
+	}
+}
+
+func TestCheckError_RequestProcNotOK(t *testing.T) {
+	rsp := map[string]interface{}{
+		"request_proc": "fail",
+	}
+	e := &Executor{}
+	if err := e.checkError(rsp); err == nil {
+		t.Error("expected error when request_proc != ok, got nil")
+	}
+}
+
+func TestCheckError_RequestProcMissing(t *testing.T) {
+	e := &Executor{}
+	if err := e.checkError(map[string]interface{}{}); err == nil {
+		t.Error("expected error when request_proc missing, got nil")
+	}
+}
+
+func TestCheckError_OpProcNotOK_WithDescription(t *testing.T) {
+	rsp := map[string]interface{}{
+		"request_proc": "ok",
+		"ops": []interface{}{
+			map[string]interface{}{
+				"proc":        "error",
+				"description": "something went wrong",
+			},
+		},
+	}
+	e := &Executor{}
+	err := e.checkError(rsp)
+	if err == nil {
+		t.Error("expected error for op proc != ok, got nil")
+	}
+}
+
+func TestCheckError_OpProcNotOK_WithErrors(t *testing.T) {
+	rsp := map[string]interface{}{
+		"request_proc": "ok",
+		"ops": []interface{}{
+			map[string]interface{}{
+				"proc": "error",
+				"errors": map[string]interface{}{
+					"node123": []interface{}{"bad logic", "missing field"},
+				},
+			},
+		},
+	}
+	e := &Executor{}
+	err := e.checkError(rsp)
+	if err == nil {
+		t.Error("expected error for op with errors map, got nil")
+	}
+}
+
+func TestCheckError_MultipleOpsAllOK(t *testing.T) {
+	rsp := map[string]interface{}{
+		"request_proc": "ok",
+		"ops": []interface{}{
+			map[string]interface{}{"proc": "ok"},
+			map[string]interface{}{"proc": "ok"},
+		},
+	}
+	e := &Executor{}
+	if err := e.checkError(rsp); err != nil {
+		t.Errorf("expected nil error for all-ok ops, got: %v", err)
+	}
+}
+
+// ---- newHTTPClient ---------------------------------------------------------
+
+func TestNewHTTPClient_SecureByDefault(t *testing.T) {
+	orig := insecureTLS
+	insecureTLS = false
+	t.Cleanup(func() { insecureTLS = orig })
+
+	client := newHTTPClient()
+	if client == nil {
+		t.Fatal("expected non-nil http.Client")
+	}
+	if client.Transport != nil {
+		t.Error("expected nil transport for default secure client")
+	}
+}
+
+func TestNewHTTPClient_InsecureMode(t *testing.T) {
+	orig := insecureTLS
+	insecureTLS = true
+	t.Cleanup(func() { insecureTLS = orig })
+
+	client := newHTTPClient()
+	if client == nil {
+		t.Fatal("expected non-nil http.Client")
+	}
+	if client.Transport == nil {
+		t.Error("expected custom transport for insecure mode")
+	}
+}
+
+// ---- doWithRetry -----------------------------------------------------------
+
+// shortenRetryDelays swaps the retry tuning constants to near-zero so retry
+// tests don't actually sleep for seconds. Restored on cleanup.
+func shortenRetryDelays(t *testing.T) {
+	t.Helper()
+	origBase := apiRetryBaseDelayVar
+	origMax := apiRetryMaxDelayVar
+	apiRetryBaseDelayVar = 1 * time.Millisecond
+	apiRetryMaxDelayVar = 4 * time.Millisecond
+	t.Cleanup(func() {
+		apiRetryBaseDelayVar = origBase
+		apiRetryMaxDelayVar = origMax
+	})
+}
+
+// maxAttempts=1 is what Executor.reqOnce passes, and it is the whole defence
+// for ops the server does not deduplicate: a 503 must surface as an error after
+// exactly ONE delivery, never as a second attempt. The 503 here arrives after
+// the server has already "accepted" the work — the case where a retry would
+// silently create a second copy nobody knows about.
+func TestDoWithRetry_SingleAttemptDoesNotResend(t *testing.T) {
+	shortenRetryDelays(t)
+
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(srv.Close)
+
+	_, _, err := doWithRetry(context.Background(), srv.Client(), "POST", srv.URL, "json", []byte(`{}`), "tkn", "", "", 1, false)
+	if err == nil {
+		t.Fatal("expected an error when the only attempt returns 503")
+	}
+	if n := atomic.LoadInt32(&calls); n != 1 {
+		t.Fatalf("the request was delivered %d times, want exactly 1 — a retry here duplicates whatever the op created", n)
+	}
+}
+
+// A budget below 1 must still send the request once rather than silently
+// dropping it and reporting a failure that never touched the network.
+func TestDoWithRetry_ZeroAttemptsStillSendsOnce(t *testing.T) {
+	shortenRetryDelays(t)
+
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"ok":true}`)) //nolint:errcheck
+	}))
+	t.Cleanup(srv.Close)
+
+	resp, _, err := doWithRetry(context.Background(), srv.Client(), "POST", srv.URL, "json", []byte(`{}`), "tkn", "", "", 0, false)
+	if err != nil {
+		t.Fatalf("expected the request to be sent once, got %v", err)
+	}
+	resp.Body.Close()
+	if n := atomic.LoadInt32(&calls); n != 1 {
+		t.Fatalf("delivered %d times, want exactly 1", n)
+	}
+}
+
+func TestDoWithRetry_RetriesOn503ThenSucceeds(t *testing.T) {
+	shortenRetryDelays(t)
+
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := atomic.AddInt32(&calls, 1)
+		if n < 3 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"ok":true}`))
+	}))
+	t.Cleanup(srv.Close)
+
+	resp, body, err := doWithRetry(context.Background(), srv.Client(), "POST", srv.URL, "json", []byte(`{}`), "tkn", "", "", apiMaxAttempts, false)
+	if err != nil {
+		t.Fatalf("expected success after retries, got %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("expected 200 after retries, got %d", resp.StatusCode)
+	}
+	if got := atomic.LoadInt32(&calls); got != 3 {
+		t.Fatalf("expected 3 calls (2 retries + success), got %d", got)
+	}
+	if string(body) != `{"ok":true}` {
+		t.Fatalf("unexpected body: %q", body)
+	}
+}
+
+func TestDoWithRetry_RetriesOn429(t *testing.T) {
+	shortenRetryDelays(t)
+
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := atomic.AddInt32(&calls, 1)
+		if n == 1 {
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+
+	resp, _, err := doWithRetry(context.Background(), srv.Client(), "POST", srv.URL, "json", []byte(`{}`), "tkn", "", "", apiMaxAttempts, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	resp.Body.Close()
+	if atomic.LoadInt32(&calls) != 2 {
+		t.Fatalf("expected exactly 1 retry on 429, got %d calls", calls)
+	}
+}
+
+func TestDoWithRetry_DoesNotRetry4xx(t *testing.T) {
+	shortenRetryDelays(t)
+
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(srv.Close)
+
+	resp, _, err := doWithRetry(context.Background(), srv.Client(), "POST", srv.URL, "json", []byte(`{}`), "tkn", "", "", apiMaxAttempts, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("expected 401 surfaced as-is, got %d", resp.StatusCode)
+	}
+	if atomic.LoadInt32(&calls) != 1 {
+		t.Fatalf("expected single call for 4xx, got %d", calls)
+	}
+}
+
+func TestDoWithRetry_GivesUpAfterMaxAttempts(t *testing.T) {
+	shortenRetryDelays(t)
+
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(srv.Close)
+
+	resp, _, err := doWithRetry(context.Background(), srv.Client(), "POST", srv.URL, "json", []byte(`{}`), "tkn", "", "", apiMaxAttempts, false)
+	if err == nil {
+		if resp != nil {
+			resp.Body.Close()
+		}
+		t.Fatal("expected error after exhausting retries, got nil")
+	}
+	if got := atomic.LoadInt32(&calls); got != int32(apiMaxAttempts) {
+		t.Fatalf("expected %d attempts before giving up, got %d", apiMaxAttempts, got)
+	}
+}
+
+func TestDoWithRetry_CancelDuringBackoff(t *testing.T) {
+	shortenRetryDelays(t)
+	// Stretch backoff so we have a window to cancel during the sleep.
+	apiRetryBaseDelayVar = 200 * time.Millisecond
+	apiRetryMaxDelayVar = 500 * time.Millisecond
+
+	var calls int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&calls, 1)
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(srv.Close)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+
+	_, _, err := doWithRetry(ctx, srv.Client(), "POST", srv.URL, "json", []byte(`{}`), "tkn", "", "", apiMaxAttempts, false)
+	if err == nil {
+		t.Fatal("expected context.Canceled error, got nil")
+	}
+	if !errorIsCanceledOrTimeout(err) {
+		t.Errorf("expected ctx-cancellation error, got %v", err)
+	}
+	// We allow either 1 or 2 attempts before cancel races in.
+	if got := atomic.LoadInt32(&calls); got > 2 {
+		t.Errorf("cancel should stop retries quickly, got %d attempts", got)
+	}
+}
+
+// ---- apiKeySign -------------------------------------------------------------
+
+func TestAPIKeySign_KnownValue(t *testing.T) {
+	// Verify the Corezoid API key signature: hex(sha1(ts + secret + body + secret))
+	// This is a double-salted SHA1 pattern (secret wraps the message), not
+	// standard HMAC-SHA1 (RFC 2104). Expected value cross-checked independently:
+	//   python3 -c "import hashlib; print(hashlib.sha1(b'1700000000mysecret{}mysecret').hexdigest())"
+	const want = "8c5cd99f9cfa598f65e6b3fae56cc859cecd5ee6"
+	got := apiKeySign("mysecret", "1700000000", "{}")
+	if got != want {
+		t.Errorf("apiKeySign formula mismatch:\n  got  %q\n  want %q", got, want)
+	}
+	// Different secret must produce a different signature.
+	if got2 := apiKeySign("othersecret", "1700000000", "{}"); got == got2 {
+		t.Error("different secrets should produce different signatures")
+	}
+	// Different timestamp must produce a different signature.
+	if got3 := apiKeySign("mysecret", "1700000001", "{}"); got == got3 {
+		t.Error("different timestamps should produce different signatures")
+	}
+}
+
+func errorIsCanceledOrTimeout(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "canceled") || strings.Contains(s, "deadline")
+}
+
+func TestExecutorCheckCancel(t *testing.T) {
+	// nil executor — defensive, must not panic
+	var v *Executor
+	if err := v.checkCancel(); err != nil {
+		t.Errorf("nil receiver should return nil, got %v", err)
+	}
+
+	// Executor with no ctx
+	v = &Executor{}
+	if err := v.checkCancel(); err != nil {
+		t.Errorf("nil Ctx should return nil, got %v", err)
+	}
+
+	// Live ctx — no error
+	v = &Executor{Ctx: context.Background()}
+	if err := v.checkCancel(); err != nil {
+		t.Errorf("live ctx should return nil, got %v", err)
+	}
+
+	// Cancelled ctx — returns ctx.Err()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	v = &Executor{Ctx: ctx}
+	if err := v.checkCancel(); err == nil {
+		t.Error("cancelled ctx should return error")
+	}
+}
+
+func TestCorezoidOriginFromURL(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"", ""},
+		{"   ", ""},
+		{"not a url", ""},
+		{"https://admin.corezoid.com", "https://admin.corezoid.com"},
+		{"https://admin.corezoid.com/", "https://admin.corezoid.com"},
+		{"https://admin.corezoid.com/api/2/json", "https://admin.corezoid.com"},
+		{"http://localhost:8080/x", "http://localhost:8080"},
+		{"admin.corezoid.com/api/2/json", ""}, // no scheme, url.Parse gives empty Host
+	}
+	for _, c := range cases {
+		if got := corezoidOriginFromURL(c.in); got != c.want {
+			t.Errorf("corezoidOriginFromURL(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestDoWithRetry_SetsOriginHeader(t *testing.T) {
+	shortenRetryDelays(t)
+
+	var gotOrigin string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotOrigin = r.Header.Get("Origin")
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(srv.Close)
+
+	resp, _, err := doWithRetry(context.Background(), srv.Client(), "POST", srv.URL, "json", []byte(`{}`), "tkn", "", "", apiMaxAttempts, false)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	resp.Body.Close()
+	if want := corezoidOriginFromURL(srv.URL); gotOrigin != want {
+		t.Fatalf("Origin header = %q, want %q", gotOrigin, want)
+	}
+	if gotOrigin == "" {
+		t.Fatal("Origin header must not be empty for a well-formed baseURL")
+	}
+}
+
+func TestParseRetryAfter(t *testing.T) {
+	cases := []struct {
+		in   string
+		want time.Duration
+	}{
+		{"", 0},
+		{"abc", 0},
+		{"-5", 0},
+		{"0", 0},
+		{"7", 7 * time.Second},
+		{" 3 ", 3 * time.Second},
+	}
+	for _, c := range cases {
+		if got := parseRetryAfter(c.in); got != c.want {
+			t.Errorf("parseRetryAfter(%q) = %v, want %v", c.in, got, c.want)
+		}
+	}
+}

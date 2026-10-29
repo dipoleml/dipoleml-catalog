@@ -1,0 +1,16 @@
+{
+  "name": "planning",
+  "displayName": "Planning",
+  "version": "3.11.0",
+  "description": "Structured implementation planning, interactive annotation review, and autonomous plan execution",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Umputun"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/umputun/cc-thingz",
+  "repository": "https://github.com/umputun/cc-thingz",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

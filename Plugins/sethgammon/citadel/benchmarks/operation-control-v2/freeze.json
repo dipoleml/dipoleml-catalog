@@ -1,0 +1,20 @@
+{
+  "schema": 1,
+  "kind": "citadel_operation_control_v2_evidence_freeze",
+  "frozen_at": "2026-07-31T00:00:00.000Z",
+  "source_optimizer_report_id": "optimizer-report-sha256:f43285ff9254b84a49ae8e4e7c02f278716ed4c09db4e30307d7678c75420aa9",
+  "source_run_set_digest": "sha256:f43285ff9254b84a49ae8e4e7c02f278716ed4c09db4e30307d7678c75420aa9",
+  "controller_source_digests": {
+    "core/operation-controller/contracts.js": "sha256:c7d6c4d25a45d9e153382a6e9e15919b134bb2a83397b7703f42235abcecb6a1",
+    "core/operation-controller/controller.js": "sha256:1c020300887916b7a73cf3cb01a06ab9d94a1036fe91529b9603bfd028923e53",
+    "scripts/operation-control-evidence.js": "sha256:246df2444b0b2f7968d85c47b9a7b9bcd7a912dad7332b5677a7f9282eed626f"
+  },
+  "artifact_digests": {
+    "history.json": "sha256:7451619e36d6de922fd5efed47f39df55049bf1e8ade9ee9c767a50f49b473e7",
+    "catalog.json": "sha256:aa78e7c701e290881dbb9f2e6b4704383452b41b3fbd916b3dd571af11ae9e96",
+    "REPORT.json": "sha256:8db26435f97a1cc584d0df5b95ae1fa1524905a772a69afd0f3ed357116ed7f9",
+    "REPORT.md": "sha256:6aaa373eef4d6f06b9052ad7f80fcab848090df22924ce8ee636f088d1b4402d"
+  },
+  "evidence_boundary": "retrospective calibration only; prospective performance gate remains open",
+  "freeze_digest": "sha256:dc8b04ac2b8ce2672e473d3ce13af3ce46c70913481a9d1dada47e37de039ece"
+}

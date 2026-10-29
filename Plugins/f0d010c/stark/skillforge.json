@@ -1,0 +1,83 @@
+{
+  "name": "stark",
+  "type": "plugin",
+  "examples": [
+    {
+      "prompt": "Design a distinctive React landing page for a developer tool.",
+      "shouldTrigger": true
+    },
+    {
+      "prompt": "Audit this responsive web dashboard for usability and accessibility.",
+      "shouldTrigger": true
+    },
+    {
+      "prompt": "Make a WinUI app shell with NavigationView and Mica.",
+      "shouldTrigger": true
+    },
+    {
+      "prompt": "Design a SwiftUI onboarding flow with denied-permission recovery.",
+      "shouldTrigger": true
+    },
+    {
+      "prompt": "Design an Android app in Jetpack Compose with Material 3.",
+      "shouldTrigger": true
+    },
+    {
+      "prompt": "Plan a cross-platform Tauri desktop interface.",
+      "shouldTrigger": true
+    },
+    {
+      "prompt": "Improve this checkout product flow and its error recovery.",
+      "shouldTrigger": true
+    },
+    {
+      "prompt": "Create a design system with tokens, component variants, and state coverage.",
+      "shouldTrigger": true
+    },
+    {
+      "prompt": "Export these design tokens to Tailwind, SwiftUI, Compose, and WinUI.",
+      "shouldTrigger": true
+    },
+    {
+      "prompt": "Plan animation and motion direction with reduced-motion behavior for this product page.",
+      "shouldTrigger": true
+    },
+    {
+      "prompt": "Audit this native interface for platform idiom and keyboard behavior.",
+      "shouldTrigger": true
+    },
+    {
+      "prompt": "Make this generic app interface more product-specific and non-generic.",
+      "shouldTrigger": true
+    },
+    {
+      "prompt": "Choose typography, assets, and responsive composition for this website.",
+      "shouldTrigger": true
+    },
+    {
+      "prompt": "Review this generated UI using rendered evidence and repair the biggest failure.",
+      "shouldTrigger": true
+    },
+    {
+      "prompt": "Refactor this database query.",
+      "shouldTrigger": false
+    },
+    {
+      "prompt": "Explain how OAuth refresh tokens work.",
+      "shouldTrigger": false
+    },
+    {
+      "prompt": "Write unit tests for this parser.",
+      "shouldTrigger": false
+    },
+    {
+      "prompt": "Configure a Kubernetes deployment.",
+      "shouldTrigger": false
+    }
+  ],
+  "checks": {
+    "maxSkillMdLines": 300,
+    "requireOpenAiYaml": false,
+    "allowScripts": true
+  }
+}

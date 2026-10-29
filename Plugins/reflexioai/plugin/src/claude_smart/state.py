@@ -1,0 +1,562 @@
+"""Per-session JSONL buffer for interactions awaiting publish to reflexio.
+
+Each Claude Code session gets one file at
+``~/.claude-smart/sessions/{session_id}.jsonl``. Lines are one of:
+
+- ``{"role": "User", ...}`` — a user turn (see InteractionData fields)
+- ``{"role": "Assistant", ...}`` — a finalized assistant turn
+- ``{"role": "Assistant_tool", ...}`` — a single tool invocation, attached
+  to the next assistant turn at ``Stop`` time
+- ``{"published_up_to": N, "request_id": "..."}`` — high-water mark so Stop /
+  SessionEnd don't re-publish rows already sent to reflexio; a confirmed
+  request ID preserves local learning lineage for the dashboard when available
+- ``{"retrieved_learning_refs": [...]}`` — identity pairs shown to the agent,
+  attached by event order to the next Assistant turn
+- ``{"publish_attempt": {"start": N, "end": M}}`` — frozen retry boundary for
+  one in-flight publish
+- ``{"publish_request": {"start": N, "request_id": "..."}}`` — response
+  identity reserved before retrieval and retained through publication
+- ``{"publish_rejection": {"request_id", "start", "end", "reason", "ts"}}`` —
+  one logical server rejection of a frozen batch, counted toward parking
+- ``{"published_up_to": M, "publish_dead_letter": {...}}`` — a batch parked
+  after repeated identical rejections; the watermark moves past it and the
+  local records stay in this file
+
+The buffer exists for offline resilience: when reflexio is unreachable,
+Stop appends without publishing and the next successful hook drains.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import uuid
+from collections.abc import Iterable
+from pathlib import Path
+from typing import Any
+
+from filelock import FileLock
+
+_LOGGER = logging.getLogger(__name__)
+
+_ENV_STATE_DIR = "CLAUDE_SMART_STATE_DIR"
+_DEFAULT_STATE_DIR = Path.home() / ".claude-smart" / "sessions"
+
+_TOOL_DATA_FIELD_MAX_LEN = 256
+
+# Fields the server's ``InteractionData`` accepts. Declared literally rather
+# than imported so this module keeps no runtime dependency on ``reflexio``;
+# ``tests/test_state.py`` pins it against the real model when that package is
+# installed. Anything not listed here is buffer-internal bookkeeping and must
+# not reach the wire.
+_INTERACTION_DATA_FIELDS = frozenset(
+    {
+        "created_at",
+        "role",
+        "content",
+        "shadow_content",
+        "expert_content",
+        "user_action",
+        "user_action_description",
+        "interacted_image_url",
+        "image_encoding",
+        "tools_used",
+        "citations",
+        "retrieved_learnings",
+    }
+)
+
+# Fields actually put on the wire. `created_at` is a real InteractionData field
+# — so it must stay in the set above, which is pinned against the model — but it
+# must NOT be emitted. Sending a buffered event time backdates the interaction,
+# and the extractor's bookmark is keyed on `created_at` (`created_at >= ?`), so a
+# batch recovered after the bookmark moved is stored and then never extracted:
+# permanent, silent loss of learning data on exactly the offline-recovery path
+# this buffer exists for. Letting the server stamp its own time is the lesser
+# evil until ingest ordering stops depending on caller-supplied event time.
+_WIRE_FIELDS = _INTERACTION_DATA_FIELDS - {"created_at"}
+
+_VALID_CITATION_KINDS = frozenset(
+    {"playbook", "profile", "user_playbook", "agent_playbook"}
+)
+_VALID_RETRIEVED_PLAYBOOK_KINDS = frozenset({"user_playbook", "agent_playbook"})
+_VALID_RETRIEVED_KINDS = _VALID_RETRIEVED_PLAYBOOK_KINDS | {"profile"}
+_RETRIEVED_LEARNINGS_PUBLISH_CAP = 1000
+
+
+def _truncate_tool_data_field(value: Any) -> Any:
+    """Truncate a single tool_data field value to ``_TOOL_DATA_FIELD_MAX_LEN``.
+
+    Only *top-level string* values are shortened. Nested containers
+    (dicts, lists) and non-string scalars pass through unchanged, even if
+    the container holds overlong strings — extractor prompts built from
+    this payload are bounded upstream by reflexio, and truncating a mid-
+    structure string risks producing invalid JSON when the caller later
+    serializes. The cap keeps long fields (``Edit.old_string`` /
+    ``new_string`` diffs, multi-line ``Bash`` scripts) from inflating the
+    extractor's input; short fields like file paths, URLs, and typical
+    commands stay intact. The value is tuned for extractor-prompt budget
+    predictability, not for preserving every character of a real
+    command — fields over the cap are treated as diff-style content
+    whose exact tail rarely changes what extraction learns.
+
+    Args:
+        value (Any): A field value from the redacted tool_input dict.
+
+    Returns:
+        Any: The value truncated to ``_TOOL_DATA_FIELD_MAX_LEN`` chars if it
+            was an overlong string, otherwise the original value.
+    """
+    if isinstance(value, str) and len(value) > _TOOL_DATA_FIELD_MAX_LEN:
+        return value[:_TOOL_DATA_FIELD_MAX_LEN]
+    return value
+
+
+def state_dir() -> Path:
+    """Root directory for session JSONL files. Honours ``CLAUDE_SMART_STATE_DIR``."""
+    override = os.environ.get(_ENV_STATE_DIR)
+    return Path(override) if override else _DEFAULT_STATE_DIR
+
+
+def session_path(session_id: str) -> Path:
+    """Return the JSONL path for a given session id."""
+    return state_dir() / f"{session_id}.jsonl"
+
+
+def injected_path(session_id: str) -> Path:
+    """Return the JSONL path for the per-session citation registry."""
+    return state_dir() / f"{session_id}.injected.jsonl"
+
+
+def _normalize_registry_ref(entry: dict[str, Any]) -> dict[str, str] | None:
+    """Return the identity pair carried by one citation-registry entry."""
+
+    learning_id = entry.get("real_id")
+    kind = entry.get("kind")
+    if not isinstance(learning_id, str) or not learning_id:
+        return None
+    if kind == "profile":
+        wire_kind = "profile"
+    elif (
+        kind == "playbook"
+        and entry.get("source_kind") in _VALID_RETRIEVED_PLAYBOOK_KINDS
+    ):
+        wire_kind = entry["source_kind"]
+    else:
+        return None
+    ref = {"kind": wire_kind, "learning_id": learning_id}
+    receipt = entry.get("exposure_receipt")
+    if isinstance(receipt, str) and len(receipt) <= 8_192:
+        ref["exposure_receipt"] = receipt
+    return ref
+
+
+def append_injected(session_id: str, entries: Iterable[dict[str, Any]]) -> None:
+    """Record injected items for citations and the next Assistant publish.
+
+    The citation sidecar keeps the display metadata used by Stop. The ordered
+    session event stores identity pairs only, so publishing never has to join
+    two files or infer event order from timestamps.
+    """
+
+    records = list(entries)
+    if not records:
+        return
+
+    path = injected_path(session_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with (
+        FileLock(str(path) + ".lock", timeout=5),
+        path.open("a", encoding="utf-8") as fh,
+    ):
+        for record in records:
+            fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    refs: list[dict[str, str]] = []
+    seen: set[tuple[str, str, str | None]] = set()
+    for record in records:
+        ref = _normalize_registry_ref(record)
+        if ref is None:
+            continue
+        key = (ref["kind"], ref["learning_id"], ref.get("exposure_receipt"))
+        if key in seen:
+            continue
+        seen.add(key)
+        refs.append(ref)
+    if refs:
+        append(session_id, {"retrieved_learning_refs": refs})
+
+
+def read_injected(session_id: str) -> dict[str, dict[str, Any]]:
+    """Return the per-session citation registry keyed by id.
+
+    Later entries win when the same id was injected multiple times
+    (identical content produces the same hash-derived id, so the extra
+    record only refreshes metadata).
+    """
+
+    path = injected_path(session_id)
+    if not path.exists():
+        return {}
+    registry: dict[str, dict[str, Any]] = {}
+    with path.open("r", encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                entry = json.loads(line)
+            except json.JSONDecodeError as exc:
+                _LOGGER.warning("Skipping malformed injected line in %s: %s", path, exc)
+                continue
+            item_id = entry.get("id")
+            if isinstance(item_id, str) and item_id:
+                registry[item_id] = entry
+    return registry
+
+
+def append(session_id: str, record: dict[str, Any]) -> None:
+    """Append one JSON record to the session buffer. Creates the dir if needed.
+
+    Holds an exclusive cross-platform file lock across the write so
+    concurrent hooks (e.g. parallel ``PostToolUse`` fires) cannot interleave
+    JSON lines when a payload exceeds the buffered-writer's flush size.
+    """
+    path = session_path(session_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    line = json.dumps(record, ensure_ascii=False) + "\n"
+    with (
+        FileLock(str(path) + ".lock", timeout=5),
+        path.open("a", encoding="utf-8") as fh,
+    ):
+        fh.write(line)
+
+
+def mark_all_published(session_id: str) -> None:
+    """Advance the watermark over every currently buffered record.
+
+    Read-only mode still needs to retire any already-buffered interactions so
+    they cannot publish later if learning is re-enabled.
+    """
+    append(session_id, {"published_up_to": len(read_all(session_id))})
+
+
+def reserved_publish_requests(
+    records: list[dict[str, Any]],
+) -> list[tuple[int, str, int]]:
+    """Read durable response boundaries; buffer offsets are never wire fields."""
+    reservations: list[tuple[int, str, int]] = []
+    for index, record in enumerate(records):
+        marker = record.get("publish_request")
+        if not isinstance(marker, dict):
+            continue
+        start, request_id = marker.get("start"), marker.get("request_id")
+        if (
+            type(start) is int
+            and 0 <= start <= index
+            and isinstance(request_id, str)
+            and request_id
+        ):
+            reservations.append((start, request_id, index))
+    return reservations
+
+
+def reserve_publish_request_id(session_id: str) -> str:
+    """Reserve the next response's identity before search, under the buffer lock.
+
+    Searches during a frozen retry belong to a later response. A new user turn
+    also closes a cancelled turn, so its retrievals cannot migrate to a reply
+    to a different prompt.
+    """
+    path = session_path(session_id)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with (
+        FileLock(str(path) + ".lock", timeout=5),
+        path.open("a", encoding="utf-8") as fh,
+    ):
+        records = read_all(session_id)
+        published = published_record_offset(records)
+        frozen_end = pending_publish_end(records, published) or published
+        reservations = [
+            r for r in reserved_publish_requests(records) if r[0] >= published
+        ]
+        last_user = max(
+            (i for i, r in enumerate(records) if r.get("role") == "User"), default=-1
+        )
+        last_assistant = max(
+            (i for i, r in enumerate(records) if r.get("role") == "Assistant"),
+            default=-1,
+        )
+        if reservations:
+            start, request_id, marker_index = reservations[-1]
+            if start >= frozen_end and max(last_user, last_assistant) < marker_index:
+                return request_id
+        start = max(published, frozen_end, last_assistant + 1)
+        # A new prompt after an unanswered prompt closes that cancelled range.
+        # Otherwise retain bookkeeping between the watermark and the user turn.
+        if (reservations and last_user > reservations[-1][2]) or any(
+            r.get("role") == "User" for r in records[start:last_user]
+        ):
+            start = max(start, last_user)
+        request_id = str(uuid.uuid4())
+        fh.write(
+            json.dumps({"publish_request": {"start": start, "request_id": request_id}})
+            + "\n"
+        )
+        return request_id
+
+
+def read_all(session_id: str) -> list[dict[str, Any]]:
+    """Return every record in the buffer as a list of dicts. Missing file → []."""
+    path = session_path(session_id)
+    if not path.exists():
+        return []
+    records: list[dict[str, Any]] = []
+    with path.open("r", encoding="utf-8") as fh:
+        for line in fh:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                records.append(json.loads(line))
+            except json.JSONDecodeError as exc:
+                _LOGGER.warning("Skipping malformed buffer line in %s: %s", path, exc)
+    return records
+
+
+def _to_wire_citations(cited_items: Any) -> list[dict[str, str]]:
+    """Map local ``cited_items`` to the wire ``Citation`` shape.
+
+    Local entries (from ``events.stop._resolve_cited_items``) carry
+    ``{id, kind, title, real_id}``; reflexio's ``InteractionData.citations``
+    wants ``{kind, real_id, tag, title}`` where ``tag`` is the rank id
+    (``s1-301``-style) we already keep under ``id``. Entries without a
+    ``real_id`` (unresolved injections) are dropped — the server can't
+    join them back to a stored row.
+
+    Args:
+        cited_items (Any): The list-of-dicts blob attached to an Assistant
+            turn record, or ``None`` when the turn cited nothing.
+
+    Returns:
+        list[dict[str, str]]: Citation dicts ready to be folded into an
+            ``InteractionData`` payload. Empty when ``cited_items`` is
+            missing, malformed, or contains nothing resolvable.
+    """
+    if not isinstance(cited_items, list):
+        return []
+    out: list[dict[str, str]] = []
+    for item in cited_items:
+        if not isinstance(item, dict):
+            continue
+        real_id = item.get("real_id")
+        kind = item.get("kind")
+        if not isinstance(real_id, str) or not real_id:
+            continue
+        wire_kind = kind
+        if kind == "playbook":
+            source_kind = item.get("source_kind")
+            if source_kind in {"user_playbook", "agent_playbook"}:
+                wire_kind = source_kind
+        if wire_kind not in _VALID_CITATION_KINDS:
+            continue
+        tag = item.get("id")
+        title = item.get("title")
+        out.append(
+            {
+                "kind": wire_kind,
+                "real_id": real_id,
+                "tag": tag if isinstance(tag, str) else "",
+                "title": title if isinstance(title, str) else "",
+            }
+        )
+    return out
+
+
+def published_record_offset(records: list[dict[str, Any]]) -> int:
+    """Return the highest valid publish watermark in the session buffer."""
+
+    limit = len(records)
+    return max(
+        (
+            value
+            for record in records
+            if isinstance((value := record.get("published_up_to")), int)
+            and 0 <= value <= limit
+        ),
+        default=0,
+    )
+
+
+def pending_publish_end(records: list[dict[str, Any]], published: int) -> int | None:
+    """Return the frozen end of the current publish attempt, if any."""
+
+    for marker_index, record in enumerate(records[published:], start=published):
+        attempt = record.get("publish_attempt")
+        if not isinstance(attempt, dict):
+            continue
+        start = attempt.get("start")
+        end = attempt.get("end")
+        if (
+            start == published
+            and isinstance(end, int)
+            and published < end <= marker_index
+        ):
+            _, interactions = unpublished_slice(
+                records[:end], published_override=published
+            )
+            if interactions:
+                return end
+    return None
+
+
+def _wire_retrieved_ref(value: Any) -> dict[str, str] | None:
+    """Validate one identity pair read from the ordered session buffer."""
+
+    if not isinstance(value, dict):
+        return None
+    kind = value.get("kind")
+    learning_id = value.get("learning_id")
+    if kind not in _VALID_RETRIEVED_KINDS:
+        return None
+    if not isinstance(learning_id, str) or not learning_id:
+        return None
+    ref = {"kind": str(kind), "learning_id": learning_id}
+    receipt = value.get("exposure_receipt")
+    if isinstance(receipt, str) and len(receipt) <= 8_192:
+        ref["exposure_receipt"] = receipt
+    return ref
+
+
+def safe_publish_end(records: list[dict[str, Any]], published: int) -> int:
+    """Stop before identity refs that do not yet have an Assistant target."""
+
+    unmatched_start: int | None = None
+    for index, record in enumerate(records[published:], start=published):
+        refs = record.get("retrieved_learning_refs")
+        if (
+            unmatched_start is None
+            and isinstance(refs, list)
+            and any(_wire_retrieved_ref(value) is not None for value in refs)
+        ):
+            unmatched_start = index
+        if record.get("role") == "Assistant":
+            unmatched_start = None
+    return len(records) if unmatched_start is None else unmatched_start
+
+
+def unpublished_slice(
+    records: Iterable[dict[str, Any]],
+    *,
+    published_override: int | None = None,
+) -> tuple[int, list[dict[str, Any]]]:
+    """Return the current watermark and wire-ready unpublished interactions.
+
+    Metadata records are interpreted by their numeric boundary rather than
+    their physical position in the append-only file. This preserves turns that
+    arrive while an earlier network request is in flight.
+    """
+
+    buffered = list(records)
+    if published_override is None:
+        published = published_record_offset(buffered)
+    elif 0 <= published_override <= len(buffered):
+        published = published_override
+    else:
+        raise ValueError("published_override is outside the supplied record range")
+    pending_tools: list[dict[str, Any]] = []
+    pending_refs: list[dict[str, str]] = []
+    turns: list[dict[str, Any]] = []
+    attached_total = skipped = truncated = 0
+
+    for index, record in enumerate(buffered):
+        if index < published:
+            continue
+
+        refs = record.get("retrieved_learning_refs")
+        if "role" not in record and isinstance(refs, list):
+            valid_refs = [
+                ref for value in refs if (ref := _wire_retrieved_ref(value)) is not None
+            ]
+            skipped += len(refs) - len(valid_refs)
+            pending_refs.extend(valid_refs)
+            continue
+
+        role = record.get("role")
+        if role == "Assistant_tool":
+            tool_input = record.get("tool_input") or {}
+            tool_output = record.get("tool_output") or ""
+            tool_entry: dict[str, Any] = {
+                "tool_name": record.get("tool_name", ""),
+                "status": record.get("status", "success"),
+            }
+            tool_data: dict[str, Any] = {}
+            if tool_input:
+                tool_data["input"] = {
+                    key: _truncate_tool_data_field(value)
+                    for key, value in tool_input.items()
+                }
+            if tool_output:
+                tool_data["output"] = _truncate_tool_data_field(tool_output)
+            if tool_data:
+                tool_entry["tool_data"] = tool_data
+            pending_tools.append(tool_entry)
+            continue
+
+        if role not in {"User", "Assistant"}:
+            continue
+
+        # Allowlist, not denylist. This used to drop four known keys and pass
+        # everything else through, so buffer-internal bookkeeping (``user_id``,
+        # ``synthesised_by``, ``id``, ``kind``, ...) rode along onto the wire.
+        # The server discards unknown keys, and now reports them: it treats
+        # `user_id` as a benign request-level key, but `synthesised_by` was
+        # warned about on every session-end anchor. More importantly a denylist
+        # rots every time a hook adds a record key, and a stricter server would
+        # turn that rot into a publish failure this plugin's adapter swallows
+        # without advancing its watermark.
+        turn = {key: value for key, value in record.items() if key in _WIRE_FIELDS}
+        turn["role"] = role
+        # NOTE: deliberately does NOT send `created_at`. Carrying the buffer's
+        # `ts` across looks like an obvious improvement — the server otherwise
+        # stamps drain time — but the extractor's bookmark is keyed on
+        # interaction `created_at` (`last_processed_timestamp`, compared with
+        # `created_at >= ?`). A batch recovered after the bookmark has moved
+        # would be stored and then never seen by the extractor: reproduced as
+        # permanent, silent loss of learning data on exactly the offline path
+        # this buffer exists to protect. Cosmetic timestamps are the lesser
+        # problem. Revisit only once ingest ordering no longer depends on a
+        # caller-supplied event time.
+        if role == "Assistant":
+            citations = _to_wire_citations(record.get("cited_items"))
+            if citations:
+                turn["citations"] = citations
+            if pending_tools:
+                turn["tools_used"] = pending_tools
+                pending_tools = []
+
+            retrieved: list[dict[str, str]] = []
+            seen: set[tuple[str, str, str | None]] = set()
+            for ref in pending_refs:
+                key = (ref["kind"], ref["learning_id"], ref.get("exposure_receipt"))
+                if key in seen:
+                    continue
+                seen.add(key)
+                if attached_total >= _RETRIEVED_LEARNINGS_PUBLISH_CAP:
+                    truncated += 1
+                    continue
+                retrieved.append(ref)
+                attached_total += 1
+            pending_refs = []
+            if retrieved:
+                turn["retrieved_learnings"] = retrieved
+        turns.append(turn)
+
+    if skipped:
+        _LOGGER.debug("Skipped %d malformed retrieved-learning refs", skipped)
+    if truncated:
+        _LOGGER.warning(
+            "Dropped %d retrieved-learning refs at the publish request cap", truncated
+        )
+    return published, turns

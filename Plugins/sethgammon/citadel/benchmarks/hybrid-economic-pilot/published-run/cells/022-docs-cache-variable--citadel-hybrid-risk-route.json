@@ -1,0 +1,175 @@
+{
+  "schema": 1,
+  "cell_id": "022-docs-cache-variable--citadel-hybrid-risk-route",
+  "order": 22,
+  "scenario_id": "docs-cache-variable",
+  "task_class": "documentation-consistency",
+  "risk": "low",
+  "policy_id": "citadel-hybrid-risk-route",
+  "repetition": 1,
+  "route": {
+    "initial_tier": "local",
+    "escalation_tier": "cloud",
+    "reason_code": "FROZEN_BOUNDED_LOCAL_THEN_VERIFY"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "local",
+      "started_at": "2026-08-02T00:58:10.336Z",
+      "duration_ms": 8034,
+      "output_text": "{\n  \"files\": {\n    \"README.md\": \"# Cache location\\n\\nSet `CITADEL_CACHE_PATH=.citadel/cache` to move the operation cache.\\nThe directory is created on first use.\"\n  }\n}",
+      "output_digest": "sha256:0069c9c6c620a3dff6bb6a998dca4be48ac03e1846ec697f5059efc77896d199",
+      "verification": {
+        "status": "failed",
+        "code": "REPOSITORY_VERIFIER_FAILED",
+        "changed_paths": [
+          "README.md"
+        ],
+        "applied_file_digests": {
+          "README.md": "sha256:cc737472fa87de175b8fc622b4e9a665a9fe177fc862bd313c146a65766c8aaa"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 1,
+          "signal": null,
+          "stdout": "",
+          "stderr": "node:internal/assert/utils:281\r\n    throw err;\r\n    ^\r\n\r\nAssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:\r\n\r\n  assert(value.includes('Set `CITADEL_CACHE_DIR=.citadel/cache` to move the operation cache.'))\r\n\r\n    at Object.<anonymous> (<ISOLATED_WORKSPACE>\\verifier.js:5:1)\r\n    at Module._compile (node:internal/modules/cjs/loader:1730:14)\r\n    at Object..js (node:internal/modules/cjs/loader:1895:10)\r\n    at Module.load (node:internal/modules/cjs/loader:1465:32)\r\n    at Function._load (node:internal/modules/cjs/loader:1282:12)\r\n    at TracingChannel.traceSync (node:diagnostics_channel:322:14)\r\n    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)\r\n    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:171:5)\r\n    at node:internal/main/run_main_module:36:49 {\r\n  generatedMessage: true,\r\n  code: 'ERR_ASSERTION',\r\n  actual: false,\r\n  expected: true,\r\n  operator: '=='\r\n}\r\n\r\nNode.js v22.17.1\r\n",
+          "error": null
+        },
+        "patch_digest": "sha256:40e87714a957035c5cf4e60edd725c020ccf12ec04ac1b87134955a4d1527c91"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "ollama-chat",
+        "requested_model": "qwen2.5-coder:3b",
+        "canonical_model": "qwen2.5-coder:3b",
+        "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+        "response_digest": "sha256:e6db7035a4edc6a7469958ea51dd3f29a4f946de89b8297c4d9b425f8b4b51a5",
+        "error": null
+      },
+      "usage": {
+        "input_tokens": 158,
+        "output_tokens": 47,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0
+      },
+      "economics": {
+        "comparison_cost": {
+          "status": "derived-comparison",
+          "total_usd": 0.000049591,
+          "source": "measured_gpu_energy_plus_frozen_residual_amortization"
+        },
+        "provider_reported_equivalent_cost": {
+          "status": "known",
+          "amount_usd": 0,
+          "source": "self_hosted_ollama"
+        },
+        "local_gpu_energy": {
+          "status": "measured",
+          "energy_kwh": 0.000136373,
+          "samples": 16,
+          "average_watts": 61.108125
+        },
+        "actual_subscription_cash": {
+          "status": "not-applicable",
+          "amount_usd": 0
+        }
+      }
+    },
+    {
+      "attempt": 2,
+      "tier": "cloud",
+      "started_at": "2026-08-02T00:58:18.702Z",
+      "duration_ms": 8808,
+      "output_text": "{\"files\":{\"README.md\":\"# Cache location\\n\\nSet `CITADEL_CACHE_DIR=.citadel/cache` to move the operation cache.\\nThe directory is created on first use.\\n\"}}",
+      "output_digest": "sha256:220c06d0875cbf3da1e7443ccd2d420dfdb0c245601035b89f380a732547692f",
+      "verification": {
+        "status": "passed",
+        "code": null,
+        "changed_paths": [
+          "README.md"
+        ],
+        "applied_file_digests": {
+          "README.md": "sha256:7429acc11fb7e60392f3e3182c5c34b129163a071f9b015caed35eb616f6a031"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 0,
+          "signal": null,
+          "stdout": "",
+          "stderr": "",
+          "error": null
+        },
+        "patch_digest": "sha256:f7f422d8bbe6d1056963d8343304085da56e8597d049b7563dd9dd799f97be67"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "claude-code-print",
+        "requested_model": "sonnet",
+        "canonical_model": "claude-sonnet-5",
+        "cli_version": "2.1.219",
+        "response_digest": "sha256:12e02af514a2300abd57933ff87a1afcce36f26ee38a68995a50b570df589fd0",
+        "exit_status": 0,
+        "terminal_reason": "completed",
+        "error": null
+      },
+      "usage": {
+        "input_tokens": 421,
+        "output_tokens": 73,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0
+      },
+      "economics": {
+        "comparison_cost": {
+          "status": "provider-reported-equivalent",
+          "total_usd": 0.003121,
+          "source": "claude_code_total_cost_usd"
+        },
+        "provider_reported_equivalent_cost": {
+          "status": "provider-reported-equivalent",
+          "amount_usd": 0.003121,
+          "source": "claude_code_total_cost_usd"
+        },
+        "local_gpu_energy": {
+          "status": "not-applicable",
+          "energy_kwh": 0,
+          "samples": 0,
+          "average_watts": null
+        },
+        "actual_subscription_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "pro_subscription_cost_not_allocated_per_request"
+        }
+      }
+    }
+  ],
+  "status": "passed",
+  "final_verification": {
+    "status": "passed",
+    "code": null,
+    "changed_paths": [
+      "README.md"
+    ],
+    "applied_file_digests": {
+      "README.md": "sha256:7429acc11fb7e60392f3e3182c5c34b129163a071f9b015caed35eb616f6a031"
+    },
+    "verifier": {
+      "command": "node verifier.js",
+      "status": 0,
+      "signal": null,
+      "stdout": "",
+      "stderr": "",
+      "error": null
+    },
+    "patch_digest": "sha256:f7f422d8bbe6d1056963d8343304085da56e8597d049b7563dd9dd799f97be67"
+  },
+  "previous_cell_digest": "sha256:2b58deca8e6e6f4ded65a71a3692ce2f8ebd514276c523b2be8c9824aad65f8c",
+  "receipt_digest": "sha256:3ddcf4a5350c4eece6822263ea0fd39e0bf27f6d5f6813c6290c2927b8b14c66",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:6effea5841bfcd57dbdb2c3eb3ff97106237d1774336dcd47111f6d534b739eb",
+    "signature": "XMdP/JDAd03fg2W09gM1vPfKvPLVpTZdvAKF9pnaKtbRdeUFDkXL2yvbcv6YFGLZWb6yMkzD8bI88EDhZhcaDg=="
+  }
+}

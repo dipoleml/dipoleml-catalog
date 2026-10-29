@@ -1,0 +1,18 @@
+{
+  "name": "first-pass",
+  "displayName": "First Pass",
+  "version": "0.9.3",
+  "description": "Working rules and checks that make your coding agent look around a change, not only at the lines it writes: ten questions before code, a reviewer that didn't write it, proof before anything is called done, bugs fixed as a class, your habit words mapped to real checks, and a sharpen command that rewrites a messy prompt before the work starts. Set up once for a folder of repos, or for one repo.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Joetawil7"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/joetawil7/first-pass",
+  "repository": "https://github.com/joetawil7/first-pass",
+  "skills": [],
+  "commands": [],
+  "agents": [
+    "./skills/setup-first-pass/assets/breaker.md"
+  ]
+}

@@ -1,0 +1,121 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.sgaunet.software-engineering",
+  "type": "plugin",
+  "name": "Software Engineering",
+  "slug": "software-engineering",
+  "vendor": "sgaunet",
+  "description": "A curated collection of specialized DipoleML plugins designed to enhance your development workflow with intelligent agents, skills, and commands.",
+  "version": "0.23.0",
+  "homepage": "https://github.com/sgaunet/claude-plugins",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "claude-code-marketplace",
+    "claude-code-plugins",
+    "developer-tools",
+    "devops",
+    "golang",
+    "software-engineering"
+  ],
+  "tags": [
+    "ai-agents",
+    "claude-code",
+    "claude-code-marketplace",
+    "claude-code-plugins",
+    "developer-tools",
+    "devops",
+    "golang",
+    "software-engineering"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "sgaunet",
+    "brandName": "sgaunet",
+    "source": "https://github.com/sgaunet.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:14:48Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "sgaunet/claude-plugins",
+    "url": "https://github.com/sgaunet/claude-plugins",
+    "commit": "8b8182cfc8dcdb5f84d185e0e88d038f56d1c5f1",
+    "path": "plugins/software-engineering",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 18,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:50:55Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Software Engineering | A curated collection of specialized Claude Code plugins designed to enhance your development workflow with intelligent agents, skills, and commands.",
+        "after": "Software Engineering | A curated collection of specialized DipoleML plugins designed to enhance your development workflow with intelligent agents, skills, and commands.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Code review, debugging, documentation, license compliance (AGPL/MIT/Apache), payment integration (Stripe/PayPal), frontend development (HTMX/Alpine.js), architecture diagrams (d2 via diagram-architect + /gen-diagram), and terminal demo GIFs (VHS via /gen-vhs-demo). Skills: analyze-and-create-issue, analyze-pr, audit-codebase, auto-mr, check-claude-md-tokens, commit, create-issue, detect-repo-host, feature-flow, feature-flow-w, gen-claude, gen-diagram, gen-readme-diagram, gen-vhs-demo, run-lint, run-tests, upd-project-description, vscode-settings. MCP: context7",
+        "after": "Code review, debugging, documentation, license compliance (AGPL/MIT/Apache), payment integration (Stripe/PayPal), frontend development (HTMX/Alpine.js), architecture diagrams (d2 via diagram-architect + /gen-diagram), and terminal demo GIFs (VHS via /gen-vhs-demo). Skills: analyze-and-create-issue, analyze-pr, audit-codebase, auto-mr, check-DipoleML-md-tokens, commit, create-issue, detect-repo-host, feature-flow, feature-flow-w, gen-DipoleML, gen-diagram, gen-readme-diagram, gen-vhs-demo, run-lint, run-tests, upd-project-description, vscode-settings. MCP: context7",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-http",
+      "url": "https://mcp.context7.com/mcp",
+      "transport": "http",
+      "command": "context7"
+    },
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

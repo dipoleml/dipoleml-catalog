@@ -1,0 +1,155 @@
+param(
+    [Parameter(ValueFromRemainingArguments = $true)]
+    [string[]] $TldArgs
+)
+
+$ErrorActionPreference = "Stop"
+
+$Binary = "tld.exe"
+$Repo = "Mertcikla/tld"
+
+function Get-TldArchitecture {
+    $architecture = $env:PROCESSOR_ARCHITEW6432
+    if ([string]::IsNullOrWhiteSpace($architecture)) {
+        $architecture = $env:PROCESSOR_ARCHITECTURE
+    }
+
+    switch ($architecture.ToUpperInvariant()) {
+        "AMD64" { return "x86_64" }
+        "ARM64" { return "arm64" }
+        default {
+            throw "Unsupported architecture: $architecture"
+        }
+    }
+}
+
+function Add-TldPath {
+    param([string] $InstallDir)
+
+    $isInProcessPath = ($env:Path -split ";") | Where-Object { $_ -and ($_.TrimEnd("\") -ieq $InstallDir.TrimEnd("\")) }
+    if (-not $isInProcessPath) {
+        $env:Path = "$env:Path;$InstallDir"
+    }
+
+    $pathParts = [Environment]::GetEnvironmentVariable("Path", "User") -split ";"
+    $isInUserPath = $pathParts | Where-Object { $_ -and ($_.TrimEnd("\") -ieq $InstallDir.TrimEnd("\")) }
+    if ($isInUserPath) {
+        return
+    }
+
+    $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
+    if ([string]::IsNullOrWhiteSpace($userPath)) {
+        [Environment]::SetEnvironmentVariable("Path", $InstallDir, "User")
+    } else {
+        [Environment]::SetEnvironmentVariable("Path", "$userPath;$InstallDir", "User")
+    }
+
+    Write-Host "Added $InstallDir to your user PATH."
+    Write-Host "Open a new terminal before running tld from another shell."
+}
+
+try {
+    if ([Net.ServicePointManager]::SecurityProtocol -notmatch "Tls12") {
+        [Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
+    }
+} catch {
+    # Older PowerShell hosts may not expose this setting; Invoke-WebRequest will use the host default.
+}
+
+$Arch = Get-TldArchitecture
+
+if ([string]::IsNullOrWhiteSpace($env:INSTALL_DIR)) {
+    $InstallDir = Join-Path $env:LOCALAPPDATA "tld\bin"
+} else {
+    $InstallDir = $env:INSTALL_DIR
+}
+
+$Filename = "tld_Windows_$Arch.zip"
+$ReleasesUrl = "https://api.github.com/repos/$Repo/releases?per_page=100"
+Write-Host "Finding latest stable tld release..."
+$Releases = Invoke-RestMethod -Uri $ReleasesUrl -Headers @{ "User-Agent" = "tld-installer" }
+if ($Releases -isnot [System.Array]) { $Releases = @($Releases) }
+# Filter by tag (stable tags have no prerelease suffix) and require the wanted
+# asset, mirroring the in-place updater. Do not trust /latest alone.
+$StableRelease = $Releases | Where-Object {
+    $_.tag_name -and ($_.tag_name -notlike "*-*") -and (-not $_.draft) -and (-not $_.prerelease) -and
+    ($_.assets | Where-Object { $_.name -eq $Filename })
+} | Select-Object -First 1
+if (-not $StableRelease) {
+    # Fall back to tag-only filtering if flags are mis-set on the release.
+    $StableRelease = $Releases | Where-Object {
+        $_.tag_name -and ($_.tag_name -notlike "*-*") -and
+        ($_.assets | Where-Object { $_.name -eq $Filename })
+    } | Select-Object -First 1
+}
+if (-not $StableRelease) { throw "Could not find latest stable version with $Filename for $Repo" }
+$Version = $StableRelease.tag_name
+
+if ([string]::IsNullOrWhiteSpace($Version)) {
+    throw "Could not find latest version for $Repo"
+}
+
+$Url = "https://github.com/mertcikla/tld/releases/download/$Version/$Filename"
+$TempDir = Join-Path ([IO.Path]::GetTempPath()) ("tld-install-" + [Guid]::NewGuid().ToString("N"))
+$ZipPath = Join-Path $TempDir $Filename
+
+Write-Host "Downloading tld $Version for Windows/$Arch..."
+New-Item -ItemType Directory -Path $TempDir -Force | Out-Null
+
+try {
+    Invoke-WebRequest -Uri $Url -OutFile $ZipPath -Headers @{ "User-Agent" = "tld-installer" }
+
+    Write-Host "Extracting $Filename..."
+    Expand-Archive -Path $ZipPath -DestinationPath $TempDir -Force
+
+    $ExtractedBinary = Get-ChildItem -Path $TempDir -Recurse -Filter $Binary | Select-Object -First 1
+    if (-not $ExtractedBinary) {
+        throw "Could not find $Binary in downloaded archive"
+    }
+
+    New-Item -ItemType Directory -Path $InstallDir -Force | Out-Null
+    $Destination = Join-Path $InstallDir $Binary
+
+    Write-Host "Installing to $Destination..."
+    & $ExtractedBinary.FullName version *> $null
+    if ($LASTEXITCODE -ne 0) { throw "Downloaded binary failed validation" }
+    $Stage = Join-Path $InstallDir (".tld-update-" + [Guid]::NewGuid().ToString("N") + ".exe")
+    $Backup = "$Stage.old"
+    Copy-Item -LiteralPath $ExtractedBinary.FullName -Destination $Stage
+    try {
+        if (Test-Path -LiteralPath $Destination) {
+            Move-Item -LiteralPath $Destination -Destination $Backup
+        }
+        try {
+            Move-Item -LiteralPath $Stage -Destination $Destination
+        } catch {
+            if (Test-Path -LiteralPath $Backup) {
+                Move-Item -LiteralPath $Backup -Destination $Destination
+            }
+            throw
+        }
+    } finally {
+        Remove-Item -LiteralPath $Stage -Force -ErrorAction SilentlyContinue
+        # Running Windows processes can keep the old image locked until exit.
+        if (Test-Path -LiteralPath $Destination) {
+            Remove-Item -LiteralPath $Backup -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    Add-TldPath -InstallDir $InstallDir
+
+    & $Destination --help *> $null
+    if ($LASTEXITCODE -ne 0) { throw "Installed binary failed validation" }
+    Write-Host "Successfully installed! Run 'tld --help' to get started."
+
+    if ($TldArgs.Count -gt 0) {
+        Write-Host "--------------------------------------------------"
+        Write-Host "Executing: tld $($TldArgs -join ' ')"
+        & $Destination @TldArgs
+        exit $LASTEXITCODE
+    }
+} finally {
+    if (Test-Path $TempDir) {
+        Remove-Item -Path $TempDir -Recurse -Force
+    }
+}

@@ -1,0 +1,132 @@
+package initialize_test
+
+import (
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+
+	"github.com/mertcikla/tld/v2/cmd"
+)
+
+func TestInitCmd_CreatesTldDirectory(t *testing.T) {
+	dir := t.TempDir()
+	configDir := t.TempDir()
+	t.Setenv("TLD_CONFIG_DIR", configDir)
+
+	// Change to temp dir to test default ".tld" directory creation
+	oldWd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(oldWd) }()
+
+	// Run init without args
+	_, _, err = cmd.RunCmd(t, ".", "init")
+	if err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	// Check if ".tld" directory was created
+	tldDir := filepath.Join(dir, ".tld")
+	if stat, err := os.Stat(tldDir); err != nil || !stat.IsDir() {
+		t.Fatalf(".tld directory was not created: %v", err)
+	}
+
+	// Check if new-model YAML files were created in .tld/
+	files := []string{"elements.yaml", "connectors.yaml"}
+	for _, f := range files {
+		path := filepath.Join(tldDir, f)
+		if _, err := os.Stat(path); err != nil {
+			t.Errorf("file %s was not created in .tld directory", f)
+			continue
+		}
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Errorf("read %s: %v", f, err)
+			continue
+		}
+		firstLine := strings.SplitN(string(data), "\n", 2)[0]
+		if !strings.HasPrefix(firstLine, "# yaml-language-server: $schema=") {
+			t.Errorf("%s first line = %q, want yaml-language-server schema directive", f, firstLine)
+		}
+	}
+
+	// Legacy bridge files should not be scaffolded during init.
+	legacyFiles := []string{"diagrams.yaml", "objects.yaml", "edges.yaml", "links.yaml"}
+	for _, f := range legacyFiles {
+		path := filepath.Join(tldDir, f)
+		if _, err := os.Stat(path); !os.IsNotExist(err) {
+			t.Errorf("legacy file %s should not be created during init", f)
+		}
+	}
+}
+
+func TestInitCmd_DotArgCreatesTldDirectory(t *testing.T) {
+	dir := t.TempDir()
+	configDir := t.TempDir()
+	t.Setenv("TLD_CONFIG_DIR", configDir)
+
+	oldWd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = os.Chdir(oldWd) }()
+
+	// `tld init .` must behave like `tld init`: nest the workspace in ".tld"
+	// and never scatter workspace files across the content root.
+	if _, _, err := cmd.RunCmd(t, ".", "init", "."); err != nil {
+		t.Fatalf("init .: %v", err)
+	}
+
+	tldDir := filepath.Join(dir, ".tld")
+	for _, f := range []string{"elements.yaml", "connectors.yaml", ".tld.yaml"} {
+		if _, err := os.Stat(filepath.Join(tldDir, f)); err != nil {
+			t.Errorf("%s was not created in .tld directory", f)
+		}
+	}
+	for _, f := range []string{"elements.yaml", "connectors.yaml", ".tld.yaml"} {
+		if _, err := os.Stat(filepath.Join(dir, f)); !os.IsNotExist(err) {
+			t.Errorf("%s should not be created in the content root", f)
+		}
+	}
+}
+
+func TestInitCmd_CustomDirectory(t *testing.T) {
+	dir := t.TempDir()
+	configDir := t.TempDir()
+	t.Setenv("TLD_CONFIG_DIR", configDir)
+
+	customDir := filepath.Join(dir, "my-diagrams")
+
+	// Run init with custom dir
+	_, _, err := cmd.RunCmd(t, ".", "init", customDir)
+	if err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	// Check if custom directory was created
+	if stat, err := os.Stat(customDir); err != nil || !stat.IsDir() {
+		t.Fatalf("custom directory %s was not created", customDir)
+	}
+
+	// Check if new-model YAML files were created in customDir/.tld/
+	workspaceDir := filepath.Join(customDir, ".tld")
+	for _, f := range []string{"elements.yaml", "connectors.yaml"} {
+		if _, err := os.Stat(filepath.Join(workspaceDir, f)); err != nil {
+			t.Errorf("%s was not created in custom directory", f)
+		}
+	}
+
+	for _, f := range []string{"diagrams.yaml", "objects.yaml", "edges.yaml", "links.yaml"} {
+		if _, err := os.Stat(filepath.Join(workspaceDir, f)); !os.IsNotExist(err) {
+			t.Errorf("legacy file %s should not be created in custom directory", f)
+		}
+	}
+}

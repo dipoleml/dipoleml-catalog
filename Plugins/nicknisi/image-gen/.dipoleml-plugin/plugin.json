@@ -1,0 +1,16 @@
+{
+  "name": "image-gen",
+  "displayName": "Image Gen",
+  "version": "0.2.0",
+  "description": "Generate or edit images via Google Gemini (nano-banana-pro) or OpenAI gpt-image-2. Supports 1K/2K/4K resolution and masked inpainting.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Nicknisi"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/nicknisi/claude-plugins",
+  "repository": "https://github.com/nicknisi/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

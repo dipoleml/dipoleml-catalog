@@ -1,0 +1,16 @@
+node_modules/
+*.log
+.DS_Store
+.env.local
+# transient benchmark scratch at the top level of results/:
+benchmarks/results/*.json
+# raw*/ (per-run model outputs) and *.md results are committed for audit
+__pycache__/
+*.pyc
+.venv/
+
+# local Claude Code editor state — not part of the package
+.claude/
+
+# Terminal-Bench job dirs: raw trajectories, may echo container env
+benchmarks/terminal-bench/jobs/

@@ -1,0 +1,16 @@
+{
+  "name": "ralph-speckit",
+  "displayName": "Ralph Speckit",
+  "version": "0.5.2",
+  "description": "Spec-driven development using GitHub spec-kit methodology. Constitution-first approach with specify, plan, tasks, and implement phases.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Tzachbon"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/tzachbon/smart-ralph",
+  "repository": "https://github.com/tzachbon/smart-ralph",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

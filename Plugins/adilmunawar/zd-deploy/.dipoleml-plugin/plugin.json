@@ -1,0 +1,16 @@
+{
+  "name": "zd-deploy",
+  "displayName": "Zd Deploy",
+  "version": "7.6.1",
+  "description": "Local vs cloud profiles (Firebase App Hosting, Vercel, Hugging Face Spaces, EAS, Docker on AWS), pre-flight and rollback",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Adilmunawar"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/adilmunawar/ZD-claude-plugin/tree/main/plugins/zd-deploy",
+  "repository": "https://github.com/Adilmunawar/ZD-claude-plugin",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

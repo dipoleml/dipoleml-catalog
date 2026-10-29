@@ -1,0 +1,16 @@
+{
+  "name": "terraform-plugin",
+  "displayName": "Terraform Plugin",
+  "version": "1.7.11",
+  "description": "Terraform and Terraform Cloud - infrastructure as code",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Laurigates"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/laurigates/claude-plugins",
+  "repository": "https://github.com/laurigates/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

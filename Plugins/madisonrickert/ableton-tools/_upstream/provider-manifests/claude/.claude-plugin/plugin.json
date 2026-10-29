@@ -1,0 +1,22 @@
+{
+  "name": "ableton-tools",
+  "description": "Ableton Live toolkit: stem verification, levels/locate, tempo/drift/warp analysis, MIDI transcription and comparison, and safe lossless .als editing (stem import, groups, session building, device-chain transplant) via a uv-managed Python engine. Live 12 and 11.",
+  "version": "1.1.0",
+  "author": {
+    "name": "Madison Rickert"
+  },
+  "homepage": "https://github.com/madisonrickert/ableton-tools",
+  "repository": "https://github.com/madisonrickert/ableton-tools",
+  "license": "MIT",
+  "keywords": [
+    "ableton",
+    "ableton-live",
+    "als",
+    "audio",
+    "midi",
+    "stems",
+    "music-production",
+    "claude-code",
+    "claude-plugin"
+  ]
+}

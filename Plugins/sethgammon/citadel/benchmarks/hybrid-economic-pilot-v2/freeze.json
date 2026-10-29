@@ -1,0 +1,254 @@
+{
+  "schema": 1,
+  "freeze_id": "sha256:54237369eb16f1be5283630f9a7fc541dc41e2ce48b4795532627809cefb9140",
+  "frozen_at": "2026-08-02T01:09:20.818Z",
+  "method_digest": "sha256:6a237c22c19466bcf02b6ff56b8b1a83169c4511233ee1d46c862e01eec45b22",
+  "scenario_set_digest": "sha256:8ca3e5ebd970b3f27a27c4f87da9d9ae244d309de1bba3e96fe500f3c40b114d",
+  "source_digests": {
+    "benchmarks/hybrid-economic-pilot-v2/METHOD.md": "sha256:6a237c22c19466bcf02b6ff56b8b1a83169c4511233ee1d46c862e01eec45b22",
+    "benchmarks/hybrid-economic-pilot-v2/fixtures/api-decoder-alias/src/decoder.js": "sha256:a38a3c2f052dc88ccee9537e87ba1832a47a908d8a1d0ce7cb3d4c151ca319e2",
+    "benchmarks/hybrid-economic-pilot-v2/fixtures/api-decoder-alias/src/reader.js": "sha256:2c09bcba0599cfe5f65c4095e42fe3ac83b2ca55feffcd895450950f176d3f8b",
+    "benchmarks/hybrid-economic-pilot-v2/fixtures/api-decoder-alias/test.js": "sha256:a5fa84c10d8a66c794a683cb8329313a2a4cb913fb9f7a6dacaa809b526bc510",
+    "benchmarks/hybrid-economic-pilot-v2/fixtures/api-decoder-alias/verifier.js": "sha256:22ddfefa6f068eac226af1d8c76ad972f9a8eef7a4851fbde76275389c0db6a8",
+    "benchmarks/hybrid-economic-pilot-v2/fixtures/bug-empty-prefix/src/prefix.js": "sha256:39def4f3c425a24fca1563635d4de1133791712e3273c15b44a73d3e2a74f56a",
+    "benchmarks/hybrid-economic-pilot-v2/fixtures/bug-empty-prefix/test.js": "sha256:6f20b053faa6f90f2469dbbf201ba023138d23118f4ab2c987f201ad743d4161",
+    "benchmarks/hybrid-economic-pilot-v2/fixtures/bug-empty-prefix/verifier.js": "sha256:f064046ffb7e8bc426cd06a402c1bb01ed454cb634360fadb419cbdf920eb609",
+    "benchmarks/hybrid-economic-pilot-v2/fixtures/bug-zero-concurrency/src/concurrency.js": "sha256:906229cafb88f348463e8d81e71eb64dd8c67d89947ddf20197570824f1f8e51",
+    "benchmarks/hybrid-economic-pilot-v2/fixtures/bug-zero-concurrency/test.js": "sha256:7d428dae66a4204acb5e48f76231e612bf1d69140ea7de757e9146a7a63ffbd4",
+    "benchmarks/hybrid-economic-pilot-v2/fixtures/bug-zero-concurrency/verifier.js": "sha256:d4279f8164fed587f5c84ec3ccd20809134c4a976366e6fd299f1bedf902e67f",
+    "benchmarks/hybrid-economic-pilot-v2/fixtures/config-budget-numbers/MIGRATION.md": "sha256:66325c52ea524c5cc48931a5d6d440353e1d234d0fc28d56efd5c5d5400c0bb5",
+    "benchmarks/hybrid-economic-pilot-v2/fixtures/config-budget-numbers/config/budget.json": "sha256:aad6095567542168c56d5363308266d4910259fe93a8a2ef0cc3a9c0aa5f55b9",
+    "benchmarks/hybrid-economic-pilot-v2/fixtures/config-budget-numbers/verifier.js": "sha256:c307405105bf44006da366875fa6d478a588f9db2df93015e0f67fa5c0d7cab4",
+    "benchmarks/hybrid-economic-pilot-v2/fixtures/config-policy-booleans/MIGRATION.md": "sha256:5e1961bf1c8f52b9eb4a0d2ffbad9b8e621068a4d8381743beb5d54779f709dc",
+    "benchmarks/hybrid-economic-pilot-v2/fixtures/config-policy-booleans/config/policy.json": "sha256:37407a8851033daa9e199547df76b6d601270b00ebe8e87c4559d41ce36222fe",
+    "benchmarks/hybrid-economic-pilot-v2/fixtures/config-policy-booleans/verifier.js": "sha256:958316ff202aff12201bfc91a855648ca115b2fbe2c2d2cbc89b798147462f9e",
+    "benchmarks/hybrid-economic-pilot-v2/fixtures/lookup-case-insensitive-label/src/labels.js": "sha256:dad20e6c7422152c4ac492fb46c8777827d0c652d50bf3bc40aeef834a01a845",
+    "benchmarks/hybrid-economic-pilot-v2/fixtures/lookup-case-insensitive-label/test.js": "sha256:1e0fd93cfd9bd22bf27f3d2a3235faf8a78214649d3fe4a808100fe06ca6b0c7",
+    "benchmarks/hybrid-economic-pilot-v2/fixtures/lookup-case-insensitive-label/verifier.js": "sha256:0c66e63171cfdf20432dc2e81770b46f2041a8013a49f4f454224dc2e7ab7c05",
+    "benchmarks/hybrid-economic-pilot-v2/fixtures/lookup-case-insensitive-option/src/options.js": "sha256:c5f53ccb45b283b592c39eaa85c3620bc9a0603f116579daa8781d8497067a43",
+    "benchmarks/hybrid-economic-pilot-v2/fixtures/lookup-case-insensitive-option/test.js": "sha256:ee58f5f324264fec473f6232ee975c2d116b20cd669071e12d33dfdc183ddb50",
+    "benchmarks/hybrid-economic-pilot-v2/fixtures/lookup-case-insensitive-option/verifier.js": "sha256:461b6aa761684f9655fe9e16b72f6d114654596e3d12cc5e8d6757749fbd2ee8",
+    "benchmarks/hybrid-economic-pilot-v2/fixtures/package-audit-script/RUNBOOK.md": "sha256:7532192b4eff960277729faeb697f08b3f0e46ecd055168b870cbc0297325977",
+    "benchmarks/hybrid-economic-pilot-v2/fixtures/package-audit-script/package.json": "sha256:eba219d0d61a0e70be7589fb6a2940fe288ccf5345edfda841ce4ca89833858d",
+    "benchmarks/hybrid-economic-pilot-v2/fixtures/package-audit-script/verifier.js": "sha256:6df05ca05e0d94362ae929c624ce9fcd24ce4ce69569466b0152f8ec434e4166",
+    "benchmarks/hybrid-economic-pilot-v2/fixtures/package-report-script/OPERATIONS.md": "sha256:e29f19ecf35bbbc14b893cb0dfcc890e1ea6f407b9fef89fb3b526aa84e32c51",
+    "benchmarks/hybrid-economic-pilot-v2/fixtures/package-report-script/package.json": "sha256:6d103ca88406ca33d55554a8d54217a202753edab48b47f863448581a26ed4e2",
+    "benchmarks/hybrid-economic-pilot-v2/fixtures/package-report-script/verifier.js": "sha256:43af1a00f53c951c50c7afe679f94bf7e7786044c5bcd7fd4a160bb2ecfd96bb",
+    "benchmarks/hybrid-economic-pilot-v2/fixtures/security-content-type/src/content-type.js": "sha256:5aa39d7fb348b51b022b7c4f899aa1b95dd8f6b23e9b5fc7fe0bc48be13018bf",
+    "benchmarks/hybrid-economic-pilot-v2/fixtures/security-content-type/test.js": "sha256:b5457ca51632f5c6ef00289e7137439b344dfb77f0d8ba42293d063d8333c5f6",
+    "benchmarks/hybrid-economic-pilot-v2/fixtures/security-content-type/verifier.js": "sha256:873a5e078c89e4efd5c3320abb2724f49f64a9663ae389da66dc33c16382e15f",
+    "benchmarks/hybrid-economic-pilot-v2/fixtures/security-own-metadata/src/metadata.js": "sha256:b1e84044d2c699cd091f54c73a4679c01716959bf6223a84e52e73900aa72d0c",
+    "benchmarks/hybrid-economic-pilot-v2/fixtures/security-own-metadata/test.js": "sha256:04b4ebe51e39f63af44798ba7dc3d2625f426370d3fecc0a8eb8f15dba2c3cca",
+    "benchmarks/hybrid-economic-pilot-v2/fixtures/security-own-metadata/verifier.js": "sha256:f22a780064635cc8375759fb4d0b3b0c5cf735f4b26274e7a974ea82e32789cd",
+    "benchmarks/hybrid-economic-pilot-v2/fixtures/security-relative-resource/src/resource.js": "sha256:2e889d2a95007cda6d34f0c655f04184b59de34454bddc8b9a55715dc37014f1",
+    "benchmarks/hybrid-economic-pilot-v2/fixtures/security-relative-resource/test.js": "sha256:465f1df4e68afabc51ba025da03658e5d45375f4c6e58e055f9ab701765c3509",
+    "benchmarks/hybrid-economic-pilot-v2/fixtures/security-relative-resource/verifier.js": "sha256:4227d45dde9718dac101d9ae2bb25684c8a6f418571fa22dbf8033d0c291fdae",
+    "benchmarks/hybrid-economic-pilot-v2/scenarios.json": "sha256:876d41533462848b186c58a6c2b8644152ce3f103f3cd8e88ae76ccfd47e99be",
+    "core/application-readiness/hybrid-economic-operation-v2.js": "sha256:be57d67a9d5b157f531280e5ef1b867ebe6da7cd958bc6e009c2cd6b0fff097f",
+    "core/operation-control/contracts.js": "sha256:d91adea8e5f5649dd38712e0fe244a0beb7dbe6e221e308ee975fd152f2fb5be",
+    "core/operation-control/receipt.js": "sha256:3ef5cfce5e17d22f5dbd68ff69cadf9138e95fa6b952c6ac26b29f4e7dc5aa66",
+    "scripts/hybrid-economic-pilot-v2.js": "sha256:12d567213282bb68517ca34950b28a336585653fb08ea6d80b0047c70fa96b60",
+    "scripts/test-hybrid-economic-pilot-v2.js": "sha256:f0c983b3eaa89e94eeed33339be6c40fb8fb13b7d434ce3af49585d93a59653b"
+  },
+  "seed": "citadel-hybrid-economic-pilot-v2-2026-08-02",
+  "repetitions": 1,
+  "policies": [
+    "always-claude-sonnet",
+    "citadel-calibrated-support-route"
+  ],
+  "models": {
+    "local": {
+      "runtime": "ollama-chat",
+      "requested_model": "qwen2.5-coder:3b",
+      "canonical_model": "qwen2.5-coder:3b",
+      "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225"
+    },
+    "cloud": {
+      "runtime": "claude-code-print",
+      "requested_model": "sonnet",
+      "canonical_model": "claude-sonnet-5",
+      "cli_version": "2.1.219"
+    }
+  },
+  "routing_contract": {
+    "local_eligible": "local_3b_then_claude_on_model_external_verifier_failure",
+    "otherwise": "claude",
+    "eligibility_features": [
+      "single_file_structured_migration",
+      "single_file_package_script_addition",
+      "single_file_default_preservation_bug",
+      "single_file_case_insensitive_lookup"
+    ]
+  },
+  "selection_contract": {
+    "status": "author_selected",
+    "prior_model_execution_on_these_scenarios": false,
+    "external_selector": false,
+    "informed_by": "prospective-economic-pilot-v1-and-hybrid-economic-pilot-v1-calibration"
+  },
+  "economics": {
+    "local_electricity_usd_per_kwh": 0.2,
+    "local_gpu_residual_value_usd": 100,
+    "local_gpu_useful_compute_hours": 10000,
+    "cloud_cost_source": "claude_code_total_cost_usd_equivalent",
+    "actual_subscription_allocation_status": "unknown",
+    "whole_system_energy_status": "unknown"
+  },
+  "gates": {
+    "baseline_absolute_verified_rate": 0.8,
+    "baseline_risk_stratum_verified_rate": 0.7,
+    "quality_floor_relative_to_baseline": 0.95,
+    "minimum_comparison_cost_reduction": 0.3,
+    "zero_path_violations_required": true,
+    "zero_false_passes_required": true,
+    "zero_integrity_failures_required": true
+  },
+  "schedule": [
+    {
+      "order": 0,
+      "scenario_id": "lookup-case-insensitive-label",
+      "policy_id": "citadel-calibrated-support-route",
+      "repetition": 1
+    },
+    {
+      "order": 1,
+      "scenario_id": "bug-zero-concurrency",
+      "policy_id": "always-claude-sonnet",
+      "repetition": 1
+    },
+    {
+      "order": 2,
+      "scenario_id": "security-relative-resource",
+      "policy_id": "always-claude-sonnet",
+      "repetition": 1
+    },
+    {
+      "order": 3,
+      "scenario_id": "package-audit-script",
+      "policy_id": "citadel-calibrated-support-route",
+      "repetition": 1
+    },
+    {
+      "order": 4,
+      "scenario_id": "package-report-script",
+      "policy_id": "always-claude-sonnet",
+      "repetition": 1
+    },
+    {
+      "order": 5,
+      "scenario_id": "package-report-script",
+      "policy_id": "citadel-calibrated-support-route",
+      "repetition": 1
+    },
+    {
+      "order": 6,
+      "scenario_id": "bug-zero-concurrency",
+      "policy_id": "citadel-calibrated-support-route",
+      "repetition": 1
+    },
+    {
+      "order": 7,
+      "scenario_id": "config-budget-numbers",
+      "policy_id": "always-claude-sonnet",
+      "repetition": 1
+    },
+    {
+      "order": 8,
+      "scenario_id": "config-budget-numbers",
+      "policy_id": "citadel-calibrated-support-route",
+      "repetition": 1
+    },
+    {
+      "order": 9,
+      "scenario_id": "api-decoder-alias",
+      "policy_id": "citadel-calibrated-support-route",
+      "repetition": 1
+    },
+    {
+      "order": 10,
+      "scenario_id": "api-decoder-alias",
+      "policy_id": "always-claude-sonnet",
+      "repetition": 1
+    },
+    {
+      "order": 11,
+      "scenario_id": "security-relative-resource",
+      "policy_id": "citadel-calibrated-support-route",
+      "repetition": 1
+    },
+    {
+      "order": 12,
+      "scenario_id": "config-policy-booleans",
+      "policy_id": "always-claude-sonnet",
+      "repetition": 1
+    },
+    {
+      "order": 13,
+      "scenario_id": "lookup-case-insensitive-label",
+      "policy_id": "always-claude-sonnet",
+      "repetition": 1
+    },
+    {
+      "order": 14,
+      "scenario_id": "lookup-case-insensitive-option",
+      "policy_id": "always-claude-sonnet",
+      "repetition": 1
+    },
+    {
+      "order": 15,
+      "scenario_id": "security-content-type",
+      "policy_id": "citadel-calibrated-support-route",
+      "repetition": 1
+    },
+    {
+      "order": 16,
+      "scenario_id": "security-content-type",
+      "policy_id": "always-claude-sonnet",
+      "repetition": 1
+    },
+    {
+      "order": 17,
+      "scenario_id": "package-audit-script",
+      "policy_id": "always-claude-sonnet",
+      "repetition": 1
+    },
+    {
+      "order": 18,
+      "scenario_id": "bug-empty-prefix",
+      "policy_id": "always-claude-sonnet",
+      "repetition": 1
+    },
+    {
+      "order": 19,
+      "scenario_id": "lookup-case-insensitive-option",
+      "policy_id": "citadel-calibrated-support-route",
+      "repetition": 1
+    },
+    {
+      "order": 20,
+      "scenario_id": "security-own-metadata",
+      "policy_id": "always-claude-sonnet",
+      "repetition": 1
+    },
+    {
+      "order": 21,
+      "scenario_id": "config-policy-booleans",
+      "policy_id": "citadel-calibrated-support-route",
+      "repetition": 1
+    },
+    {
+      "order": 22,
+      "scenario_id": "bug-empty-prefix",
+      "policy_id": "citadel-calibrated-support-route",
+      "repetition": 1
+    },
+    {
+      "order": 23,
+      "scenario_id": "security-own-metadata",
+      "policy_id": "citadel-calibrated-support-route",
+      "repetition": 1
+    }
+  ],
+  "ollama_endpoint": "http://127.0.0.1:11434",
+  "attestation_public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAItQx/c2/2yXrlDqaXdLI8lQV2/lfHs9XreSbNYIvWHc=\n-----END PUBLIC KEY-----\n"
+}

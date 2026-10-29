@@ -1,0 +1,16 @@
+{
+  "name": "roadmap",
+  "displayName": "Roadmap",
+  "version": "3.0.0",
+  "description": "Product management, roadmap analysis, and solution architecture with multi-agent orchestration",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Joaquimscosta"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/joaquimscosta/arkhe-claude-plugins",
+  "repository": "https://github.com/joaquimscosta/arkhe-claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

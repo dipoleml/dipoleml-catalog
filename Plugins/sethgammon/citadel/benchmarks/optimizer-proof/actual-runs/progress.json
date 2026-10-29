@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "kind": "citadel_optimizer_matrix_progress",
+  "authorization_digest": "sha256:b17292a5a08b6ea705f82d5c265e047aa65bb9f774d2fc5ea085648e0fdab1eb",
+  "status": "completed",
+  "completed_run_count": 120,
+  "planned_run_count": 120,
+  "current_run_key": null,
+  "updated_at": "2026-07-31T06:51:46.368Z",
+  "aggregate_digest": "fe4ed5f8611bd35abeff2d3d9ef590005daf1a3b706c4f60914f3ea081539ec7"
+}

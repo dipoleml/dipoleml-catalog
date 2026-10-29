@@ -1,0 +1,16 @@
+{
+  "name": "dead-rules-audit",
+  "displayName": "Dead Rules Audit",
+  "version": "1.0.3",
+  "description": "A DipoleML.md compliance flight-recorder for DipoleML. At SessionStart it parses DipoleML.md into numbered atomic rules; on every Edit/MultiEdit/Write a PostToolUse hook (async, zero added latency) passively tallies how often each rule was relevant and whether it was followed or violated; at SessionEnd (or on demand via /dead-rules-audit:scorecard) it renders a worst-first compliance scorecard with a promote-to-hook hint for chronically-ignored rules. Zero deps, zero network, fully deterministic.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Karanb192"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/karanb192/claude-code-hooks",
+  "repository": "https://github.com/karanb192/claude-code-hooks",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

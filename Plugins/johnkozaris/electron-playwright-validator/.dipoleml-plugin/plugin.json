@@ -1,0 +1,16 @@
+{
+  "name": "electron-playwright-validator",
+  "displayName": "Electron Playwright Validator",
+  "version": "1.4.0",
+  "description": "Electron app UI automation and validation via Playwright CDP",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Johnkozaris"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/johnkozaris/jko-claude-plugins",
+  "repository": "https://github.com/johnkozaris/jko-claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

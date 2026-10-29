@@ -1,0 +1,14 @@
+{
+  "name": "study8677",
+  "owner": {
+    "name": "JingWen Fan",
+    "url": "https://github.com/study8677"
+  },
+  "plugins": [
+    {
+      "name": "readme-skill",
+      "source": "./",
+      "description": "AI-Native developer profile and monthly report generator: Claude Code + Codex CLI + Kiro + Trae + Antigravity + Cursor composer metadata (local-only, anonymized)."
+    }
+  ]
+}

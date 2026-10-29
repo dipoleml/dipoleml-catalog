@@ -1,0 +1,227 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Repository purpose
+
+pdlc-skills is a **Claude Code plugin**. It exposes 38 standardized "Product Development Life Cycle" stages as slash commands (`/pdlc-feature`, `/pdlc-prd`, `/pdlc-tdd`, ..., `/pdlc-onboard`) covering PRD → Design → TDD → Implement → Review → Ship → Deploy → Retro and 24 specialized tools.
+
+The repo is **both a plugin and a single-plugin marketplace** (so `claude plugin marketplace add github:kanfu-panda/pdlc-skills` registers it directly).
+
+Claude Code is the first-class target: it loads `skills/` directly as a plugin. Other tools get a build-time projection that follows the Agent Skills open standard (`adapters/build_agent_skills.py`, installed with `install.sh --target agents | codex`); `skills/` itself is **not** standard-conformant on purpose (it keeps Claude Code's `argument-hint` and our own top-level fields). See `docs/decisions/0007-agent-skills-standard.md`.
+
+## Repository layout
+
+```
+pdlc-skills/
+├── .claude-plugin/
+│   ├── plugin.json                 ← plugin manifest (name, version, author, ...)
+│   └── marketplace.json            ← marketplace manifest (so the repo is also a marketplace)
+├── skills/                         ← 38 sub-skills (each = one slash command); every folder is self-contained
+│   ├── pdlc-feature/SKILL.md       → /pdlc-feature
+│   ├── pdlc-prd/SKILL.md           → /pdlc-prd     (+ assets/: synced template copies)
+│   ├── pdlc-status/SKILL.md        → /pdlc-status  (+ scripts/: synced pdlc-state-lint.sh)
+│   └── ... (38 dirs total)
+├── bin/
+│   ├── pdlc-statusline.sh          ← optional statusline segment (scanned by /pdlc-settings)
+│   ├── pdlc-state-lint.sh          ← state-machine contract check: read side (/pdlc-status · /pdlc-retro · /pdlc-relate) + every state-writing stage after it writes
+│   ├── pdlc-checks.sh              ← runs test-commands.yml and prints the checks JSON (three-state); called by pdlc-advance.sh and by quality
+│   ├── pdlc-advance.sh             ← the only state-transition writer: runs the stage's checks itself, refuses to advance on red or when tdd's tests were changed, writes history + last_phase_result atomically (all 11 state-writing skills)
+│   ├── pdlc-guard.sh               ← opt-in Claude Code hooks (hooks/hooks.json): deny direct Write/Edit of state files; lint changed state files on Stop. No-op unless docs/00_standards/pdlc-hooks.yml turns them on
+│   └── pdlc-loop.sh                ← multi-feature convergence driver (claude | codex | custom --cmd template, unverified; --parallel via worktrees, --status, --report = per-stage steps / blocks across runs for /pdlc-retro, --next = the one next-step mapping that /pdlc-loop-next and /pdlc-loop-run call)
+├── hooks/
+│   └── hooks.json                  ← plugin hooks (PreToolUse Write|Edit, Stop) → bin/pdlc-guard.sh; registered whenever the plugin is enabled, so the opt-in lives in the script
+├── adapters/
+│   ├── sync_skills.py              ← inlines fragments + copies templates/scripts into skills/ (rerun after editing any of them)
+│   ├── build_agent_skills.py       ← Agent Skills standard projection for non-Claude tools (install.sh --target agents)
+│   ├── build_codex.py              ← same projection, default output dist/codex (install.sh --target codex)
+│   └── codex-loop-run.sh           ← Codex entry point: bin/pdlc-loop.sh --platform codex
+├── references/
+│   └── templates/
+│       ├── *-template.md           ← user-facing document templates
+│       └── prompts/*.md            ← shared prompt fragments (iron-law / handoff / ...)
+├── install.sh                      ← curl-based one-line installer wrapping `claude plugin install`
+├── docs/
+│   └── usage-guide.md              ← single user manual (architecture + reference + scenarios)
+├── tests/                          ← 13 scripts, all of them part of the local gate
+│   ├── frontmatter-check.sh        ← validates skills/<name>/SKILL.md frontmatter
+│   ├── install-smoke.sh            ← end-to-end install layout test
+│   ├── statusline-check.sh         ← pdlc-statusline.sh scenario regression
+│   ├── adapter-agent-skills-check.sh ← standard projection + install.sh --target agents
+│   ├── adapter-codex-check.sh      ← adapters/build_codex.py projection output
+│   ├── adapter-codex-loop-run-check.sh ← Codex loop-run mapping + guardrails
+│   ├── evals-runner-check.sh       ← evals/run.sh driver (stubbed, no model spend)
+│   ├── evals-scenario-check.sh     ← assert_scenario verdicts (stubbed, no model spend)
+│   ├── state-lint-check.sh         ← bin/pdlc-state-lint.sh findings + read-only check
+│   ├── checks-check.sh             ← bin/pdlc-checks.sh exit-code → checks JSON mapping
+│   ├── skills-selfcontained-check.sh ← skills self-contained + in sync with their sources
+│   ├── loop-driver-check.sh        ← bin/pdlc-loop.sh with stubbed claude / codex (no model spend)
+│   └── advance-check.sh            ← bin/pdlc-advance.sh transitions / fingerprints / legacy compat + bin/pdlc-guard.sh hooks
+└── VERSION                         ← canonical version (mirrored in plugin.json)
+```
+
+## Sub-skill naming
+
+Every sub-skill at `skills/pdlc-<name>/SKILL.md` becomes the slash command `/pdlc-<name>` in Claude Code. The `pdlc-` prefix is **part of the skill name**, not a namespace separator. We chose this over the colon namespace `/pdlc:<name>` for two reasons:
+
+1. Visual distinctiveness — typing `/pdlc-` filters cleanly to all 38 PDLC commands; suffix-only names (`/feature`, `/fix`) collide with built-in commands and other plugins.
+2. Backwards compatibility — matches the v1 mental model of `/pdlc-feature`.
+
+The full plugin namespace is `pdlc:pdlc-<name>` formally, but Claude Code's autocomplete simplifies to `/pdlc-<name>` since the suffix is unique. Both invocations route to the same skill.
+
+## Common commands
+
+Install / upgrade / uninstall (uses Claude Code's `claude plugin` CLI under the hood):
+
+```bash
+# One-line curl install
+curl -fsSL https://raw.githubusercontent.com/kanfu-panda/pdlc-skills/main/install.sh \
+  | bash -s -- --global
+
+# Or, equivalent native commands
+claude plugin marketplace add kanfu-panda/pdlc-skills
+claude plugin install pdlc@pdlc-skills
+```
+
+For local development from a clone:
+
+```bash
+claude plugin marketplace add /Users/me/projects/pdlc-skills
+claude plugin install pdlc@pdlc-skills
+```
+
+Tests — **run these locally**; CI only fires on release tags and manual dispatch (see "CI scope" below):
+
+```bash
+bash tests/frontmatter-check.sh              # skills/*/SKILL.md frontmatter + VERSION consistency
+bash tests/install-smoke.sh                  # end-to-end install layout assertions
+bash tests/statusline-check.sh               # bin/pdlc-statusline.sh render scenarios
+bash tests/adapter-agent-skills-check.sh     # Agent Skills projection conforms to the standard; install.sh --target agents
+bash tests/adapter-codex-check.sh            # adapters/build_codex.py projection output
+bash tests/adapter-codex-loop-run-check.sh   # Codex loop-run mapping + guardrails
+bash tests/evals-runner-check.sh             # evals/run.sh driver (stubbed, no model spend)
+bash tests/evals-scenario-check.sh           # assert_scenario verdicts (stubbed, no model spend)
+bash tests/state-lint-check.sh               # bin/pdlc-state-lint.sh contract-check findings
+bash tests/checks-check.sh                   # bin/pdlc-checks.sh three-state checks JSON
+bash tests/skills-selfcontained-check.sh     # skills self-contained + in sync with their sources
+bash tests/loop-driver-check.sh              # bin/pdlc-loop.sh: scheduling, worktrees, guardrails, --status (stubbed)
+bash tests/advance-check.sh                  # bin/pdlc-advance.sh state transitions + bin/pdlc-guard.sh opt-in hooks
+
+# or the lot, stopping at the first red script
+for f in tests/*.sh; do echo "== $f"; bash "$f" || break; done
+
+shellcheck install.sh tests/*.sh bin/*.sh adapters/*.sh evals/run.sh \
+  evals/fixtures/*/scenario.sh .githooks/pre-commit
+```
+
+**All thirteen count** — 966 assertions at the time of writing; run them for the current number rather
+than trusting this one. The list above once named only two, which quietly documented a 221/304 gate;
+if you add a script under `tests/`, add it here too.
+
+`statusline-check.sh` additionally needs a run under macOS's stock `/bin/bash` (3.2.57) — the
+statusline script is deliberately bash-3.2 compatible (no `mapfile`, no bash-4 syntax), and a
+Homebrew bash 5 on `PATH` will happily pass code that breaks on a stock Mac. `state-lint-check.sh`
+already invokes `bin/pdlc-state-lint.sh` through `/bin/bash` whenever it exists, for the same reason.
+
+Enable the pre-commit secret scan once per clone (`.githooks/pre-commit`, uses `gitleaks` when present and falls back to a pattern scan with a loud warning when it isn't — "can't scan" must never read as "clean"):
+
+```bash
+git config core.hooksPath .githooks
+```
+
+**CI scope**: every workflow is `workflow_dispatch` or release-tag triggered — nothing runs on push-to-main or on PRs. Day-to-day checks belong on your machine; CI is reserved for the moment something gets published (`secret-scan` re-scans the full history with `fetch-depth: 0` before a release goes out). Adding a workflow, or widening an existing trigger, needs the maintainer's explicit go-ahead.
+
+Behavioural evals (`evals/`, added v1.5.3) — verify contracts that only hold when a skill *really runs*:
+
+```bash
+./evals/run.sh --check            # fixture structure only, no model, free (this is what CI runs)
+./evals/run.sh --list             # list scenarios
+./evals/run.sh --only honest-checks          # real run — costs one model turn
+./evals/run.sh --platform codex --repeat 3   # pre-release: both platforms, 3 rounds each
+```
+
+The tier criterion is **who executes the contract**: deterministic code (bash driver, jq mapping) → stub-testable, keep it in `tests/`; the *model following SKILL.md prose* → stubbing the model stubs the object under test, so it needs a real run (`A-live`). Evals are **advisory, never a hard release gate** (a rate-limit shouldn't block a release) and **never run in CI**. Details and cost ledger: `evals/EVALS.md`, ADR `docs/decisions/0005-testing-and-quality-capability.md`.
+
+## How sub-skills compose
+
+Each `skills/pdlc-<name>/SKILL.md` has:
+
+- YAML frontmatter (`name`, `description`, `argument-hint`, `allowed-tools`, plus PDLC-internal fields `layer`, `stage`, `produces`, `requires`, `next_step`, `terminal_state`) — read by Claude Code and our tests, **not shown to the model**
+- Markdown body — the workflow Claude follows when the slash command fires
+- Shared prompt fragments (IRON LAW, handoff, self-audit, state update, …) — authored once in `references/templates/prompts/<x>.md`, referenced as `<!-- @include templates/prompts/<x>.md -->`, and **inlined at build time** by `adapters/sync_skills.py` between generated begin / end markers
+- `assets/` / `scripts/` next to `SKILL.md` — copies of the templates and `bin/` scripts the body references as `` `assets/<file>` `` / `` `scripts/<file>` ``, synced the same way
+
+Why build-time: when a skill fires, the model is handed the skill's base directory and the body — nothing else. It doesn't see the frontmatter (verified), and nothing tells it where `references/` or `bin/` live, so a runtime "go read the fragment" convention was followed only some of the time. Everything the model needs therefore lives inside the skill folder, which is also what the Agent Skills open standard asks for. For the 11 state-writing skills, the sync step also writes the frontmatter's `stage` / `next_step` into the body as a `pdlc:meta` block.
+
+## Layer structure
+
+Sub-skills are grouped by `layer:` in frontmatter (the 38 names below all carry the `pdlc-` prefix):
+
+- **Layer 1 (3)**: `pdlc-feature`, `pdlc-fix`, `pdlc-status` — one-sentence-driven entry points
+- **Layer 2 (11)**: `pdlc-prd`, `pdlc-design`, `pdlc-tdd`, `pdlc-implement`, `pdlc-review`, `pdlc-e2e`, `pdlc-refactor`, `pdlc-ship`, `pdlc-deploy`, `pdlc-retro`, `pdlc-task` — single-stage fine control
+- **Layer 3 (24)**: specialized tools (`pdlc-ui-design`, `pdlc-db-design`, `pdlc-arch`, `pdlc-lint`, `pdlc-perf`, `pdlc-security`, `pdlc-test-setup`, `pdlc-quality`, `pdlc-code-gen`, `pdlc-add-service`, `pdlc-add-app`, `pdlc-api-mock`, `pdlc-db-migrate`, `pdlc-i18n`, `pdlc-changelog`, `pdlc-standard`, `pdlc-relate`, `pdlc-bootstrap`, `pdlc-adopt`, `pdlc-onboard`, `pdlc-ui-design-pro`, `pdlc-loop-next`, `pdlc-loop-run`, `pdlc-settings`)
+
+  `pdlc-loop-next` / `pdlc-loop-run` are loop tooling (Loop 工程 / autonomous drive): `loop-next` prints the next mechanical-convergence command for an outer loop; `loop-run` is the convergence engine that auto-advances `tdd → implement → review` until reviewed and awaiting release (`next_step: pdlc-ship`) or blocked (release always stays human). See `docs/decisions/0001-loop-engineering-integration.md`. For several features, parallel runs or long unattended runs, `bin/pdlc-loop.sh` is the external driver (shipped inside `pdlc-loop-run` and `pdlc-status` as `scripts/pdlc-loop.sh`); its run record (read back by `--status`) lives in `<git common dir>/pdlc-loop/`. See `docs/decisions/0006-multi-feature-loop-driver.md`.
+
+  `pdlc-settings` is the interactive config command (Layer 3); it wires up the optional PDLC statusline (`bin/pdlc-statusline.sh`) — enable/disable/display-items — and toggles the project's opt-in hooks (`docs/00_standards/pdlc-hooks.yml`, ADR 0008). Editing global `~/.claude/settings.json` is backup+diff+confirm-gated and degrades gracefully when the security layer blocks the write. See `docs/decisions/0002-statusline-pdlc-status.md`.
+
+## Invariants enforced by the skills themselves
+
+Every Layer 1/2 sub-skill **that produces artifacts** (i.e. `produces: []` is empty for read-only stages like `pdlc-status`) `@include`s `templates/prompts/iron-law.md`, which states the IRON LAW:
+
+1. Artifacts must be persisted to disk (not just chat output)
+2. The state machine `docs/.pdlc-state/<feature-id>.json` must be updated on every stage transition
+3. Tests must exist (and be red) before implementation
+4. A self-check runs before handoff
+5. Auto-repair runs at most once
+6. State must advance — a successful stage must change `current_stage`; a stalled stage fails loudly instead of returning silently (so autonomous loops can't spin on stale state), except for a deliberate human-block which records `blocked_reason` (added in v1.2)
+
+Skill bodies follow a four-phase skeleton (execute → self-check → one-shot repair → handoff), with `next_step:` in frontmatter declaring the next stage so multi-stage flows are command-driven, not memorized.
+
+## Target-project contract
+
+When the user invokes a `/pdlc-*` slash command in their project, the skill reads/writes these paths in that project:
+
+- `docs/00_standards/coding/` — coding standards (read by `pdlc-prd` / `pdlc-implement` / `pdlc-tdd` / `pdlc-code-gen` / `pdlc-onboard`; optional)
+- `docs/00_standards/pdlc-hooks.yml` — opt-in switches for the Claude Code hooks (`state_write_guard`, `lint_on_stop`), written by `/pdlc-settings hooks on|off`; absent = hooks do nothing; template at `references/templates/pdlc-hooks-template.yml`; optional
+- `docs/00_standards/test-commands.yml` — single source of the project's objective `check` commands (`unit` / `coverage` / `lint` / `e2e`), read by `pdlc-tdd` / `pdlc-implement` / `pdlc-review` and the loop drivers so `last_phase_result.checks` come from real exit codes, not model self-audit; template at `references/templates/test-commands-template.yml`; optional
+- `docs/01_requirements/prd/`
+- `docs/02_design/{api,database,architecture,ui-ux}/`
+- `docs/03_development/` — developer manuals (`pdlc-onboard` writes here)
+- `docs/04_testing/{unit-tests,e2e-tests,defects,security,perf}/`
+- `docs/05_deployment/` — a release-level deploy doc is `guides/v<version>-deploy.md`; `pdlc-ship` writes `releases/v<version>-release-notes.md`, a release summary drafted from the PRDs, review records and checks, ready to use as the PR description (template: `references/templates/release-notes-template.md`; it never opens or merges the PR)
+- `docs/06_tasks/`
+- `docs/00_standards/quality-targets.yml` — declared quality targets (coverage line, `core_flows`, lint policy) read by `pdlc-quality`; template at `references/templates/quality-targets-template.yml`; optional
+- `docs/00_standards/e2e-flow-map.yml` — explicit `core_flow → E2E test` map so "all core flows covered" is a mechanical check rather than a model opinion; required once `core_flows` is declared; template at `references/templates/e2e-flow-map-template.yml`
+- `docs/07_reviews/{doc,code,design,retro,quality}/` — the `quality/` subdir holds dated `pdlc-quality` reports as a `.md` / `.html` pair. The **`.md` is the source of truth** (`git diff`-able, read by `pdlc-ship` as a release gate); the `.html` is a self-contained view of the same data (template: `references/templates/quality-report-template.html`, zero external assets so it opens offline and prints for sign-off). Numbers in the HTML are copied from the `.md`, never recomputed.
+- `docs/.pdlc-state/<feature-id>.json` — per-feature state machine, ID format `F<YYYYMMDD>-<HHMMSS>` (creation-time, collision-safe under parallel work; legacy `-<NN>` still parses). `current_stage` ends in `_done` only once released: `pdlc-ship` writes `ship_done`, `pdlc-deploy` writes `deploy_done`, every other command writes its stage short name ("reviewed, awaiting release" = `next_step: pdlc-ship`)
+
+- `.worktrees/pdlc-loop/<feature-id>/` (branch `pdlc-loop/<feature-id>`) — one git worktree per feature when `bin/pdlc-loop.sh` runs with `--parallel N>1`; the path is added to `.git/info/exclude`, and the driver never commits or merges there
+- `<git common dir>/pdlc-loop/` — the driver's run record (`latest`, `<run-id>/run.json`, one `<feature-id>.json` + `.log` per feature, a `lock`); outside a git repo it falls back to `docs/.pdlc-state/_loop/`, which readers skip like every `_`-prefixed entry
+
+Changing this contract requires updating both the relevant `skills/pdlc-*/SKILL.md` bodies AND the `Target-project contract` sections in README and `docs/usage-guide.md`.
+
+## When editing this plugin
+
+- Edit sources under `skills/pdlc-<name>/SKILL.md` (sub-skill bodies), `references/templates/prompts/*.md` (shared fragments), `references/templates/*-template.*` (user document templates) or `bin/*.sh`. Don't edit installed copies in `~/.claude/plugins/cache/`.
+- After editing a fragment, a template or a `bin/` script, run `python3 adapters/sync_skills.py`. Never hand-edit an inlined region, a `pdlc:meta` block, or anything under `skills/*/assets/` / `skills/*/scripts/` — they are regenerated, and `tests/skills-selfcontained-check.sh` fails on drift.
+- In a skill body, reference templates and scripts as `` `assets/<file>` `` / `` `scripts/<file>` `` (relative to the skill folder), never as `templates/…` or `../../…` — the model can't resolve those. Use `$ARGUMENTS` exactly once, on its own `label: $ARGUMENTS` line: Claude Code substitutes every occurrence, with an empty string when there are no arguments.
+- New required frontmatter fields → also update `required_fields` in `tests/frontmatter-check.sh`.
+- Run all thirteen test scripts and shellcheck before committing (see "Common commands").
+- New shared prompt fragments → put under `references/templates/prompts/`, reference via `<!-- @include templates/prompts/<name>.md -->` (path is relative to `references/`), then run the sync. Inside a fragment, don't point at another fragment by file name — after inlining, only the fragments a skill itself includes are there.
+- New sub-skill: create `skills/pdlc-<name>/SKILL.md` with the standard frontmatter (`name: pdlc-<name>`, layer/stage, produces/requires, etc.). The `pdlc-` prefix in directory and `name:` is mandatory.
+
+## Bumping versions
+
+`VERSION` and `.claude-plugin/plugin.json`'s `version` field must match. `tests/frontmatter-check.sh` asserts this.
+
+## Notes
+
+- Public-facing entry: `README.md` (English) and `README.zh-CN.md` (Chinese). They mirror each other.
+- User manual: `docs/usage-guide.md` — single source containing install, command catalog, contract, scenarios, FAQ.
+- This file (`CLAUDE.md`) is contributor-facing only. **It is still shipped to users**, though — see below.
+- **Everything in this repo is installed, including dev-only files.** `claude plugin install` copies the whole source directory (minus `.git`) into `~/.claude/plugins/cache/`, so `evals/`, `tests/`, `docs/`, `adapters/`, `.github/` and this file all land on the user's machine (~1.7 MB total as of this writing, of which ~0.9 MB is dev-only).
+
+  The plugin manifest schema has **no** `exclude` / `files` / `ignore` field, and there is no `.claudeignore` — verified against the [plugins reference](https://code.claude.com/docs/en/plugins-reference). The only way to ship less is to move the user-facing parts (`skills/`, `references/`, `bin/`, `.claude-plugin/plugin.json`) into a subdirectory and point the marketplace entry's `source` at it.
+
+  We deliberately have **not** done that: the token cost is zero either way (`claude plugin details` reports ~1,345 always-on tokens, all of it skill descriptions — dev files never enter the context window), so the only gain is ~0.9 MB of disk, against a restructure that touches 26 + 15 + 11 path references and risks silent breakage in the statusline symlink and adapter template paths. Revisit if the plugin grows substantially or if Claude Code adds an exclusion mechanism.

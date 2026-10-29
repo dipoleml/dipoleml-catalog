@@ -1,0 +1,157 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.eugeniughelbur.obsidian-second-brain",
+  "type": "plugin",
+  "name": "Obsidian Second Brain",
+  "slug": "obsidian-second-brain",
+  "vendor": "eugeniughelbur",
+  "description": "Persistent memory for DipoleML, Codex and 6 other AI agents, stored as plain markdown in your Obsidian vault. New: Crew, one shared logbook so DipoleML, Codex, Cursor and Grok Bot know what each other did. 48 commands: semantic search, self-rewriting notes, key-less research, scheduled agents.",
+  "version": "0.20.0",
+  "homepage": "https://github.com/eugeniughelbur/obsidian-second-brain",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agent-memory",
+    "agent-skills",
+    "ai-note-taking",
+    "ai-second-brain",
+    "claude-code-skill",
+    "claude-memory",
+    "claude-plugin",
+    "claude-skill",
+    "codex"
+  ],
+  "tags": [
+    "agent-memory",
+    "agent-skills",
+    "ai-agents",
+    "ai-note-taking",
+    "ai-second-brain",
+    "claude",
+    "claude-code",
+    "claude-code-skill",
+    "claude-memory",
+    "claude-plugin",
+    "claude-skill",
+    "codex",
+    "karpathy-llm-wiki",
+    "knowledge-graph",
+    "knowledge-management",
+    "obsidian",
+    "obsidian-md",
+    "personal-knowledge-management",
+    "pkm",
+    "second-brain"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "eugeniughelbur",
+    "brandName": "eugeniughelbur",
+    "source": "https://github.com/eugeniughelbur.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:12:58Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "eugeniughelbur/obsidian-second-brain",
+    "url": "https://github.com/eugeniughelbur/obsidian-second-brain",
+    "commit": "f79c64f3f03ee25ec1660c8a30ebe7f4f8e044ff",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 5020,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:58:14Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Obsidian Second Brain | Persistent memory for Claude Code, Codex and 6 other AI agents, stored as plain markdown in your Obsidian vault. New: Crew, one shared logbook so Claude Code, Codex, Cursor and Grok Bot know what each other did. 48 commands: semantic search, self-rewriting notes, key-less research, scheduled agents.",
+        "after": "Obsidian Second Brain | Persistent memory for DipoleML, Codex and 6 other AI agents, stored as plain markdown in your Obsidian vault. New: Crew, one shared logbook so DipoleML, Codex, Cursor and Grok Bot know what each other did. 48 commands: semantic search, self-rewriting notes, key-less research, scheduled agents.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Stop re-explaining your notes to Claude. Turns your Obsidian vault into memory Claude can actually search, and keeps it true: new sources rewrite existing pages, contradictions reconcile, and stale facts get flagged. AI note-taking and PKM for Claude Code.",
+        "after": "Stop re-explaining your notes to DipoleML. Turns your Obsidian vault into memory DipoleML can actually search, and keeps it true: new sources rewrite existing pages, contradictions reconcile, and stale facts get flagged. AI note-taking and PKM for DipoleML.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "obsidian-second-brain-research"
+    ],
+    "env": [
+      "PERPLEXITY_API_KEY",
+      "OPENAI_API_KEY",
+      "OPENROUTER_API_KEY",
+      "XAI_API_KEY",
+      "GEMINI_API_KEY",
+      "YOUTUBE_API_KEY",
+      "OBSIDIAN_EMBED_URL",
+      "OBSIDIAN_EMBED_KEY"
+    ],
+    "credentials": [
+      "PERPLEXITY_API_KEY",
+      "OPENAI_API_KEY",
+      "OPENROUTER_API_KEY",
+      "XAI_API_KEY",
+      "GEMINI_API_KEY",
+      "YOUTUBE_API_KEY",
+      "OBSIDIAN_EMBED_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

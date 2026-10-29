@@ -1,0 +1,212 @@
+import { z } from 'zod';
+import {
+  SourcePositionSchema,
+  ComponentIdentitySchema,
+  PortableLocatorSchema,
+  ElementTargetSchema,
+  TargetStatusSchema,
+  TargetReasonSchema,
+} from '@domscribe/core';
+import {
+  McpToolDefinition,
+  McpToolOutputSchema,
+  MCP_TOOLS,
+  mcpErrorResult,
+} from './tool.defs.js';
+import { RelayHttpClient } from '../../client/relay-http-client.js';
+
+const QueryBySourceToolInputSchema = z.object({
+  instanceId: z.string().min(1).max(128).optional(),
+  locator: PortableLocatorSchema.optional(),
+  file: z
+    .string()
+    .describe(
+      'Absolute file path as stored in the manifest (e.g. "/home/user/project/src/components/Button.tsx"). ' +
+        'Use domscribe.manifest.query to discover the exact paths the manifest uses.',
+    ),
+  line: z.number().int().positive().describe('Line number (1-indexed)'),
+  column: z
+    .number()
+    .int()
+    .nonnegative()
+    .optional()
+    .describe('Column number (0-indexed)'),
+  tolerance: z
+    .number()
+    .int()
+    .nonnegative()
+    .optional()
+    .describe('Maximum line distance to consider (default: 0)'),
+  includeRuntime: z
+    .boolean()
+    .optional()
+    .describe(
+      'Whether to query live runtime context from the browser (default: true)',
+    ),
+});
+
+type QueryBySourceToolInput = z.infer<typeof QueryBySourceToolInputSchema>;
+
+const QueryBySourceToolOutputSchema = McpToolOutputSchema.extend({
+  selectionStatus: TargetStatusSchema.optional(),
+  selectionReason: TargetReasonSchema.optional(),
+  targets: z.array(ElementTargetSchema).optional(),
+  total: z.number().int().nonnegative().optional(),
+  found: z.boolean(),
+  entryId: z.string().optional(),
+  sourceLocation: z
+    .object({
+      file: z.string(),
+      start: SourcePositionSchema,
+      end: SourcePositionSchema.optional(),
+      tagName: z.string().optional(),
+      componentName: z.string().optional(),
+    })
+    .optional(),
+  runtime: z
+    .object({
+      rendered: z.boolean(),
+      componentIdentity: ComponentIdentitySchema.optional(),
+      componentProps: z.unknown().optional(),
+      componentState: z.unknown().optional(),
+      componentStyles: z
+        .object({
+          computed: z
+            .record(z.string(), z.string())
+            .optional()
+            .describe(
+              'Computed CSS properties from the allowlist (display, padding, color, font-*, etc.). Use this to confirm what the element actually renders before editing.',
+            ),
+          customProperties: z
+            .record(z.string(), z.string())
+            .optional()
+            .describe(
+              "Resolved `--*` CSS custom properties visible at the element. When a computed value matches a token's resolved value, prefer the token name in the fix.",
+            ),
+        })
+        .optional()
+        .describe(
+          'Runtime style snapshot (RFC 0001). Present only when the runtime is configured with `captureStyles: true`. Use this on styling annotations to ground the agent edit in what the user sees, not just what the source says.',
+        ),
+      domSnapshot: z
+        .object({
+          tagName: z.string().optional(),
+          attributes: z.record(z.string(), z.string()).optional(),
+          innerText: z.string().optional(),
+        })
+        .optional(),
+    })
+    .optional(),
+  browserConnected: z.boolean().optional(),
+  hint: z
+    .string()
+    .optional()
+    .describe('Actionable guidance based on the result'),
+});
+
+type QueryBySourceToolOutput = z.infer<typeof QueryBySourceToolOutputSchema>;
+
+export class QueryBySourceTool implements McpToolDefinition<
+  typeof QueryBySourceToolInputSchema,
+  typeof QueryBySourceToolOutputSchema
+> {
+  name = MCP_TOOLS.QUERY_BY_SOURCE;
+  description =
+    'Get live DOM snapshot, component props, state, and computed styles for a source location (file + line). ' +
+    'Call this when fixing visual/styling bugs, debugging conditional rendering, tracing prop values, or verifying UI changes after editing. ' +
+    'For styling annotations specifically — padding, color, spacing, typography, layout — always call this first: `runtime.componentStyles.computed` is the ground truth for what the user sees, and `runtime.componentStyles.customProperties` exposes the resolved design-system tokens (`--*` vars) at the element. Prefer token names over raw values in your edit when the resolved value matches. ' +
+    "Skip for pure logic changes, new files, refactoring, or type fixes — runtime context won't help there. " +
+    'If browserConnected is false, ask the user to open the page in their browser and retry. ' +
+    'Returns manifest data even when the browser is not connected. ' +
+    'NOTE: `componentStyles` requires the runtime to be configured with `captureStyles: true` (off by default in v0.x for payload-size reasons).';
+  inputSchema = QueryBySourceToolInputSchema;
+  outputSchema = QueryBySourceToolOutputSchema;
+
+  constructor(private readonly relayHttpClient: RelayHttpClient) {}
+
+  private buildHint(result: {
+    found: boolean;
+    selectionStatus?: string;
+    selectionReason?: string;
+    browserConnected?: boolean;
+    runtime?: {
+      rendered?: boolean;
+      componentStyles?: unknown;
+    };
+  }): string | undefined {
+    if (result.selectionStatus === 'unsupported')
+      return result.selectionReason === 'context_required'
+        ? 'Portable dialog replay requires a stable, non-secret data-ds-context key for each enclosing dialog. Recapture after the app supplies the key; do not guess a business entity.'
+        : 'This portable identity is unsupported. Recapture with shorter, unambiguous identity; do not act on a guessed target.';
+    if (result.selectionStatus === 'ambiguous')
+      return 'Multiple live instances share this source. Inspect targets and retry with an instanceId; persist its locator for another session.';
+    if (result.selectionStatus === 'ambiguous_browser')
+      return 'Multiple browsers are connected. Keep one target browser session connected before querying.';
+    if (result.selectionStatus === 'stale')
+      return 'The instance is stale. Rediscover targets or resolve the saved portable locator; do not reuse the handle.';
+    if (!result.found) {
+      return (
+        'No manifest entry found for this source location. ' +
+        'Try domscribe.manifest.query with the file path to discover which lines have entries, ' +
+        'or use tolerance > 0 to widen the search.'
+      );
+    }
+    if (result.browserConnected === false) {
+      return (
+        'No browser is connected — runtime data is unavailable. ' +
+        'Ask the user to open the page containing this component in their browser, then retry to get live props, state, and DOM snapshot.'
+      );
+    }
+    if (result.runtime && !result.runtime.rendered) {
+      return (
+        'The element exists in the manifest but is not currently rendered in the browser. ' +
+        'Ask the user to navigate to a page that renders this component, then retry.'
+      );
+    }
+    if (
+      result.runtime &&
+      result.runtime.rendered &&
+      !result.runtime.componentStyles
+    ) {
+      return (
+        'componentStyles is not in this response. If the user is asking about a styling change ' +
+        '(padding, color, spacing, typography, layout), ask the user to set `captureStyles: true` ' +
+        "in their Domscribe runtime config and retry — you'll get the computed-style + token snapshot " +
+        'for the element, which lets the edit land in one round trip.'
+      );
+    }
+    return undefined;
+  }
+
+  async toolCallback(input: QueryBySourceToolInput) {
+    try {
+      const result = await this.relayHttpClient.queryBySource(input);
+
+      const output: QueryBySourceToolOutput = {
+        selectionStatus: result.selectionStatus,
+        selectionReason: result.selectionReason,
+        targets: result.targets,
+        total: result.total,
+        found: result.found,
+        entryId: result.entryId,
+        sourceLocation: result.sourceLocation,
+        runtime: result.runtime,
+        browserConnected: result.browserConnected,
+        error: result.error,
+        hint: this.buildHint(result),
+      };
+
+      return {
+        structuredContent: output,
+        content: [
+          {
+            type: 'text' as const,
+            text: JSON.stringify(output, null, 2),
+          },
+        ],
+      };
+    } catch (error: unknown) {
+      return mcpErrorResult(error);
+    }
+  }
+}

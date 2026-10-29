@@ -1,0 +1,18 @@
+# Claude Code local settings — not for version control
+.claude/settings.local.json
+.claude/
+
+# macOS
+.DS_Store
+._*
+
+# Node
+node_modules/
+
+# Stitch per-user session state (project id, screen ids, PRD drafts, transcript
+# snapshots). Runtime state, never source — and the snapshots can contain
+# conversation content, so it stays out of git.
+.stitch/
+
+# Local agent orchestration state (oh-my-claudecode) — never ship this
+.omc/

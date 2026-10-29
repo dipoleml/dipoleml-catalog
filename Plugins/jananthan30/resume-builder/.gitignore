@@ -1,0 +1,162 @@
+# ========================
+# Personal / Sensitive Data
+# ========================
+.env
+config.json
+*MASTER*RESUME*
+*_RESUME_*
+*_Resume_*
+!native_resume_team.py
+yale_transcript.txt
+Job_Application_Tracker.xlsx
+*.xlsx.bak
+FAERS_GLP1_PV_Project_Skeleton.txt
+.frontier/
+tailored_resume.txt
+_iter*.json
+Best_Fit_Job_Positions*.docx
+*.xlsx
+!config.example.json
+~$*.docx
+
+# ========================
+# Generated Applications (contain personal resumes/cover letters)
+# ========================
+applications/
+
+# ========================
+# Cache & Build Artifacts
+# ========================
+embed_cache/
+audit_log/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ========================
+# IDE / Editor
+# ========================
+.worktrees/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# ========================
+# OS Files
+# ========================
+.DS_Store
+Thumbs.db
+Desktop.ini
+nul
+
+# ========================
+# Logs & Temp
+# ========================
+*.log
+.temp_data.json
+_temp_data.json
+test.json
+test_resume.docx
+
+# ========================
+# Unrelated / personal documents
+# ========================
+Biweekly Survey Questions*.docx
+HeallyConnect_Survey*.docx
+Resume*.docx
+*.settings.local.json
+
+# ========================
+# Client-specific batch scripts (contain personal data)
+# ========================
+create_docs.py
+generate_docs_*.py
+generate_kymera_docs.py
+
+# ========================
+# Claude / AI Agent State (transient)
+# ========================
+.claude/memory/
+.playwright-mcp/
+.resume-team-state/
+
+# ========================
+# Gemini commands (mirror of Claude commands — not needed for public)
+# ========================
+.gemini/
+
+# ========================
+# Batch Job Descriptions (user-specific)
+# ========================
+batch_jds/
+
+# ========================
+# Internal planning docs (not part of the tool)
+# ========================
+Deepresearch.md
+DEEP_RESEARCH_PROMPT.md
+MARKETING_PLAN.md
+SAAS_PLAN.md
+IMPLEMENTATION_PLAN.md
+ATS & HR Scorer Enhancement Research.txt
+Resume Builder Plugin Industry Research.txt
+
+# ========================
+# Cloud / Billing / Deployment (private — not for public repo)
+# ========================
+cloud/
+!cloud/__init__.py
+!cloud/client.py
+Dockerfile
+docker-compose.yml
+docker-entrypoint.sh
+fly.toml
+.dockerignore
+litestream.yml
+requirements-cloud.txt
+*.db
+
+# ========================
+# Tests (private — not needed in public repo)
+# ========================
+tests/
+!tests/
+tests/*
+!tests/test_resume_integrity.py
+!tests/test_multi_agent_team.py
+!tests/test_provenance_guards.py
+!tests/test_native_resume_team.py
+!tests/test_finalization_guards.py
+!tests/test_human_voice_audit.py
+!tests/test_evidence_audit.py
+!tests/conftest.py
+!tests/test_docx_generator_optional_summary.py
+!tests/test_host_anthropic_runtime.py
+!tests/fixtures/
+tests/fixtures/*
+!tests/fixtures/resume_integrity/
+!tests/fixtures/resume_integrity/**
+pytest.ini
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ========================
+# Product specs / plans (business docs — never public)
+# ========================
+docs/superpowers/
+
+# Local dev-server config (absolute paths, machine-specific)
+.claude/launch.json
+
+# Strategy reports (business docs — never public)
+STRATEGY.md
+assets/strategy-card.svg

@@ -1,0 +1,181 @@
+#!/usr/bin/env bash
+# ops-merge-scan — Scan all repos for open PRs with merge readiness data
+# Extended version of ops-prs with CI status, mergeable state, and reviews
+# Used by /ops:merge skill for pre-gathering PR queue
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PLUGIN_DIR="${CLAUDE_PLUGIN_ROOT:-${SCRIPT_DIR}/..}"
+OPS_PLUGIN_ROOT_FALLBACK="$PLUGIN_DIR" . "${PLUGIN_DIR}/lib/registry-path.sh"
+# Schema-tolerant registry reads (GSD project schema has no .repos[]; derive from .remote_url)
+. "${PLUGIN_DIR}/lib/registry-resolve.sh"
+PREFS="${OPS_DATA_DIR}/preferences.json"
+
+# Optional: scope to a single repo. Accepts a bare slug or --repo <slug>, because
+# the skill documents the flag form while this script only ever read $1 — passing
+# --repo used to set FILTER_REPO to the literal string "--repo" and scan a repo
+# named that, which found nothing and looked like "no open PRs".
+FILTER_REPO=""
+case "${1:-}" in
+  --repo) FILTER_REPO="${2:-}" ;;
+  --repo=*) FILTER_REPO="${1#--repo=}" ;;
+  -*) echo "{\"error\":\"unknown flag ${1}\",\"prs\":[]}" && exit 1 ;;
+  *) FILTER_REPO="${1:-}" ;;
+esac
+
+if [ -n "$FILTER_REPO" ] && ! printf '%s' "$FILTER_REPO" | grep -qE '^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$'; then
+  echo "{\"error\":\"not an owner/name slug: ${FILTER_REPO}\",\"prs\":[]}" && exit 1
+fi
+
+if [ ! -f "$REGISTRY" ]; then
+  echo '{"error":"registry.json not found","prs":[]}' && exit 1
+fi
+
+if ! command -v gh &>/dev/null; then
+  echo '{"error":"gh CLI not found","prs":[]}' && exit 0
+fi
+
+# Collect unique repos (or filter to one)
+if [ -n "$FILTER_REPO" ]; then
+  REPOS="$FILTER_REPO"
+else
+  # Schema-tolerant: GSD schema lacks .repos[]; resolver derives slugs from .repos[] or .remote_url (dedup)
+  REPOS=$(ops_registry_repos "$REGISTRY")
+fi
+
+# Drop repos we cannot push to.
+#
+# The registry lists every project cloned locally, which includes upstreams we
+# only ever read: a fork's parent, a dependency we patched once, a public repo
+# we filed one issue against. Those surface open PRs from unrelated contributors,
+# and a merge queue that lists them invites merging someone else's work into a
+# project that is not ours. On 2026-08-15 a scan returned 57 such PRs across four
+# upstream repos alongside 8 real ones.
+#
+# `.permissions.push` is true only for a member or collaborator, which is exactly
+# the line we want.
+#
+# The gate is fail-closed: only an explicit `true` keeps a repo. A lookup that
+# errors, returns null, or reports false is dropped. Fail-open was tempting so a
+# network blip could not hide your own PRs, but this list feeds a queue whose next
+# step is `gh pr merge`, and "we could not tell" must never resolve to "merge it".
+# A blip costs you a rerun; the other way costs someone else's repo.
+#
+# --repo is NOT exempt. It used to be, which meant `--repo someone/else` walked
+# straight past the check.
+#
+# OPS_MERGE_INCLUDE_EXTERNAL takes a single slug, not a boolean, so authorising one
+# upstream for one run cannot silently re-open the whole registry.
+ALLOW_EXTERNAL="${OPS_MERGE_INCLUDE_EXTERNAL:-}"
+[ "$ALLOW_EXTERNAL" = "1" ] && ALLOW_EXTERNAL=""   # legacy boolean is not an allowlist
+
+KEPT=""
+SKIPPED=""
+for repo in $REPOS; do
+  if [ -n "$ALLOW_EXTERNAL" ] && [ "$repo" = "$ALLOW_EXTERNAL" ]; then
+    KEPT="$KEPT $repo"
+    echo "ops-merge: including $repo by explicit OPS_MERGE_INCLUDE_EXTERNAL" >&2
+    continue
+  fi
+  PERM=$(gh api "repos/$repo" --jq '.permissions.push' 2>/dev/null || echo "error")
+  case "$PERM" in
+    true) KEPT="$KEPT $repo" ;;
+    *) SKIPPED="$SKIPPED $repo($PERM)" ;;
+  esac
+done
+REPOS="$KEPT"
+[ -n "$SKIPPED" ] && echo "ops-merge: skipped, no confirmed push access:$SKIPPED" >&2
+
+if [ -z "$(printf '%s' "$REPOS" | tr -d ' ')" ]; then
+  echo '{"prs":[],"note":"no repos with confirmed push access"}' && exit 0
+fi
+
+# Approved PR author logins (owner + bots). Configured in preferences.json
+# under .merge_authors (array of GitHub logins, e.g. "you", "dependabot[bot]").
+# Empty / missing → keep all authors (legacy behavior).
+MERGE_AUTHORS_JSON='[]'
+if [ -f "$PREFS" ]; then
+  MERGE_AUTHORS_JSON=$(jq -c '.merge_authors // []' "$PREFS" 2>/dev/null || echo '[]')
+fi
+
+TMPDIR_OPS=$(mktemp -d)
+trap 'rm -rf "$TMPDIR_OPS"' EXIT
+
+for repo in $REPOS; do
+  (
+    SAFE_NAME=$(echo "$repo" | tr '/' '_')
+    PRS=$(gh pr list --repo "$repo" --state open --limit 15 \
+      --json number,title,headRefName,isDraft,reviewDecision,mergeable,mergeStateStatus,createdAt,author \
+      2>/dev/null || echo '[]')
+
+    if [ "$PRS" != "[]" ] && [ -n "$PRS" ]; then
+      # Enrich each PR with CI status via gh pr view (statusCheckRollup only works there)
+      ENRICHED=$(echo "$PRS" | jq -c '.[]' | while read -r pr; do
+        NUM=$(echo "$pr" | jq -r '.number')
+        # Get CI status for this specific PR
+        CI_JSON=$(gh pr view "$NUM" --repo "$repo" --json statusCheckRollup 2>/dev/null || echo '{"statusCheckRollup":[]}')
+        echo "$pr" | jq --argjson ci "$CI_JSON" '. + {statusCheckRollup: $ci.statusCheckRollup}'
+      done | jq -s '.')
+
+      # Classify each PR.
+      # If merge_authors is configured, PRs from unlisted authors are dropped
+      # entirely — they do not belong in the operator's merge queue.
+      CLASSIFIED=$(echo "$ENRICHED" | jq \
+        --arg repo "$repo" \
+        --argjson allowed "$MERGE_AUTHORS_JSON" \
+        '[.[]
+          | (if ($allowed | length) > 0
+             then select(.author.login as $a | $allowed | any(. == $a))
+             else .
+             end)
+          | {
+            repo: $repo,
+            number,
+            title,
+            branch: .headRefName,
+            draft: .isDraft,
+            review: .reviewDecision,
+            mergeable: .mergeable,
+            merge_state: .mergeStateStatus,
+            ci_status: (if (.statusCheckRollup | length) > 0 then
+              (if (.statusCheckRollup | map(select(.conclusion == "FAILURE")) | length) > 0 then "failing"
+               elif (.statusCheckRollup | map(select(.status != "COMPLETED")) | length) > 0 then "pending"
+               else "passing" end)
+            else "unknown" end),
+            ci_failures: [(.statusCheckRollup // [])[] | select(.conclusion == "FAILURE") | .name],
+            created: .createdAt,
+            author: .author.login,
+            classification: (
+              if .isDraft then "draft"
+              elif .mergeable == "CONFLICTING" then "needs-rebase"
+              elif (.statusCheckRollup // [] | map(select(.conclusion == "FAILURE")) | length) > 0 then "needs-ci-fix"
+              elif .reviewDecision == "CHANGES_REQUESTED" then "needs-review-response"
+              elif .mergeStateStatus == "BLOCKED" then "blocked"
+              elif .mergeable == "MERGEABLE" and .reviewDecision == "APPROVED" then "ready"
+              else "unknown" end
+            )
+          }
+        ]')
+      # Only write the file if there is at least one PR left after filtering.
+      if [ "$(echo "$CLASSIFIED" | jq 'length')" != "0" ]; then
+        echo "$CLASSIFIED" > "$TMPDIR_OPS/$SAFE_NAME.json"
+      fi
+    fi
+  ) &
+done
+wait
+
+# Assemble flat array of all PRs
+echo -n '{"prs":['
+first=true
+for f in "$TMPDIR_OPS"/*.json; do
+  [ ! -f "$f" ] && continue
+  ITEMS=$(cat "$f")
+  COUNT=$(echo "$ITEMS" | jq 'length')
+  for i in $(seq 0 $((COUNT - 1))); do
+    [ "$first" = true ] && first=false || echo -n ','
+    echo "$ITEMS" | jq ".[$i]"
+  done
+done
+echo '],"scanned_at":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"}'

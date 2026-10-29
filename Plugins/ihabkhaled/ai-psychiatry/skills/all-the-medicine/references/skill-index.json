@@ -1,0 +1,157 @@
+{
+  "generated_by": "scripts/build_all_the_medicine.py",
+  "self_excluded": "all-the-medicine",
+  "count": 30,
+  "skills": [
+    {
+      "id": "plugin-skill-00",
+      "name": "install-framework",
+      "path": "skills/all-the-medicine/references/skills/install-framework/install-framework.md"
+    },
+    {
+      "id": "plugin-skill-01",
+      "name": "executive-control",
+      "path": "skills/all-the-medicine/references/skills/executive-control/executive-control.md"
+    },
+    {
+      "id": "plugin-skill-02",
+      "name": "attention-reset",
+      "path": "skills/all-the-medicine/references/skills/attention-reset/attention-reset.md"
+    },
+    {
+      "id": "plugin-skill-03",
+      "name": "stop-overthinking",
+      "path": "skills/all-the-medicine/references/skills/stop-overthinking/stop-overthinking.md"
+    },
+    {
+      "id": "plugin-skill-04",
+      "name": "stop-compulsive-verification",
+      "path": "skills/all-the-medicine/references/skills/stop-compulsive-verification/stop-compulsive-verification.md"
+    },
+    {
+      "id": "plugin-skill-05",
+      "name": "flatten-recursive-investigation",
+      "path": "skills/all-the-medicine/references/skills/flatten-recursive-investigation/flatten-recursive-investigation.md"
+    },
+    {
+      "id": "plugin-skill-06",
+      "name": "evidence-gate",
+      "path": "skills/all-the-medicine/references/skills/evidence-gate/evidence-gate.md"
+    },
+    {
+      "id": "plugin-skill-07",
+      "name": "recover-from-deadlock-livelock",
+      "path": "skills/all-the-medicine/references/skills/recover-from-deadlock-livelock/recover-from-deadlock-livelock.md"
+    },
+    {
+      "id": "plugin-skill-08",
+      "name": "completion-gate",
+      "path": "skills/all-the-medicine/references/skills/completion-gate/completion-gate.md"
+    },
+    {
+      "id": "plugin-skill-09",
+      "name": "loophole-hunter",
+      "path": "skills/all-the-medicine/references/skills/loophole-hunter/loophole-hunter.md"
+    },
+    {
+      "id": "plugin-skill-10",
+      "name": "framework-red-team",
+      "path": "skills/all-the-medicine/references/skills/framework-red-team/framework-red-team.md"
+    },
+    {
+      "id": "plugin-skill-11",
+      "name": "anti-gaming",
+      "path": "skills/all-the-medicine/references/skills/anti-gaming/anti-gaming.md"
+    },
+    {
+      "id": "plugin-skill-12",
+      "name": "false-progress-detector",
+      "path": "skills/all-the-medicine/references/skills/false-progress-detector/false-progress-detector.md"
+    },
+    {
+      "id": "plugin-skill-13",
+      "name": "blocker-validator",
+      "path": "skills/all-the-medicine/references/skills/blocker-validator/blocker-validator.md"
+    },
+    {
+      "id": "plugin-skill-14",
+      "name": "hidden-recursion-detector",
+      "path": "skills/all-the-medicine/references/skills/hidden-recursion-detector/hidden-recursion-detector.md"
+    },
+    {
+      "id": "plugin-skill-15",
+      "name": "strategy-laundering-detector",
+      "path": "skills/all-the-medicine/references/skills/strategy-laundering-detector/strategy-laundering-detector.md"
+    },
+    {
+      "id": "plugin-skill-16",
+      "name": "scope-laundering-detector",
+      "path": "skills/all-the-medicine/references/skills/scope-laundering-detector/scope-laundering-detector.md"
+    },
+    {
+      "id": "plugin-skill-17",
+      "name": "completion-evidence",
+      "path": "skills/all-the-medicine/references/skills/completion-evidence/completion-evidence.md"
+    },
+    {
+      "id": "plugin-skill-18",
+      "name": "memory-validator",
+      "path": "skills/all-the-medicine/references/skills/memory-validator/memory-validator.md"
+    },
+    {
+      "id": "plugin-skill-19",
+      "name": "context-balance",
+      "path": "skills/all-the-medicine/references/skills/context-balance/context-balance.md"
+    },
+    {
+      "id": "plugin-skill-20",
+      "name": "underthinking-detector",
+      "path": "skills/all-the-medicine/references/skills/underthinking-detector/underthinking-detector.md"
+    },
+    {
+      "id": "plugin-skill-21",
+      "name": "reasoning-balance",
+      "path": "skills/all-the-medicine/references/skills/reasoning-balance/reasoning-balance.md"
+    },
+    {
+      "id": "plugin-skill-22",
+      "name": "investigation-floor",
+      "path": "skills/all-the-medicine/references/skills/investigation-floor/investigation-floor.md"
+    },
+    {
+      "id": "plugin-skill-23",
+      "name": "decision-readiness",
+      "path": "skills/all-the-medicine/references/skills/decision-readiness/decision-readiness.md"
+    },
+    {
+      "id": "plugin-skill-24",
+      "name": "root-cause-validator",
+      "path": "skills/all-the-medicine/references/skills/root-cause-validator/root-cause-validator.md"
+    },
+    {
+      "id": "plugin-skill-25",
+      "name": "evidence-floor",
+      "path": "skills/all-the-medicine/references/skills/evidence-floor/evidence-floor.md"
+    },
+    {
+      "id": "plugin-skill-26",
+      "name": "executive-override",
+      "path": "skills/all-the-medicine/references/skills/executive-override/executive-override.md"
+    },
+    {
+      "id": "plugin-skill-27",
+      "name": "rule-conflict-resolver",
+      "path": "skills/all-the-medicine/references/skills/rule-conflict-resolver/rule-conflict-resolver.md"
+    },
+    {
+      "id": "plugin-skill-28",
+      "name": "never-stop",
+      "path": "skills/all-the-medicine/references/skills/never-stop/never-stop.md"
+    },
+    {
+      "id": "plugin-skill-30",
+      "name": "direct-communication",
+      "path": "skills/all-the-medicine/references/skills/direct-communication/direct-communication.md"
+    }
+  ]
+}

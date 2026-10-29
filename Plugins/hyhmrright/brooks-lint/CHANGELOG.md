@@ -1,0 +1,1239 @@
+# Changelog
+
+All notable changes to brooks-lint are documented here.
+
+## [1.9.1] - 2026-10-24
+
+This release unifies GitHub and npm at 1.9.1. The withdrawn npm 1.9.0 is not
+reused. Publication follows successful remote CI on the exact release commit.
+
+### Added
+
+- Native DeepSeek Harness plugin bundle and skill provider, exposing the six skills and their shared resources through the DSH registry (#44). Thanks to @Sad-happy.
+- A portable npm CLI for installing the skills into all 14 existing coding-agent platform targets, with global, project, and custom destinations, platform listing, and no Bash or Git requirement.
+- npm distribution metadata, packed-artifact installation regression tests, and a DSH market-index generator that requires an actually published npm version and uses its registry publication timestamp. Documentation covers npm installation, publication, and adding the project-owned DSH market source; default market inclusion and live host compatibility are not claimed.
+
+### Fixed
+
+- Release-test fixtures clone without inherited tags, preventing published annotated tags from changing synthetic audit baselines in CI.
+- npm publication requires a clean committed tree and a successful latest remote Validate run for the exact commit, including every matrix job. Regression tests and the release procedure enforce remote verification before publication.
+- DSH skill discovery now ignores only missing files; unexpected read failures retain the file path and original cause instead of silently hiding skills. Six provider regression tests cover discovery, descriptions, loading, shared resources, and error handling.
+
+### Changed
+
+- Synchronized GitHub and npm release information at 1.9.1 across all README translations, manifests, installation guides, and the website. A tracked About/topics/managed-label configuration and metadata verification command now participate in the publication gate.
+- All six README translations and the getting-started and DSH guides now distinguish npm filesystem installation from native plugin registration. Installer tests cover all platform destinations, argument validation, path safety, and preservation of unrelated files.
+
+### Thanks
+
+A special thank-you to [@Sad-happy](https://github.com/Sad-happy) for contributing
+the native DeepSeek Harness bundle and skill provider in [#44](https://github.com/hyhmrright/brooks-lint/pull/44),
+and for following through with community end-to-end verification on DSH 0.2.1-rc.2
+Desktop. Your contribution made brooks-lint a proper installable DSH plugin, and
+your real-host testing helped us bring it to npm and plugin-market discovery.
+
+## [1.8.0] - 2026-10-16
+
+### Added
+
+- Configurable model output ceilings through the GitHub Action's `max-tokens` input and the `--max-tokens` CLI flag, with positive safe-integer validation (#39, #42). Thanks to @scottschreckengaust.
+- A `config-ref` Action input: CI now loads `.brooks-lint.yaml` and conditional custom-risk guidance into a separate system-policy block. Pull requests use the trusted base policy by default; `config-ref: head` explicitly opts into the checkout policy (#40). Thanks to @scottschreckengaust.
+- Community-contributed documentation and an OIDC workflow example for Claude on Amazon Bedrock and Mantle using the existing custom-endpoint support (#38). Thanks to @scottschreckengaust. These integrations are retained but are outside ongoing maintainer verification.
+
+- Shared review guidance and the sweep report now identify configuration provenance and honor runner-supplied policy. Added a base-policy suppression regression scenario, bringing the structural eval suite to 58 scenarios (#40). Thanks to @scottschreckengaust.
+
+### Fixed
+
+- Truncated reports now emit a workflow warning, carry `truncated: true` in JSON, and display a warning in PR comments so incomplete findings and inflated Health Scores are visible. The existing live-eval runner also detects truncation (#42). Thanks to @scottschreckengaust.
+- CI applies configured strictness and other project policy instead of silently using defaults. An unavailable PR base policy now fails explicitly rather than falling back to unapproved head policy (#40; closes #43).
+- Documented Action pins now track the release version automatically across all six READMEs and the workflow example; updated executable GitHub Action dependencies and added regression checks against version drift (#41). Thanks to @scottschreckengaust.
+- Release-audit output now handles zero and singular counts correctly, announces audit scope, and has stronger regression coverage. Release-audit test fixtures use an isolated baseline tag so inherited branch history cannot invalidate them.
+
+### Changed
+
+- Migrated repository maintenance from Claude Code to Codex: discoverable local skill links, Codex agent roles, a sequential maintenance harness, and explicit offline validation gates. Completed changes must be committed and pushed.
+- **Maintainer testing policy:** the maintainer's Claude account has been banned. From 2026-10-16 onward, ongoing maintainer testing and verification cover only Codex-related capabilities. Previous verification of Claude Code, Gemini CLI, and other platforms is historical. Existing integrations remain available, and community verification and contributions are welcome.
+- This policy does not migrate the GitHub Action or live-eval runner to an OpenAI backend: they still use the existing Anthropic client. Anthropic live evals are no longer part of routine maintainer verification; offline validation, unit tests, structural evals, and the parser benchmark remain in use.
+- Clarified across all six READMEs and the workflow example that `mode: sweep` in CI reports findings without applying fixes (#37). Thanks to @scottschreckengaust. Also clarified token-input descriptions and removed redundant minimum-version annotations now covered by version-reference validation (#41, #42).
+
+## [1.7.0] - 2026-09-20
+
+Maintainer-facing only — the six skills, their guides, and everything the plugin
+installs are byte-for-byte identical to 1.6.0. This release hardens how *this
+repo* cuts releases, after 1.6.0 shipped with two changes missing from its
+changelog section and both were found only by auditing after publication.
+
+### Added
+
+- **`npm run changelog:audit` — account for every commit in the release range**
+  ([`scripts/changelog-audit.mjs`](scripts/changelog-audit.mjs)). It derives the
+  range from the last release tag (`v[0-9]*`), applies the only three exemptions
+  — the release bump, a merge commit whose branch commits are listed separately,
+  and the weekly star-history refresh — and prints the rest as a checklist to
+  walk. Each line gets an entry or a stated reason it needs none. Between
+  releases it frames the same range as the next release's backlog and exits 0,
+  so it is also how you check the *version number* against what is actually
+  unreleased before choosing it.
+
+  The star-history exemption is judged by the files a commit touched, not by its
+  subject: the paths come from `STAR_HISTORY_FILES`, exported by
+  `gen-star-history.mjs` so the chart generator and the exemption share one
+  definition. Matching on `[bot]` + `chore:` instead would have exempted a
+  `dependabot[bot]` `chore(deps): bump …` for free, and a dependency bump is a
+  change this changelog records.
+
+- **A release-time coverage gate inside `npm run validate`.** `checkChangelog()`
+  only ever proved the new version's section *exists*. `checkChangelogCoverage()`
+  now also fails on the one gap a machine can prove: a pull request merged in the
+  range whose `#N` the section never cites — matched as `#N` or a `/pull/N` link.
+
+  It runs **only while a release is in progress**, derived as "`package.json`'s
+  version has no `v<version>` tag yet" — so it is a no-op during normal work and
+  unskippable at the one moment it matters, with no flag to remember.
+  `validate.yml` checks out with `fetch-depth: 0` because the gate needs tags.
+
+- **A `Changelog:` git trailer** for a commit that lands without a version bump
+  and defers its entry to the next release. The audit surfaces it on the
+  checklist. A trailer rather than a sentence in the body, because prose cannot
+  tell a commit deferring its own entry from one quoting another that did — which
+  is how 1.6.0 lost `d4b5c40` despite it asking in plain English to be logged.
+
+- **`npm run validate` says what the gate did, on every run.** A stand-down
+  names its reason (`Changelog coverage: not audited — v1.6.0 is already
+  tagged.`); an audit names its range and its scope (`… audited 4 commits in
+  v1.6.0..HEAD — pull-request citations only; walk the rest with npm run
+  changelog:audit.`). Plain `npm version <v>` tags as it commits and a
+  remotely-deleted tag survives locally — either silently disables the audit for
+  a whole release, and an unannounced off-state reads exactly like a pass.
+
+  The audited half was missing until this release was cut: the gate printed
+  nothing on the one path that actually audits, and the test covering it had
+  only ever run against this repo while it was tagged, so it exercised the
+  stand-down branch and never the other one. Bumping to 1.7.0 put the repo in
+  enforce mode for the first time and the test failed on the spot.
+
+### Fixed
+
+- **The [1.6.0] section above now covers the two changes it had missed** —
+  `d4b5c40`'s platform-validation checks, and PR #25 from **[@2233admin](https://github.com/2233admin)**,
+  who went uncredited in a release that credited two other contributors. Both
+  were added after 1.6.0 was published.
+
+### Changed
+
+- **Cutting a release now requires walking the commit range, not sampling it.**
+  `CLAUDE.md`'s Release Process, the `release` skill, and the `release-manager`
+  agent all gained an explicit audit step between writing the changelog and
+  validating, and all three now state the rule the 1.6.0 misses came from:
+  nothing is exempt beyond the three listed exemptions — internal hardening with
+  no user-visible behavior change earns an entry, and so does an outside
+  contributor's maintainer-facing fix, who gets an `@handle` credit like anyone
+  else.
+
+- **The release process documents what a green audit does not prove.** Three
+  blind spots, by construction: a bare `#N` *anywhere* in the section clears the
+  gate (it proves the number was written, not that an entry was); a rebase-merged
+  PR leaves neither a `(#N)` subject nor a merge commit, so nothing is enforced
+  behind its checklist line; and whatever is staged into the release bump itself
+  is never audited by any release — land such fixes as their own commit before
+  bumping. Recorded in `CLAUDE.md`, the `release` skill, and the
+  `release-manager` agent.
+
+## [1.6.0] - 2026-09-20
+
+### Added
+
+- **OpenCode v2 lists all six modes in its `/` menu** (#31, #34) — every
+  `SKILL.md` frontmatter now carries `metadata.opencode/slash: "true"`, the opt-in
+  OpenCode v2 reads through
+  `metadataBoolean(frontmatter.metadata, "opencode/slash")` (`skill-file.ts:45`).
+  With it, `/brooks-review`, `/brooks-audit`, `/brooks-debt`, `/brooks-test`,
+  `/brooks-health` and `/brooks-sweep` appear in the `/` popup and run the skill
+  directly; without it a skill is reachable only through `/skills` or `@name`.
+
+  Slash-command wrappers are deliberately **not** shipped. PR #34 proposed six of
+  them under `commands/opencode/`, but on v2 a command that shares a skill's name
+  *shadows* it: the TUI's `/` popup skips skills already registered as commands
+  (`autocomplete.tsx:526`) and submit resolves `isCommand` before `isSkill`
+  (`index.tsx:1292`) — so the wrapper would hide the very skill it exists to
+  expose. The frontmatter opt-in is OpenCode's own supported path and adds no
+  files to install or keep in sync.
+
+  On OpenCode 1.x the flag is ignored, and 1.x is still what npm `latest`
+  installs (`opencode-ai` `dist-tags.latest` is on the 1.18.x line, with no
+  `latest-2` tag). There, use `/skills` → pick, or type `/brooks-review`
+  **followed by a space** — a bare `/brooks-review` plus Enter is swallowed by the
+  `/` popup. All six READMEs now scope the auto-register claim to **v2**, and
+  [`docs/opencode-setup.md`](docs/opencode-setup.md) is rewritten for v2 with the
+  1.x fallback and the shadowing caveat spelled out.
+
+  Thanks to **[@rapcal](https://github.com/rapcal)**, whose screenshots disproved
+  the maintainer's claim that a bare `/brooks-review` already worked on 1.x, and
+  whose pointer to the v2 docs found the flag this release uses instead.
+
+- **`npm run validate` now fails when a skill ships without the OpenCode opt-in**
+  — `checkOpencodeSlashFlag()` in `validate-repo.mjs` reads `skills/*/SKILL.md`
+  from disk (so an unregistered skill folder is caught too, and `_shared/` is
+  skipped by construction since it has no `SKILL.md`), backed by
+  `hasOpencodeSlashFlag()` in `frontmatter.mjs`, which parses the `metadata:`
+  block and accepts both `"true"` and YAML's bare `true`. No other platform reads
+  the flag, so nothing else would fail — this check is the only thing standing
+  between a seventh skill and a silently missing `/brooks-*` on OpenCode. Seven
+  unit tests cover it, and the authoring rule is recorded in `CLAUDE.md`,
+  `AGENTS.md` and `GEMINI.md` so all three agent-facing docs carry it.
+
+- **IBM Bob (`bob`) support** (#32, #33) — `./scripts/install.sh bob` installs
+  into `~/.bob/skills` (`--project` targets `./.bob/skills`); Bob also reads
+  `AGENTS.md`, so the Iron Law and Health Score rules load with it. New guide at
+  [`docs/bob-setup.md`](docs/bob-setup.md), linked and enumerated across all six
+  READMEs and `docs/getting-started.md`. Contributed by
+  [@asotobu](https://github.com/asotobu).
+
+- **Platform docs and installer mappings are cross-checked** — `scripts/platforms.mjs`
+  parses `install.sh` so both checks derive their inputs instead of restating them.
+  `checkPlatformDocs()` requires every `docs/<name>-setup.md` to be linked from all
+  six READMEs and `docs/getting-started.md`, and every setup link in those documents
+  to resolve to a guide that exists; `checkInstallerPlatforms()` requires `PLATFORMS`
+  and the `global_dir()` / `project_dir()` case tables to cover each other, so a
+  platform can no longer be listed without a path mapping (`install.sh <platform>`
+  would die with "unknown platform") or mapped without appearing in `--list`. Adding
+  dsh had meant hand-syncing nine places with nothing checking any of them. Verified
+  by mutation rather than by a green run: dropping the dsh link from `README.ko.md`
+  and `README.es.md`, and deleting the dsh arm from `project_dir()`, each produce the
+  specific expected failure.
+
+- **`api-base-url` input on the GitHub Action** — the Anthropic SDK already reads
+  `ANTHROPIC_BASE_URL`, so `ci-review.mjs` could target any Anthropic-compatible
+  `/v1/messages` endpoint; the Action was the one path with no way to set it. The
+  input is deliberately generic rather than naming a gateway — one vendor-neutral
+  knob covers self-hosted proxies, LLM gateways and regional mirrors, and keeps
+  vendor-specific model-id remapping out of the repo. It is exported only when
+  non-empty, so an `ANTHROPIC_BASE_URL` inherited from the job environment is not
+  blanked out by an unset input. Documented in all six READMEs and the workflow
+  example, including the note that the diff is sent to whatever host is named.
+
+### Fixed
+
+- **A platform could ship half-documented with a green build** — `checkPlatformDocs`
+  only required each `docs/<name>-setup.md` to be linked from all seven platform
+  documents. IBM Bob satisfied that on arrival and still shipped with its name
+  missing from the `<platform> = …` enumeration in five of the six READMEs, plus
+  stale "nine platforms" counts. Validation now also requires every `PLATFORMS`
+  entry to appear in each document's enumeration line — the one place worth
+  checking, because a bare mention elsewhere proves nothing (a table row's
+  `~/.bob/skills` already contains "bob"). Scoping to that line meant the six
+  READMEs had to stop omitting `claude`, which was an inconsistency rather than a
+  rule, so the check needs no exemption list.
+
+- **The CI reviewer silently produced an empty report against some endpoints** —
+  `message.content[0]` is only the report when the model returns text first. An
+  endpoint that emits a thinking block ahead of it — which the new `api-base-url`
+  input makes reachable — left the report empty and the Health Score `null` with
+  no error to show for it. Both scripts now take the first *text* block.
+
+- **The star-history chart is first-party and deterministic** — GitHub restricted
+  the stargazers API to a repository's own admins and collaborators (announced
+  2026-06-30), so the third-party chart endpoint rendered as a broken panel in all
+  six READMEs. The raw `starred_at` timestamps (no usernames) now live in
+  `assets/star-history.json` and `assets/star-history.svg` is a pure function of
+  them, re-rendered and compared by `npm run validate`, so a hand-edited SVG fails
+  the build. That rewrite also fixed a real defect: `render()` anchored the time
+  axis to `Date.now()`, so every x coordinate shifted on every run and the weekly
+  workflow's "commit only when the chart moved" guard could never skip. The axis
+  now ends at the newest star.
+
+### Changed
+
+- **`commands/` is Claude Code and Gemini only again** — the six short-form
+  wrappers there are untouched and still installed by the session-start hook; the
+  OpenCode copies PR #34 added, along with the `install.sh` and `platforms.mjs`
+  plumbing that carried them, are gone in favour of the frontmatter opt-in above.
+  `frontmatterBlock()` was extracted in `frontmatter.mjs` rather than repeating the
+  fence regex a third time.
+
+- **A `claude plugin eval` suite for brooks-review** — seven cases under `evals/`
+  (two real PRs, a two-file rule drift, two tradeoff/false-positive guards and two
+  should-not-fire negatives), each run with and without the plugin, plus four
+  pilot rounds recorded in `evals/PILOT-LOG.md` as the calibration baseline. This
+  is separate from the 57-scenario `evals/evals.json` suite and the frozen parser
+  benchmark; it measures the plugin end to end in Claude Code.
+
+- **The maintainer docs no longer understate what `npm run bump` rewrites** ([#25]) —
+  four spots in `CLAUDE.md` and the release skill still called it "the README badge",
+  singular, which is the exact assumption that let the localized badges and the docs
+  JSON-LD go stale; the release instructions separately named a single README to
+  stage, which would leave six modified files out of a release commit. Both now defer
+  to `git status` and to every version-bearing text file discovered from disk by
+  `scripts/version-refs.mjs`, phrased so a new translation or docs page needs no edit
+  here. Contributed by [@2233admin](https://github.com/2233admin), with a follow-up
+  sweep of the three spots that pass missed.
+
+[#25]: https://github.com/hyhmrright/brooks-lint/pull/25
+
+## [1.5.0] - 2026-08-14
+
+### Added
+
+- **DeepSeek Harness (`dsh`) support** — DeepSeek AI's open-source agent harness
+  loads standard Agent Skills through `packages/skill/skill-filesystem`, so all
+  six modes run with no conversion. `./scripts/install.sh dsh` installs into
+  `$DSH_HOME/skills` (default `~/.dsh/skills`); `--project` targets
+  `./.dsh/skills`. dsh also scans `~/.agents/skills`, so the existing
+  vendor-neutral `install.sh agents` install already covered it. New guide at
+  [`docs/dsh-setup.md`](docs/dsh-setup.md), with the platform added to the README
+  install table in all six languages and to `docs/getting-started.md`.
+
+  Three details of dsh's loader matter and are documented in the guide: discovery
+  is one level deep (`<root>/<name>/SKILL.md`), which the installer's flat layout
+  already satisfies so `../_shared/` resolves; skill names must be kebab-case,
+  which `brooks-*` already is; and dsh recognises a whitespace-bounded `/name`
+  token anywhere in a message, so `/brooks-review` and the other five work from
+  its `/` menu or typed inline. dsh also reads `AGENTS.md` — `$DSH_HOME/AGENTS.md`
+  plus every file from the project root down to the working directory — so the
+  repo's Iron Law and Health Score rules load the same way they do elsewhere.
+
+## [1.4.3] - 2026-08-04
+
+### Fixed
+
+- **`npm run validate` failed for anyone running it from inside Claude Code**
+  (#23) — `checkHookOutput()` spread the ambient `process.env` into both hook
+  runs and overrode only `HOME`. `hooks/session-start.mjs` branches on
+  `CLAUDE_PLUGIN_ROOT`, which Claude Code exports for every loaded plugin, so
+  the default run returned the plugin-shaped payload and validation died on
+  `hooks/session-start default output must include additional_context` —
+  a failure unrelated to whatever the maintainer had changed. The variable is
+  now stripped before the per-run overrides are layered on, with a regression
+  test that sets it deliberately.
+- **The GitHub Action could never have run** — `action.yml` invoked
+  `$GITHUB_ACTION_PATH/scripts/ci-review.mjs` and passed
+  `--skills-dir "$GITHUB_ACTION_PATH/skills"`, but `github.action_path` points at
+  `.github/actions/brooks-lint/` (which contains only `action.yml`), not at the
+  checked-out repository root three levels up where `scripts/` and `skills/`
+  actually live. The same mistake made the cache key hash a nonexistent
+  `package.json`, so the key was constant and the cache never invalidated. The
+  action now resolves the repository root once and derives every path from it.
+- **`.tsx`, `.jsx`, `.hpp`, `.kts` and `.mm` filenames were truncated by the
+  report parser** — the extension allowlist in `report-parse.mjs` is a
+  first-match alternation, and five entries listed the short extension before its
+  longer sibling. A bare `App.tsx:12` in a finding parsed as `App.ts` *and lost
+  the line number*, so the emitted SARIF pointed GitHub Code Scanning at a file
+  that does not exist. The list is now sorted longest-first at build time, and a
+  test walks the real allowlist so a future entry cannot regress it.
+- **Onboarding mode was missing from every non-interactive run** — brooks-audit
+  advertises "explain this codebase to a new developer" and dispatches to
+  `onboarding-guide.md`, but `assemble-prompt.mjs` never loaded that guide, so
+  the CI path and the two onboarding eval scenarios graded a model that had never
+  been given the instructions. A mode may now declare several guides, and
+  `npm run validate` checks step continuity for all of them.
+- **Step 7 of the PR review guide was unvalidated** — it was written as `##`
+  while every other step uses `###`, making it invisible to the step-continuity
+  check even though `SKILL.md` cites it by number. The heading is fixed, and the
+  validator now rejects a step heading at any other level instead of silently
+  skipping it.
+- **Shell injection surface in the composite action** — the `Check Threshold` and
+  `Quality Gates` steps interpolated `${{ inputs.* }}` directly into their script
+  bodies while the neighbouring step already used `env:` correctly. All inputs now
+  go through the environment.
+- **CONTRIBUTING pointed contributors at the wrong file** — the "add a new decay
+  risk" checklist named `validate-repo.mjs` for `PRODUCTION_RISK_COUNT` /
+  `TEST_RISK_COUNT` (they live in `scripts/frontmatter.mjs`) and omitted
+  `RISK_CATALOG`, so a new `R7` would have parsed as an uncategorised finding.
+  It also documented a `cp -r skills/ …` that nests a second `skills/` directory
+  on re-run, breaking `../_shared/` resolution.
+
+### Changed
+
+- **Risk-code ranges are derived, not hardcoded** — `eval-utils.mjs`,
+  `report-parse.mjs` and `benchmark.mjs` each carried their own `[RT][1-6]`
+  literal. They now derive from the risk counts and `RISK_CATALOG`, so adding a
+  seventh risk widens every code path at once. `run-evals.mjs` also switched from
+  a substring scan to the same word-bounded extraction the live runner
+  classifies with, so the two can no longer disagree about what a scenario expects.
+- **`strictness` presets propagated to the agent-facing docs** — `AGENTS.md` and
+  `GEMINI.md` still advertised balanced-only scoring (−15/−5/−1) as *the* scoring
+  system, which is what Codex CLI and Gemini CLI are told to prioritize. Both now
+  carry the full preset table, and `npm run validate` checks both files instead of
+  only `AGENTS.md` — the asymmetry is why `GEMINI.md` had also lost the eval count
+  and the benchmark corpus. Both also described six decay dimensions when there
+  are twelve.
+- **Dependencies and third-party code are pinned** — the Anthropic SDK is pinned
+  exactly in `package.json` and the action derives its install and cache key from
+  that single source; the documented workflow pins the action to a release tag
+  instead of `@main`; and the gallery page pins Mermaid to an exact version
+  rather than a floating `@11`.
+- **The dev PostToolUse hook watches what it claims to** — its file list omitted
+  the five localized READMEs and the docs landing page, so editing them never
+  triggered `npm run validate`. It now derives that part of the list from
+  `version-refs.mjs`, the same source bump and validate use.
+- **One language switcher instead of three** — the ~30-line IIFE was copy-pasted
+  into `index.html`, `gallery.html` and `guide.html` and had already diverged
+  (only `index.html` handled `data-src-*`). It now lives in `docs/lang-toggle.js`.
+- **Guide severity tiers reconciled with the canonical definitions** — the test
+  guide's inline calibration skipped the Warning tier for T2, left gaps in T3, and
+  promoted a slow suite to Critical where `test-decay-risks.md` caps it at
+  Warning. `remedy-guide.md`'s "do NOT modify any files" now says which modes it
+  binds, so it no longer contradicts brooks-sweep. `sweep.max_iterations` is
+  documented instead of only referenced, and the sweep report's Config line
+  carries `strictness:` like every other mode.
+- **Duplicated prose cut from every maintained document** — the six READMEs lost
+  ~28% of their length to repeated install blocks and command tables, and the
+  skill markdown lost another 713 words: `Sources` tables in `decay-risks.md` and
+  `test-decay-risks.md` are now grouped by book (34 of 55 rows had restated the
+  symptom verbatim in the principle column), severity tiers that the guides had
+  copied out of the canonical files are now referenced, and the `SKILL.md` Setup
+  boilerplate is one line per file. Every assembled mode prompt shrank 4–5%. No
+  trigger description, risk definition, severity threshold, or "What Not to Flag"
+  guard was touched.
+
+### Added
+
+- **`interface.defaultPrompt` in the Codex manifest** — OpenAI's plugin
+  validator (`plugin-creator/scripts/validate_plugin.py`, shipped with
+  codex-cli) requires `interface.defaultPrompt`, and `.codex-plugin/plugin.json`
+  did not declare it. It now carries three starter prompts covering the review,
+  audit, and debt modes. The two remaining validator complaints are deliberate
+  and documented in `CLAUDE.md`: `"commands": []` is what prevents the duplicate
+  `source-command-brooks-*` skills fixed in 1.4.2, and `skills/_shared/` is a
+  shared-framework directory rather than a skill.
+
+## [1.4.2] - 2026-07-24
+
+### Fixed
+
+- **Duplicate skills on Codex CLI** ([#22]) — after installing on Codex, the
+  skill picker showed both the six native `brooks-*` skills and six generated
+  `source-command-brooks-*` adapters. Codex's command-migration
+  ([openai/codex#33411]) falls back to scanning a plugin's `commands/` directory
+  when the manifest does not declare `commands`, so it migrated the
+  `commands/brooks-*.md` wrappers into standalone skills that duplicated the
+  native ones (and bypassed a user's `enabled = false` on a native skill, since
+  the adapter has a different identity). `.codex-plugin/plugin.json` now declares
+  an explicit `"commands": []`, which Codex treats as authoritative and stops
+  migrating the wrappers. Claude Code and Gemini do not read this manifest and are
+  unaffected — `commands/` is still consumed as-is by the Gemini extension.
+  Thanks to [@grevgeny] for the detailed diagnosis.
+
+[#22]: https://github.com/hyhmrright/brooks-lint/issues/22
+[openai/codex#33411]: https://github.com/openai/codex/commit/2cd6ed750940fd4493298b4e602e2cae9a5a2afb
+[@grevgeny]: https://github.com/grevgeny
+
+## [1.4.1] - 2026-07-18
+
+### Fixed
+
+- **Infinite Skill-invocation loop on model-invoked commands** ([#21]) — the
+  `commands/brooks-*.md` wrappers were purely self-referential ("Use the Skill
+  tool to invoke `brooks-lint:brooks-review`"). Combined with an upstream Claude
+  Code bug ([anthropics/claude-code#54535], closed NOT_PLANNED) that re-injects a
+  command body without its `<command-name>` tag after a model-invoked Skill call,
+  the model could loop: call Skill → body re-injected → call Skill again, never
+  running the skill. Each wrapper now **reads its skill's `SKILL.md` directly**
+  instead of calling the Skill tool, so the re-injection path is never triggered
+  and the skill runs once. The session-start hook bakes the absolute
+  `${CLAUDE_PLUGIN_ROOT}` path into the installed short forms, since that variable
+  does not expand in user commands under `~/.claude/commands/`. Cross-platform
+  safe: `commands/` is still consumed as-is by the Gemini extension, and Codex is
+  unaffected (it loads `skills/` only).
+
+[#21]: https://github.com/hyhmrright/brooks-lint/issues/21
+[anthropics/claude-code#54535]: https://github.com/anthropics/claude-code/issues/54535
+
+## [1.4.0] - 2026-06-19
+
+### Added
+
+- **Parser-fidelity benchmark** — `evals/benchmark-corpus.json` freezes 30 real,
+  model-generated reports (all six modes, incl. 9 false-positive/tradeoff cases),
+  each independently graded and hand-checked. `npm run benchmark` runs the shipped
+  parser against it (severity-count fidelity, risk-code precision/recall, SARIF
+  validity) and `npm test` guards it as a deterministic regression. Replaces the
+  synthetic-fixture-only coverage of the report parser with real model output.
+- **SARIF output for GitHub Code Scanning** — `ci-review.mjs` gains
+  `--format sarif` / `--sarif-out`, and the GitHub Action a `sarif-file`
+  input, so findings surface inline on the PR "Files changed" tab. New
+  `report-parse.mjs` (Markdown report → structured findings) and `sarif.mjs`
+  (SARIF 2.1.0 serializer).
+- **CI quality gates** — the Action adds `fail-on` (`critical` / `warning`)
+  and `fail-on-regression` inputs on top of `fail-below`, backed by a
+  unit-tested `ci-gate.mjs`. The JSON report now carries per-severity finding
+  counts plus the score delta vs the last run.
+- **Strictness presets** — a `strictness` config key (`strict` / `balanced`
+  (default) / `legacy-friendly`) tunes Health-Score deduction weights;
+  `legacy-friendly` softens scoring and leads with the top fixes so a legacy
+  codebase's first run isn't a wall of Criticals.
+- **Eval coverage backfill** — benchmark suite 49 → 57 scenarios: Full Sweep
+  gains its first cases, Architecture Audit and Tech Debt are deepened, and
+  every new mode group includes a false-positive/tradeoff check.
+- **One-command multi-platform installer** — `scripts/install.sh <platform>`
+  copies the six skills + `_shared/` **flat** into the correct folder for
+  OpenCode, Cursor, Windsurf, Antigravity, pi, Kiro, GitHub Copilot, Claude, or
+  the vendor-neutral `~/.agents/skills`, so the `../_shared/` relative reads
+  always resolve (users can't get the layout wrong). Runs from a clone or via
+  `curl … | bash -s -- <platform>`; `--project` targets the current repo.
+- **Per-platform setup guides** — `docs/getting-started.md` plus
+  `docs/{opencode,cursor,windsurf,antigravity,pi,copilot,kiro}-setup.md`, with
+  install, invocation, gotchas, and source links for each. Modeled on the
+  `addyosmani/agent-skills` docs layout (compact README + detailed docs).
+- **Multi-platform support in both READMEs** — the EN and zh-CN READMEs now
+  expose seven additional Agent-Skills agents via collapsible per-platform
+  entries that link to the docs, plus a verification-status note inviting
+  community end-to-end reports. Resolves the OpenCode compatibility request (#14).
+
+- **Factory Droid support** — added `droid` to the installer and a
+  `docs/factory-droid-setup.md` guide. Droid natively loads `SKILL.md` from
+  `~/.factory/skills` / `.factory/skills` and reads `AGENTS.md`.
+- **`install.sh` now covers Gemini and Codex** (`gemini`, `codex` targets) so a
+  single command installs every documented platform.
+
+### Fixed
+
+- **Gemini CLI manual install was broken** — the old `cp -r skills/*
+  ~/.gemini/skills/brooks-lint/` nested every `SKILL.md` two levels deep, and
+  Gemini only discovers skills **one level deep**, so none of the six skills were
+  found. Corrected to a flat `~/.gemini/skills/` install (EN + zh-CN READMEs).
+  Also flattened the Codex manual install to match the skill-installer layout.
+
+### Changed
+
+- **`AGENTS.md`** now describes brooks-lint as a portable Agent-Skills tool
+  (runs on any `AGENTS.md`/`SKILL.md`-compatible agent) rather than a
+  Codex-CLI-specific plugin.
+
+---
+
+## [1.3.0] - 2026-05-24
+
+### Added
+
+- **Codex marketplace icon** — created `assets/logo.svg` and added `composerIcon`
+  field to `.codex-plugin/plugin.json` for marketplace display.
+- **Codex interface metadata** — added `interface` configuration to
+  `.codex-plugin/plugin.json` for richer marketplace listing.
+
+### Fixed
+
+- **`brooks-sweep` debt scoring** — inlined the Pain × Spread severity rubric
+  directly into `sweep-guide.md` (7–9 Critical, 4–6 Warning, 1–3 Suggestion),
+  removing an implicit cross-skill dependency on `../brooks-debt/debt-guide.md`.
+
+### Changed
+
+- **`CLAUDE.md`** — fixed 4 stale facts and added skill authoring / eval guidance.
+
+---
+
+## [1.2.3] - 2026-05-13
+
+### Added
+
+- **`scripts/bump-version.mjs`** — new script that propagates the version from
+  `package.json` to all manifests (`.claude-plugin/plugin.json`,
+  `.claude-plugin/marketplace.json`, `.codex-plugin/plugin.json`,
+  `gemini-extension.json`) and the README badge in one command. Added `npm run bump`
+  shortcut to `package.json`.
+
+### Changed
+
+- **`CLAUDE.md`** — Slash commands gotcha now enumerates all short forms inline
+  (`/brooks-review`, `/brooks-audit`, `/brooks-debt`, `/brooks-test`,
+  `/brooks-health`, `/brooks-sweep`) instead of showing only one example.
+
+---
+
+## [1.2.2] - 2026-04-29
+
+Aggressive token reduction across all skill guides and shared framework files.
+Net result: ~212 lines removed (~9% of total guide content), with no behavioral change.
+
+### Changed
+
+- **`skills/_shared/common.md`** — condensed Iron Law and Output sections; removed
+  redundant YAML config example.
+- **`skills/_shared/decay-risks.md`**, **`test-decay-risks.md`** — tightened
+  per-risk introductions to single-line format.
+- **`skills/_shared/source-coverage.md`** — removed redundant prose; frontmatter
+  source list unchanged (validator derives book count from it).
+- **`skills/brooks-audit/architecture-guide.md`**, **`brooks-debt/debt-guide.md`**,
+  **`brooks-health/health-guide.md`**, **`brooks-review/pr-review-guide.md`**,
+  **`brooks-sweep/sweep-guide.md`**, **`brooks-test/test-guide.md`** — condensed
+  verbose procedural prose to terse arrow-flow notation throughout.
+- **`skills/brooks-review/SKILL.md`** — removed 2 redundant lines.
+
+---
+
+## [1.2.1] - 2026-04-28
+
+Fix Codex CLI compatibility: skill descriptions exceeded the 1024-character
+limit enforced by Codex CLI's OpenAI function description spec. All six skill
+descriptions now measure 698–950 chars.
+
+### Fixed
+
+- **`skills/brooks-audit/SKILL.md`**, **`brooks-debt/SKILL.md`**,
+  **`brooks-health/SKILL.md`**, **`brooks-test/SKILL.md`** — removed verbose
+  keyword trigger lists ("Also triggers when user mentions: …") and proactive-use
+  hints ("Use this skill proactively when…") that pushed descriptions over the
+  limit. Core description, `Triggers when:`, and required `Do NOT trigger for:`
+  clauses are preserved.
+
+---
+
+## [1.2.0] - 2026-04-24
+
+`brooks-sweep` pipeline rewritten from a single-pass unified scan into a sequential,
+fully autonomous audit-and-fix loop. Inputs and report format are unchanged; the
+methodology between consent and report is different. Existing `/brooks-sweep`
+invocations continue to work — users see more automation and a new iteration history
+in the report.
+
+### Changed
+
+- **`skills/brooks-sweep/sweep-guide.md`** rewritten as a 9-Phase pipeline (Step 0
+  consent → Step 1 scope + state → Steps 2–5 four-dimension sequence: review → test →
+  debt → audit → Step 6 iteration loop → Steps 7–8 residual + report). Each dimension
+  scans, classifies, applies Safe + Extended-Safe fixes, and verifies via the project
+  test command before the next dimension starts.
+- **`skills/brooks-sweep/SKILL.md`** Process skeleton aligned to the new Phase structure.
+- **Fix-Class taxonomy**: previous `Auto / Confirm / Manual` replaced by
+  `Safe / Extended-Safe / Residual`. Multi-file changes with test coverage and no public
+  API break now auto-apply (was: always required confirmation). After the Step 0 consent
+  gate there are no further user prompts during execution — risky findings are recorded
+  in the Residual report instead of waiting on a mid-pipeline confirmation.
+- **Iteration loop** re-scans modified files + same-module + static consumers and
+  converges on clean rounds. Findings that fail 3 fix attempts are retired to an
+  `unresolvable` set and never re-queued. Non-critical rounds cap at 3
+  (configurable via `sweep.max_iterations` in `.brooks-lint.yaml`).
+- **User interaction**: one consent gate at Step 0. After consent, the pipeline runs
+  hands-free until the final report.
+
+---
+
+## [1.1.0] - 2026-04-22
+
+New skill: `brooks-sweep` — full-sweep auto-fix mode. Runs a unified analysis across all
+quality dimensions in a single pass, then applies fixes directly: safe changes are
+auto-applied, risky changes require confirmation, architectural decisions are flagged as
+manual. No changes to any existing skill logic.
+
+### Added
+
+- **`brooks-sweep` skill** (`skills/brooks-sweep/`) — orchestrates production decay scan
+  (R1–R6), test decay scan (T1–T6), and architecture analysis in one pass, then classifies
+  findings into Auto / Confirm / Manual fix classes and applies them.
+- **`commands/brooks-sweep.md`** — short-form `/brooks-sweep` command wrapper
+  (auto-installed by session-start hook).
+- **`SKILL_GUIDES` constant** in `validate-repo.mjs` — replaces three previously separate
+  mode arrays with a single source of truth; future skill additions require only one
+  array entry.
+- Session-start hook updated to advertise six skills (was five).
+
+---
+
+## [1.0.1] - 2026-04-21
+
+Documentation and consistency patch. No behavior or API changes — all skill logic is
+unchanged. Existing users on v1.0.0 can upgrade at any time with no migration risk.
+
+### Fixed
+
+- **`README.md` Manual Install commands** — `cp -r skills/ ~/.claude/skills/brooks-lint`
+  silently created a `brooks-lint/skills/` nested directory; fixed to
+  `mkdir -p ~/.claude/skills/brooks-lint && cp -r skills/* ~/.claude/skills/brooks-lint/`.
+  Same fix applied to the Gemini CLI Manual Install block.
+- **`pr-review-guide.md` structural ordering** — the `## Output` section appeared
+  *before* Step 7, leaving the Analysis Process non-contiguous. Step 7 is now the last
+  analysis step and `## Output` follows.
+- **`test-guide.md` Characterization Tests citation** — `Ch. 8` corrected to
+  `Ch. 13: Characterization Tests` (matches `test-decay-risks.md:246` and Feathers'
+  *Working Effectively with Legacy Code*).
+- **`decay-risks.md` Risk 4 over-engineering source** — removed incorrect "Evils of
+  Duplication (YAGNI corollary)" reference (Evils of Duplication is DRY, not YAGNI);
+  replaced with `Topic 4: Good-Enough Software` from *The Pragmatic Programmer*.
+- **`architecture-guide.md` Step 2 pointer** — circular-dependency instruction now cites
+  the actual `-.->|circular|` Mermaid edge in the example, replacing the stale ⚠️ symbol
+  that never appeared in the map.
+- **`test-decay-risks.md` T6 source** — `Test suite design principles` (vague) tightened
+  to Meszaros' `Slow Tests (p. 253)`; `test-guide.md` slow-suite source aligned to the
+  same citation.
+- **`GEMINI.md` fictional command** — `gemini skills reload` removed; replaced with
+  `exit the Gemini CLI (/quit) and relaunch`. `GEMINI.md` and `AGENTS.md` both state
+  `npm run evals` / `npm run evals:live` as the eval runners (was "No automated runner").
+- **`common.md` Auto Scope Detection** — added the missing Health Dashboard branch;
+  replaced the hard-coded `"PR Review Step 7"` reference with the named
+  `"Quick Test Check"` step so step renumbering no longer rots the text.
+- **`debt-guide.md` step numbering** — promoted `Step 2b: Classify Debt Intent` to
+  `Step 3`, renumbered `Group by Decay Risk` to `Step 4`, and updated the
+  `"three steps" -> "four steps"` preamble.
+- **`CONTRIBUTING.md` structure** — `"Three Ways to Contribute"` -> `"Four Ways to
+  Contribute"`; `Adding a new decay risk` promoted to numbered §4 and moved after
+  §3 for logical difficulty progression (1→2→3→4); fixed broken list rendering
+  where `"In your PR..."` was missing a blank line and rendered as a list-item
+  continuation.
+- **`.github/ISSUE_TEMPLATE/bug_report.md`** — added Health Dashboard to the
+  `Review mode` options; replaced broken `cat ~/.claude/plugins/.../package.json`
+  placeholder with `/plugin list` guidance.
+- **`docs/gallery.md` self-contradictions** — `"Critical / Scheduled"` cell in the
+  Debt Summary Table (a single-cell two-way classification that didn't fit the
+  schema) now reads `"Mixed (1 Critical + 1 Scheduled)"`; `~9 minutes` / `~542 seconds`
+  time references harmonized; preamble changed from "no manual editing" to
+  "lightly abridged — some Consequence lines trimmed" for honesty.
+
+### Changed
+
+- **SKILL.md Process convention** — `SKILL.md` Process sections are now a high-level
+  skeleton (3–6 items) that cites guide `Step` ranges inline (e.g. `Scan decay risks
+  (Steps 1–7 of the guide)`) rather than mirroring the guide's full step list 1:1.
+  The guide owns the detailed numbered steps; the skeleton is for orientation.
+  Counts no longer need to match — `CLAUDE.md`, `AGENTS.md`, and `GEMINI.md` all
+  document the new rule. `npm run validate` still enforces guide step continuity
+  (sub-steps like `2a`/`6b` allowed) and SKILL.md Process-section presence.
+  All five `SKILL.md` Process sections updated to the new skeleton+citation format.
+- **`commands/*.md` frontmatter** — all five short-form command wrappers now declare
+  `allowed-tools: Skill`, so the command turn can only dispatch the skill (the skill
+  itself has full tool access once invoked).
+- **Typographic consistency** — unified `Pain × Spread` (Unicode × with spaces) across
+  `debt/SKILL.md`, `health-guide.md`, `evals.json`, and `docs/gallery.md`; unified
+  `Ch. X` chapter citations (with the ASCII space after the period) across
+  `test-decay-risks.md`, `test-guide.md`, `architecture-guide.md`, and
+  `pr-review-guide.md`.
+- **`README.md` Roadmap** — added a "Current state" callout above the version-by-
+  version history so early entries like "v0.3: Eight Brooks dimensions" and
+  "v0.4: Six-book framework" aren't misread as the current feature set.
+- **`health-guide.md` dashboard template** — added the `**Mode:** Health Dashboard`
+  field and standard `---` section dividers to align with the report templates used
+  by the other four skills.
+
+---
+
+## [1.0.0] - 2026-04-16
+
+### Added
+
+- **F9: Eval Automation** — live eval runner via Anthropic SDK:
+  - New `scripts/run-evals-live.mjs`: executes all 49 benchmark scenarios against
+    Claude API; classifies results as pass / partial / fail / false-positive-pass / error;
+    reports per-risk accuracy (e.g., `R1: 6/7 (85%)`); shares `assembleSystemPrompt`
+    with `ci-review.mjs` for consistent prompt assembly
+  - Flags: `--id N`, `--risk R1`, `--mode review`, `--model claude-opus-4-6` for subset runs;
+    system prompts are cached per mode to avoid re-reading files for each scenario
+  - `evals/evals.json`: all 49 scenarios gain a `mode` field
+    (`"review"` | `"audit"` | `"debt"` | `"test"` | `"health"`)
+  - `scripts/run-evals.mjs`: `mode` added to `REQUIRED_FIELDS`; valid mode values enforced
+  - `package.json`: `"evals:live"` script wired to `run-evals-live.mjs`
+- **F10: Custom Decay Risk Extension** — `Cx` codes for project-specific risks:
+  - New `skills/_shared/custom-risks-guide.md`: loading validation, scanning instructions,
+    Iron Law integration (`Source: "[Project-defined risk] — <name>"`), and Health Score
+    inclusion rules; custom findings appear under **### Project-Specific Risks**
+  - `skills/_shared/common.md` Config section: one-line trigger to load
+    `custom-risks-guide.md` when `custom_risks` map is present; Config Validation
+    updated to accept `Cx` codes in `disable`, `focus`, and `severity`
+  - `.brooks-lint.example.yaml`: commented `custom_risks` example with `C1` (Security
+    Debt) and `C2` (Accessibility Debt) entries showing all required fields
+
+### Changed
+
+- **Skill descriptions** — all five `SKILL.md` descriptions now lead with purpose and
+  concrete user trigger phrases instead of the book list; each includes a strengthened
+  "Do NOT trigger for:" guardrail to prevent false activation
+- **Eval classification flags** — replaced fragile name-substring detection with explicit
+  boolean fields: `no_risk_codes: true` (18 false-positive scenarios) and
+  `no_health_score: true` (2 boundary scenarios); the two flags are mutually exclusive
+- **CLAUDE.md** — updated to reflect five skills (added `brooks-health`), corrected eval
+  count (43 → 49), completed `scripts/` listing, added `brooks-health` dev command,
+  documented GitHub Action, custom risks, and VS Code exclusion
+
+### Fixed
+
+- `gemini-extension.json` — added missing `brooks-health` skill and command entries;
+  all four manifests now list five analysis modes
+- Removed VS Code references from `README.md` (Mermaid render list);
+  VS Code Extension marked out of scope in roadmap spec and `CLAUDE.md`
+
+---
+
+## [0.9.5] - 2026-04-16
+
+### Added
+
+- **F7: Team Onboarding Report** — `brooks-audit` now supports `--onboarding` mode:
+  - New file `skills/brooks-audit/onboarding-guide.md` with a 6-step orientation process
+    (territory map, reading-order dependency graph, conventions, danger zones, domain
+    glossary, suggested first tasks)
+  - Mermaid graph colored by reading order (blue = start, purple = next, gray = last)
+    using a DISTINCT palette from the severity palette to avoid confusion
+  - No Health Score or Iron Law format — this mode explains, not diagnoses
+  - `brooks-audit/SKILL.md` updated: description includes onboarding triggers; Process
+    section routes `--onboarding` requests to `onboarding-guide.md`
+  - 2 new benchmark evals (IDs 48–49): one normal onboarding request, one boundary check
+    verifying the absence of Health Score and Iron Law findings
+- **F8: GitHub Action** — automated PR review via Anthropic SDK:
+  - New `.github/actions/brooks-lint/action.yml`: composite action with `mode`,
+    `anthropic-api-key`, `fail-below`, and `model` inputs; posts review as PR comment;
+    outputs `score` for downstream steps
+  - New `scripts/assemble-prompt.mjs`: shared utility that assembles the system prompt
+    for any mode by concatenating `common.md`, `source-coverage.md`, the correct
+    decay-risks files, and the mode-specific guide; shared with the future eval runner
+  - New `scripts/ci-review.mjs`: CLI entry point for CI — reads git diff, assembles
+    prompt, calls Claude API, outputs JSON `{ report, score, mode, scope, trend }`
+  - New `docs/github-action-example.yml`: ready-to-copy workflow template
+  - Trend integration: if `.brooks-lint-history.json` exists in the project root, the
+    PR comment includes a delta line (e.g., "85 → 82 (−3) over last 3 runs")
+  - `@anthropic-ai/sdk` added as devDependency; `evals:live` script placeholder added
+
+---
+
+## [0.9.4] - 2026-04-16
+
+### Added
+
+- **F6: `--fix` Remedy Mode (Phase 1)** — new `skills/_shared/remedy-guide.md`:
+  - Actionable remedies with Target (file path + function), Action (specific refactoring),
+    and Rationale fields
+  - Fixability tiers: `[quick-fix]` (single-file mechanical), `[guided]` (design choice
+    required), `[manual]` (cross-module, team discussion needed)
+  - Fix Summary table appended to report when `--fix` is active
+  - `common.md` updated with a one-line "## Remedy Mode" trigger
+- **F5: Interactive Triage Mode** — `common.md` updated with "## Post-Report Triage" section:
+  - Post-report workflow: accept / dismiss (suppress) / defer (suppress with expiry) / skip
+  - Suppress entries auto-appended to `.brooks-lint.yaml` with required `reason` field
+  - CI guard: triage is skipped in non-interactive/headless sessions
+- **Config schema: `suppress` field** — `.brooks-lint.example.yaml` updated with commented
+  suppress example including `risk`, `pattern`, `reason`, `date`, and `expires` fields
+- Validator: added check that `.brooks-lint.example.yaml` includes a commented suppress example
+- 2 new benchmark evals (IDs 46–47): `--fix` active (verify tier labels + Fix Summary) and
+  `--fix` not active (verify normal behavior)
+
+---
+
+## [0.9.3] - 2026-04-16
+
+### Added
+
+- **F3: `/brooks-health` skill** — combined health dashboard across all four dimensions:
+  - New `skills/brooks-health/` directory with `SKILL.md` and `health-guide.md`
+  - Three-step process: lightweight scan (PR/Architecture/Debt/Test), weighted composite
+    scoring (0.25/0.30/0.25/0.20 with dynamic redistribution when PR dimension skipped),
+    and dashboard report with Mermaid dependency graph
+  - `hooks/session-start` updated: "four" → "five independent skills"; `brooks-health`
+    line added
+  - New command wrapper `commands/brooks-health.md`
+  - Validator: `brooks-health` added to `modes` and `guides` arrays in `checkSkillsContent()`
+    and `checkStepAlignment()`
+  - 2 new benchmark evals (IDs 44–45): healthy codebase (high composite score) and
+    multi-problem codebase (multiple dimensions flagged)
+- **F4: Health Score Trend Tracking** — new `scripts/history.mjs`:
+  - `readHistory`, `appendHistory`, `getTrend` utility functions (exported; shared with CI)
+  - `common.md` updated with "## History Tracking" section (append record after each run;
+    display trend delta if prior runs exist for the same mode)
+  - `.brooks-lint.example.yaml` updated with `.brooks-lint-history.json` gitignore comment
+  - `package.json` scripts: added `"history"` entry
+  - 10 unit tests added to `validate-repo.test.mjs` covering all three utility functions
+
+---
+
+## [0.9.2] - 2026-04-16
+
+### Added
+
+- **F1: Step Numbering Auto-Validation** — `validate-repo.mjs`:
+  - `extractGuideStepLabels()` moved to `scripts/frontmatter.mjs` as a named export
+    (shared between validator and tests)
+  - `checkStepAlignment()` added: validates guide step sequences (no gaps, no duplicates,
+    sequential main step numbers) and verifies each `SKILL.md` has a `## Process` section
+    with at least one numbered item
+  - `CLAUDE.md` gotcha updated: step numbering alignment is now automated via `npm run validate`
+  - 7 unit tests added to `validate-repo.test.mjs` for `extractGuideStepLabels`
+- **F2: Auto-Diff / Incremental Mode** — `skills/_shared/common.md`:
+  - New "## Auto Scope Detection" section: git diff cascade (staged → unstaged →
+    branch vs main → ask), incremental audit via `--since=<ref>`, co-located test
+    file detection for test mode
+  - All five `SKILL.md` Process sections updated with conditional auto-scope block
+  - Scope line added to all report templates
+
+---
+
+## [0.9.1] - 2026-04-15
+
+### Changed
+
+- **Hyrum's Law and Orthogonality promoted to named symptoms** in R2 (Change Propagation):
+  both are now explicit named bullet points in `decay-risks.md` instead of being buried
+  in generic descriptions, making them easier to cite in findings.
+- **PR Review guide deepened** (`pr-review-guide.md`):
+  - Scope calibration table added: analysis depth now adapts to PR size (<50 / 50–300 / >300 lines)
+  - Step 6 split into 6a (Dependency Disorder) and 6b (Domain Model Distortion) for independent scanning
+  - Severity calibration reframed as a tiebreaker referencing per-risk guides in `decay-risks.md`
+- **Architecture Audit guide deepened** (`architecture-guide.md`):
+  - New Step 5: Testability Seam Assessment — scans for missing or collapsed seam boundaries
+    using Feathers's Seam Model (Working Effectively with Legacy Code, Ch. 4)
+  - Mermaid Phase A/B simplified to a linear instruction with an explicit post-Step-4 reminder
+  - Conway's Law check (now Step 6) includes concrete calibration examples for all three severity tiers
+- **Tech Debt Assessment guide deepened** (`debt-guide.md`):
+  - Pain and Spread scores each have concrete calibration examples
+  - New Step 2b: classify each finding as intentional vs accidental debt (Cunningham's original
+    definition); Debt Summary Table gains an Intent column
+- **Test Quality Review guide deepened** (`test-guide.md`):
+  - Step 2 split into 2a (Test Brittleness) and 2b (Mock Abuse) with per-step severity thresholds;
+    sampling instruction merged to a single pass to avoid reading test files twice
+  - Characterization Test template added (Feathers, Ch. 8) with inline usage guidance
+  - Test suite performance structured into three tiers: >10 min (Warning), >30 min or unknown (Critical)
+- **Trigger descriptions improved** across all four `SKILL.md` files:
+  - Natural-language triggers added (e.g., "tests keep breaking" instead of "over-mocking")
+  - "Do NOT trigger for:" clauses added to every skill, fixing false triggering on HTTP health
+    checks (`brooks-debt`), from-scratch code writing (`brooks-test`), and similar boundary cases
+- **GEMINI.md corrected**: book count fixed from ten to twelve; eval count updated from 37 to 43;
+  `source-coverage.md` added to Project Structure listing
+- **AGENTS.md updated**: step numbering alignment and trigger description conventions documented
+- **CLAUDE.md updated**: step numbering and trigger description conventions added to Gotchas;
+  `simplify` skill name corrected (was `code-simplifier:code-simplifier`); pre-commit workflow
+  revised — `code-review:code-review` now runs post-PR-creation only, `simplify` handles pre-commit
+
+---
+
+## [0.9.0] - 2026-04-12
+
+### Added
+
+- **Flag Arguments and Primitive Obsession** — two high-frequency Fowler smells now encoded
+  in R1 (Cognitive Overload) with symptoms and source entries in the decay risk reference.
+- **Information Leakage** (Ousterhout) — added as an R2 (Change Propagation) symptom:
+  design decisions encoded in multiple modules create coupling even without explicit imports.
+- **ISP violation** (Martin) — Interface Segregation Principle added as an R5 (Dependency
+  Disorder) symptom: fat interfaces force callers to depend on methods they do not use.
+- **LSP violation** (Martin) — Liskov Substitution Principle added as an R6 (Domain Model
+  Distortion) symptom: subclasses that break their parent's behavioral contract.
+- **Value Object vs Entity confusion** (Evans) — added to R6: value concepts given mutable
+  identity instead of being treated as immutable, replaceable types.
+- **Erratic Test / flaky test** (Meszaros) — added to T2 (Test Brittleness): tests producing
+  non-deterministic results due to shared state, time dependence, or ordering assumptions.
+
+### Changed
+
+- **`source-coverage.md` "Encoded today" sections deepened** for all 12 books:
+  - McConnell: defensive programming and error-handling discipline
+  - Martin: ISP, LSP, SRP/OCP (previously only DIP/ADP/SDP/SAP)
+  - Ousterhout: Information Leakage
+  - Winters et al.: code sustainability and backward compatibility
+  - Meszaros: Erratic Test
+  - Fowler: Flag Arguments, Primitive Obsession
+  - Evans: Entity vs Value Object, Aggregate Root
+- **Risk description prose tightened** across all six production and six test decay risks
+  (~15% token reduction with no loss of diagnostic content).
+- **`CLAUDE.md`**: added Release Process section documenting the 4-step version bump workflow.
+
+---
+
+## [0.8.5] - 2026-04-12
+
+### Changed
+
+- **Single source of truth for book inventory** — `skills/_shared/source-coverage.md` now carries a YAML frontmatter `books:` list; `validate-repo.mjs` derives the count dynamically, eliminating Shotgun Surgery when adding new books.
+- **Validation refactored into named check functions** — `scripts/validate-repo.mjs` reorganized from a flat script into 12 named category functions (`checkVersionConsistency`, `checkSkillsContent`, `checkEvalSuite`, etc.) for clarity and maintainability.
+- **Named constants for risk counts** — `PRODUCTION_RISK_COUNT` and `TEST_RISK_COUNT` replace magic numbers in both `validate-repo.mjs` and `run-evals.mjs`; adding a new risk category requires updating one constant in each script.
+- **Skills content CI** — validator now asserts every SKILL.md has `## Setup` and `## Process` sections, and every mode guide references the Iron Law.
+- **Manifest description consistency** — validator checks all four plugin manifests have identical descriptions; fixed `gemini-extension.json` to match canonical.
+
+### Added
+
+- **`scripts/frontmatter.mjs`** — shared `parseFrontmatterBooks()` utility, importable without validator side effects.
+- **`scripts/run-evals.mjs`** — structural validator for `evals/evals.json`: checks sequential IDs, required fields, and risk code presence in `expected_output`.
+- **`scripts/validate-repo.test.mjs`** — 10 unit tests for `parseFrontmatterBooks` using Node.js built-in `assert`; runnable via `npm test`.
+- **`npm run evals`** and **`npm test`** scripts in `package.json`.
+
+---
+
+## [0.8.4] - 2026-04-11
+
+### Added
+
+- **12-book source coverage matrix** — `skills/_shared/source-coverage.md` maps every source book to encoded concepts, important nuances, false-positive guards, and review questions.
+- **Judgment guardrails in shared risk references** — `decay-risks.md` and `test-decay-risks.md` now include explicit "What Not to Flag" sections to reduce template-driven over-reporting.
+- **Benchmark suite expanded to 43 scenarios** — added tradeoff and false-positive cases covering deep modules, Hyrum's Law, justified protocol switches, composition roots, acceptable transaction scripts, and risk-shaped legacy test portfolios.
+
+### Changed
+
+- **All four skills now read the source coverage matrix** before risk-specific references, making book-level scope and exceptions part of the default workflow.
+- **README, AGENTS.md, CLAUDE.md, and CONTRIBUTING.md** now document the source coverage matrix and the expanded benchmark suite, and surface `node scripts/validate-repo.mjs` as a first-class consistency gate.
+
+---
+
+## [0.8.3] - 2026-04-11
+
+### Fixed
+
+- **Version drift removed** — `README.md`, `CHANGELOG.md`, and `hooks/session-start` now align
+  with package version `0.8.2`. The session-start hook no longer hardcodes a version string;
+  it reads from `package.json` before computing the wrapper sentinel path.
+- **Config examples corrected** — all coverage-related examples now point to `T5` (Coverage
+  Illusion) instead of `T3`, which is reserved for Test Duplication.
+- **Security policy refreshed** — SECURITY.md now describes the repository as a multi-platform
+  plugin/skill package and includes a concrete vulnerability reporting email.
+
+### Added
+
+- **Repository validation script** — `scripts/validate-repo.mjs` checks manifest/doc version
+  sync, validates hook JSON output, verifies the latest changelog version, and catches
+  risk-code example drift in config documentation.
+- **CI consistency gate** — GitHub Actions now runs the repository validation script before the
+  Codex plugin scanner.
+
+### Changed
+
+- **Release process documentation** — CLAUDE.md and CONTRIBUTING.md now document
+  `package.json` as the canonical version source and point contributors to the validation script.
+
+---
+
+## [0.8.1] - 2026-04-09
+
+### Fixed
+
+- **Short-form slash commands now work** — `/brooks-review`, `/brooks-audit`, `/brooks-debt`,
+  `/brooks-test` are auto-installed to `~/.claude/commands/` on first session start. Previously
+  these commands were only registered as namespaced `/brooks-lint:brooks-review` etc., which is
+  a Claude Code plugin system limitation (all plugin skills/commands carry a `pluginname:` prefix).
+  The session-start hook now copies thin wrapper files from `commands/` to `~/.claude/commands/`,
+  enabling the short-form `/brooks-review` slash commands without namespace prefix.
+- **Versioned sentinel file** — command wrappers auto-refresh on plugin upgrade. The sentinel
+  file at `~/.claude/commands/.brooks-lint-v{version}` encodes the plugin version, so upgrading
+  from e.g. 0.8.1 to 0.8.2 will re-copy the wrappers automatically. Old sentinel files are
+  cleaned up on upgrade.
+- **macOS bash 3.2 compatibility** — replaced `declare -A` (bash 4+ only) with `case` statement
+  in session-start hook. macOS ships `/bin/bash` 3.2 by default; the hook now works regardless
+  of which bash version `env bash` resolves to.
+- **Single source of truth for command wrappers** — the hook now copies canonical files from
+  `commands/` directory instead of regenerating from an inline template, eliminating content drift
+  between the two sources.
+
+### Changed
+
+- **`commands/*.md`** — simplified from verbose multi-paragraph instructions to thin one-line
+  wrappers that delegate to the corresponding `brooks-lint:brooks-*` plugin skill via the Skill
+  tool. This matches what the hook installs to `~/.claude/commands/`.
+- **`hooks/session-start`** — added auto-install block with versioned sentinel, `case` statement
+  for descriptions, and `cp` from `commands/` directory. Context injection updated to show
+  namespaced skill names (`brooks-lint:brooks-review` etc.).
+- **Documentation updated across 8 files** — CLAUDE.md, README.md, CONTRIBUTING.md, AGENTS.md,
+  GEMINI.md, and pr-review-guide.md all updated to reflect both command forms (short-form
+  `/brooks-review` and full-form `/brooks-lint:brooks-review`). README slash commands table now
+  shows both forms with a note about auto-installation.
+- **README version badge** updated to 0.8.1
+- **All five version files** synchronized to 0.8.1
+
+---
+
+## [0.8.0] - 2026-04-09
+
+### Changed
+
+- **Independent skill architecture** — split monolithic `skills/brooks-lint/` into four
+  independent skill directories, each with its own `SKILL.md` entry point:
+  - `skills/brooks-review/` — PR Review (Mode 1)
+  - `skills/brooks-audit/` — Architecture Audit (Mode 2)
+  - `skills/brooks-debt/` — Tech Debt Assessment (Mode 3)
+  - `skills/brooks-test/` — Test Quality Review (Mode 4)
+- **Shared framework extracted** — `skills/_shared/` now holds `common.md` (Iron Law, Project
+  Config, Report Template, Health Score), `decay-risks.md`, and `test-decay-risks.md`. Each
+  skill's SKILL.md references these shared files via relative paths.
+- **`common.md` created** — consolidated the Iron Law, Project Config loader, Report Template,
+  and Health Score rules (previously embedded in the monolithic SKILL.md) into a single shared
+  file that all four skills reference.
+
+### Removed
+
+- `skills/brooks-lint/` — the monolithic skill directory. All content migrated to the four
+  independent skill directories and `_shared/`.
+
+---
+
+## [0.7.0] - 2026-04-09
+
+### Added
+
+- **`.brooks-lint.yaml` project config** — teams can customize review behavior per-project:
+  `disable` (skip risk codes), `severity` (override tiers), `ignore` (file globs), `focus`
+  (evaluate only listed risks). Includes `.brooks-lint.example.yaml` template.
+- **Mode 2 proactive context** — Architecture Audit (Step 0) now scans the codebase
+  automatically before analysis, gathering module structure, dependency patterns, and
+  configuration files without requiring the user to paste code.
+- **10-book expansion** — added four new source books to the framework:
+  - *A Philosophy of Software Design* (Ousterhout) — contributes to R1, R4
+  - *Software Engineering at Google* (Winters et al.) — contributes to R2, R5
+  - *Working Effectively with Legacy Code* (Feathers) — contributes to T4, T5, T6
+  - *xUnit Test Patterns* (Meszaros) — contributes to T1, T2, T3, T4
+- **CI quality gate** — Codex plugin scanner workflow (GitHub Actions) for manifest linting
+- **Community health files** — SECURITY.md, issue templates, PR template, GitHub Discussions
+
+### Changed
+
+- README: updated from "six books" to "ten books" throughout, expanded book table, refreshed
+  decay risk source attributions
+- All version references synchronized to 0.7.0
+
+---
+
+## [0.6.2] - 2026-04-03
+
+### Added
+
+- **Language matching** — report output now matches the user's conversation language
+- **Eval benchmark suite expanded to 37 scenarios** — all 12 decay risks (6 production + 6 test)
+  across Python, TypeScript, Go, and Java at Critical / Warning / Clean severity levels
+- **Gallery page** (`docs/gallery.md`) — 7 curated real brooks-lint outputs organized by Mode,
+  including Mermaid dependency graphs for Architecture Audit
+- **README:** added "See More Examples" section with link to gallery page
+
+### Changed
+
+- **CLAUDE.md:** added Multi-Platform Support, Eval Suite, and Development Commands sections;
+  refreshed directory tree and Roadmap
+
+---
+
+## [0.6.1] - 2026-04-01
+
+### Added
+
+- **Codex CLI support** — brooks-lint now works as a Codex CLI plugin
+  - `.codex-plugin/plugin.json`: Plugin manifest for Codex CLI
+  - `AGENTS.md`: Project instructions file for Codex CLI sessions
+  - README updated with triple-platform installation and usage docs
+
+---
+
+## [0.6.0] - 2026-03-31
+
+### Added
+
+- **Mermaid Dependency Graph in Architecture Audit (Mode 2)** — the plain-text ASCII
+  dependency map is replaced with a Mermaid diagram that renders as a visual graph
+  in GitHub, Notion, and other Markdown environments
+- Node color coding by severity: red (Critical), yellow (Warning), green (clean)
+- Automatic grouping by project folder structure using Mermaid subgraphs
+- Circular dependencies visually marked with dotted labeled edges
+- Graph appears at the top of the audit report for immediate architectural overview
+
+### Changed
+
+- `architecture-guide.md`: Step 1 now produces Mermaid syntax instead of ASCII arrows;
+  added color scheme reference, node limit constraint (~50), and rendering order note
+- `SKILL.md`: Mode 2 steps updated (7 steps, up from 6); Report Template includes
+  "Module Dependency Graph" section for Mode 2
+- All version references bumped to 0.6.0
+
+---
+
+## [0.5.2] - 2026-03-31
+
+### Added
+
+- **Gemini CLI support** — brooks-lint now works as a Gemini CLI extension
+  - `GEMINI.md`: Project guidance file for Gemini CLI sessions
+  - `gemini-extension.json`: Extension manifest for `/extensions install`
+  - README updated with dual-platform installation, slash commands, and usage docs
+
+### Changed
+
+- README: Claude Code restored as recommended install method; Gemini CLI listed as secondary
+- README: Usage sections unified with inline dual-platform command examples
+- All version references synchronized to 0.5.2
+
+---
+
+## [0.5.0] - 2026-03-28
+
+### Added
+
+- **Mode 4: Test Quality Review** — new dedicated mode for diagnosing test suite health,
+  triggered by `/brooks-lint:brooks-test` or automatically when test files are shared
+- `test-decay-risks.md`: Six test-space decay risks mirroring the six production decay risks,
+  sourced from four classic testing books:
+  - T1: Test Obscurity (Meszaros — Assertion Roulette, Mystery Guest)
+  - T2: Test Brittleness (Meszaros — Eager Test; Osherove — isolation principle)
+  - T3: Test Duplication (Meszaros — Lazy Test; Hunt & Thomas — DRY)
+  - T4: Mock Abuse (Osherove — mock guidelines; Meszaros — Hard-Coded Test Data)
+  - T5: Coverage Illusion (Feathers — "legacy code = no tests"; Google — coverage strategy)
+  - T6: Architecture Mismatch (Google — 70:20:10 pyramid; Feathers — Seam Model)
+- `test-guide.md`: Mode 4 five-step analysis process with test suite map
+- `commands/brooks-test.md`: `/brooks-lint:brooks-test` slash command
+- **PR Review Step 7: Quick Test Check** — lightweight three-signal test scan appended
+  to every Mode 1 review (Coverage Illusion, Mock Abuse, Test Obscurity signals)
+
+### Changed
+
+- `SKILL.md`: Added Mode 4 to mode detection table, trigger words, slash command list,
+  and Reference Files table
+- `pr-review-guide.md`: Added Step 7 Quick Test Check; updated "six steps" → "seven steps"
+- `CLAUDE.md`: Updated architecture description, directory tree, "How the skill works"
+  steps, and Roadmap to reflect v0.5 state
+
+### Source Books Added (Test Quality Framework)
+
+- Gerard Meszaros — *xUnit Test Patterns* (2007)
+- Roy Osherove — *The Art of Unit Testing* (2009, 3rd ed. 2023)
+- Google Engineering — *How Google Tests Software* (2012)
+- Michael Feathers — *Working Effectively with Legacy Code* (2004)
+
+---
+
+## [0.4.0] - 2026-03-27
+
+### Documentation & Benchmark
+- **README:** Full rewrite with persuasion-funnel structure — benchmark data (94% vs 16%),
+  real eval output showcase, four-column comparison table (vs ESLint/Copilot/Plain Claude)
+- **CONTRIBUTING.md:** New file — three contribution paths, local testing guide, PR conventions
+- **evals/evals.json:** Benchmark test suite added to repository (3 real-world scenarios)
+
+### Changed
+- **Framework redesign:** Replaced eight Brooks-only scoring dimensions with six cross-book
+  decay risk dimensions synthesized from six classic engineering books
+- **Behavioral model:** Replaced dimension scoring (1–5) with diagnosis chain
+  (Symptom → Source → Consequence → Remedy) and severity labels (🔴/🟡/🟢)
+- **Health score:** Replaced weighted average of dimension scores with deduction-based score
+  (100 − 15×Critical − 5×Warning − 1×Suggestion)
+- **SKILL.md:** Rewrote entry point with strengthened Iron Law and new report template
+- **pr-review-guide.md:** Rewrote with six-risk scan process ordered by PR-relevance
+- **architecture-guide.md:** Rewrote with six-risk audit process + Conway's Law check
+- **debt-guide.md:** Rewrote with Pain×Spread priority formula and Debt Summary Table
+- **commands/\*.md:** Updated descriptions to reference six-book framework
+
+### Added
+- `decay-risks.md`: New core knowledge file — six decay risks with full symptom lists,
+  source attributions for all six books, and severity guides
+- Six new source books: Code Complete (McConnell), Refactoring (Fowler),
+  Clean Architecture (Martin), The Pragmatic Programmer (Hunt & Thomas),
+  Domain-Driven Design (Evans)
+
+### Removed
+- `brooks-principles.md`: Replaced by `decay-risks.md`
+- Eight-dimension scoring table from output format
+
+## [0.2.0] - 2026-03-26
+
+### Added
+- `.claude-plugin/` infrastructure for marketplace installation (`/plugin install brooks-lint`)
+- `hooks/session-start` — SessionStart hook that injects brooks-lint awareness into every Claude session
+- `commands/brooks-review.md` — `/brooks-review` slash command for forced PR review mode
+- `commands/brooks-audit.md` — `/brooks-audit` slash command for forced architecture audit mode
+- `commands/brooks-debt.md` — `/brooks-debt` slash command for forced tech debt assessment mode
+- `skills/brooks-lint/brooks-principles.md` — Scoring rubrics for all 7 Brooks dimensions
+- `skills/brooks-lint/pr-review-guide.md` — Detailed PR review checklist (Mode 1)
+- `skills/brooks-lint/architecture-guide.md` — Architecture audit framework with dependency graph template (Mode 2)
+- `skills/brooks-lint/debt-guide.md` — 5-category tech debt classification framework (Mode 3)
+
+### Changed
+- `SKILL.md` moved from root to `skills/brooks-lint/SKILL.md` and fully rewritten
+- Skill now follows superpowers mode-switch pattern with explicit mode detection
+- Reference files reorganized from `references/` into `skills/brooks-lint/` and split by mode
+- Skill is now fully prompt-driven (no external script dependencies)
+
+### Removed
+- `scripts/complexity_analyzer.py` — replaced by Claude's native analysis capability
+- `references/` directory — content migrated to `skills/brooks-lint/`
+- Root `SKILL.md` — replaced by `skills/brooks-lint/SKILL.md`
+
+## [0.1.0] - 2026-03-26
+
+### Added
+- Initial release: SKILL.md, references/, scripts/complexity_analyzer.py, assets/logo.svg

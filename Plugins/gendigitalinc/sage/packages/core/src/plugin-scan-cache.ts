@@ -1,0 +1,179 @@
+/**
+ * File-based cache for plugin scan results.
+ */
+
+import { createHash } from "node:crypto";
+import { readdir } from "node:fs/promises";
+import { join } from "node:path";
+import { MS_PER_DAY } from "./config.js";
+import { atomicWriteJson, getFileContent, getHomeDir } from "./file-utils.js";
+import type {
+	CachedPluginScanResult,
+	Logger,
+	PluginFindingData,
+	PluginScanCache,
+} from "./types.js";
+import { nullLogger } from "./types.js";
+
+const DEFAULT_CACHE_PATH = join(getHomeDir(), ".sage", "plugin_scan_cache.json");
+/** Fallback scan-result TTL when a caller does not supply one (matches the
+ *  `skill_check.cache_ttl_days` config default). */
+export const DEFAULT_CACHE_TTL_MS = MS_PER_DAY;
+
+// v4: loose-skill keys gained a root tag (skill:<tag>/<rel>@local); drop v3's
+// untagged entries so they re-scan cleanly under the new keys.
+// v5: the version segment changed from "local" to the scope (@personal /
+// @project) so a personal and project skill of the same family no longer
+// collide; drop v4's @local entries so they re-scan under the new keys.
+const SCHEMA_VERSION = 5;
+
+export function cacheKey(pluginKey: string, version: string, lastUpdated: string): string {
+	return `${pluginKey}:${version}:${lastUpdated}`;
+}
+
+export async function computeConfigHash(sageVersion: string, ...dirs: string[]): Promise<string> {
+	const h = createHash("sha256");
+	if (sageVersion) h.update(sageVersion);
+	for (const dir of dirs) {
+		let files: string[];
+		try {
+			files = (await readdir(dir)).filter((f) => f.endsWith(".yaml")).sort();
+		} catch {
+			continue;
+		}
+		for (const file of files) {
+			try {
+				const content = await getFileContent(join(dir, file));
+				h.update(content);
+			} catch {}
+		}
+	}
+	return h.digest("hex").slice(0, 16);
+}
+
+export async function loadScanCache(
+	configHash = "",
+	cachePath = DEFAULT_CACHE_PATH,
+	logger: Logger = nullLogger,
+): Promise<PluginScanCache> {
+	let raw: string;
+	try {
+		raw = await getFileContent(cachePath);
+	} catch {
+		return { configHash, entries: {} };
+	}
+
+	try {
+		const data = JSON.parse(raw) as Record<string, unknown>;
+
+		const storedVersion = (data.schema_version ?? 1) as number;
+		if (storedVersion !== SCHEMA_VERSION) {
+			logger.debug("Schema version changed, invalidating plugin scan cache", {
+				from: storedVersion,
+				to: SCHEMA_VERSION,
+			});
+			return { configHash, entries: {} };
+		}
+
+		const storedHash = (data.config_hash ?? "") as string;
+
+		if (configHash && storedHash !== configHash) {
+			logger.debug("Config hash changed, invalidating plugin scan cache", {
+				from: storedHash,
+				to: configHash,
+			});
+			return { configHash, entries: {} };
+		}
+
+		const entries: Record<string, CachedPluginScanResult> = {};
+		const rawEntries = (data.entries ?? {}) as Record<string, Record<string, unknown>>;
+		for (const [key, entryData] of Object.entries(rawEntries)) {
+			entries[key] = {
+				pluginKey: entryData.plugin_key as string,
+				version: entryData.version as string,
+				scannedAt: entryData.scanned_at as string,
+				findings: (entryData.findings ?? []) as PluginFindingData[],
+			};
+		}
+
+		return { configHash: configHash || storedHash, entries };
+	} catch (e) {
+		logger.warn(`Failed to load scan cache from ${cachePath}`, { error: String(e) });
+		return { configHash, entries: {} };
+	}
+}
+
+export async function saveScanCache(
+	cache: PluginScanCache,
+	cachePath = DEFAULT_CACHE_PATH,
+	logger: Logger = nullLogger,
+): Promise<void> {
+	try {
+		const data = {
+			schema_version: SCHEMA_VERSION,
+			config_hash: cache.configHash,
+			entries: Object.fromEntries(
+				Object.entries(cache.entries).map(([key, entry]) => [
+					key,
+					{
+						plugin_key: entry.pluginKey,
+						version: entry.version,
+						scanned_at: entry.scannedAt,
+						findings: entry.findings,
+					},
+				]),
+			),
+		};
+		await atomicWriteJson(cachePath, data);
+	} catch (e) {
+		logger.warn(`Failed to save scan cache to ${cachePath}`, { error: String(e) });
+	}
+}
+
+export function isCached(
+	cache: PluginScanCache,
+	pluginKey: string,
+	version: string,
+	lastUpdated: string,
+	ttlMs = DEFAULT_CACHE_TTL_MS,
+): boolean {
+	const key = cacheKey(pluginKey, version, lastUpdated);
+	const entry = cache.entries[key];
+	if (!entry) return false;
+
+	try {
+		const scannedAt = new Date(entry.scannedAt);
+		const age = Date.now() - scannedAt.getTime();
+		return age < ttlMs;
+	} catch {
+		return false;
+	}
+}
+
+export function getCached(
+	cache: PluginScanCache,
+	pluginKey: string,
+	version: string,
+	lastUpdated: string,
+	ttlMs = DEFAULT_CACHE_TTL_MS,
+): CachedPluginScanResult | null {
+	if (!isCached(cache, pluginKey, version, lastUpdated, ttlMs)) return null;
+	const key = cacheKey(pluginKey, version, lastUpdated);
+	return cache.entries[key] ?? null;
+}
+
+export function storeResult(
+	cache: PluginScanCache,
+	pluginKey: string,
+	version: string,
+	lastUpdated: string,
+	findings: PluginFindingData[],
+): void {
+	const key = cacheKey(pluginKey, version, lastUpdated);
+	cache.entries[key] = {
+		pluginKey,
+		version,
+		scannedAt: new Date().toISOString(),
+		findings,
+	};
+}

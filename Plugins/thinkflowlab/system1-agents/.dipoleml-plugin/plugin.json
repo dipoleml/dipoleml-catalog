@@ -1,0 +1,16 @@
+{
+  "name": "system1-agents",
+  "displayName": "System1 Agents",
+  "version": "0.1.0",
+  "description": "S1A: System 1 decision models in the model slot of openJiuwen agents. A browser subagent for page tasks with enumerable controls, game agents, and one 400 ms pick over options you enumerate.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Thinkflowlab"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/ThinkFlowLab/system1-agents",
+  "repository": "https://github.com/ThinkFlowLab/system1-agents",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

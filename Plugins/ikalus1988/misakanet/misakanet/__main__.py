@@ -1,0 +1,37 @@
+"""MisakaNet — Lesson / Node / Search. Stdlib-only agent library.
+
+Commands:
+    python3 -m misakanet             Show this help
+    python3 search_knowledge.py      Search Lessons (BM25, stdlib-only)
+    python3 scripts/new_lesson.py    Create a Lesson
+    python3 scripts/contribute.py    Submit a Lesson via GitHub API
+    python3 scripts/setup.py --check Environment check
+    python3 scripts/score_lessons.py Quality score for all Lessons
+    python3 scripts/referral.py      Referral code (Node invites)
+    python3 -m misakanet extract     Extract failure lessons from logs
+"""
+import sys
+
+USAGE = """MisakaNet — Lesson / Node / Search
+
+Commands:
+    python3 search_knowledge.py "query"    Search Lessons (BM25, stdlib-only)
+    python3 scripts/new_lesson.py          Create a Lesson
+    python3 scripts/contribute.py          Submit via GitHub API
+    python3 scripts/setup.py --check       Environment check
+    python3 scripts/score_lessons.py       Quality score
+    python3 scripts/referral.py            Referral code
+    python3 -m misakanet extract [args]    Extract failure lessons from logs
+
+Docs: https://github.com/Ikalus1988/MisakaNet
+"""
+
+def main():
+    if len(sys.argv) > 1 and sys.argv[1] == "extract":
+        from misakanet.watcher import run_extract
+        run_extract(sys.argv[2:])
+    else:
+        print(USAGE)
+
+if __name__ == "__main__":
+    main()

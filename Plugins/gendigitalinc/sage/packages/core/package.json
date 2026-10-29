@@ -1,0 +1,67 @@
+{
+  "name": "@gendigital/sage-core",
+  "license": "Apache-2.0",
+  "publishConfig": {
+    "access": "public"
+  },
+  "description": "Safety for Agents — platform-agnostic detection engine",
+  "homepage": "https://github.com/gendigitalinc/sage",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gendigitalinc/sage.git",
+    "directory": "packages/core"
+  },
+  "bugs": {
+    "url": "https://github.com/gendigitalinc/sage/issues"
+  },
+  "version": "0.14.0",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/e2e-testing.d.ts",
+      "import": "./dist/e2e-testing.js"
+    },
+    "./dist/model-download-worker.js": "./dist/model-download-worker.js",
+    "./dist/skill-upload-worker.js": "./dist/skill-upload-worker.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "clean": "node ../../scripts/clean.mjs dist tsconfig.tsbuildinfo",
+    "prepack": "node ../../scripts/check-workspace-refs.mjs"
+  },
+  "dependencies": {
+    "fflate": "^0.8.2",
+    "semver": "^7.7.0",
+    "tar": "^7.5.13",
+    "yaml": "^2.7.0",
+    "zod": "^3.24.0"
+  },
+  "optionalDependencies": {
+    "koffi": "^2.9.0",
+    "onnxruntime-node": "^1.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/semver": "^7.7.1",
+    "typescript": "^5.9.0",
+    "vitest": "^4.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "security",
+    "adr",
+    "agent security",
+    "malware-detection",
+    "AI",
+    "agentic AI"
+  ]
+}

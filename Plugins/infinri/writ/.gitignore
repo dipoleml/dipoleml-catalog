@@ -1,0 +1,88 @@
+# Python
+__pycache__/
+**/__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+*.egg
+dist/
+build/
+.venv/
+
+# IDE
+.idea/
+.vscode/
+.gemini/
+*.swp
+*.swo
+
+# Neo4j data (managed by Docker volume)
+neo4j-data/
+
+# Tantivy/vector index caches
+.cache/
+
+# pytest
+.pytest_cache/
+.benchmarks/
+
+# mypy
+.mypy_cache/
+
+# ruff
+.ruff_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+
+# Local config with secrets (Bitbucket token, Neo4j password). Template: writ.toml.example
+writ.toml
+# writ neo4j set-password's atomic-write temp file; only a hard kill can leave one, and it
+# would hold the password.
+.writ.toml.*
+
+# Writ enforcement runtime artifacts
+workflow-friction.log
+.claude/gates/
+.claude/plans/
+.claude/debug/
+.claude/handoffs/
+.friction-snapshot
+cache/
+bible/.export_timestamp
+
+# Enterprise-logging runtime tree (default log root: <skill>/var/logs)
+var/
+
+# Rule corpus as markdown: regenerate locally via `writ export` for hand
+# editing. The shipped/tracked source is writ-corpus.cypher (writ export-cypher).
+/bible/
+
+# Per-Work-cycle workflow artifacts (overwritten each cycle)
+plan.md
+capabilities.md
+# ...and their per-cycle archives. The two exact names above were too narrow: because
+# plan.md is overwritten every cycle, each cycle's approved plan gets archived beside it
+# under a name like plan-<cycle>.ARCHIVED.md, and those were NOT ignored. Several of them
+# name a client, so one `git add -A` would have published that name in a public history.
+# Verified before widening: no TRACKED file matches either pattern.
+plan-*.md
+capabilities-*.md
+
+# Plugin distribution: never ship
+.claude/settings.local.json
+.claude/skills/
+writ.egg-info/
+
+# Local strategy/planning notes: kept on disk, never shipped
+PREMISE-VERIFICATION-BLUEPRINT.md
+*_absorption.md
+RESUME.md
+WRIT-ROADMAP.md
+CONTAINMENT-AUDIT-*.md
+WRIT-DEMO-*.md

@@ -1,0 +1,16 @@
+{
+  "name": "canvas-to-code",
+  "displayName": "Canvas to Code",
+  "version": "0.5.0",
+  "description": "Translate canvas designs (HTML + screenshot) into design-system-aligned code through eleven explicit gates",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Opensesh"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/opensesh/canvas-to-code",
+  "repository": "https://github.com/opensesh/canvas-to-code",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,16 @@
+{
+  "name": "anymove",
+  "displayName": "Anymove",
+  "version": "0.1.0",
+  "description": "Motion capture for any creature from one AI video: two cameras in one frame, a DINOv2 joint reader trained on the creature, the rig fitted in both views, a GLB out. Skills for rigging, filming, training, capturing and the H3 LoRA.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Patch Gg"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/Patch-gg/anymove",
+  "repository": "https://github.com/patch-gg/anymove",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

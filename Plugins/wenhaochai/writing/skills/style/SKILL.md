@@ -1,0 +1,98 @@
+---
+name: style
+description: "Default writing standards. Use whenever producing English prose the user will send or publish: emails, message drafts, blog posts, tweets, documentation, grant proposals, and conference/journal paper drafts (NeurIPS, ICML, ICLR, ACL, CVPR, COLM, EMNLP, arxiv). Applies 17 canonical rules everywhere; 19 page-capped additions (RULE-P1..P19) for page-constrained papers; 2 audit-time rules (RULE-A1..A2) only when reviewing a compiled PDF for submission."
+---
+
+# Writing Style
+
+Default standards for English prose. Apply at generation and edit time. All rules are peers; no group is higher priority than another.
+
+**Scope.** RULE-01..17 apply to every writing task: email, message draft, post, doc, paper prose. RULE-P1..P19 apply *only* when the target is a page-capped paper (NeurIPS/ICML/ICLR-style 8-10 page caps and similar); skip them for email and short-form prose where they would over-constrain tone. RULE-A1..A2 are final-pass audit rules: trigger only when reviewing the compiled PDF for submission, not during drafting. For research-paper prose, also load `writing:paper-voice`; where they disagree (RULE-13 parentheses, RULE-16 repeated key terms, RULE-08 hedges, RULE-P1 one "In this paper" and one contribution list, RULE-P2 italics at a definition, RULE-12 as a soft limit), paper-voice wins.
+
+## Canonical (RULE-01..17)
+
+RULE-01..12 distilled from Strunk & White, Orwell, Pinker, and Gopen & Swan. RULE-13..17 added by Wenhao Chai.
+
+1. **RULE-01** Do not assume the reader shares your tacit knowledge. (Pinker 2014, Ch. 3)
+2. **RULE-02** Do not use passive voice when the agent matters. (Orwell 1946 Rule 3; S&W §II.14)
+3. **RULE-03** Do not use abstract or general language when a concrete, specific term exists. (S&W §II.16; Pinker 2014 Ch. 3)
+4. **RULE-04** Do not include needless words. (S&W §II.17; Orwell 1946 Rule 3)
+5. **RULE-05** Do not use dying metaphors or prefabricated phrases. (Orwell 1946 Rule 1)
+6. **RULE-06** Do not use avoidable jargon where an everyday English word exists. (Orwell 1946 Rule 5; Pinker 2014 Ch. 2)
+7. **RULE-07** Use affirmative form for affirmative claims. (S&W §II.15)
+8. **RULE-08** Do not linguistically overstate or understate claims relative to the evidence. (Pinker 2014 Ch. 6; Gopen & Swan 1990)
+9. **RULE-09** Express coordinate ideas in similar form (parallel structure). (S&W §II.19)
+10. **RULE-10** Keep related words together. (S&W §II.20; Gopen & Swan 1990)
+11. **RULE-11** Place new or important information in the stress position at the end of the sentence. (Gopen & Swan 1990)
+12. **RULE-12** Break long sentences; vary length. Split sentences over 30 words. (S&W §II.18; Pinker 2014 Ch. 4)
+13. **RULE-13** Do not use em-dashes (`—` in prose, `---` in LaTeX) or prose parentheses `()` in body text. Use colons plus lists, `, namely ...`, `, where ...`, or new sentences instead. Math parentheses (ordered pairs, function application, set notation), first-use abbreviation glosses (`Large Language Model (LLM)`), citation parentheses from `\citep`/`\citet`, and page-range en-dashes (`pp.~12--15`) are exempt.
+14. **RULE-14** Do not use vocabulary that signals LLM-generated prose. Common tells: "delve", "crucially", "multifaceted", "tapestry", "navigate the complexities", "in the realm of", "leverage" where "use" suffices, "moreover"/"furthermore" chains, em-dash sandwiches. If a phrase pattern-matches GPT default, swap for a plainer equivalent.
+15. **RULE-15** Be consistent within a single piece. Define an abbreviation on first use, then never re-expand. Once you pick italic vs roman "e.g.", "GPT-5-thinking" vs "GPT-5 (thinking)", a hyphenation convention, or a math-mode policy, hold it. Inconsistency reads as careless.
+16. **RULE-16** Do not use the same content word twice in one sentence or in adjacent sentences. Restructure, pronominalize, or pick a role-specific alternative. Function words and the piece's named signature concepts are exempt; reusing a defined term is desirable, not a violation.
+17. **RULE-17** Do not apologize in body prose for weak assumptions, narrow scope, or worse-than-baseline results. State each assumption once where it belongs and reserve limitations for a dedicated section. Phrasings like "Although our algorithm does not outperform X" frame weakness without communicating it; cut them.
+
+## Page-capped paper additions (RULE-P1..P19)
+
+Additions for page-constrained conference papers (NeurIPS/ICML/ICLR 9-page caps and similar). Field-observed from paper-review workflows.
+
+- **RULE-P1** Do not write section or subsection overview paragraphs. Do not open §3 Method with "We propose X, a framework that does (1) ..., (2) ..., (3) ...". Let the section-level figure caption, the algorithm block, and the component subsections carry the overview. The introduction already introduced the method.
+
+- **RULE-P2** Do not use `\emph`, `\textit`, or `\textbf` for emphasis in body prose. Reserve typographic emphasis for at most 1–2 signature concepts per paper, introduced once. For local emphasis, change wording: pick a precise verb, use parallel structure, or restructure the clause. `\textbf` in body text is almost never justified; reserve for table headers and figure-caption labels.
+
+- **RULE-P3** Researcher voice. Do not open sections or paragraphs with meta-scaffold sentences: "The motivation is empirical:", "In this section, we ...", "To begin, ...". Start with the concrete claim or observation. Do not plain-ify researcher-formal terms (`regime`, `load-bearing`, `orthogonal`, `ablation`, `identifiable`); they carry precision. Delete redundant forward and backward references such as `(defined in §3.2)` or `, as discussed above`, when the surrounding text already introduces the concept.
+
+- **RULE-P4** Do not insert blank lines inside a `\paragraph{}` block: all prose belongs to a single LaTeX paragraph. If a sub-topic feels distinct enough to need a break, give it its own `\paragraph{}` header instead. Layout breaks around numbered display equations (`\begin{equation}`) are exempt.
+
+- **RULE-P5** Audit every equation, display and inline, for undefined symbols. Each free variable, custom function (input/output type), index, and custom operator must be defined in prose: as setup before the equation, as unpacking after, or, for inline math, at the equation site itself where definition and use often coincide. State output types when arithmetic depends on them.
+
+- **RULE-P6** Citation discipline. Every `\bib` entry must correspond to a real, locatable paper: title, authors, year all verified; do not trust LLM-generated entries without checking, since a fabricated reference is citation fraud and damages credibility more than any prose flaw. Use `\citet` only when the citation is a sentence component, e.g., `\citet{tong24} show that ...` renders as "Tong et al. (2024) show that ..."; use `\citep` everywhere else, e.g., "...as shown in prior work \citep{tong24}" renders as "...as shown in prior work (Tong et al., 2024)". Test by removing the citation: if the sentence is still grammatical, use `\citep`; if it breaks, use `\citet`. Order multiple citations chronologically. In `.bib` entries: prefer the published venue over arXiv when both exist; use `@inproceedings` for conferences and `@article` for journals or arXiv-only papers; use the 4-letter conference abbreviation, e.g., CVPR or ICML, not the full name; drop page, volume, and number fields; deduplicate entries. Source `.bib` from Google Scholar, since arXiv and Semantic Scholar exports use inconsistent formatting.
+
+- **RULE-P7** Use the precision the measurement supports: 81.2% over 81.23% in most cases. Pick math-mode (`$82.8$`) or text-mode (`82.8`) and hold it across the whole paper, including tables.
+
+- **RULE-P8** Section titles do work. Use the question or finding the section answers, not a generic label: "Where is the signal?" over "Interpretability"; "Grounding agent reviews" over "Applications". Keep to 1–4 words unless the question form needs more. Avoid subsubsections.
+
+- **RULE-P9** The conclusion must extend, not paraphrase, the abstract. Restate key results in one or two lines, then add implication, interpretation, or forward-looking discussion. Naming it "Conclusion and Discussion" reminds you to do the second half.
+
+- **RULE-P10** Use simple present tense as the default voice, and hold it consistently within a piece. Switch tense only when meaning requires it.
+
+- **RULE-P11** Each paragraph carries one idea. The first sentence states the thesis; the rest supports or extends it; the last either concludes or hands off to the next paragraph. After drafting, re-read and split or merge paragraphs so this holds.
+
+- **RULE-P12** Lead with the simplest example that captures the crux of the problem, then generalize. Generality without a grounded toy case is the enemy of understanding. For every parameter or feature in the toy, check whether removing it keeps the problem interesting; if so, remove it before generalizing.
+
+- **RULE-P13** A figure caption must stand alone: state what is plotted, what the axes are, and what the reader is meant to take away. A reader who skims only figures and captions should still get the main empirical claim. Never pad a caption with sentences that describe the figure or table itself: what it is for, how its rows or columns are laid out, what a dash or a link means ("Each row gives the task's short name, ... and links to ...", "A dash marks a link the task does not have"). The header and the cells already say that. A table that only lists items takes its bold title alone (the owner, 2026-10-03: hates filler captions).
+
+- **RULE-P14** Treat theorems as the paper's public API. State at most 2–3 main theorems up front, informally if needed; a reader applying the result should not need to read the proof. Push technical lemmas and proof details into the appendix or encapsulated lemmas.
+
+- **RULE-P15** When a defined symbol reappears across pages or sections, restate its semantic role at the use site: prefer "if the rank $d$ is small" over "if $d$ is small". This complements RULE-P3, which deletes ceremonial cross-references like `(defined in §3.2)`; together they remove boilerplate while keeping the concept fresh.
+
+- **RULE-P16** A paper introduces at most 1–2 newly coined terms; every additional name is jargon the reader must learn. Do not invent acronyms. Do not collapse a problem and an algorithm into one name (e.g., "K-means" used for both the objective and the heuristic).
+
+- **RULE-P17** Treat a displayed equation as part of its containing sentence: end the equation with a comma if the sentence continues, a period if it terminates. The sentence after a terminal-period equation begins with a capital letter.
+
+- **RULE-P18** Do not make the reader hold a long-range correspondence. `, respectively` is almost always the wrong construction: it asks the reader to zip two lists across a clause boundary, so split it into one sentence per pair, or move it into a table. A `, which` chain does the same with modifiers, and a file whose density climbs has sentences that stopped carrying one idea each. An abbreviation defined many pages earlier gets its expansion or its role restated at the use site, which is RULE-P15 applied to names instead of symbols. (Jia-Bin Huang, `paper-writing.md`)
+
+- **RULE-P19** One table, one message. A table holding two unrelated blocks becomes two tables; two tables sharing a row structure and a caption pattern become one. Label the direction of every metric in the header, `Acc $\uparrow$` or `FID $\downarrow$`, so a reader who does not know the metric can still read the column. Bold the winner, and say in the caption what bold means. (Jia-Bin Huang, `paper-writing.md`)
+
+## Final-pass paper audit (RULE-A1..A2)
+
+Layout and typography rules that depend on rendered output. Trigger *only* when reviewing the compiled PDF for submission, not during drafting or generation. Skip these when editing `.tex` source without a fresh build.
+
+- **RULE-A1** Do not let a single line of text from the previous section spill onto the next page (widow line). Rewrite to pull it back to the previous page, or push more text forward.
+
+- **RULE-A2** Every line in a paragraph must fill more than half the line width. Justified typesetting auto-fills all lines except the last; in practice this rule constrains the final line of each paragraph. If the last line has only 1–3 words, shorten or extend the paragraph until it has substance.
+
+## Escape hatch
+
+Break any rule sooner than write something awkward (Orwell 1946 Rule 6). Rules serve clarity; they are not ends in themselves.
+
+## Self-check
+
+When an agent loads this skill, a one-line acknowledgment confirms activation:
+
+> style v0.9.2 active: 17 canonical rules (RULE-01..17) + 19 page-capped additions (RULE-P1..P19, paper-only) + 2 final-pass audit rules (RULE-A1..A2, compiled-PDF-only).
+
+## Credits
+
+RULE-01 through RULE-12 are from [agent-style](https://github.com/yzhao062/agent-style) by Yue Zhao, redistributed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/). See agent-style's `SOURCES.md` for the primary-source bibliography (Strunk & White 1959, Orwell 1946, Pinker 2014, Gopen & Swan 1990).
+
+Additions beyond RULE-12 are by Wenhao Chai, distilled from paper-review workflows and field practice across NeurIPS / ICML / ICLR / CVPR / EMNLP and adjacent venues.

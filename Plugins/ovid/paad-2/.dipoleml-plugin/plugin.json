@@ -1,0 +1,16 @@
+{
+  "name": "paad-2",
+  "displayName": "Paad",
+  "version": "2.0.2-preview",
+  "description": "Architecture analysis, code quality, and development workflow skills by Ovid",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Ovid"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/Ovid/paad",
+  "repository": "https://github.com/Ovid/paad",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

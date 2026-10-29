@@ -1,0 +1,16 @@
+{
+  "name": "dipoleml-spp",
+  "displayName": "DipoleML Spp",
+  "version": "0.1.0",
+  "description": "Maintain programming skills by ensuring humans write a minimum percentage of code",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Mlolson"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/mlolson/claude-spp",
+  "repository": "https://github.com/mlolson/claude-spp",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

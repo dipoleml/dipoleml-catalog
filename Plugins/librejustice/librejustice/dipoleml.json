@@ -1,0 +1,122 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.librejustice.librejustice",
+  "type": "plugin",
+  "name": "Librejustice",
+  "slug": "librejustice",
+  "vendor": "librejustice",
+  "description": "Moteur de recherche libre sur le droit français et européen — jurisprudence et textes (loi à n'importe quelle date), en web, API et MCP. Free search engine for French case law and legislation.",
+  "version": "1.18.0",
+  "homepage": "https://github.com/librejustice/librejustice",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agent-skills",
+    "case-law",
+    "claude-code-plugin",
+    "claude-marketplace",
+    "claude-plugin",
+    "claude-skills",
+    "france",
+    "french-law",
+    "jurisprudence"
+  ],
+  "tags": [
+    "agent-skills",
+    "case-law",
+    "claude-code",
+    "claude-code-plugin",
+    "claude-marketplace",
+    "claude-plugin",
+    "claude-skills",
+    "france",
+    "french-law",
+    "jurisprudence",
+    "legal",
+    "legaltech",
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "open-data",
+    "rust",
+    "search-engine"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "librejustice",
+    "brandName": "librejustice",
+    "source": "https://github.com/librejustice.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:13:49Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "librejustice/librejustice",
+    "url": "https://github.com/librejustice/librejustice",
+    "commit": "ca1d06062ec4bb2cb332b0e9d41a45309fa3ad75",
+    "path": "plugins/librejustice",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 30,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:06:09Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-http",
+      "url": "https://librejustice.fr/mcp",
+      "transport": "http",
+      "command": "librejustice"
+    },
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

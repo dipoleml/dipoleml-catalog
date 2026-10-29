@@ -1,0 +1,141 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.galleonlabs.hypergrok-trading-desk",
+  "type": "plugin",
+  "name": "Hypergrok Trading Desk",
+  "slug": "hypergrok-trading-desk",
+  "vendor": "galleonlabs",
+  "description": "Hyperliquid trading desk for AI agents: 7 roles, 17 skills and keyless market tools. Research first; execution requires your API wallet and approved tickets. Grok Bot, DipoleML, Cursor, Codex, Gemini CLI and Grok Build.",
+  "version": "1.7.0",
+  "homepage": "https://github.com/galleonlabs/hypergrok-trading-desk",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agent-plugins",
+    "agent-skills",
+    "ai-trading",
+    "claude-code-plugin",
+    "claude-code-skill",
+    "claude-plugin",
+    "claude-skills",
+    "codex",
+    "cursor-plugin"
+  ],
+  "tags": [
+    "agent-plugins",
+    "agent-skills",
+    "ai-agents",
+    "ai-trading",
+    "claude-code",
+    "claude-code-plugin",
+    "claude-code-skill",
+    "claude-plugin",
+    "claude-skills",
+    "codex",
+    "cursor-plugin",
+    "defi",
+    "gemini-cli-extension",
+    "grok-bot",
+    "hypergrok",
+    "hyperliquid",
+    "open-source",
+    "trading",
+    "trading-bot",
+    "trading-desk"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "galleonlabs",
+    "brandName": "galleonlabs",
+    "source": "https://github.com/galleonlabs.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:13:04Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "galleonlabs/hypergrok-trading-desk",
+    "url": "https://github.com/galleonlabs/hypergrok-trading-desk",
+    "commit": "4d0ae81c7fbd2125033a24320ad646592730883e",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 220,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:02:02Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude,cursor",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".cursor-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/cursor/.cursor-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Hypergrok Trading Desk | Hyperliquid trading desk for AI agents: 7 roles, 17 skills and keyless market tools. Research first; execution requires your API wallet and approved tickets. Grok Bot, Claude Code, Cursor, Codex, Gemini CLI and Grok Build.",
+        "after": "Hypergrok Trading Desk | Hyperliquid trading desk for AI agents: 7 roles, 17 skills and keyless market tools. Research first; execution requires your API wallet and approved tickets. Grok Bot, DipoleML, Cursor, Codex, Gemini CLI and Grok Build.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "hypergrok-trading-desk"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude",
+      "cursor"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

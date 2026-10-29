@@ -1,0 +1,9 @@
+{
+  "brand": "kubernetes",
+  "brandName": "kubernetes",
+  "file": "logo.svg",
+  "source": "https://cdn.simpleicons.org/kubernetes",
+  "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+  "resolver": "simple-icons:slug",
+  "retrievedAt": "2026-10-29T00:13:04Z"
+}

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "moodle-dev",
+  "description": "The most complete Moodle development toolkit for Claude Code: skills, slash commands, and subagents covering the entire Moodle plugin lifecycle.",
+  "owner": {
+    "name": "Saad Rahman",
+    "email": "saad.rahman010@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "moodle-dev",
+      "description": "13 skills + 8 commands + 2 agents for Moodle plugin scaffolding, XMLDB, web services, Hooks API, AMD/JS, PHPUnit, Behat, security, privacy, performance, accessibility, themes, mobile app, capability auditing, mustache linting, and cross-version upgrades. Pairs with the moodle-mcp companion server for live moodledev.io documentation lookups.",
+      "source": "./",
+      "version": "0.5.0",
+      "category": "development",
+      "mcpServers": {
+        "moodle-mcp": {
+          "command": "uvx",
+          "args": ["--from", "git+https://github.com/SaadRahman01/moodle-mcp", "moodle-mcp"]
+        }
+      },
+      "tags": [
+        "moodle",
+        "php",
+        "lms",
+        "edtech",
+        "plugin-development",
+        "phpunit",
+        "behat",
+        "amd",
+        "gdpr",
+        "accessibility",
+        "security",
+        "themes",
+        "mobile-app",
+        "mcp"
+      ]
+    }
+  ]
+}

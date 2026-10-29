@@ -1,0 +1,37 @@
+{
+  "name": "greenfield",
+  "version": "0.1.0",
+  "description": "Reverse engineer clean behavioral specs from any codebase",
+  "author": {
+    "name": "Prime Radiant, Inc."
+  },
+  "homepage": "https://github.com/prime-radiant-inc/greenfield",
+  "agents": [
+    "./agents/analyzer.md",
+    "./agents/sanitizer.md"
+  ],
+  "skills": [
+    "./skills/analysis-pipeline",
+    "./skills/provenance-methodology",
+    "./skills/doc-research",
+    "./skills/ecosystem-analysis",
+    "./skills/community-intelligence",
+    "./skills/runtime-observation",
+    "./skills/container-execution",
+    "./skills/source-analysis",
+    "./skills/multi-source-synthesis",
+    "./skills/behavioral-spec-writing",
+    "./skills/binary-analysis",
+    "./skills/validation-methodology",
+    "./skills/spec-sanitization",
+    "./skills/second-pass-review",
+    "./skills/fidelity-validation",
+    "./skills/source-completeness",
+    "./skills/autonomous-discovery",
+    "./skills/git-archaeology",
+    "./skills/test-suite-analysis",
+    "./skills/visual-exploration",
+    "./skills/contract-detection",
+    "./skills/incremental-analysis"
+  ]
+}

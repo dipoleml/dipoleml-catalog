@@ -1,0 +1,16 @@
+{
+  "name": "image-preview",
+  "displayName": "Image Preview",
+  "version": "0.2.2",
+  "description": "Hover a pasted [Image #N] to see the picture: above the prompt while you write, and on the prompts you sent.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Midudev"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/midudev/better-claude",
+  "repository": "https://github.com/midudev/better-claude",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

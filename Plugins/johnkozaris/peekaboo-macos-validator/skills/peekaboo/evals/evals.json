@@ -1,0 +1,82 @@
+{
+  "evals": [
+    {
+      "id": "trigger-after-swiftui-edit",
+      "user_message": "I changed the spacing in my native macOS Settings sidebar. Does it still look balanced?",
+      "expected_output": "Skill triggers, captures fresh structured and bounded visual evidence, and answers whether the change achieved its intent rather than checking clickability alone.",
+      "should_invoke": true
+    },
+    {
+      "id": "trigger-exact-postcondition",
+      "user_message": "Click Settings and verify the account panel is selected and shows the current email",
+      "expected_output": "Skill triggers, defines the requested selected-panel and email postconditions before acting, uses fresh opaque IDs, and verifies those exact states afterward.",
+      "should_invoke": true
+    },
+    {
+      "id": "trigger-screenshot",
+      "user_message": "Take a screenshot of the app and tell me if the empty-state copy is too dim",
+      "expected_output": "Skill triggers and evaluates visible legibility without inventing numerical opacity or contrast ratios. Exact WCAG claims require code or measurement.",
+      "should_invoke": true
+    },
+    {
+      "id": "trigger-background-runtime-diagnostics",
+      "user_message": "Peekaboo works in Terminal but my agent captures only wallpaper and typing does nothing",
+      "expected_output": "Skill triggers, diagnoses the selected daemon, Bridge, or local runtime and its Screen Recording, Accessibility, and conditional Event Synthesizing grants before changing engines.",
+      "should_invoke": true
+    },
+    {
+      "id": "trigger-semantic-form-action",
+      "user_message": "Fill the native settings search field and increment the result limit without stealing focus",
+      "expected_output": "Skill triggers, prefers semantic accessibility setters/actions over synthesized input, preserves background delivery where supported, and verifies resulting values from fresh state.",
+      "should_invoke": true
+    },
+    {
+      "id": "trigger-multi-state-bounded-context",
+      "user_message": "Walk the Library, Search, and Settings views and compare their layout consistency",
+      "expected_output": "Skill triggers and validates all requested states while the long-lived driver retains compact structured extracts and text findings rather than accumulating full trees or image payloads. Small related visual comparisons remain allowed.",
+      "should_invoke": true
+    },
+    {
+      "id": "trigger-preserve-preexisting-app",
+      "user_message": "My native Mac app is already open with an unsaved draft. Check the Preferences view but don't disturb the draft.",
+      "expected_output": "Skill triggers, records that the app was already running, avoids destructive navigation, preserves the process and unsaved state, and does not quit it during cleanup.",
+      "should_invoke": true
+    },
+    {
+      "id": "no-trigger-backend",
+      "user_message": "Refactor my Rust runtime FFI module to use Result types throughout",
+      "expected_output": "Skill does not trigger because this is backend, non-UI work.",
+      "should_invoke": false
+    },
+    {
+      "id": "no-trigger-electron",
+      "user_message": "Take a screenshot of my Electron app's settings window and critique it",
+      "expected_output": "Skill does not trigger; route to the Electron Playwright validator.",
+      "should_invoke": false
+    },
+    {
+      "id": "no-trigger-ios",
+      "user_message": "Run my iOS Simulator flow and check the onboarding screen",
+      "expected_output": "Skill does not trigger; route to the Maestro mobile validator.",
+      "should_invoke": false
+    },
+    {
+      "id": "no-trigger-cli-launch",
+      "user_message": "Launch the Mac app from its project command and print its PID",
+      "expected_output": "Skill does not trigger; use the project command and process tooling because no UI observation or interaction is required.",
+      "should_invoke": false
+    },
+    {
+      "id": "no-trigger-cli-configuration",
+      "user_message": "Set the app's telemetry preference to false using its CLI or defaults key",
+      "expected_output": "Skill does not trigger; use the supported CLI, API, or defaults interface rather than driving Settings.",
+      "should_invoke": false
+    },
+    {
+      "id": "no-trigger-log-inspection",
+      "user_message": "Collect the running Mac app's last 200 log lines and find the database error",
+      "expected_output": "Skill does not trigger; use the app's logging command or macOS log tooling because pixels and UI interaction add no evidence.",
+      "should_invoke": false
+    }
+  ]
+}

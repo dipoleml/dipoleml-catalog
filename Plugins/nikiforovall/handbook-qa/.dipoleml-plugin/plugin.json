@@ -1,0 +1,16 @@
+{
+  "name": "handbook-qa",
+  "displayName": "Handbook Qa",
+  "version": "1.19.5",
+  "description": "Browser automation and QA testing tools with Playwright MCP integration",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Nikiforovall"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://nikiforovall.blog/claude-code-rules/",
+  "repository": "https://github.com/NikiforovAll/claude-code-rules",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

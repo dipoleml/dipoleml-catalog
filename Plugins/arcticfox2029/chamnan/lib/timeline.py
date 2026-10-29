@@ -1,0 +1,444 @@
+"""Threads — one line of work followed across the sessions it actually took.
+
+The stores that already exist each answer a different question, and none of them answers this one:
+
+    STATE.md      what is happening right now (one file, overwritten, present tense)
+    sessions/     where one session stopped (many files, 30-day retention)
+    milestones.md the handful of changes that reshaped the repo (one flat list, never pruned)
+    threads       what happened to ONE subject over time, and what each round cost
+
+A thread is the connective tissue between the other four. "We have tried to fix this three times"
+is knowledge nobody can reconstruct from a git log, because the three attempts are three unrelated
+commits weeks apart, and the thing that ties them together was only ever in somebody's head.
+
+**Threading is a pick from a declared list, never a string match.** This is the whole design and it
+is worth stating plainly, because the obvious implementation is the wrong one. Guessing which
+thread an entry belongs to by matching words in its text fails on the first synonym: one session
+writes "auth", the next writes "login", the third writes "the SSO work", and a string matcher
+scatters one thread across three. So `append()` REFUSES a thread that has not been declared —
+`chamnan-timeline new` declares one, and everything after that picks from what exists. The set of
+files in `threads/` IS the declared vocabulary; there is no second list to keep in sync with it.
+
+**`Files:` is the join key, and it is checked.** An entry may name paths it touched. Those are what
+`chamnan-timeline for <path>` joins on, and what lets an impact question carry "last time this
+changed, it needed a rollback" instead of only naming what imports what. Free prose is not a join
+key — the same reason `Symptom:` was cut from the memory format.
+"""
+import re
+import subprocess
+
+import mdblock
+import milestones
+import state
+import redact
+import workspace as ws  # noqa: E402
+
+DIRNAME = "threads"
+
+# Only OPEN threads reach a session, and only as titles. A closed thread is history: still there
+# to read, still joined against by `for`, but it has stopped being something the agent should be
+# holding in mind before it starts.
+INJECT_OPEN = 3
+
+# 🐛 [2026-09-19] (self-measured) This file held its own copy of `milestones._ENTRY` (the heading
+# shape, en-dash bug included) and of `mdblock.FILES_FIELD` (the `**Files:**` join key). Both were
+# a second answer to a question one module already owns -- see check 190. Read from there instead.
+_STATUS = re.compile(r"^\*\*Status:\*\*\s*(\w+)", re.M)
+
+OPEN, CLOSED = "open", "closed"
+
+
+def directory(root):
+    from workspace import workspace
+    return workspace(root) / DIRNAME
+
+
+def slug(title):
+    """A readable filename for a thread title.
+
+    Lossy on purpose -- punctuation and case go -- so two DIFFERENT titles can land on the same
+    name: "Fix Auth!!!" and "Fix, Auth" both give `fix-auth`, and the second silently appended an
+    unrelated subject to the first thread's file. That is the scattering this module exists to
+    prevent, running in reverse.
+
+    The collision is handled in create(), not here, and that placement is the fix for a fix. This
+    function once appended a hash whenever slugging "changed" the title -- but slugging changes
+    every title with an internal hyphen, so `bge-m3 migration` became `bge-m3-migration-12a9e3`
+    and `chamnan-timeline close bge-m3-migration`, the obvious guess, matched nothing. A pure
+    function cannot know whether a name collides; only the directory can. So this stays readable
+    and guessable, and create() disambiguates when it actually has to.
+    """
+    s = mdblock.ascii_stem(title)
+    return mdblock.filename_safe(s[:50].rstrip("-")
+                                 or mdblock.fallback_name(title, "thread"))
+
+
+def _distinct_slug(directory_, title):
+    """`slug(title)`, or that plus a short hash when the name is taken by a DIFFERENT title."""
+    # The body moved to `mdblock.distinct_stem` so the three stores that needed the identical
+    # guard could stop not having it. This function stays as the name the module already uses.
+    return mdblock.distinct_stem(directory_, slug(title), title, title_of)
+
+
+def threads(root):
+    """Every declared thread's path, sorted by filename. [] when the directory does not exist —
+    which is the common case and not an error, the same way every other store here reads.
+
+    The symlink refusal (a link under `threads/` pointing outside the repository) is
+    `ws.store_entries`'s own history now -- see its docstring for the incident.
+    """
+    return ws.store_entries(directory(root), root)
+
+
+def resolve(root, ident):
+    """One thread's path from its slug, its filename, or its 1-based position in `threads()`.
+
+    Position is computed fresh on every call and never cached, matching `lib/candidates.py`: a
+    number the user just read off a listing is the fastest thing to type, and a number remembered
+    from an hour ago pointing at a different thread would be the worst outcome.
+    """
+    found = threads(root)
+    if not found:
+        return None
+    ident = str(ident).strip()
+    if ident.isdigit():
+        i = int(ident)
+        return found[i - 1] if 1 <= i <= len(found) else None
+    want = ident[:-3] if ident.endswith(".md") else ident
+    for p in found:
+        if p.stem == want or p.stem == slug(want):
+            return p
+    return None
+
+
+def title_of(path, text=None):
+    """The thread's `# ` heading, falling back to a readable form of the filename.
+
+    `text` lets a caller that already has the file's contents in hand (`open_titles()`, reading
+    one thread for status, entries AND title) skip a second and third `read_text` of the same
+    path. Passing `text` must produce exactly what re-reading `path` would have -- this is not a
+    cache of a value that could go stale, it is the same read done once instead of three times
+    inside one call.
+    """
+    if text is None:
+        try:
+            text = path.read_text(encoding="utf-8-sig", errors="replace")
+        except OSError:
+            return path.stem.replace("-", " ")
+    for line in text.splitlines():
+        # `mdblock.heading_title`, not `startswith("# ")`: a thread titled with a CJK keyboard's
+        # U+3000 after the hash read back as its own filename — measured, `เรื่องที่กำลังทำ` became
+        # `t`. Same definition the section splitters use now.
+        title = mdblock.heading_title(line)
+        if title is not None:
+            return title
+    return path.stem.replace("-", " ")
+
+
+def status_of(path, text=None):
+    """`open` or `closed`. A thread with no Status line at all reads as OPEN — the field is
+    additive, and a file written by hand without it should behave like the common case rather
+    than disappear from the listing.
+
+    `text`, see `title_of`.
+    """
+    if text is None:
+        try:
+            text = path.read_text(encoding="utf-8-sig", errors="replace")
+        except OSError:
+            return OPEN
+    # Masked, because this searches the WHOLE file for the first match. A thread whose body quotes
+    # an example containing `**Status:** closed` inside a fence read as closed -- and open_titles()
+    # then dropped it from the "Open threads" the next session is handed. Unfinished work vanishing
+    # from the handoff is the one failure this module exists to prevent, and content was deciding
+    # it.
+    m = _STATUS.search(mdblock.masked(text))
+    return CLOSED if (m and m.group(1).lower() == CLOSED) else OPEN
+
+
+def entries_of(path, text=None):
+    """(date, note, files) oldest first — the order they were appended in.
+
+    `files` is the list from that entry's `**Files:**` line, or [] when it has none. Nothing here
+    checks whether those paths exist; that is `for_path()`'s business, and an entry naming a file
+    that has since been deleted is still a true record of what happened.
+
+    `text`, see `title_of`.
+    """
+    if text is None:
+        try:
+            text = path.read_text(encoding="utf-8-sig", errors="replace")
+        except OSError:
+            return []
+    # Scanned over a copy with fenced lines blanked; offsets are preserved, so every slice below
+    # still indexes the real text. A real entry that quoted a bad example -- `## 2099-01-01 — FAKE`
+    # with its own `**Files:**` line -- parsed as a second, indistinguishable entry, and for_path()
+    # then attached that thread's history to a file the thread had never touched.
+    masked = mdblock.masked(text)
+    found = list(milestones._ENTRY.finditer(masked))
+    out = []
+    for i, m in enumerate(found):
+        end = found[i + 1].start() if i + 1 < len(found) else len(text)
+        body = text[m.end():end].strip()
+        fm = mdblock.FILES_FIELD.search(mdblock.masked(body))
+        files = [f.strip().strip("`") for f in fm.group(1).split(",")] if fm else []
+        title = m.group(2)
+        # 🐛 [2026-09-07] The guard `milestones.entries` got today, on the reader that the comment
+        # at the top of this file already calls "the same shape as milestones' _ENTRY". It was
+        # applied to one member of the pair and not the identical one beside it, which is this
+        # repository's recurring defect exactly (R13 agent 2, 2026-09-07).
+        #
+        # Thread files are COMMITTED, so a clone carries whatever its author put in one. A title
+        # holding "\n## <date> — <text>" becomes a second entry that this reader trusts completely,
+        # and `open_titles` ranks threads by their most recent entry date. Reproduced through the
+        # real hook: a planted `## 2099-12-31` took the top slot of the injected Open-threads
+        # section and pushed both genuine threads below it. It does not inject the planted TEXT --
+        # only titles and dates are shown -- but with enough planted files it evicts the real
+        # threads from the section altogether, which is the same outcome by a slower road.
+        #
+        # `append()` writes exactly one empty line above each heading, so a heading whose previous
+        # line is not that empty line was not written by this code. Flagged, never dropped: the
+        # owner's rule is that nothing here is deleted, and a reader told which line is suspect can
+        # fix the file, while a reader shown nothing cannot.
+        above = text[:m.start()].split("\n")
+        if len(above) >= 2 and above[-2] != "":
+            title += (" ⚠ this heading follows another line with no blank line between them, "
+                      "which is not how chamnan writes one — it may have been split out of the "
+                      "title above by a newline. Check this thread file.")
+        out.append((m.group(1), title, [f for f in files if f]))
+    return out
+
+
+def create(root, title, today):
+    """Declare a thread. Returns (path, is_new) — an existing thread is returned untouched rather
+    than overwritten, so running this twice is safe and never loses entries."""
+    d = directory(root)
+    d.mkdir(parents=True, exist_ok=True)
+    path = d / f"{_distinct_slug(d, title)}.md"
+    if path.is_file():
+        return path, False
+    ws.write_or_raise(path, f"# {mdblock.one_line(title)}\n\n**Started:** {today}\n**Status:** {OPEN}\n",
+                      encoding="utf-8")
+    return path, True
+
+
+def append(root, ident, date, note, files=None):
+    """Add one entry to a DECLARED thread. Returns the path, or None when no such thread exists.
+
+    None rather than creating it: an unknown name is far more likely a typo or a synonym for a
+    thread that already exists than a genuinely new line of work, and silently creating a second
+    thread for the same subject is exactly the scattering this module is built to prevent. The
+    caller prints the declared list so the choice is visible.
+    """
+    path = resolve(root, ident)
+    if path is None:
+        return None
+    # 🐛 The note went in raw. `milestones.render_entry` folds every field through
+    # `mdblock.one_line` for exactly this reason, and this sibling never did — so a note containing
+    # `\n\n## 2099-01-01 — everything is fine now` wrote a SECOND, fabricated entry that parsed as
+    # real. Being later, it won every "last activity" comparison, took the `**Files:**` line that
+    # belonged to the real entry, and so answered `for_path()` in its place. A date nobody typed,
+    # attached to a file it never touched, reading as a resolution.
+# 🐛 [2026-09-08] The READ side of these three stores was hardened and the WRITE side was never
+# re-asked. `redact.emit` shadows `print` in `bin/chamnan-env`, `bin/chamnan-timeline` and
+# `bin/chamnan-promote`, so an agent reading a command's stdout sees a scrubbed value -- and
+# `git add` reads the FILE, not the stdout. Reproduced end to end: `chamnan-timeline add
+# deploy-notes "rotated the key, new value is AKIA…EXAMPLE"` wrote that key verbatim into
+# `.chamnan/threads/deploy-notes.md`, which `git check-ignore` confirms is not ignored, and which
+# the README tells people to commit. `scrub()` catches it; nothing was calling `scrub()`.
+#
+# Scrubbed BEFORE the one-line fold, not after: the multi-line rules (a YAML block, a secret-named
+# list) need the newlines to see the shape, and folding first destroys exactly the structure they
+# match on. R8 agent 2.
+    body = [f"## {date} — {mdblock.one_line(redact.scrub(note))}", ""]
+    # 🐛 [2026-09-06] The note above was folded and this was not -- the same fix applied to one
+    # field of a pair, one line apart, which is this repository's most-repeated defect. A path
+    # carrying a newline and a `## chamnan` heading wrote a fabricated section into a file that gets
+    # COMMITTED, and ESC or U+202E in one reached every later reader of the thread. Reachable end to
+    # end from `chamnan-timeline add --files` (R9 agent 2; R2 reported this fixed and it was not --
+    # `git log -S` shows the line untouched since 1.6.0).
+    #
+    # `as_quoted`, not `one_line`: these are rendered INSIDE backticks, and a backtick in the value
+    # closes the span early and drops the rest of the line into chamnan's own voice. `as_quoted` is
+    # the helper that already exists for a value going into a code span.
+    named = [mdblock.as_quoted(redact.scrub(f).strip(), 200)
+             for f in (files or []) if f.strip()]
+    if named:
+        body.append("**Files:** " + ", ".join(f"`{f}`" for f in named))
+        body.append("")
+    # 🐛 [2026-09-08] Read, append in memory, write back -- with no lock, so a second writer's
+    # snapshot replaced the first's entry entirely. `ws.rewrite_shared` exists because six writers
+    # were found doing this and `milestones.py` measured five of six appends vanishing; three
+    # writers never adopted it and this was one. Measured the same way here: 5 of 60 concurrent
+    # entries lost, 8.3%, valid Markdown throughout and no error anywhere (R2 agent 3, 2026-09-08).
+    #
+    # Two accounts on one machine, or a session and a commit hook, is an ordinary afternoon rather
+    # than an edge case -- and a thread entry is something a person typed a reason into.
+    def _appended(existing):
+        return (existing or "").rstrip("\n") + "\n\n" + "\n".join(body).strip() + "\n"
+
+    ws.rewrite_shared(path, _appended)
+    return path
+
+
+def set_status(root, ident, status):
+    """Returns the path, or None when no such thread exists. Rewrites an existing Status line in
+    place and appends one when the file has none, so a hand-written thread gains the field rather
+    than being rejected for not having it."""
+    path = resolve(root, ident)
+    if path is None:
+        return None
+    # 🐛 [2026-09-08] The read happens inside the lock now, for the reason its sibling `append`
+    # twenty lines up carries at length: read-modify-write with no lock loses the other writer's
+    # work entirely, and this file has two such writers rather than one. Closing only the one that
+    # was measured would be the half-applied fix this repository pays for most often (R2 agent 3, 2026-09-08).
+    def _with_status(existing):
+        text = existing or ""
+        if _STATUS.search(text):
+            text = _STATUS.sub(f"**Status:** {status}", text, count=1)
+        else:
+            lines = text.splitlines()
+            # Same shared reader `title_of` twelve lines up already uses: a thread headed with a
+            # CJK keyboard's U+3000 had its **Status:** line inserted ABOVE its own title, which is
+            # how a status ends up looking like the file's heading.
+            at = 1 if lines and mdblock.heading_title(lines[0]) is not None else 0
+            lines.insert(at, f"\n**Status:** {status}")
+            text = "\n".join(lines)
+        return text.rstrip("\n") + "\n"
+
+    ws.rewrite_shared(path, _with_status)
+    return path
+
+
+_NAMES_CACHE = {}
+
+
+def historical_names(root, target):
+    """Every name `target` has been known by, from git's own rename detection.
+
+    A thread entry written before a `git mv` names the old path, so asking about the new one found
+    nothing at all -- the history existed, and the join could not see it. `--follow` takes exactly
+    one pathspec, which is what this is called with. Best-effort: no repository, no git, a bad exit
+    or a timeout all mean "no extra names", never an error, because a history lookup failing must
+    not take the caller down with it.
+    """
+    from workspace import find_root
+    repo = find_root(root)
+    key = (str(repo), target)
+    if key in _NAMES_CACHE:
+        return _NAMES_CACHE[key]
+    names = set()
+    # Scoped by its own `-- <target>` pathspec, so a subproject gets its own history.
+    if not ws.git_can_speak_for(repo):
+        return _NAMES_CACHE.setdefault(key, names)
+    try:
+        out = subprocess.run(
+            # core.quotePath=false for the same reason rollup._churn sets it: git C-quotes any
+            # non-ASCII path by default, and the quoted form matches nothing.
+            ["git", "-C", str(repo), "-c", "core.quotePath=false",
+             "log", "--follow", "--name-only", "--pretty=format:", "-n", "200", "--", target],
+            stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=10)
+        if out.returncode == 0:
+            # 🐛 [2026-09-30] (R56 acc2, 2026-09-30) quotePath=false leaves a path with a double quote,
+            # a backslash or a control character C-quoted, and the quoted spelling matches no thread.
+            names = {ws.unquote_git_path(ln.strip()) for ln in out.stdout.splitlines() if ln.strip()}
+    except ws.git_cannot_answer():
+        names = set()
+    return _NAMES_CACHE.setdefault(key, names)
+
+
+def for_path(root, target):
+    """[(thread_path, date, note)] for every entry naming `target` in its `Files:` line, newest
+    first. This is the join Stage 13b's impact query reads: given a file somebody is about to
+    change, what has already happened to it.
+
+    Matches a declared path exactly, or as a suffix of one, under any name the file has had —
+    an entry written as `src/app.py`
+    should still answer a question asked about `src/app.py` from a subdirectory. Deliberately not
+    a fuzzy match: `app.py` matching `src/vendor/app.py` would attach one file's history to
+    another's, which is worse than finding nothing.
+    """
+    target = str(target).strip().strip("`").lstrip("./")
+    if not target:
+        return []
+    # The name asked about, plus every name the file has had. Same matching rule for each: exact,
+    # or a suffix on a path boundary. Still deliberately not fuzzy.
+    wanted = {target} | {n.lstrip("./") for n in historical_names(root, target) if n}
+    hits = []
+    for path in threads(root):
+        for date, note, files in entries_of(path):
+            matched = False
+            for f in files:
+                f = f.lstrip("./")
+                for t in wanted:
+                    # 🐛 `t.endswith("/" + f)` is the fuzzy basename match this function's own
+                    # docstring says it refuses: an entry naming a bare `app.py` answered a query
+                    # about `src/app.py`, `src/vendor/app.py` and `totally/unrelated/app.py`
+                    # alike. In a repository with an `index.js` or an `__init__.py` in several
+                    # packages, one file's rollback history was attached to every sibling — and
+                    # this join is what carries "last time this changed it needed a rollback" into
+                    # an impact answer. The other direction is kept: an entry written with the full
+                    # path still answers a query made from a subdirectory, which is what the
+                    # docstring actually promises.
+                    if mdblock.names_the_path(f, t):
+                        hits.append((path, date, note))
+                        matched = True
+                        break
+                if matched:
+                    break
+    return sorted(hits, key=lambda h: h[1], reverse=True)
+
+
+def open_titles(root, count=INJECT_OPEN, refuse_conflicts=False):
+    """The open threads, one line each, newest activity first. Empty string when there are none,
+    so the hook injects no heading rather than an empty one."""
+    # Each thread file is read from disk exactly once here and handed to status_of/entries_of/
+    # title_of as `text`, rather than each of those doing its own read_text() of the same path.
+    # Safe because it is the SAME call, on the SAME files, top to bottom -- nothing between the
+    # read and the third use of it could make a second read answer differently.
+    rows = []
+    texts = {}
+    for path in threads(root):
+        try:
+            text = path.read_text(encoding="utf-8-sig", errors="replace")
+        except OSError:
+            text = ""
+        if refuse_conflicts:
+            import memory
+            if memory.unresolved_conflict(text):
+                continue
+        texts[path] = text
+        if status_of(path, text) != OPEN:
+            continue
+        found = entries_of(path, text)
+        last = found[-1][0] if found else ""
+        # A thread whose entries carry the split-heading warning ranks by DATE like every other,
+        # and that date is the attacker-chosen one -- so the flag has to travel to the line the
+        # session actually reads. Only the entry titles carry it, and this section prints the
+        # THREAD title, so without this the warning existed and nobody ever saw it.
+        suspect = any("\u26a0" in note for _d, note, _f in found)
+        rows.append((last, path, len(found), suspect, state.pinned(text)))
+    if not rows:
+        return ""
+    # A pinned thread outranks last-activity date, on the same reasoning as the three stores
+    # beside it: a long-running thread nobody has touched this week is precisely the one an owner
+    # pins, and it was the first thing the recency sort dropped.
+    rows.sort(key=lambda r: (r[4], r[0]), reverse=True)
+    lines = []
+    for last, path, n, suspect, _pin in rows[:count]:
+        when = f", last {last}" if last else ""
+        if suspect:
+            when += (" ⚠ an entry in this thread has no blank line above its heading, which is not "
+                     "how chamnan writes one — the date beside it may have been planted. Check the file")
+        # `title_of` returns a thread file's `# ` heading with no length limit of any kind, and
+        # `count=3` caps the number of threads rather than the size of one.
+        lines.append(f"- **{mdblock.one_line_capped(title_of(path, texts[path]))}** — {n} entr{'y' if n == 1 else 'ies'}{when} "
+                     f"(`{mdblock.as_quoted(path.name)}`)")
+    if len(rows) > count:
+        # \U0001F41B [2026-09-23] Named the DIRECTORY, which leaves a reader to open files and guess.
+        # `chamnan-timeline` was installed 27 days and invoked zero times against 6,414 recorded
+        # commands, while this line told sessions there was more and never said how to see it.
+        # The command costs the same bytes as the path and renders the threads instead.
+        lines.append(f"- _…and {len(rows) - count} more open · `chamnan-timeline`_")
+    return "\n".join(lines)

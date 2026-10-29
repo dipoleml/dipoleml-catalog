@@ -1,0 +1,123 @@
+{
+  "schema": 1,
+  "cell_id": "023-security-local-redirect--always-strong-local",
+  "order": 23,
+  "scenario_id": "security-local-redirect",
+  "task_class": "security-repair",
+  "risk": "high",
+  "policy_id": "always-strong-local",
+  "repetition": 1,
+  "route": {
+    "initial_tier": "strong",
+    "escalation_tier": null,
+    "reason_code": "BASELINE_ALWAYS_STRONG"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "strong",
+      "started_at": "2026-08-02T00:37:57.050Z",
+      "duration_ms": 10407,
+      "output_text": "{\n  \"files\": {\n    \"src/redirect.js\": \"'use strict';\\nfunction isLocalRedirect(value) {\\n  return typeof value === 'string' && value.startsWith('/') && !value.includes('//') && !value.startsWith('\\\\') && (value.indexOf(':') === -1 || value.indexOf(':') === 2);\\n}\\nmodule.exports = { isLocalRedirect };\"\n  }\n}",
+      "output_digest": "sha256:47b6a66a8ddb655b57236b79bd0b0d25adea1819b84a1fb51731e047da695bfe",
+      "verification": {
+        "status": "failed",
+        "code": "REPOSITORY_VERIFIER_FAILED",
+        "changed_paths": [
+          "src/redirect.js"
+        ],
+        "applied_file_digests": {
+          "src/redirect.js": "sha256:be3727a54219914dd986cf40d19e11d87249a4145fc9439d880db38d8d978358"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 1,
+          "signal": null,
+          "stdout": "",
+          "stderr": "<ISOLATED_WORKSPACE>\\src\\redirect.js:3\r\n  return typeof value === 'string' && value.startsWith('/') && !value.includes('//') && !value.startsWith('\\') && (value.indexOf(':') === -1 || value.indexOf(':') === 2);\r\n                                                                                                          ^^^^^^^^^^^^^^^^^^^^^^^^\r\n\r\nSyntaxError: missing ) after argument list\r\n    at wrapSafe (node:internal/modules/cjs/loader:1662:18)\r\n    at Module._compile (node:internal/modules/cjs/loader:1704:20)\r\n    at Object..js (node:internal/modules/cjs/loader:1895:10)\r\n    at Module.load (node:internal/modules/cjs/loader:1465:32)\r\n    at Function._load (node:internal/modules/cjs/loader:1282:12)\r\n    at TracingChannel.traceSync (node:diagnostics_channel:322:14)\r\n    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)\r\n    at Module.require (node:internal/modules/cjs/loader:1487:12)\r\n    at require (node:internal/modules/helpers:135:16)\r\n    at Object.<anonymous> (<ISOLATED_WORKSPACE>\\verifier.js:3:29)\r\n\r\nNode.js v22.17.1\r\n",
+          "error": null
+        },
+        "patch_digest": "sha256:c804814662cd650f473f9d43efce8ad60adbd6785761c376594f409b57e9f961"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "ollama-chat",
+        "requested_model": "qwen2.5-coder:7b",
+        "observed_model": "qwen2.5-coder:7b",
+        "model_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+        "done_reason": "stop",
+        "response_digest": "sha256:792dd84ad2294dbdbf251907651c9fff83a78ed4c423638f50eccea983f0057f",
+        "error": null
+      },
+      "usage": {
+        "prompt_tokens": 212,
+        "completion_tokens": 85,
+        "total_tokens": 297,
+        "provider_total_duration_ns": 10405245400
+      },
+      "economics": {
+        "provider_invoice": {
+          "status": "known",
+          "amount_usd": 0,
+          "source": "self_hosted_ollama_no_per_request_invoice"
+        },
+        "gpu_energy": {
+          "status": "measured",
+          "energy_kwh": 0.000227098,
+          "samples": 21,
+          "average_watts": 78.558095
+        },
+        "comparison_cost": {
+          "status": "derived-comparison",
+          "total_usd": 0.000074328,
+          "components": [
+            {
+              "kind": "gpu_electricity",
+              "status": "derived-comparison",
+              "amount_usd": 0.00004542,
+              "source": "average_gpu_power_times_request_wall_duration_times_frozen_rate"
+            },
+            {
+              "kind": "gpu_amortization",
+              "status": "derived-comparison",
+              "amount_usd": 0.000028908,
+              "source": "request_wall_duration_times_frozen_residual_value"
+            }
+          ]
+        },
+        "actual_end_to_end_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "whole_system_energy_setup_and_observed_utility_rate_not_measured"
+        }
+      }
+    }
+  ],
+  "status": "failed",
+  "final_verification": {
+    "status": "failed",
+    "code": "REPOSITORY_VERIFIER_FAILED",
+    "changed_paths": [
+      "src/redirect.js"
+    ],
+    "applied_file_digests": {
+      "src/redirect.js": "sha256:be3727a54219914dd986cf40d19e11d87249a4145fc9439d880db38d8d978358"
+    },
+    "verifier": {
+      "command": "node verifier.js",
+      "status": 1,
+      "signal": null,
+      "stdout": "",
+      "stderr": "<ISOLATED_WORKSPACE>\\src\\redirect.js:3\r\n  return typeof value === 'string' && value.startsWith('/') && !value.includes('//') && !value.startsWith('\\') && (value.indexOf(':') === -1 || value.indexOf(':') === 2);\r\n                                                                                                          ^^^^^^^^^^^^^^^^^^^^^^^^\r\n\r\nSyntaxError: missing ) after argument list\r\n    at wrapSafe (node:internal/modules/cjs/loader:1662:18)\r\n    at Module._compile (node:internal/modules/cjs/loader:1704:20)\r\n    at Object..js (node:internal/modules/cjs/loader:1895:10)\r\n    at Module.load (node:internal/modules/cjs/loader:1465:32)\r\n    at Function._load (node:internal/modules/cjs/loader:1282:12)\r\n    at TracingChannel.traceSync (node:diagnostics_channel:322:14)\r\n    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)\r\n    at Module.require (node:internal/modules/cjs/loader:1487:12)\r\n    at require (node:internal/modules/helpers:135:16)\r\n    at Object.<anonymous> (<ISOLATED_WORKSPACE>\\verifier.js:3:29)\r\n\r\nNode.js v22.17.1\r\n",
+      "error": null
+    },
+    "patch_digest": "sha256:c804814662cd650f473f9d43efce8ad60adbd6785761c376594f409b57e9f961"
+  },
+  "previous_cell_digest": "sha256:2ce7b99c559984ad97b715bfdacc2c2c1fb02540b3996ce32a0788ada41bb5c3",
+  "receipt_digest": "sha256:45b852c0316356efd31c546b0352fe15d3946b32730fff97ce15e8922b4c96e6",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:9d62676b19661e45fa948bdefbd9529bc3b28d6d79122b725161be5d1ab9d642",
+    "signature": "Vv3dkXPTRAqk6BjoWO3306Y04klwZNSnEOrv/FwdFDlu4Nmn2AeoL+urxr0mUfSB/XDyqkODro2A318l4E7MDw=="
+  }
+}

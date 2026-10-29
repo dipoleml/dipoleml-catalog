@@ -1,0 +1,175 @@
+import React from 'react'
+import { act, create } from 'react-test-renderer'
+import { describe, expect, it, vi } from 'vitest'
+import SelectionBulkBar from './SelectionBulkBar'
+
+vi.mock('@chakra-ui/react', async () => {
+  const ReactModule = await import('react')
+  const BoxLike = ({ children, ...props }: { children?: React.ReactNode }) => ReactModule.createElement('div', props, children)
+  const ButtonLike = ({
+    children,
+    icon,
+    onClick,
+    ...props
+  }: {
+    children?: React.ReactNode
+    icon?: React.ReactNode
+    onClick?: () => void
+  }) => ReactModule.createElement('button', { ...props, onClick }, icon, children)
+  const InputLike = (props: Record<string, unknown>) => ReactModule.createElement('input', props)
+
+  return {
+    Box: BoxLike,
+    Button: ButtonLike,
+    HStack: BoxLike,
+    IconButton: ButtonLike,
+    Input: InputLike,
+    Popover: BoxLike,
+    PopoverBody: BoxLike,
+    PopoverContent: BoxLike,
+    PopoverTrigger: BoxLike,
+    PopoverArrow: BoxLike,
+    Portal: BoxLike,
+    SimpleGrid: BoxLike,
+    Text: BoxLike,
+    Tooltip: BoxLike,
+    VStack: BoxLike,
+  }
+})
+
+vi.mock('../../../components/TagUpsert', () => ({
+  default: () => null,
+}))
+
+function renderBulkBar(overrides: Partial<React.ComponentProps<typeof SelectionBulkBar>> = {}) {
+  return create(
+    <SelectionBulkBar
+      count={2}
+      availableTags={[]}
+      selectedTagCounts={{}}
+      tagColors={{}}
+      onAlign={vi.fn()}
+      onDistribute={vi.fn()}
+      onFitSelection={vi.fn()}
+      onAddTag={vi.fn()}
+      onRemoveTag={vi.fn()}
+      onRemoveFromView={vi.fn()}
+      onCopyMermaid={vi.fn()}
+      {...overrides}
+    />,
+  )
+}
+
+describe('SelectionBulkBar bulk merge', () => {
+  it('hides the merge button when fewer than two elements are selected', () => {
+    const renderer = renderBulkBar({
+      count: 1,
+      mergeOptions: [
+        { id: 1, name: 'API' },
+        { id: 2, name: 'Worker' },
+      ],
+      onMergeInto: vi.fn(),
+    })
+
+    expect(renderer.root.findAllByProps({ 'data-testid': 'selection-bulk-merge' })).toHaveLength(0)
+  })
+
+  it('renders survivor choices and calls onMergeInto with the selected id', () => {
+    const onMergeInto = vi.fn()
+    const renderer = renderBulkBar({
+      mergeOptions: [
+        { id: 1, name: 'API', kind: 'service' },
+        { id: 2, name: 'Worker', kind: 'job' },
+      ],
+      onMergeInto,
+    })
+
+    expect(renderer.root.findByProps({ 'data-testid': 'selection-bulk-merge' })).toBeTruthy()
+    expect(renderer.root.findByProps({ 'data-testid': 'selection-bulk-merge-survivor-1' })).toBeTruthy()
+
+    act(() => {
+      renderer.root.findByProps({ 'data-testid': 'selection-bulk-merge-survivor-2' }).props.onClick()
+    })
+
+    expect(onMergeInto).toHaveBeenCalledWith(2)
+  })
+})
+
+describe('SelectionBulkBar nesting', () => {
+  it('invokes Nest and disables it while nesting', () => {
+    const onNest = vi.fn()
+    const renderer = renderBulkBar({ onNest })
+    act(() => renderer.root.findByProps({ 'data-testid': 'selection-bulk-nest' }).props.onClick())
+    expect(onNest).toHaveBeenCalledOnce()
+
+    const loading = renderBulkBar({ onNest, isNesting: true })
+    const button = loading.root.findByProps({ 'data-testid': 'selection-bulk-nest' })
+    expect(button.props.isLoading).toBe(true)
+    expect(button.props.isDisabled).toBe(true)
+  })
+})
+
+describe('SelectionBulkBar groups', () => {
+  it('hides the selection toolbar when only one element is selected', () => {
+    const renderer = renderBulkBar({ count: 1, onCreateGroup: vi.fn(async () => undefined) })
+
+    expect(renderer.root.findAllByProps({ 'data-testid': 'vieweditor-selection-bulk-bar' })).toHaveLength(0)
+  })
+
+  it('creates a group from the typed name', async () => {
+    const onCreateGroup = vi.fn(async () => undefined)
+    const renderer = renderBulkBar({ count: 2, onCreateGroup })
+
+    expect(renderer.root.findByProps({ 'data-testid': 'selection-bulk-group' })).toBeTruthy()
+    expect(renderer.root.findByProps({ 'data-testid': 'selection-bulk-align-left' })).toBeTruthy()
+
+    act(() => {
+      renderer.root.findByProps({ 'data-testid': 'selection-bulk-group' }).props.onClick()
+    })
+    const nameInput = renderer.root.findByProps({ 'data-testid': 'selection-bulk-group-name' })
+    act(() => nameInput.props.onChange({ target: { value: 'Payments' } }))
+    await act(async () => {
+      renderer.root
+        .findByProps({ 'data-testid': 'selection-bulk-group-name' })
+        .props.onKeyDown({ key: 'Enter', preventDefault: vi.fn() })
+    })
+
+    expect(onCreateGroup).toHaveBeenCalledWith('Payments', '#4299E1')
+    expect(renderer.root.findAllByProps({ type: 'color' })).toHaveLength(0)
+  })
+
+  it('searches existing groups and joins the selected one', async () => {
+    const onCreateGroup = vi.fn(async () => undefined)
+    const renderer = renderBulkBar({ count: 2, onCreateGroup, availableGroups: ['Payments', 'Platform'] })
+
+    const nameInput = renderer.root.findByProps({ 'data-testid': 'selection-bulk-group-name' })
+    act(() => nameInput.props.onChange({ target: { value: 'Pay' } }))
+
+    const existing = renderer.root.findAll(
+      (node) => typeof node.type === 'string' && node.props['data-testid'] === 'selection-bulk-group-existing-option',
+    )
+    expect(existing).toHaveLength(1)
+
+    await act(async () => {
+      existing[0].props.onMouseDown({ preventDefault: vi.fn() })
+    })
+
+    expect(onCreateGroup).toHaveBeenCalledWith('Payments', '#4299E1')
+  })
+})
+
+describe('SelectionBulkBar copy as mermaid', () => {
+  it('renders copy as mermaid button and calls onCopyMermaid when clicked', () => {
+    const onCopyMermaid = vi.fn()
+    const renderer = renderBulkBar({ onCopyMermaid })
+
+    const button = renderer.root.findByProps({ 'data-testid': 'selection-bulk-copy-mermaid' })
+    expect(button).toBeTruthy()
+
+    act(() => {
+      button.props.onClick()
+    })
+
+    expect(onCopyMermaid).toHaveBeenCalled()
+  })
+})

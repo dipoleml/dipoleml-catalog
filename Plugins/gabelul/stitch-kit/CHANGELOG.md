@@ -1,0 +1,196 @@
+# Changelog
+
+## [1.12.0](https://github.com/gabelul/stitch-kit/compare/stitch-kit-v1.11.0...stitch-kit-v1.12.0) (2026-07-20)
+
+
+### New Skills & Features
+
+* accept local HTML and URLs as conversion sources, not just Stitch screens ([#21](https://github.com/gabelul/stitch-kit/issues/21)) ([ebb0a86](https://github.com/gabelul/stitch-kit/commit/ebb0a86fc286c73997051df79723116b132ecb49))
+* resync with the live Stitch MCP API and add the DESIGN.md wrappers ([#22](https://github.com/gabelul/stitch-kit/issues/22)) ([44b9ef6](https://github.com/gabelul/stitch-kit/commit/44b9ef6fd1cb4a88add478a58bedae5ec8f5a72e))
+
+
+### Bug Fixes
+
+* correct client support claims across package metadata ([#19](https://github.com/gabelul/stitch-kit/issues/19)) ([b965811](https://github.com/gabelul/stitch-kit/commit/b965811524a9f646c0955c35d8b8c5b405363010))
+* correct tool shapes, installer hang, and the half-built non-Stitch source paths ([#23](https://github.com/gabelul/stitch-kit/issues/23)) ([f1c4e4f](https://github.com/gabelul/stitch-kit/commit/f1c4e4f4e1a1a1506f36ef006b1038fbbb627f53))
+* replace fictional enum values and date-stamp volatile claims ([#24](https://github.com/gabelul/stitch-kit/issues/24)) ([3dd2e46](https://github.com/gabelul/stitch-kit/commit/3dd2e464387ed21f7014670408550186ff453634))
+
+## [1.11.0](https://github.com/gabelul/stitch-kit/compare/stitch-kit-v1.10.0...stitch-kit-v1.11.0) (2026-06-09)
+
+
+### New Skills & Features
+
+* compaction-resilient session state (Claude Code + Codex) ([#15](https://github.com/gabelul/stitch-kit/issues/15)) ([c22fa60](https://github.com/gabelul/stitch-kit/commit/c22fa60cc55a4ef0077b1ff8579e96b47ddb783c))
+
+## [1.10.0](https://github.com/gabelul/stitch-kit/compare/stitch-kit-v1.9.0...stitch-kit-v1.10.0) (2026-03-24)
+
+
+### New Skills & Features
+
+* integrate full MCP DesignTheme params and replace deprecated GEMINI_3_PRO ([b871cd2](https://github.com/gabelul/stitch-kit/commit/b871cd2fa75533292cc5e560e44f5138e03910a5))
+
+## [1.9.0](https://github.com/gabelul/stitch-kit/compare/stitch-kit-v1.8.0...stitch-kit-v1.9.0) (2026-03-10)
+
+
+### New Skills & Features
+
+* enforce minimum 5 screens + component style guide per direction ([c8d7806](https://github.com/gabelul/stitch-kit/commit/c8d78064429acde12135ba120b3cdb5a624807ff))
+
+
+### Documentation
+
+* align all descriptions with "design superpowers" positioning ([49caa39](https://github.com/gabelul/stitch-kit/commit/49caa3902bd3c5cc12d578f73bfa08166168242c))
+* rewrite README with clearer positioning and personality ([6706797](https://github.com/gabelul/stitch-kit/commit/67067977dc172ef3df8ada3759b8d0d07206a400))
+
+## [1.8.0](https://github.com/gabelul/stitch-kit/compare/stitch-kit-v1.7.0...stitch-kit-v1.8.0) (2026-03-09)
+
+
+### New Skills & Features
+
+* add stitch-ideate conversational design agent with batch generation ([f73d3fd](https://github.com/gabelul/stitch-kit/commit/f73d3fd96a98b5b6a0fa35a733ea395b7106c80a))
+
+
+### Documentation
+
+* reframe README from "convert tool" to "design superpowers for coding agents" ([98f13e7](https://github.com/gabelul/stitch-kit/commit/98f13e78343123078163e929e32006e73e5300cb))
+* update README, AGENTS.md, and agent definition for stitch-ideate ([91043c6](https://github.com/gabelul/stitch-kit/commit/91043c6e567394cd569773d77bfa6d2f2d708c32))
+
+## [1.7.0](https://github.com/gabelul/stitch-kit/compare/stitch-kit-v1.6.2...stitch-kit-v1.7.0) (2026-02-27)
+
+
+### New Skills & Features
+
+* add 8 MCP wrappers, orchestrator iteration loop, native variants, design systems ([a77405a](https://github.com/gabelul/stitch-kit/commit/a77405a6248c22327a355124150a663c4364319f))
+* add npx installer for cross-platform setup ([1afa5ee](https://github.com/gabelul/stitch-kit/commit/1afa5ee09a74ba3abf40b1e7f51791e9363ec1af))
+* add prompt quality standard, project reuse, generation timing ([b525398](https://github.com/gabelul/stitch-kit/commit/b525398a07d422c8df6bb1192b76458daa420b9a))
+* auto-configure Stitch MCP with optional API key prompt ([c03ba72](https://github.com/gabelul/stitch-kit/commit/c03ba7221f74d651c846b21321cfcef4c1047c76))
+* initial release — stitch-kit v1.3.0 ([6ec1494](https://github.com/gabelul/stitch-kit/commit/6ec1494b578f8ea344fdbb11ebd9cebd96021a7f))
+* refactor installer to registry pattern with 7 CLI clients ([#3](https://github.com/gabelul/stitch-kit/issues/3)) ([a350fe7](https://github.com/gabelul/stitch-kit/commit/a350fe722155e602da3c5573a486b465ece72be8))
+* register agents directory in plugin manifest and marketplace ([181a7cf](https://github.com/gabelul/stitch-kit/commit/181a7cfe33d036ac581a934e0a0f9700465b7a9e))
+
+
+### Bug Fixes
+
+* add tools and color fields to agent frontmatter to match Claude Code agent format ([40edcf5](https://github.com/gabelul/stitch-kit/commit/40edcf55a859ba332e0572aa3f14132e6f4d6a9f))
+* move extra-files into packages config for release-please ([7512d84](https://github.com/gabelul/stitch-kit/commit/7512d84ab9b96b3460dc4d817161fd3831c3a47b))
+* remove agents field from marketplace plugins array (invalid schema) ([1ad69b7](https://github.com/gabelul/stitch-kit/commit/1ad69b7137be55d999989e34b15add7aeac043ad))
+* remove unverified agents field from plugin.json ([b0b1e7b](https://github.com/gabelul/stitch-kit/commit/b0b1e7b65ccf62a5c27be73347af2f1e126ee6a8))
+* rename plugin group to stitch-kit for agent auto-discovery ([e1cd72f](https://github.com/gabelul/stitch-kit/commit/e1cd72f79b2fe19bbd810eb4525ba14a29d4ed7b))
+* resolve plugin conflicting manifests error ([805586e](https://github.com/gabelul/stitch-kit/commit/805586e871d7ca17b40900ee8571d737c0d0d78c))
+* strip agent frontmatter to minimal format for plugin discovery ([69ec523](https://github.com/gabelul/stitch-kit/commit/69ec5235e9b50bfe37625afd99472bdbafb3843d))
+* switch release-please to node type for reliable version bumps ([436210d](https://github.com/gabelul/stitch-kit/commit/436210d461ceb5fe3b2920c36ffd44232664daef))
+* upgrade Node to 22 and npm to latest for OIDC trusted publishing ([08bcd7e](https://github.com/gabelul/stitch-kit/commit/08bcd7e4374fdb45042b9205a046a91de33b1ab3))
+* use remote HTTP server for Stitch MCP, not nonexistent npm package ([6c040cb](https://github.com/gabelul/stitch-kit/commit/6c040cb15a72e80e6e249fe747e9283ee2a01ca2))
+* use scoped package name and add automated npm publishing ([3810f81](https://github.com/gabelul/stitch-kit/commit/3810f81e422d4aaafcbaa0800ca080a69692b966))
+
+
+### Documentation
+
+* add agent install step — copy from plugin cache to ~/.claude/agents/ ([f44d21f](https://github.com/gabelul/stitch-kit/commit/f44d21ff9e3a17a07203c6ed8cc47f5407ee7b3c))
+* update agent definition and AGENTS.md for v1.5.0 ([57bb29f](https://github.com/gabelul/stitch-kit/commit/57bb29f428fe57cf4c13fe8d50f60db92c54f739))
+
+## [1.6.2](https://github.com/gabelul/stitch-kit/compare/v1.6.1...v1.6.2) (2026-02-26)
+
+
+### Bug Fixes
+
+* resolve plugin conflicting manifests error ([805586e](https://github.com/gabelul/stitch-kit/commit/805586e871d7ca17b40900ee8571d737c0d0d78c))
+
+## [1.6.1](https://github.com/gabelul/stitch-kit/compare/v1.6.0...v1.6.1) (2026-02-25)
+
+
+### Bug Fixes
+
+* upgrade Node to 22 and npm to latest for OIDC trusted publishing ([08bcd7e](https://github.com/gabelul/stitch-kit/commit/08bcd7e4374fdb45042b9205a046a91de33b1ab3))
+
+## [1.6.0](https://github.com/gabelul/stitch-kit/compare/v1.5.0...v1.6.0) (2026-02-25)
+
+
+### Features
+
+* refactor installer to registry pattern with 7 CLI clients ([#3](https://github.com/gabelul/stitch-kit/issues/3)) ([a350fe7](https://github.com/gabelul/stitch-kit/commit/a350fe722155e602da3c5573a486b465ece72be8))
+
+## 1.0.0 (2026-02-25)
+
+
+### Features
+
+* add 8 MCP wrappers, orchestrator iteration loop, native variants, design systems ([a77405a](https://github.com/gabelul/stitch-kit/commit/a77405a6248c22327a355124150a663c4364319f))
+* add prompt quality standard, project reuse, generation timing ([b525398](https://github.com/gabelul/stitch-kit/commit/b525398a07d422c8df6bb1192b76458daa420b9a))
+* initial release — stitch-kit v1.3.0 ([6ec1494](https://github.com/gabelul/stitch-kit/commit/6ec1494b578f8ea344fdbb11ebd9cebd96021a7f))
+* register agents directory in plugin manifest and marketplace ([181a7cf](https://github.com/gabelul/stitch-kit/commit/181a7cfe33d036ac581a934e0a0f9700465b7a9e))
+
+
+### Bug Fixes
+
+* add tools and color fields to agent frontmatter to match Claude Code agent format ([40edcf5](https://github.com/gabelul/stitch-kit/commit/40edcf55a859ba332e0572aa3f14132e6f4d6a9f))
+* remove agents field from marketplace plugins array (invalid schema) ([1ad69b7](https://github.com/gabelul/stitch-kit/commit/1ad69b7137be55d999989e34b15add7aeac043ad))
+* remove unverified agents field from plugin.json ([b0b1e7b](https://github.com/gabelul/stitch-kit/commit/b0b1e7b65ccf62a5c27be73347af2f1e126ee6a8))
+* rename plugin group to stitch-kit for agent auto-discovery ([e1cd72f](https://github.com/gabelul/stitch-kit/commit/e1cd72f79b2fe19bbd810eb4525ba14a29d4ed7b))
+* strip agent frontmatter to minimal format for plugin discovery ([69ec523](https://github.com/gabelul/stitch-kit/commit/69ec5235e9b50bfe37625afd99472bdbafb3843d))
+
+## [1.5.0] - 2026-02-25
+
+### Added
+- 8 new MCP wrapper skills covering all remaining Stitch API tools (14 total):
+  - `stitch-mcp-edit-screens` — iterate on designs with text prompts (the iteration tool)
+  - `stitch-mcp-generate-variants` — native variant generation with creativity/aspect controls
+  - `stitch-mcp-upload-screens-from-images` — import screenshots for redesign workflows
+  - `stitch-mcp-delete-project` — project cleanup with mandatory confirmation gate
+  - `stitch-mcp-create-design-system` — create reusable Stitch Design Systems from tokens
+  - `stitch-mcp-update-design-system` — modify existing design systems
+  - `stitch-mcp-list-design-systems` — discover available design systems
+  - `stitch-mcp-apply-design-system` — apply design systems to screens for visual consistency
+- `encode-image.sh` helper script for base64 image encoding (macOS + Linux)
+- Post-generation iteration loop in orchestrator (Step 5b) — edit, variant, or apply design system before code conversion
+- Design system bridge (Step 7b) — maps extracted CSS tokens to Stitch Design System format
+- Design system check (Step 4b) — detects existing design systems when selecting a project
+- Native API detection in `stitch-ui-design-variants` — uses `generate_variants` tool when available (1 call vs 3)
+- Consolidated ID format table for all 14 MCP tools in orchestrator
+- 8 new JSON schema files in `docs/mcp-schemas/`
+
+### Changed
+- Orchestrator intent classification expanded from 4 to 7 (added: Edit existing, Upload screenshot, Delete project)
+- Orchestrator Step 6 menus expanded with edit, variant, and design system options
+- `stitch-mcp-generate-screen-from-text` deviceType enum: replaced `SMART_WATCH` with `AGNOSTIC`
+- Skill count: 26 → 34
+- MCP wrapper count: 6 → 14
+- Anti-patterns expanded from 7 to 11
+
+### Fixed
+- `deviceType` enum now matches official Stitch API (`AGNOSTIC` instead of non-existent `SMART_WATCH`)
+
+## [1.4.0] - 2026-02-25
+
+### Added
+- Prompt Quality Standard checklist in `stitch-ui-prompt-architect` — requires explicit hex colors, px font sizes, component styles before generation
+- Verification gate in orchestrator before screen generation
+- Project reuse logic — orchestrator checks existing projects before creating new ones
+- Generation timing guidance (60–180s is normal, no spam retries)
+- CHANGELOG.md for tracking releases
+
+### Changed
+- README install section: clarified agent discovery behavior
+- Orchestrator Step 4: asks before creating new projects
+- Orchestrator Step 5: generation timing + retry rules
+- `stitch-mcp-generate-screen-from-text`: added timing section
+- Strengthened anti-patterns in orchestrator (no silent project creation, no retry spam)
+
+## [1.3.0] - 2026-02-19
+
+### Added
+- 26 skills covering full design-to-code pipeline
+- Agent definition (`agents/stitch-kit.md`) for Claude Code + Codex
+- MCP wrapper skills handling Stitch ID format inconsistencies
+- Framework targets: Next.js, Svelte, React, HTML, React Native, SwiftUI
+- Post-gen quality: design tokens, a11y audit, animations
+- Multi-page consistency via stitch-loop + DESIGN.md
+- Codex CLI support via install-codex.sh
+- GitHub Actions CI validation
+- release-please automated versioning
+
+### Architecture
+- Brain layer: spec-generator, prompt-architect, design-variants, ued-guide
+- Hands layer: 6 MCP wrapper skills
+- Quality layer: design-system, a11y, animate
+- Loop layer: stitch-loop + design-md

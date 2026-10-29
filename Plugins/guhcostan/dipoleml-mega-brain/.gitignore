@@ -1,0 +1,27 @@
+.cache/
+.vector-index/
+node_modules/
+__pycache__/
+*.pyc
+
+# reference images used during logo creation
+assets/clawd-ref.jpg
+assets/megabrain-ref.png
+assets/ponytail-ref.png
+
+# logo drafts
+assets/logo-v[0-9]*.png
+assets/logo-mix-*.png
+
+# promptfoo raw output
+benchmarks/results/*.json
+
+# playwright mcp artifacts
+.playwright-mcp/
+
+# intermediate prompt files
+benchmarks/prompts/knowledge-query.txt
+benchmarks/prompts/knowledge-query-with-context.txt
+
+# local claude settings
+.claude/

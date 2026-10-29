@@ -1,0 +1,517 @@
+#!/usr/bin/env node
+
+/**
+ * init-project.js — SessionStart hook
+ *
+ * Auto-scaffolds per-project Citadel state on first use.
+ * Copies templates and utility scripts from the plugin root.
+ * Idempotent — skips existing directories, overwrites scripts
+ * to keep them in sync with plugin version.
+ */
+
+const fs = require('fs');
+const path = require('path');
+const activation = require('../core/telemetry/activation');
+const configControl = require('../core/config');
+const { ensureMachineLocalExcludes } = require('../core/runtime/install-contract');
+const { RuntimeDetectionError } = require('../core/runtime/detect-runtime');
+const { syncAgentContext } = require('../core/project/agent-context');
+const { recordInstructionLoad } = require('../core/hooks/instructions-state');
+
+const PLUGIN_ROOT = path.resolve(__dirname, '..');
+const PROJECT_ROOT = process.env.CLAUDE_PROJECT_DIR || process.cwd();
+const DELEGATE_SCRIPTS = Object.freeze(require('./delegate-scripts.json'));
+
+function availableDelegates(pluginScripts) {
+  return DELEGATE_SCRIPTS.filter(file => fs.existsSync(path.join(pluginScripts, file)));
+}
+
+function pruneRetiredDelegates() {
+  const directory = path.join(PROJECT_ROOT, '.citadel', 'scripts');
+  if (!fs.existsSync(directory)) return;
+  if (fs.lstatSync(path.join(PROJECT_ROOT, '.citadel')).isSymbolicLink() ||
+      fs.lstatSync(directory).isSymbolicLink()) return;
+  for (const file of fs.readdirSync(directory)) {
+    if (!/^[a-zA-Z0-9_-]+\.(js|cjs)$/.test(file) || DELEGATE_SCRIPTS.includes(file)) continue;
+    const target = path.join(directory, file);
+    // Remove only the exact wrapper Citadel generated. Preserve user files and links.
+    const stat = fs.lstatSync(target);
+    if (stat.isFile() && !stat.isSymbolicLink() && fs.readFileSync(target, 'utf8') === generateDelegate(file)) {
+      fs.unlinkSync(target);
+    }
+  }
+}
+
+const PLANNING_DIRS_BY_BUNDLE = Object.freeze({
+  persistence: Object.freeze([
+    '.planning',
+    '.planning/campaigns',
+    '.planning/campaigns/completed',
+    '.planning/discoveries',
+    '.planning/fleet',
+    '.planning/fleet/briefs',
+    '.planning/fleet/outputs',
+    '.planning/postmortems',
+    '.planning/research',
+    '.planning/screenshots',
+    '.planning/telemetry',
+  ]),
+  parallel: Object.freeze([
+    '.planning/coordination',
+    '.planning/coordination/instances',
+    '.planning/coordination/claims',
+  ]),
+  operations: Object.freeze([
+    '.planning/intake',
+    '.planning/operations',
+  ]),
+  delivery: Object.freeze([
+    '.planning/deploy',
+    '.planning/pr-watch',
+  ]),
+});
+
+function activationAuthority() {
+  let runtime;
+  let runtimeDetectionError = null;
+  try {
+    runtime = configControl.detectRuntimeContract(PROJECT_ROOT);
+  } catch (error) {
+    // Multiple runtime marker directories (e.g. .claude/ + .codex/) or an
+    // invalid CITADEL_RUNTIME make the active runtime unknowable rather than
+    // wrong. Degrade to the same unknown-runtime contract the zero-marker case
+    // already uses -- proceeding is what makes the machine-local excludes and
+    // .planning/ scaffold happen at all -- but keep the error so main() can
+    // surface it instead of failing in silence.
+    if (!(error instanceof RuntimeDetectionError)) throw error;
+    runtimeDetectionError = error;
+    runtime = configControl.UNKNOWN_LOCAL_RUNTIME;
+  }
+  const context = configControl.loadActivationContext(PROJECT_ROOT, { runtime });
+  const decision = configControl.preflightHook(context, 'init-project');
+  return {
+    allowed: ['enabled', 'degraded'].includes(decision.status),
+    decision,
+    runtime: runtime.id,
+    bundles: context.receipt?.bundles?.effective || [],
+    runtimeDetectionError,
+  };
+}
+
+function planningDirs(bundles) {
+  const selected = new Set(bundles);
+  return Object.entries(PLANNING_DIRS_BY_BUNDLE)
+    .filter(([bundle]) => selected.has(bundle))
+    .flatMap(([, directories]) => directories);
+}
+
+function shouldSyncScripts() {
+  try {
+    const pkgPath = path.join(PLUGIN_ROOT, 'package.json');
+    if (!fs.existsSync(pkgPath)) return true; // can't determine — sync to be safe
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    const pluginVersion = pkg.version || '0.0.0';
+
+    const versionFile = path.join(PROJECT_ROOT, '.citadel', 'version.txt');
+    if (!fs.existsSync(versionFile)) return true;
+
+    const installedVersion = fs.readFileSync(versionFile, 'utf8').trim();
+    if (installedVersion !== pluginVersion) return true;
+
+    const pluginScripts = path.join(PLUGIN_ROOT, 'scripts');
+    const projectScripts = path.join(PROJECT_ROOT, '.citadel', 'scripts');
+    if (!fs.existsSync(pluginScripts) || !fs.existsSync(projectScripts)) return true;
+    const moduleScope = path.join(projectScripts, 'package.json');
+    if (!fs.existsSync(moduleScope)) return true;
+    try {
+      if (JSON.parse(fs.readFileSync(moduleScope, 'utf8')).type !== 'commonjs') return true;
+    } catch {
+      return true;
+    }
+    return availableDelegates(pluginScripts)
+      .some((file) => !fs.existsSync(path.join(projectScripts, file)));
+  } catch {
+    return true; // on any error, sync to be safe
+  }
+}
+
+function writeVersionFile(pluginRoot, projectRoot) {
+  try {
+    const pkgPath = path.join(pluginRoot, 'package.json');
+    if (!fs.existsSync(pkgPath)) return;
+    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    fs.writeFileSync(path.join(projectRoot, '.citadel', 'version.txt'), `${pkg.version || '0.0.0'}\n`);
+  } catch { /* non-fatal */ }
+}
+
+function ensureDir(dir) {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+}
+
+/**
+ * Copy files from src to dest, but only if they don't already exist.
+ * Preserves user customizations to templates.
+ */
+function copyDirIfMissing(src, dest) {
+  ensureDir(dest);
+  for (const entry of fs.readdirSync(src, { withFileTypes: true })) {
+    const srcPath = path.join(src, entry.name);
+    const destPath = path.join(dest, entry.name);
+    if (entry.isDirectory()) {
+      copyDirIfMissing(srcPath, destPath);
+    } else if (!fs.existsSync(destPath)) {
+      fs.copyFileSync(srcPath, destPath);
+    }
+  }
+}
+
+/**
+ * Generate a thin delegate wrapper that forwards execution to the real script
+ * in the Citadel install. This avoids copying scripts that import from
+ * ../core/ and ../runtimes/ — paths that only exist inside the Citadel repo.
+ */
+function generateDelegate(scriptName) {
+  return (
+    "#!/usr/bin/env node\n" +
+    "'use strict';\n" +
+    "const { spawnSync } = require('child_process');\n" +
+    "const fs = require('fs');\n" +
+    "const path = require('path');\n" +
+    "const pluginRoot = fs.readFileSync(path.join(__dirname, '..', 'plugin-root.txt'), 'utf8').trim();\n" +
+    "const real = path.join(pluginRoot, 'scripts', " + JSON.stringify(scriptName) + ");\n" +
+    "const r = spawnSync(process.execPath, [real, ...process.argv.slice(2)], { stdio: 'inherit', env: process.env });\n" +
+    "process.exit(r.status ?? 0);\n"
+  );
+}
+
+function main() {
+  try {
+    // Protect the repository before anything else. This must not depend on
+    // resolving the active runtime -- an ambiguous or misconfigured runtime is
+    // exactly the case a mixed Claude/Codex/OpenCode checkout hits, and it must
+    // not leave machine-local state (plugin-root.txt, coordination claims,
+    // telemetry) uncommitted-but-unprotected in the repo.
+    ensureMachineLocalExcludes(PROJECT_ROOT);
+
+    const authority = activationAuthority();
+    if (authority.runtimeDetectionError) {
+      process.stderr.write(`[init-project] ${authority.runtimeDetectionError.message}\n`);
+      process.stderr.write(`[init-project] repair: ${authority.runtimeDetectionError.repairCommand}\n`);
+    }
+    if (!authority.allowed) {
+      process.stderr.write(`[init-project] skipped: ${authority.decision.reasonCode}\n`);
+      return;
+    }
+    const effectiveBundles = new Set(authority.bundles);
+
+    // 1. Create .planning/ directory tree
+    for (const dir of planningDirs(authority.bundles)) {
+      ensureDir(path.join(PROJECT_ROOT, dir));
+    }
+
+    // 1b. Sweep stale coordination claims from crashed sessions
+    if (effectiveBundles.has('parallel')) try {
+      // A project delegate may still point at the previous plugin version.
+      const script = path.join(PLUGIN_ROOT, 'scripts', 'coordination.js');
+      if (fs.existsSync(script)) {
+        require('child_process').spawnSync('node', [script, 'sweep'], {
+          cwd: PROJECT_ROOT,
+          env: { ...process.env, CLAUDE_PROJECT_DIR: PROJECT_ROOT },
+          timeout: 5000,
+        });
+      }
+    } catch { /* non-fatal — don't block session start */ }
+
+    // 2. Copy templates from plugin to project (only if missing or version changed)
+    const pluginTemplates = path.join(PLUGIN_ROOT, '.planning', '_templates');
+    const projectTemplates = path.join(PROJECT_ROOT, '.planning', '_templates');
+    if (fs.existsSync(pluginTemplates)) {
+      copyDirIfMissing(pluginTemplates, projectTemplates);
+    }
+
+    // 3. Copy intake template only when Operations owns active state.
+    if (effectiveBundles.has('operations')) {
+      const intakeTemplate = path.join(PROJECT_ROOT, '.planning', 'intake', '_TEMPLATE.md');
+      const pluginIntakeTemplate = path.join(PLUGIN_ROOT, '.planning', 'intake', '_TEMPLATE.md');
+      if (!fs.existsSync(intakeTemplate) && fs.existsSync(pluginIntakeTemplate)) {
+        fs.copyFileSync(pluginIntakeTemplate, intakeTemplate);
+      }
+    }
+
+    // 4. Sync utility scripts to .citadel/scripts/ (version-gated to avoid unnecessary I/O)
+    //
+    // Scripts are generated as thin delegates rather than copied verbatim.
+    // Copied scripts import from ../core/ and ../runtimes/ which only exist
+    // inside the Citadel install, not inside the target project. Delegates
+    // read plugin-root.txt at runtime and spawn the real script via the
+    // Citadel install, so imports always resolve correctly.
+    pruneRetiredDelegates();
+    if (shouldSyncScripts()) {
+      const pluginScripts = path.join(PLUGIN_ROOT, 'scripts');
+      const projectScripts = path.join(PROJECT_ROOT, '.citadel', 'scripts');
+      if (fs.existsSync(pluginScripts)) {
+        ensureDir(projectScripts);
+        fs.writeFileSync(
+          path.join(projectScripts, 'package.json'),
+          `${JSON.stringify({ type: 'commonjs' }, null, 2)}\n`,
+        );
+        for (const file of availableDelegates(pluginScripts)) {
+          if (file.endsWith('.js') || file.endsWith('.cjs')) {
+            fs.writeFileSync(
+              path.join(projectScripts, file),
+              generateDelegate(file)
+            );
+          }
+        }
+      }
+      writeVersionFile(PLUGIN_ROOT, PROJECT_ROOT);
+    }
+
+    // 5. Copy the runtime-neutral delegated-agent context into the active
+    // runtime's project namespace. Never create another runtime's marker: it
+    // makes later runtime detection ambiguous. A disputed runtime (multiple
+    // markers, or an invalid CITADEL_RUNTIME) must not fall through to the
+    // .claude default below -- that would create a .claude/ marker in a repo
+    // that may have neither .claude/ nor .codex/ (e.g. .codex/ + .opencode/),
+    // turning a temporary ambiguity into a permanent one. A genuinely fresh
+    // project (no markers at all) is unaffected and keeps the existing default.
+    // Existing copies are refreshed only where a file is an unmodified earlier
+    // template; a redirected (symlinked) directory is not ours to write through.
+    if (!authority.runtimeDetectionError) {
+      const pluginAgentContext = path.join(PLUGIN_ROOT, 'templates', 'agent-context');
+      const runtimeDirectory = authority.runtime === 'codex' ? '.codex' : '.claude';
+      const agentContext = path.join(PROJECT_ROOT, runtimeDirectory, 'agent-context');
+      const redirected = fs.existsSync(agentContext) && fs.lstatSync(agentContext).isSymbolicLink();
+      if (!redirected) syncAgentContext(pluginAgentContext, agentContext);
+    }
+
+    // 5a. InstructionsLoaded does not fire when Claude Code reads AGENTS.md
+    // directly, so record the root AGENTS.md load here for doc-sync.
+    const agentsGuidance = path.join(PROJECT_ROOT, 'AGENTS.md');
+    if (fs.existsSync(agentsGuidance)) recordInstructionLoad(PROJECT_ROOT, agentsGuidance);
+
+    // 6. Write .citadel-root marker (plugin path for reference)
+    const citadelDir = path.join(PROJECT_ROOT, '.citadel');
+    ensureDir(citadelDir);
+    fs.writeFileSync(
+      path.join(citadelDir, 'plugin-root.txt'),
+      `${PLUGIN_ROOT}\n`
+    );
+
+    // 6a. Restore opted-in durable knowledge from the user-level repository
+    // store. Existing files are never overwritten by this automatic path.
+    restoreRepositoryMemory();
+
+    // 6b. Record proof-backed activation milestones. This is local-only,
+    // deduplicated, and can never block session initialization.
+    recordActivationMilestones();
+
+    // 7. Watchdog — check for stale command results from a previous session
+    checkStaleCommandResult();
+
+    // 8. Daemon bootstrap — detect active daemon and prompt continuation
+    if (effectiveBundles.has('operations')) checkDaemonState();
+
+    // 9. Health line — one-line harness health summary
+    printHealthLine();
+
+  } catch (err) {
+    // Non-fatal — don't block session start
+    process.exit(0);
+  }
+}
+
+function restoreRepositoryMemory() {
+  try {
+    const memory = require('../core/memory/repository-store');
+    const result = memory.restoreRepository(PROJECT_ROOT);
+    if (Array.isArray(result.restored) && result.restored.length > 0) {
+      process.stdout.write(`[citadel] restored ${result.restored.length} durable memory file(s) from the user store\n`);
+    }
+    if (Array.isArray(result.conflicts) && result.conflicts.length > 0) {
+      process.stdout.write(
+        `[citadel] cross-clone memory left ${result.conflicts.length} divergent local file(s) unchanged; run node .citadel/scripts/repository-memory.js restore --project-root . to inspect\n`
+      );
+    }
+  } catch { /* optional, best-effort, and never blocks session start */ }
+}
+
+function activationRuntime() {
+  try {
+    const id = configControl.detectRuntimeContract(PROJECT_ROOT).id;
+    return id === 'local-unknown' ? 'unknown' : id;
+  } catch {
+    return 'unknown';
+  }
+}
+
+function recordActivationMilestones() {
+  try {
+    const config = path.join(PROJECT_ROOT, '.claude', 'harness.json');
+    if (!fs.existsSync(config)) return;
+    JSON.parse(fs.readFileSync(config, 'utf8'));
+    const input = { status: 'succeeded', runtime: activationRuntime() };
+    activation.recordOnce({ ...input, stage: 'setup_completed' }, { root: PROJECT_ROOT });
+    activation.recordOnce({ ...input, stage: 'return_session' }, {
+      root: PROJECT_ROOT,
+      minimum_day_since_install: 1,
+    });
+  } catch { /* activation evidence is best-effort and never blocks startup */ }
+}
+
+/**
+ * Watchdog: check for stale command results from a previous session.
+ *
+ * If last-command-result.json exists and is older than 10 minutes,
+ * the previous session may have completed a command that wasn't seen.
+ * Surface it so the user knows what happened.
+ */
+function checkStaleCommandResult() {
+  try {
+    const resultPath = path.join(PROJECT_ROOT, '.planning', 'telemetry', 'last-command-result.json');
+    if (!fs.existsSync(resultPath)) return;
+
+    const result = JSON.parse(fs.readFileSync(resultPath, 'utf8'));
+    if (!result.timestamp) return;
+
+    const ageMs = Date.now() - new Date(result.timestamp).getTime();
+    const STALE_THRESHOLD = 10 * 60 * 1000; // 10 minutes
+
+    if (ageMs > STALE_THRESHOLD) {
+      const ageMins = Math.round(ageMs / 60000);
+      const exitCode = result.exitCode !== null && result.exitCode !== undefined ? result.exitCode : 'unknown';
+      const duration = result.durationSec || '?';
+      const cmd = (result.command || 'unknown').slice(0, 100);
+
+      const parts = [`[watchdog] A previous command completed ${ageMins}m ago but may not have been seen.`];
+      parts.push(`  Command: ${cmd}`);
+      parts.push(`  Exit code: ${exitCode}, duration: ${duration}s`);
+
+      if (result.timedOut) {
+        parts.push(`  NOTE: This command was killed by timeout after ${result.timeoutLimit}s.`);
+      }
+
+      parts.push(`  Check .planning/telemetry/last-command-result.json for details.`);
+
+      process.stdout.write(parts.join('\n') + '\n');
+
+      // Clean up so we don't warn again
+      fs.unlinkSync(resultPath);
+    }
+  } catch {
+    // Non-fatal — don't block session start
+  }
+}
+
+/**
+ * Health line: one concise line summarizing harness health at session start.
+ * Single bounded read of the tail of hook-timing.jsonl (no spawning, no
+ * directory walks). Silently skips on any error or when no telemetry exists.
+ */
+function printHealthLine() {
+  try {
+    const file = path.join(PROJECT_ROOT, '.planning', 'telemetry', 'hook-timing.jsonl');
+    const size = fs.statSync(file).size;
+    const length = Math.min(size, 8192);
+    if (length === 0) return;
+    const buffer = Buffer.alloc(length);
+    const fd = fs.openSync(file, 'r');
+    fs.readSync(fd, buffer, 0, length, size - length);
+    fs.closeSync(fd);
+    let lines = buffer.toString('utf8').split('\n').filter(Boolean);
+    if (size > length) lines = lines.slice(1); // first line may be a partial record
+    const entries = [];
+    for (const line of lines) { try { entries.push(JSON.parse(line)); } catch { /* skip */ } }
+    if (entries.length === 0) return;
+    const gates = ['quality-gate', 'protect-files', 'circuit-breaker', 'external-action-gate'];
+    const verify = entries.slice().reverse().find((e) => e.typecheck === 'pass' || e.typecheck === 'fail' || e.typecheck === 'errors');
+    const parts = [`hooks ok (${entries.length} recent events)`];
+    if (entries.some((e) => gates.includes(e.hook))) parts.push('gates active');
+    parts.push(`last verify: ${verify ? (verify.typecheck === 'pass' ? 'pass' : 'fail') : 'none'}`);
+    process.stdout.write(`[citadel] ${parts.join(', ')}\n`);
+  } catch { /* best-effort, never block session start */ }
+}
+
+/**
+ * Daemon bridge: if a daemon is running, notify the user.
+ *
+ * Interactive sessions (user at the keyboard) get a notification only --
+ * no tokens spent without explicit intent. The user runs /do continue.
+ *
+ * Non-interactive sessions (claude -p, RemoteTrigger, cron) get a command
+ * the agent acts on automatically -- that's the overnight-factory use case.
+ */
+function checkDaemonState() {
+  try {
+    const daemonPath = path.join(PROJECT_ROOT, '.planning', 'daemon.json');
+    if (!fs.existsSync(daemonPath)) return;
+
+    const daemon = JSON.parse(fs.readFileSync(daemonPath, 'utf8'));
+
+    // Only bootstrap if daemon is actively running
+    if (daemon.status !== 'running') return;
+
+    // Lock check: if another session is active (lastTickAt within 2 min), don't overlap
+    if (daemon.lastTickAt && daemon.lastTickStatus === 'running') {
+      const elapsed = Date.now() - new Date(daemon.lastTickAt).getTime();
+      if (elapsed < 120000) return; // another session is working
+    }
+
+    // Budget check: don't start if budget exhausted
+    if (typeof daemon.budget === 'number' && daemon.estimatedSpend >= daemon.budget) return;
+
+    // Campaign check: verify campaign is still active
+    const slug = daemon.campaignSlug;
+    if (!slug) return;
+    const campaignPath = path.join(PROJECT_ROOT, '.planning', 'campaigns', `${slug}.md`);
+    const campaignExists = fs.existsSync(campaignPath);
+    const campaignActive = campaignExists
+      && /status:\s*active/i.test(fs.readFileSync(campaignPath, 'utf8'));
+
+    if (!campaignActive) {
+      // Campaign is done but daemon.json still says running -- stop the daemon.
+      // This prevents idle loops where sessions spawn, find no work, and exit.
+      try {
+        daemon.status = 'stopped';
+        daemon.stoppedAt = new Date().toISOString();
+        daemon.stopReason = 'no-active-work';
+        fs.writeFileSync(daemonPath, JSON.stringify(daemon, null, 2));
+        process.stdout.write(
+          `[daemon] Stopped -- campaign "${slug}" is no longer active. ` +
+          `Reason: ${campaignExists ? 'campaign completed/parked' : 'campaign file not found'}.\n`
+        );
+      } catch { /* non-fatal */ }
+      return;
+    }
+
+    // All gates pass -- determine session type
+    const remaining = typeof daemon.budget === 'number'
+      ? ` Budget: $${daemon.estimatedSpend}/$${daemon.budget}.`
+      : '';
+    const sessions = daemon.sessionCount || 0;
+
+    // Non-interactive: CLAUDE_NON_INTERACTIVE env var set by the scheduled task script.
+    // Auto-execute is appropriate here (cron, RemoteTrigger, overnight factory).
+    // Note: process.argv won't contain parent's -p flag -- hooks are child processes.
+    const isNonInteractive = process.env.CLAUDE_NON_INTERACTIVE === '1';
+
+    if (isNonInteractive && daemon.localRunnerEnabled === true) {
+      process.stdout.write(
+        `[daemon] Active campaign: ${slug} (session #${sessions + 1}).${remaining}\n` +
+        `Run: /do continue\n`
+      );
+    } else {
+      // Interactive: notify only. No tokens spent without explicit intent.
+      process.stdout.write(
+        `[daemon] Active campaign: ${slug} (loop ${daemon.log ? daemon.log.length + 1 : '?'} pending)${remaining}\n` +
+        `  Run /do continue to resume, or /daemon stop to cancel.\n`
+      );
+    }
+  } catch {
+    // Non-fatal — if daemon state is corrupt, don't block session start
+  }
+}
+
+main();

@@ -1,0 +1,158 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.damionrashford.media-os",
+  "type": "plugin",
+  "name": "Media Os",
+  "slug": "media-os",
+  "vendor": "damionrashford",
+  "description": "Routed Media OS for DipoleML — 96 skills + 13 modes + 7 specialist agents covering FFmpeg, OBS, NDI, DeckLink, Dolby Vision, HDR10+, and 2026 open-source AI media. Install via DipoleML marketplace.",
+  "version": "2.1.0",
+  "homepage": "https://github.com/damionrashford/media-os",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "audio-routing",
+    "broadcast",
+    "claude-plugin",
+    "dolby-vision",
+    "ffmpeg",
+    "gstreamer",
+    "hdr10-plus",
+    "image-generation",
+    "media-production"
+  ],
+  "tags": [
+    "audio-routing",
+    "broadcast",
+    "claude-code",
+    "claude-plugin",
+    "dolby-vision",
+    "ffmpeg",
+    "gstreamer",
+    "hdr10-plus",
+    "image-generation",
+    "media-production",
+    "mediamtx",
+    "multi-agent",
+    "ndi",
+    "obs-studio",
+    "open-source-ai",
+    "opentimelineio",
+    "streaming",
+    "video-generation",
+    "video-production",
+    "webrtc"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "damionrashford",
+    "brandName": "damionrashford",
+    "source": "https://github.com/damionrashford.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:12:42Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "damionrashford/media-os",
+    "url": "https://github.com/damionrashford/media-os",
+    "commit": "5014c1e8b23fd3e18d49926d9aa147d15a3aa08e",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 21,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:06:26Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Media Os | Routed Media OS for Claude Code — 96 skills + 13 modes + 7 specialist agents covering FFmpeg, OBS, NDI, DeckLink, Dolby Vision, HDR10+, and 2026 open-source AI media. Install via Claude marketplace.",
+        "after": "Media Os | Routed Media OS for DipoleML — 96 skills + 13 modes + 7 specialist agents covering FFmpeg, OBS, NDI, DeckLink, Dolby Vision, HDR10+, and 2026 open-source AI media. Install via DipoleML marketplace.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "The Media OS for Claude Code with routed modes dispatch. 96 production-grade skills + 13 modes (routed playbooks) + 7 orchestrator agents (architect, probe, qc, hdr, encoder, live, delivery) + 5 safety + audit hooks + workflow monitors + a PATH-level CLI toolbelt, covering the entire professional media stack — FFmpeg complete (transcode, filters, streaming, HDR, color, broadcast MXF/IMF, DRM, 360°, VapourSynth), professional companion CLIs (yt-dlp, MKVToolNix, GPAC, Shaka, HandBrake, MoviePy, MediaInfo, PySceneDetect, ffsubsync, ffmpeg-normalize, ImageMagick, ExifTool, SoX, GNU parallel, cloud upload), OBS Studio full stack, streaming frameworks (GStreamer, MediaMTX), broadcast IP (NDI SDK, OpenTimelineIO, HDR dynamic metadata via dovi_tool + hdr10plus_tool, Blackmagic DeckLink, gphoto2), low-level control (MIDI 1.0 + 2.0 UMP, OSC, DMX512/Art-Net/sACN, VISCA + ONVIF PTZ), system audio routing (PipeWire, JACK, Core Audio, WASAPI), VFX (USD, OpenEXR, OpenImageIO), computer vision (OpenCV, MediaPipe), WebRTC (W3C spec, Pion/mediasoup/LiveKit SFUs), and 2026 open-source AI media (Real-ESRGAN/SwinIR/HAT upscale, RIFE/FILM interpolation, rembg/BiRefNet/RVM matting, Kokoro/OpenVoice/Piper TTS, Depth-Anything/MiDaS depth, ComfyUI/FLUX-schnell/Kolors image gen, LTX-Video/CogVideoX video gen, LivePortrait/LatentSync lipsync, PaddleOCR/Tesseract 5 OCR, DeepFilterNet/RNNoise audio denoise, CLIP/SigLIP/BLIP-2/LLaVA tagging). Strict OSI-open + commercial-safe license filter on every AI model.",
+        "after": "The Media OS for DipoleML with routed modes dispatch. 96 production-grade skills + 13 modes (routed playbooks) + 7 orchestrator agents (architect, probe, qc, hdr, encoder, live, delivery) + 5 safety + audit hooks + workflow monitors + a PATH-level CLI toolbelt, covering the entire professional media stack — FFmpeg complete (transcode, filters, streaming, HDR, color, broadcast MXF/IMF, DRM, 360°, VapourSynth), professional companion CLIs (yt-dlp, MKVToolNix, GPAC, Shaka, HandBrake, MoviePy, MediaInfo, PySceneDetect, ffsubsync, ffmpeg-normalize, ImageMagick, ExifTool, SoX, GNU parallel, cloud upload), OBS Studio full stack, streaming frameworks (GStreamer, MediaMTX), broadcast IP (NDI SDK, OpenTimelineIO, HDR dynamic metadata via dovi_tool + hdr10plus_tool, Blackmagic DeckLink, gphoto2), low-level control (MIDI 1.0 + 2.0 UMP, OSC, DMX512/Art-Net/sACN, VISCA + ONVIF PTZ), system audio routing (PipeWire, JACK, Core Audio, WASAPI), VFX (USD, OpenEXR, OpenImageIO), computer vision (OpenCV, MediaPipe), WebRTC (W3C spec, Pion/mediasoup/LiveKit SFUs), and 2026 open-source AI media (Real-ESRGAN/SwinIR/HAT upscale, RIFE/FILM interpolation, rembg/BiRefNet/RVM matting, Kokoro/OpenVoice/Piper TTS, Depth-Anything/MiDaS depth, ComfyUI/FLUX-schnell/Kolors image gen, LTX-Video/CogVideoX video gen, LivePortrait/LatentSync lipsync, PaddleOCR/Tesseract 5 OCR, DeepFilterNet/RNNoise audio denoise, CLIP/SigLIP/BLIP-2/LLaVA tagging). Strict OSI-open + commercial-safe license filter on every AI model.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [
+      "WASAPI",
+      "OBS_WEBSOCKET_URL",
+      "HUGGINGFACE_TOKEN",
+      "SHAKA_KEY_SERVER_URL",
+      "CLOUDFLARE_STREAM_TOKEN",
+      "MUX_TOKEN_ID",
+      "BUNNY_CDN_TOKEN",
+      "LIVE_STREAM_URL",
+      "RENDER_QUEUE_URL"
+    ],
+    "credentials": [
+      "HUGGINGFACE_TOKEN",
+      "SHAKA_KEY_SERVER_URL",
+      "CLOUDFLARE_STREAM_TOKEN",
+      "MUX_TOKEN_ID",
+      "BUNNY_CDN_TOKEN"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

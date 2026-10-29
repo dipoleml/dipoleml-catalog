@@ -1,0 +1,10 @@
+apiVersion: v2
+
+name: ai-documenter
+description: A cronjob that runs and analyze projects
+
+version: 1.0.0
+
+appVersion: 1.0.0
+
+type: application

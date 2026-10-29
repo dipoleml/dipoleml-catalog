@@ -1,0 +1,114 @@
+#!/bin/sh
+# Writ post-commit hook (decision-memory Phase 1d).
+#
+# After a commit lands (the hash now exists), sends the commit metadata and the
+# changed-file list to the Writ daemon, which creates the Commit + FileChange
+# records, wires them into the graph, and resolves the planning claims. Reaches
+# Neo4j only through the running daemon over HTTP (curl); a down daemon fails
+# open (skips the graph write, exits 0). System python3 and curl only.
+#
+# Exit: always 0 (a commit is never blocked).
+
+hash=$(git rev-parse HEAD 2>/dev/null)
+if [ -z "$hash" ]; then
+    exit 0
+fi
+subject=$(git log -1 --format=%s 2>/dev/null)
+author=$(git log -1 --format=%an 2>/dev/null)
+branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+project_root=$(git rev-parse --show-toplevel 2>/dev/null)
+files=$(git diff-tree --no-commit-id --name-status -r HEAD 2>/dev/null)
+
+if [ -z "$project_root" ]; then
+    exit 0
+fi
+
+# Git launches this hook, so it has no Claude Code session id. Bridge it via the
+# file auto-approve-gate.sh writes every prompt, so capture_commit can read the
+# session cache for per-file queried rule ids. Absent file -> empty (best-effort).
+#
+# GUARDED BY PROJECT. The pointer names whichever session on this machine took a turn most
+# recently, and prompts vastly outnumber commits across concurrent sessions, so trusting it
+# blindly credited this commit to a session that may have been working a DIFFERENT project
+# and merged that session's queried-rules map into this commit's provenance. The helper
+# returns the id only when the named session declared this project, and empty otherwise,
+# which is the same best-effort empty the absent-pointer case always produced.
+# rotation.py performs the identical comparison on the identical pointer.
+#
+# THE POINTER READ STAYS HERE, in the one file exempted for it by name. Moving it into the
+# helper would hide it behind a python open() that the pointer-read scan in
+# tests/test_session_identity_no_fallback.py cannot match, so the exemption would still
+# read as granted-and-used while the actual read had left the audited file.
+pointer_sid="$(cat /tmp/writ-current-session 2>/dev/null || echo '')"
+writ_lib="$(dirname "$0")/../../bin/lib/pointer_session.py"
+[ -f "$writ_lib" ] || writ_lib="${WRIT_DIR:-}/bin/lib/pointer_session.py"
+WRIT_SESSION_ID="$(python3 "$writ_lib" "$pointer_sid" "$project_root" 2>/dev/null || echo '')"
+
+writ_port="${WRIT_PORT:-8765}"
+writ_host="${WRIT_HOST:-localhost}"
+writ_base="http://${writ_host}:${writ_port}"
+
+# Assemble the JSON payload with python3. Metadata is passed through the
+# environment and the name-status text through stdin, never interpolated into a
+# shell command (SEC-INJ-CMD-001).
+request=$(printf '%s' "$files" | \
+    WRIT_PROJECT_ROOT="$project_root" \
+    WRIT_HASH="$hash" \
+    WRIT_SUBJECT="$subject" \
+    WRIT_AUTHOR="$author" \
+    WRIT_BRANCH="$branch" \
+    WRIT_SESSION_ID="$WRIT_SESSION_ID" \
+    python3 -c '
+import sys, json, os
+text = sys.stdin.read()
+entries = []
+for line in text.splitlines():
+    if not line.strip():
+        continue
+    parts = line.split("\t")
+    status = parts[0].strip()
+    if not status:
+        continue
+    letter = status[0]
+    if letter in ("R", "C") and len(parts) >= 3:
+        entries.append({"path": parts[2], "change_type": "rename", "old_path": parts[1]})
+    elif len(parts) >= 2:
+        ct = {"A": "add", "M": "modify", "D": "delete", "T": "modify"}.get(letter, "modify")
+        entries.append({"path": parts[1], "change_type": ct})
+print(json.dumps({
+    "project_root": os.environ["WRIT_PROJECT_ROOT"],
+    "commit_hash": os.environ["WRIT_HASH"],
+    "subject": os.environ.get("WRIT_SUBJECT", ""),
+    "author": os.environ.get("WRIT_AUTHOR", ""),
+    "branch": os.environ.get("WRIT_BRANCH", ""),
+    "files": entries,
+    "session_id": os.environ.get("WRIT_SESSION_ID", ""),
+}))
+' 2>/dev/null)
+
+if [ -z "$request" ]; then
+    exit 0
+fi
+
+# Prefer the daemon's private unix socket when one exists.
+#
+# RESOLVED HERE, not borrowed. This file does not source common.sh: its header holds it
+# to "System python3 and curl only", the same constraint that put the session-id
+# comparison in bin/lib/pointer_session.py rather than in a bash library. Two lines of
+# POSIX sh cost less than a bash dependency.
+#
+# writ_base is unchanged because curl ignores the URL's host once --unix-socket is
+# given. No socket means no flag, which is the ordinary state on a machine whose daemon
+# has not restarted since the socket landed, and it must stay a no-op rather than an
+# error (a commit is never blocked).
+writ_sock="${WRIT_SOCKET:-$HOME/.cache/writ/run/writ.sock}"
+writ_transport=""
+[ -S "$writ_sock" ] && writ_transport="--unix-socket $writ_sock"
+
+# Reach the daemon. A down daemon fails open (the graph write is simply skipped).
+curl $writ_transport -s --connect-timeout 0.5 --max-time 3 \
+    -X POST "${writ_base}/commit/capture" \
+    -H "Content-Type: application/json" \
+    -d "$request" >/dev/null 2>&1 || echo "" >/dev/null
+
+exit 0

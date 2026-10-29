@@ -1,0 +1,291 @@
+# R1-v1-openspec-marketplace — V1 Source Intake + Spec Governance Handoff
+
+**Phase**: arcgentic v1.0.0
+**Round**: R1-v1-openspec-marketplace
+**Type**: substrate-touching round
+**Prior-round anchor**: `bff83e2a9c56bbd7421492ead646e9aa087b12c5`
+**Design contract**: `docs/plans/2026-06-02-arcgentic-v1-openspec-superpowers-design.md`
+**Audit script**: `arcgentic audit-check docs/audits/R1-v1-openspec-marketplace.md --strict-extended`
+**Cost discipline**: no paid API calls, no background polling, no automatic third-party plugin install
+
+---
+
+## 1. Scope
+
+Allowed scope: implement the first V1 slice that makes external workflow sources first-class
+arcgentic inputs. The slice adds source-intake, capability-registry, spec-governance, and
+v1-release-readiness seams with tests and CLI exposure.
+
+Forbidden scope: do not depend on the OpenSpec npm package, do not vendor Superpowers
+Marketplace plugins, do not auto-install third-party plugins, do not add hosted services,
+and do not touch Moirai.
+
+This round converts the V1 design document into implementation-ready tasks. It must keep
+arcgentic's round state machine as the enforcement layer and treat OpenSpec/Superpowers
+as source models.
+
+## 2. Reference Scan
+
+| Reference | Use mode | Why used | What part | License + RT tier |
+|---|---|---|---|---|
+| `obra/superpowers-marketplace` | reference-only | Provides marketplace catalog shape for skills and workflows | `.claude-plugin/marketplace.json` entries: name, source, version, strict, description | public GitHub source; RT0 |
+| `wearetechnative/awesome-openspec` | reference-only | Provides spec-driven artifact lifecycle examples | `proposal.md`, `design.md`, `tasks.md`, `openspec/specs`, archive model | public GitHub source; RT0 |
+| `msitarzewski/agency-agents` | reference-only | Provides agency-style role catalog and agent file structure | department directories, role metadata, identity/mission/deliverable workflow shape | MIT + RT0 |
+| `jnMetaCode/agency-agents-zh` | reference-only | Provides Chinese role catalog scale and multi-tool integration evidence | `CATALOG.md`, `UPSTREAM.md`, department role paths, Chinese localized roles | MIT + RT0 |
+| `docs/plans/2026-06-02-arcgentic-v1-openspec-superpowers-design.md` | direct use | Local design contract already committed and pushed | V1 scope, module seams, tests, release gates | project-owned; RT3 |
+
+Reference use rule: these sources inform arcgentic-native modules. No third-party code is
+copied into runtime.
+
+## 3. Tooling Plan
+
+Expected skills: `arcgentic:using-arcgentic`, `arcgentic:plan-round`,
+`arcgentic:session-mode`, `arcgentic:execute-round`, `arcgentic:audit-round`, and
+`arcgentic:codify-lesson`.
+
+Expected CLI commands: `arcgentic validate-handoff`, `arcgentic quality-gate-enforce`,
+`arcgentic audit-check`, `pytest`, `mypy --strict`, `ruff check`, and plugin validator.
+
+Known adapter finding: `plan-round-impl` dispatch failed in this Codex Desktop context
+because the current adapter detection chose a host path that cannot dispatch `planner`.
+Developer must keep this as a V1 readiness finding and avoid relying on fake sub-agent
+success.
+
+Session identity requirement: before `awaiting_dev_start -> dev_in_progress`, the
+orchestrator must first recommend a mode, then ask the user to choose one of two modes.
+
+- Single-session mode: this session is the orchestrator. It dispatches developer and audit
+  sub-agents in sequence. Audit starts automatically after dev only when dispatch transport
+  is mechanically verified.
+- Multi-session mode: this session stops at `awaiting_dev_start` and prints identity
+  handoff prompts. The user opens separate developer and auditor sessions; each session
+  starts by reading this handoff and `.agentic-rounds/state.yaml`.
+
+If dispatch transport is unavailable, single-session mode is not a full automation path.
+The workflow may continue only as verified local execution, and the self-audit must record
+that degradation.
+
+Mode recommendation requirement: before presenting the choice, the orchestrator must print:
+recommendation, confidence, reasons, suggested role identities, and override instructions.
+For this V1 round, the expected recommendation is `multi-session` because the work changes
+workflow contracts, release gates, multi-agent identity, and public release readiness.
+
+## 4. Architecture Target
+
+Add three deep modules behind small interfaces:
+
+- `source-intake`: normalize repo/catalog/spec sources into auditable source records.
+- `capability-registry`: parse marketplace-style catalogs into normalized capabilities.
+- `spec-governance`: validate OpenSpec-style artifact graphs without requiring OpenSpec CLI.
+- `agency-roster`: parse agency-agents-style role catalogs and normalize role families.
+- `session-mode`: recommend single-session vs multi-session, then generate identity prompts.
+
+Add one release gate module:
+
+- `v1-release-readiness`: verify version surfaces, plugin manifests, local install shape,
+  and release/dogfood artifacts.
+
+## 5. Implementation Tasks
+
+Implementation task 1: add the session-mode classifier and gate so current session identity
+is explicit, the system recommends single-session or multi-session, and dev cannot start
+before the user confirms or overrides.
+
+Implementation task 2: add fixtures for Superpowers-style and Codex-style marketplace
+catalogs, OpenSpec-style change directories, and agency-agents English/Chinese role catalog
+shapes.
+
+Implementation task 3: implement agency-roster parser and role-family selector.
+
+Implementation task 4: implement source-intake data model, schema validation, and CLI
+entry point.
+
+Implementation task 5: implement capability-registry parser and duplicate detection.
+
+Implementation task 6: implement spec-governance artifact graph validator, task status
+counter, and archive readiness checks.
+
+Implementation task 7: implement v1-release-readiness gate and wire it into CLI.
+
+Implementation task 8: update relevant skills and README surfaces without changing runtime
+scope.
+
+## 6. Required Tests
+
+Required test: source-intake accepts repo, marketplace, and openspec source records and
+rejects malformed or duplicate records.
+
+Required test: session-mode emits both single-session and multi-session choices and refuses
+single-session auto-audit when dispatch transport is unavailable.
+
+Required test: session-mode recommends single-session for short low-risk local changes and
+multi-session for workflow/release/security/cross-role rounds.
+
+Required test: agency-roster parses English department role files and Chinese `CATALOG.md`
+role paths without copying role content into arcgentic.
+
+Required test: capability-registry parses Superpowers-style `.claude-plugin/marketplace.json`
+and Codex-style `.agents/plugins/marketplace.json`.
+
+Required test: spec-governance detects missing proposal/design/tasks, incomplete tasks,
+and archive target collisions.
+
+Required test: v1-release-readiness fails on version drift across `plugin.json`,
+`.claude-plugin/plugin.json`, `.codex-plugin/plugin.json`, `toolkit/pyproject.toml`,
+`README.md`, and `README.zh-CN.md`.
+
+Required test: existing `277` toolkit tests remain green after implementation.
+
+## 7. Required Audit Facts
+
+Required audit fact 1: `git rev-parse HEAD` equals the self-audit handoff commit recorded
+in state. The self-audit may also record the final dev-body implementation anchor, but
+that anchor is distinct from the handoff commit.
+
+Required audit fact 2: `python3 -m pip show arcgentic` reports editable project location
+under this repository's `toolkit`.
+
+Required audit fact 3: plugin validator passes for `/Users/archiesun/plugins/arcgentic`.
+
+Required audit fact 4: source-intake tests cover both external source URLs from this round.
+
+Required audit fact 5: capability-registry tests prove both marketplace formats.
+
+Required audit fact 6: spec-governance tests prove proposal/design/tasks archive semantics.
+
+Required audit fact 7: anti-scope grep proves no OpenSpec npm dependency was added.
+
+Required audit fact 8: anti-scope grep proves no Moirai path was modified.
+
+Required audit fact 9: session-mode classifier output for this round recommends
+multi-session and records reasons.
+
+Required audit fact 10: agency-roster fixtures reference agency-agents paths but do not
+vendor upstream role files.
+
+## 8. Stop Conditions
+
+Stop condition: if adapter dispatch still fails after a minimal reproduction, do not fake
+sub-agent success; write an adapter bug finding and continue only through verified local
+scripts.
+
+Stop condition: if current session identity is unclear, stop before dev and ask the user
+to choose single-session or multi-session mode.
+
+Stop condition: if any implementation requires a paid API, background process, or automatic
+third-party plugin install, stop and rescope.
+
+Stop condition: if version/readme/plugin surfaces drift during V1 release work, stop and
+repair before tagging.
+
+## 9. BA Design Brief
+
+BA designer should decide whether source records are YAML or JSON, whether archive readiness
+should move files or validate only, whether capability tags are inferred from descriptions
+or only explicit metadata, and how to classify single-session vs multi-session work.
+
+The architectural target is to keep source intake and spec governance as inputs to planning,
+not as replacement states for the round state machine. Agency roles are routing metadata,
+not replacement identities for arcgentic's planner/developer/auditor state model.
+
+## 10. CR Review Brief
+
+CR reviewer should prioritize shallow pass-through modules, parser fragility, hidden external
+dependencies, and release-surface drift. Any module whose interface mirrors only one caller
+must be challenged unless it hides real parsing or validation complexity.
+
+## 11. SE Contract Brief
+
+SE reviewer receives only this handoff sections 1-8 and the public interface contracts. SE
+must not receive BA design rationale. Threat surfaces: path traversal in source paths, remote
+URL trust, malformed marketplace JSON, archive path collision, and accidental secret output
+from config inspection.
+
+## 12. Commit Plan
+
+Commit 1: this handoff and state update.
+
+Commit 2: BA design pass and session-mode entry correction.
+
+Commit 3: session-mode classifier, agency-roster, source-intake, capability-registry,
+spec-governance, and tests.
+
+Commit 4: v1-release-readiness gate, skill/readme updates, and self-audit handoff.
+
+## 13. Quality Gates
+
+Every code commit must run:
+
+- `cd toolkit && pytest --tb=short -q`
+- `cd toolkit && mypy --strict src/ tests/`
+- `cd toolkit && ruff check .`
+- `python3 ~/.codex/skills/.system/plugin-creator/scripts/validate_plugin.py /Users/archiesun/plugins/arcgentic`
+
+## 14. State Handling
+
+State file: `.agentic-rounds/state.yaml`.
+
+Current round id: `R1-v1-openspec-marketplace`.
+
+Expected state path: `planning -> awaiting_dev_start -> dev_in_progress -> awaiting_audit
+-> audit_in_progress -> passed -> closed`.
+
+## 15. Devsession Message
+
+### 15.1 Developer session identity handoff
+
+Read: `docs/superpowers/plans/2026-06-02-R1-v1-openspec-marketplace-handoff.md` and
+`docs/plans/2026-06-02-arcgentic-v1-openspec-superpowers-design.md`.
+
+Start round: `R1-v1-openspec-marketplace`.
+
+Session identity: developer only. Do not perform external audit. Do not claim auditor
+independence. Implement only sections 1-8 and 12-13 of this handoff.
+
+Stop after: Commit 4 self-audit handoff is written, local gates are green, and external
+audit is ready to run.
+
+Recommended agency role family: minimal-change engineer plus software architect support.
+Do not adopt auditor identity in this session.
+
+### 15.2 Auditor session identity handoff
+
+Read: `.agentic-rounds/state.yaml`, this handoff, the final self-audit handoff, and every
+commit listed in `current_round.dev_commits`.
+
+Start round: `R1-v1-openspec-marketplace` external audit.
+
+Session identity: auditor only. Do not plan next-round work inside the verdict. Re-run all
+mechanical facts independently and return PASS or NEEDS_FIX.
+
+Stop after: external audit verdict is written and `verdict-fact-table-gate.sh` can pass.
+
+Recommended agency role family: code reviewer plus security engineer plus external auditor.
+Do not adopt developer identity in this session.
+
+## 16. Forward Debt
+
+Forward debt P2: adapter detection currently treats a local `~/.claude/skills` directory as
+Claude Code availability. V1 should tighten dispatch readiness checks so installed files do
+not imply a working agent dispatch transport.
+
+Forward debt P3: `start-round` is not yet a deep CLI seam; this run manually set round id
+and transitioned to planning.
+
+Forward debt P2: `awaiting_dev_start` did not originally force a session-mode gate. This
+round corrected the handoff before dev body continued.
+
+Forward debt P2: session-mode originally asked for user choice without first producing a
+recommendation. This round now requires classifier output before choice.
+
+## 17. Next Round Preview
+
+After V1 implementation passes audit, the next round should be release hardening:
+version-surface alignment, README cleanup, package build, tag, push, and portability proof.
+
+## 18. Acknowledgments
+
+This handoff was written during arcgentic-on-arcgentic dogfood in Codex Desktop on
+2026-06-02.
+
+*Substrate-touching round handoff written by planner role using verified local arcgentic scripts.*

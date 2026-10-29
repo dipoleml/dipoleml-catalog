@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "kind": "citadel_optimizer_matrix_intent",
+  "authorization_digest": "sha256:b17292a5a08b6ea705f82d5c265e047aa65bb9f774d2fc5ea085648e0fdab1eb",
+  "ordinal": 102,
+  "run_key": "nanoid-safety-random-boundary/always-cheap/3",
+  "scenario_id": "nanoid-safety-random-boundary",
+  "policy_id": "always-cheap",
+  "repetition": 3,
+  "state": "completed",
+  "started_at": "2026-07-31T05:08:01.255Z",
+  "completed_at": "2026-07-31T05:08:05.634Z",
+  "output_file": "records/102-nanoid-safety-random-boundary-always-cheap-3.json",
+  "error": null
+}

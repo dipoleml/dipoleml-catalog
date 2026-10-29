@@ -1,0 +1,41 @@
+# Cost of every Terraform change, as a PR comment. Copy to .github/workflows/.
+# Needs an INFRACOST_API_KEY repository secret (free key: infracost auth login).
+name: Infracost
+
+on:
+  pull_request:
+    types: [opened, synchronize, closed]
+    paths: ["**/*.tf", "**/*.tfvars"]
+
+permissions: {}
+
+jobs:
+  infracost:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write  # to post and update the cost comment
+    steps:
+      - name: Checkout PR
+        if: github.event.action != 'closed'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          path: head
+          persist-credentials: false
+      - name: Checkout base branch
+        if: github.event.action != 'closed'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          path: base
+          persist-credentials: false
+      # On "closed" this only updates the PR's status in the Infracost dashboard.
+      - name: Infracost diff
+        uses: infracost/actions/diff@a5783eb98adc93aa7a0049fce0abb06fdd30770a  # v5.0.1
+        with:
+          api-key: ${{ secrets.INFRACOST_API_KEY }}
+          # The action pin does not pin the scanner: version defaults to "latest",
+          # resolved at run time. Pin it and upgrade deliberately.
+          version: 0.2.10
+          base-path: base
+          head-path: head

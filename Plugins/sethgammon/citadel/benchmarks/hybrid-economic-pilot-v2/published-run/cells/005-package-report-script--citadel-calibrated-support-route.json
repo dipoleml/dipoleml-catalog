@@ -1,0 +1,108 @@
+{
+  "schema": 1,
+  "cell_id": "005-package-report-script--citadel-calibrated-support-route",
+  "order": 5,
+  "scenario_id": "package-report-script",
+  "task_class": "package-metadata",
+  "risk": "low",
+  "policy_id": "citadel-calibrated-support-route",
+  "repetition": 1,
+  "route": {
+    "initial_tier": "local",
+    "escalation_tier": "cloud",
+    "reason_code": "CALIBRATED_SUPPORTED_LOCAL_THEN_VERIFY"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "local",
+      "started_at": "2026-08-02T01:10:05.215Z",
+      "duration_ms": 5279,
+      "output_text": "{\n  \"files\": {\n    \"package.json\": \"{\\\"name\\\":\\\"report-fixture\\\",\\\"version\\\":\\\"1.0.0\\\",\\\"scripts\\\":{\\\"build\\\":\\\"node build.js\\\",\\\"check\\\":\\\"node check.js\\\",\\\"report\\\":\\\"node scripts/report.js --format json\\\"}}\"\n  }\n}",
+      "output_digest": "sha256:6bf62c657015bfb411781c455273256689e311da107bf7995a8f8d72f2b8cdad",
+      "verification": {
+        "status": "passed",
+        "code": null,
+        "changed_paths": [
+          "package.json"
+        ],
+        "applied_file_digests": {
+          "package.json": "sha256:04f28d0eb5e08f1313f33f5c5816b346ac28688139eda9897fa466546e035272"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 0,
+          "signal": null,
+          "stdout": "",
+          "stderr": "",
+          "error": null
+        },
+        "patch_digest": "sha256:6c255c9ec0010782d4dbe8adda221ee77d32c7c9e114863157a0a05bd2d581c7"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "ollama-chat",
+        "requested_model": "qwen2.5-coder:3b",
+        "canonical_model": "qwen2.5-coder:3b",
+        "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+        "response_digest": "sha256:1a94060ee8e0b88c6e144db1aa2d2cb83a20de8273f888a53ed722f5e9e669f2",
+        "error": null
+      },
+      "usage": {
+        "input_tokens": 156,
+        "output_tokens": 55,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0
+      },
+      "economics": {
+        "comparison_cost": {
+          "status": "derived-comparison",
+          "total_usd": 0.000032867,
+          "source": "measured_gpu_energy_plus_frozen_residual_amortization"
+        },
+        "provider_reported_equivalent_cost": {
+          "status": "known",
+          "amount_usd": 0,
+          "source": "self_hosted_ollama"
+        },
+        "local_gpu_energy": {
+          "status": "measured",
+          "energy_kwh": 0.000091015,
+          "samples": 11,
+          "average_watts": 62.067273
+        },
+        "actual_subscription_cash": {
+          "status": "not-applicable",
+          "amount_usd": 0
+        }
+      }
+    }
+  ],
+  "status": "passed",
+  "final_verification": {
+    "status": "passed",
+    "code": null,
+    "changed_paths": [
+      "package.json"
+    ],
+    "applied_file_digests": {
+      "package.json": "sha256:04f28d0eb5e08f1313f33f5c5816b346ac28688139eda9897fa466546e035272"
+    },
+    "verifier": {
+      "command": "node verifier.js",
+      "status": 0,
+      "signal": null,
+      "stdout": "",
+      "stderr": "",
+      "error": null
+    },
+    "patch_digest": "sha256:6c255c9ec0010782d4dbe8adda221ee77d32c7c9e114863157a0a05bd2d581c7"
+  },
+  "previous_cell_digest": "sha256:90da3eebf8995c73191debf79464f912c516b1c3094d8c923852201e55a08658",
+  "receipt_digest": "sha256:5f94f5042e89a9f70c110874b4d6ba4e1f054689591f4aa605be4001004b7dc0",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:a18c7b77b948019fc4760f85aef4ee1146b91e44d916e8ab60257913d8ca7a02",
+    "signature": "dIxF4ZBVes0gf/FK6FfYS0tWszyp51nm7OiFuv89qtoVB7b41SfU4PG1lb6tzbMPbR2BX/QDru0YNrQhKbEiAQ=="
+  }
+}

@@ -1,0 +1,50 @@
+//go:build !windows
+
+package subagent
+
+import (
+	"context"
+	"testing"
+)
+
+// TestBackgroundJobCarriesRunGrouping: a --background launch tags its on-disk
+// meta + the returned handle, and StatusFor surfaces the tags on a later poll.
+func TestBackgroundJobCarriesRunGrouping(t *testing.T) {
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	t.Setenv("HOME", t.TempDir())
+	writeMinimalProviders(t, xdg)
+
+	fakeClaude := writeFakeBin(t, "#!/bin/sh\nprintf '%s' '"+smokeSuccessJSON+"'\nexit 0\n")
+	binStubResolver(t, fakeClaude, "")
+
+	res := Run(context.Background(), Request{Provider: "glm", Prompt: "hi", JSON: true, Background: true,
+		RunID: "run-bg", Phase: "verify", Label: "v2"})
+	if !res.OK || res.JobID == "" {
+		t.Fatalf("background launch failed: %+v", res)
+	}
+	if res.RunID != "run-bg" || res.Phase != "verify" || res.Label != "v2" {
+		t.Fatalf("background handle missing run grouping: %+v", res)
+	}
+	if st := StatusFor(res.JobID); st.RunID != "run-bg" || st.Phase != "verify" || st.Label != "v2" {
+		t.Fatalf("StatusFor missing run grouping: %+v", st)
+	}
+}
+
+// TestRun_SyncResultCarriesRunGrouping: a sync Run echoes the run grouping back
+// on its returned Result (the caller's own envelope).
+func TestRun_SyncResultCarriesRunGrouping(t *testing.T) {
+	xdg := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", xdg)
+	t.Setenv("HOME", t.TempDir())
+	writeMinimalProviders(t, xdg)
+
+	fakeClaude := writeFakeBin(t, "#!/bin/sh\nprintf '%s' '"+smokeSuccessJSON+"'\nexit 0\n")
+	binStubResolver(t, fakeClaude, "")
+
+	res := Run(context.Background(), Request{Provider: "glm", Prompt: "hi", JSON: true,
+		RunID: "run-sync", Phase: "review", Label: "r3"})
+	if res.RunID != "run-sync" || res.Phase != "review" || res.Label != "r3" {
+		t.Fatalf("sync Run result missing run grouping: %+v", res)
+	}
+}

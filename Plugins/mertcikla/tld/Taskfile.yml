@@ -1,0 +1,191 @@
+# yaml-language-server: $schema=https://taskfile.dev/schema.json
+version: '3'
+
+vars:
+  TLD_GO_TAGS:
+    sh: cat .go-build-tags
+  GOPATH:
+    sh: go env GOPATH
+  GOEXE:
+    sh: go env GOEXE
+  GOLANGCI_LINT_VERSION: 2.12.2
+  GOLANGCI_LINT_BIN: .bin/golangci-lint{{.GOEXE}}
+
+tasks:
+  setup-hooks:
+    desc: Install pre-commit git hooks
+    cmds:
+      - chmod +x scripts/pre-commit.sh
+      - cp scripts/pre-commit.sh .git/hooks/pre-commit
+      - chmod +x .git/hooks/pre-commit
+      - echo "Pre-commit hooks installed!"
+
+  frontend-deps:
+    desc: Install frontend dependencies
+    status:
+      - test -d frontend/node_modules
+    cmds:
+      - cd frontend && npm install
+
+  frontend-build:
+    desc: Build frontend assets
+    deps:
+      - frontend-deps
+    sources:
+      - frontend/src/**/*
+      - frontend/package.json
+      - frontend/package-lock.json
+      - frontend/tsconfig.json
+      - frontend/tsconfig.lib.json
+      - frontend/tsconfig.node.json
+      - frontend/vite.config.ts
+      - frontend/vite.lib.config.ts
+      - frontend/vite.vscode.config.ts
+      - frontend/index.html
+      - build-assets/icons.tar.gz
+      - scripts/extract_icons.go
+    generates:
+      - frontend/dist/index.html
+    cmds:
+      - cd frontend && VITE_APP_BASE=/ VITE_ROUTER_BASENAME=/ npm run build:app
+
+  lint-be:
+    desc: Lint Go backend
+    deps:
+      - tools-golangci-lint
+    cmds:
+      - "{{.GOLANGCI_LINT_BIN}} run --build-tags '{{.TLD_GO_TAGS}}' ./..."
+
+  tools-golangci-lint:
+    desc: Install golangci-lint locally
+    status:
+      - test -f "{{.GOLANGCI_LINT_BIN}}"
+    cmds:
+      - mkdir -p .bin
+      - GOBIN="$(pwd)/.bin" go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v{{.GOLANGCI_LINT_VERSION}}
+
+  lint-fe:
+    desc: Lint TypeScript frontend
+    deps:
+      - frontend-deps
+    cmds:
+      - cd frontend && npm run lint
+
+  build-dev:
+    desc: Build the backend binary used by Air
+    cmds:
+      - go build -tags '{{.TLD_GO_TAGS}}' -o ./tmp/tlddebug ./cmd/tld
+
+  be:
+    desc: Run backend in dev mode with air
+    env:
+      TLD_DATA_DIR: data/dev
+      TLD_CONFIG_DIR: data/dev/config
+      DEV: "true"
+    cmds:
+      - air
+
+  fe:
+    desc: Run frontend dev server
+    deps:
+      - frontend-deps
+    cmds:
+      - cd frontend && npm run dev
+
+  dev:
+    desc: Run development stack (backend + frontend)
+    deps:
+      - frontend-deps
+    cmds:
+      - cd frontend && npm run prepare:icons
+      - go run -tags '{{.TLD_GO_TAGS}}' ./scripts/dev/run
+
+  dev-stop:
+    desc: Stop registered local processes, including development watchers
+    cmds:
+      - go run -tags '{{.TLD_GO_TAGS}}' ./cmd/tld stop
+
+  proto:
+    desc: Update go.mod to latest BSR-published proto versions
+    cmds:
+      - go get buf.build/gen/go/tldiagramcom/diagram/protocolbuffers/go@$(buf registry sdk version --module=buf.build/tldiagramcom/diagram --plugin=buf.build/protocolbuffers/go)
+      - go get buf.build/gen/go/tldiagramcom/diagram/connectrpc/go@$(buf registry sdk version --module=buf.build/tldiagramcom/diagram --plugin=buf.build/connectrpc/go:v1.21.0)
+      - go mod tidy
+      - cd frontend && npm install @buf/tldiagramcom_diagram.bufbuild_es@latest && npm install @buf/tldiagramcom_diagram.bufbuild_es@latest --no-workspaces
+
+  test:
+    desc: Run fast backend and frontend unit tests
+    deps:
+      - test-be
+      - test-fe
+
+  test-be:
+    desc: Run Go backend tests
+    cmds:
+      - go test -tags '{{.TLD_GO_TAGS}}' ./...
+
+  test-fe:
+    desc: Run TypeScript frontend unit tests
+    deps:
+      - frontend-deps
+    cmds:
+      - cd frontend && npm run test
+
+  test-e2e:
+    desc: Run Playwright end-to-end tests
+    deps:
+      - frontend-deps
+    cmds:
+      - cd frontend && npm run test:e2e
+
+  build:
+    desc: Build the Go binary (includes frontend assets)
+    deps:
+      - frontend-build
+    cmds:
+      - go build -tags '{{.TLD_GO_TAGS}}' -o {{.GOPATH}}/bin/tld ./cmd/tld
+
+  go:
+    desc: Build the Go binary without rebuilding frontend assets
+    cmds:
+      - go build -tags '{{.TLD_GO_TAGS}}' -o {{.GOPATH}}/bin/tld ./cmd/tld
+
+  run:
+    desc: Build frontend and run the server
+    deps:
+      - frontend-build
+    cmds:
+      - go run -tags '{{.TLD_GO_TAGS}}' ./cmd/tld serve
+
+  wails-icon:
+    desc: Prepare the Wails desktop app icon
+    sources:
+      - frontend/logo/macos/Icon-iOS-Default-1024x1024@1x.png
+    generates:
+      - cmd/tld-app/build/appicon.png
+    cmds:
+      - mkdir -p cmd/tld-app/build
+      - cp frontend/logo/macos/Icon-iOS-Default-1024x1024@1x.png cmd/tld-app/build/appicon.png
+      - rm -f cmd/tld-app/build/windows/icon.ico
+
+  wails-build:
+    desc: Compile and package the Wails desktop application
+    deps:
+      - frontend-build
+      - wails-icon
+    cmds:
+      - cd cmd/tld-app && wails build -tags '{{.TLD_GO_TAGS}}' -s
+
+  wails-dev:
+    desc: Run the Wails desktop application in development mode
+    deps:
+      - frontend-deps
+      - wails-icon
+    cmds:
+      - mkdir -p frontend/dist && touch frontend/dist/placeholder
+      - cd cmd/tld-app && wails dev -tags '{{.TLD_GO_TAGS}}'
+
+  clean:
+    desc: Clean build artifacts
+    cmds:
+      - rm -f tld

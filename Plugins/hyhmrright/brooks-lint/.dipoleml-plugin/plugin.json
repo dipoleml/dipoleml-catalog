@@ -1,0 +1,16 @@
+{
+  "name": "brooks-lint",
+  "displayName": "Brooks Lint",
+  "version": "1.9.1",
+  "description": "AI code reviews grounded in twelve classic engineering books — decay risk diagnostics with book citations, severity labels, and six analysis modes (PR review, architecture audit, tech debt, test quality, health dashboard, full-sweep auto-fix)",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Hyhmrright"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/hyhmrright/brooks-lint",
+  "repository": "https://github.com/hyhmrright/brooks-lint",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

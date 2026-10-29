@@ -1,0 +1,145 @@
+package subagent
+
+import (
+	"os"
+	"testing"
+)
+
+// TestEngineAlive_StartToken covers the argv-unavailable branch: a recorded
+// token decides liveness (match → alive, mismatch → gone), and only a
+// token-less manifest keeps the legacy fail-soft-to-alive behavior.
+func TestEngineAlive_StartToken(t *testing.T) {
+	origArgv, origStart := reuseGuardArgv, procStartFn
+	t.Cleanup(func() { reuseGuardArgv, procStartFn = origArgv, origStart })
+	self := os.Getpid()
+
+	reuseGuardArgv = func(int) ([]string, bool) { return nil, false }
+	procStartFn = func(int) (string, bool) { return "tok-1", true }
+	if !EngineAlive(WorkflowRun{EnginePID: self, RunID: "r1", EngineProcStart: "tok-1"}) {
+		t.Error("argv-unavailable with a matching token must read alive")
+	}
+	if EngineAlive(WorkflowRun{EnginePID: self, RunID: "r1", EngineProcStart: "tok-0"}) {
+		t.Error("argv-unavailable with a mismatched token (recycled pid) must read gone")
+	}
+	if !EngineAlive(WorkflowRun{EnginePID: self, RunID: "r1"}) {
+		t.Error("argv-unavailable without a token must fail soft to alive")
+	}
+}
+
+// TestProcessAlive_NoArgvIntrospection covers the job-side reuse guard where
+// argv is unreadable: the recorded start token decides (match → alive,
+// mismatch → dead), and a token-less meta trusts the bare liveness check.
+func TestProcessAlive_NoArgvIntrospection(t *testing.T) {
+	origHas, origStart := hasArgvIntrospection, procStartFn
+	t.Cleanup(func() { hasArgvIntrospection, procStartFn = origHas, origStart })
+	hasArgvIntrospection = false
+	self := os.Getpid()
+
+	procStartFn = func(int) (string, bool) { return "tok-1", true }
+	if !processAlive(self, "", "tok-1") {
+		t.Error("a matching token must read alive")
+	}
+	if processAlive(self, "", "tok-0") {
+		t.Error("a mismatched token (recycled pid) must read dead")
+	}
+	if !processAlive(self, "", "") {
+		t.Error("a token-less meta must trust the bare liveness check")
+	}
+	if processAlive(0x7ffffffe, "", "tok-1") {
+		t.Error("a dead pid must read dead regardless of token")
+	}
+}
+
+// TestProcessAlive_SyncToken covers the marker-less (sync) job on a platform
+// WITH argv introspection: the recorded token still guards a recycled parent
+// pid, since there is no --settings marker to bind argv to.
+func TestProcessAlive_SyncToken(t *testing.T) {
+	origHas, origStart := hasArgvIntrospection, procStartFn
+	t.Cleanup(func() { hasArgvIntrospection, procStartFn = origHas, origStart })
+	hasArgvIntrospection = true
+	self := os.Getpid()
+
+	procStartFn = func(int) (string, bool) { return "tok-1", true }
+	if !processAlive(self, "", "tok-1") {
+		t.Error("a matching sync token must read alive")
+	}
+	if processAlive(self, "", "tok-0") {
+		t.Error("a mismatched sync token (recycled pid) must read dead")
+	}
+	if !processAlive(self, "", "") {
+		t.Error("a token-less sync meta must trust the bare liveness check")
+	}
+}
+
+// TestProcessAlive_GuardComposition pins how the two reuse guards compose for a
+// background job (settings marker present): a token MISMATCH is decisive; a
+// token MATCH is not sufficient alone (the darwin token is seconds-coarse), so a
+// readable argv must still look like claude, without needing this job's
+// --settings (TestProcessAlive_WrapperRewroteSettings); with no readable token
+// the full argv check (claude AND this job's --settings) decides.
+func TestProcessAlive_GuardComposition(t *testing.T) {
+	origHas, origStart, origArgv := hasArgvIntrospection, procStartFn, reuseGuardArgv
+	t.Cleanup(func() { hasArgvIntrospection, procStartFn, reuseGuardArgv = origHas, origStart, origArgv })
+	hasArgvIntrospection = true
+	self := os.Getpid()
+	matchingArgv := func(int) ([]string, bool) {
+		return []string{"/x/claude/cli.js", "--settings", "/p/minimax.json"}, true
+	}
+	foreignArgv := func(int) ([]string, bool) { return []string{"some", "other", "proc"}, true }
+
+	reuseGuardArgv = matchingArgv
+	procStartFn = func(int) (string, bool) { return "tok-0", true }
+	if processAlive(self, "/p/minimax.json", "tok-1") {
+		t.Error("a mismatched token must read dead even when argv matches")
+	}
+	procStartFn = func(int) (string, bool) { return "tok-1", true }
+	if !processAlive(self, "/p/minimax.json", "tok-1") {
+		t.Error("token match + argv match must read alive")
+	}
+	reuseGuardArgv = foreignArgv
+	if processAlive(self, "/p/minimax.json", "tok-1") {
+		t.Error("a token match must not override a non-claude argv (coarse-token collision)")
+	}
+	// Token matches but argv can't be read (a just-exited pid / proc race) → kill(0) is trusted.
+	reuseGuardArgv = func(int) ([]string, bool) { return nil, false }
+	if !processAlive(self, "/p/minimax.json", "tok-1") {
+		t.Error("a token match with unreadable argv must trust kill(0) and read alive")
+	}
+	// Token unreadable → the full argv guard (claude AND this job's --settings) decides.
+	reuseGuardArgv = matchingArgv
+	procStartFn = func(int) (string, bool) { return "", false }
+	if !processAlive(self, "/p/minimax.json", "tok-1") {
+		t.Error("an unreadable token must fall back to the full argv guard, which matches here")
+	}
+}
+
+// TestProcessAlive_WrapperRewroteSettings covers a wrapper between cc-fleet
+// and claude that replaces --settings <profile> with its own merged file, as
+// cmux's claude shim does. With a matching token the job must still read
+// alive; without one the full argv guard still applies.
+func TestProcessAlive_WrapperRewroteSettings(t *testing.T) {
+	origHas, origStart, origArgv := hasArgvIntrospection, procStartFn, reuseGuardArgv
+	t.Cleanup(func() { hasArgvIntrospection, procStartFn, reuseGuardArgv = origHas, origStart, origArgv })
+	hasArgvIntrospection = true
+	self := os.Getpid()
+	reuseGuardArgv = func(int) ([]string, bool) {
+		return []string{"/Users/u/.local/bin/claude", "--session-id", "0b1c", "--settings", "/var/folders/xx/T/cmux-claude-settings.pK5X1t", "-p"}, true
+	}
+
+	procStartFn = func(int) (string, bool) { return "tok-1", true }
+	if !processAlive(self, "/p/codex.json", "tok-1") {
+		t.Error("token match + claude argv with a rewritten --settings must read alive")
+	}
+	if processAlive(self, "/p/codex.json", "tok-0") {
+		t.Error("a mismatched token must still read dead")
+	}
+	procStartFn = func(int) (string, bool) { return "", false }
+	if processAlive(self, "/p/codex.json", "tok-1") {
+		t.Error("without a token match, a missing --settings marker must still read dead")
+	}
+	reuseGuardArgv = func(int) ([]string, bool) { return []string{"some", "other", "proc"}, true }
+	procStartFn = func(int) (string, bool) { return "tok-1", true }
+	if processAlive(self, "/p/codex.json", "tok-1") {
+		t.Error("token match + a non-claude argv must read dead")
+	}
+}

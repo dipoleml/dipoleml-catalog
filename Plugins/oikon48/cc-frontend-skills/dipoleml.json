@@ -1,0 +1,99 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.oikon48.cc-frontend-skills",
+  "type": "plugin",
+  "name": "CC Frontend Skills",
+  "slug": "cc-frontend-skills",
+  "vendor": "oikon48",
+  "description": " DipoleML plugin for creating frontend UIs that avoid generic AI aesthetics. (DipoleML Skills  is written in Japanese)",
+  "version": "1.0.0",
+  "homepage": "https://github.com/oikon48/cc-frontend-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "claude-skills"
+  ],
+  "tags": [
+    "claude",
+    "claude-code",
+    "claude-skills"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "oikon48",
+    "brandName": "oikon48",
+    "source": "https://github.com/oikon48.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:14:17Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "oikon48/cc-frontend-skills",
+    "url": "https://github.com/oikon48/cc-frontend-skills",
+    "commit": "12989e392a9b2d83efd12767abff886a4da58f5c",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 70,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:49:25Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "CC Frontend Skills |  Claude Code plugin for creating frontend UIs that avoid generic AI aesthetics. (Claude Skills  is written in Japanese)",
+        "after": "CC Frontend Skills |  DipoleML plugin for creating frontend UIs that avoid generic AI aesthetics. (DipoleML Skills  is written in Japanese)",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

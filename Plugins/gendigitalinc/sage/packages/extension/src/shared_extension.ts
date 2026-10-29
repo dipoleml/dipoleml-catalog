@@ -1,0 +1,430 @@
+import { type FSWatcher, mkdirSync, watch } from "node:fs";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
+
+import {
+	type AgentRuntime,
+	type Branding,
+	ConfigSchema,
+	checkAllowlistMigration,
+	createOperationalLogger,
+	foreignSourceRuntime,
+	formatAllowlistMigrationWarning,
+	formatConfigurationWarnings,
+	formatNoticeById,
+	getConfigurationWarningsSync,
+	getRecentEntries,
+	type Logger,
+	loadConfig,
+	loadConfigSync,
+	loadSkillVerdictCache,
+	resolveBranding,
+	resolvePath,
+	type SessionStatus,
+} from "@gendigital/sage-core";
+import * as vscode from "vscode";
+import { disabledUntilKey, shouldAutoEnable } from "./auto_enable_logic.js";
+import type { ManagedHookHealth, ManagedHookInstallOptions } from "./managedHooks.js";
+import {
+	installCursorMcpServer,
+	registerVsCodeMcpServerProvider,
+	removeCursorMcpServer,
+} from "./mcp_config_installer.js";
+import { createExtensionScanHandler } from "./startup-scan.js";
+
+interface ManagedHookInstaller {
+	installManagedHooks(
+		options: ManagedHookInstallOptions,
+		branding?: Branding,
+	): Promise<ManagedHookHealth>;
+	removeManagedHooks(): Promise<string>;
+	getHookHealth(options: ManagedHookInstallOptions): Promise<ManagedHookHealth>;
+}
+
+interface ExtensionTarget {
+	hostName: string;
+	installer: ManagedHookInstaller;
+}
+
+function runtimeForHost(hostName: string): AgentRuntime {
+	return hostName === "Cursor" ? "cursor" : "vscode";
+}
+
+export function activateManagedHooksExtension(
+	context: vscode.ExtensionContext,
+	target: ExtensionTarget,
+): void {
+	const config = loadConfigSync();
+	const branding = resolveBranding(config.brand_key);
+	const warningMessage = formatConfigurationWarnings(getConfigurationWarningsSync(), branding);
+	if (warningMessage) {
+		void vscode.window.showWarningMessage(warningMessage);
+	}
+	checkAllowlistMigration()
+		.then((result) => {
+			if (result.needed) {
+				void vscode.window.showWarningMessage(
+					formatAllowlistMigrationWarning(result.entryTypes, branding),
+				);
+			}
+		})
+		.catch(() => {});
+
+	// Watch ~/.sage/ for statusline file changes and show IDE notifications
+	setupStatusFileWatcher(context, branding);
+
+	// Session-start plugin scan (fire-and-forget, fail-open).
+	// runSessionStart (called internally) handles update check, model download,
+	// and temp-file cleanup — no need to duplicate those here.
+	const logger = createOperationalLogger(
+		config.operational_logging,
+		runtimeForHost(target.hostName),
+	).forComponent("extension");
+
+	// Watch ~/.sage/ for new risky skill verdicts (written by the skill-upload
+	// worker) and surface them as a toast.
+	setupSkillFindingsWatcher(context, branding, logger, runtimeForHost(target.hostName));
+
+	const scanHandler = createExtensionScanHandler(
+		context,
+		target.hostName,
+		logger,
+		branding,
+		(msg) => {
+			if (msg.includes("Threat Detected")) {
+				void vscode.window.showErrorMessage(msg);
+			} else if (msg.includes("Update available")) {
+				void vscode.window.showInformationMessage(msg);
+			} else {
+				logger.debug("Extension scan result surfaced", { messageLength: msg.length });
+			}
+		},
+		// One-time notices (e.g. skill-upload consent) — shown independently of the
+		// threat/update banner so they surface even on a clean scan.
+		(noticeIds) => {
+			for (const id of noticeIds) {
+				const text = formatNoticeById(id, branding);
+				if (text) void vscode.window.showInformationMessage(text);
+			}
+		},
+		config.announce_clean_scans,
+	);
+	scanHandler().catch(() => {});
+
+	// Set brand context variable for command palette filtering
+	if (branding.brand_key) {
+		const knownBrands = extractKnownBrandsFromManifest(context);
+		if (knownBrands.has(branding.brand_key)) {
+			vscode.commands.executeCommand("setContext", "sage.brandKey", branding.brand_key);
+		}
+	}
+
+	const errorBoundary = withErrorBoundary(branding);
+
+	// Discover all command variants from own manifest for dynamic registration
+	const pkg = context.extension.packageJSON as Record<string, unknown>;
+	const contributes = pkg.contributes as Record<string, unknown> | undefined;
+	const allCommands = ((contributes?.commands ?? []) as Array<{ command: string }>).map(
+		(c) => c.command,
+	);
+
+	function registerForAllVariants(baseId: string, handler: () => Promise<void>): void {
+		const variants = allCommands.filter((c) => c === baseId || c.startsWith(`${baseId}.`));
+		for (const cmdId of variants) {
+			context.subscriptions.push(vscode.commands.registerCommand(cmdId, handler));
+		}
+	}
+
+	registerForAllVariants("sage.enableProtection", async () => {
+		await errorBoundary(async () => {
+			const hookHealth = await target.installer.installManagedHooks({ context }, branding);
+			if (target.hostName === "Cursor") {
+				await installCursorMcpServer(context);
+			}
+			await context.globalState.update(disabledUntilKey(target.hostName), undefined);
+			vscode.window.showInformationMessage(
+				`${branding.short_name} enabled for ${target.hostName}. Managed hooks configured at ${hookHealth.configPath}.`,
+			);
+		});
+	});
+
+	registerForAllVariants("sage.disableProtection", async () => {
+		await errorBoundary(async () => {
+			const configPath = await target.installer.removeManagedHooks();
+			if (target.hostName === "Cursor") {
+				await removeCursorMcpServer();
+			}
+			await context.globalState.update(disabledUntilKey(target.hostName), Date.now());
+			vscode.window.showInformationMessage(
+				`${branding.short_name} disabled until restart. Hooks removed from ${configPath}. Protection will re-enable on next startup.`,
+			);
+		});
+	});
+
+	registerForAllVariants("sage.openConfig", async () => {
+		await errorBoundary(async () => {
+			const configPath = path.join(resolvePath("~/.sage"), "config.json");
+			await ensureFile(configPath, `${JSON.stringify(ConfigSchema.parse({}), null, 2)}\n`);
+			const document = await vscode.workspace.openTextDocument(configPath);
+			await vscode.window.showTextDocument(document);
+		});
+	});
+
+	registerForAllVariants("sage.openExceptions", async () => {
+		await errorBoundary(async () => {
+			const exceptionsPath = path.join(resolvePath("~/.sage"), "exceptions.json");
+			await ensureFile(exceptionsPath, `${JSON.stringify({ rules: [] }, null, 2)}\n`);
+			const document = await vscode.workspace.openTextDocument(exceptionsPath);
+			await vscode.window.showTextDocument(document);
+		});
+	});
+
+	registerForAllVariants("sage.openAuditLog", async () => {
+		await errorBoundary(async () => {
+			const config = await loadConfig();
+			const auditPath = resolvePath(config.logging.path);
+			await ensureFile(auditPath, "");
+			const document = await vscode.workspace.openTextDocument(auditPath);
+			await vscode.window.showTextDocument(document);
+		});
+	});
+
+	registerForAllVariants("sage.showHookHealth", async () => {
+		await errorBoundary(async () => {
+			const health = await target.installer.getHookHealth({ context });
+			const config = await loadConfig();
+			const recentEntries = await getRecentEntries(config.logging, 1);
+			const latest =
+				recentEntries.length > 0 &&
+				typeof recentEntries[0] === "object" &&
+				recentEntries[0] !== null
+					? (recentEntries[0] as Record<string, unknown>)
+					: undefined;
+			const lastVerdict =
+				latest && typeof latest.verdict === "string" && typeof latest.severity === "string"
+					? `${latest.verdict} (${latest.severity})`
+					: "none";
+
+			const message = [
+				`target: ${target.hostName}`,
+				`hooks config: ${health.configPath}`,
+				`hook command: ${
+					health.managedCommands.length > 0 ? health.managedCommands.join(" | ") : "none"
+				}`,
+				`runner bundle: ${health.runnerPath ?? "not found"}`,
+				`managed events: ${
+					health.installedEvents.length > 0 ? health.installedEvents.join(", ") : "none"
+				}`,
+				`last verdict: ${lastVerdict}`,
+			].join("\n");
+
+			void vscode.window.showInformationMessage(message, { modal: true });
+		});
+	});
+
+	// Minimal-friction defaults: enable protection + MCP server on startup (opt-out settings)
+	void autoEnableOnStartup(context, target, branding);
+}
+
+async function autoEnableOnStartup(
+	context: vscode.ExtensionContext,
+	target: ExtensionTarget,
+	branding: Branding,
+): Promise<void> {
+	// Don't ever block activation.
+	try {
+		if (target.hostName !== "Cursor") {
+			registerVsCodeMcpServerProvider(context);
+		}
+
+		const key = disabledUntilKey(target.hostName);
+		const disabledAt = context.globalState.get<number>(key);
+		if (!shouldAutoEnable(disabledAt, Date.now())) {
+			return;
+		}
+		await context.globalState.update(key, undefined);
+
+		const hookHealth = await target.installer.getHookHealth({ context }).catch(() => null);
+		const hasManagedHooks = !!hookHealth && hookHealth.installedEvents.length > 0;
+		// Reinstall when hooks are missing or the shim is stale (e.g. after a version
+		// upgrade the shim still points at the deleted old extension directory).
+		// Wrapped in its own try/catch so a transient write failure doesn't block MCP setup.
+		let installedOk = hasManagedHooks && (hookHealth?.shimCurrent ?? false);
+		if (!hasManagedHooks || !hookHealth?.shimCurrent) {
+			try {
+				await target.installer.installManagedHooks({ context }, branding);
+				installedOk = true;
+			} catch {
+				// Fail-open
+			}
+		}
+
+		if (target.hostName === "Cursor") {
+			await installCursorMcpServer(context);
+		}
+
+		const shownKey = `sage.autoEnabledShown.${target.hostName}`;
+		if (installedOk && !context.globalState.get<boolean>(shownKey)) {
+			await context.globalState.update(shownKey, true);
+			void vscode.window.showInformationMessage(
+				`${branding.short_name}: Protection auto-enabled for ${target.hostName}. Disable via "${branding.short_name}: Disable protection until restart".`,
+			);
+		}
+	} catch {
+		// Fail-open: never block extension activation.
+	}
+}
+
+async function ensureFile(filePath: string, content: string): Promise<void> {
+	try {
+		await access(filePath);
+	} catch {
+		await mkdir(path.dirname(filePath), { recursive: true });
+		await writeFile(filePath, content, "utf8");
+	}
+}
+
+function withErrorBoundary(branding: Branding) {
+	return async (work: () => Promise<void>): Promise<void> => {
+		try {
+			await work();
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			void vscode.window.showErrorMessage(`${branding.short_name}: ${message}`);
+		}
+	};
+}
+
+/** Extracts brand IDs from manifest `when` clauses generated by `scripts/generate-brand-commands.mjs`. */
+function extractKnownBrandsFromManifest(context: vscode.ExtensionContext): Set<string> {
+	const pkg = context.extension.packageJSON as Record<string, unknown>;
+	const contributes = pkg.contributes as Record<string, unknown> | undefined;
+	const menus = contributes?.menus as Record<string, unknown> | undefined;
+	const palette = (menus?.commandPalette ?? []) as Array<{ when?: string }>;
+	const brands = new Set<string>();
+	for (const entry of palette) {
+		const match = entry.when?.match(/sage\.brandKey\s*==\s*'([^']+)'/);
+		if (match?.[1]) brands.add(match[1]);
+	}
+	return brands;
+}
+
+function setupStatusFileWatcher(context: vscode.ExtensionContext, branding: Branding): void {
+	const sageDir = resolvePath("~/.sage");
+	const knownState = new Map<string, { denied: number; flagged: number }>();
+	let watcher: FSWatcher | undefined;
+
+	try {
+		mkdirSync(sageDir, { recursive: true });
+		watcher = watch(sageDir, async (_eventType, filename) => {
+			if (!filename || !filename.startsWith("statusline-") || !filename.endsWith(".txt")) return;
+
+			try {
+				const filePath = path.join(sageDir, filename);
+				const raw = await readFile(filePath, "utf8");
+				const data = JSON.parse(raw) as SessionStatus;
+				const prev = knownState.get(filename) ?? { denied: 0, flagged: 0 };
+
+				if (data.denied > prev.denied) {
+					const reason = data.lastReason ?? "Threat detected";
+					const category = data.lastCategory ?? "unknown";
+					void vscode.window.showErrorMessage(
+						`${branding.short_name} blocked: ${reason} (${category})`,
+					);
+				} else if (data.flagged > prev.flagged) {
+					const reason = data.lastReason ?? "Action flagged";
+					const category = data.lastCategory ?? "unknown";
+					void vscode.window.showWarningMessage(
+						`${branding.short_name} flagged: ${reason} (${category})`,
+					);
+				}
+
+				knownState.set(filename, { denied: data.denied, flagged: data.flagged });
+			} catch {
+				// File may be mid-write or deleted — ignore
+			}
+		});
+	} catch {
+		// ~/.sage/ may not exist yet — watcher will be absent, no notifications
+		return;
+	}
+
+	if (watcher) {
+		context.subscriptions.push({ dispose: () => watcher.close() });
+	}
+}
+
+/**
+ * Watch the skill verdict cache (written by the detached skill-upload worker)
+ * and toast when a HIGH/CRITICAL verdict first appears *while the IDE is open*.
+ * Verdicts already in the cache at activation are seeded silently — the watcher
+ * can't tell whether their skill is still installed, so re-surfacing known-risky
+ * skills is the scan's job (it only fires for skills that are actually present).
+ * The in-session `notified` set prevents toasting the same skill twice.
+ */
+function setupSkillFindingsWatcher(
+	context: vscode.ExtensionContext,
+	branding: Branding,
+	logger: Logger,
+	agentRuntime: AgentRuntime,
+): void {
+	const sageDir = resolvePath("~/.sage");
+	const notified = new Set<string>();
+	let watcher: FSWatcher | undefined;
+
+	const scanVerdicts = async (seedOnly: boolean): Promise<void> => {
+		try {
+			const cache = await loadSkillVerdictCache();
+			for (const [skillId, verdict] of Object.entries(cache.entries)) {
+				if (notified.has(skillId)) continue;
+				notified.add(skillId);
+				if (seedOnly) continue;
+
+				const risk = (verdict.verdict ?? "").toUpperCase();
+				if (risk !== "HIGH" && risk !== "CRITICAL") continue;
+
+				const containerKey = verdict.sources?.find((s) => s.containerKey)?.containerKey ?? "";
+				const skillMatch = containerKey.match(/^skill:([^/@]+)\/(.+)@(\w+)$/);
+				const skillDisplay = skillMatch ? `.${skillMatch[1]}/${skillMatch[2]}` : verdict.skillName;
+				const scope = skillMatch?.[3];
+				const scopeLabel = scope === "personal" || scope === "project" ? ` ${scope}` : "";
+				const name = skillDisplay ? ` "${skillDisplay}"` : "";
+				const subject =
+					risk === "CRITICAL"
+						? `Malicious${scopeLabel} skill${name}`
+						: `Suspicious${scopeLabel} skill${name}`;
+				const summary = verdict.summary?.trim();
+				const detail = summary ? `${subject} — ${summary}` : `${subject} detected`;
+				const origin = foreignSourceRuntime(verdict.sources, agentRuntime);
+				if (origin) continue;
+				logger.debug("Skill finding toast shown", {
+					skillId: skillId.slice(0, 12),
+					risk,
+				});
+
+				void vscode.window.showWarningMessage(`${branding.short_name}: ${detail} (${risk})`);
+			}
+		} catch (e) {
+			logger.debug("Skill verdict watcher scan failed", { error: String(e) });
+		}
+	};
+
+	try {
+		mkdirSync(sageDir, { recursive: true });
+		// Seed existing verdicts silently (their skills may no longer be installed),
+		// then toast only verdicts written while the IDE is open.
+		void scanVerdicts(true);
+		watcher = watch(sageDir, (_eventType, filename) => {
+			if (filename === "skill_verdict_cache.json") void scanVerdicts(false);
+		});
+		logger.debug("Skill findings watcher attached", { sageDir });
+	} catch (e) {
+		// ~/.sage/ may not exist yet — no watcher, no notifications.
+		logger.debug("Skill findings watcher setup failed", { error: String(e) });
+		return;
+	}
+
+	if (watcher) {
+		context.subscriptions.push({ dispose: () => watcher.close() });
+	}
+}

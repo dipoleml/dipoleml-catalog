@@ -1,0 +1,213 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+escape_for_json() {
+  local s="$1"
+  s="${s//\\/\\\\}"
+  s="${s//\"/\\\"}"
+  s="${s//$'\n'/\\n}"
+  s="${s//$'\r'/\\r}"
+  s="${s//$'\t'/\\t}"
+  printf '%s' "$s"
+}
+
+strip_decimal_zeros() {
+  local value=$1
+  while [ "${value#0}" != "$value" ]; do
+    value=${value#0}
+  done
+  printf '%s' "${value:-0}"
+}
+
+normalize_version() {
+  local version=${1#v}
+  local major minor patch
+  if [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    IFS=. read -r major minor patch <<<"$version"
+    printf '%s.%s.%s' "$(strip_decimal_zeros "$major")" \
+      "$(strip_decimal_zeros "$minor")" "$(strip_decimal_zeros "$patch")"
+  fi
+}
+
+decimal_is_greater() {
+  if [ "${#1}" -ne "${#2}" ]; then
+    [ "${#1}" -gt "${#2}" ]
+  else
+    [[ "$1" > "$2" ]]
+  fi
+}
+
+version_is_newer() {
+  local latest=$1 current=$2
+  local latest_major latest_minor latest_patch current_major current_minor current_patch
+  IFS=. read -r latest_major latest_minor latest_patch <<<"$latest"
+  IFS=. read -r current_major current_minor current_patch <<<"$current"
+  if [ "$latest_major" != "$current_major" ]; then
+    decimal_is_greater "$latest_major" "$current_major"
+  elif [ "$latest_minor" != "$current_minor" ]; then
+    decimal_is_greater "$latest_minor" "$current_minor"
+  else
+    [ "$latest_patch" != "$current_patch" ] && decimal_is_greater "$latest_patch" "$current_patch"
+  fi
+}
+
+update_platform() {
+  if [ -n "${SUPERGRAPH_PLATFORM:-}" ]; then
+    printf '%s' "$SUPERGRAPH_PLATFORM"
+  elif [ -n "${CODEX_HOME:-}" ]; then
+    printf 'codex'
+  elif [ -n "${ANTIGRAVITY_PLUGIN_ROOT:-${AGY_PLUGIN_ROOT:-${GEMINI_PLUGIN_ROOT:-}}}" ]; then
+    printf 'antigravity'
+  elif [ -n "${OPENCODE_CONFIG_DIR:-${OPENCODE:-}}" ]; then
+    printf 'opencode'
+  else
+    printf 'claude'
+  fi
+}
+
+update_command() {
+  case "$1" in
+    codex) printf 'codex plugin marketplace upgrade supergraph' ;;
+    antigravity) printf 'curl -fsSL https://raw.githubusercontent.com/datit309/supergraph/master/install.sh | sh -s -- --platform antigravity' ;;
+    opencode) printf 'curl -fsSL https://raw.githubusercontent.com/datit309/supergraph/master/install.sh | sh -s -- --platform opencode' ;;
+    *) printf '/plugin marketplace update supergraph' ;;
+  esac
+}
+
+update_notice() {
+  [ "${SUPERGRAPH_UPDATE_CHECK:-true}" != false ] || return 0
+
+  local current latest="" checked_at="" now cache_dir cache_file response platform command
+  current=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$PLUGIN_ROOT/plugin.json" 2>/dev/null | head -1)
+  current=$(normalize_version "$current")
+  [ -n "$current" ] || return 0
+
+  cache_dir="${XDG_CACHE_HOME:-${HOME:-/tmp}/.cache}/supergraph"
+  cache_file="$cache_dir/update-check"
+  now=$(date +%s)
+  if [ -f "$cache_file" ]; then
+    IFS=$'\t' read -r checked_at latest <"$cache_file" || true
+  fi
+
+  case "$checked_at" in
+    ''|*[!0-9]*) checked_at="" ;;
+  esac
+  if [ "${#checked_at}" -gt 10 ]; then
+    checked_at=""
+  elif [ -n "$checked_at" ]; then
+    checked_at=$(printf '%s' "$checked_at" | sed 's/^0*//')
+    checked_at=${checked_at:-0}
+  fi
+  if [ -z "$checked_at" ] || [ $((now - checked_at)) -ge 86400 ] || [ $((now - checked_at)) -lt 0 ]; then
+    response=$(curl -fsSL --connect-timeout 1 --max-time 2 \
+      https://raw.githubusercontent.com/datit309/supergraph/master/plugins/supergraph/plugin.json 2>/dev/null || true)
+    latest=$(printf '%s' "$response" | sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -1)
+    latest=$(normalize_version "$latest")
+    mkdir -p "$cache_dir" 2>/dev/null && printf '%s\t%s\n' "$now" "$latest" >"$cache_file" 2>/dev/null || true
+  else
+    latest=$(normalize_version "$latest")
+  fi
+
+  [ -n "$latest" ] && version_is_newer "$latest" "$current" || return 0
+  platform=$(update_platform)
+  command=$(update_command "$platform")
+  printf '🚨 SUPERGRAPH UPDATE AVAILABLE 🚨\nCurrent: %s → Latest: %s\nPlatform: %s\nUpdate: %s' \
+    "$current" "$latest" "$platform" "$command"
+}
+
+parts=()
+
+notice=$(update_notice)
+if [ -n "$notice" ]; then
+  parts+=("$notice")
+fi
+
+# ── 1. Mandatory workflow reminder ────────────────────────────────────────────
+parts+=("$(cat <<'EOF'
+<EXTREMELY_IMPORTANT>
+You have supergraph.
+
+Mandatory workflow:
+1. /supergraph:scan — load minimal graph context first
+2. /supergraph:analyze — assess ambiguity/risk, hub/bridge, select approach (required before plan for Standard/Full; skip only for Micro)
+3. /supergraph:sdd — software design document, data contracts, API specs & platform matrix (Full tier)
+4. /supergraph:plan — create machine-readable plan and get plan-reviewer approval
+5. /supergraph:execute — execute plan, parallel by default when tasks are independent
+6. /supergraph:fix — auto-fix with systematic debugging when needed
+7. /supergraph:integration — run integration/e2e when configured
+8. /supergraph:verify — no completion claims without fresh evidence
+9. /supergraph:review — independent code-reviewer + graph review before merge
+
+Tiered workflow — pick the right tier first:
+- Micro (< 20 lines, ≤2 files, no hub/bridge, complexity <10): /supergraph:tdd → /supergraph:verify (skip analyze/plan)
+- Standard (≤5 files, clear req, no cross-boundary): scan→analyze→plan→execute→fix→verify
+- Full (>5 files, ambiguous, hub/bridge, cross-boundary): scan→analyze→sdd→plan→execute→fix→integration→verify→review
+
+Hard rules:
+- Use get_minimal_context_tool() first for graph context (Full tier only).
+- No production code without verified RED test first.
+- Ask instead of guessing when requirements or failures are unclear.
+- Do not proceed on main/master without explicit approval.
+- Never claim done/ready/fixed without fresh verification evidence.
+- ALWAYS reply in the same language the user wrote in. Skill announce strings are templates — translate before output.
+
+New skills available:
+- /supergraph:sdd — software design document, data contracts, API schemas & platform matrix
+- /supergraph:diagnose — structured 6-phase debugging (use when bug cause is unknown)
+- /supergraph:handoff — compact session state before context runs out
+- /supergraph:zoom-out — get a domain-vocabulary module map fast
+- /supergraph:architecture — HTML+Mermaid architecture review report
+- /supergraph:prd — convert conversation → structured PRD → GitHub Issue
+- /supergraph:triage — classify issues with state machine → ready-for-agent
+- /supergraph:prototype — throwaway Logic/UI code to validate approach
+- /supergraph:caveman — ~75% token compression (always-on)
+</EXTREMELY_IMPORTANT>
+EOF
+)")
+
+# ── 2. CONTEXT.md — inject domain vocabulary if present ───────────────────────
+if [ -f "CONTEXT.md" ] && [ -s "CONTEXT.md" ]; then
+  context_content=$(head -80 CONTEXT.md)
+  parts+=("$(printf '<DOMAIN_VOCABULARY>\nProject CONTEXT.md loaded — use these terms in all task descriptions and analysis:\n%s\n</DOMAIN_VOCABULARY>' "$context_content")")
+fi
+
+# ── 3. Handoff reminder — check $TMPDIR for recent handoff file ───────────────
+handoff_file=$(ls "${TMPDIR:-/tmp}"/supergraph-handoff-*.md 2>/dev/null | sort -r | head -1 || true)
+if [ -n "$handoff_file" ]; then
+  now=$(date +%s)
+  if stat -f%m "$handoff_file" >/dev/null 2>&1; then
+    mtime=$(stat -f%m "$handoff_file")
+  else
+    mtime=$(stat -c%Y "$handoff_file" 2>/dev/null || echo "$now")
+  fi
+  age_hours=$(( (now - mtime) / 3600 ))
+  if [ "$age_hours" -lt 48 ]; then
+    handoff_name=$(basename "$handoff_file")
+    parts+=("$(printf '📦 HANDOFF FILE FOUND: %s (%dh ago)\nRead this file BEFORE starting any work — it contains session state, remaining tasks, and resume instructions.' "$handoff_file" "$age_hours")")
+  fi
+fi
+
+# ── 4. Caveman mode — always-on ───────────────────────────────────────────
+parts+=("🦴 caveman mode ON (always) — strip articles/filler, keep code exact, ~75% token reduction. Auto-suspend for safety/destructive ops. No toggle needed.")
+
+# ── 5. Zoom-out hint — no plan + no recent commits ────────────────────────────
+plan_count=$(ls docs/supergraph/plans/*.md 2>/dev/null | wc -l | tr -d ' ' || echo "0")
+if [ "${plan_count:-0}" -eq 0 ]; then
+  parts+=("💡 No active plan found. If this is an unfamiliar codebase, run /supergraph:zoom-out to get oriented before planning.")
+fi
+
+# ── Assemble output ───────────────────────────────────────────────────────────
+combined=""
+for part in "${parts[@]}"; do
+  if [ -n "$combined" ]; then
+    combined="${combined}\n\n${part}"
+  else
+    combined="${part}"
+  fi
+done
+
+escaped=$(escape_for_json "$combined")
+printf '{\n  "hookSpecificOutput": {\n    "hookEventName": "SessionStart",\n    "additionalContext": "%s"\n  }\n}\n' "$escaped"

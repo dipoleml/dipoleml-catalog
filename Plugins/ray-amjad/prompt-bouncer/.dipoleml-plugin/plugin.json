@@ -1,0 +1,16 @@
+{
+  "name": "prompt-bouncer",
+  "displayName": "Prompt Bouncer",
+  "version": "0.1.2",
+  "description": "Bounces vague prompts before DipoleML sees them, and suggests the project's own term",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Ray Amjad"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/ray-amjad/claude-code-mods",
+  "repository": "https://github.com/ray-amjad/claude-code-mods",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

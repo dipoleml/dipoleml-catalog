@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "kind": "citadel_optimizer_matrix_intent",
+  "authorization_digest": "sha256:b17292a5a08b6ea705f82d5c265e047aa65bb9f774d2fc5ea085648e0fdab1eb",
+  "ordinal": 70,
+  "run_key": "citadel-context-receipt-recovery/adaptive/1",
+  "scenario_id": "citadel-context-receipt-recovery",
+  "policy_id": "adaptive",
+  "repetition": 1,
+  "state": "completed",
+  "started_at": "2026-07-31T03:20:34.762Z",
+  "completed_at": "2026-07-31T03:31:07.214Z",
+  "output_file": "records/070-citadel-context-receipt-recovery-adaptive-1.json",
+  "error": null
+}

@@ -1,0 +1,1770 @@
+package subagent
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+	"sort"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/google/uuid"
+
+	"github.com/ethanhq/cc-fleet/internal/childenv"
+	"github.com/ethanhq/cc-fleet/internal/config"
+	"github.com/ethanhq/cc-fleet/internal/fileutil"
+	"github.com/ethanhq/cc-fleet/internal/ids"
+	"github.com/ethanhq/cc-fleet/internal/pinned"
+	"github.com/ethanhq/cc-fleet/internal/procintrospect"
+)
+
+// jobsDirName holds background-job files under ConfigDir. Per job_id there are
+// up to: <id>.json (meta), <id>.out, <id>.err, <id>.prompt (when --prompt-file),
+// and <id>.result.json (cached terminal Result).
+const jobsDirName = "subagent-jobs"
+
+// defaultGCAge is the cutoff subagent-gc uses when --older-than is unset.
+const defaultGCAge = 24 * time.Hour
+
+// maxPromptBytes bounds a materialized --prompt-file / piped stdin. A task prompt
+// is far smaller; claude's own context window is the real ceiling. The cap only
+// stops an unbounded caller-supplied reader from OOMing the launch. Package var
+// so tests can shrink it.
+var maxPromptBytes = 10 << 20 // 10 MiB
+
+// jobMeta is the on-disk record written at --background launch (and a lighter
+// "running" record for a sync run, so the board can see it). It carries no
+// secret (prompt/answer are intentionally NOT persisted here) — just enough to
+// poll the process and re-classify its captured stdout later.
+type jobMeta struct {
+	JobID        string `json:"job_id"`
+	PID          int    `json:"pid"`
+	PGID         int    `json:"pgid"`
+	Provider     string `json:"provider"`
+	Model        string `json:"model"`
+	StartedAt    string `json:"started_at"`
+	Status       string `json:"status"`
+	Resume       string `json:"resume,omitempty"`
+	OutputFormat string `json:"output_format,omitempty"`
+	JSON         bool   `json:"json"`
+	// Stream marks a background job whose .out is stream-json (not a single json
+	// envelope): StatusFor scans it for live usage while running and routes the
+	// dead-branch classify through extractResultLine. Absent on a legacy json meta.
+	Stream        bool   `json:"stream,omitempty"`
+	LeadSessionID string `json:"lead_session_id,omitempty"`
+	// SettingsPath is the claude `--settings <profile>` for a BACKGROUND job: the
+	// per-provider profile path. processAlive matches it in argv only without a
+	// usable ProcStart, since a wrapper may rewrite the flag. A sync job leaves
+	// this empty — its PID is the cc-fleet process, not a claude child, so the
+	// argv guard must NOT apply.
+	SettingsPath string `json:"settings_path,omitempty"`
+	// ProcStart is meta.PID's kernel start-time token (procintrospect.ProcStart),
+	// captured at registration: the recycled-PID guard wherever argv can't bind
+	// the pid — platforms without argv introspection (Windows) and sync jobs
+	// (whose pid is the cc-fleet parent, with no --settings marker). A reused pid
+	// carries a new start time, so equality proves identity. Empty (legacy meta /
+	// capture failure) degrades to the bare liveness check.
+	ProcStart string `json:"proc_start,omitempty"`
+	// ChildPID / ChildProcStart identify a SYNC leaf's `claude -p` CHILD (its own pid + kernel start
+	// token, captured right after Start) — the piece meta.PID does NOT carry, since a sync job's PID is
+	// the ENGINE, whose liveness only "proxies" the leaf (a proxy a bare SIGKILL breaks: the child, in
+	// its own process group with cwd = the isolation worktree, outlives it). The worktree reclaimers
+	// read them to tell a live orphaned leaf from a dead one — identity OUTRANKS any cached result,
+	// because after the engine dies StatusFor synthesizes a terminal (failVanished) for a still-live
+	// orphan. A background job leaves them zero (its PID already IS the child); an old sync meta too.
+	ChildPID       int    `json:"child_pid,omitempty"`
+	ChildProcStart string `json:"child_proc_start,omitempty"`
+	// ChildIdentityPending marks a SYNC member (RunID != "") registered but not yet past the
+	// cmd.Start→recordChildIdentity window: ChildPID is not stamped yet, but a crash in that ~ms window
+	// leaves a LIVE orphan whose identity was never recorded. It is the discriminator that lets automated
+	// cleanup (GC/PurgeJobs) keep such a meta as veto evidence WITHOUT keeping every identity-less legacy
+	// meta (which lacks this field → false, preserving the GC contract for legacy jobs). recordChildIdentity clears
+	// it in the same write that stamps ChildPID; a REAPED terminal finalize (runClaude returned → child
+	// provably not running) also clears it — and zeroes the engine-proxy PID — so a cmd.Start failure
+	// can't strand a false pending veto that force-keeps the meta forever.
+	ChildIdentityPending bool `json:"child_identity_pending,omitempty"`
+	// ProxyPort is the loopback conversion-daemon port this job's provider rides
+	// (0 for a non-daemon-backed provider). The Windows codexproxy daemon counts
+	// live workers from the job store instead of process argv, and this field is
+	// that mapping; it deliberately does NOT reuse SettingsPath, whose presence
+	// arms the unix argv-reuse guard.
+	ProxyPort int `json:"proxy_port,omitempty"`
+
+	// Workflow run grouping (optional): the run this job belongs to, the phase
+	// within it, and a human label — so the board can group jobs into a run tree.
+	RunID string `json:"run_id,omitempty"`
+	Phase string `json:"phase,omitempty"`
+	Label string `json:"label,omitempty"`
+	// JournalKey is the leaf's content-hash key, carried so finalizeSyncJob/StatusFor can
+	// stamp the terminal Result with it (the board needs it to restart this single leaf).
+	JournalKey string `json:"journal_key,omitempty"`
+	// Attempt is the 1-based exec ordinal this job last ran at (>1 occurs only in metas
+	// from engines that retried schema mismatches); 0 backfills a legacy meta. Carried
+	// onto the reconstructed Result.
+	Attempt int `json:"attempt,omitempty"`
+
+	// PersistIO records that this job opted into board drill-in, so finalizeSyncJob
+	// writes the answer side file (<id>.answer) on completion. The result CACHE stays
+	// answer-stripped regardless; the side files are the separate opt-in drill-in source.
+	PersistIO bool `json:"persist_io,omitempty"`
+
+	// PromptProfile is the EFFECTIVE profile this job ran (post-version-gate);
+	// SlimDowngrade is non-empty when a slim request ran full instead (the reason).
+	// Both are backfilled onto every reconstructed Result so a re-classified
+	// background leaf keeps the profile/downgrade signal.
+	PromptProfile string `json:"prompt_profile,omitempty"`
+	SlimDowngrade string `json:"slim_downgrade,omitempty"`
+}
+
+func jobsDir() (string, error) {
+	dir, err := config.ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, jobsDirName), nil
+}
+
+// writeMetaFn is a test seam: tests force a writeMeta failure AFTER cmd.Start
+// to verify the cleanup path kills the process group and removes the orphan
+// .out/.err files.
+var writeMetaFn = writeMeta
+
+// materializePromptFn is a test seam: tests swap the helper with a stub that
+// leaves a partial dst file behind + returns an error, so the caller's
+// `_ = os.Remove(pf)` in the materialize-error branch is testably load-bearing
+// on its own (independent of the helper's defer cleanup). In production this is
+// just materializePromptReader.
+var materializePromptFn = materializePromptReader
+
+// launchBackground starts a detached claude child whose stdout/stderr go to job
+// files, writes the job meta, and returns immediately with a job handle. The
+// child runs with its OWN process group and NO deadline so it survives the
+// parent cc-fleet exiting (poll it with StatusFor / subagent-status).
+//
+// Background runs always stream claude's `--output-format stream-json` (with
+// partial messages): StatusFor scans the growing .out for a live, climbing token
+// count while the job runs, and classifies the terminal type:"result" line via
+// extractResultLine. launchBackground OWNS this inner format — no caller field
+// decides it — so a text-mode background failure still classifies correctly.
+//
+// Any failure between cmd.Start and the final Release triggers a process-group
+// SIGTERM (200ms grace) → SIGKILL → Wait → file cleanup so we never leak a
+// detached provider child + orphan .out/.err files.
+func launchBackground(req Request, binaryPath, profilePath, model, effort, effective, downgrade string, proxyPort int) Result {
+	dir, err := jobsDir()
+	if err != nil {
+		return fail(ErrCodeFailed, fmt.Sprintf("resolve jobs dir: %v", err), req.Provider, "")
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fail(ErrCodeFailed, fmt.Sprintf("mkdir jobs dir: %v", err), req.Provider, "")
+	}
+
+	// Stream the inner output as stream-json (+ partial messages) so StatusFor can
+	// scan the .out for a live token count and classify the terminal result line.
+	// buildArgv's switch checks StreamActivity FIRST, so setting it here is the sole
+	// authority on the inner format regardless of the caller's OutputFormat/JSON.
+	// Outer JSON/text formatting is unaffected (the persisted meta keeps req's).
+	innerReq := req
+	innerReq.StreamActivity = true
+
+	jobID := uuid.NewString()
+	outPath := filepath.Join(dir, jobID+".out")
+	errPath := filepath.Join(dir, jobID+".err")
+	slimPath := filepath.Join(dir, jobID+".slimprompt")
+
+	outF, err := os.OpenFile(outPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return fail(ErrCodeFailed, fmt.Sprintf("create job stdout: %v", err), req.Provider, "")
+	}
+	defer outF.Close()
+	errF, err := os.OpenFile(errPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		_ = os.Remove(outPath)
+		return fail(ErrCodeFailed, fmt.Sprintf("create job stderr: %v", err), req.Provider, "")
+	}
+	defer errF.Close()
+
+	// Render the slim prompt sidecar after the jobID mint, before cmd.Start.
+	slim, slimErr := buildSlimArgv(effective, jobID, req, model)
+	if slimErr != nil {
+		_ = os.Remove(outPath)
+		_ = os.Remove(errPath)
+		return fail(ErrCodeFailed, slimErr.Error(), req.Provider, "")
+	}
+
+	// Board drill-in: persist the prompt side file before the start (every failure
+	// path below already removes it).
+	if req.PersistIO && req.IOPrompt != "" {
+		_ = os.WriteFile(filepath.Join(dir, jobID+".prompt"), []byte(req.IOPrompt), 0o600)
+	}
+
+	argv := buildArgv(binaryPath, profilePath, model, effort, innerReq, slim)
+	// Fresh exec.Command (no context) → no deadline; child outlives parent.
+	cmd := exec.Command(binaryPath)
+	cmd.Args = argv
+	cmd.Env = childenv.WithWorkerEnv(childenv.Clean(os.Environ()))
+	if effective == ProfileSlimRO {
+		cmd.Env = append(cmd.Env, "CLAUDE_CODE_DISABLE_CLAUDE_MDS=1")
+	}
+	cmd.Stdout = outF
+	cmd.Stderr = errF
+	setGroupAttr(cmd)
+
+	// stdin: a detached child can't keep a parent copy-goroutine alive, so hand
+	// it a real inherited fd. An *os.File (the common --prompt-file case) is
+	// inherited directly; any other reader is materialized to a job file first.
+	//
+	// When the reader is NOT an *os.File the materialization must FAIL BEFORE
+	// cmd.Start — otherwise a read error would silently hand a partial prompt to
+	// claude. Sync (subagent.Run) is unaffected: it inherits stdin directly and
+	// never reaches this path.
+	if req.PromptReader != nil {
+		if f, ok := req.PromptReader.(*os.File); ok {
+			cmd.Stdin = f
+		} else {
+			pf := filepath.Join(dir, jobID+".prompt")
+			f, merr := materializePromptFn(req.PromptReader, pf)
+			if merr != nil {
+				// The helper already removes dst (pf) on its own error path; we
+				// ALSO Remove here so "no orphan .prompt after a materialize
+				// failure" is re-asserted at the call site (defense-in-depth).
+				// All three artifacts are best-effort.
+				_ = os.Remove(outPath)
+				_ = os.Remove(errPath)
+				_ = os.Remove(pf)
+				_ = os.Remove(slimPath)
+				return fail(ErrCodeFailed,
+					fmt.Sprintf("materialize prompt: %v", merr), req.Provider, "")
+			}
+			defer f.Close()
+			cmd.Stdin = f
+		}
+	}
+
+	if err := cmd.Start(); err != nil {
+		_ = os.Remove(outPath)
+		_ = os.Remove(errPath)
+		_ = os.Remove(filepath.Join(dir, jobID+".prompt"))
+		_ = os.Remove(slimPath)
+		return fail(ErrCodeFailed, fmt.Sprintf("start background subagent: %v", err), req.Provider, "")
+	}
+	pid := cmd.Process.Pid
+	// Launch metadata only: the parent Releases the child below and never
+	// observes its reap/finalize/classify.
+	req.Diag.Logf("subagent: background job %s started (pid %d, captures %s)", jobID, pid, outPath)
+
+	bgProcStart, _ := procStartFn(pid)
+	meta := jobMeta{
+		JobID:     jobID,
+		PID:       pid,
+		PGID:      pid, // Setpgid → the group id equals the leader pid
+		ProcStart: bgProcStart,
+		ProxyPort: proxyPort,
+		Provider:  req.Provider,
+		Model:     model,
+		StartedAt: time.Now().UTC().Format(time.RFC3339),
+		Status:    "running",
+		Resume:    req.Resume,
+		PersistIO: req.PersistIO, // finalize (via StatusFor) writes .answer only when carried here
+		// Persist the outer (user-facing) format flags so subagent-status can
+		// still render the operator's preferred shape (text vs JSON). OutputFormat
+		// stays as the caller asked; JSON is force-set true regardless of the
+		// caller so StatusFor treats the .out as an envelope (the inner stream-json
+		// carries a type:"result" line classify reads via extractResultLine).
+		// Without it, a text-mode background job whose child wrote a JSON error
+		// envelope would be blessed as status:"done" by the text-mode fallback.
+		OutputFormat:  req.OutputFormat,
+		JSON:          true,
+		Stream:        true, // the .out is stream-json: scan-for-live-usage + extract-result-line on classify
+		LeadSessionID: req.LeadSessionID,
+		SettingsPath:  profilePath, // binds this pid to its claude child (reuse guard)
+		RunID:         req.RunID,
+		Phase:         req.Phase,
+		Label:         req.Label,
+		JournalKey:    req.JournalKey,
+		PromptProfile: effective,
+		SlimDowngrade: downgrade,
+	}
+	if err := writeMetaFn(dir, meta); err != nil {
+		// meta write failed AFTER cmd.Start. Without cleanup the detached provider
+		// child + .out / .err would orphan. Process-group kill (SIGTERM → 200ms
+		// grace → SIGKILL) reaps the child (and any claude-forked grandchild);
+		// Wait() reclaims the zombie before Release. Then nuke the captured files.
+		killProcessGroup(cmd.Process.Pid)
+		_, _ = cmd.Process.Wait()
+		_ = os.Remove(outPath)
+		_ = os.Remove(errPath)
+		_ = os.Remove(filepath.Join(dir, jobID+".prompt"))
+		_ = os.Remove(slimPath)
+		return fail(ErrCodeFailed, fmt.Sprintf("write job meta: %v", err), req.Provider, "")
+	}
+
+	// Detach: stop tracking the child so the parent can exit cleanly.
+	_ = cmd.Process.Release()
+	req.Diag.Logf("subagent: background job %s detached", jobID)
+
+	return Result{
+		OK:            true,
+		JobID:         jobID,
+		Status:        "running",
+		OutputFile:    outPath,
+		PID:           pid,
+		Provider:      req.Provider,
+		Model:         model,
+		StartedAt:     meta.StartedAt,
+		LeadSessionID: meta.LeadSessionID,
+		RunID:         meta.RunID,
+		Phase:         meta.Phase,
+		Label:         meta.Label,
+		JournalKey:    meta.JournalKey,
+		PromptProfile: meta.PromptProfile,
+		SlimDowngrade: meta.SlimDowngrade,
+	}
+}
+
+// materializePromptReader copies r into a 0o600 file at dst and returns an
+// *os.File positioned at offset 0 ready to be inherited as the child's stdin.
+// Errors MUST be returned and surfaced to the caller before cmd.Start so the
+// child never receives a partial prompt.
+//
+// On any failure dst is removed best-effort via a deferred named-return
+// cleanup, so a truncated/partial file can't survive looking like a finished
+// job's .prompt. r is NOT closed; the caller owns its lifetime.
+//
+// The nil-reader path returns BEFORE any filesystem operations, so the deferred
+// Remove cannot delete an unrelated pre-existing file at dst.
+func materializePromptReader(r io.Reader, dst string) (f *os.File, err error) {
+	if r == nil {
+		return nil, nil
+	}
+	// Clean up dst on every error path uniformly. Runs only when err != nil so
+	// the happy-path caller can use the returned file without losing its data.
+	defer func() {
+		if err != nil {
+			_ = os.Remove(dst)
+		}
+	}()
+
+	// Bounded read: a --prompt-file / piped stdin is caller-supplied and otherwise
+	// unbounded. LimitReader+1 distinguishes "exactly the cap" from "over"; an
+	// overflow fails here, BEFORE cmd.Start, so the child never gets a partial prompt.
+	data, err := io.ReadAll(io.LimitReader(r, int64(maxPromptBytes)+1))
+	if err != nil {
+		return nil, fmt.Errorf("read prompt: %w", err)
+	}
+	if len(data) > maxPromptBytes {
+		return nil, fmt.Errorf("prompt exceeds %d bytes", maxPromptBytes)
+	}
+	if err = os.WriteFile(dst, data, 0o600); err != nil {
+		return nil, fmt.Errorf("write prompt %s: %w", dst, err)
+	}
+	f, err = os.Open(dst)
+	if err != nil {
+		return nil, fmt.Errorf("open prompt %s: %w", dst, err)
+	}
+	return f, nil
+}
+
+// killProcessGroup reaps the whole process tree rooted at the just-launched
+// background child (the leader's process group on unix; the current process tree
+// via taskkill /T on Windows): a graceful terminate, a short grace, then a
+// forced kill of survivors. Best-effort: an already-gone tree is silently ok. A
+// package var only to allow test injection. It is deliberately job-handle-free
+// (see killProcessTree) so it only ever runs while the child is still owned by
+// this process, before the successful-launch Release.
+var killProcessGroup = killProcessTree
+
+// reapJobTree is ReapJob's kill: an ANCESTRY reap rooted at the job's recorded PID. The tree
+// walk matters because a SYNC job's recorded PID is its launcher process while the claude child
+// is its own group leader (Setpgid) — a bare group kill would miss it; for a background job
+// (the detached child IS the leader) the walk degrades to the same group kill. A package var
+// only to allow test injection.
+var reapJobTree = reapEngineTree
+
+// ReapJob terminates a job's process tree and finalizes it as a timeout failure. The workflow
+// runtime uses it to enforce a background leaf's timeout at wait() time (launchBackground itself
+// is deadline-less so a detached job survives the launcher); DeleteSession uses it to stop a
+// still-live standalone job whose files it removes right after (so the timeout-flavored finalize
+// never surfaces there). Path-safe (validates the id) and best-effort: an unknown/gone job is a
+// no-op.
+func ReapJob(jobID string) error {
+	if err := ids.ValidateJobID(jobID); err != nil {
+		return err
+	}
+	dir, err := jobsDir()
+	if err != nil {
+		return err
+	}
+	meta, merr := readMeta(dir, jobID)
+	if merr != nil {
+		return nil // unknown / already gone — nothing to reap
+	}
+	// Identity-guard the kill: a pid whose argv/start token no longer matches
+	// the meta is dead-and-recycled — reaping it would terminate a stranger.
+	if meta.PID > 0 && processAlive(meta.PID, meta.SettingsPath, meta.ProcStart) {
+		reapJobTree(meta.PID)
+	}
+	finalizeSyncJob(jobID, fail(ErrCodeTimeout, "background leaf exceeded its timeout", meta.Provider, ""))
+	return nil
+}
+
+// ReadAnswer returns the persisted answer side file (<jobID>.answer) for a finished
+// job and whether it exists. The answer is written only when the job ran with
+// PersistIO (the result cache itself is answer-stripped), so a missing file means
+// the job is unfinished or ran with --no-persist-io — not an error.
+func ReadAnswer(jobID string) (string, bool, error) {
+	if err := ids.ValidateJobID(jobID); err != nil {
+		return "", false, fmt.Errorf("invalid job id %q", jobID)
+	}
+	dir, err := jobsDir()
+	if err != nil {
+		return "", false, err
+	}
+	b, err := os.ReadFile(filepath.Join(dir, jobID+".answer"))
+	if os.IsNotExist(err) {
+		return "", false, nil
+	}
+	if err != nil {
+		return "", false, err
+	}
+	return string(b), true, nil
+}
+
+// StatusFor reports a background job's status. While the process is alive it
+// returns status=running; once dead it classifies the captured stdout with the
+// SAME classifier as the sync path, caches the terminal Result to
+// <id>.result.json, and returns done/failed.
+func StatusFor(jobID string) Result {
+	// jobID flows straight into filepath.Join below; validate it before any
+	// path is built so a "../" arg can't read outside the jobs dir.
+	if err := ids.ValidateJobID(jobID); err != nil {
+		return fail(ErrCodeBadArgs, fmt.Sprintf("invalid job id %q", jobID), "",
+			"Check the job_id printed by the --background launch")
+	}
+	dir, err := jobsDir()
+	if err != nil {
+		return fail(ErrCodeFailed, fmt.Sprintf("resolve jobs dir: %v", err), "", "")
+	}
+	meta, err := readMeta(dir, jobID)
+	if err != nil {
+		return fail(ErrCodeBadArgs, fmt.Sprintf("unknown job %q", jobID), "",
+			"Check the job_id printed by the --background launch")
+	}
+
+	// Already finalized? Serve the cached Result.
+	resultPath := filepath.Join(dir, jobID+".result.json")
+	if data, rerr := os.ReadFile(resultPath); rerr == nil {
+		var r Result
+		if json.Unmarshal(data, &r) == nil {
+			// Backfill grouping keys for caches written before they existed.
+			if r.LeadSessionID == "" {
+				r.LeadSessionID = meta.LeadSessionID
+			}
+			if r.RunID == "" {
+				r.RunID = meta.RunID
+				r.Phase = meta.Phase
+				r.Label = meta.Label
+			}
+			if r.JournalKey == "" {
+				r.JournalKey = meta.JournalKey
+			}
+			if r.PromptProfile == "" {
+				r.PromptProfile = meta.PromptProfile
+				r.SlimDowngrade = meta.SlimDowngrade
+			}
+			if r.Attempt == 0 {
+				r.Attempt = meta.Attempt
+			}
+			return r
+		}
+	}
+
+	// A held leaf is parked by a leaf-stop directive (kill-and-HOLD): its script frame is
+	// live in the engine, no process runs, and no terminal cache exists. Classify by the
+	// meta status BEFORE the PID fallthrough, which would misread PID=0 as queued.
+	if meta.Status == "held" {
+		return Result{
+			OK: true, JobID: jobID, Status: "held",
+			Provider: meta.Provider, Model: meta.Model, StartedAt: meta.StartedAt,
+			LeadSessionID: meta.LeadSessionID, RunID: meta.RunID, Phase: meta.Phase, Label: meta.Label,
+			JournalKey: meta.JournalKey, PromptProfile: meta.PromptProfile, SlimDowngrade: meta.SlimDowngrade,
+			Attempt: meta.Attempt,
+		}
+	}
+
+	// PID<=0 with no cached result = no terminal signal yet (a queued placeholder before its pool
+	// slot). Report it queued — PID is the authority, not the Status string — so the dead-classify
+	// path below never reads its empty capture as a done/failed leaf.
+	if meta.PID <= 0 {
+		return Result{
+			OK: true, JobID: jobID, Status: "queued",
+			Provider: meta.Provider, Model: meta.Model, StartedAt: meta.StartedAt,
+			LeadSessionID: meta.LeadSessionID, RunID: meta.RunID, Phase: meta.Phase, Label: meta.Label,
+			JournalKey: meta.JournalKey, PromptProfile: meta.PromptProfile, SlimDowngrade: meta.SlimDowngrade,
+			Attempt: meta.Attempt,
+		}
+	}
+
+	if processAlive(meta.PID, meta.SettingsPath, meta.ProcStart) {
+		res := Result{
+			OK:            true,
+			JobID:         jobID,
+			Status:        "running",
+			Provider:      meta.Provider,
+			Model:         meta.Model,
+			StartedAt:     meta.StartedAt,
+			PID:           meta.PID,
+			OutputFile:    filepath.Join(dir, jobID+".out"),
+			LeadSessionID: meta.LeadSessionID,
+			RunID:         meta.RunID,
+			Phase:         meta.Phase,
+			Label:         meta.Label,
+			JournalKey:    meta.JournalKey,
+			PromptProfile: meta.PromptProfile,
+			SlimDowngrade: meta.SlimDowngrade,
+			Attempt:       meta.Attempt,
+		}
+		// A detached job has no live activity writer, so each poll scans its growing stream-json .out
+		// for the running token count, parsing ONLY the bytes appended since the last poll (tracked by
+		// the <jobID>.scan checkpoint) so the cost stays flat and the total is kept for the whole
+		// capture regardless of size. The terminal classify below scans the whole capture for the
+		// exact count.
+		if meta.Stream {
+			res.Usage = scanLiveUsage(filepath.Join(dir, jobID+".out"), filepath.Join(dir, jobID+".scan"))
+		}
+		return res
+	}
+
+	// Dead → classify the captured output. The detached child was Released, so we can't reap a real
+	// exit code; the terminal envelope is the only signal. This runs ONCE per job (the result is then
+	// cached). A stream-json transcript's type:"result" line carries the full answer and can sit
+	// anywhere, so the terminal scan is COMPLETE — it reads to EOF — but streaming and bounded: it
+	// never buffers the capture whole. Only the per-poll running scan above is incremental
+	// (best-effort live; the terminal must be exact).
+	outPath := filepath.Join(dir, jobID+".out")
+	errPath := filepath.Join(dir, jobID+".err")
+	stderr := readCapped(errPath, stderrPreviewMax<<7) // stderr only feeds a short preview
+	innerJSON := meta.JSON || meta.OutputFormat == "json"
+	// A stream-json .out is multi-line NDJSON; classify wants the single type:"result" line, so
+	// distill it, streaming so a runaway capture is never loaded whole (the sync StreamActivity
+	// path shares the same extractor). A legacy json .out is a single tiny envelope parsed whole, so
+	// an over-cap capture yields nil (classify as vanished) rather than a trusted truncated prefix.
+	var stdout []byte
+	if meta.Stream {
+		stdout = extractResultLineFile(outPath)
+	} else {
+		stdout = readWholeUnderCap(outPath, int64(maxChildOutput))
+	}
+	// A detached leaf can be seen dead a moment before its result write lands. When the result
+	// capture is empty, re-read once after a short delay before classifying, so a late write
+	// isn't cached as a failure. The capture file's EXISTENCE is the detached marker (only a
+	// detached launch creates it; sync metas never do) — not the profile path, which a native
+	// (reserved `claude`) job legitimately lacks. A non-empty result skips the wait.
+	if _, statErr := os.Stat(outPath); statErr == nil && innerJSON && strings.TrimSpace(string(stdout)) == "" {
+		time.Sleep(statusConfirmDelay)
+		stderr = readCapped(errPath, stderrPreviewMax<<7)
+		if meta.Stream {
+			stdout = extractResultLineFile(outPath)
+		} else {
+			stdout = readWholeUnderCap(outPath, int64(maxChildOutput))
+		}
+	}
+	var res Result
+	if vanishedWithoutResult(stdout, innerJSON) {
+		// No envelope (json) / no answer (text) and no real exit code: the leaf ended without
+		// finishing. Fail honestly (keep any stderr clue) — never bless the synthetic exit as "done".
+		res = failVanished(meta.Provider, stderr)
+	} else {
+		req := Request{Provider: meta.Provider, Model: meta.Model, JSON: meta.JSON, OutputFormat: meta.OutputFormat}
+		res = classify(req, meta.Model, stdout, stderr, 0, false, innerJSON)
+	}
+	res.JobID = jobID
+	res.StartedAt = meta.StartedAt
+	res.LeadSessionID = meta.LeadSessionID
+	res.RunID = meta.RunID
+	res.Phase = meta.Phase
+	res.Label = meta.Label
+	res.JournalKey = meta.JournalKey
+	res.PromptProfile = meta.PromptProfile
+	res.SlimDowngrade = meta.SlimDowngrade
+	res.Attempt = meta.Attempt
+	if res.OK {
+		res.Status = "done"
+	} else {
+		res.Status = "failed"
+	}
+	// Board drill-in: persist the answer side file (mirror finalizeSyncJob, which never
+	// sees a detached background job — this dead-classification is its only finalizer).
+	if meta.PersistIO && res.Result != "" {
+		_ = os.WriteFile(filepath.Join(dir, jobID+".answer"), []byte(res.Result), 0o600)
+	}
+	// Cache the terminal result (best-effort; a failed cache just re-classifies).
+	if data, merr := json.Marshal(res); merr == nil {
+		_ = os.WriteFile(resultPath, data, 0o600)
+	}
+	// The live-scan checkpoint is moot once terminal (StatusFor serves the cache now), but it is left for
+	// removeJob to GC: a poll that passed the alive check before this transition may still be mid-scan,
+	// and the .scan.lock flock is never unlinked at all — unlink+recreate would hand a concurrent scanner
+	// a different inode and break the serialization (the same rule the per-run .lock follows).
+	return res
+}
+
+// statusConfirmDelay is how long StatusFor waits before re-reading a just-dead detached
+// background leaf's empty capture, to let an envelope write that lands right after the
+// process is seen gone become visible. A package var so tests can zero it.
+var statusConfirmDelay = 75 * time.Millisecond
+
+// vanishedWithoutResult reports a dead job that left no terminal signal: no parseable envelope
+// (json) or no answer text (text). It must classify failed, never a synthetic-exit "done".
+func vanishedWithoutResult(stdout []byte, innerJSON bool) bool {
+	if innerJSON {
+		_, ok := parseInner(stdout)
+		return !ok
+	}
+	return strings.TrimSpace(string(stdout)) == ""
+}
+
+// failVanished is the honest terminal failure for a job that ended without a result and whose
+// exit status is unknowable (a detached child was Released). It keeps any stderr clue (key-safe
+// via stderrPreview) but never claims a clean "exited 0".
+func failVanished(provider string, stderr []byte) Result {
+	msg := "subagent ended without a result (process gone; no exit status available)"
+	if prev := stderrPreview(stderr); prev != "" {
+		msg += ": " + prev
+	}
+	return fail(ErrCodeFailed, msg, provider, suggestionFor(ErrCodeFailed))
+}
+
+// ListJobs scans the jobs dir and returns each background job's current Result
+// via StatusFor, newest first (by StartedAt). A missing jobs dir yields an empty
+// slice and no error (nothing has run yet). Like StatusFor it's read-only with
+// respect to team/settings state; the only side effect is StatusFor caching a
+// just-finished job's terminal <id>.result.json (benign, idempotent).
+func ListJobs() ([]Result, error) {
+	dir, err := jobsDir()
+	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("subagent: read jobs dir: %w", err)
+	}
+	var jobs []Result
+	for _, e := range entries {
+		name := e.Name()
+		// Same filter as GC: meta files only, never the cached .result.json.
+		if e.IsDir() || !strings.HasSuffix(name, ".json") || strings.HasSuffix(name, ".result.json") {
+			continue
+		}
+		jobID := strings.TrimSuffix(name, ".json")
+		jobs = append(jobs, StatusFor(jobID))
+	}
+	// StartedAt is RFC3339, lexically sortable; descending = newest first.
+	sort.Slice(jobs, func(i, j int) bool {
+		return jobs[i].StartedAt > jobs[j].StartedAt
+	})
+	return jobs, nil
+}
+
+// GC removes the file group of every finished job older than olderThan. A job
+// is "finished" when its process is no longer alive (or its terminal result is
+// cached). Running jobs are always kept regardless of age.
+//
+// olderThan semantics: a NEGATIVE duration is treated as "unset" and falls back
+// to defaultGCAge; ZERO means "no age limit — remove every finished job"
+// (cutoff = now), which is how `subagent-gc --older-than 0s` clears the board's
+// done entries. The CLI defaults --older-than to 24h, so an unset invocation
+// passes 24h and never hits the zero case by accident.
+func GC(olderThan time.Duration) Result {
+	if olderThan < 0 {
+		olderThan = defaultGCAge
+	}
+	dir, err := jobsDir()
+	if err != nil {
+		return fail(ErrCodeFailed, fmt.Sprintf("resolve jobs dir: %v", err), "", "")
+	}
+	// Snapshot the pin registry once: a pinned job (or a pinned run's leaf) is kept
+	// regardless of age. A read glitch must NOT cause pinned records to be deleted, so a
+	// snapshot error fails the GC rather than proceeding pin-blind.
+	pins, perr := pinned.Snapshot()
+	if perr != nil {
+		return fail(ErrCodeFailed, fmt.Sprintf("read pin registry: %v", perr), "", "")
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return Result{OK: true, Removed: 0} // nothing to GC
+		}
+		return fail(ErrCodeFailed, fmt.Sprintf("read jobs dir: %v", err), "", "")
+	}
+
+	cutoff := time.Now().Add(-olderThan)
+	removed := 0
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".json") || strings.HasSuffix(name, ".result.json") {
+			continue
+		}
+		jobID := strings.TrimSuffix(name, ".json")
+		meta, merr := readMeta(dir, jobID)
+		if merr != nil {
+			continue
+		}
+		// A user-pinned job — or a leaf of a pinned run — is kept regardless of age, so a
+		// pinned run never loses its leaves to the job scan (run↔job coupling).
+		if pins.Has(pinned.Job, jobID) || (meta.RunID != "" && pins.Has(pinned.Run, meta.RunID)) {
+			continue
+		}
+		// A member leaf whose recorded CHILD is alive-or-unverifiable — OR whose identity write is still
+		// PENDING (the Start window) — is kept regardless of age or a cached terminal: it is the veto
+		// evidence a colliding worktree segment relies on (a SIGKILLed engine's orphan outlives the
+		// engine; StatusFor may have synthesized a terminal for it).
+		if isLiveOrPendingOrphanEvidence(meta) {
+			continue
+		}
+		// A cached <id>.result.json is the authoritative terminal signal.
+		// processAlive can lie under PID reuse (sync jobs record the cc-fleet
+		// PID with empty SettingsPath, so a recycled PID looks alive forever).
+		// When the cache exists we KNOW the job is done; honor that first so
+		// finished sync jobs get GC'd regardless of PID liveness, and fall back
+		// to the liveness check only when the cache is absent.
+		resultPath := filepath.Join(dir, jobID+".result.json")
+		_, resultErr := os.Stat(resultPath)
+		resultCached := resultErr == nil
+		if !resultCached && (processAlive(meta.PID, meta.SettingsPath, meta.ProcStart) || queuedPlaceholder(meta)) {
+			continue // truly running (no result cache + alive process), or a not-yet-started queued leaf
+		}
+		if started, perr := time.Parse(time.RFC3339, meta.StartedAt); perr == nil && started.After(cutoff) {
+			continue // finished but too recent
+		}
+		removeJob(dir, jobID)
+		removed++
+	}
+	gcRunManifests(dir, cutoff, pins)
+	return Result{OK: true, Removed: removed}
+}
+
+// gcRunManifests prunes run manifests after the job sweep. A manifest is removed
+// iff (a) no surviving job meta still belongs to its run AND (b) the manifest is
+// itself older than the same cutoff — so a run with any live/recent member is
+// protected, and a freshly created (still-empty) manifest survives until it ages
+// out unused. Membership is read FRESH from the jobs dir here (after the job-removal
+// pass), not from a snapshot taken before it, so a member that launched mid-GC still
+// protects its manifest — closing the readdir-interleaving window where an old run
+// gaining a new member could lose its manifest. A manifest that can't be read or
+// parsed has no provable recency and (by the membership check) no surviving member,
+// so it is treated as an aged orphan and removed (symmetric with purgeRunManifests
+// and with the job side, where an unreadable meta is also reaped). Manifest pruning
+// is kept OUT of the Removed counter, which counts job groups, not runs.
+func gcRunManifests(jobsDir string, cutoff time.Time, pins pinned.Set) {
+	dir := filepath.Join(jobsDir, runsDirName)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return // no runs dir → nothing to prune
+	}
+	live := survivingRunIDs(jobsDir)
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".json") {
+			continue
+		}
+		runID := strings.TrimSuffix(name, ".json")
+		if pins.Has(pinned.Run, runID) {
+			continue // user-pinned: kept even when memberless (its leaves were kept too)
+		}
+		if live[runID] {
+			continue // a surviving member protects the manifest
+		}
+		// No surviving member. Keep only a manifest that PROVES it is still recent
+		// (a fresh, not-yet-populated run); an unreadable/unparseable manifest can't
+		// prove recency → treated as an aged orphan and removed below. readFileRetry
+		// absorbs a transient Windows sharing violation so a fresh/resuming run isn't
+		// misread as unprovable; a persistent read error still falls through to PurgeRun,
+		// which then fails closed (deletes nothing) rather than reap under a live engine.
+		if data, rerr := readFileRetry(filepath.Join(dir, name)); rerr == nil {
+			var run WorkflowRun
+			if json.Unmarshal(data, &run) == nil {
+				if runIsRecent(run, cutoff) {
+					continue // fresh empty OR actively-resuming manifest → keep
+				}
+			}
+		}
+		// Remove the aged manifest through the CHOKEPOINT (WithRunLock + PurgeRun), not a bare removeRun:
+		// PurgeRun drops a leaked isolation WORKDIR before the manifest (its physical segment snapshot),
+		// so the run is never left as an unknown-present strand, and its refusal gates skip a run whose
+		// engine is still live or that has a live-orphan member (as PruneRuns/ClearFinished do). Ordering
+		// vs the job-meta pass above is immaterial: that pass reaps only DEAD members (a live-orphan one is
+		// kept, which also keeps this manifest via survivingRunIDs), and PurgeRun removes the segment's
+		// workdirs by that physical snapshot — not by member metas — so its ordered cleanup holds no matter
+		// which members were already reaped.
+		_ = WithRunLock(runID, func() error { _ = PurgeRun(runID); return nil })
+	}
+	sweepOrphanRunSidecars(dir, cutoff, false, pins)
+}
+
+// sweepOrphanRunSidecars removes any per-run sidecar (runs/<id>.journal, …) whose
+// manifest runs/<id>.json no longer exists. removeRun reaps a run's whole group, so
+// an orphan only arises if a prior remove was interrupted mid-group; left behind it
+// would waste disk and, at uninstall, keep the runs/ dir non-empty so PurgeJobs could
+// never os.Remove it. Best-effort, like the rest of GC bookkeeping.
+//
+// When force is false (periodic GC) a FRESH orphan (mtime after cutoff) is KEPT: a run
+// being launched/recreated by another process can momentarily have a journal whose
+// manifest write hasn't landed, and reaping it would lose an active run's cache. This is
+// symmetric with the manifest recency rule (runIsRecent). force=true (uninstall purge)
+// removes every orphan unconditionally — no run is active during uninstall.
+func sweepOrphanRunSidecars(runsDir string, cutoff time.Time, force bool, pins pinned.Set) {
+	entries, err := os.ReadDir(runsDir)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() {
+			continue
+		}
+		for _, ext := range runSidecarExts {
+			if !strings.HasSuffix(name, ext) {
+				continue
+			}
+			base := strings.TrimSuffix(name, ext)
+			if pins.Has(pinned.Run, base) {
+				continue // user-pinned run: keep its sidecars (periodic GC; uninstall passes an empty set)
+			}
+			if _, serr := os.Stat(filepath.Join(runsDir, base+".json")); !errors.Is(serr, os.ErrNotExist) {
+				continue // manifest present (or unstat-able) → not a removable orphan
+			}
+			path := filepath.Join(runsDir, name)
+			if !force {
+				if info, ierr := os.Stat(path); ierr == nil && info.ModTime().After(cutoff) {
+					continue // fresh orphan → may belong to an active run; keep it
+				}
+			}
+			_ = os.Remove(path)
+		}
+	}
+}
+
+// survivingRunIDs reads the jobs dir and returns the set of RunIDs that still have
+// at least one job meta on disk. gcRunManifests calls it AFTER the job-removal pass,
+// so the snapshot reflects which runs still have members (kept or just launched),
+// and a manifest is pruned only when its run is genuinely memberless.
+func survivingRunIDs(jobsDir string) map[string]bool {
+	live := map[string]bool{}
+	entries, err := os.ReadDir(jobsDir)
+	if err != nil {
+		return live
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".json") || strings.HasSuffix(name, ".result.json") {
+			continue
+		}
+		if meta, merr := readMeta(jobsDir, strings.TrimSuffix(name, ".json")); merr == nil && meta.RunID != "" {
+			live[meta.RunID] = true
+		}
+	}
+	return live
+}
+
+// PurgeJobs is the uninstall-time cleanup of ConfigDir()/subagent-jobs. It is a
+// sibling of GC but unconditional on age: it removes the full file group
+// (.json/.out/.err/.prompt/.result.json) of every FINISHED job — even when OTHER
+// jobs are still running — and keeps only the running ones. So a live background
+// subagent's files are never yanked out from under it, while finished jobs'
+// (possibly sensitive) .prompt/.result.json are still cleaned up. The now-empty
+// jobs dir is removed only when nothing is left running. Returns the
+// removed-finished job IDs and the kept-running job IDs (both sorted). A missing
+// jobs dir is not an error — nothing has ever run — and returns both empty.
+//
+// "running" uses the SAME signal as GC: a cached <id>.result.json is the
+// authoritative terminal marker (a finished job is never "running" even if its
+// pid was recycled); only when it's absent do we fall back to processAlive. An
+// unreadable meta can't be polled, so it is treated as finished garbage and removed.
+func PurgeJobs() (dir string, removedFinished []string, running []string, err error) {
+	dir, err = jobsDir()
+	if err != nil {
+		return "", nil, nil, err
+	}
+	entries, rerr := os.ReadDir(dir)
+	if rerr != nil {
+		if errors.Is(rerr, os.ErrNotExist) {
+			return dir, nil, nil, nil // nothing has ever run
+		}
+		return dir, nil, nil, fmt.Errorf("subagent: read jobs dir: %w", rerr)
+	}
+
+	// runningRuns collects the RunIDs of jobs we keep, so a manifest with a live
+	// member is preserved while all others are purged.
+	runningRuns := map[string]bool{}
+	for _, e := range entries {
+		name := e.Name()
+		// Same filter as GC/ListJobs: meta files only, never the cached .result.json.
+		if e.IsDir() || !strings.HasSuffix(name, ".json") || strings.HasSuffix(name, ".result.json") {
+			continue
+		}
+		jobID := strings.TrimSuffix(name, ".json")
+		meta, merr := readMeta(dir, jobID)
+		// A member leaf whose recorded CHILD is alive-or-unverifiable, OR still identity-PENDING (the
+		// Start window), is kept regardless of a cached terminal — the veto evidence a colliding worktree
+		// segment relies on (mirrors GC). Keeping it also keeps its run's manifest (runningRuns), so the
+		// chokepoint purge never reaches the run under the possibly-live orphan.
+		if merr == nil && isLiveOrPendingOrphanEvidence(meta) {
+			running = append(running, jobID)
+			runningRuns[meta.RunID] = true
+			continue
+		}
+		// result-cache-first liveness (mirrors GC): a cached terminal result means
+		// done regardless of pid; only without it do we consult processAlive. A
+		// meta we can't read can't be polled, so it falls through to removal.
+		resultPath := filepath.Join(dir, jobID+".result.json")
+		if _, resultErr := os.Stat(resultPath); resultErr != nil {
+			if merr == nil && (processAlive(meta.PID, meta.SettingsPath, meta.ProcStart) || queuedPlaceholder(meta)) {
+				running = append(running, jobID)
+				if meta.RunID != "" {
+					runningRuns[meta.RunID] = true
+				}
+				continue // live (or a not-yet-started queued leaf) → keep this job's file group
+			}
+		}
+		// Finished (or dead / unreadable) → remove its full file group now, even
+		// if OTHER jobs are still running (partial clean).
+		removeJob(dir, jobID)
+		removedFinished = append(removedFinished, jobID)
+	}
+
+	survived := purgeRunManifests(dir, runningRuns)
+
+	sort.Strings(removedFinished)
+	sort.Strings(running)
+
+	// Drop the jobs dir only when NOTHING survived: no live member job (len(running)==0) AND no run
+	// PurgeRun refused (survived — a live foreground / unverifiable engine leaves its manifest but has no
+	// running member job, so `running` alone would miss it and this wholesale RemoveAll would erase its
+	// manifest/journal/ctl under a live engine, bypassing the chokepoint). When survivors exist the
+	// partial-cleanup path already ran: it removed every finished/dead member job group + every
+	// provably-dead run (manifest + workdir, via PurgeRun) + orphan sidecars, and KEPT the refused run's
+	// manifest/sidecars, its live member jobs, and the dir itself. RemoveAll (not Remove) so a leftover
+	// per-run .lock (not a GC'd sidecar) can't strand the dir at an exclusive uninstall; nothing surviving
+	// means no lock is held.
+	if len(running) == 0 && !survived {
+		_ = os.RemoveAll(dir)
+	}
+	return dir, removedFinished, running, nil
+}
+
+// purgeRunManifests removes every run manifest whose RunID has no live member (runningRuns) through the
+// chokepoint (skip-on-refusal), then removes the now-empty runs/ dir best-effort. A missing runs/ dir is
+// a no-op. Returns whether any run PurgeRun REFUSED (a live foreground / unverifiable engine keeps its
+// manifest) — so the caller must NOT wholesale-remove the jobs dir on top of it, which would erase under
+// a live engine a run the chokepoint deliberately kept. A leftover per-run .lock does NOT count as a
+// survivor (it is a lock artifact, cleared by the caller's RemoveAll). Keeping the runs/ dir
+// empty-and-removable is what lets PurgeJobs finally drop the jobs dir when nothing is running.
+func purgeRunManifests(jobsDir string, runningRuns map[string]bool) (survived bool) {
+	dir := filepath.Join(jobsDir, runsDirName)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false // no runs dir → nothing survived
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".json") {
+			continue
+		}
+		// The filename IS the run id, so membership is decided WITHOUT reading the
+		// manifest: a run with a live member is kept even if its manifest is corrupt;
+		// every other manifest (no live member, or unreadable / parse-fail) is dropped.
+		runID := strings.TrimSuffix(name, ".json")
+		if runningRuns[runID] {
+			continue // live member → keep this run's manifest
+		}
+		// Route through the CHOKEPOINT (WithRunLock + PurgeRun), not a bare removeRun: PurgeRun drops a
+		// leaked isolation WORKDIR before the manifest (its physical segment snapshot) so nothing strands
+		// unknown-present, and its gates skip a live engine / live-orphan member. Ordering vs the member
+		// pass above is immaterial (same property as gcRunManifests): that pass reaps only DEAD members —
+		// a live-orphan one is KEPT, so runningRuns holds it and this loop already skipped it above — and
+		// PurgeRun removes the segment's workdirs by physical snapshot, not by member metas.
+		_ = WithRunLock(runID, func() error {
+			if PurgeRun(runID) != nil {
+				survived = true // REFUSED (live engine) → its manifest remains; the jobs dir must be kept
+			}
+			return nil
+		})
+	}
+	sweepOrphanRunSidecars(dir, time.Time{}, true, pinned.Set{}) // uninstall: empty pin set → drop every orphan sidecar so the dir can empty
+	_ = os.Remove(dir)                                           // best-effort: removes the runs/ dir when empty (a leftover per-run .lock, cleared by the caller's RemoveAll, is the only non-survivor that can block it)
+	return survived
+}
+
+// procRoot is the procfs mount point. A package var so tests can point the
+// PID-reuse guard at a fixture tree instead of the live /proc.
+var procRoot = "/proc"
+
+// queuedPlaceholder reports whether meta is a workflow leaf with no process by design: a queued
+// placeholder the engine minted before the leaf got a pool slot, or a HELD leaf parked by a
+// leaf-stop directive. GC/PurgeJobs treat both as live — mirroring StatusFor's queued/held
+// branches — so a `subagent-gc --older-than 0s` (which clears done entries) can't remove an
+// active leaf out from under the engine. A queued one flips to running (registerSyncJob) or
+// terminal (finalize) shortly; a held one waits for its restart; a crashed engine's orphan is
+// reaped by run prune/rm (plus the engine's stale-hold sweep at resume).
+func queuedPlaceholder(meta jobMeta) bool {
+	return (meta.Status == "queued" || meta.Status == "held") && meta.PID == 0
+}
+
+// processAlive reports whether pid is alive and, as far as can be told, still
+// the process this job launched. kill(pid,0) decides alive (nil, or EPERM: alive
+// but not ours) or gone (ESRCH), but that only proves SOME process holds the
+// pid: once a finished job's pid is recycled it would read "running" forever
+// (StatusFor) and never GC, so the recorded start token and the claude argv
+// narrow it, as below. ReapJob signals the pid's process tree on this same
+// predicate.
+func processAlive(pid int, settingsPath, procStart string) bool {
+	if pid <= 0 {
+		return false
+	}
+	if !pidAlive(pid) {
+		return false
+	}
+	// A readable start token that differs from the recorded one proves a recycled
+	// pid (one process keeps one start time) and is decisive. With no argv
+	// introspection here, or an empty settingsPath (a sync job — its pid is
+	// cc-fleet, not a claude child — or a legacy meta), the answer after that
+	// check is alive.
+	//
+	// With a readable, equal token argv only has to look like claude — any entry
+	// with a "/claude/" path segment or a basename containing "claude". A wrapper
+	// between cc-fleet and claude can rewrite --settings (cmux's claude wrapper
+	// merges it into its own file and execs claude on the same pid), and requiring
+	// the profile path then read a running job as gone. That gives up a pid
+	// recycled within the token's precision (whole seconds on darwin) by another
+	// process whose argv has such an entry. With no readable token (legacy meta or
+	// capture failure) the full check stays: claude-looking argv AND this job's
+	// --settings value.
+	tokenMatched := false
+	if procStart != "" {
+		if live, ok := procStartFn(pid); ok {
+			if live != procStart {
+				return false
+			}
+			tokenMatched = true
+		}
+	}
+	if !hasArgvIntrospection || settingsPath == "" {
+		return true
+	}
+	if tokenMatched {
+		return cmdlineIsClaude(pid)
+	}
+	return cmdlineIsClaudeJob(pid, settingsPath)
+}
+
+// hasArgvIntrospection reports whether platformReuseGuardArgv can read a live
+// process's argv here — linux via /proc, darwin via ps. A package var so tests
+// drive the no-argv branch cross-platform.
+var hasArgvIntrospection = runtime.GOOS == "linux" || runtime.GOOS == "darwin"
+
+// procStartFn reads a pid's start-time token for the PID-reuse guards. A
+// package var so tests inject tokens without a live process. Default:
+// procintrospect.ProcStart.
+var procStartFn = procintrospect.ProcStart
+
+// cmdlineIsClaudeJob reads pid's argv and reports whether it is still the claude
+// subagent for this job: a claude binary (an arg whose path contains "/claude/"
+// or whose basename contains "claude" — versions paths have a hash basename, so
+// the path segment is the reliable marker) AND this job's --settings
+// <profilePath> value (per-provider, unique enough to bind the pid). Matching
+// --settings alone is deliberate: --model is too loose (many jobs share a
+// model). If the cmdline can't be read (a just-exited pid / proc race) we trust
+// the kill(0) liveness and return true to avoid a flaky false-dead; the
+// long-lived recycled-pid footgun always has a readable, non-matching cmdline.
+func cmdlineIsClaudeJob(pid int, settingsPath string) bool {
+	argv, ok := reuseGuardArgv(pid)
+	if !ok {
+		return true
+	}
+	return argvIsClaudeJob(argv, settingsPath)
+}
+
+// reuseGuardArgv reads pid's argv for the PID-reuse guard. A package var so
+// tests drive the matcher cross-platform without a live process. Default:
+// platformReuseGuardArgv.
+var reuseGuardArgv = platformReuseGuardArgv
+
+// platformReuseGuardArgv returns pid's argv, ok=false when it can't be read.
+// Linux reads /proc/<pid>/cmdline through procRoot (the test seam); darwin
+// shells to ps via procintrospect.Cmdline; other platforms return ok=false so
+// processAlive degrades to a bare kill(0).
+func platformReuseGuardArgv(pid int) ([]string, bool) {
+	switch runtime.GOOS {
+	case "linux":
+		data, err := os.ReadFile(filepath.Join(procRoot, strconv.Itoa(pid), "cmdline"))
+		if err != nil {
+			return nil, false
+		}
+		return strings.Split(string(data), "\x00"), true
+	case "darwin":
+		argv, err := procintrospect.Cmdline(pid)
+		if err != nil {
+			return nil, false
+		}
+		return argv, true
+	}
+	return nil, false
+}
+
+// argvIsClaudeJob is the shared matcher: argv carries a claude executable token
+// (a "/claude/" path segment — versions/<hash> basenames aren't "claude" — or a
+// basename containing "claude") AND this job's --settings value. Matching
+// --settings alone is deliberate; --model is too loose.
+//
+// The --settings value is matched as an exact argv token first. But darwin
+// recovers argv via `ps -o command=`, which space-splits the command line, so a
+// --settings path containing a space would never match as an exact token — the
+// live job would be mis-read as dead and GC'd out from under its claude child.
+// When the exact-token match misses, fall back to a substring check on the
+// space-rejoined argv. (On Linux the NUL-delimited argv always has the exact
+// token, so the fallback never fires there.)
+func argvIsClaudeJob(argv []string, settingsPath string) bool {
+	var hasClaude, hasSettings bool
+	for _, arg := range argv {
+		if arg == "" {
+			continue
+		}
+		if !hasClaude && isClaudeArg(arg) {
+			hasClaude = true
+		}
+		if arg == settingsPath {
+			hasSettings = true
+		}
+	}
+	if !hasSettings && settingsPath != "" && strings.Contains(strings.Join(argv, " "), settingsPath) {
+		// Darwin lossy-split recovery: the path survived as a substring of the
+		// space-joined argv even though it was split across tokens.
+		hasSettings = true
+	}
+	return hasClaude && hasSettings
+}
+
+// isClaudeArg reports whether one argv entry names a claude binary: a path
+// with a "/claude/" segment or a basename containing "claude".
+func isClaudeArg(arg string) bool {
+	return strings.Contains(arg, "/claude/") || strings.Contains(filepath.Base(arg), "claude")
+}
+
+// cmdlineIsClaude reads pid's argv and reports whether it is a claude binary,
+// without checking this job's --settings (see processAlive). An unreadable
+// cmdline trusts the kill(0) liveness, as in cmdlineIsClaudeJob.
+func cmdlineIsClaude(pid int) bool {
+	argv, ok := reuseGuardArgv(pid)
+	if !ok {
+		return true
+	}
+	for _, arg := range argv {
+		if arg != "" && isClaudeArg(arg) {
+			return true
+		}
+	}
+	return false
+}
+
+func metaPath(dir, jobID string) string { return filepath.Join(dir, jobID+".json") }
+
+func writeMeta(dir string, m jobMeta) error {
+	data, err := json.MarshalIndent(m, "", "  ")
+	if err != nil {
+		return err
+	}
+	// AtomicWrite (temp + rename), not a plain WriteFile: the meta is load-bearing death evidence
+	// (ChildPID) that runLeafScan reads, so a reader must never see a half-written file — a torn write
+	// would read as a corrupt/partial meta. The single meta outlet, so every writer (registerSyncJob on
+	// the spawn path, recordChildIdentity, the hold-protocol rewrites, finalize) is atomic; the temp
+	// files are `.<name>.*.tmp` and every jobs-dir scanner skips non-".json" names.
+	return fileutil.AtomicWrite(metaPath(dir, m.JobID), data, 0o600)
+}
+
+// readCapped reads at most limit bytes of a job file, so a runaway capture can't OOM the terminal
+// classify. Best-effort: a missing/unreadable file yields nil, matching os.ReadFile's error handling.
+// It TRUNCATES silently, so use it only where a bounded prefix is acceptable (e.g. a stderr preview).
+func readCapped(path string, limit int64) []byte {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, limit))
+	if err != nil {
+		return nil
+	}
+	return data
+}
+
+// readWholeUnderCap reads a job file only when it fits within limit bytes, returning nil when the
+// capture is larger. The legacy (non-stream) .out is parsed as an authoritative whole-input envelope
+// (parseInner rejects trailing garbage), so an over-cap capture must classify as vanished (honest)
+// rather than trust a truncated prefix that could parse clean and fabricate a done. Best-effort: a
+// missing/unreadable file yields nil, matching os.ReadFile's error handling.
+func readWholeUnderCap(path string, limit int64) []byte {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, limit+1))
+	if err != nil {
+		return nil
+	}
+	if int64(len(data)) > limit {
+		return nil // over-cap: don't trust a truncated prefix as a complete envelope
+	}
+	return data
+}
+
+func readMeta(dir, jobID string) (jobMeta, error) {
+	var m jobMeta
+	// readFileRetry, not os.ReadFile: writeMeta renames the meta into place (AtomicWrite), so on
+	// windows a concurrent reader can hit a transient ERROR_SHARING_VIOLATION for the instant the
+	// replace holds the target. The retry absorbs only that window; a real read/parse error still
+	// surfaces. No-op on unix (rename never yields it).
+	data, err := readFileRetry(metaPath(dir, jobID))
+	if err != nil {
+		return m, err
+	}
+	if err := json.Unmarshal(data, &m); err != nil {
+		return m, err
+	}
+	return m, nil
+}
+
+// removeJob deletes every file in a job's group (best-effort), including the opt-in
+// drill-in side files (.prompt / .answer) and a slim run's prompt sidecar (.slimprompt).
+// .scan.lock is deliberately absent: it is a flock file, never GC'd — unlinking one a board
+// poll might still hold would recreate a different inode and break the scan serialization
+// (the same rule the per-run .lock follows).
+func removeJob(dir, jobID string) {
+	for _, suffix := range []string{".json", ".out", ".err", ".prompt", ".answer", ".activity", ".scan", ".slimprompt", ".result.json"} {
+		_ = os.Remove(filepath.Join(dir, jobID+suffix))
+	}
+}
+
+// leafActivityPath returns <jobID>.activity in the jobs dir — where a SYNC leaf streams its
+// per-tool/usage activity when StreamActivity (the board reads it for the Activity feed). The id
+// is a freshly-minted uuid from registerSyncJob; the board validates it via ids.ValidateJobID
+// before reading.
+func leafActivityPath(jobID string) (string, error) {
+	dir, err := jobsDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, jobID+".activity"), nil
+}
+
+// slimPromptPath returns <jobID>.slimprompt in the jobs dir — the per-job sidecar
+// holding a slim run's rendered system prompt (consumed via --system-prompt-file
+// and reaped with the job). Mirrors leafActivityPath.
+func slimPromptPath(jobID string) (string, error) {
+	dir, err := jobsDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, jobID+".slimprompt"), nil
+}
+
+// mintSyncJobID creates the jobs dir and returns a fresh job id, BEFORE buildArgv
+// so a slim sync run can write its <jobID>.slimprompt sidecar and reference it.
+// Best-effort: "" on any error, like registerSyncJob — board bookkeeping never
+// fails the run.
+func mintSyncJobID() string {
+	dir, err := jobsDir()
+	if err != nil {
+		return ""
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return ""
+	}
+	return uuid.NewString()
+}
+
+// jobMetaMu serializes the hold-protocol meta read-modify-writes: the engine
+// loop's kill-and-HOLD pre-mark (HoldLeaf) and the leaf goroutine's
+// register/finalize would otherwise interleave — a register landing after the
+// pre-mark clobbers `held` back to `running`, and a hold landing between
+// finalize's meta read and its cache write strands a terminal cache under a
+// hold; either hands GC an authoritative "finished" for a live frame. Every
+// hold-protocol writer runs in the engine process while the engine lives
+// (cross-process writers like StopRun's release walk run only against a dead
+// engine), so an in-process mutex closes both windows.
+var jobMetaMu sync.Mutex
+
+// registerOutcome is registerSyncJob's tri-state result: the running meta was
+// written (registerOK); a kill-and-HOLD pre-mark owns the job, so the caller
+// must stop immediately and leave the held meta untouched (registerHeld); or
+// board bookkeeping is unavailable and the run proceeds unrecorded
+// (registerFailed).
+type registerOutcome int
+
+const (
+	registerFailed registerOutcome = iota
+	registerHeld
+	registerOK
+)
+
+// registerSyncJob records a SYNCHRONOUS Run on the Agents Board so it is
+// visible WHILE it executes. It writes only a running jobMeta — NO prompt /
+// answer text (key-safety, same discipline as background). PID is the
+// current cc-fleet process, so StatusFor's bare kill(0) reports "running" until
+// finalizeSyncJob caches the terminal result; SettingsPath is intentionally
+// empty so processAlive does NOT apply the claude-cmdline reuse guard to a pid
+// that is cc-fleet, not a claude child. jobID is minted by mintSyncJobID before
+// buildArgv; an empty jobID (mint failed) leaves the run unrecorded. best-effort:
+// any error proceeds unrecorded — board bookkeeping must never fail the run or
+// change its returned Result.
+//
+// registerFailed must skip finalizeSyncJob (which would otherwise write an
+// orphan .result.json with no backing meta) and let Run reap the slim sidecar
+// instead.
+func registerSyncJob(jobID string, req Request, model string, effective, downgrade string, proxyPort int) registerOutcome {
+	if jobID == "" {
+		return registerFailed
+	}
+	dir, err := jobsDir()
+	if err != nil {
+		return registerFailed
+	}
+	jobMetaMu.Lock()
+	defer jobMetaMu.Unlock()
+	// A held meta means the engine's kill-and-HOLD pre-marked this job and
+	// cancelled the very attempt now registering: writing `running` here would
+	// clobber the hold and let the attempt's finalize cache a terminal result
+	// for a live held frame. The caller stops instead.
+	if prev, perr := readMeta(dir, jobID); perr == nil && prev.Status == "held" {
+		return registerHeld
+	}
+	procStart, _ := procStartFn(os.Getpid())
+	meta := jobMeta{
+		JobID:         jobID,
+		PID:           os.Getpid(),
+		PGID:          os.Getpid(),
+		ProcStart:     procStart, // the resident parent's token; its liveness proxies the leaf
+		ProxyPort:     proxyPort,
+		Provider:      req.Provider,
+		Model:         model,
+		StartedAt:     time.Now().UTC().Format(time.RFC3339),
+		Status:        "running",
+		OutputFormat:  req.OutputFormat,
+		JSON:          req.JSON,
+		LeadSessionID: req.LeadSessionID,
+		RunID:         req.RunID,
+		Phase:         req.Phase,
+		Label:         req.Label,
+		JournalKey:    req.JournalKey,
+		Attempt:       req.Attempt,
+		PersistIO:     req.PersistIO,
+		PromptProfile: effective,
+		SlimDowngrade: downgrade,
+		// A SYNC MEMBER starts in the identity-pending state — the child pid is stamped later by
+		// recordChildIdentity (after cmd.Start). Marks the Start-window so a crash there keeps its
+		// veto evidence; a standalone sync job (no run) never needs it.
+		ChildIdentityPending: req.RunID != "",
+		// SettingsPath deliberately empty (see processAlive). Sync writes no .out
+		// file, so the deferred result cache is the authoritative done signal.
+	}
+	// A REUSED job id (the engine's queued→running flip) must start clean: drop any terminal
+	// cache + stale answer/activity so the board re-reads this job as running, not a prior
+	// done/answer. No-op for a fresh id.
+	for _, ext := range []string{".result.json", ".answer", ".activity"} {
+		_ = os.Remove(filepath.Join(dir, jobID+ext))
+	}
+	// The remove above is best-effort; for a streamed leaf, GUARANTEE the activity sidecar is empty
+	// before the meta goes live — a survivor (a failed remove) would otherwise be read as this attempt's
+	// activity the instant the job becomes visible as running. Truncate-only, so it never creates an orphan.
+	if req.StreamActivity {
+		if p, perr := leafActivityPath(jobID); perr == nil {
+			freshActivitySidecar(p)
+		}
+	}
+	if err := writeMetaFn(dir, meta); err != nil {
+		return registerFailed
+	}
+	// Opt-in board drill-in: persist the prompt to a 0600 side file. Content-privacy,
+	// not key-safety (the provider key never enters the prompt). Best-effort — a write
+	// hiccup just means no prompt in the detail card, never a failed run.
+	if req.PersistIO && req.IOPrompt != "" {
+		_ = os.WriteFile(filepath.Join(dir, jobID+".prompt"), []byte(req.IOPrompt), 0o600)
+	}
+	return registerOK
+}
+
+// recordChildIdentity captures a SYNC leaf's `claude -p` CHILD pid + start token into its meta right
+// after Start — the engine-as-proxy meta.PID does not identify the child, which a bare SIGKILL can
+// orphan alive. A jobMetaMu read-modify-write that updates ONLY ChildPID/ChildProcStart, preserving
+// every other field (Status/PID/PGID/attempt/hold bookkeeping). It writes even onto a HELD row: the
+// hold protocol premarks {held, PID 0} BEFORE killing the child, so an engine crash in that window
+// leaves a LIVE orphan only this recorded identity can protect from the reclaimers — and adding the
+// child fields cannot resurrect a parked row (StatusFor still classifies by Status=="held", the
+// reclaimers read ChildPID). A GONE meta is skipped. The attempt guard rejects a stale write across a
+// restart: a held→restarted leaf bumps meta.Attempt, so a late attempt-N child must never stamp an
+// attempt-M row (and vice versa).
+func recordChildIdentity(jobID string, childPID, attempt int) {
+	if jobID == "" || childPID <= 0 {
+		return
+	}
+	dir, err := jobsDir()
+	if err != nil {
+		return
+	}
+	tok, _ := procStartFn(childPID)
+	jobMetaMu.Lock()
+	defer jobMetaMu.Unlock()
+	meta, rerr := readMeta(dir, jobID)
+	if rerr != nil || meta.Attempt != attempt {
+		return
+	}
+	meta.ChildPID, meta.ChildProcStart = childPID, tok
+	meta.ChildIdentityPending = false // identity now recorded — the Start window is closed
+	_ = writeMetaFn(dir, meta)
+}
+
+// MintQueuedLeaf records a leaf the workflow engine has admitted but not yet given a pool slot:
+// a PLACEHOLDER jobMeta with Status="queued" and PID=0 (no process yet), so the board shows it as
+// a queued ◌ row immediately instead of only once it starts running. The engine passes the returned
+// id back as Request.JobID, so the SAME on-disk job flips queued→running (registerSyncJob) →terminal
+// (finalizeSyncJob) as one file. It writes NO prompt/answer (key-safety, same as registerSyncJob).
+// Best-effort: "" on any error, so board bookkeeping never fails the run; an empty id makes the
+// engine fall back to minting at run time.
+func MintQueuedLeaf(req Request, model string) string {
+	jobID := mintSyncJobID()
+	if jobID == "" {
+		return ""
+	}
+	dir, err := jobsDir()
+	if err != nil {
+		return ""
+	}
+	meta := jobMeta{
+		JobID:         jobID,
+		PID:           0, // no process yet — StatusFor reports queued until registerSyncJob flips it
+		Provider:      req.Provider,
+		Model:         model,
+		StartedAt:     time.Now().UTC().Format(time.RFC3339),
+		Status:        "queued",
+		OutputFormat:  req.OutputFormat,
+		JSON:          req.JSON,
+		LeadSessionID: req.LeadSessionID,
+		RunID:         req.RunID,
+		Phase:         req.Phase,
+		Label:         req.Label,
+		JournalKey:    req.JournalKey,
+		Attempt:       req.Attempt,
+		PersistIO:     req.PersistIO,
+		PromptProfile: req.PromptProfile,
+	}
+	if err := writeMetaFn(dir, meta); err != nil {
+		return ""
+	}
+	return jobID
+}
+
+// FinalizeQueuedLeafFailed marks a leaf's (reused) job terminal-failed when the engine abandoned it
+// without a success: a queued placeholder cancelled before its slot or whose worktree failed, a
+// pre-flight provider failure (subagent.Run returned before registering), or a schema-invalid leaf
+// whose exec cached "done". A res carrying a real error class is preserved (so the board keeps
+// e.g. INSUFFICIENT_BALANCE); otherwise a canonical SUBAGENT_FAILED is written. No-op for an empty id.
+func FinalizeQueuedLeafFailed(jobID string, res Result) {
+	if jobID == "" {
+		return
+	}
+	if res.OK || res.ErrorCode == "" {
+		res = fail(ErrCodeFailed, "leaf did not complete", res.Provider, "")
+	}
+	finalizeSyncJob(jobID, res)
+}
+
+// HoldLeaf parks a leaf's job in the NONTERMINAL `held` status (kill-and-HOLD): meta
+// Status="held" with PID/PGID cleared, so StatusFor's held branch — not the PID
+// fallthrough — classifies it. The engine flips the meta BEFORE cancelling the attempt;
+// finalizeSyncJob then SUPPRESSES the killed attempt's terminal cache, so no terminal
+// cache ever exists during a hold and GC keeps treating the job as live. A job whose
+// terminal cache already exists settled before the directive (success-beats-kill):
+// the hold is a no-op, keeping the no-cache-under-hold invariant from the other
+// direction. No-op for an empty id or an unreadable meta.
+func HoldLeaf(jobID string) {
+	if jobID == "" {
+		return
+	}
+	dir, err := jobsDir()
+	if err != nil {
+		return
+	}
+	jobMetaMu.Lock()
+	defer jobMetaMu.Unlock()
+	if _, serr := os.Stat(filepath.Join(dir, jobID+".result.json")); serr == nil {
+		return
+	}
+	meta, err := readMeta(dir, jobID)
+	if err != nil {
+		return
+	}
+	meta.Status = "held"
+	meta.PID, meta.PGID = 0, 0
+	_ = writeMetaFn(dir, meta)
+}
+
+// ReleaseHeldLeafStopped terminal-stops a HELD leaf (the run is aborting and nothing
+// will ever wake it): the meta leaves `held` FIRST — otherwise the finalize's hold
+// suppression would swallow the stopped cache this release exists to write. The
+// transition and the finalize run under ONE jobMetaMu acquisition (the Locked body —
+// the public wrapper would deadlock).
+func ReleaseHeldLeafStopped(jobID, msg string) {
+	if jobID == "" {
+		return
+	}
+	dir, err := jobsDir()
+	if err != nil {
+		return
+	}
+	jobMetaMu.Lock()
+	defer jobMetaMu.Unlock()
+	meta, err := readMeta(dir, jobID)
+	if err != nil {
+		return
+	}
+	meta.Status = "stopped"
+	_ = writeMetaFn(dir, meta)
+	finalizeSyncJobLocked(jobID, fail(ErrCodeStopped, msg, meta.Provider, ""), false)
+}
+
+// NormalizeHeldLeaf clears a held pre-mark that lost its race: the directive landed
+// after the attempt's finalize had already cached a terminal outcome, so the hold never
+// took effect. Cache-first — with no terminal cache there is nothing truer to restore
+// and the meta is left alone (the live engine still owns that leaf).
+func NormalizeHeldLeaf(jobID string) {
+	if jobID == "" {
+		return
+	}
+	dir, err := jobsDir()
+	if err != nil {
+		return
+	}
+	jobMetaMu.Lock()
+	defer jobMetaMu.Unlock()
+	meta, err := readMeta(dir, jobID)
+	if err != nil || meta.Status != "held" {
+		return
+	}
+	data, cerr := os.ReadFile(filepath.Join(dir, jobID+".result.json"))
+	if cerr != nil {
+		return
+	}
+	var r Result
+	if json.Unmarshal(data, &r) != nil || r.Status == "" {
+		return
+	}
+	meta.Status = r.Status
+	_ = writeMetaFn(dir, meta)
+}
+
+// RequeueLeaf flips a held leaf's job back to a queued placeholder for its next attempt
+// (restart): Status="queued", PID=0, Attempt=attempt, with the terminal sidecars dropped
+// (the same clean-slate rule as registerSyncJob's reuse path) so the board re-reads the
+// row as queued ◌ immediately. registerSyncJob re-registers it when the attempt execs.
+func RequeueLeaf(jobID string, attempt int) {
+	if jobID == "" {
+		return
+	}
+	dir, err := jobsDir()
+	if err != nil {
+		return
+	}
+	jobMetaMu.Lock()
+	defer jobMetaMu.Unlock()
+	meta, err := readMeta(dir, jobID)
+	if err != nil {
+		return
+	}
+	// ChildPID/ChildProcStart are left untouched: the prior child is already reaped (reads dead), and
+	// registerSyncJob resets them to {ChildPID 0, pending} before the next attempt's cmd.Start. A refactor
+	// must never let a stale nonzero ChildPID coexist with a newly-started child — the reclaim guards veto
+	// on a recorded ChildPID, so preserving it across requeue, or starting the child before re-registering,
+	// would let a sweep delete a live worktree.
+	meta.Status = "queued"
+	meta.PID, meta.PGID = 0, 0
+	meta.Attempt = attempt
+	for _, ext := range []string{".result.json", ".answer", ".activity"} {
+		_ = os.Remove(filepath.Join(dir, jobID+ext))
+	}
+	_ = writeMetaFn(dir, meta)
+}
+
+// NormalizeStaleHolds sweeps a run's member jobs at engine start: a meta still `held`
+// from a PRIOR invocation (a kill-9'd engine ran no abort walk) is finalized terminal
+// `stopped` when no result cache exists — holds are never persisted, and the resume
+// re-runs that leaf from the journal — or, under a terminal cache (a hard kill between
+// the cache write and the settle normalization), the meta alone is normalized to the
+// cache's status. Cache-first: the sweep never terminalizes a leaf whose cache says it
+// finished.
+func NormalizeStaleHolds(runID string) {
+	dir, err := jobsDir()
+	if err != nil {
+		return
+	}
+	entries, rerr := os.ReadDir(dir)
+	if rerr != nil {
+		return
+	}
+	for _, e := range entries {
+		name := e.Name()
+		if e.IsDir() || !strings.HasSuffix(name, ".json") || strings.HasSuffix(name, ".result.json") {
+			continue
+		}
+		jobID := strings.TrimSuffix(name, ".json")
+		normalizeStaleHold(dir, runID, jobID)
+	}
+}
+
+// normalizeStaleHold is one job's sweep step, holding jobMetaMu across the whole
+// read→transition→finalize so nothing interleaves (the finalize goes through the
+// Locked body — the public wrapper would deadlock).
+func normalizeStaleHold(dir, runID, jobID string) {
+	jobMetaMu.Lock()
+	defer jobMetaMu.Unlock()
+	meta, merr := readMeta(dir, jobID)
+	if merr != nil || meta.RunID != runID || meta.Status != "held" {
+		return
+	}
+	if data, cerr := os.ReadFile(filepath.Join(dir, jobID+".result.json")); cerr == nil {
+		var r Result
+		if json.Unmarshal(data, &r) == nil && r.Status != "" {
+			meta.Status = r.Status
+			_ = writeMetaFn(dir, meta)
+			return
+		}
+	}
+	meta.Status = "stopped" // ahead of the finalize so the suppression branch can't fire
+	_ = writeMetaFn(dir, meta)
+	finalizeSyncJobLocked(jobID, fail(ErrCodeStopped, "run restarted while the leaf was held", meta.Provider, ""), false)
+}
+
+// finalizeSyncJob is the SYNTHETIC-safe entry (childReaped=false): an external reclaimer that did NOT
+// run this attempt's runClaude cannot prove the child is dead, so it preserves a pending stamp (a
+// crashed engine's orphan may still be live). The in-process attempt path uses finalizeSyncJobReaped.
+func finalizeSyncJob(jobID string, res Result) {
+	jobMetaMu.Lock()
+	defer jobMetaMu.Unlock()
+	finalizeSyncJobLocked(jobID, res, false)
+}
+
+// finalizeSyncJobReaped is the in-process attempt path: runClaude RETURNED, so cmd.Wait reaped the
+// child (or cmd.Start never launched one) — the child is PROVABLY not running (childReaped=true), which
+// lets the terminal write clear a still-pending identity stamp.
+func finalizeSyncJobReaped(jobID string, res Result) {
+	jobMetaMu.Lock()
+	defer jobMetaMu.Unlock()
+	finalizeSyncJobLocked(jobID, res, true)
+}
+
+// finalizeSyncJobLocked flips a sync job from running → done/failed by writing a SANITIZED terminal
+// result cache: status + provider/model/started + the SAFE metrics (Usage / cost / turns / duration —
+// claude's own metering, which the board's Workflows view needs to show a done leaf's tokens +
+// "done · N turns" outcome) + canonical error fields, with the answer text (res.Result) and Raw STRIPPED
+// so no provider reply is ever persisted to disk for a sync run (the caller already got it on stdout). A
+// subsequent StatusFor/ListJobs serves this cache. jobID=="" (register failed) is a no-op. The
+// read→suppress-or-write section runs under jobMetaMu (a HoldLeaf landing between the meta read and the
+// cache write would otherwise strand a terminal cache under a hold); the public wrappers acquire it,
+// lifecycle paths already holding it call this directly.
+func finalizeSyncJobLocked(jobID string, res Result, childReaped bool) {
+	if jobID == "" {
+		return
+	}
+	dir, err := jobsDir()
+	if err != nil {
+		return
+	}
+	meta, _ := readMeta(dir, jobID) // for the stable provider/model/started columns
+	// Opt-in board drill-in: persist the answer to a 0600 side file, SEPARATE from the
+	// cache below (which stays answer-stripped so the board TABLE never shows a reply).
+	// Content-privacy, not key-safety. Best-effort; only a real answer (success) is kept.
+	if meta.PersistIO && res.Result != "" {
+		_ = os.WriteFile(filepath.Join(dir, jobID+".answer"), []byte(res.Result), 0o600)
+	}
+	cached := Result{
+		OK:        res.OK,
+		Provider:  meta.Provider,
+		Model:     meta.Model,
+		JobID:     jobID,
+		StartedAt: meta.StartedAt,
+		// Safe final metrics (claude's own metering, NOT the answer) — the board needs them
+		// for a done leaf's token/cost/turns columns and the "done · N turns" outcome.
+		Usage:          res.Usage,
+		CostUSD:        res.CostUSD,
+		NumTurns:       res.NumTurns,
+		DurationMs:     res.DurationMs,
+		StopReason:     res.StopReason,
+		ErrorCode:      res.ErrorCode,
+		ErrorMsg:       res.ErrorMsg,
+		Suggestion:     res.Suggestion,
+		APIErrorStatus: res.APIErrorStatus,
+		LeadSessionID:  meta.LeadSessionID,
+		RunID:          meta.RunID,
+		Phase:          meta.Phase,
+		Label:          meta.Label,
+		JournalKey:     meta.JournalKey,
+		Attempt:        meta.Attempt,
+		PromptProfile:  meta.PromptProfile,
+		SlimDowngrade:  meta.SlimDowngrade,
+	}
+	switch {
+	case res.OK:
+		cached.Status = "done"
+	case res.ErrorCode == ErrCodeStopped:
+		cached.Status = "stopped" // a stop reap / leaf-stop kill — terminal, but not a failure
+	default:
+		cached.Status = "failed"
+	}
+	// A REAPED terminal finalize (childReaped: runClaude returned, so cmd.Wait reaped the child or
+	// cmd.Start never launched one) proves a still-PENDING leaf has NO live process. Clear the pending
+	// stamp AND the engine-proxy PID so the leaf reads process-free — else a cmd.Start failure (onStart
+	// never ran) strands a false-pending veto that force-keeps the meta and blocks the run's worktree
+	// reclamation forever. Pending survives ONLY paths that cannot verify the child: an engine SIGKILL
+	// never reaches finalize, a synthetic reclaim (childReaped=false) preserves it, and the held-stopped
+	// suppression below returns before this clears anything.
+	clearPending := childReaped && meta.ChildIdentityPending
+	// A held meta marks a leaf-stop directive in flight (HoldLeaf ran before the kill).
+	// The killed attempt's stopped-class finalize is SUPPRESSED — a terminal cache during
+	// a hold would hand GC an authoritative "finished" for a live frame. Any other
+	// outcome beat the kill (success-wins / a genuine failure): write its cache and
+	// normalize the meta to match, so no stale held meta survives a settle.
+	if meta.Status == "held" {
+		if cached.Status == "stopped" {
+			// SUPPRESS the terminal cache (a cache under a hold hands GC a finished frame), but the
+			// in-process reap still PROVES the child isn't running — clear a false-pending stamp + the
+			// engine-proxy PID so it can't force-keep the row forever once the hold is released. The row
+			// stays held (queuedPlaceholder keeps it as the live frame it is).
+			if clearPending {
+				meta.ChildIdentityPending, meta.PID = false, 0
+				_ = writeMetaFn(dir, meta)
+			}
+			return
+		}
+		meta.Status = cached.Status
+		if clearPending {
+			meta.ChildIdentityPending, meta.PID = false, 0
+		}
+		_ = writeMetaFn(dir, meta)
+	} else if clearPending {
+		meta.ChildIdentityPending, meta.PID = false, 0
+		_ = writeMetaFn(dir, meta)
+	}
+	if data, merr := json.Marshal(cached); merr == nil {
+		_ = os.WriteFile(filepath.Join(dir, jobID+".result.json"), data, 0o600)
+	}
+}

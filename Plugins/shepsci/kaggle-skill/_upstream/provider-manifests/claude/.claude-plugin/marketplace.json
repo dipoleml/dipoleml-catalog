@@ -1,0 +1,33 @@
+{
+  "name": "shepsci",
+  "description": "shepsci's independent, unofficial Claude Code plugin catalog entry for Kaggle.com workflows. Not affiliated with, endorsed by, or sponsored by Kaggle or Google.",
+  "owner": {
+    "name": "shepsci",
+    "url": "https://github.com/shepsci"
+  },
+  "plugins": [
+    {
+      "name": "kaggle",
+      "version": "3.0.1",
+      "description": "Independent, unofficial Kaggle.com plugin: research a competition, see where you stand, check and submit with a dry run first, read solution writeups and discussions, and work with datasets, models and notebooks. Not affiliated with, endorsed by, or sponsored by Kaggle or Google.",
+      "author": {
+        "name": "shepsci"
+      },
+      "homepage": "https://github.com/shepsci/kaggle-skill",
+      "repository": "https://github.com/shepsci/kaggle-skill",
+      "license": "MIT",
+      "source": "./",
+      "category": "data-science",
+      "tags": [
+        "kaggle",
+        "competitions",
+        "datasets",
+        "models",
+        "notebooks",
+        "forums",
+        "writeups",
+        "benchmarks"
+      ]
+    }
+  ]
+}

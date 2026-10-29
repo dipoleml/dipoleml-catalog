@@ -1,0 +1,16 @@
+{
+  "name": "swift-engineer",
+  "displayName": "Swift Engineer",
+  "version": "4.0.1",
+  "description": "Elite iOS and macOS development expertise with automatic skill activation for Swift, UIKit, AppKit, SwiftUI, Xcode, and Apple frameworks plus code formatting tools",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Sjungling"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/sjungling/sjungling-claude-plugins",
+  "repository": "https://github.com/sjungling/sjungling-claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

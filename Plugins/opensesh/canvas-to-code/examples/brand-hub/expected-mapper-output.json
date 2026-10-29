@@ -1,0 +1,71 @@
+{
+  "_comment": "Golden file for the Brand Hub run's componentMap. Used by test T4 (mapper schema). Hand-authored from the Brand Hub plan doc + retro spike. Internally consistent — totalUnits = units.length and byTier rollups match units[].",
+  "totalUnits": 47,
+  "byTier": {
+    "base":          { "reused": 19, "new":  0 },
+    "ds":            { "reused":  4, "new":  1 },
+    "custom-shared": { "reused":  0, "new":  8 },
+    "custom-page":   { "reused":  0, "new": 12 },
+    "net-new":       { "reused":  0, "new":  3 }
+  },
+  "lowConfidenceCount": 1,
+  "iconGaps": ["slack", "asterisk-4-point"],
+  "tokenMapDelta": [
+    { "hex": "#FE5102", "proposed": "bg-bg-brand-solid",   "note": "Aperol CTA — already in BOS token-map; mapper confirms" },
+    { "hex": "#FFFAEE", "proposed": "bg-color-vanilla",    "note": "Warm off-white" },
+    { "hex": "#0B0B0B", "proposed": "bg-bg-primary-solid", "note": "Dark surface" }
+  ],
+  "units": [
+    { "label": "Top nav (Tabs)",                      "tier": "base",          "target": "components/base/application/tabs/tabs.tsx",                              "newOrReused": "reused", "confidence": "high",   "notes": "type=underline size=md" },
+    { "label": "Filter chips (Tabs)",                 "tier": "base",          "target": "components/base/application/tabs/tabs.tsx",                              "newOrReused": "reused", "confidence": "high",   "notes": "type=button-minimal" },
+    { "label": "CTA button — primary",                "tier": "base",          "target": "components/base/base/buttons/button.tsx",                                "newOrReused": "reused", "confidence": "high",   "notes": "Art Direction Get started" },
+    { "label": "CTA button — secondary",              "tier": "base",          "target": "components/base/base/buttons/button.tsx",                                "newOrReused": "reused", "confidence": "high",   "notes": "Open/Continue" },
+    { "label": "CTA button — tertiary (Download)",    "tier": "base",          "target": "components/base/base/buttons/button.tsx",                                "newOrReused": "reused", "confidence": "high",   "notes": "Download/Rollback" },
+    { "label": "Avatar — human",                      "tier": "base",          "target": "components/base/base/avatar/avatar.tsx",                                 "newOrReused": "reused", "confidence": "high",   "notes": "Initials + color" },
+    { "label": "Avatar — AI agent",                   "tier": "base",          "target": "components/base/base/avatar/avatar.tsx",                                 "newOrReused": "reused", "confidence": "high",   "notes": "✦ icon avatar" },
+    { "label": "Avatar — integration provider",       "tier": "base",          "target": "components/base/base/avatar/avatar.tsx",                                 "newOrReused": "reused", "confidence": "high",   "notes": "Figma/Slack icon avatar" },
+    { "label": "Badge — tag chips",                   "tier": "base",          "target": "components/base/base/badges/badges.tsx",                                 "newOrReused": "reused", "confidence": "high",   "notes": "pill-color gray" },
+    { "label": "Badge — INDEXED",                     "tier": "base",          "target": "components/base/base/badges/badges.tsx",                                 "newOrReused": "reused", "confidence": "high",   "notes": "" },
+    { "label": "Badge — Live (success)",              "tier": "base",          "target": "components/base/base/badges/badges.tsx",                                 "newOrReused": "reused", "confidence": "high",   "notes": "color=success" },
+    { "label": "Badge — Tabs count slot",             "tier": "base",          "target": "components/base/base/badges/badges.tsx",                                 "newOrReused": "reused", "confidence": "high",   "notes": "Inside Tabs label" },
+    { "label": "Badge — streaming from MCP",          "tier": "base",          "target": "components/base/base/badges/badges.tsx",                                 "newOrReused": "reused", "confidence": "high",   "notes": "On VersionHistory eyebrow row" },
+    { "label": "Spinner — loading state",             "tier": "base",          "target": "components/base/foundations/loaders/spinner.tsx",                        "newOrReused": "reused", "confidence": "medium", "notes": "Used during isLoading" },
+    { "label": "Heading h1",                          "tier": "base",          "target": "components/base/foundations/headings/heading.tsx",                       "newOrReused": "reused", "confidence": "high",   "notes": "" },
+    { "label": "Heading h2 (section)",                "tier": "base",          "target": "components/base/foundations/headings/heading.tsx",                       "newOrReused": "reused", "confidence": "high",   "notes": "" },
+    { "label": "Eyebrow uppercase caption",           "tier": "base",          "target": "components/base/foundations/headings/eyebrow.tsx",                       "newOrReused": "reused", "confidence": "high",   "notes": "" },
+    { "label": "Empty state placeholder",             "tier": "base",          "target": "components/base/application/empty-state/empty-state.tsx",                "newOrReused": "reused", "confidence": "high",   "notes": "For empty filter results" },
+    { "label": "Modal — confirmation",                "tier": "base",          "target": "components/base/application/modal/modal.tsx",                            "newOrReused": "reused", "confidence": "high",   "notes": "Used for rollback confirm" },
+
+    { "label": "Tooltip — wrapper",                   "tier": "ds",            "target": "components/ds/tooltips/tooltip.tsx",                                     "newOrReused": "reused", "confidence": "high",   "notes": "Shape A DS wrapper" },
+    { "label": "ColorSwatch (single)",                "tier": "ds",            "target": "components/ds/swatches/color-swatch.tsx",                                "newOrReused": "reused", "confidence": "high",   "notes": "" },
+    { "label": "ColorSwatch — lockup",                "tier": "ds",            "target": "components/ds/swatches/color-swatch.tsx",                                "newOrReused": "reused", "confidence": "high",   "notes": "5-swatch row" },
+    { "label": "ProgressRing — small",                "tier": "ds",            "target": "components/ds/progress/progress-ring.tsx",                               "newOrReused": "reused", "confidence": "high",   "notes": "Existing DS primitive" },
+    { "label": "PillarProgress (under-title rule)",   "tier": "ds",            "target": "components/ds/progress/PillarProgress.tsx",                              "newOrReused": "new",    "confidence": "high",   "notes": "Thin DS wrapper for progress underline" },
+
+    { "label": "PillarCard",                          "tier": "custom-shared", "target": "components/custom/shared/branding/PillarCard.tsx",                       "newOrReused": "new",    "confidence": "high",   "notes": "Cross-page brand domain card" },
+    { "label": "PillarPreview dispatcher",            "tier": "custom-shared", "target": "components/custom/shared/branding/pillar-previews/PillarPreview.tsx",    "newOrReused": "new",    "confidence": "high",   "notes": "Single-file dispatcher" },
+    { "label": "PreviewLogo (case)",                  "tier": "custom-shared", "target": "components/custom/shared/branding/pillar-previews/PillarPreview.tsx",    "newOrReused": "new",    "confidence": "high",   "notes": "Internal case" },
+    { "label": "PreviewColors (case)",                "tier": "custom-shared", "target": "components/custom/shared/branding/pillar-previews/PillarPreview.tsx",    "newOrReused": "new",    "confidence": "high",   "notes": "Internal case" },
+    { "label": "PreviewTypography (case)",            "tier": "custom-shared", "target": "components/custom/shared/branding/pillar-previews/PillarPreview.tsx",    "newOrReused": "new",    "confidence": "high",   "notes": "Internal case" },
+    { "label": "PreviewGuidelines (case)",            "tier": "custom-shared", "target": "components/custom/shared/branding/pillar-previews/PillarPreview.tsx",    "newOrReused": "new",    "confidence": "high",   "notes": "Static brand-bible mockup" },
+    { "label": "PreviewTokens (case)",                "tier": "custom-shared", "target": "components/custom/shared/branding/pillar-previews/PillarPreview.tsx",    "newOrReused": "new",    "confidence": "high",   "notes": "Static" },
+    { "label": "PreviewDesignSystem (case)",          "tier": "custom-shared", "target": "components/custom/shared/branding/pillar-previews/PillarPreview.tsx",    "newOrReused": "new",    "confidence": "high",   "notes": "Static stack" },
+
+    { "label": "OverviewBlock (collapsible)",         "tier": "custom-page",   "target": "components/custom/pages/brand-hub/OverviewBlock.tsx",                    "newOrReused": "new",    "confidence": "high",   "notes": "Composes StatTile" },
+    { "label": "StatTile",                            "tier": "custom-page",   "target": "components/custom/pages/brand-hub/OverviewBlock.tsx",                    "newOrReused": "new",    "confidence": "high",   "notes": "Internal sub-component" },
+    { "label": "Pillar grid container",               "tier": "custom-page",   "target": "app/(dashboard)/brand-hub-hifi/page.tsx",                                "newOrReused": "new",    "confidence": "high",   "notes": "Inline 4-col grid" },
+    { "label": "Version History page header",         "tier": "custom-page",   "target": "app/(dashboard)/brand-hub-hifi/version-history/page.tsx",                "newOrReused": "new",    "confidence": "high",   "notes": "Eyebrow + h1 + subtitle" },
+    { "label": "Day group heading",                   "tier": "custom-page",   "target": "components/custom/pages/brand-hub/version-history/VersionHistoryStream.tsx", "newOrReused": "new",  "confidence": "high",   "notes": "Inline" },
+    { "label": "Timeline rail with dots",             "tier": "custom-page",   "target": "components/custom/pages/brand-hub/version-history/VHEventCard.tsx",     "newOrReused": "new",    "confidence": "high",   "notes": "CSS pseudo-element" },
+    { "label": "VHEventCard (dispatcher)",            "tier": "custom-page",   "target": "components/custom/pages/brand-hub/version-history/VHEventCard.tsx",     "newOrReused": "new",    "confidence": "high",   "notes": "Per-preview-kind dispatcher" },
+    { "label": "LogoDiffPreview",                     "tier": "custom-page",   "target": "components/custom/pages/brand-hub/version-history/previews/LogoDiffPreview.tsx", "newOrReused": "new", "confidence": "high",   "notes": "" },
+    { "label": "ColorAddedPreview",                   "tier": "custom-page",   "target": "components/custom/pages/brand-hub/version-history/previews/ColorAddedPreview.tsx", "newOrReused": "new", "confidence": "high",   "notes": "" },
+    { "label": "TokensDiffPreview",                   "tier": "custom-page",   "target": "components/custom/pages/brand-hub/version-history/previews/TokensDiffPreview.tsx", "newOrReused": "new", "confidence": "high",   "notes": "Inline <pre> with Style 2 tokens" },
+    { "label": "IndexedSourcesPreview",               "tier": "custom-page",   "target": "components/custom/pages/brand-hub/version-history/previews/IndexedSourcesPreview.tsx", "newOrReused": "new", "confidence": "high", "notes": "" },
+    { "label": "FigmaSyncPreview",                    "tier": "custom-page",   "target": "components/custom/pages/brand-hub/version-history/previews/FigmaSyncPreview.tsx", "newOrReused": "new", "confidence": "high",   "notes": "" },
+
+    { "label": "Slack glyph SVG",                     "tier": "net-new",       "target": "components/custom/shared/branding/provider-icons/SlackGlyph.tsx",        "newOrReused": "new",    "confidence": "medium", "notes": "UUI doesn't ship Slack" },
+    { "label": "Asterisk-4-point icon",               "tier": "net-new",       "target": "components/custom/shared/branding/provider-icons/Asterisk4.tsx",         "newOrReused": "new",    "confidence": "medium", "notes": "UUI ships Asterisk01 — close but not exact" },
+    { "label": "Radial gradient brand background",    "tier": "net-new",       "target": "(arbitrary Tailwind value, inline)",                                     "newOrReused": "new",    "confidence": "low",    "notes": "No primitive; use arbitrary-value Tailwind" }
+  ]
+}

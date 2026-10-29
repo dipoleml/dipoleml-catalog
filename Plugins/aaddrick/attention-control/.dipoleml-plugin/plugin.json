@@ -1,0 +1,16 @@
+{
+  "name": "attention-control",
+  "displayName": "Attention Control",
+  "version": "0.1.0",
+  "description": "Air traffic control discipline for DipoleML output, written for a reader with ADHD: action first, one meaning per word, state restated every turn.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Aaddrick"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/aaddrick/attention-control",
+  "repository": "https://github.com/aaddrick/attention-control",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

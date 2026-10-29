@@ -1,0 +1,131 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.outlinedriven.odin-review",
+  "type": "plugin",
+  "name": "Odin Review",
+  "slug": "odin-review",
+  "vendor": "outlinedriven",
+  "description": "Outline-Driven Development for DipoleML - 46 agents, 25+ skills, diagram-first methodology, AST-based editing, atomic commits.",
+  "version": "2.1.5",
+  "homepage": "https://github.com/OutlineDriven/odin-claude-plugin",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agentic-coding",
+    "ai-coding-agent",
+    "claude-code-plugin",
+    "claude-code-plugins",
+    "claude-code-skill",
+    "claude-code-skills",
+    "claude-marketplace",
+    "claude-plugins",
+    "claude-skills"
+  ],
+  "tags": [
+    "agentic-coding",
+    "ai-coding-agent",
+    "claude-code",
+    "claude-code-plugin",
+    "claude-code-plugins",
+    "claude-code-skill",
+    "claude-code-skills",
+    "claude-marketplace",
+    "claude-plugins",
+    "claude-skills",
+    "cli-tools",
+    "coding-paradigm",
+    "context-engineering",
+    "llm-agents",
+    "odd",
+    "odin",
+    "outline-driven",
+    "outline-driven-development",
+    "paradigms-of-programming",
+    "prompt-engineering"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "outlinedriven",
+    "brandName": "outlinedriven",
+    "source": "https://github.com/OutlineDriven.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:14:22Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "OutlineDriven/odin-claude-plugin",
+    "url": "https://github.com/OutlineDriven/odin-claude-plugin",
+    "commit": "8ce0e87a3e88043cdeb4be21eec5565bbdc638ea",
+    "path": "plugins/odin-review",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 40,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:28:31Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude,cursor",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".cursor-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/cursor/.cursor-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Odin Review | Outline-Driven Development for Claude Code - 46 agents, 25+ skills, diagram-first methodology, AST-based editing, atomic commits.",
+        "after": "Odin Review | Outline-Driven Development for DipoleML - 46 agents, 25+ skills, diagram-first methodology, AST-based editing, atomic commits.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude",
+      "cursor"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

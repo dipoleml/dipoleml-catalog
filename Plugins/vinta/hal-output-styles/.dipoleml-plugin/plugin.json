@@ -1,0 +1,16 @@
+{
+  "name": "hal-output-styles",
+  "displayName": "Hal Output Styles",
+  "version": "1.0.10",
+  "description": "Make DipoleML talk like an INTJ",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Vinta"
+  },
+  "license": "MIT",
+  "homepage": "https://vinta.ws/code/",
+  "repository": "https://github.com/vinta/hal-9000",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

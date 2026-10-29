@@ -1,0 +1,118 @@
+---
+title: Getting Started
+sidebar_label: Getting Started
+sidebar_position: 0
+---
+
+# Getting Started
+
+The SDD plugin brings architecture governance to Claude Code. It lets you capture client-facing product intent as PRDs, record decisions as ADRs, formalize them into specifications, plan sprints, implement issues in parallel, and validate that your code stays aligned with your architecture -- all without leaving the CLI.
+
+## Prerequisites
+
+Starting with **v5.0.0**, the plugin has a hard runtime dependency on [qmd](https://github.com/tobi/qmd), an on-device hybrid retrieval engine (BM25 + vector + LLM rerank). qmd powers the plugin's smart-context features: topic-filtered priming, drift detection on changed files, and pre-search of related decisions when authoring ADRs and specs.
+
+Install qmd globally before running `/sdd:init`:
+
+```bash
+npm install -g @tobilu/qmd
+# or
+bun install -g @tobilu/qmd
+```
+
+`/sdd:init` runs `command -v qmd` as a preflight check and refuses to set up the project if qmd is missing. The first time qmd embeds a corpus, it auto-downloads its GGUF models (~2&nbsp;GB total) and caches them in `~/.cache/qmd/`. Subsequent embeds and queries reuse the cached models.
+
+If you previously used the plugin at v4.x, qmd was not required — see the [CHANGELOG](https://github.com/joestump/claude-plugin-sdd/blob/main/CHANGELOG.md) for the v5 upgrade notes.
+
+## Installation
+
+Add the plugin to your project's `.claude/settings.json`:
+
+```json
+{
+  "extraKnownMarketplaces": {
+    "claude-plugin-sdd": {
+      "source": {
+        "source": "github",
+        "repo": "joestump/claude-plugin-sdd"
+      }
+    }
+  },
+  "enabledPlugins": {
+    "sdd@claude-plugin-sdd": true
+  }
+}
+```
+
+Then restart Claude Code. All 21 skills will be available as `/sdd:*` commands.
+
+## Quick Start
+
+Walk through the simplest useful workflow: create an ADR, then a spec, plan a sprint, and implement it.
+
+### 1. Initialize the plugin
+
+```
+/sdd:init
+```
+
+This sets up your project's `CLAUDE.md` with an Architecture Context section that references `docs/adrs/`, `docs/openspec/specs/`, and `docs/prds/`. (Declaring the PRD path costs nothing and is what lets `/sdd:graph` and `/sdd:index` find PRDs later; the directory itself is not created, because PRDs are optional.) It also adds a skills reference table so future sessions know what commands are available. Safe to re-run -- it won't duplicate content.
+
+### 2. Capture product intent (client-facing work only)
+
+```
+/sdd:prd Client approval portal
+```
+
+**Skip this step unless the work is client-facing.** A PRD captures what a
+client asked for, in their language, with a sign-off boundary and success
+criteria written in [EARS](https://alistairmavin.com/ears/) syntax so an
+agent can check them. The skill interrogates you first — mapping the request
+as a design tree and working the open questions in rounds — and refuses to
+draft until that converges.
+
+Most projects never write one, and nothing reports its absence: a namespace
+rename or a caching strategy has no product intent upstream. See the
+[Workflow guide](./workflow) for when it earns its keep.
+
+### 3. Record your first decision
+
+```
+/sdd:adr We need to choose between REST and GraphQL for our API
+```
+
+This creates an ADR in `docs/adrs/` using [MADR](https://adr.github.io/madr/) format. The ADR captures the context, options considered, decision outcome, and consequences. It includes a Mermaid architecture diagram and uses sequential numbering (`ADR-0001`, `ADR-0002`, etc.).
+
+### 4. Formalize into a specification
+
+```
+/sdd:spec api-layer
+```
+
+This creates a paired `spec.md` and `design.md` in `docs/openspec/specs/api-layer/`. The spec uses [RFC 2119](https://www.rfc-editor.org/rfc/rfc2119) language (MUST, SHALL, MAY) to define requirements, while the design document captures architecture diagrams and implementation details. These two files are always kept in sync -- when one changes, the other is reviewed for alignment.
+
+### 5. Plan your sprint
+
+```
+/sdd:plan SPEC-0001
+```
+
+This breaks your spec into trackable issues in your issue tracker (GitHub, GitLab, Gitea, Jira, Linear, or Beads). It creates an epic for the spec with story-sized issues grouped by functional area, each with acceptance criteria that reference specific spec requirements. Branch naming conventions and PR templates are added to each issue automatically.
+
+### 6. Implement and validate
+
+```
+/sdd:work SPEC-0001
+/sdd:review SPEC-0001
+/sdd:check src/
+```
+
+`/sdd:work` picks up the open issues and implements them in parallel using git worktrees -- each issue gets its own isolated branch and a worker agent that reads the spec, writes code, runs tests, and opens a PR. `/sdd:review` then pairs reviewer and responder agents to check each PR against the spec's acceptance criteria and merge approved work. Finally, `/sdd:check` verifies that the implementation hasn't drifted from your ADRs and specs.
+
+## What's Next
+
+- [Workflow Guide](./workflow) -- understand the full Capture Intent, Decide, Specify, Plan, Build lifecycle
+- [Skills Reference](/skills/) -- all skills with usage and examples
+- [Sprint Planning](./sprint-planning) -- deep dive into standard and scrum planning modes
+- [Best Practices](./best-practices) -- tips for getting the most out of the plugin, including writing down the standing decisions you keep re-making
+- [Plugin Architecture](./plugin-architecture) -- how the plugin is structured internally

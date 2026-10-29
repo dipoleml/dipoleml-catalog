@@ -1,0 +1,45 @@
+{
+  "private": true,
+  "license": "Apache-2.0",
+  "type": "module",
+  "packageManager": "pnpm@10.29.3",
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "koffi",
+      "msgpackr-extract",
+      "onnxruntime-node"
+    ]
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "prepare": "bash scripts/git-hooks/install.sh",
+    "build": "pnpm -r run build",
+    "test": "vitest run",
+    "test:e2e": "vitest run --config vitest.e2e.config.ts",
+    "test:e2e:claude": "vitest run --config vitest.e2e.config.ts packages/claude-code",
+    "test:e2e:openclaw": "vitest run --config vitest.e2e.config.ts packages/openclaw",
+    "test:e2e:opencode": "vitest run --config vitest.e2e.config.ts packages/opencode",
+    "test:e2e:cursor": "vitest run --config vitest.e2e.config.ts packages/extension/src/__tests__/e2e.test.ts",
+    "test:e2e:vscode": "vitest run --config vitest.e2e.config.ts packages/extension/src/__tests__/e2e.test.ts",
+    "test:e2e:copilot-cli": "vitest run --config vitest.e2e.config.ts packages/extension/src/__tests__/e2e-copilot-cli.test.ts",
+    "test:watch": "vitest",
+    "eval:pi": "pnpm -C packages/core run build && node packages/core/scripts/eval-pi-accuracy.mjs",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "check": "pnpm -r exec tsc --noEmit",
+    "build:sea": "bash packages/claude-code/scripts/build-sea.sh",
+    "package:vsix": "pnpm -C packages/extension run package:vsix",
+    "clean": "pnpm -r run clean",
+    "changeset": "changeset",
+    "version": "changeset version && node scripts/sync-manifests.mjs"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^2.0.0",
+    "@changesets/cli": "^2.29.8",
+    "typescript": "^5.9.0",
+    "vitest": "^4.0.0",
+    "vitest-teamcity-reporter": "^0.4.1"
+  }
+}

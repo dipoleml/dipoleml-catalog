@@ -1,0 +1,16 @@
+{
+  "name": "aws-cost-saver",
+  "displayName": "Aws Cost Saver",
+  "version": "2.1.0",
+  "description": "180 AWS cost optimization checks with Cost Optimization Hub, Compute Optimizer ML integration, data transfer analysis, and reservation purchase recommendations. Read-only by design.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Prajapatimehul"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/prajapatimehul/claude-aws-cost-saver",
+  "repository": "https://github.com/prajapatimehul/claude-aws-cost-saver",
+  "skills": "./skills/",
+  "commands": [],
+  "agents": []
+}

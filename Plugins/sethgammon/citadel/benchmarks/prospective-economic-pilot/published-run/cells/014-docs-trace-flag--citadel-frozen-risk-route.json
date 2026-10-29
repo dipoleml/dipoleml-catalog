@@ -1,0 +1,202 @@
+{
+  "schema": 1,
+  "cell_id": "014-docs-trace-flag--citadel-frozen-risk-route",
+  "order": 14,
+  "scenario_id": "docs-trace-flag",
+  "task_class": "documentation-consistency",
+  "risk": "low",
+  "policy_id": "citadel-frozen-risk-route",
+  "repetition": 1,
+  "route": {
+    "initial_tier": "cheap",
+    "escalation_tier": "strong",
+    "reason_code": "FROZEN_BOUNDED_CHEAP_THEN_VERIFY"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "cheap",
+      "started_at": "2026-08-02T00:36:31.611Z",
+      "duration_ms": 6033,
+      "output_text": "{\n  \"files\": {\n    \"README.md\": \"# Start the service\\n\\nFor a trace-enabled local start, run `CITADEL_TRACE=1 npm run start`.\\nThe trace is useful while diagnosing an operation.\"\n  }\n}",
+      "output_digest": "sha256:b242a9075737c32e2c9bca6517f9c93e89098b32d5e4b087381c65b8da17e2a9",
+      "verification": {
+        "status": "failed",
+        "code": "REPOSITORY_VERIFIER_FAILED",
+        "changed_paths": [
+          "README.md"
+        ],
+        "applied_file_digests": {
+          "README.md": "sha256:1e7c33bb6cc4eb1232cb725fc2a3587bebe30f26449a6c41343b0fd1b563dd17"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 1,
+          "signal": null,
+          "stdout": "",
+          "stderr": "node:internal/assert/utils:281\r\n    throw err;\r\n    ^\r\n\r\nAssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:\r\n\r\n  assert(readme.includes('For a trace-enabled local start, run `CITADEL_TRACE=true npm run start`.'))\r\n\r\n    at Object.<anonymous> (<ISOLATED_WORKSPACE>\\verifier.js:5:1)\r\n    at Module._compile (node:internal/modules/cjs/loader:1730:14)\r\n    at Object..js (node:internal/modules/cjs/loader:1895:10)\r\n    at Module.load (node:internal/modules/cjs/loader:1465:32)\r\n    at Function._load (node:internal/modules/cjs/loader:1282:12)\r\n    at TracingChannel.traceSync (node:diagnostics_channel:322:14)\r\n    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)\r\n    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:171:5)\r\n    at node:internal/main/run_main_module:36:49 {\r\n  generatedMessage: true,\r\n  code: 'ERR_ASSERTION',\r\n  actual: false,\r\n  expected: true,\r\n  operator: '=='\r\n}\r\n\r\nNode.js v22.17.1\r\n",
+          "error": null
+        },
+        "patch_digest": "sha256:141ec99684c744bd6daa9982406f9588f55745a152b448f9ca0a2f4b60fbbed4"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "ollama-chat",
+        "requested_model": "qwen2.5-coder:3b",
+        "observed_model": "qwen2.5-coder:3b",
+        "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+        "done_reason": "stop",
+        "response_digest": "sha256:c62a697fd39645bd921716dd521110df15524797a80f1e54281a009628265cce",
+        "error": null
+      },
+      "usage": {
+        "prompt_tokens": 158,
+        "completion_tokens": 52,
+        "total_tokens": 210,
+        "provider_total_duration_ns": 6030293000
+      },
+      "economics": {
+        "provider_invoice": {
+          "status": "known",
+          "amount_usd": 0,
+          "source": "self_hosted_ollama_no_per_request_invoice"
+        },
+        "gpu_energy": {
+          "status": "measured",
+          "energy_kwh": 0.000101981,
+          "samples": 12,
+          "average_watts": 60.854167
+        },
+        "comparison_cost": {
+          "status": "derived-comparison",
+          "total_usd": 0.000037155,
+          "components": [
+            {
+              "kind": "gpu_electricity",
+              "status": "derived-comparison",
+              "amount_usd": 0.000020396,
+              "source": "average_gpu_power_times_request_wall_duration_times_frozen_rate"
+            },
+            {
+              "kind": "gpu_amortization",
+              "status": "derived-comparison",
+              "amount_usd": 0.000016758,
+              "source": "request_wall_duration_times_frozen_residual_value"
+            }
+          ]
+        },
+        "actual_end_to_end_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "whole_system_energy_setup_and_observed_utility_rate_not_measured"
+        }
+      }
+    },
+    {
+      "attempt": 2,
+      "tier": "strong",
+      "started_at": "2026-08-02T00:36:37.902Z",
+      "duration_ms": 8780,
+      "output_text": "{\n  \"files\": {\n    \"README.md\": \"# Start the service\\n\\nFor a trace-enabled local start, run `CITADEL_TRACE=true npm run start`.\\nThe trace is useful while diagnosing an operation.\"\n  }\n}",
+      "output_digest": "sha256:1b4296a5a37e7b63533d08f72bb96a709a2bdbd7e4b5f9c3590aa85df2661a94",
+      "verification": {
+        "status": "passed",
+        "code": null,
+        "changed_paths": [
+          "README.md"
+        ],
+        "applied_file_digests": {
+          "README.md": "sha256:783cd386896cb746a8256c8505970e0bf217df86ac3fb1edd98e5c160ece9bd2"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 0,
+          "signal": null,
+          "stdout": "",
+          "stderr": "",
+          "error": null
+        },
+        "patch_digest": "sha256:8faf6293aa84db0802fa9bfd212b015ee9fa81430a6ac3224fbb7d25ed829246"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "ollama-chat",
+        "requested_model": "qwen2.5-coder:7b",
+        "observed_model": "qwen2.5-coder:7b",
+        "model_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+        "done_reason": "stop",
+        "response_digest": "sha256:bd7814ff7dd12e863687e32a6d3c143847a87c7720d4b9561aead94eaf279424",
+        "error": null
+      },
+      "usage": {
+        "prompt_tokens": 158,
+        "completion_tokens": 51,
+        "total_tokens": 209,
+        "provider_total_duration_ns": 8776850300
+      },
+      "economics": {
+        "provider_invoice": {
+          "status": "known",
+          "amount_usd": 0,
+          "source": "self_hosted_ollama_no_per_request_invoice"
+        },
+        "gpu_energy": {
+          "status": "measured",
+          "energy_kwh": 0.000170114,
+          "samples": 17,
+          "average_watts": 69.750588
+        },
+        "comparison_cost": {
+          "status": "derived-comparison",
+          "total_usd": 0.000058412,
+          "components": [
+            {
+              "kind": "gpu_electricity",
+              "status": "derived-comparison",
+              "amount_usd": 0.000034023,
+              "source": "average_gpu_power_times_request_wall_duration_times_frozen_rate"
+            },
+            {
+              "kind": "gpu_amortization",
+              "status": "derived-comparison",
+              "amount_usd": 0.000024389,
+              "source": "request_wall_duration_times_frozen_residual_value"
+            }
+          ]
+        },
+        "actual_end_to_end_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "whole_system_energy_setup_and_observed_utility_rate_not_measured"
+        }
+      }
+    }
+  ],
+  "status": "passed",
+  "final_verification": {
+    "status": "passed",
+    "code": null,
+    "changed_paths": [
+      "README.md"
+    ],
+    "applied_file_digests": {
+      "README.md": "sha256:783cd386896cb746a8256c8505970e0bf217df86ac3fb1edd98e5c160ece9bd2"
+    },
+    "verifier": {
+      "command": "node verifier.js",
+      "status": 0,
+      "signal": null,
+      "stdout": "",
+      "stderr": "",
+      "error": null
+    },
+    "patch_digest": "sha256:8faf6293aa84db0802fa9bfd212b015ee9fa81430a6ac3224fbb7d25ed829246"
+  },
+  "previous_cell_digest": "sha256:6991b1c4337913c53f8e8e7c3951bdcddf5af3bcbbf0e5fee3829e78f28022ef",
+  "receipt_digest": "sha256:9d2bfef8c2f7ec7fc82962390583fc0b1bb7f6140e655b1d0a07cf16fb8395f1",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:2ce950d9f03dc6c71ea271b5211c628fb8246feba0a89963df1d9c81ae654ebe",
+    "signature": "1JW9y6JaM2TwqrHSGz7iv6N4ZbYX7B5Gy7kYWGziraTpVSADuqF68priybBdK4UOCXd4RHwMIPvzpV2tWoA2Bw=="
+  }
+}

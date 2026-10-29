@@ -1,0 +1,16 @@
+{
+  "name": "kubernetes-plugin",
+  "displayName": "Kubernetes Plugin",
+  "version": "1.10.1",
+  "description": "Kubernetes and Helm operations - deployments, charts, releases, diagnostics",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Laurigates"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/laurigates/claude-plugins",
+  "repository": "https://github.com/laurigates/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,16 @@
+{
+  "name": "drbinary-chat-plugin",
+  "displayName": "Drbinary Chat Plugin",
+  "version": "1.1.0",
+  "description": "Local cyber security assistant for PC issue detection, malware analysis, and system scanning",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Deepbitstechnology"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/DeepBitsTechnology/claude-plugins",
+  "repository": "https://github.com/DeepBitsTechnology/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

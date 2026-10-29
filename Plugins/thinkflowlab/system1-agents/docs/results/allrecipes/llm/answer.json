@@ -1,0 +1,105 @@
+{
+ "ok": true,
+ "final": "**Recipe found: Easy Vegetarian Spinach Lasagna** (Allrecipes)\nURL: https://www.allrecipes.com/recipe/229764/easy-vegetarian-spinach-lasagna/\n\n- **Rating:** 4.6 stars (117 ratings, 85 written reviews)\n- **Servings:** 6\n- **Prep:** 20 mins | **Cook:** 1 hr | **Additional:** 5 mins | **Total:** 1 hr 25 mins\n\n**Ingredients**\n- Cooking spray\n- Salt and ground black pepper to taste\n- 10 oz fresh spinach\n- 9 lasagna noodles\n- 1 (8 oz) container ricotta cheese\n- 1 cup shredded mozzarella cheese, divided\n- 1 large egg, lightly beaten\n- 1 pinch ground nutmeg\n- 1 pinch dried basil\n- 1 cup pasta sauce\n- ¼ cup grated Parmesan cheese\n\n**Directions**\n1. Preheat oven to 400°F (200°C). Spray a 1½-quart casserole dish with cooking spray; set aside.\n2. Bring a large pot of lightly salted water to a boil. Boil spinach until wilted and tender, about 2 minutes. Remove with a slotted spoon, pressing out excess water; set aside.\n3. Cook lasagna noodles in the same boiling water until cooked through but firm to the bite, about 8 minutes. Drain.\n4. Mix spinach, ricotta, ½ cup mozzarella, egg, nutmeg, basil, salt, and pepper in a bowl until well combined.\n5. Spread ¼ cup pasta sauce in the bottom of the dish. Top with 3 noodles, half the ricotta mixture, and ¼ cup sauce. Repeat with 3 more noodles, remaining ricotta mixture, and ¼ cup sauce. Finish with the last 3 noodles and ¼ cup sauce. Sprinkle with remaining ½ cup mozzarella, then Parmesan. Cover with foil.\n6. Bake 25 minutes covered, then uncover and bake until bubbling and lightly browned, about 25 more minutes. Let stand 5 minutes before serving.\n\n**Note on criteria:** This recipe has 117 ratings (Allrecipes' \"reviews\" count shown in search results) at 4.6 stars and is written for exactly 6 servings, so it fits all requirements. If you count only written text reviews (85), the closest alternative for 6 servings with ≥4.5 stars is \"Baked Spaghetti Squash Lasagna-Style\" (4.5 stars, 567 ratings, 427 reviews, 6 servings, vegetarian), though it uses spaghetti squash rather than lasagna noodles. Other highly rated vegetarian lasagnas (e.g., Vegetarian Four Cheese Lasagna, 4.6 stars, 243 ratings/170 reviews) serve 8 rather than 6.",
+ "screenshot": null,
+ "error": null,
+ "elapsed_ms": 138732,
+ "browser_result": {
+  "status": "completed",
+  "task_id": "74980a06dfca561d",
+  "current_phase": "extraction",
+  "missing_fields": [],
+  "unverified_fields": [],
+  "missing_slots": [],
+  "unavailable_slots": [],
+  "requested_slots": [
+   {
+    "entity": "task_result",
+    "variant": "default",
+    "field": "rating"
+   }
+  ],
+  "blockers": [],
+  "field_coverage": [
+   "rating"
+  ],
+  "evidence": [
+   {
+    "entity": "task_result",
+    "variant": "default",
+    "field": "rating",
+    "status": "present",
+    "source": "browser_evaluate",
+    "generation": "",
+    "value": "4.6",
+    "raw_text": "4.6"
+   }
+  ],
+  "observations": [
+   {
+    "kind": "page_observation",
+    "source": "https://www.allrecipes.com/recipe/21090/vegetarian-four-cheese-lasagna/",
+    "generation_id": "",
+    "raw_text": "### Result [ { \"t\": \"Easy Four-Cheese Lasagna\", \"href\": \"https://www.allrecipes.com/recipe/21076/easy-four-cheese-lasagna/\", \"c\": \"146\\n\\nRatings\" }, { \"t\": \"Easy Spinach Lasagna with White Sauce\", \"href\": \"https://www.allrecipes.com/recipe/11933/easy-spinach-lasagna-with-white-sauce/\", \"c\": \"256\\n\\nRatings\" }, { \"t\": \"Lasagna Spirals\", \"href\": \"https://www.allrecipes.com/recipe/26275/lasagna-spirals/\", \"c\": \"136\\n\\nRatings\" }, { \"t\": \"Hearty Vegetable Lasagna\", \"href\": \"https://www.allrecipes.com/recipe/11786/hearty-vegetable-lasagna/\", \"c\": \"1,021\\n\\nRatings\" }, { \"t\": \"Spinach Lasagna Roll Ups\", \"href\": \"https://www.allrecipes.com/recipe/231072/spinach-lasagna-roll-ups/\", \"c\": \"110\\n\\nRatings\" }, { \"t\": \"Randy's Slow Cooker Ravioli Lasagna\", \"href\": \"https://www.allrecipes.com/recipe/234397/randys-slow-cooker-ravioli-lasagna/\", \"c\": \"446\\n\\nRatings\" }, { \"t\": \"Simple Spinach Lasagna\", \"href\": \"https://www.allrecipes.com/recipe/23988/simple-spinach-lasagna/\", \"c\": \"563\\n\\nRatings\" }, { \"t\": \"Cheesy Vegetable Lasagna\", \"href\": \"https://www.allrecipes.com/recipe/22478/cheesy-vegetable-lasagna/\", \"c\": \"217\\n\\nRatings\" }, { \"t\": \"No-Noodle Zucchini Lasagna\", \"href\": \"https://www.allrecipes.com/recipe/172958/no-noodle-zucchini-lasagna/\", \"c\": \"667\\n\\nRatings\" }, { \"t\": \"Homemade Lasagna\", \"href\": \"https://www.allrecipes.com/recipe/19344/homemade-lasagna/\", \"c\": \"404\\n\\nRatings\" }, { \"t\": \"Hearty Vegetable Lasagna\", \"href\": \"https://www.allrecipes.com/recipe/11786/hearty-vegetable-lasagna/\", \"c\": \"1,021\\n\\nRatings\" }, { \"t\": \"Cheesy Vegetable Lasagna\", \"href\": \"https://www.allrecipes.com/recipe/22478/cheesy-vegetable-lasagna/\", \"c\": \"217\\n\\nRatings\" }, { \"t\": \"Artichoke Spinach Lasagna\", \"href\": \"https://www.allrecipes.com/recipe/20082/artichoke-spinach-lasagna/\", \"c\": \"1,823\\n\\nRatings\" }, { \"t\": \"Roasted Butternut Squash and Garlic Lasagna\", \"href\": \"https://www.allrecipes.com/recipe/204052/roasted-butternut-squash-and-garlic-lasagna/\", \"c\": \"194\\n\\nRatings\" }, { \"t\": \"Easy Spinach Lasagna with White Sauce\", \"href\": \"https://www.allrecipes.com/recipe/11933/easy-spinach-lasagna-with-white-sauce/\", \"c\": \"256\\n\\nRatings\" }, { \"t\": \"Black Bean Lasagna\", \"href\": \"https://www.allrecipes.com/recipe/87173/black-bean-lasagna/\", \"c\": \"126\\n\\nRatings\" }, { \"t\": \"Baked Spaghetti Squash Lasagna Style\", \"href\": \"https://www.allrecipes.com/recipe/43742/baked-spaghetti-squash-lasagna-style/\", \"c\": \"567\\n\\nRatings\" }, { \"t\": \"Simple Spinach Lasagna\", \"href\": \"https://www.allrecipes.com/recipe/23988/simple-spinach-lasagna/\", \"c\": \"563\\n\\nRatings\" }, { \"t\": \"Baked Fettuccine Lasagna\", \"href\": \"https://www.allrecipes.com/recipe/14965/baked-fettuccine-lasagna/\", \"c\": \"136\\n\\nRatings\" }, { \"t\": \"White Cheese Chicken Lasagna\", \"href\": \"https://www.allrecipes.com/recipe/8758/white-cheese-chicken-lasagna/\", \"c\": \"2,549\\n\\nRatings\" }, { \"t\": \"No-Noodle Zucchini Lasagna\", \"href\": \"https://www.allrecipes.com/recipe/172958/no-noodle-zucchini-lasagna/\", \"c\": \"667\\n\\nRatings\" }, { \"t\": \"Summer Lasagna\", \"href\": \"https://www.allrecipes.com/recipe/73964/summer-lasagna/\", \"c\": \"274\\n\\nRatings\" } ]",
+    "content_hash": "8228e235351477ff0ebe",
+    "provenance": {
+     "tool": "mcp_playwright-official_browser_evaluate",
+     "target": "",
+     "expression_sha256": "e4d9a45742d0ba47"
+    }
+   },
+   {
+    "kind": "page_observation",
+    "source": "https://www.allrecipes.com/recipe/21090/vegetarian-four-cheese-lasagna/",
+    "generation_id": "",
+    "raw_text": "### Result [ { \"u\": \"https://www.allrecipes.com/recipe/21076/easy-four-cheese-lasagna/\", \"yield\": [ \"8\", \"1 9x13-inch lasagna\" ], \"rating\": \"4.5\", \"ratingCount\": \"146\", \"reviews\": \"99 Reviews\", \"meat\": false }, { \"u\": \"https://www.allrecipes.com/recipe/11786/hearty-vegetable-lasagna/\", \"yield\": [ \"12\", \"1 9x13-inch lasagna\" ], \"rating\": \"4.7\", \"ratingCount\": \"1021\", \"reviews\": \"717 Reviews\", \"meat\": false }, { \"u\": \"https://www.allrecipes.com/recipe/231072/spinach-lasagna-roll-ups/\", \"yield\": \"8\", \"rating\": \"4.7\", \"ratingCount\": \"110\", \"reviews\": \"71 Reviews\", \"meat\": false }, { \"u\": \"https://www.allrecipes.com/recipe/22478/cheesy-vegetable-lasagna/\", \"yield\": [ \"12\", \"12 servings\" ], \"rating\": \"4.1\", \"ratingCount\": \"217\", \"reviews\": \"172 Reviews\", \"meat\": false }, { \"u\": \"https://www.allrecipes.com/recipe/172958/no-noodle-zucchini-lasagna/\", \"yield\": [ \"8\", \"1 (9x13-inch) lasagna\" ], \"rating\": \"4.7\", \"ratingCount\": \"667\", \"reviews\": \"526 Reviews\", \"meat\": true }, { \"u\": \"https://www.allrecipes.com/recipe/73964/summer-lasagna/\", \"yield\": \"8\", \"rating\": \"4.6\", \"ratingCount\": \"274\", \"reviews\": \"195 Reviews\", \"meat\": true }, { \"u\": \"https://www.allrecipes.com/recipe/43742/baked-spaghetti-squash-lasagna-style/\", \"yield\": \"6\", \"rating\": \"4.5\", \"ratingCount\": \"567\", \"reviews\": \"427 Reviews\", \"meat\": false }, { \"u\": \"https://www.allrecipes.com/recipe/26275/lasagna-spirals/\", \"yield\": [ \"10\", \"10 servings\" ], \"rating\": \"4\", \"ratingCount\": \"136\", \"reviews\": \"95 Reviews\", \"meat\": true }, { \"u\": \"https://www.allrecipes.com/recipe/14965/baked-fettuccine-lasagna/\", \"yield\": \"10\", \"rating\": \"4.3\", \"ratingCount\": \"136\", \"reviews\": \"88 Reviews\", \"meat\": true } ]",
+    "content_hash": "1560df97df297a9951ac",
+    "provenance": {
+     "tool": "mcp_playwright-official_browser_evaluate",
+     "target": "",
+     "expression_sha256": "7d0dd91265fe6127"
+    }
+   },
+   {
+    "kind": "page_observation",
+    "source": "https://www.allrecipes.com/recipe/229764/easy-vegetarian-spinach-lasagna/",
+    "generation_id": "",
+    "raw_text": "{\"details\":[\"Prep Time: 20 mins\",\"Cook Time: 1 hr\",\"Additional Time: 5 mins\",\"Total Time: 1 hr 25 mins\",\"Servings: 6\"],\"ingredients\":[\"cooking spray\",\"salt and ground black pepper to taste\",\"10 ounces fresh spinach\",\"9 lasagna noodles\",\"1 (8 ounce) container ricotta cheese\",\"1 cup shredded mozzarella cheese, divided\",\"1 large egg, lightly beaten\",\"1 pinch ground nutmeg\",\"1 pinch dried basil\",\"1 cup pasta sauce\",\"¼ cup grated Parmesan cheese\"],\"rating\":\"4.6\",\"ratingCount\":\"(117)\",\"reviews\":\"85 REVIEWS\",\"steps\":[\"Preheat the oven to 400 degrees F (200 degrees C). Spray a 1 1/2-quart casserole dish with cooking spray. Set aside.\",\"Bring a large pot of lightly salted water to a boil. Place spinach in the water and boil until wilted and tender, about 2 minutes. Remove spinach with a slotted spoon, pressing out excess water. Set aside.\",\"Cook lasagna in the same boiling water, stirring occasionally, until cooked through but firm to the bite, about 8 minutes. Drain.\",\"Mix spinach, ricotta cheese, 1/2 cup shredded mozzarella cheese, egg, nutmeg, basil, salt, and black pepper in a bowl until well combined.\",\"Spread 1/4 cup pasta sauce on the bottom of the prepared casserole dish. Top with 3 lasagna noodles, 1/2 of the ricotta-egg mixture, and 1/4 cup pasta sauce. Repeat layers of 3 more noodles, 1/2 cup ricotta-egg mixture, and 1/4 cup pasta sauce. End with remaining 3 noodles and 1/4 cup pasta sauce. Sprinkle with remaining 1/2 cup shredded mozzarella cheese. Top with Parmesan cheese. Cover casserole with aluminum foil.\",\"Bake in the preheated oven for 25 minutes. Uncover casserole and continue baking until lasagna is bubbling and lightly browned, about 25 more minutes. Let lasagna stand 5 minutes before serving.\"],\"title\":\"Easy Vegetarian Spinach Lasagna\"}",
+    "content_hash": "9950fe09201b6f422411",
+    "provenance": {
+     "tool": "mcp_playwright-official_browser_evaluate",
+     "target": "",
+     "expression_sha256": "a76b2437a9330e03"
+    }
+   }
+  ],
+  "current_page": {
+   "url": "https://www.allrecipes.com/recipe/229764/easy-vegetarian-spinach-lasagna/",
+   "title": "Easy Vegetarian Spinach Lasagna"
+  },
+  "requested_result_count": 0,
+  "observed_result_count": 10,
+  "terminal_reason": "runtime_completion_validated",
+  "retryable": false,
+  "recommended_recovery": "replan_from_current_page",
+  "resume_count": 0,
+  "deadline": {
+   "budget_s": 240.0,
+   "elapsed_s": 137.999,
+   "remaining_s": 102.001,
+   "invocation_remaining_s": 123.089
+  }
+ },
+ "usage": {
+  "decisions": 10,
+  "chat_calls": 12,
+  "chat_input_tokens": 230599,
+  "chat_output_tokens": 6200,
+  "chat_cache_tokens": 115042,
+  "jev_input_tokens": 0,
+  "cost_usd": 1.494331,
+  "chat_temperature": 0.0
+ },
+ "agent": "allrecipes",
+ "model": "llm"
+}

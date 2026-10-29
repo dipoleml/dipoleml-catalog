@@ -1,0 +1,16 @@
+{
+  "name": "claudikins-kernel",
+  "displayName": "Claudikins Kernel",
+  "version": "1.2.0",
+  "description": "Core planning and workflow infrastructure for the Claudikins ecosystem",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Povvo"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/elb-pr/claudikins-kernel",
+  "repository": "https://github.com/povvo/claudikins-kernel",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

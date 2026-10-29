@@ -1,0 +1,49 @@
+{
+  "name": "domscribe-react",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "library",
+  "sourceRoot": "packages/domscribe-react/src",
+  "tags": ["scope:adapter", "type:adapter-lib", "type:test"],
+  "targets": {
+    "build": {
+      "executor": "@nx/js:tsc",
+      "outputs": ["{workspaceRoot}/dist/packages/domscribe-react"],
+      "options": {
+        "rootDir": "packages/domscribe-react/src",
+        "outputPath": "dist/packages/domscribe-react",
+        "main": "packages/domscribe-react/src/index.ts",
+        "tsConfig": "packages/domscribe-react/tsconfig.lib.json",
+        "generatePackageJson": true,
+        "generateExportsField": true,
+        "assets": ["packages/domscribe-react/*.md"]
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "outputs": ["{options.outputFile}"],
+      "options": {
+        "eslintConfig": "eslint.config.mjs",
+        "lintFilePatterns": [
+          "packages/domscribe-react/**/*.ts",
+          "packages/domscribe-react/**/*.tsx"
+        ]
+      }
+    },
+    "test": {
+      "executor": "@nx/vitest:test",
+      "outputs": ["{projectRoot}/test-output"],
+      "options": {
+        "config": "packages/domscribe-react/vite.config.ts"
+      }
+    },
+    "typecheck": {
+      "executor": "nx:noop"
+    },
+    "watch-deps": {
+      "executor": "nx:noop"
+    },
+    "build-deps": {
+      "executor": "nx:noop"
+    }
+  }
+}

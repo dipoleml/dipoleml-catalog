@@ -1,0 +1,73 @@
+{
+  "name": "domscribe-test-fixtures",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "library",
+  "sourceRoot": "packages/domscribe-test-fixtures/shared",
+  "tags": ["scope:test", "type:test", "npm:private"],
+  "targets": {
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "outputs": ["{options.outputFile}"],
+      "options": {
+        "eslintConfig": "eslint.config.mjs",
+        "lintFilePatterns": [
+          "packages/domscribe-test-fixtures/**/*.ts",
+          "packages/domscribe-test-fixtures/**/*.tsx"
+        ]
+      }
+    },
+    "test": {
+      "executor": "@nx/vitest:test",
+      "outputs": ["{projectRoot}/test-output"],
+      "options": {
+        "config": "packages/domscribe-test-fixtures/vite.config.ts"
+      },
+      "configurations": {
+        "watch": {
+          "watch": true
+        }
+      }
+    },
+    "integration": {
+      "executor": "@nx/vitest:test",
+      "outputs": ["{projectRoot}/test-output"],
+      "options": {
+        "config": "packages/domscribe-test-fixtures/vite.config.ts",
+        "testPathPattern": ["integration"]
+      }
+    },
+    "e2e": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "pnpm exec playwright test",
+        "cwd": "{projectRoot}"
+      }
+    },
+    "falsifier": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "pnpm test:falsifier",
+        "cwd": "{projectRoot}"
+      }
+    },
+    "falsifier:record": {
+      "executor": "nx:run-commands",
+      "options": {
+        "command": "pnpm test:falsifier:record",
+        "cwd": "{projectRoot}"
+      }
+    },
+    "build": {
+      "executor": "nx:noop"
+    },
+    "typecheck": {
+      "executor": "nx:noop"
+    },
+    "watch-deps": {
+      "executor": "nx:noop"
+    },
+    "build-deps": {
+      "executor": "nx:noop"
+    }
+  }
+}

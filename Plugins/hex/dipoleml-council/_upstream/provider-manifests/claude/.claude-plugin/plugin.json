@@ -1,0 +1,68 @@
+{
+  "name": "claude-council",
+  "version": "2026.10.14",
+  "description": "Consult multiple AI coding agents (Gemini, OpenAI, Grok, Perplexity, Kimi, any model OpenRouter routes to, plus codex, antigravity, grok, kimi and cursor CLIs when installed, and a local ollama model) to get diverse perspectives on coding problems, with a streaming pane in tmux or inside Claude Code, and, once switched on, a heads-up side-check where one council seat, codex by default, rereads a long turn and shows one line above the prompt about something you may have missed.",
+  "author": {
+    "name": "hex",
+    "url": "https://github.com/hex"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/hex/claude-council",
+  "repository": "https://github.com/hex/claude-council",
+  "icon": "./assets/icon.png",
+  "types": "./mods/council-pane/types/index.d.ts",
+  "keywords": [
+    "multi-agent",
+    "council",
+    "second-opinion",
+    "code-review",
+    "consensus",
+    "perspectives",
+    "gemini",
+    "openai",
+    "grok",
+    "perplexity",
+    "kimi",
+    "openrouter",
+    "codex",
+    "antigravity",
+    "ollama",
+    "cli",
+    "pane",
+    "tmux",
+    "mod",
+    "heads-up"
+  ],
+  "userConfig": {
+    "pane_host": {
+      "type": "string",
+      "title": "Pane opens in",
+      "description": "Where the council pane opens. claude-code draws it inside Claude Code; tmux leaves it to a tmux pane; ask asks once, the first time a run starts inside tmux, and remembers the answer (/council-pane ask forgets it). Outside tmux the pane opens here either way. Experimental: needs CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1.",
+      "default": "ask"
+    },
+    "collapse_when_done": {
+      "type": "boolean",
+      "title": "Collapse status when done",
+      "description": "Open a finished run on its summary and the synthesis, with the seats folded below. Off keeps the live order: the seats, then the synthesis. Experimental: needs CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1.",
+      "default": true
+    },
+    "wake_on_async_done": {
+      "type": "boolean",
+      "title": "Wake on async finish",
+      "description": "When a background council run (--async) finishes, submit a prompt so Claude fetches the result by itself. That starts a model turn and costs tokens; a failed run wakes nobody. Experimental: needs CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1.",
+      "default": false
+    },
+    "council_tool": {
+      "type": "boolean",
+      "title": "Council as a tool",
+      "description": "Let Claude call the council as a tool, not only through /claude-council:ask. Every call shows you the question and the providers and asks before anything is sent. Experimental: needs CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1.",
+      "default": true
+    },
+    "heads_up": {
+      "type": "boolean",
+      "title": "Heads-up side-check",
+      "description": "Turn the heads-up side-check on in every project: while Claude works a long turn, one council seat, codex by default, rereads the last five turns, the last eight tool results and the text Claude wrote with Write or Edit, and may show one line above the prompt. Nothing asks before a send; that material leaves the machine on every check. A project's .claude/council-heads-up.json overrides this for that project and picks the seat and cadence. Experimental: needs CLAUDE_CODE_ENABLE_FUNCTION_HOOKS=1.",
+      "default": false
+    }
+  }
+}

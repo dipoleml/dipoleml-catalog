@@ -1,0 +1,16 @@
+{
+  "name": "interactive-presentation-generator",
+  "displayName": "Interactive Presentation Generator",
+  "version": "1.0.0",
+  "description": "Transform data, reports, and findings into self-contained interactive HTML presentations. Perfect for content audits, research synthesis, and stakeholder presentations.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Animalzinc"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/animalzinc/claude-plugins",
+  "repository": "https://github.com/animalzinc/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

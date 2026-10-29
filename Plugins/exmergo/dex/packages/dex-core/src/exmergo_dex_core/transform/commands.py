@@ -1,0 +1,4703 @@
+"""Transform orchestration, in two layers.
+
+The lower layer is the run functions: they take an :class:`~..engine.DexEngine`,
+resolve the dbt project, drive the plan/apply/build engine, and return a record
+from :mod:`.results`. The upper layer is the ``cmd_*`` shims: argparse in,
+envelope out. The transform skill fronts both authoring CLI groups (``transform``
+and ``semantic``); they share one plan store and one write path, which is why
+they live in one package.
+
+The caller is the author: model SQL and semantic YAML arrive as edit payloads.
+The engine validates, diffs, and stores; nothing touches the dbt project until an
+explicit apply.
+
+This is the most filesystem-entangled group, and deliberately so. The dbt project
+is the source of truth and stays a git-reviewable filesystem artifact, so every
+command here needs a repo root and refuses without one, naming what needed it.
+"""
+
+from __future__ import annotations
+
+import argparse
+import contextlib
+import json
+import subprocess
+import sys
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+import yaml
+
+from .. import command_args
+from .. import envelope as env
+from ..config import pii_override_paths
+from ..edits import ApplyResult as PlanApplyResult
+from ..edits import EditOp, SemanticEditTarget
+from ..errors import DexError
+from ..results import to_envelope
+from ..storage import Store, readable_cache
+from . import plans as plans_mod
+
+# `DependencyPolicy` alone, at module scope, because it is a default in
+# `build`'s signature and therefore evaluated at import. It carries no
+# dependency of its own; the rest of the build module stays deferred for
+# the reason stated above.
+from .build import UPTIME_LINE, DependencyPolicy
+from .native_semantic import (
+    edits_from_payload,
+    payload_from_file,
+    plan_hint,
+    read_payload_file,
+)
+from .plans import EditKind, PlanEdit, PlanError
+from .results import (
+    ApplyResult,
+    BuildResult,
+    ClassificationResult,
+    DeclareResult,
+    DepsResult,
+    GroundingResult,
+    InitResult,
+    MacroListResult,
+    MacroResult,
+    MutationCoverageResult,
+    PlacementResult,
+    PlanExportResult,
+    PlanListResult,
+    PlanResult,
+    PreflightResult,
+    PropagationResult,
+    TestScaffoldResult,
+)
+
+if TYPE_CHECKING:
+    from ..engine import DexEngine
+    from . import semantic as semantic_mod
+    from .evidence import BuildEvidence
+    from .verify import BuildVerification
+
+# Two of this module's neighbours reach the dialect engine at import (`.semantic`
+# for MetricFlow-shaped YAML, `.validate` for SQL), and importing either here
+# would put sqlglot behind every verb this module serves. Most of them need it;
+# `apply` does not, and `transform apply` is how a native semantic plan is
+# written. An install carrying only a semantic reader has no sqlglot, so an
+# eager import here would let that install author a plan it could never apply.
+# Reached at the point of use instead, which is where the dependency is real.
+
+
+def _semantic() -> Any:
+    from . import semantic
+
+    return semantic
+
+
+# What actually caps a dbt statement server-side, per compute-time connector:
+# a per-connector fact, kept out of the shared build arm so the next connector
+# adds an entry instead of nesting a conditional. dex cannot inject a per-build
+# cap through any of these dbt adapters.
+_COMPUTE_TIME_CAP_NOTES = {
+    "clickhouse": (
+        "each statement was capped server-side by max_execution_time and "
+        "max_bytes_to_read set from the ceiling (injected through the "
+        "profile's custom_settings env_var references)"
+    ),
+    "redshift": (
+        "a statement_timeout on the dbt dev user and a workgroup usage "
+        "limit are the server-side caps (dex cannot inject one per build)"
+    ),
+}
+_DEFAULT_COMPUTE_TIME_CAP_NOTE = (
+    "the warehouse-level statement timeout and auto-suspend are the server-side caps"
+)
+
+# What a build settled at dbt's statement time alone leaves out, per connector
+# that bills uptime rather than statement time. Raised only where the adapter
+# that models the uptime was never opened (pricing degraded before it could
+# be), because then the figure is a floor and a caller enforcing a ceiling
+# against it has to know.
+_UNMODELED_UPTIME_NOTES = {
+    "snowflake": (
+        "settled at dbt's statement time alone: the warehouse could not be read, "
+        "so the uptime Snowflake bills beyond it (the 60-second minimum per "
+        "resume and the AUTO_SUSPEND idle tail) is not in this figure, which is "
+        "a lower bound"
+    ),
+}
+
+# The same shape for db-load, and for the same reason. This one is not
+# decoration: the note asserts that a specific server-side cap was applied, and
+# the mechanism differs per connector, so a shared sentence would claim a cap
+# that was never injected on every connector but the one it was written for.
+# `_cap_note` refuses to claim anything for a connector with no entry.
+_DB_LOAD_CAP_NOTES = {
+    "postgres": (
+        "each statement was capped server-side by a statement_timeout set to "
+        "the ceiling (injected via PGOPTIONS)"
+    ),
+    "clickhouse": (
+        "each statement was capped server-side by max_execution_time and "
+        "max_bytes_to_read set from the ceiling (injected through the "
+        "profile's custom_settings env_var references)"
+    ),
+    "trino": (
+        "each statement was capped server-side by query_max_run_time and "
+        "query_max_scan_physical_bytes set from the ceiling (injected through "
+        "the profile's session_properties env_var references)"
+    ),
+}
+_UNCAPPED_BUILD_NOTE = (
+    "this build ran without a dex-injected server-side cap: the confirmed "
+    "budget bounded the estimate, but nothing bounded a statement that "
+    "outran it"
+)
+
+
+class BuildFailedError(DexError):
+    """A dbt run that started and did not succeed.
+
+    Carries the run summary and the cost, because a failed build still consumed
+    warehouse time and a caller triaging it needs both dbt's first message and
+    what the attempt cost.
+    """
+
+    def __init__(self, message: str, *, result: BuildResult):
+        super().__init__(message)
+        self.result = result
+
+
+def init_project(
+    engine: DexEngine,
+    name: str,
+    *,
+    connector: str | None = None,
+    path: str | None = None,
+    layered_schemas: bool = False,
+    in_place: bool = False,
+) -> InitResult:
+    """Bootstrap a dbt project in the repo, rendering profiles from dex config.
+
+    The one command that writes files without a plan first, because there is no
+    project yet to plan against. It also needs a repo root more than any other:
+    it creates a directory tree and a ``.dex/config.yml`` next to it.
+
+    The engine-wide connector fall-through is deliberately not used here. An
+    explicit ``connector`` wins, a ``connector:`` committed in config is accepted
+    and attributed, and a bare init is an error. Init bakes the connector into
+    the generated ``profiles.yml``, and misconfiguration that works is the worst
+    kind.
+    """
+
+    from . import dev_target
+    from . import init as init_mod
+
+    repo_root = engine.require_repo_root("scaffolding a dbt project")
+    source = "flag"
+    if not connector:
+        declared = engine.config if engine.has_declared_config else None
+        if declared is not None and "connector" in declared.model_fields_set:
+            connector, source = declared.connector, "config"
+    if not connector:
+        raise ValueError(
+            "transform init needs an explicit connector and never defaults: pass "
+            "--connector <" + "|".join(init_mod.VALID_CONNECTORS) + "> or declare "
+            "connector: in .dex/config.yml"
+        )
+
+    result = init_mod.init_project(
+        name,
+        connector,
+        path=path,
+        repo_root=repo_root,
+        layered_schemas=layered_schemas,
+        in_place=in_place,
+    )
+
+    # The renderers persisted the resolved dev namespaces into .dex/config.yml,
+    # so a fresh load has exactly the names the profile was rendered from. The
+    # check is advisory and files are already written: existing content in a
+    # namespace the project will build into is a warning, never a refusal.
+    from ..config import DexConfig, load_config
+
+    fresh = load_config(repo_root) or DexConfig()
+    preflight = dev_target.content_check(
+        fresh,
+        repo_root,
+        layered=layered_schemas,
+        store=engine.store,
+        connection=engine.connection,
+    )
+
+    return InitResult(
+        project_name=result.project_name,
+        project_dir=result.project_dir,
+        connector=result.connector,
+        connector_source=source,
+        warehouse_path=result.warehouse_path,
+        created=result.created,
+        diffs=result.diffs,
+        warnings=preflight,
+    )
+
+
+def cmd_init(args: argparse.Namespace, engine: DexEngine) -> env.Envelope:
+    try:
+        result = init_project(
+            engine,
+            getattr(args, "argument", None) or "",
+            connector=getattr(args, "connector", None),
+            path=getattr(args, "path", None),
+            layered_schemas=bool(getattr(args, "layered_schemas", False)),
+            in_place=bool(getattr(args, "in_place", False)),
+        )
+    except ValueError as exc:
+        return env.error_for(exc)
+    return to_envelope(
+        result,
+        hints={
+            "next": "run `explore map` if you have not yet, then propose staging "
+            "models with `transform plan --scaffold <table>`"
+        },
+    )
+
+
+def plan(
+    engine: DexEngine,
+    intent: str,
+    *,
+    edits: list[PlanEdit] | None = None,
+    declarations: list[Any] | None = None,
+    scaffold: list[str] | None = None,
+    attribute_rows: bool | None = None,
+) -> PlanResult:
+    """Turn authored edits into a stored plan of reviewable diffs.
+
+    ``scaffold`` prepends staging skeletons built from the exploration cache.
+    Deletes, project and profile edits, snapshots, seeds and properties YAML are
+    gated by dbt's own parser here rather than at build time, because a broken
+    ``dbt_project.yml`` breaks everything, an orphaning delete is cheaper to
+    catch before it is stored, and a snapshot's config, a seed's CSV and a
+    model's properties are shapes dbt's parser knows and a regex only
+    approximates.
+
+    ``declarations`` is the payload's raw ``declarations`` list (see
+    :mod:`.declarations`). Each is validated and rendered into the model's YAML
+    entry as an ordinary ``schema_yml`` edit in this same plan, so it passes the
+    same gates and applies the same way as anything else in it.
+
+    ``attribute_rows`` controls the row-population report (see
+    :mod:`.row_attribution`), which runs after the plan is stored so that nothing
+    it finds, and no way it fails, can stop a plan from existing.
+    """
+
+    edits = list(edits or [])
+    if scaffold:
+        from ..dbt_project import DbtProjectError
+        from . import scaffold as scaffold_mod
+
+        try:
+            scaffold_project_dir = engine.project_dir()
+        except DbtProjectError:
+            # No project yet (or an ambiguous one): scaffold proceeds exactly as
+            # it always has, with nothing to merge the shared sources file
+            # against. `_make_plan` below raises this same error with its own
+            # message once it needs a project directory to store the plan.
+            scaffold_project_dir = None
+        generated, scaffold_notes = _keep_one_entry(
+            scaffold_project_dir,
+            scaffold_mod.scaffold_edits(scaffold, engine.store, scaffold_project_dir),
+        )
+        edits = generated + edits
+    else:
+        scaffold_notes = []
+
+    declared, declaration_notes, drafts = _declare(engine, edits, declarations)
+    edits = declared
+
+    if not edits:
+        raise ValueError(
+            "transform plan needs content: pass --edits-file <path|-> with the "
+            "authored edits or declarations, or --scaffold <table> for a staging "
+            "skeleton"
+        )
+
+    parse_notes: list[str] = []
+    has_delete = any(e.op is EditOp.DELETE for e in edits)
+    # dbt's own parser is a far better gate than a regex on the two kinds whose
+    # shape it fully owns: it resolves a snapshot's config against the project
+    # and reads a seed's CSV the way it will at build time. It is the
+    # authoritative check behind the structural one in `validate`, and it
+    # degrades to a warning where dbt is not installed.
+    parser_owned = any(
+        e.kind
+        in (
+            EditKind.PROJECT_YML,
+            EditKind.PROFILES_YML,
+            EditKind.SNAPSHOT_SQL,
+            EditKind.SEED_CSV,
+            # A model's properties: a declaration lands here, and so does the
+            # shape dbt refuses that no structural check fully covers (a second
+            # entry for one model, a test whose arguments it cannot read).
+            EditKind.SCHEMA_YML,
+        )
+        for e in edits
+    )
+    semantic_proposal: dict[str, Any] | None = None
+    derivation_notes: list[str] = []
+    if _has_dbt_project(engine):
+        # The secret-guard runs first, so an inlined credential is never handed
+        # to the dbt subprocess.
+        from ..dbt_project import load as load_project
+        from .build import shadow_parse
+        from .validate import assert_profiles_safe
+
+        project = engine.project_dir()
+        view = load_project(project)
+        assert_profiles_safe(view, edits)
+        # dex's own refusals run before the subprocess, for the same reason the
+        # secret-guard above does: the parse copies the project with these edits
+        # written into it, so a seed refused for carrying personal data must not
+        # reach disk or a subprocess first, and dbt's message for a misfiled
+        # snapshot ("Encountered unknown tag 'snapshot'") must not stand in for
+        # the one that names the fix. Warnings are dropped here on purpose;
+        # `plans.plan` produces them again and is what the caller sees.
+        overrides = pii_override_paths(engine.config.pii_overrides)
+        cache = readable_cache(engine.store) if _has_seed(edits) else None
+        for edit in edits:
+            plans_mod.admit_edit(
+                edit,
+                view,
+                project,
+                cache=cache if edit.kind is EditKind.SEED_CSV else None,
+                pii_overrides=overrides,
+            )
+        # Refuse an orphaning delete with a precise, dbt-independent message
+        # before the subprocess runs (which would otherwise report the same
+        # danglers as a lower-level parse error). This is the always-available
+        # hard gate; the parse below is the authoritative backstop.
+        if has_delete:
+            plans_mod.validate_deletions(view, edits)
+        # After the guards above, because a derivation is checked by dbt's
+        # parse of a copy of the project with these edits in it.
+        derived = _derive_semantic(engine, view, edits)
+        edits = derived.edits
+        semantic_proposal = derived.proposal
+        derivation_notes = derived.warnings
+        if has_delete or parser_owned or derived.parse is not None:
+            if derived.parse is not None:
+                # The derivation's own parse covered exactly these edits.
+                parse_result = derived.parse
+            elif blocker := _unparseable_reason(view, edits):
+                parse_result = {"available": False, "reason": blocker}
+            else:
+                parse_result = shadow_parse(
+                    project, edits, target=engine.config.dbt_target
+                )
+            if not parse_result["available"]:
+                parse_notes.append(parse_result["reason"])
+            elif not parse_result["success"]:
+                raise DbtParseError(
+                    _failure_message("dbt parse failed", parse_result["messages"]),
+                    warnings=parse_result["messages"][1:],
+                )
+            elif parse_result["messages"]:
+                parse_notes = [f"dbt: {m}" for m in parse_result["messages"]]
+
+    result = _make_plan(engine, intent, edits)
+    result.warnings.extend(scaffold_notes)
+    result.warnings.extend(declaration_notes)
+    result.warnings.extend(parse_notes)
+    result.warnings.extend(derivation_notes)
+    result.decisions = _plan_decisions(engine, edits, declarations)
+    result.declarations = drafts or None
+    result.semantic_proposal = semantic_proposal
+    _attribute_rows(engine, result, edits, requested=attribute_rows)
+    _contradiction_warnings(result)
+    return result
+
+
+def _has_dbt_project(engine: DexEngine) -> bool:
+    """Whether this plan is a dbt project's, which is what dbt's parser can read.
+
+    A project format other than dbt places edits in its own keyspace and is
+    checked against its own surface, so neither dbt's parser nor dbt's path rules
+    are a reason to refuse its plan, even where a dbt project also resolves.
+    """
+
+    from ..adapters.project import DbtProject
+    from ..dbt_project import DbtProjectError
+
+    editable = engine.editable_project()
+    if editable is not None and not isinstance(editable, DbtProject):
+        return False
+    try:
+        engine.project_dir()
+    except DbtProjectError:
+        return False
+    return True
+
+
+def _unparseable_reason(view: Any, edits: list[PlanEdit]) -> str | None:
+    """Why dbt cannot parse the post-change project whatever these edits say.
+
+    One known case: semantic models with no MetricFlow time spine, which dbt
+    refuses outright. Semantic plans already skip their parse for it; a plan that
+    only touches a model's properties skips it the same way rather than being
+    refused for a gap it did not open.
+    """
+
+    from . import declarations as declarations_mod
+
+    files = declarations_mod.post_change_files(view, edits)
+    parsed = []
+    has_semantic = False
+    for path, content in files.items():
+        if not path.endswith((".yml", ".yaml")):
+            continue
+        try:
+            loaded = yaml.safe_load(content)
+        except yaml.YAMLError:
+            continue
+        if isinstance(loaded, dict) and loaded.get("semantic_models"):
+            has_semantic = True
+        parsed.append(loaded)
+    if not has_semantic or _semantic().time_spine_warning(view, parsed) is None:
+        return None
+    return (
+        "dbt parse skipped: the project declares semantic models and no time "
+        "spine, which dbt refuses to parse whatever this plan changes"
+    )
+
+
+def _keep_one_entry(
+    project_dir: Any, generated: list[PlanEdit]
+) -> tuple[list[PlanEdit], list[str]]:
+    """Drop a scaffolded YAML file that would declare a model a second time.
+
+    The scaffold writes ``stg_<table>.yml`` beside the model it writes. Where the
+    project already declares that model in another file (a shared
+    ``_staging.yml``), the two entries are a dbt parse error
+    (``DuplicatePatchPathError``), so the scaffold's file is left out and the
+    caller is told how to add what it carried to the entry that exists.
+    """
+
+    from ..dbt_project import DbtProjectError
+    from ..dbt_project import load as load_project
+    from . import declarations as declarations_mod
+    from .rewrite import yaml_blocks
+
+    if project_dir is None:
+        return generated, []
+    try:
+        view = load_project(project_dir)
+    except DbtProjectError:
+        return generated, []
+    kept: list[PlanEdit] = []
+    notes: list[str] = []
+    for edit in generated:
+        if edit.kind is not EditKind.SCHEMA_YML or edit.new_content is None:
+            kept.append(edit)
+            continue
+        others = {
+            path: source.content
+            for path, source in view.files.items()
+            if path != edit.path
+        }
+        clashes = [
+            (block.name, found)
+            for block in yaml_blocks(edit.new_content)
+            if block.form == "yaml_model_entry"
+            and (found := declarations_mod.schema_path(others, block.name))
+        ]
+        if not clashes:
+            kept.append(edit)
+            continue
+        for model, found in clashes:
+            notes.append(
+                f"{model} is already declared in {found}, so the scaffold's "
+                f"{edit.path} (its key tests and PII stamps) was not written: a second "
+                "entry for one model is a dbt parse error. Add them to the existing "
+                "entry with a `declarations` payload or a `schema_yml` edit"
+            )
+    return kept, notes
+
+
+def _declare(
+    engine: DexEngine, edits: list[PlanEdit], declarations: list[Any] | None
+) -> tuple[list[PlanEdit], list[str], dict[str, Any]]:
+    """Render the payload's declarations into ``edits``, draft what the cache
+    already knows about each model, and warn where intent is missing.
+
+    The undeclared-model warning runs even with no declarations at all: a plan
+    that writes a model's SQL and says nothing about what it means is the gap this
+    exists to close. It stays a warning, because dex declares its own output and
+    does not police a model a human wrote.
+
+    The third value is ``data.declarations``: per model the plan creates, edits
+    or declares, its ``drafted``, ``declared`` and ``missing`` parts (see
+    :mod:`.drafting`).
+    """
+
+    from ..dbt_project import load as load_project
+    from . import declarations as declarations_mod
+
+    parsed = declarations_mod.parse_declarations(declarations)
+    if not _has_dbt_project(engine):
+        if parsed:
+            raise declarations_mod.DeclarationError(
+                "declarations are rendered into a dbt project's model YAML, and no "
+                "dbt project is the editable project here"
+            )
+        return edits, [], {}
+    view = load_project(engine.project_dir())
+
+    warnings: list[str] = []
+    if parsed:
+        cache = None
+        if any(d.population and d.population.filters for d in parsed):
+            from ..storage import CacheUnreadableError
+
+            # An unreadable cache narrows the filter check to column names; it
+            # never stops the plan, and the narrowing is said out loud.
+            try:
+                cache = readable_cache(engine.store)
+            except CacheUnreadableError:
+                cache = None
+                warnings.append(
+                    "the exploration cache could not be read, so population filters "
+                    "were checked against their column names only"
+                )
+        edits, rendered_warnings = declarations_mod.apply_declarations(
+            parsed,
+            view,
+            edits,
+            cache=cache,
+            pii_overrides=pii_override_paths(engine.config.pii_overrides),
+        )
+        warnings.extend(rendered_warnings)
+    warnings.extend(
+        declarations_mod.undeclared_model_warnings(
+            edits, view, (d.model for d in parsed)
+        )
+    )
+    drafts, draft_warnings = _draft(engine, view, edits, [d.model for d in parsed])
+    warnings.extend(draft_warnings)
+    return edits, warnings, drafts
+
+
+def _draft(
+    engine: DexEngine, view: Any, edits: list[PlanEdit], declared: list[str]
+) -> tuple[dict[str, Any], list[str]]:
+    """The measured half of each touched model's declaration, from the cache.
+
+    Free on every connector: it reads the post-change project and the stored
+    cache and opens nothing. Total for the same reason row attribution is: the
+    draft is commentary on a plan, so a defect in it is a warning naming the
+    exception rather than a plan that fails to exist.
+    """
+
+    from . import declarations as declarations_mod
+    from . import drafting
+
+    files = declarations_mod.post_change_files(view, edits)
+    models = set(declared)
+    for edit in edits:
+        if (
+            edit.kind is EditKind.MODEL_SQL
+            and edit.op is EditOp.UPSERT
+            and edit.path.endswith(".sql")
+        ):
+            models.add(Path(edit.path).stem)
+    if not models:
+        return {}, []
+
+    try:
+        return drafting.draft(
+            models,
+            files,
+            view.model_paths,
+            **_drafting_inputs(engine, view),
+            index=lambda: _post_change_index(view, edits),
+            prior={path: source.content for path, source in view.files.items()},
+        )
+    except Exception as exc:
+        return {}, [
+            f"could not draft the declarations of this plan's models "
+            f"({type(exc).__name__}: {exc}); the plan itself is unaffected"
+        ]
+
+
+def _drafting_inputs(engine: DexEngine, view: Any) -> dict[str, Any]:
+    """What :func:`drafting.draft` reads besides the project: the cache, with
+    ``pii_overrides`` applied, and the settings it drafts under. Opens nothing."""
+
+    from ..adapters import get_dialect
+    from ..cache import mask_overridden
+    from ..explore.cumulative import cumulative_columns
+    from ..storage import CacheUnreadableError
+
+    note = None
+    try:
+        cache = readable_cache(engine.store)
+    except CacheUnreadableError:
+        cache, note = None, "the exploration cache could not be read"
+    if cache is None and note is None:
+        note = "there is no exploration cache yet; run `explore map` first"
+    if cache is not None:
+        cache = mask_overridden(cache, pii_override_paths(engine.config.pii_overrides))
+    return {
+        "cache": cache,
+        "dialect": get_dialect(engine.connector or engine.config.connector),
+        "vars": view.vars,
+        "domain_cap": engine.config.profile_value_domain_cap,
+        "cumulative": {
+            dataset.identifier: cumulative_columns(dataset.data_quality)
+            for dataset in (cache.datasets if cache is not None else [])
+        },
+        "cache_note": note,
+    }
+
+
+def _post_change_index(view: Any, edits: list[PlanEdit]) -> Any:
+    """The reference index of the project as it reads once ``edits`` land."""
+
+    from ..references import ReferenceIndex
+    from .propagate import _project_after_edits
+
+    return ReferenceIndex(_project_after_edits(view, edits), scan_packages=False)
+
+
+def _plan_decisions(
+    engine: DexEngine, edits: list[PlanEdit], declarations: list[Any] | None
+) -> list[dict[str, Any]] | None:
+    """Every assumption declared on the models this plan touches, post-change.
+
+    ``None`` where no dbt project resolves, which is a different answer from an
+    empty list: an empty list says the touched models declare no assumption.
+    """
+
+    from ..dbt_project import load as load_project
+    from . import declarations as declarations_mod
+
+    if not _has_dbt_project(engine):
+        return None
+    view = load_project(engine.project_dir())
+    declared = [
+        entry.get("model")
+        for entry in declarations or []
+        if isinstance(entry, dict) and isinstance(entry.get("model"), str)
+    ]
+    return declarations_mod.decisions(
+        declarations_mod.post_change_files(view, edits),
+        declarations_mod.touched_models(edits, declared),
+    )
+
+
+def _attribute_rows(
+    engine: DexEngine,
+    result: PlanResult,
+    edits: list[PlanEdit],
+    *,
+    requested: bool | None,
+) -> None:
+    """Fold the row-population report onto a plan that is already stored.
+
+    Deliberately total: an edit that cannot move rows, a project dex cannot read,
+    a warehouse it cannot reach, all return quietly, because the plan is the
+    command's product and this is commentary on it. The one thing that does
+    propagate is the priced ask on a metered connector, which rides back on the
+    result beside the plan rather than replacing it.
+
+    The broad ``except`` is the backstop behind that: the plan is stored by the
+    time this runs, so a defect in the analysis must not turn a successful plan
+    into an error envelope the caller cannot read a plan id out of. It names the
+    exception type rather than swallowing it, so a bug still surfaces.
+
+    A cost-guard refusal is deliberately **not** caught. An over-ceiling estimate
+    and a missing ceiling are the two things confirmation cannot override, and a
+    backstop that downgraded either to a warning would leave the guard reporting
+    a number that did not bind, which is the failure mode the whole gate exists
+    to prevent.
+    """
+
+    from ..guards.cost_guard import CostGuardError
+    from .row_attribution import attribute
+
+    try:
+        outcome = attribute(engine, edits, requested=requested)
+    except CostGuardError:
+        raise
+    except Exception as exc:
+        result.warnings.append(
+            "could not analyse this edit's effect on the row population "
+            f"({type(exc).__name__}: {exc}); the plan itself is unaffected"
+        )
+        return
+    result.warnings.extend(outcome.warnings)
+    if not outcome:
+        return
+
+    result.row_attribution = [model.model_dump(mode="json") for model in outcome.models]
+    if outcome.pending is not None:
+        result.pending_confirmation = outcome.pending
+    if outcome.adapter is not None:
+        command_args.stamp_spend(result, outcome.adapter)
+
+
+def _contradiction_warnings(result: PlanResult) -> None:
+    """Say each contradiction the draft found, once row attribution has run.
+
+    Rendered here rather than in the draft so a population contradiction can
+    cite attribution's own measurement of the predicate that left, or its reason
+    for not measuring, without a second measuring path. A model with nothing
+    contradicted carries an empty list, and a new model carries no key at all.
+    """
+
+    from .contradictions import pair_rows, warnings
+
+    for model, entry in sorted((result.declarations or {}).items()):
+        found = entry.get("contradictions")
+        if not found:
+            continue
+        pair_rows(found, _attribution_for(result.row_attribution, model))
+        rendered = warnings(model, found)
+        for item in found:
+            item.pop("row_reason", None)
+        result.warnings.extend(rendered)
+
+
+def _attribution_for(
+    attribution: list[dict[str, Any]] | None, model: str
+) -> list[dict[str, Any]]:
+    return [r for r in attribution or [] if Path(r.get("path", "")).stem == model]
+
+
+def cmd_plan(args: argparse.Namespace, engine: DexEngine) -> env.Envelope:
+    try:
+        edits, declarations = payload_from_file(getattr(args, "edits_file", None))
+        result = plan(
+            engine,
+            getattr(args, "argument", None) or "",
+            edits=edits,
+            declarations=declarations,
+            scaffold=getattr(args, "scaffold", None),
+            attribute_rows=getattr(args, "attribute_rows", None),
+        )
+        return to_envelope(result, hints=plan_hint(result))
+    except DbtParseError as exc:
+        return env.error_for(exc, warnings=exc.warnings)
+    except ValueError as exc:
+        return env.error_for(exc)
+
+
+def rename(
+    engine: DexEngine,
+    kind: str,
+    old: str,
+    new: str,
+    *,
+    edits_file: str | None = None,
+) -> PropagationResult:
+    """``transform rename``: every edit the rename needs, as one plan.
+
+    Routed through :func:`plan` rather than straight to the plan store, so a
+    generated plan passes exactly the gates a hand-authored one does: containment,
+    structural validation, the profiles secret guard, the dangling-reference guard
+    on the delete half of a model rename, and dbt's own parser where it owns the
+    shape. A generated edit is not more trustworthy than an authored one; it is
+    only faster to produce.
+
+    Row attribution is off. A rename changes what a column is called and not which
+    rows a model returns, so measuring it would put a warehouse scan and a cost
+    handshake in front of a change that is free and repo-only.
+    """
+
+    return _propagate(engine, kind, old, new, edits_file=edits_file)
+
+
+def remove(
+    engine: DexEngine, kind: str, name: str, *, edits_file: str | None = None
+) -> PropagationResult:
+    """``transform remove``: the definition removed, and the reads verified gone.
+
+    dex authors the removal of the *definition* and refuses while any read of it
+    survives, naming each. It never rewrites a read: `{% if var('flag') %}` can be
+    dropped or unguarded and only the caller knows which, and `{{ var('x') }}` in
+    an expression has no value dex may invent.
+
+    ``edits_file`` is how the caller supplies those read edits. They are validated
+    and stored in this same plan, so the removal stays atomic without dex guessing
+    at semantics.
+    """
+
+    return _propagate(engine, kind, name, None, edits_file=edits_file)
+
+
+def _propagate(
+    engine: DexEngine,
+    kind: str,
+    old: str,
+    new: str | None,
+    *,
+    edits_file: str | None,
+) -> PropagationResult:
+    from ..dbt_project import load as load_project
+    from .propagate import propagate
+
+    project = engine.project_dir()
+    outcome = propagate(
+        load_project(project),
+        project,
+        kind,
+        old,
+        new,
+        extra_edits=edits_from_payload(edits_file),
+    )
+    planned = plan(engine, outcome.intent, edits=outcome.edits, attribute_rows=False)
+    return PropagationResult(
+        change=f"{old} -> {new}" if new else f"{old} removed",
+        kind=kind,
+        sites=outcome.sites,
+        plan_id=planned.plan_id,
+        intent=planned.intent,
+        paths=planned.paths,
+        plan_path=planned.plan_path,
+        diffs=planned.diffs,
+        warnings=planned.warnings,
+        notes=outcome.notes,
+    )
+
+
+def cmd_rename(args: argparse.Namespace, engine: DexEngine) -> env.Envelope:
+    try:
+        result = rename(
+            engine,
+            args.kind,
+            args.old,
+            args.new,
+            edits_file=getattr(args, "edits_file", None),
+        )
+        return to_envelope(result, hints=plan_hint(result))
+    except DbtParseError as exc:
+        return env.error_for(exc, warnings=exc.warnings)
+    except ValueError as exc:
+        return env.error_for(exc)
+
+
+def cmd_remove(args: argparse.Namespace, engine: DexEngine) -> env.Envelope:
+    try:
+        result = remove(
+            engine, args.kind, args.name, edits_file=getattr(args, "edits_file", None)
+        )
+        return to_envelope(result, hints=plan_hint(result))
+    except DbtParseError as exc:
+        return env.error_for(exc, warnings=exc.warnings)
+    except ValueError as exc:
+        return env.error_for(exc)
+
+
+def place(
+    engine: DexEngine,
+    column: str,
+    targets: list[str],
+    expression: str,
+    *,
+    explain: bool = False,
+) -> PlacementResult:
+    """``transform place``: where a shared derived column belongs, and why.
+
+    ``explain`` answers the question and stores nothing, which is what makes the
+    proposal something a caller can take up cheaply. The reasoning is identical
+    either way: the plan is the same answer with the edits attached.
+
+    Placement is asked of the project format where one is configured, the way
+    ``maintain reconcile`` asks it. The ``ref()`` graph and the SQL stay dbt's,
+    which is what they are: a per-format graph protocol with one implementation
+    would be a seam with nothing on the other side of it.
+    """
+
+    from ..adapters.project import PlacingProject as _Placing
+    from ..dbt_project import load as load_project
+    from .place import place as compute
+
+    project = engine.project_dir()
+    editable = engine.editable_project()
+    outcome = compute(
+        load_project(project),
+        project,
+        column,
+        targets,
+        expression,
+        placement=editable if isinstance(editable, _Placing) else None,
+    )
+    common = {
+        "column": outcome.column,
+        "strategy": outcome.strategy,
+        "ancestor": outcome.ancestor,
+        "inputs": outcome.inputs,
+        "targets": outcome.targets,
+        "reasoning": outcome.reasoning,
+        "chain": outcome.chain,
+        "notes": outcome.notes,
+    }
+    if explain:
+        return PlacementResult(explained=True, **common)
+    if not outcome.edits:
+        return PlacementResult(
+            explained=True,
+            **common,
+            warnings=[
+                "every model in the chain already carries this column, so there "
+                "was nothing to plan"
+            ],
+        )
+    planned = plan(engine, outcome.intent, edits=outcome.edits, attribute_rows=False)
+    return PlacementResult(
+        plan_id=planned.plan_id,
+        intent=planned.intent,
+        paths=planned.paths,
+        plan_path=planned.plan_path,
+        diffs=planned.diffs,
+        warnings=planned.warnings,
+        **common,
+    )
+
+
+def cmd_place(args: argparse.Namespace, engine: DexEngine) -> env.Envelope:
+    try:
+        result = place(
+            engine,
+            args.argument or "",
+            _split_targets(getattr(args, "targets", None)),
+            getattr(args, "expr", None) or "",
+            explain=getattr(args, "explain", False),
+        )
+        hints = (
+            {"next": "apply it with `transform apply`, or argue with the reasoning"}
+            if result.plan_id
+            else None
+        )
+        return to_envelope(result, hints=hints)
+    except DbtParseError as exc:
+        return env.error_for(exc, warnings=exc.warnings)
+    except ValueError as exc:
+        return env.error_for(exc)
+
+
+def declare(
+    engine: DexEngine,
+    objects: list[str] | None = None,
+    *,
+    declarations: list[Any] | None = None,
+    edits: list[PlanEdit] | None = None,
+    limit: int | None = None,
+    intent: str | None = None,
+) -> DeclareResult:
+    """``transform declare``: propose declarations for models that already exist.
+
+    The selector is the one ``maintain verify`` takes: model names, repeatable
+    and comma-separated, none for the whole project. Each selected model gets the
+    measured facts its YAML does not yet state (see :mod:`.declare`), laid under
+    whatever the payload's ``declarations`` supply, and the lot is stored as one
+    ordinary plan through :func:`plan`, so it is rendered, parsed and drafted
+    exactly as a hand-written declaration would be. Repository and cache only.
+    """
+
+    from ..dbt_project import load as load_project
+    from . import declarations as declarations_mod
+    from . import declare as declare_mod
+    from . import drafting
+
+    if edits:
+        raise ValueError(
+            "transform declare writes declarations into model YAML and takes no "
+            "`edits`; pass SQL or other file changes to `transform plan`, which "
+            "takes `declarations` beside them"
+        )
+    if limit is not None and not 1 <= limit <= declare_mod.MAX_MODELS:
+        raise ValueError(
+            f"--limit {limit} is outside 1 to {declare_mod.MAX_MODELS}; the cap of "
+            f"{declare_mod.MAX_MODELS} models per plan keeps the diff reviewable, "
+            "and --limit can only narrow it"
+        )
+    cap = declare_mod.MAX_MODELS if limit is None else limit
+    supplied = declarations_mod.parse_declarations(declarations)
+    if not _has_dbt_project(engine):
+        raise declarations_mod.DeclarationError(
+            "transform declare writes declarations into a dbt project's model YAML, "
+            "and no dbt project is the editable project here"
+        )
+
+    project = engine.project_dir()
+    view = load_project(project)
+    selector = [
+        name for raw in objects or [] for name in raw.split(",") if name.strip()
+    ]
+    selection = declare_mod.select_models(view, selector, Path(project))
+    selected = {m.lower() for m in selection.models}
+    outside = [d.model for d in supplied if d.model.lower() not in selected]
+    if outside:
+        named = {s["model"].lower(): s for s in selection.skipped}
+        reasons = [
+            f"'{m}' ({named[m.lower()]['detail']})" if m.lower() in named else f"'{m}'"
+            for m in outside
+        ]
+        raise declarations_mod.DeclarationError(
+            "the payload declares "
+            + ", ".join(reasons)
+            + ", which the selector does not select; add "
+            + ("it" if len(outside) == 1 else "them")
+            + " to the selector, or drop the selector to select every model"
+        )
+    if len(supplied) > cap:
+        raise ValueError(
+            f"the payload declares {len(supplied)} models and this plan is capped at "
+            f"{cap}; split the payload across plans"
+        )
+
+    files = {path: source.content for path, source in view.files.items()}
+    inputs = _drafting_inputs(engine, view)
+
+    def draft_one(model: str) -> tuple[dict[str, Any] | None, list[str]]:
+        try:
+            drafts, warnings = drafting.draft(
+                [model], files, view.model_paths, **inputs
+            )
+        except Exception as exc:
+            return None, [f"could not draft '{model}' ({type(exc).__name__}: {exc})"]
+        return drafts.get(model), warnings
+
+    outcome = declare_mod.propose(
+        view, selection.models, supplied, draft=draft_one, cap=cap
+    )
+    skipped = selection.skipped + outcome.skipped
+    notes: list[str] = []
+    if outcome.elided:
+        notes.append(
+            f"{len(outcome.elided)} selected model(s) were not considered: this plan "
+            f"is capped at {cap} proposed models. Apply it and run the same command "
+            "again for the next batch (models already declared are skipped and do "
+            "not count), or narrow the selector"
+        )
+    common: dict[str, Any] = {
+        "selector": selector,
+        "selected_count": len(selection.models)
+        + sum(1 for s in selection.skipped if s["reason"] == "versioned"),
+        "proposed": [p.as_dict() for p in outcome.proposals],
+        "skipped": skipped,
+        "elided_count": len(outcome.elided),
+    }
+    if not outcome.proposals:
+        notes.append(
+            "nothing to propose, so no plan was stored; every selected model is "
+            "listed under `skipped` with the reason"
+        )
+        return DeclareResult(notes=notes, **common)
+
+    payload = [
+        p.declaration.model_dump(mode="json", exclude_none=True, exclude_defaults=True)
+        | {"model": p.model}
+        for p in outcome.proposals
+    ]
+    names = [p.model for p in outcome.proposals]
+    planned = plan(
+        engine,
+        intent
+        or (
+            "declare existing model"
+            + ("s " if len(names) > 1 else " ")
+            + ", ".join(names[:5])
+            + (f" and {len(names) - 5} more" if len(names) > 5 else "")
+        ),
+        declarations=payload,
+        attribute_rows=False,
+    )
+    return DeclareResult(
+        plan_id=planned.plan_id,
+        intent=planned.intent,
+        paths=planned.paths,
+        plan_path=planned.plan_path,
+        diffs=planned.diffs,
+        warnings=planned.warnings,
+        decisions=planned.decisions,
+        declarations=planned.declarations,
+        semantic_proposal=planned.semantic_proposal,
+        notes=notes + planned.notes,
+        **common,
+    )
+
+
+def cmd_declare(args: argparse.Namespace, engine: DexEngine) -> env.Envelope:
+    try:
+        edits, declarations = payload_from_file(getattr(args, "edits_file", None))
+        result = declare(
+            engine,
+            getattr(args, "objects", None),
+            declarations=declarations,
+            edits=edits,
+            limit=getattr(args, "limit", None),
+            intent=getattr(args, "intent", None),
+        )
+        hints = plan_hint(result) if result.plan_id else None
+        return to_envelope(result, hints=hints)
+    except DbtParseError as exc:
+        return env.error_for(exc, warnings=exc.warnings)
+    except ValueError as exc:
+        return env.error_for(exc)
+
+
+def _split_targets(raw: list[str] | None) -> list[str]:
+    """Target models from a repeatable, comma-splittable flag.
+
+    Both spellings, because `explore semantic query` already accepts both for its
+    own lists and a caller should not have to remember which commands take which.
+    """
+
+    return [
+        name.strip()
+        for entry in (raw or [])
+        for name in entry.split(",")
+        if name.strip()
+    ]
+
+
+def macro(engine: DexEngine, name: str | None = None) -> MacroListResult | MacroResult:
+    """List the shipped macros, or plan scaffolding one into the project."""
+
+    from ..dbt_project import load as load_project
+    from . import scaffold as scaffold_mod
+
+    if not name:
+        return MacroListResult(
+            macros=[
+                {"name": macro_name, "description": description}
+                for macro_name, description in sorted(scaffold_mod.MACRO_ASSETS.items())
+            ]
+        )
+
+    project = engine.project_dir()
+    view = load_project(project)
+    edit = scaffold_mod.macro_edit(name, view.macro_paths[0])
+
+    warnings: list[str] = []
+    existing = view.files.get(edit.path)
+    if existing is not None and existing.content == edit.new_content:
+        return MacroResult(
+            macro=name,
+            path=edit.path,
+            up_to_date=True,
+            warnings=[f"{edit.path} already matches the shipped version"],
+        )
+    if existing is not None:
+        warnings.append(
+            f"{edit.path} differs from the shipped version (customized or "
+            "stale); the diff below reconciles them, and applying it "
+            "overwrites the project's copy"
+        )
+
+    # The authoritative gate, same layering as semantic plans: dbt's own
+    # parser sees the macro in a shadow copy of the project, which also
+    # catches a name collision with a macro defined elsewhere in the project.
+    from .build import shadow_parse
+
+    parse_result = shadow_parse(project, [edit], target=engine.config.dbt_target)
+    if not parse_result["available"]:
+        warnings.append(parse_result["reason"])
+    elif not parse_result["success"]:
+        raise DbtParseError(
+            _failure_message("dbt parse failed", parse_result["messages"]),
+            warnings=parse_result["messages"][1:],
+        )
+
+    planned = _make_plan(engine, f"scaffold macro {name}", [edit])
+    planned.warnings.extend(warnings)
+    return MacroResult(**planned.model_dump(), macro=name, path=edit.path)
+
+
+def cmd_macro(args: argparse.Namespace, engine: DexEngine) -> env.Envelope:
+    try:
+        result = macro(engine, getattr(args, "argument", None))
+    except DbtParseError as exc:
+        return env.error_for(exc, warnings=exc.warnings)
+    if isinstance(result, MacroListResult):
+        return to_envelope(
+            result, hints={"next": "scaffold one with `transform macro <name>`"}
+        )
+    if result.up_to_date:
+        return to_envelope(result)
+    return to_envelope(result, hints=plan_hint(result))
+
+
+def test_scaffold(engine: DexEngine, model_name: str | None) -> TestScaffoldResult:
+    """Plan a ``unit_tests:`` skeleton scaffolded from a model's own
+    ref()/source() inputs: a ``given`` block per input holding only the
+    columns the model actually reads, typed from the exploration cache.
+
+    Never invents the expected output: the ``expect:`` block is a deliberate,
+    empty stub that fails until a human fills it in. dbt's own parser is the
+    gate (same as ``macro()``), so a malformed fixture is caught before the
+    plan is ever stored, not left to `transform build`.
+    """
+
+    if not model_name:
+        raise ValueError(
+            "transform test needs a model: `transform test --scaffold <model>`"
+        )
+
+    from ..dbt_project import load as load_project
+    from . import test_scaffold as test_scaffold_mod
+
+    project = engine.project_dir()
+    view = load_project(project)
+    cache = readable_cache(engine.store)
+    edits, inputs = test_scaffold_mod.unit_test_scaffold_edits(view, cache, model_name)
+
+    from .build import shadow_parse
+
+    parse_result = shadow_parse(project, edits, target=engine.config.dbt_target)
+    warnings: list[str] = []
+    if not parse_result["available"]:
+        warnings.append(parse_result["reason"])
+    elif not parse_result["success"]:
+        raise DbtParseError(
+            _failure_message("dbt parse failed", parse_result["messages"]),
+            warnings=parse_result["messages"][1:],
+        )
+
+    planned = _make_plan(engine, f"scaffold unit test for {model_name}", edits)
+    planned.warnings.extend(warnings)
+    planned.warnings.append(
+        "expect: is a stub with no rows; this unit test fails until you fill "
+        "in the model's actual expected output for the given fixtures above"
+    )
+    return TestScaffoldResult(**planned.model_dump(), model=model_name, inputs=inputs)
+
+
+def test_mutations(
+    engine: DexEngine,
+    model: str | None,
+    *,
+    max_mutants: int | None = None,
+    target: str | None = None,
+    check_equivalence: bool | None = None,
+    downstream: bool | None = None,
+) -> MutationCoverageResult:
+    """Plant standard analytics defects in a model and report which tests miss them.
+
+    The question this answers is the one a passing suite cannot: whether the
+    tests would notice if the model were wrong. Each mutant is one defect, built
+    in a throwaway copy as an ephemeral model so nothing is materialized, and run
+    through the model's own tests.
+
+    The order mirrors `transform build`, and for the same reasons: the free
+    refusals come first, so a model dex cannot mutate costs nothing to find out
+    about; the dev-target check runs next, because a broken target makes every
+    run impossible and the caller should learn that before weighing a budget;
+    then the whole batch is priced and confirmed once. N runs behind one
+    handshake is the only shape that works here, since a per-mutant ask would
+    make the caller answer twenty times for one question.
+
+    ``check_equivalence`` is tri-state, like ``--attribute-rows``. Comparing a
+    survivor's output with the model's on the dev data is free on DuckDB and
+    spend everywhere else, so ``None`` checks only where it bills nothing,
+    ``True`` checks and prices the comparisons into the same batch, and
+    ``False`` never checks.
+
+    ``downstream`` is tri-state the same way and for the same reason. Routing
+    each mutant through the models that read it, so their tests answer for it
+    too, is free on DuckDB and recomputes the chain on every test elsewhere.
+    """
+
+    from ..adapters import get_dialect
+    from ..connect import paradigm_for
+    from ..envelope import Paradigm
+    from ..guards.cost_guard import skipped_handshake_warning
+    from . import dev_target
+    from . import mutation as mutation_mod
+    from .build import ShadowRun, assert_dev_target
+
+    engine._last_spend = None
+    if not model:
+        raise ValueError(
+            "transform test needs a model: `transform test --mutate <model>`"
+        )
+    if max_mutants is not None and max_mutants > mutation_mod.MAX_MUTANTS:
+        raise ValueError(
+            f"--max-mutants {max_mutants} is above the engine ceiling of "
+            f"{mutation_mod.MAX_MUTANTS}; every mutant is a dbt run, so the "
+            "ceiling is what keeps this command's cost predictable. Lower it "
+            "to narrow the run"
+        )
+    cap = mutation_mod.MAX_MUTANTS if max_mutants is None else max(0, max_mutants)
+
+    config = engine.config
+    store = engine.store
+    repo_root = engine.require_repo_root("running mutation coverage")
+    target = target or config.dbt_target or "dev"
+    assert_dev_target(target, config.dbt_target)
+    connector = engine.connector or config.connector
+    effective = config.model_copy(update={"connector": connector})
+    paradigm = paradigm_for(connector, effective)
+    ceiling = engine.budget if engine.budget is not None else config.budget.ceiling
+    project = engine.project_dir()
+
+    dev_warnings = dev_target.check(
+        project,
+        target,
+        effective,
+        repo_root,
+        store=store,
+        connection=engine.connection,
+    )
+
+    warnings: list[str] = list(dev_warnings)
+    adapter = None
+    gate = None
+    runs = 0
+    spend: dict[str, float | None] | None = None
+    try:
+        with ShadowRun(
+            project,
+            target=target,
+            connector=connector,
+            paradigm=paradigm,
+            ceiling=ceiling,
+        ) as shadow:
+            if shadow.strip_run_hooks():
+                warnings.append(
+                    "this project's on-run-start/on-run-end hooks are not run: "
+                    "mutation coverage invokes dbt once per mutant, and a hook "
+                    "that grants or audits would otherwise fire once per run"
+                )
+            if shadow.strip_semantic_models(model):
+                warnings.append(
+                    f"semantic models referencing '{model}' were omitted from the "
+                    "shadow project: mutation coverage runs with an ephemeral mutant, "
+                    "which the semantic layer cannot anchor"
+                )
+            node, model_path = _mutable_model(engine, shadow, model, mutation_mod)
+            below = _DownstreamTests.prepare(
+                shadow,
+                node,
+                model=model,
+                requested=downstream,
+                paradigm=paradigm,
+                connector=connector,
+                mutation_mod=mutation_mod,
+            )
+            if not below.direct and not below.tests:
+                # Free, and the more useful answer than "nothing to mutate":
+                # with no test to catch anything, every mutant survives by
+                # construction and the run would spend N dbt invocations to say
+                # so.
+                raise mutation_mod.MutationError(
+                    f"'{model}' has no tests, so there is nothing to measure: every "
+                    "planted defect would survive by construction. Write one first "
+                    f"(`transform test --scaffold {model}` scaffolds a unit test), "
+                    "then measure it" + below.no_tests_hint()
+                )
+            prepared, batch = _plan_mutants(
+                shadow, node, model_path, cap, get_dialect(connector), mutation_mod
+            )
+            warnings.extend(prepared.notes)
+            if batch.unparsed:
+                warnings.append(
+                    f"{batch.unparsed} mutant(s) did not survive a re-read and "
+                    "were dropped rather than run"
+                )
+            if not batch.mutants:
+                raise mutation_mod.MutationError(
+                    f"'{model}' has no SQL dex knows how to plant a defect in "
+                    "(no comparison, filter, join, CASE, division, window frame "
+                    "or aggregate), so there is nothing to measure its tests against"
+                )
+
+            equivalence = _EquivalenceCheck.prepare(
+                shadow,
+                node,
+                model_path,
+                batch,
+                select=below.select,
+                requested=check_equivalence,
+                paradigm=paradigm,
+                connector=connector,
+                mutation_mod=mutation_mod,
+            )
+
+            estimate = None
+            prices: dict[str, float] = {}
+            if paradigm is not Paradigm.FREE_LOCAL:
+                adapter = engine._adapter("transform test")
+                estimate, per_table, prices, price_notes = _price_mutations(
+                    adapter,
+                    shadow,
+                    model_path,
+                    batch,
+                    node,
+                    mutation_mod,
+                    equivalence=equivalence,
+                    reads=below.selected_ids,
+                    skip=below.excluded_names,
+                )
+                warnings.extend(price_notes)
+                if estimate is not None:
+                    command_args.billed_handshake(
+                        "transform test",
+                        adapter,
+                        estimate,
+                        per_table=per_table or None,
+                        notes=price_notes or None,
+                    )
+                gate = command_args.cost_gate(adapter)
+
+            result = _run_mutants(
+                shadow,
+                model_path,
+                batch,
+                model=node["name"],
+                paradigm=paradigm,
+                connector=connector,
+                store=store,
+                ceiling=ceiling,
+                estimate=estimate,
+                mutation_mod=mutation_mod,
+                prices=prices,
+                equivalence=equivalence,
+                uptime=getattr(adapter, "warehouse_uptime", None),
+                adapter=adapter,
+                downstream=below,
+            )
+            runs, spend, run_warnings = result.pop("_meta")
+            warnings.extend(run_warnings)
+            # Released before the day's total is read back, exactly as
+            # `_shape_build_result` releases before reading. Every run settles
+            # while this command still holds its whole-batch reservation, so a
+            # total read during the loop counts that reservation on top of what
+            # the runs actually billed and overstates the day by the estimate.
+            spend = _refresh_session_total(spend, gate, store, paradigm, connector)
+            engine._last_spend = spend
+    finally:
+        if gate is not None:
+            gate.settle()
+
+    if paradigm is Paradigm.FREE_LOCAL:
+        warnings.extend(skipped_handshake_warning(paradigm, engine.confirmed))
+
+    warnings.extend(_survivor_warnings(result["counts"], result["equivalence"]))
+    warnings.extend(below.warnings(result["counts"]))
+    if batch.elided_total:
+        warnings.append(
+            f"{batch.elided_total} further mutant(s) were not run: the cap is "
+            f"{batch.cap}, and what it cut is in data.cap.elided, per defect class"
+        )
+
+    return MutationCoverageResult(
+        model=node["name"],
+        target=target,
+        baseline=result["baseline"],
+        mutants=result["mutants"],
+        counts=result["counts"],
+        score=result["score"],
+        score_with_downstream=result["score_with_downstream"],
+        cap={
+            "limit": batch.cap,
+            "generated": len(batch.mutants),
+            "considered": batch.considered,
+            "elided": batch.elided,
+        },
+        runs=runs,
+        equivalence=result["equivalence"],
+        downstream=below.summary(),
+        spend=spend,
+        cost=_mutation_cost(paradigm, estimate, ceiling, adapter),
+        warnings=warnings,
+    )
+
+
+def _survivor_warnings(counts: dict, equivalence: dict | None) -> list[str]:
+    """The pointer line for the survivors, split by what the dev data said.
+
+    The split is the reason the comparison exists: a survivor the data already
+    tells apart is one an assertion would catch today, and one it cannot tell
+    apart needs a fixture before any assertion could see it. Saying "N
+    survived" without that would send the reader to write the wrong test for
+    half of them.
+    """
+
+    survivors = counts.get("survived", 0)
+    if not survivors:
+        return []
+    labelled = equivalence or {}
+    differ = labelled.get("distinguishable", 0)
+    same = labelled.get("equivalent", 0)
+    if not differ and not same:
+        warnings = [
+            f"{survivors} planted defect(s) survived this model's tests: no test "
+            "told the mutant apart, on the dev data or on the unit test "
+            "fixtures. They are in data.mutants, each with the test that would "
+            "catch it"
+        ]
+        if labelled.get("reason"):
+            warnings.append(
+                "the survivors are not labelled equivalent or distinguishable "
+                f"on the dev data: {labelled['reason']}"
+            )
+        return warnings
+    sentence = (
+        f"{survivors} planted defect(s) survived this model's tests. {differ} "
+        "change the model's output on the dev data, so a test asserting over "
+        f"that data would catch them today; {same} produce exactly the "
+        "unmutated model's rows there, so only a unit test fixture that reaches "
+        "the case can catch them"
+    )
+    unlabelled = labelled.get("not_checked", 0)
+    if unlabelled:
+        sentence += f"; {unlabelled} could not be compared"
+    return [
+        sentence + ". They are in data.mutants, the ones the data tells apart "
+        "first, each with the test that would catch it"
+    ]
+
+
+def _mutation_cost(paradigm, estimate, ceiling, adapter):
+    from ..envelope import Cost
+    from ..guards.cost_guard import estimate_quality_of
+
+    return Cost(
+        paradigm=paradigm,
+        estimate=estimate,
+        ceiling=ceiling,
+        estimate_quality=estimate_quality_of(adapter, estimate, paradigm=paradigm),
+    )
+
+
+def _mutable_model(engine, shadow, model: str, mutation_mod):
+    """The node to mutate, or the free refusal saying why this model is not one.
+
+    Every check here is answered from the parse alone, before a connection is
+    opened or a mutant is priced, because a model dex cannot mutate should cost
+    nothing to ask about.
+    """
+
+    from ..dbt_project import load as load_project
+    from ..dbt_project import model_file
+
+    view = load_project(shadow.project)
+    path = model_file(view, model)
+    content = view.files[path].content
+    if hasattr(shadow, "strip_semantic_models"):
+        shadow.strip_semantic_models(model)
+    # The header is appended rather than prepended: dbt gives a scalar config key
+    # to the last `config()` call in a file, so a model declaring its own
+    # `materialized` would otherwise win and the mutant would build a relation.
+    shadow.write(path, content + "\n" + mutation_mod.EPHEMERAL_HEADER + "\n")
+    manifest = shadow.compile(model)
+
+    matches = [
+        node
+        for uid, node in manifest.get("nodes", {}).items()
+        if uid.startswith("model.") and node.get("name") == model
+    ]
+    if not matches:
+        raise mutation_mod.MutationError(f"dbt compiled no model named '{model}'")
+    node = matches[0]
+    if node.get("language") == "python":
+        raise mutation_mod.MutationError(
+            f"'{model}' is a Python model; mutation coverage plants defects in SQL"
+        )
+    if node.get("package_name") != manifest.get("metadata", {}).get("project_name"):
+        raise mutation_mod.MutationError(
+            f"'{model}' belongs to an installed package rather than this project, "
+            "and dex does not mutate a package's own models"
+        )
+    if (node.get("config") or {}).get("sql_header"):
+        raise mutation_mod.MutationError(
+            f"'{model}' declares a sql_header, which only a materialization emits; "
+            "an ephemeral mutant would run without it and the tests would fail for "
+            "that reason rather than for the defect"
+        )
+    if (node.get("config") or {}).get("materialized") != "ephemeral":
+        # The override is what keeps every mutant from writing a relation, so a
+        # run must not proceed on a project where it silently did not apply.
+        raise mutation_mod.MutationError(
+            f"dex could not make '{model}' ephemeral for the run (it compiled as "
+            f"{(node.get('config') or {}).get('materialized')}), and it will not "
+            "run mutants that would materialize into your dev target"
+        )
+    return node, path
+
+
+def _attached_tests(manifest: dict, node: dict) -> list[str]:
+    """Every test dbt would run for this model, generic, singular and unit alike.
+
+    Read from the manifest rather than from a run, because it is the free answer
+    and it is what makes "this model has no tests" a refusal instead of N dbt
+    invocations that all report a survivor.
+    """
+
+    unique_id = node.get("unique_id")
+    attached = [
+        uid
+        for uid, other in manifest.get("nodes", {}).items()
+        if other.get("resource_type") == "test"
+        and (
+            other.get("attached_node") == unique_id
+            or unique_id in (other.get("depends_on") or {}).get("nodes", [])
+        )
+    ]
+    attached += [
+        uid
+        for uid, unit in (manifest.get("unit_tests") or {}).items()
+        if unique_id in (unit.get("depends_on") or {}).get("nodes", [])
+        or unit.get("model") == node.get("name")
+    ]
+    return attached
+
+
+def _plan_mutants(shadow, node, model_path, cap, dialect, mutation_mod):
+    """The compiled model, references restored, and the defects to plant in it."""
+
+    manifest = shadow.manifest()
+    parents = []
+    for uid in node.get("depends_on", {}).get("nodes", []):
+        parent = manifest.get("nodes", {}).get(uid) or manifest.get("sources", {}).get(
+            uid
+        )
+        if parent is None:
+            continue
+        ephemeral = (parent.get("config") or {}).get("materialized") == "ephemeral"
+        rendered = (
+            f"{mutation_mod.DBT_CTE_PREFIX}{parent['name']}"
+            if ephemeral
+            else parent.get("relation_name")
+        )
+        if not rendered:
+            continue
+        parents.append(
+            mutation_mod.ParentRelation(
+                rendered=rendered,
+                jinja=_reference_jinja(parent, uid),
+                ephemeral=ephemeral,
+            )
+        )
+    prepared = mutation_mod.prepare(
+        node.get("compiled_code") or "", dialect=dialect, parents=parents
+    )
+    return prepared, mutation_mod.enumerate_mutants(prepared, cap=cap)
+
+
+def _reference_jinja(parent: dict, unique_id: str) -> str:
+    """How a dbt file has to name this input for a unit test fixture to bind."""
+
+    if unique_id.startswith("source."):
+        return f"{{{{ source('{parent['source_name']}', '{parent['name']}') }}}}"
+    if parent.get("version") is not None:
+        return f"{{{{ ref('{parent['name']}', v={parent['version']}) }}}}"
+    return f"{{{{ ref('{parent['name']}') }}}}"
+
+
+#: The per-table line for the comparisons, which are priced as a group because
+#: only the survivors will run one and nobody knows which those are yet.
+_EQUIVALENCE_LINE = "(equivalence checks, if every mutant survives)"
+
+
+def _price_mutations(
+    adapter,
+    shadow,
+    model_path,
+    batch,
+    node,
+    mutation_mod,
+    *,
+    equivalence=None,
+    reads: set[str] | None = None,
+    skip: frozenset[str] | set[str] = frozenset(),
+):
+    """Price the whole batch upfront, per statement, as one number to confirm.
+
+    Each mutant is priced as the statements the warehouse will actually run,
+    which means splicing it into each test's compiled SQL rather than pricing the
+    model alone: a mutant that drops a partition predicate scans more than the
+    model it came from, and pricing the batch at the baseline's cost would
+    under-report it. Under-reporting is the one direction a cost guard must never
+    round.
+
+    The equivalence checks go into the same number, priced as if every mutant
+    survives. That is the ceiling, and the confirmed batch has to cover the
+    ceiling rather than a guess at how strong the suite is.
+
+    So does what the warehouse bills the batch as a whole (Snowflake's resume
+    minimum and idle tail), as a line of its own and never in ``prices``: the
+    stop rule asks the uptime model what is still owed instead, because that
+    figure grows with the time between runs rather than with any one of them.
+
+    Only the tests a run selects are priced: ``reads`` is the set of models the
+    selection names (the mutated model, plus the downstream models the mutant
+    is routed through), and a test reading none of them never runs, which is
+    the same rule dbt's eager selection applies. ``skip`` names the tests the
+    runs exclude by name (a downstream test that reads a relation the mutant
+    cannot reach), which are priced at nothing for the same reason.
+
+    Returns the total, the per-table lines the handshake shows, the price of
+    each statement keyed the way the run loop asks for it, and notes.
+    """
+
+    from ..dbt_project import manifest_node_label
+
+    translate = getattr(adapter, "compute_spend_translation", None)
+    if translate is not None:
+        translate(0.0)
+    estimator = getattr(adapter, "query_estimate", None)
+    if estimator is None:
+        if equivalence is not None:
+            equivalence.disable("the comparisons could not be priced upfront")
+        return (
+            None,
+            {},
+            {},
+            ["connector exposes no estimator; the batch is not priced"],
+        )
+
+    manifest = shadow.manifest()
+    tests = [
+        test.get("compiled_code")
+        for uid, test in manifest.get("nodes", {}).items()
+        if test.get("resource_type") == "test"
+        and test.get("compiled_code")
+        and manifest_node_label(uid, test) not in skip
+        and (
+            reads is None
+            or reads & set((test.get("depends_on") or {}).get("nodes") or [])
+        )
+    ]
+    notes: list[str] = []
+    if not tests:
+        notes.append(
+            "only unit tests read this model, and a unit test runs against "
+            "fixtures rather than the warehouse, so the test runs price at zero"
+        )
+
+    def spliced(statement: str, body: str) -> str:
+        return (
+            mutation_mod.inline_into_test(
+                statement, model_name=node["name"], body=body, dialect=adapter.dialect
+            )
+            or statement
+        )
+
+    def price(body: str) -> float:
+        total = 0.0
+        for test_sql in tests:
+            with contextlib.suppress(Exception):
+                total += estimator(spliced(test_sql, body))
+        return total
+
+    per_table: dict[str, float] = {}
+    prices: dict[str, float] = {}
+    uptime = getattr(adapter, "warehouse_uptime", None)
+    quoted = uptime.quote() if uptime is not None else 0.0
+    if quoted > 0:
+        per_table[UPTIME_LINE] = quoted
+    with contextlib.suppress(Exception):
+        per_table["(baseline)"] = prices["(baseline)"] = price(batch.identity_compiled)
+    for mutant in batch.mutants:
+        with contextlib.suppress(Exception):
+            cost = price(mutant.compiled)
+            per_table[f"{mutant.id} {mutant.operator}"] = prices[mutant.id] = cost
+
+    if equivalence is not None and equivalence.enabled:
+        comparison = equivalence.compiled
+        try:
+            if not comparison:
+                raise ValueError("no compiled comparison")
+            self_check = estimator(comparison)
+            checks = {
+                mutant.id: estimator(spliced(comparison, mutant.compiled))
+                for mutant in batch.mutants
+            }
+        except Exception:
+            # On BigQuery this is a dry run, so a statement the warehouse would
+            # refuse is found here for free rather than once per survivor.
+            equivalence.disable(
+                "the comparison could not be priced upfront, so no survivor is "
+                "compared with the model on the dev data"
+            )
+        else:
+            per_table[_EquivalenceCheck.SELF_CHECK] = prices[
+                _EquivalenceCheck.SELF_CHECK
+            ] = self_check
+            per_table[_EQUIVALENCE_LINE] = sum(checks.values())
+            prices.update(
+                {f"{mutant_id} equivalence": cost for mutant_id, cost in checks.items()}
+            )
+            notes.append(
+                "the equivalence checks are priced as if every mutant survives; "
+                "only a survivor runs one, so the settled spend is at most this"
+            )
+
+    if not set(per_table) - {UPTIME_LINE}:
+        return None, {}, {}, [*notes, "the batch could not be priced upfront"]
+    return sum(per_table.values()), per_table, prices, notes
+
+
+def _run_mutants(
+    shadow,
+    model_path,
+    batch,
+    *,
+    model: str,
+    paradigm,
+    connector: str,
+    store,
+    ceiling: float | None,
+    estimate: float | None,
+    mutation_mod,
+    prices: dict[str, float] | None = None,
+    equivalence: _EquivalenceCheck | None = None,
+    uptime=None,
+    adapter=None,
+    downstream: _DownstreamTests | None = None,
+):
+    """The baseline, then one run per mutant, stopping if the budget runs out.
+
+    A survivor is compared with the model on the dev data straight after its
+    own run, while its body is still the model file, so the comparison costs
+    one dbt invocation and no rewrite.
+
+    ``downstream`` widens every run, the baseline included, to the tests on the
+    models the mutant is routed through, and tells :func:`classify` which tests
+    those are so a catch there is kept apart from one by the model's own tests.
+    """
+
+    select = downstream.select if downstream is not None else model
+    exclude = downstream.exclude if downstream is not None else []
+    below = set(downstream.tests) if downstream is not None else set()
+    warnings: list[str] = []
+    meter = _BatchSpend(
+        paradigm=paradigm,
+        connector=connector,
+        store=store,
+        ceiling=ceiling,
+        prices=prices,
+        fallback=(estimate or 0.0) / max(len(batch.mutants) + 1, 1),
+        uptime=(
+            uptime if uptime is not None else getattr(adapter, "warehouse_uptime", None)
+        ),
+        adapter=adapter,
+    )
+
+    shadow.write(model_path, batch.identity)
+    baseline_summary = shadow.test(select, exclude=exclude)
+    meter.settle(baseline_summary, "(baseline)")
+    baseline = _test_statuses(baseline_summary)
+    excluded = [
+        {"name": name, "status": status, "reason": _exclusion_reason(status)}
+        for name, status in sorted(baseline.items())
+        if status != "pass"
+    ]
+    if not any(status == "pass" for status in baseline.values()):
+        raise mutation_mod.MutationError(
+            f"no test of '{model}' passes against the unmutated model, so there is "
+            "nothing that could catch a defect. Build its parents first "
+            f"(`transform build --select +{model}`) and fix the failing tests, "
+            "then measure them"
+        )
+
+    if equivalence is not None:
+        equivalence.run_self_check(meter, mutation_mod)
+
+    mutants: list[dict] = []
+    counts = {
+        "killed": 0,
+        "caught_downstream": 0,
+        "survived": 0,
+        "rejected": 0,
+        "not_run": 0,
+    }
+    tested = 0
+
+    def stop(remaining) -> None:
+        for mutant in remaining:
+            mutants.append(
+                {**mutant.payload(), "status": "not_run", "equivalence": None}
+            )
+            counts["not_run"] += 1
+        warnings.append(
+            f"the confirmed budget covered {tested} of {len(batch.mutants)} "
+            "mutants; the rest are reported as not_run. Re-run with a larger "
+            "--budget, or narrow the run with --max-mutants"
+        )
+
+    for index, mutant in enumerate(batch.mutants):
+        if not meter.affords(mutant.id):
+            stop(batch.mutants[index:])
+            break
+        shadow.write(model_path, mutant.body)
+        summary = shadow.test(select, exclude=exclude)
+        tested += 1
+        meter.settle(summary, mutant.id)
+        verdict = mutation_mod.classify(
+            baseline, _test_statuses(summary), downstream=below
+        )
+        counts[verdict.outcome] = counts.get(verdict.outcome, 0) + 1
+        record = {
+            **mutant.payload(),
+            "status": verdict.outcome,
+            "caught_by": verdict.caught_by,
+            "caught_downstream_by": verdict.caught_downstream,
+            "warn_only": verdict.warn_only,
+            "equivalence": None,
+        }
+        mutants.append(record)
+        if verdict.outcome != "survived" or equivalence is None:
+            continue
+        label = equivalence.check(meter, mutant.id, mutation_mod)
+        record["equivalence"] = label.payload()
+        record["suggested_test"] = mutation_mod.suggested_test(
+            mutant.operator, label.status
+        )
+        if equivalence.out_of_budget:
+            stop(batch.mutants[index + 1 :])
+            break
+
+    mutants.sort(key=lambda m: (_survivor_rank(m), m["id"]))
+    # The model's own score counts a defect only downstream tests caught as a
+    # miss, exactly as it did before they ran: its denominator and numerator
+    # are what they would be without them.
+    decided = counts["killed"] + counts["caught_downstream"] + counts["survived"]
+    routed = downstream is not None and downstream.enabled
+    warnings.extend(meter.settle_uptime())
+    return {
+        "baseline": {
+            "tests": [
+                {"name": name, "status": status}
+                for name, status in sorted(baseline.items())
+            ],
+            "excluded": excluded,
+        },
+        "mutants": mutants,
+        "counts": {"generated": len(batch.mutants), **counts},
+        "score": (counts["killed"] / decided) if decided else None,
+        "score_with_downstream": (
+            (counts["killed"] + counts["caught_downstream"]) / decided
+            if decided and routed
+            else None
+        ),
+        "equivalence": equivalence.summary() if equivalence is not None else None,
+        "_meta": (meter.runs, meter.spend, warnings),
+    }
+
+
+def _survivor_rank(mutant: dict) -> int:
+    """Where a mutant sits in the report: the reader is choosing a test to write.
+
+    Survivors lead, and among them the ones the dev data already tells apart
+    come first, since an assertion over that data catches them today. An
+    unlabelled survivor ranks above an equivalent one, because a comparison
+    that never ran is no grounds for demoting it. A defect only downstream tests
+    caught comes next: the model's own suite missed it, but nothing needs
+    writing for it to stop shipping.
+    """
+
+    status = mutant.get("status")
+    if status == "survived":
+        label = (mutant.get("equivalence") or {}).get("status")
+        return {"distinguishable": 0, "equivalent": 2}.get(label, 1)
+    return {"caught_downstream": 3, "not_run": 4, "rejected": 5, "killed": 6}.get(
+        status, 9
+    )
+
+
+class _BatchSpend:
+    """What one mutation batch has spent, and the rule that stops it.
+
+    A class because it carries state across every dbt invocation in the batch:
+    the running total the stop rule reads, the merged spend the envelope
+    reports, and the run count. Each statement asks it two things in order,
+    whether the next one fits and then what the finished one billed, and one
+    object answering both is what keeps the loop from threading the paradigm,
+    the connector, the store and the ceiling through every call.
+
+    Prices are per statement, keyed ``(baseline)``, a mutant's id, or
+    ``<id> equivalence``. A statement with no price of its own falls back to an
+    even share of the batch estimate.
+
+    ``uptime`` is the adapter's model of what the warehouse bills the batch
+    beyond its statements (Snowflake's resume minimum, the time between dbt
+    invocations while the warehouse stays up, and the idle tail), or ``None``
+    where the warehouse bills statement time. It is told each run and asked what
+    is still owed, so the stop rule leaves room for it.
+    """
+
+    def __init__(
+        self,
+        *,
+        paradigm,
+        connector: str,
+        store,
+        ceiling: float | None,
+        prices: dict[str, float] | None = None,
+        fallback: float = 0.0,
+        uptime=None,
+        adapter=None,
+    ):
+        self._paradigm = paradigm
+        self._connector = connector
+        self._store = store
+        self._ceiling = ceiling
+        self._prices = prices or {}
+        self._fallback = fallback
+        self._uptime = (
+            uptime if uptime is not None else getattr(adapter, "warehouse_uptime", None)
+        )
+        self._adapter = adapter
+        self._spent = 0.0
+        self.spend: dict[str, float | None] | None = None
+        self.runs = 0
+
+    def affords(self, key: str) -> bool:
+        """Whether the next statement still fits inside the confirmed budget."""
+
+        from ..envelope import Paradigm
+
+        if self._paradigm is Paradigm.FREE_LOCAL or self._ceiling is None:
+            return True
+        owed = self._uptime.pending() if self._uptime is not None else 0.0
+        return self._spent + owed + self._price(key) <= self._ceiling
+
+    def settle(self, summary: dict | None, key: str) -> None:
+        """Ledger one finished dbt invocation and add it to the running total."""
+
+        self.runs += 1
+        run_spend, _ = _settle_dbt_spend(
+            summary or {},
+            [],
+            paradigm=self._paradigm,
+            connector=self._connector,
+            store=self._store,
+            estimate=None,
+            command="transform test",
+        )
+        # An unknown settlement counts at its estimate, so the guard never rounds
+        # spend down on the way to deciding it can afford another run.
+        self._spent += _spent_in_run(
+            run_spend, self._paradigm, fallback=self._price(key)
+        )
+        self.spend = _merge_spend(self.spend, run_spend)
+        if self._uptime is not None and summary:
+            self._uptime.observe(
+                _execution_seconds(summary), span=summary.get("elapsed_seconds")
+            )
+
+    def settle_uptime(self) -> list[str]:
+        """Book what the warehouse billed the batch beyond its statements, as
+        one more row of this command's own (no estimate, like the runs'), and
+        add it to the batch's spend. Returns the notes that explain it."""
+
+        from ..guards.cost_guard import spend_field
+
+        notes: list[str] = []
+        if self._uptime is not None:
+            overhead, notes = self._uptime.settle()
+            if overhead > 0:
+                self.spend = _merge_spend(
+                    self.spend,
+                    _record_build_spend(
+                        self._store,
+                        self._connector,
+                        overhead,
+                        self._paradigm,
+                        command="transform test",
+                    ),
+                )
+        translate = getattr(self._adapter, "compute_spend_translation", None)
+        if translate is not None and self.spend is not None:
+            self.spend.update(
+                translate(self.spend.get(spend_field(self._paradigm)) or 0.0)
+            )
+        return notes
+
+    def _price(self, key: str) -> float:
+        return self._prices.get(key, self._fallback)
+
+
+class _DownstreamTests:
+    """The tests on the models downstream of the mutant, and how a run reaches them.
+
+    A defect in an intermediate model ships only if every test in the project
+    misses it, and the tests most likely to pin what a model feeds are often on
+    the mart that reads it. dex routes each mutant to them the way it keeps the
+    mutant from materializing: every model downstream that can carry it is made
+    ephemeral in the copy too, so dbt inlines the whole chain, mutant at the
+    bottom, into each of their tests, and nothing is built.
+
+    A class for the same reason :class:`_EquivalenceCheck` is one: it decides
+    once whether the routing is on and holds that decision, with its reason,
+    for the selection every run uses, the pricing, and the envelope. Off is a
+    state with a reason, never an absence.
+
+    ``direct`` names the model's own tests, which are what they always were.
+    ``tests`` names the downstream tests that run, and ``exclude`` is what the
+    selection drops: a unit test on a downstream model (it reads its fixtures,
+    never the mutant), and a test that also reads a downstream relation the
+    mutant cannot reach, since that relation still holds the unmutated rows
+    and the test would compare two versions of the model with each other.
+    """
+
+    def __init__(
+        self,
+        model: str,
+        direct: set[str],
+        *,
+        requested: bool | None,
+        reason: str | None = None,
+    ):
+        self.model = model
+        self.model_id = ""
+        self.routed_ids: list[str] = []
+        self.direct = direct
+        self.requested = requested
+        self.reason = reason
+        self.models: list[str] = []
+        self.tests: list[str] = []
+        self.exclude: list[str] = []
+        self.excluded: list[dict[str, str]] = []
+        self.cut: list[dict[str, str]] = []
+        self.elided = 0
+        self.opt_in = False
+
+    @classmethod
+    def prepare(
+        cls,
+        shadow,
+        node: dict,
+        *,
+        model: str,
+        requested: bool | None,
+        paradigm,
+        connector: str,
+        mutation_mod,
+    ) -> _DownstreamTests:
+        """Make the downstream models ephemeral in the copy, or say why not.
+
+        Read from the manifest the model's own compile already wrote, so a run
+        with nothing downstream, or one where the routing is off, costs no
+        further dbt invocation. Where it is on, the rewritten models are
+        compiled with the model before anything is priced, and the routing is
+        dropped, with every file put back, if dbt would not compile them or
+        compiled any of them as anything but ephemeral: a model downstream must
+        never be the reason the copy stops compiling, and must never be built.
+        """
+
+        from ..dbt_project import manifest_node_label
+        from ..envelope import Paradigm
+        from .build import DbtRunError
+
+        manifest = shadow.manifest()
+        nodes = manifest.get("nodes", {})
+        direct_ids = set(_attached_tests(manifest, node))
+        direct = {manifest_node_label(uid, nodes.get(uid)) for uid in direct_ids}
+        check = cls(model, direct, requested=requested)
+        check.model_id = node.get("unique_id", "")
+        if requested is False:
+            check.reason = "the downstream tests are off (--no-downstream)"
+            return check
+        if requested is None and paradigm is not Paradigm.FREE_LOCAL:
+            check.opt_in = True
+            check.reason = (
+                f"running the tests of the models downstream of '{model}' costs "
+                f"{connector} spend, since each one recomputes the mutant beneath "
+                "it, so it is opt-in: re-run with --downstream to price them into "
+                "the same batch"
+            )
+            return check
+
+        unique_id = node.get("unique_id", "")
+        closure = mutation_mod.downstream_closure(manifest, unique_id)
+        check.cut = [
+            {"name": entry["name"], "reason": entry["reason"]} for entry in closure.cut
+        ]
+        check.elided = closure.elided
+        eligible = set(closure.eligible)
+        stale = _descendants(manifest, unique_id) - eligible
+
+        for uid, test in sorted(nodes.items()):
+            if test.get("resource_type") != "test" or uid in direct_ids:
+                continue
+            reads = set((test.get("depends_on") or {}).get("nodes") or [])
+            if not reads & eligible:
+                continue
+            name = manifest_node_label(uid, test)
+            unreachable = sorted(reads & stale)
+            if unreachable:
+                other = manifest_node_label(unreachable[0], nodes.get(unreachable[0]))
+                check.exclude.append(name)
+                check.excluded.append(
+                    {
+                        "name": name,
+                        "reason": (
+                            f"it also reads {other}, which the mutant cannot "
+                            "reach, so it would compare the mutant with the "
+                            "unmutated model"
+                        ),
+                    }
+                )
+                continue
+            check.tests.append(name)
+        for uid, unit in sorted((manifest.get("unit_tests") or {}).items()):
+            if uid in direct_ids:
+                continue
+            reads = set((unit.get("depends_on") or {}).get("nodes") or [])
+            if not reads & eligible:
+                continue
+            name = unit.get("name") or manifest_node_label(uid)
+            check.exclude.append(f"unit_test:{name}")
+            check.excluded.append(
+                {
+                    "name": manifest_node_label(uid),
+                    "reason": (
+                        "a unit test reads its fixtures rather than the model "
+                        "beneath it, so it cannot see the mutant"
+                    ),
+                }
+            )
+
+        if not check.tests:
+            check.exclude = []
+            if not closure.eligible and not closure.cut:
+                check.reason = f"no model in this project reads '{model}'"
+            elif not closure.eligible:
+                first = closure.cut[0]
+                check.reason = (
+                    f"no model downstream of '{model}' can carry the mutant: "
+                    f"{first['name']}: {first['reason']}"
+                )
+            else:
+                check.reason = (
+                    f"the models downstream of '{model}' have no data tests that "
+                    "would read the mutant"
+                )
+            return check
+
+        labels = [manifest_node_label(uid, nodes.get(uid)) for uid in closure.eligible]
+        originals: dict[str, str] = {}
+        root = shadow.shadow
+        try:
+            for uid in closure.eligible:
+                path = (nodes.get(uid) or {}).get("original_file_path") or ""
+                text = (root / path).read_text(encoding="utf-8")
+                shadow.write(path, text + "\n" + mutation_mod.EPHEMERAL_HEADER + "\n")
+                originals[path] = text
+        except Exception:
+            check._restore(shadow, originals, model)
+            check.reason = (
+                f"dex could not rewrite the models downstream of '{model}' in the "
+                "copy, so only its own tests run"
+            )
+            return check
+
+        select = " ".join([model, *labels])
+        try:
+            compiled = shadow.compile(select)
+        except DbtRunError:
+            check._restore(shadow, originals, model)
+            check.reason = (
+                f"the models downstream of '{model}' would not compile as "
+                "ephemeral in the copy, so only its own tests run"
+            )
+            return check
+        for uid, label in zip(closure.eligible, labels, strict=True):
+            materialized = (
+                (compiled.get("nodes", {}).get(uid) or {}).get("config") or {}
+            ).get("materialized")
+            if materialized != "ephemeral":
+                check._restore(shadow, originals, model)
+                check.reason = (
+                    f"dex could not make '{label}' ephemeral for the run (it "
+                    f"compiled as {materialized}), and it will not route a mutant "
+                    "through a model that would materialize into your dev target"
+                )
+                return check
+        check.models = labels
+        check.routed_ids = list(closure.eligible)
+        return check
+
+    @property
+    def enabled(self) -> bool:
+        return self.reason is None
+
+    @property
+    def select(self) -> str:
+        """The one ``--select`` every run uses: the model, plus the routed chain."""
+
+        return " ".join([self.model, *self.models]) if self.enabled else self.model
+
+    @property
+    def selected_ids(self) -> set[str]:
+        """The models the selection names, by unique id, for pricing."""
+
+        return {self.model_id, *(self.routed_ids if self.enabled else [])}
+
+    @property
+    def excluded_names(self) -> set[str]:
+        return {entry["name"] for entry in self.excluded} if self.enabled else set()
+
+    def no_tests_hint(self) -> str:
+        """What to add to the no-tests refusal when downstream tests were not run."""
+
+        if not self.opt_in:
+            return ""
+        return ". Tests on the models downstream of it count too, with --downstream"
+
+    def warnings(self, counts: dict) -> list[str]:
+        caught = counts.get("caught_downstream", 0)
+        if not self.enabled or not caught:
+            return []
+        return [
+            f"{caught} planted defect(s) the model's own tests missed were caught "
+            "by tests on the models downstream of it, so they could not ship. "
+            "data.score still counts them as misses, since it answers for the "
+            "model's own suite; data.score_with_downstream counts them as caught"
+        ]
+
+    def summary(self) -> dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "requested": self.requested,
+            "reason": self.reason,
+            "models": list(self.models),
+            "tests": sorted(self.tests) if self.enabled else [],
+            "excluded": self.excluded if self.enabled else [],
+            "cut": self.cut,
+            "elided": self.elided,
+        }
+
+    def _restore(self, shadow, originals: dict[str, str], model: str) -> None:
+        for path, text in originals.items():
+            shadow.write(path, text)
+        # Nothing downstream runs now, so nothing downstream may count: not as
+        # a test that answers for a model with none of its own, and not in
+        # the selection.
+        self.tests = []
+        self.exclude = []
+        self.excluded = []
+        if originals:
+            shadow.compile(model)
+
+
+def _descendants(manifest: dict, unique_id: str) -> set[str]:
+    """Every node downstream of ``unique_id``, transitively, through ``child_map``."""
+
+    children = manifest.get("child_map") or {}
+    found: set[str] = set()
+    frontier = [unique_id]
+    while frontier:
+        frontier = [
+            child
+            for parent in frontier
+            for child in children.get(parent, [])
+            if child not in found
+        ]
+        found.update(frontier)
+    return found
+
+
+class _EquivalenceCheck:
+    """Whether each survivor's output differs from the model's on the dev data.
+
+    A class because the self-check decides once, for the whole batch, whether
+    any comparison can be trusted: a model that does not reproduce its own
+    output (a ``random()``, a uuid, a ``row_number()`` over ties) would make
+    every survivor look different from it. Every check after that reads the
+    decision, and the tally the summary reports accumulates across them.
+
+    Built through :meth:`prepare`, which either writes the twin and the
+    comparison node into the copy or records why the check is off. Off is a
+    state with a reason, never an absence, because a survivor that was not
+    compared must say so rather than read as either label.
+    """
+
+    SELF_CHECK = "(equivalence self-check)"
+
+    def __init__(self, shadow=None, *, reason: str | None = None):
+        self._shadow = shadow
+        self.reason = reason
+        self.requested = reason is None
+        self.compiled: str | None = None
+        self.self_check: str | None = None
+        self.out_of_budget = False
+        self._tally = {"distinguishable": 0, "equivalent": 0, "not_checked": 0}
+
+    @classmethod
+    def prepare(
+        cls,
+        shadow,
+        node: dict,
+        model_path: str,
+        batch,
+        *,
+        select: str,
+        requested: bool | None,
+        paradigm,
+        connector: str,
+        mutation_mod,
+    ) -> _EquivalenceCheck:
+        """Write the twin and the comparison beside the model, or say why not.
+
+        Both files are compiled together with the model before anything runs.
+        That is the parse check, since a node dex added must never be the reason
+        the copy stops parsing and the tests stop running; it is also what puts
+        the comparison's compiled SQL in the manifest for pricing, next to the
+        tests', which a compile of the comparison alone would drop.
+        """
+
+        from ..adapters import get_dialect
+        from ..envelope import Paradigm
+        from .build import DbtRunError
+
+        free = paradigm is Paradigm.FREE_LOCAL
+        if requested is False:
+            return cls(reason="the equivalence check is off (--no-check-equivalence)")
+        # Asked before the opt-in: inviting a re-run with --check-equivalence on
+        # a connector with no comparison sends the caller to a second refusal.
+        comparison = mutation_mod.equivalence_model(
+            _reference_jinja(node, node.get("unique_id", "")), get_dialect(connector)
+        )
+        if comparison is None:
+            return cls(
+                reason=(f"dex has no verified whole-row comparison for {connector} yet")
+            )
+        if requested is None and not free:
+            return cls(
+                reason=(
+                    f"comparing a survivor with the model costs {connector} spend, "
+                    "so it is opt-in: re-run with --check-equivalence to price the "
+                    "comparisons into the same batch"
+                )
+            )
+        names = {
+            other.get("name") for other in shadow.manifest().get("nodes", {}).values()
+        }
+        taken = sorted(
+            {mutation_mod.BASELINE_TWIN, mutation_mod.EQUIVALENCE_NODE} & names
+        )
+        if taken:
+            return cls(
+                reason=(
+                    f"this project already has a node named {taken[0]}, which the "
+                    "comparison needs for itself"
+                )
+            )
+
+        folder = Path(model_path).parent
+        twin_path = (folder / f"{mutation_mod.BASELINE_TWIN}.sql").as_posix()
+        node_path = (folder / f"{mutation_mod.EQUIVALENCE_NODE}.sql").as_posix()
+        shadow.write(
+            twin_path, mutation_mod.twin_model(batch.identity, group=node.get("group"))
+        )
+        shadow.write(node_path, comparison)
+        try:
+            manifest = shadow.compile(f"{select} {mutation_mod.EQUIVALENCE_NODE}")
+        except DbtRunError:
+            shadow.remove(twin_path)
+            shadow.remove(node_path)
+            shadow.compile(select)
+            return cls(
+                reason=(
+                    "the comparison would not compile in this project, so no "
+                    "survivor is compared with the model on the dev data"
+                )
+            )
+        check = cls(shadow)
+        for other in manifest.get("nodes", {}).values():
+            if other.get("name") == mutation_mod.EQUIVALENCE_NODE:
+                check.compiled = other.get("compiled_code")
+        return check
+
+    @property
+    def enabled(self) -> bool:
+        return self.reason is None
+
+    def disable(self, reason: str) -> None:
+        if self.reason is None:
+            self.reason = reason
+
+    def run_self_check(self, meter: _BatchSpend, mutation_mod) -> None:
+        """Compare the unmutated model with its twin, while the model file holds it.
+
+        Anything but no difference at all means the model does not reproduce its
+        own output on the dev data, and a difference between a mutant and the
+        model would then be no evidence of anything.
+        """
+
+        if not self.enabled:
+            return
+        if not meter.affords(self.SELF_CHECK):
+            self.disable(
+                "the confirmed budget ran out before the self-check, so no "
+                "survivor is compared with the model on the dev data"
+            )
+            return
+        summary, rows = self._shadow.show(mutation_mod.EQUIVALENCE_NODE)
+        meter.settle(summary, self.SELF_CHECK)
+        measured = mutation_mod.read_equivalence(rows)
+        if measured is None:
+            self.self_check = "failed"
+            self.disable(
+                "the comparison did not run against the unmutated model on the dev "
+                "target, so no survivor could be compared with it"
+            )
+            return
+        if measured.status != "equivalent":
+            self.self_check = "not_reproducible"
+            differing = (measured.only_in_mutant or 0) + (
+                measured.only_in_baseline or 0
+            )
+            self.disable(
+                "the unmutated model does not reproduce its own output on the dev "
+                f"data ({differing} row(s) differ between two evaluations of it, "
+                "as a random(), a uuid, or a row_number() over ties would cause), "
+                "so a difference from it would not be evidence"
+            )
+            return
+        self.self_check = "reproducible"
+
+    def check(self, meter: _BatchSpend, mutant_id: str, mutation_mod):
+        """Label one survivor, whose body is the model file right now."""
+
+        key = f"{mutant_id} equivalence"
+        if self.enabled and not meter.affords(key):
+            self.out_of_budget = True
+            return self._count(
+                mutation_mod.Equivalence.unchecked(
+                    "the confirmed budget ran out before this survivor's "
+                    "comparison with the model"
+                )
+            )
+        if not self.enabled:
+            return self._count(mutation_mod.Equivalence.unchecked(self.reason))
+        summary, rows = self._shadow.show(mutation_mod.EQUIVALENCE_NODE)
+        meter.settle(summary, key)
+        measured = mutation_mod.read_equivalence(rows)
+        if measured is None:
+            return self._count(
+                mutation_mod.Equivalence.unchecked(
+                    "the comparison did not run on the dev target for this mutant"
+                )
+            )
+        return self._count(measured)
+
+    def summary(self) -> dict[str, Any]:
+        return {
+            "checked": self.requested,
+            "self_check": self.self_check,
+            **self._tally,
+            "reason": self.reason,
+        }
+
+    def _count(self, label):
+        self._tally[label.status] = self._tally.get(label.status, 0) + 1
+        return label
+
+
+def _refresh_session_total(spend, gate, store, paradigm, connector):
+    """Settle the gate, then re-read the day's total the envelope will report.
+
+    A build settles its gate before reading the ledger back for the same reason:
+    the reservation is headroom the command is holding, not spend it has
+    incurred, so a total read while it stands reports work nobody did. This
+    command holds one reservation across N runs, which makes the overstatement
+    exactly the whole batch estimate rather than a rounding difference.
+    """
+
+    from ..envelope import Paradigm
+    from ..guards.cost_guard import ledger_field, utc_day_start
+
+    if gate is None or spend is None or paradigm is Paradigm.FREE_LOCAL:
+        return spend
+    gate.settle()
+    with contextlib.suppress(Exception):
+        spend = {
+            **spend,
+            "session_spent_today": store.spend_since(
+                utc_day_start(), field=ledger_field(paradigm), connector=connector
+            ),
+        }
+    return spend
+
+
+def _test_statuses(summary: dict | None) -> dict[str, str]:
+    """Each test node's status, keyed by the name a caller would recognize."""
+
+    if not summary:
+        return {}
+    return {
+        node["name"]: node["status"]
+        for node in summary.get("nodes", [])
+        if str(node.get("unique_id", "")).startswith(("test.", "unit_test."))
+    }
+
+
+def _exclusion_reason(status: str) -> str:
+    if status == "error":
+        return (
+            "this test could not run against the unmutated model, so it cannot "
+            "testify about a mutant either"
+        )
+    return (
+        "this test was already failing before anything was mutated; counting it "
+        "as a catch would report the suite as strong because it is broken"
+    )
+
+
+def _spent_in_run(spend: dict | None, paradigm, *, fallback: float) -> float:
+    from ..guards.cost_guard import spend_field
+
+    if not spend:
+        return fallback
+    value = spend.get(spend_field(paradigm))
+    # Unknown settlement counts at the estimate rather than at zero.
+    return fallback if value is None else float(value)
+
+
+#: Spend keys that are a reading of the world rather than this command's own
+#: contribution to it, so the newest answer replaces the previous one instead of
+#: being added to it. Summing `session_spent_today` across nine runs reported a
+#: day's total nine times over, which is the one direction a spend report must
+#: not err in.
+_SPEND_LATEST_WINS = {"session_spent_today", "reserved"}
+
+
+def _merge_spend(running: dict | None, latest: dict | None) -> dict | None:
+    """Accumulate what a sequence of dbt runs billed into one command's spend.
+
+    Three kinds of key and three rules, because a spend payload is not uniformly
+    additive. What each run billed sums. A reading of the day's cumulative total
+    is already cumulative, so the latest one wins. The two flags are claims about
+    the whole command: it settled only if every run did, and its settlement is
+    unknown if any run's was, which is why they are combined rather than added.
+    Booleans are integers in Python, so an additive rule silently turned
+    ``settled: true`` into ``settled: 9``.
+    """
+
+    if latest is None:
+        return running
+    if running is None:
+        return dict(latest)
+    merged = dict(running)
+    for key, value in latest.items():
+        previous = merged.get(key)
+        if isinstance(value, bool) or isinstance(previous, bool):
+            if key == "unknown_settlement":
+                merged[key] = bool(previous) or bool(value)
+            else:
+                merged[key] = bool(previous) and bool(value)
+        elif key in _SPEND_LATEST_WINS:
+            merged[key] = value if value is not None else previous
+        elif isinstance(value, (int, float)) and isinstance(previous, (int, float)):
+            merged[key] = previous + value
+        elif previous is None:
+            merged[key] = value
+    return merged
+
+
+def cmd_test(args: argparse.Namespace, engine: DexEngine) -> env.Envelope:
+    from .mutation import MutationError
+    from .test_scaffold import TestScaffoldError
+
+    scaffold = getattr(args, "scaffold", None)
+    mutate = getattr(args, "mutate", None)
+    check_equivalence = getattr(args, "check_equivalence", None)
+    downstream = getattr(args, "downstream", None)
+    try:
+        if scaffold and mutate:
+            raise ValueError(
+                "--scaffold writes a unit test and --mutate measures the tests "
+                "that exist; run one, then the other"
+            )
+        if check_equivalence is not None and not mutate:
+            raise ValueError(
+                "--check-equivalence and --no-check-equivalence label the "
+                "survivors of a mutation run, so they need --mutate <model>"
+            )
+        if downstream is not None and not mutate:
+            raise ValueError(
+                "--downstream and --no-downstream decide which tests answer for "
+                "a mutation run, so they need --mutate <model>"
+            )
+        if mutate:
+            return to_envelope(
+                test_mutations(
+                    engine,
+                    mutate,
+                    max_mutants=getattr(args, "max_mutants", None),
+                    target=getattr(args, "target", None),
+                    check_equivalence=check_equivalence,
+                    downstream=downstream,
+                )
+            )
+        result = test_scaffold(engine, scaffold)
+        return to_envelope(result, hints=plan_hint(result))
+    except DbtParseError as exc:
+        return env.error_for(exc, warnings=exc.warnings)
+    except (ValueError, TestScaffoldError, MutationError) as exc:
+        return env.error_for(exc)
+
+
+def apply(engine: DexEngine, plan_id: str | None = None) -> ApplyResult:
+    """Write a stored plan's edits into the dbt project.
+
+    A file that changed after the plan was made is a conflict, not an overwrite:
+    human edits are authoritative, so the result comes back with conflicts and
+    nothing written until the caller confirms deliberately.
+    """
+
+    store = engine.require_full_store("applying a plan")
+    if not plan_id:
+        # No id means the latest unapplied plan of any kind: apply does not
+        # dispatch on kind, a plan is a plan (a semantic plan applies the same
+        # way a model plan does).
+        latest = store.latest_plan(None)
+        if latest is None:
+            raise ValueError(
+                "no unapplied plan found; run `transform plan` or `semantic "
+                "define|update|plan` first, or pass a plan id"
+            )
+        plan_id = latest.plan_id
+
+    repo_root = engine.require_repo_root("applying a plan")
+    stored = store.load_plan(plan_id)
+    semantic_layer = None
+    if stored.edit_target == "semantic":
+        candidate = engine.semantic_catalog_source()
+        if isinstance(candidate, SemanticEditTarget):
+            semantic_layer = candidate
+    outcome: PlanApplyResult = plans_mod.apply(
+        plan_id,
+        repo_root,
+        store=store,
+        confirmed=engine.confirmed,
+        # A plan is applied through the format it was planned against, so a
+        # format that placed an edit into its own keyspace is the one that writes
+        # it. `None` here is a format declining the write tier, and falls back to
+        # dbt's writer, which is where every plan went before the seam.
+        project_format=(
+            None if stored.edit_target == "semantic" else engine.editable_project()
+        ),
+        semantic_layer=semantic_layer,
+    )
+    conflicts = [c.model_dump(mode="json") for c in outcome.conflicts]
+    if outcome.conflicts and not outcome.written:
+        from ..results import ConfirmationRequest
+
+        return ApplyResult(
+            plan_id=plan_id,
+            conflicts=conflicts,
+            diffs=outcome.diffs,
+            # Not a spend confirmation but the same shape: a priced-out ask the
+            # caller has to accept before anything is overwritten.
+            pending_confirmation=ConfirmationRequest(
+                data={
+                    "hint": outcome.conflict_hint
+                    or (
+                        "these files changed after the plan was made (human edits "
+                        "are authoritative); re-plan against current state, or "
+                        "re-run with --confirm to overwrite deliberately"
+                    )
+                }
+            ),
+        )
+    return ApplyResult(
+        plan_id=plan_id,
+        written=outcome.written,
+        conflicts_overridden=[c.path for c in outcome.conflicts],
+        diffs=outcome.diffs,
+        decisions=(
+            None
+            if stored.edit_target == "semantic"
+            else _project_decisions(
+                engine, _declarations().touched_models(stored.edits)
+            )
+        ),
+    )
+
+
+def _declarations() -> Any:
+    from . import declarations
+
+    return declarations
+
+
+def _project_decisions(
+    engine: DexEngine, models: set[str]
+) -> list[dict[str, Any]] | None:
+    """The assumptions ``models`` declare, as the project on disk records them.
+
+    ``None`` where no dbt project resolves, the same answer a plan gives there.
+    """
+
+    from ..dbt_project import DbtProjectError
+    from ..dbt_project import load as load_project
+
+    try:
+        view = load_project(engine.project_dir())
+    except DbtProjectError:
+        return None
+    files = {path: source.content for path, source in view.files.items()}
+    return _declarations().decisions(files, models)
+
+
+def _built_decisions(engine: DexEngine, summary: dict) -> list[dict[str, Any]] | None:
+    """The assumptions declared on the models a build ran.
+
+    Read from the project as it stands after the build, keyed by the models in
+    dbt's own run results, so a build of one model reports that model's
+    decisions and not the whole project's.
+    """
+
+    return _project_decisions(
+        engine,
+        {
+            str(node.get("name"))
+            for node in summary.get("nodes", [])
+            if str(node.get("unique_id", "")).startswith("model.")
+        },
+    )
+
+
+def cmd_apply(args: argparse.Namespace, engine: DexEngine) -> env.Envelope:
+    try:
+        return to_envelope(apply(engine, getattr(args, "argument", None)))
+    except (ValueError, PlanError) as exc:
+        # `PlanError` is the apply-time containment refusal, which is a refusal
+        # the caller can act on rather than a failure, so it gets the same named
+        # envelope every other refusal on this path gets.
+        return env.error_for(exc)
+
+
+def _resolve_plan_id(
+    engine: DexEngine, plan_id: str | None, what: str
+) -> tuple[Store, str]:
+    """The store and the plan id, resolving "the latest unapplied plan" once.
+
+    Shared by every verb that takes an optional plan id, so "no id" means the
+    same thing on `export`, `ground`, and `classify` as it already does on
+    `apply`, rather than each verb inventing its own default.
+    """
+
+    store = engine.require_full_store(what)
+    if plan_id:
+        return store, plan_id
+    latest = store.latest_plan(None)
+    if latest is None:
+        raise ValueError(
+            "no unapplied plan found; run `transform plan` or `semantic "
+            "define|update|plan` first, or pass a plan id"
+        )
+    return store, latest.plan_id
+
+
+def export_plan(engine: DexEngine, plan_id: str | None = None) -> PlanExportResult:
+    """A stored plan as a portable document, for a process that has no store.
+
+    Reads the plan store and the project's current files, opens no connection,
+    and spends nothing on any connector. The project read is only so a delete can
+    be classified from the file it removes; a plan of pure upserts needs it for
+    nothing and still gets it, because a project that cannot be read is a fact
+    worth failing on here rather than at apply time in another process.
+    """
+
+    from .portable import plan_document
+
+    store, plan_id = _resolve_plan_id(engine, plan_id, "exporting a plan")
+    repo_root = Path(engine.require_repo_root("exporting a plan"))
+    stored = store.load_plan(plan_id)
+    project = repo_root / stored.project_dir
+
+    def read_existing(rel_path: str) -> str | None:
+        candidate = project / rel_path
+        if not candidate.is_file():
+            return None
+        with contextlib.suppress(OSError, UnicodeDecodeError):
+            return candidate.read_text(encoding="utf-8")
+        return None
+
+    document = plan_document(stored, read_existing=read_existing)
+    return PlanExportResult(
+        plan_id=document.plan_id,
+        digest=document.digest,
+        plan=document,
+    )
+
+
+def cmd_export(args: argparse.Namespace, engine: DexEngine) -> env.Envelope:
+    try:
+        return to_envelope(export_plan(engine, getattr(args, "argument", None)))
+    except (ValueError, PlanError) as exc:
+        return env.error_for(exc)
+
+
+def apply_document(
+    engine: DexEngine,
+    document: Any,
+    *,
+    expect_digest: str | None = None,
+) -> ApplyResult:
+    """Apply a plan document in this checkout, with no plan store involved.
+
+    The offline half of the lifecycle. It needs a repo root and nothing else: no
+    connector, no cache, no snapshot, no dbt, no network. A conflict comes back
+    the way it does from `apply`, because a human edit in the applying checkout is
+    authoritative there exactly as it is in the authoring one.
+    """
+
+    from .portable import apply_document as apply_portable
+
+    repo_root = engine.require_repo_root("applying a plan document")
+    semantic_layer = None
+    candidate = None
+    with contextlib.suppress(Exception):
+        candidate = engine.semantic_catalog_source()
+    if isinstance(candidate, SemanticEditTarget):
+        semantic_layer = candidate
+
+    plan, outcome = apply_portable(
+        document,
+        repo_root,
+        expect_digest=expect_digest,
+        confirmed=engine.confirmed,
+        semantic_layer=semantic_layer,
+    )
+    conflicts = [c.model_dump(mode="json") for c in outcome.conflicts]
+    if outcome.conflicts and not outcome.written:
+        from ..results import ConfirmationRequest
+
+        return ApplyResult(
+            plan_id=plan.plan_id,
+            conflicts=conflicts,
+            diffs=outcome.diffs,
+            pending_confirmation=ConfirmationRequest(
+                data={
+                    "hint": outcome.conflict_hint
+                    or (
+                        "these files differ from what the plan was authored "
+                        "against (human edits are authoritative); re-plan against "
+                        "this checkout, or re-run with --confirm to overwrite "
+                        "deliberately"
+                    )
+                }
+            ),
+        )
+    return ApplyResult(
+        plan_id=plan.plan_id,
+        written=outcome.written,
+        conflicts_overridden=[c.path for c in outcome.conflicts],
+        diffs=outcome.diffs,
+    )
+
+
+def cmd_apply_document(args: argparse.Namespace, engine: DexEngine) -> env.Envelope:
+    """``transform apply --plan-file``: the offline half of the lifecycle."""
+
+    try:
+        path = getattr(args, "plan_file", None)
+        raw = sys.stdin.read() if path == "-" else read_payload_file(path)
+        return to_envelope(
+            apply_document(
+                engine, raw, expect_digest=getattr(args, "expect_digest", None)
+            )
+        )
+    except (ValueError, PlanError) as exc:
+        return env.error_for(exc)
+
+
+def preflight(engine: DexEngine, target: str | None = None) -> PreflightResult:
+    """What the warehouse itself will enforce on this project's next build.
+
+    Free and connectionless on every connector: it reads the project's rendered
+    profile and the connector's own declarations, and opens nothing. That is why
+    it is worth having separately from `connect test`, which proves a credential
+    works and says nothing about what binds a dbt subprocess.
+    """
+
+    from ..adapters import adapter_declarations
+    from ..connect import paradigm_for
+    from ..guards.execution import guarded_execution_preflight
+
+    config = engine.config
+    connector = engine.connector or config.connector
+    effective = config.model_copy(update={"connector": connector})
+
+    # Declarations rather than an open adapter: this command must cost nothing
+    # and open nothing, and everything it reads is a declaration rather than a
+    # live fact. Building a real adapter would need a credential to report what
+    # a rendered profile already says.
+    declared = adapter_declarations(connector, paradigm_for(connector, effective))
+
+    project = None
+    with contextlib.suppress(Exception):
+        project = engine.project_dir()
+
+    report = guarded_execution_preflight(
+        declared,
+        project_dir=project,
+        target=target or config.dbt_target or "dev",
+        config=effective,
+    )
+    return PreflightResult(
+        preflight=report.data(), notes=list(report.notes), warnings=[]
+    )
+
+
+def cmd_preflight(args: argparse.Namespace, engine: DexEngine) -> env.Envelope:
+    try:
+        return to_envelope(preflight(engine, getattr(args, "target", None)))
+    except (ValueError, PlanError, DexError) as exc:
+        return env.error_for(exc)
+
+
+def ground(engine: DexEngine, plan_id: str | None = None) -> GroundingResult:
+    """What a stored plan depends on, and whether resolution finished.
+
+    Repo-only and free on every connector: it reads the project's files and the
+    compiled artifacts, opens no connection, and needs no extra beyond whatever
+    the project format already needs. The semantic half degrades to a named limit
+    rather than an error when the project has no compiled semantic manifest,
+    because a plan that touches no metric is fully grounded without one and
+    refusing would make the common case pay for the rare one.
+    """
+
+    from .grounding import ground_plan
+    from .portable import plan_document
+
+    store, plan_id = _resolve_plan_id(engine, plan_id, "grounding a plan")
+    repo_root = Path(engine.require_repo_root("grounding a plan"))
+    stored = store.load_plan(plan_id)
+    project = repo_root / stored.project_dir
+
+    from ..dbt_project import load
+
+    view = load(project)
+    catalog = None
+    catalog_error = None
+    try:
+        catalog = engine.semantic_catalog_format().semantic_catalog()
+    except Exception as exc:
+        catalog_error = (
+            "the semantic catalog could not be read, so semantic references in "
+            f"this plan were not resolved to the models behind them: {exc}"
+        )
+
+    grounding = ground_plan(
+        view,
+        list(stored.edits),
+        project=project,
+        config=engine.config,
+        catalog=catalog,
+        catalog_error=catalog_error,
+        plan_digest=plan_document(stored).digest,
+    )
+    return GroundingResult(plan_id=plan_id, grounding=grounding)
+
+
+def cmd_ground(args: argparse.Namespace, engine: DexEngine) -> env.Envelope:
+    try:
+        return to_envelope(ground(engine, getattr(args, "argument", None)))
+    except (ValueError, PlanError) as exc:
+        return env.error_for(exc)
+
+
+def classify(
+    engine: DexEngine,
+    plan_id: str | None = None,
+    *,
+    edits: list[PlanEdit] | None = None,
+) -> ClassificationResult:
+    """What each edit's content contains, read from the content.
+
+    Either a stored plan (by id, or the latest unapplied one) or a payload of
+    authored edits, so a caller can classify a change before it is ever planned.
+    Repo-only and free on every connector.
+    """
+
+    from .classify import classify_edit
+
+    if edits is not None:
+        classifications = [classify_edit(edit) for edit in edits]
+        return ClassificationResult(classifications=classifications)
+
+    store, plan_id = _resolve_plan_id(engine, plan_id, "classifying a plan")
+    repo_root = Path(engine.require_repo_root("classifying a plan"))
+    stored = store.load_plan(plan_id)
+    project = repo_root / stored.project_dir
+    classifications = []
+    for edit in stored.edits:
+        existing = None
+        candidate = project / edit.path
+        if edit.op is EditOp.DELETE and candidate.is_file():
+            with contextlib.suppress(OSError, UnicodeDecodeError):
+                existing = candidate.read_text(encoding="utf-8")
+        classifications.append(classify_edit(edit, existing_content=existing))
+    return ClassificationResult(plan_id=plan_id, classifications=classifications)
+
+
+def cmd_classify(args: argparse.Namespace, engine: DexEngine) -> env.Envelope:
+    try:
+        payload = getattr(args, "edits_file", None)
+        edits = edits_from_payload(payload) if payload else None
+        return to_envelope(
+            classify(engine, getattr(args, "argument", None), edits=edits)
+        )
+    except (ValueError, PlanError) as exc:
+        return env.error_for(exc)
+
+
+def plans(engine: DexEngine) -> PlanListResult:
+    """Stored plans (pending and applied), newest first."""
+
+    return PlanListResult(
+        plans=[
+            {
+                "plan_id": p.plan_id,
+                "intent": p.intent,
+                "kinds": sorted({e.kind.value for e in p.edits}),
+                "paths": [e.path for e in p.edits],
+                "created_at": p.created_at,
+                "applied_at": p.applied_at,
+                "pending": p.applied_at is None,
+            }
+            for p in engine.require_full_store("listing plans").list_plans()
+        ]
+    )
+
+
+def cmd_plans(args: argparse.Namespace, engine: DexEngine) -> env.Envelope:
+    return to_envelope(plans(engine))
+
+
+def build(
+    engine: DexEngine,
+    *,
+    target: str | None = None,
+    select: str | None = None,
+    verify: bool = False,
+    for_plan: str | None = None,
+    for_plan_document: Any = None,
+    dependencies: DependencyPolicy = DependencyPolicy.INSTALL,
+) -> BuildResult:
+    """Run ``dbt build`` against the dev target, cost-surfaced first.
+
+    ``verify`` folds the correctness sweep onto the run, scoped to the nodes it
+    touched: dbt reports that it executed, and this reports whether what it
+    produced holds the rows it should. Opt-in on every connector, including the
+    free ones, so one flag means one thing everywhere. Its findings never
+    change the status, and on a billed connector its scan is priced into the
+    same estimate the build is priced into, so the caller confirms one number.
+
+    ``for_plan`` and ``for_plan_document`` name the change this build is meant to
+    validate, which is what turns dbt's exit code into a verdict: the plan's
+    edits say which nodes the change required, and the evidence reports which of
+    them actually ran. Without either there is no coverage to report and the
+    field is absent rather than empty.
+
+    Two parameters rather than one that takes either, because a plan id and a
+    serialized document are both strings and telling them apart by inspection is
+    a guess dex should not be making about which one a caller meant. They are
+    also what the two ends of the lifecycle actually hold: the process that
+    authored the change has a store, and the sandbox that validates it has the
+    document and nothing else.
+
+    ``dependencies`` is the sandbox switch. The default installs missing packages
+    post-gate as it always has; ``REFUSE`` names them and stops, which is the
+    right outcome where there is no network to install from.
+
+    The order mirrors the documented gate: the dev-target check runs first (free,
+    and it must refuse a broken or undeployable target before anyone weighs a
+    budget), then a billed build is priced by a free ``dbt compile`` dry-run, then
+    the same confirm handshake ``explore`` uses gates the spend.
+
+    Pricing is normally best-effort: dex discovers its own connection while dbt
+    reads ``profiles.yml``, and the two can legitimately differ, so a connection
+    dex cannot open (or a compile that fails) need not break a build dbt could
+    have run. ClickHouse Cloud is the exception: its live capacity is required
+    to translate and report settled spend, so that fact must be proved before
+    dbt runs. After it is cached, a compile failure can still degrade to a
+    no-estimate note; the ceiling and server-side per-statement cap bind.
+    """
+
+    from ..connect import paradigm_for
+    from ..envelope import Paradigm
+    from ..guards.cost_guard import (
+        ConfirmationRequiredError,
+        estimate_quality_of,
+        no_session_ceiling_warning,
+        skipped_handshake_warning,
+        unserialized_ledger_warning,
+    )
+
+    # `from .build import ...` rather than `from . import build`: the package
+    # re-exports the build *function* under the same name as the module, and the
+    # submodule-path form resolves the module unambiguously.
+    from . import dev_target
+    from .build import assert_dev_target, assert_packages_installed
+    from .build import (
+        build as run_build,
+    )
+
+    engine._last_spend = None
+    store = engine.store
+    config = engine.config
+    repo_root = engine.require_repo_root("building the dbt project")
+    target = target or config.dbt_target or "dev"
+    assert_dev_target(target, config.dbt_target)
+    ceiling = engine.budget if engine.budget is not None else config.budget.ceiling
+    connector = engine.connector or config.connector
+
+    project = engine.project_dir()
+    # A --connector flag governs this build, so the drift check must compare the
+    # profile against that connector's config block, not the committed default.
+    effective = config.model_copy(update={"connector": connector})
+    paradigm = paradigm_for(connector, effective)
+    dev_check = lambda: dev_target.check(  # noqa: E731
+        project,
+        target,
+        effective,
+        repo_root,
+        store=store,
+        connection=engine.connection,
+    )
+
+    # Free/local (DuckDB): nothing bills, so there is nothing to price and no
+    # confirmation to ask for (issue #197); the engine runs the dev-target
+    # check and gates the ceiling/ready-to-run checks that still apply.
+    if paradigm is Paradigm.FREE_LOCAL:
+        summary, cost = run_build(
+            project,
+            target=target,
+            configured_target=config.dbt_target,
+            select=select,
+            ceiling=ceiling,
+            confirmed=engine.confirmed,
+            paradigm=paradigm,
+            connector=connector,
+            dev_target_check=dev_check,
+            dependencies=dependencies,
+            approved_functions=frozenset(config.guards.approved_functions),
+        )
+        # Before the shaping on both paths, so the two read the same way; here
+        # there is no gate to outlive, on the billed path below there is.
+        verification = _verify_build(engine, project, summary, verify)
+        return _shape_build_result(
+            summary,
+            cost,
+            paradigm,
+            connector,
+            store,
+            extra_notes=skipped_handshake_warning(paradigm, engine.confirmed),
+            verification=verification,
+            evidence=_build_evidence(
+                engine, project, target, select, for_plan, for_plan_document
+            ),
+            decisions=_built_decisions(engine, summary),
+            engine=engine,
+        )
+
+    dev_warnings = dev_check()
+    # Ahead of pricing, for the reason the dev-target check runs ahead of it: a
+    # build that may not install its dependencies and does not have them cannot
+    # succeed, so the caller should learn that rather than be handed an estimate
+    # to weigh for a run that will not happen. It also keeps the refusal free,
+    # which is the whole point in a sandbox: pricing opens a connection and
+    # dry-runs every node.
+    if dependencies is DependencyPolicy.REFUSE:
+        assert_packages_installed(project)
+
+    estimate, per_node, price_notes, upper_bounds, adapter = _price_build(
+        engine, project, target, select, verify=verify
+    )
+    if estimate is not None:
+        command_args.billed_handshake(
+            "transform build",
+            adapter,
+            estimate,
+            per_table=per_node or None,
+            notes=price_notes or None,
+            upper_bounds=upper_bounds or None,
+        )
+    try:
+        summary, cost = run_build(
+            project,
+            target=target,
+            configured_target=config.dbt_target,
+            select=select,
+            ceiling=ceiling,
+            confirmed=engine.confirmed,
+            paradigm=paradigm,
+            connector=connector,
+            estimate=estimate,
+            estimate_quality=estimate_quality_of(adapter, estimate, paradigm=paradigm),
+            # The dev-target check already ran above; passing None keeps the
+            # engine from opening its own connection a second time.
+            dev_target_check=None,
+            dependencies=dependencies,
+            approved_functions=frozenset(config.guards.approved_functions),
+        )
+    except ConfirmationRequiredError as exc:
+        # Reached only when pricing degraded to no estimate; the note explains
+        # why the confirm ask carries no number. `billed_handshake` never ran on
+        # this path, so the guard's own warnings have to be raised here instead.
+        exc.request = _build_confirmation(
+            target,
+            exc.cost,
+            notes=[
+                *price_notes,
+                *no_session_ceiling_warning(
+                    paradigm,
+                    config.session_ceiling_in_force,
+                    declined=config.session_ceiling_declined_in_force,
+                ),
+                *unserialized_ledger_warning(
+                    paradigm,
+                    config.session_ceiling_in_force,
+                    callable(getattr(store, "spend_lock", None)),
+                ),
+            ],
+        )
+        raise
+    except Exception:
+        with contextlib.suppress(Exception):
+            _settle_raised_build_spend(
+                engine,
+                project,
+                target,
+                paradigm=paradigm,
+                connector=connector,
+                store=store,
+                estimate=estimate,
+                adapter=adapter,
+            )
+        raise
+
+    # dbt ran its statements outside the adapter, so the uptime model is told
+    # what they were before anything else runs on the warehouse: the
+    # verification's statements come after them on its clock.
+    uptime = getattr(adapter, "warehouse_uptime", None)
+    if uptime is not None:
+        uptime.observe(_execution_seconds(summary), span=summary.get("elapsed_seconds"))
+    # dbt has just written to the warehouse this adapter listed while pricing,
+    # so what it listed (a dev schema that did not exist, a table's row count)
+    # is stale for anything that reads after the build. On the free path the
+    # adapter is first opened after dbt, so there is nothing to forget there.
+    forget = getattr(adapter, "forget_metadata", None)
+    if forget is not None:
+        forget()
+    # Between the run and the shaping, deliberately: `_shape_build_result`
+    # settles the gate, and a statement issued after that is charged against a
+    # reservation that has already been released.
+    verification = _verify_build(engine, project, summary, verify, adapter=adapter)
+    decisions = _built_decisions(engine, summary)
+    return _shape_build_result(
+        summary,
+        cost,
+        paradigm,
+        connector,
+        store,
+        extra_notes=[
+            *price_notes,
+            *command_args.upper_bound_notes(upper_bounds, per_node),
+            *dev_warnings,
+        ],
+        session_ceiling=config.session_ceiling_in_force,
+        session_ceiling_declined=config.session_ceiling_declined_in_force,
+        gate=command_args.cost_gate(adapter) if adapter is not None else None,
+        adapter=adapter,
+        verification=verification,
+        evidence=_build_evidence(
+            engine, project, target, select, for_plan, for_plan_document
+        ),
+        decisions=decisions,
+        uncapped=bool(dev_target.missing_cap_references(project, target, connector)),
+        engine=engine,
+    )
+
+
+def _verify_build(
+    engine: DexEngine,
+    project,
+    summary: dict,
+    requested: bool,
+    *,
+    adapter=None,
+) -> BuildVerification:
+    """The sweep, or the statement that it did not run.
+
+    Opt-in on every connector, free ones included. Verification on DuckDB costs
+    nothing, so making it automatic there was tempting; one flag that means one
+    thing on every connector is worth more than saving a caller the flag on one
+    of them, and a build whose payload changes shape with the connector is a
+    worse contract than a build that always says what it did.
+
+    ``adapter`` is the one the pricing pass already opened, passed through
+    rather than re-derived: opening again would settle the gate holding this
+    command's reservation and rebuild it, and the counts would then be charged
+    against nothing.
+    """
+
+    from .verify import BuildVerification, verify_build
+
+    if not requested:
+        return BuildVerification(
+            ran=False, reason="not requested; re-run with --verify to sweep"
+        )
+    opener = (
+        (lambda: adapter)
+        if adapter is not None
+        else (lambda: engine._adapter("transform build", reads_dev_target=True))
+    )
+    return verify_build(engine, Path(project), summary, resolve_adapter=opener)
+
+
+def _for_plan_document(args: argparse.Namespace) -> Any:
+    """The plan document `--for-plan-file` names, or None."""
+
+    path = getattr(args, "for_plan_file", None)
+    if not path:
+        return None
+    return sys.stdin.read() if path == "-" else read_payload_file(path)
+
+
+def cmd_build(args: argparse.Namespace, engine: DexEngine) -> env.Envelope:
+    try:
+        return to_envelope(
+            build(
+                engine,
+                target=getattr(args, "target", None),
+                select=getattr(args, "select", None),
+                verify=getattr(args, "verify", False),
+                for_plan=getattr(args, "for_plan", None),
+                for_plan_document=_for_plan_document(args),
+                dependencies=(
+                    DependencyPolicy.REFUSE
+                    if getattr(args, "no_install_deps", False)
+                    else DependencyPolicy.INSTALL
+                ),
+            )
+        )
+    except BuildFailedError as exc:
+        # A failed build still bills for the statements dbt ran before it
+        # stopped, and a caller sizing the re-run needs that number more than a
+        # successful one does. `to_envelope` is what normally lifts `spend` into
+        # `data`, and this path does not go through it.
+        data = exc.result.data()
+        if exc.result.spend is not None:
+            data["spend"] = exc.result.spend
+        return env.error_for(
+            exc,
+            data=data,
+            cost=exc.result.cost,
+            warnings=exc.result.warnings,
+        )
+
+
+def deps(engine: DexEngine) -> DepsResult:
+    """Install the project's dbt package dependencies. Writes only
+    ``dbt_packages/``, never the warehouse, so it needs no handshake."""
+
+    from .build import deps as run_deps
+    from .build import has_package_spec
+
+    project = engine.project_dir()
+    if not has_package_spec(project):
+        return DepsResult(
+            ran=False,
+            reason="no packages.yml (or dependencies.yml with packages) in the project",
+        )
+    # An explicit invocation is a refresh: run even when dbt_packages/ exists.
+    summary = run_deps(project)
+    messages = summary.pop("messages", [])
+    if summary["success"]:
+        return DepsResult(ran=True, summary=summary, warnings=messages)
+    raise BuildFailedError(
+        _failure_message("dbt deps failed", messages),
+        result=BuildResult(
+            success=False,
+            summary={"ran": True, **summary},
+            warnings=messages[1:] if messages else [],
+        ),
+    )
+
+
+def cmd_deps(args: argparse.Namespace, engine: DexEngine) -> env.Envelope:
+    try:
+        return to_envelope(deps(engine))
+    except BuildFailedError as exc:
+        return env.error_for(exc, data=exc.result.data(), warnings=exc.result.warnings)
+
+
+def semantic_define(
+    engine: DexEngine,
+    intent: str,
+    edits: list[PlanEdit],
+    *,
+    definitions: list[semantic_mod.DefinitionEdit] | None = None,
+    no_parse: bool = False,
+    declarations: list[Any] | None = None,
+) -> PlanResult:
+    """Author new semantic definitions (entities, dimensions, measures, metrics).
+
+    Refuses a name the project already defines, so an accidental redefinition is
+    caught rather than applied; use :func:`semantic_update` to evolve one.
+    """
+
+    return _semantic_plan(
+        engine,
+        intent,
+        edits,
+        mode="define",
+        definitions=definitions,
+        no_parse=no_parse,
+        declarations=declarations,
+    )
+
+
+def semantic_update(
+    engine: DexEngine,
+    intent: str,
+    edits: list[PlanEdit],
+    *,
+    definitions: list[semantic_mod.DefinitionEdit] | None = None,
+    no_parse: bool = False,
+    declarations: list[Any] | None = None,
+) -> PlanResult:
+    """Evolve existing semantic definitions.
+
+    The mirror of :func:`semantic_define`: refuses a name the project does not
+    already have, so a typo does not silently create a second definition.
+    """
+
+    return _semantic_plan(
+        engine,
+        intent,
+        edits,
+        mode="update",
+        definitions=definitions,
+        no_parse=no_parse,
+        declarations=declarations,
+    )
+
+
+def semantic_plan(
+    engine: DexEngine,
+    intent: str,
+    edits: list[PlanEdit],
+    *,
+    definitions: list[semantic_mod.DefinitionEdit] | None = None,
+    no_parse: bool = False,
+    declarations: list[Any] | None = None,
+) -> PlanResult:
+    """Mixed-intent semantic authoring: one payload may evolve existing
+    definitions and add the new ones they depend on; each name is classified
+    as defined, updated, or unchanged instead of the whole payload being
+    refused."""
+
+    return _semantic_plan(
+        engine,
+        intent,
+        edits,
+        mode="plan",
+        definitions=definitions,
+        no_parse=no_parse,
+        declarations=declarations,
+    )
+
+
+# Mode to the public function that owns it. The shims dispatch through this
+# rather than reaching past it into `_semantic_plan`, so the CLI really does
+# consume the same surface a library caller does.
+_SEMANTIC_AUTHORING = {
+    "define": semantic_define,
+    "update": semantic_update,
+    "plan": semantic_plan,
+}
+
+
+def cmd_semantic_define(args: argparse.Namespace, engine: DexEngine) -> env.Envelope:
+    return _semantic_envelope(args, engine, "define")
+
+
+def cmd_semantic_update(args: argparse.Namespace, engine: DexEngine) -> env.Envelope:
+    return _semantic_envelope(args, engine, "update")
+
+
+def cmd_semantic_plan(args: argparse.Namespace, engine: DexEngine) -> env.Envelope:
+    return _semantic_envelope(args, engine, "plan")
+
+
+def _validation_error() -> type[Exception]:
+    """`.validate`'s error, reached lazily for the reason above it."""
+
+    from .validate import EditValidationError
+
+    return EditValidationError
+
+
+def _semantic_envelope(
+    args: argparse.Namespace, engine: DexEngine, mode: str
+) -> env.Envelope:
+    try:
+        edits, declarations = payload_from_file(
+            getattr(args, "edits_file", None), default_kind=EditKind.SEMANTIC_YML
+        )
+        result = _SEMANTIC_AUTHORING[mode](
+            engine,
+            getattr(args, "argument", None) or "",
+            edits,
+            definitions=_definitions_from_payload(
+                getattr(args, "definitions_file", None)
+            ),
+            no_parse=bool(getattr(args, "no_parse", False)),
+            declarations=declarations,
+        )
+    except _validation_error() as exc:
+        return env.error_for(exc)
+    except DbtParseError as exc:
+        return env.error_for(exc, warnings=exc.warnings)
+    except ValueError as exc:
+        return env.error_for(exc)
+    return to_envelope(result, hints=plan_hint(result))
+
+
+# --- helpers -----------------------------------------------------------------
+
+
+class DbtParseError(DexError):
+    """dbt's own parser refused the authored edits, so nothing was stored.
+
+    The authoritative gate: dex's checks are precise and dbt's is final, and a
+    plan dbt cannot parse would only fail later at build time, further from the
+    edit that caused it. ``warnings`` carries dbt's remaining messages.
+    """
+
+    def __init__(self, message: str, *, warnings: list[str] | None = None):
+        super().__init__(message)
+        self.warnings = warnings or []
+
+
+def _execution_seconds(summary: dict | None) -> float:
+    """The statement time a dbt run reports: the sum of its nodes'
+    ``execution_time``, the one spend figure every non-BigQuery dbt adapter
+    gives."""
+
+    return sum(
+        float(node.get("execution_time") or 0)
+        for node in (summary or {}).get("nodes", [])
+    )
+
+
+def _record_build_spend(
+    store: Store,
+    connector: str,
+    billed: float | None,
+    paradigm,
+    estimate: float | None = None,
+    *,
+    gate_billed: float = 0.0,
+    command: str = "transform build",
+    reservation_id: str | None = None,
+) -> dict[str, float | None]:
+    """Account a billed dbt run in the spend ledger and report what it cost.
+
+    The paradigm names both units, so a run draws against the same session
+    budget as an explore scan and reports spend under the key every other
+    command reports it under. ``command`` is what the ledger row is filed under,
+    which matters because more than one command now runs dbt: a reader summing
+    what `transform build` spent must not be handed another command's rows.
+
+    ``billed`` is ``None`` only where dbt executed statements and reported no
+    billing figure for any of them (dbt-bigquery without ``bytes_billed``), which
+    is unknown spend rather than none.
+    Nothing is ledgered then, because there is no figure to ledger, and the unit
+    key still reports ``None`` so the caller reads "unavailable" instead of the
+    zero that would under-report it.
+
+    Returns the summary in :meth:`CostGate.spend_summary`'s shape, because a
+    build settles outside any gate: dbt executes the statements, so
+    ``record_billed`` never fires and the gate's own total stays zero for the
+    run. The day's total is read back from the ledger this write just landed in,
+    which is the number the next command's gate will start from.
+
+    ``estimate`` is what the handshake priced this build at, written beside what
+    it billed exactly as :meth:`CostGate.record_billed` writes it, so a build
+    calibrates a later refusal like any other command. It matters more here than
+    anywhere else: a build is the largest billed command dex has, so it is both
+    the one most likely to be refused over a ceiling and the one whose estimate
+    an operator most needs the history of. ``None`` where pricing degraded and
+    there was no estimate to record, which :func:`settled_ratios` skips rather
+    than counting as a ratio of nothing.
+
+    ``reservation_id`` is the gate's token when the build ran with one, so a
+    verified build's dbt row and its folded ``--verify`` statement rows join as
+    one command in :func:`settled_ratios`. ``None`` when the build settled with
+    no gate (pricing degraded before a connection opened, or a batch runner
+    with no gate of its own).
+    """
+
+    from ..guards.cost_guard import (
+        ledger_field,
+        ledger_row,
+        spend_field,
+        utc_day_start,
+    )
+
+    field = ledger_field(paradigm)
+    if billed is not None:
+        store.append_spend_log(
+            # Through the shared builder rather than a dict of its own, which is
+            # what keeps a build's row the same row a gate writes. It carries the
+            # kind every gate-written settlement carries, because that is what it
+            # is, and stamps the gate's `reservation_id` when a gate exists (so a
+            # `--verify` build's dbt row and verification rows join as one
+            # command) or declares it as null rather than omitting it when no
+            # gate exists: a reader joining settlements on that key reads an
+            # absent key and a null one as different claims, and only the null
+            # one says "this settled outside any reservation".
+            ledger_row(
+                connector=connector,
+                command=command,
+                entry="settlement",
+                field=field,
+                amount=billed,
+                reservation_id=reservation_id,
+                estimate=estimate,
+            )
+        )
+    # Read back best-effort, exactly as gate settlement reports the day's total:
+    # what this build billed came from dbt and is exact either way, so a ledger
+    # that cannot be read must not turn a build that already spent into a failure
+    # reporting nothing. `None` is the documented "day's total unavailable".
+    session_spent: float | None = None
+    with contextlib.suppress(Exception):
+        session_spent = store.spend_since(
+            utc_day_start(), field=field, connector=connector
+        )
+    return {
+        # `gate_billed` is what statements dex issued through the gate charged
+        # (the folded verification), already in the ledger under this command's
+        # own settlement, so it is added to what is reported and not appended
+        # again. Reporting dbt's figure alone would under-report the command,
+        # which is the one direction a cost guard must never round.
+        spend_field(paradigm): None
+        if billed is None
+        else float(billed) + float(gate_billed),
+        "session_spent_today": session_spent,
+        # The one command where settlement can genuinely be unknown. dbt runs the
+        # statements, so `billed is None` here means statements ran and nobody said
+        # what they cost: a bytes-billed adapter that reported no figure. The
+        # compute-time adapters report none either, and settle from statement time
+        # instead. Stated as its own flag rather than left to be inferred from a
+        # null, because a caller summing spend across envelopes has to be able to
+        # tell an unknown apart from a zero without knowing which adapters report
+        # figures.
+        "settled": billed is not None,
+        "unknown_settlement": billed is None,
+        "reserved": None,
+    }
+
+
+def _settle_dbt_spend(
+    summary: dict,
+    notes: list[str],
+    *,
+    paradigm,
+    connector: str,
+    store: Store,
+    estimate: float | None,
+    adapter=None,
+    gate_billed: float = 0.0,
+    uptime_seconds: float = 0.0,
+    command: str = "transform build",
+    reservation_id: str | None = None,
+    uncapped: bool = False,
+) -> tuple[dict[str, float | None] | None, list[str]]:
+    """What one finished dbt run cost, ledgered, with the note that explains it.
+
+    One function per paradigm's accounting rather than three scattered branches,
+    because every caller that runs dbt owes the same three things: read the
+    actual out of the artifact in that paradigm's unit, append a ledger row, and
+    say which server-side cap bound the run. Returns the spend payload and the
+    notes with the cap note in front, since the cap is context for the number
+    rather than an afterthought to it.
+
+    ``command`` names the ledger row's command, so a caller that is not a build
+    settles under its own name and a reader summing one command's spend is not
+    handed another's.
+
+    ``uptime_seconds`` is what the warehouse billed the command beyond its
+    statements (Snowflake's resume minimum and idle tail, from the adapter's
+    uptime model), folded into this run's row rather than written as a row of
+    its own, so the build keeps one estimate-to-billed ratio for calibration.
+
+    ``uncapped`` says the profile lacks the references the connector's cap rides
+    on (see ``dev_target.missing_cap_references``), so the note says the build
+    ran uncapped instead of naming a cap that was never applied.
+    """
+
+    from ..envelope import Paradigm
+    from ..guards.cost_guard import spend_field
+
+    spend: dict[str, float | None] | None = None
+    if paradigm is Paradigm.BYTES_SCANNED:
+        notes = [
+            "each statement was capped server-side by the profile's "
+            "maximum_bytes_billed (a per-statement cap, not per run)",
+            *notes,
+        ]
+        # Popped, not read: `data.spend` is the one place any command reports
+        # what it billed, and a second copy at the top of `data` that only this
+        # command carried was worse than no copy at all (issue #276). A caller
+        # reading `data.bytes_billed` saw a build's spend and nothing for a
+        # `maintain check` that had just scanned 0.89 GB, and an absent key
+        # defaulted to zero reads as free.
+        billed = summary.pop("bytes_billed", None)
+        if billed is None and summary.get("nodes"):
+            # Statements ran and not one of them reported a billing figure, so
+            # what this run cost is unknown rather than nothing. Reporting the
+            # key as null says exactly that; zero would under-report spend, which
+            # is the one direction a cost guard must never round. A run that
+            # died before executing anything has an empty `nodes` and really did
+            # bill nothing, so it settles at zero like any other free run.
+            notes = [
+                *notes,
+                "dbt reported no billing figure for any statement in this run, "
+                "so spend is unknown rather than zero and nothing was appended "
+                "to the spend ledger",
+            ]
+            if gate_billed:
+                notes = [
+                    *notes,
+                    "the verification row counts did bill, and are in the "
+                    "ledger and in session_spent_today; an unknown build "
+                    "figure plus a known one is still unknown, so they are "
+                    "not added into the reported spend",
+                ]
+        else:
+            billed = float(billed or 0.0)
+        spend = _record_build_spend(
+            store,
+            connector,
+            billed,
+            paradigm,
+            estimate,
+            gate_billed=gate_billed,
+            command=command,
+            reservation_id=reservation_id,
+        )
+    elif paradigm is Paradigm.COMPUTE_TIME:
+        cap_note = (
+            _UNCAPPED_BUILD_NOTE
+            if uncapped
+            else _COMPUTE_TIME_CAP_NOTES.get(connector, _DEFAULT_COMPUTE_TIME_CAP_NOTE)
+        )
+        notes = [cap_note, *notes]
+        # dbt-snowflake, dbt-databricks, and dbt-redshift report no billing
+        # figure, so the actual starts from per-node execution time, which is
+        # always known (a run with no nodes burned no seconds). It is statement
+        # time, which is not what every one of these warehouses bills: Snowflake
+        # bills uptime, and its adapter's model supplies the rest as
+        # `uptime_seconds`.
+        seconds = _execution_seconds(summary) + uptime_seconds
+        spend = _record_build_spend(
+            store,
+            connector,
+            seconds,
+            paradigm,
+            estimate,
+            gate_billed=gate_billed,
+            command=command,
+            reservation_id=reservation_id,
+        )
+        translate = getattr(adapter, "compute_spend_translation", None)
+        if translate is not None:
+            # Unconditional, including at zero seconds: the translated keys
+            # (compute-unit-hours, credits, USD) are part of this connector's
+            # spend shape, and a run that omitted them would be the same
+            # present-sometimes key this issue is about, one level down. Of the
+            # reported total, so the gate's share is translated too.
+            spend.update(translate(spend[spend_field(paradigm)] or 0.0))
+    elif paradigm is Paradigm.DB_LOAD:
+        cap_note = (
+            _UNCAPPED_BUILD_NOTE
+            if uncapped
+            else _DB_LOAD_CAP_NOTES.get(connector, _UNCAPPED_BUILD_NOTE)
+        )
+        notes = [cap_note, *notes]
+        # The db-load dbt adapters report no billing figure; per-node execution
+        # time is the honest database-seconds actual.
+        seconds = _execution_seconds(summary)
+        spend = _record_build_spend(
+            store,
+            connector,
+            seconds,
+            paradigm,
+            estimate,
+            gate_billed=gate_billed,
+            command=command,
+            reservation_id=reservation_id,
+        )
+    return spend, notes
+
+
+def _settle_raised_build_spend(
+    engine: DexEngine,
+    project: Path,
+    target: str,
+    *,
+    paradigm,
+    connector: str,
+    store: Store,
+    estimate: float | None,
+    adapter=None,
+) -> None:
+    """Settle spend and warehouse uptime when a billed dbt run raises.
+
+    When dbt dies mid-run (for instance on a subprocess timeout), any statements
+    it executed before dying ran outside the adapter and their execution time is
+    read from whatever partial target/run_results.json it wrote. If an artifact
+    was written with executed nodes, those seconds are ledgered against the
+    daily ceiling and observed in the warehouse uptime model. If no artifact was
+    written (or no nodes ran), the gate's reservation is released and the run
+    reports unknown_settlement: true so the caller knows spend occurred but the
+    amount cannot be determined.
+    """
+
+    from . import dev_target
+
+    gate = command_args.cost_gate(adapter) if adapter is not None else None
+    uptime = getattr(adapter, "warehouse_uptime", None)
+    run_results_path = project / "target" / "run_results.json"
+    summary: dict[str, Any] | None = None
+
+    if run_results_path.is_file():
+        try:
+            from .build import _summarize
+
+            completed = subprocess.CompletedProcess(
+                args=[], returncode=1, stdout="", stderr=""
+            )
+            summary = _summarize(project, target, completed)
+        except Exception:
+            summary = None
+
+    forget = getattr(adapter, "forget_metadata", None)
+    if forget is not None:
+        with contextlib.suppress(Exception):
+            forget()
+
+    if summary and summary.get("nodes"):
+        exec_seconds = _execution_seconds(summary)
+        if uptime is not None and exec_seconds > 0:
+            with contextlib.suppress(Exception):
+                uptime.observe(exec_seconds, span=summary.get("elapsed_seconds"))
+        uptime_seconds, _ = uptime.settle() if uptime is not None else (0.0, [])
+        if gate is not None:
+            gate.settle()
+        gate_billed = gate.billed if gate is not None else 0.0
+
+        spend, _ = _settle_dbt_spend(
+            summary,
+            [],
+            paradigm=paradigm,
+            connector=connector,
+            store=store,
+            estimate=estimate,
+            adapter=adapter,
+            gate_billed=gate_billed,
+            uptime_seconds=uptime_seconds,
+            reservation_id=gate.reservation_id if gate is not None else None,
+            uncapped=bool(
+                dev_target.missing_cap_references(project, target, connector)
+            ),
+        )
+        if engine is not None:
+            engine._last_spend = spend
+    else:
+        if uptime is not None:
+            with contextlib.suppress(Exception):
+                uptime.settle()
+        if gate is not None:
+            gate.settle()
+        gate_billed = gate.billed if gate is not None else 0.0
+
+        spend = _record_build_spend(
+            store,
+            connector,
+            billed=None,
+            paradigm=paradigm,
+            estimate=estimate,
+            gate_billed=gate_billed,
+            command="transform build",
+            reservation_id=gate.reservation_id if gate is not None else None,
+        )
+        if engine is not None:
+            engine._last_spend = spend
+
+
+def _price_build(
+    engine: DexEngine,
+    project,
+    target: str,
+    select: str | None,
+    *,
+    verify: bool = False,
+):
+    """Price a billed build upfront with a free ``dbt compile`` dry-run.
+
+    Returns ``(estimate, per_node, notes, upper_bounds, adapter)``.
+    ``upper_bounds`` maps the per-node lines the connector priced unpruned (an
+    incremental watermark a dry run cannot prune on) to why; it is empty unless
+    the connector says its estimator has that blind spot. ``estimate`` is ``None``
+    when pricing could not be produced (no reachable dex connection, a compile
+    failure): the build normally still runs, gated by the ceiling and the
+    server-side cap, with a note saying why no number was shown. ClickHouse
+    Cloud first proves and caches its mandatory live capacity; failure there is
+    re-raised before dbt can spend.
+    """
+
+    from .build import _build_env, compile_estimate, needs_deps
+    from .build import deps as run_deps
+
+    connector = engine.connector or engine.config.connector
+    clickhouse_target = engine.config.clickhouse
+    cloud_capacity_required = (
+        connector == "clickhouse"
+        and clickhouse_target is not None
+        and clickhouse_target.deployment == "cloud"
+    )
+    cloud_capacity_proved = False
+    adapter = None
+    try:
+        # A verified build reads the dev namespace while pricing too: on a
+        # rebuild its relations exist, and the downstream nodes and the counts
+        # that judge them price against their real sizes.
+        adapter = engine._adapter("transform build", reads_dev_target=verify)
+        if cloud_capacity_required:
+            # Unlike the other build translations, ClickHouse Cloud's rate is
+            # discovered live rather than configured. Prove and cache it before
+            # dbt can spend; a compile failure may still degrade safely after
+            # this point because settlement can use the cached rate.
+            translate = getattr(adapter, "compute_spend_translation", None)
+            if translate is None:
+                raise RuntimeError(
+                    "ClickHouse Cloud adapter cannot prove live compute capacity"
+                )
+            translate(0.0)
+            cloud_capacity_proved = True
+        # dbt compile refuses to run with declared-but-uninstalled packages, and
+        # deps writes only dbt_packages/ (never the warehouse), so installing it
+        # here during the free preflight is consistent and idempotent on the build.
+        if needs_deps(project):
+            run_deps(project)
+        ceiling = (
+            engine.budget if engine.budget is not None else engine.config.budget.ceiling
+        )
+        compile_env = _build_env(connector, adapter.paradigm, ceiling)
+        guard_options = (
+            {"approved_functions": frozenset(engine.config.guards.approved_functions)}
+            if engine.config.guards.approved_functions
+            else {}
+        )
+        # Quoted before anything is priced: it is one line of its own rather
+        # than folded into whichever node is priced first, and the model reads
+        # the warehouse as this build found it, before dbt wakes it.
+        uptime = getattr(adapter, "warehouse_uptime", None)
+        estimate, per_node, notes = compile_estimate(
+            project,
+            adapter,
+            target=target,
+            select=select,
+            env=compile_env,
+            overhead=uptime.quote() if uptime is not None else 0.0,
+            **guard_options,
+        )
+        if verify:
+            # The compile above wrote the manifest this reads, so the sweep's
+            # scan can be priced here and confirmed with the build rather than
+            # asked about again once the build has already spent.
+            from .build import compiled_model_ids
+            from .verify import price_declared_facts, price_verification
+
+            scope = compiled_model_ids(Path(project))
+            scan, scan_notes = price_verification(adapter, Path(project), scope=scope)
+            notes = [*notes, *scan_notes]
+            if scan:
+                estimate += scan
+                per_node = {**per_node, "(row counts)": scan}
+            facts, facts_notes = price_declared_facts(
+                adapter, Path(project), scope=scope
+            )
+            notes = [*notes, *facts_notes]
+            if facts:
+                estimate += facts
+                per_node = {**per_node, "(declared facts)": facts}
+        upper_bounds: dict[str, str] = {}
+        if getattr(adapter, "prunes_dynamic_bounds_at_run_time", False):
+            from .build import dynamic_bound_nodes
+
+            upper_bounds = {
+                label: reason
+                for label, reason in dynamic_bound_nodes(
+                    project, dialect=adapter.dialect
+                ).items()
+                if label in per_node
+            }
+        return estimate, per_node, notes, upper_bounds, adapter
+    except Exception as exc:
+        if engine.config.guards.approved_functions:
+            # An enabled execution check cannot degrade to an unchecked build.
+            raise
+        if cloud_capacity_required and not cloud_capacity_proved:
+            raise
+        note = (
+            f"could not price this build upfront ({type(exc).__name__}: {exc}); "
+            "the budget and the server-side per-statement cap still bind"
+        )
+        return None, {}, [env.redact(note)], {}, adapter
+
+
+def _build_confirmation(target: str, cost, notes=()):
+    from ..results import ConfirmationRequest
+
+    return ConfirmationRequest(
+        cost=cost,
+        data={
+            "command": "transform build",
+            "target": target,
+            "hint": "review the cost, then re-run with --confirm (and --budget on "
+            "billed connectors)",
+        },
+        warnings=list(notes),
+    )
+
+
+def _build_evidence(
+    engine: DexEngine,
+    project,
+    target: str,
+    select: str | None,
+    for_plan: str | None,
+    for_plan_document: Any = None,
+) -> BuildEvidence | None:
+    """Read dbt's artifacts and say what the build established, or nothing.
+
+    ``None`` rather than a partial block wherever the evidence cannot be built,
+    because an evidence payload that could not read the run is worse than no
+    evidence: it reports an outcome nobody measured. The build's own result is
+    unaffected either way.
+    """
+
+    from .evidence import build_evidence
+
+    edits = None
+    plan_digest = None
+    if for_plan:
+        from .portable import plan_document
+
+        store = engine.require_full_store("checking what a build validated")
+        stored = store.load_plan(for_plan)
+        edits = list(stored.edits)
+        plan_digest = plan_document(stored).digest
+    elif for_plan_document is not None:
+        from .portable import verify_plan_document
+
+        document = verify_plan_document(for_plan_document)
+        edits = [edit.as_edit() for edit in document.edits]
+        plan_digest = document.digest
+
+    source_digest = None
+    with contextlib.suppress(Exception):
+        from ..dbt_project import load
+        from .grounding import source_digest as digest_of
+
+        source_digest = digest_of(load(project))
+
+    try:
+        return build_evidence(
+            project,
+            target=target,
+            select=select,
+            edits=edits,
+            plan_digest=plan_digest,
+            source_digest=source_digest,
+        )
+    except Exception:
+        return None
+
+
+def _shape_build_result(
+    summary: dict,
+    cost,
+    paradigm,
+    connector: str,
+    store: Store,
+    extra_notes=(),
+    session_ceiling: float | None = None,
+    session_ceiling_declined: bool = False,
+    gate=None,
+    adapter=None,
+    evidence: BuildEvidence | None = None,
+    verification: BuildVerification | None = None,
+    decisions: list[dict[str, Any]] | None = None,
+    uncapped: bool = False,
+    engine: DexEngine | None = None,
+) -> BuildResult:
+    """Shape a finished dbt run per paradigm, and ledger what it actually cost.
+
+    ``extra_notes`` carries anything learned before the run (a degraded-pricing
+    note, dev-target warnings); the per-paradigm note explains the server-side cap
+    that binds the spend, and actual billed magnitude is recorded to the ledger
+    *and* reported on the result, so a host summing settled spend from envelopes
+    sees builds rather than silently counting them as free.
+
+    It is reported in exactly one place, ``data.spend``, which every billed
+    command reports under. Anything a caller has to look for in a second key on
+    some commands and not others is a key whose absence reads as a value, and the
+    value it read as here was zero (issue #276). For the same reason a billed
+    paradigm always reports the key, whatever it settled at: a spend of zero and
+    "this command does not report spend" have to be distinguishable.
+
+    A failed run reports its spend too: dbt bills for the statements it ran
+    before it stopped, and a caller sizing the re-run needs that number more
+    than a successful one does.
+
+    dbt has returned by the time this runs, so the headroom the handshake booked
+    is released here, before the ledger is read back. A build is the longest
+    billed command dex has, which makes it both the one whose hold matters most
+    to a concurrent command and the one where reporting the day's total without
+    releasing first would overstate it by the whole estimate.
+    """
+
+    from ..guards.cost_guard import (
+        no_session_ceiling_warning,
+        unserialized_ledger_warning,
+    )
+
+    # The warehouse's uptime first, folded into dbt's row below rather than
+    # booked by the gate as a row of its own, so the build keeps one
+    # estimate-to-billed ratio. Settling the model here leaves the gate's own
+    # hook nothing to book.
+    uptime = getattr(adapter, "warehouse_uptime", None)
+    uptime_seconds, uptime_notes = uptime.settle() if uptime is not None else (0.0, [])
+    # On this command the gate bills for the folded verification and nothing
+    # else, because dbt spends outside the gate entirely and the compile that
+    # priced the run only dry-ran.
+    if gate is not None:
+        gate.settle()
+    gate_billed = gate.billed if gate is not None else 0.0
+    messages = summary.pop("messages", [])
+    summary.pop("elapsed_seconds", None)
+    notes = [*extra_notes, *summary.pop("notes", [])]
+    if (
+        uptime is None
+        and connector in _UNMODELED_UPTIME_NOTES
+        and _execution_seconds(summary) > 0
+    ):
+        uptime_notes = [_UNMODELED_UPTIME_NOTES[connector]]
+    informational: list[str] = []
+    if verification is not None:
+        notes = [*notes, *verification.warnings]
+        informational = list(verification.notes)
+        if verification.findings:
+            notes = [
+                *notes,
+                f"verification found {len(verification.findings)} issue(s) in the "
+                "nodes this build touched; they are reported in "
+                "data.verification.findings and do not change the build's status",
+            ]
+    # What the handshake priced this build at, ledgered beside what it billed so
+    # a later over-ceiling refusal on this connector can say how far the two
+    # have run apart. `None` on the degraded-pricing path, where there was no
+    # estimate to compare against and inventing one would be worse than none.
+    estimate = getattr(cost, "estimate", None)
+    spend, notes = _settle_dbt_spend(
+        summary,
+        notes,
+        paradigm=paradigm,
+        connector=connector,
+        store=store,
+        estimate=estimate,
+        adapter=adapter,
+        gate_billed=gate_billed,
+        uptime_seconds=uptime_seconds,
+        reservation_id=gate.reservation_id if gate is not None else None,
+        uncapped=uncapped,
+    )
+    if engine is not None:
+        engine._last_spend = spend
+    notes = [
+        *notes,
+        *uptime_notes,
+        *no_session_ceiling_warning(
+            paradigm, session_ceiling, declined=session_ceiling_declined
+        ),
+        *unserialized_ledger_warning(
+            paradigm,
+            session_ceiling,
+            callable(getattr(store, "spend_lock", None)),
+        ),
+    ]
+    if summary["success"]:
+        result = BuildResult(
+            success=True,
+            summary=summary,
+            evidence=evidence,
+            cost=cost,
+            spend=spend,
+            notes=informational,
+            warnings=[*notes, *messages],
+            decisions=decisions,
+        )
+        if verification is not None:
+            result.verification = verification.payload()
+            # An offer, never a pending confirmation, and the departure from
+            # `Result`'s usual rule is deliberate: the build the caller asked
+            # for is finished and billed. Reporting `needs_confirmation` would
+            # tell a host nothing had run and invite it to pay for the whole
+            # build a second time to get the counts.
+            result.pending_offer = verification.offer
+        return result
+    # Agents triage from `errors` first, so the first real dbt message rides there;
+    # the rest stay in warnings.
+    deps_info = summary.get("deps")
+    prefix = (
+        "dbt deps failed"
+        if deps_info and not deps_info.get("success", True)
+        else "dbt build failed"
+    )
+    failed = BuildResult(
+        success=False,
+        summary=summary,
+        # A failed build is exactly where the evidence is worth most: which
+        # node failed, which were skipped behind it, and whether any of the
+        # nodes the change required ran at all.
+        evidence=evidence,
+        cost=cost,
+        spend=spend,
+        notes=informational,
+        warnings=[*notes, *(messages[1:] if messages else [])],
+        decisions=decisions,
+    )
+    if verification is not None:
+        # A failed build is when "which node failed, and which were skipped
+        # because of it" is worth most, and `cmd_build` builds that envelope by
+        # hand from `result.data()`, so the payload reaches it from here.
+        failed.verification = verification.payload()
+    raise BuildFailedError(_failure_message(prefix, messages), result=failed)
+
+
+def _failure_message(prefix: str, messages: list[str]) -> str:
+    return f"{prefix}: {messages[0]}" if messages else prefix
+
+
+def _make_plan(engine: DexEngine, intent: str, edits: list[PlanEdit]) -> PlanResult:
+    from ..adapters import get_dialect
+    from ..adapters.project import PlacingProject, placement_gap
+
+    repo_root = engine.require_repo_root("storing a transform plan")
+    editable = engine.editable_project()
+    # The directory these edits are pinned against has to name the same project
+    # as the surface they are checked in, or an existing file hashes as absent
+    # and the apply that follows conflicts on a file nobody edited. A format
+    # declaring a surface answers both from its own view, so the directory is
+    # left to `plans.plan` to read there rather than asserted from dbt's here.
+    # Everything else predates the seam and keeps dbt's configured pin, which
+    # that function's own fallback (discovery from the repo root) would not
+    # honor. For dbt the two agree by construction: its view loads the same
+    # resolved directory `project_dir()` returns.
+    #
+    # Asked structurally: the branch turns on the format having a whole keyspace
+    # (a view to pin against, and a surface to check in), and a format holding
+    # one without the other has neither. `placement_gap` names the member it is
+    # missing, on the plan path as well as on reconcile's, because this is the
+    # other command that would otherwise fall silently back to dbt's discovery
+    # and refuse with "no dbt project found" in a repository that has none.
+    places = isinstance(editable, PlacingProject)
+    gap = placement_gap(editable)
+    try:
+        stored, diffs, warnings = plans_mod.plan(
+            intent,
+            edits,
+            None if places else engine.project_dir(),
+            repo_root,
+            store=engine.require_full_store("storing a semantic plan"),
+            # The reviewed columns a human has already cleared, so the seed
+            # gate's refusal can be lifted the same documented way every other
+            # PII refusal is.
+            pii_overrides=pii_override_paths(engine.config.pii_overrides),
+            # Which house-convention warnings this project has left on. A style
+            # judgment is the one kind of check a repo gets to decline, and the
+            # decision belongs in the committed config rather than in a flag,
+            # so it holds for every caller rather than for whoever remembered.
+            conventions=engine.config.conventions,
+            # Reserved-word column names are the connector's, so the plan
+            # warns on a test only that warehouse would fail to compile.
+            dialect=get_dialect(engine.connector or engine.config.connector),
+            # Agent-authored edits, which is the caller `editing_surface` exists
+            # for: there is no placement to compare a path against here, only the
+            # surface the format admits to owning. A format declining the write
+            # tier is `None` and validates against dbt's surface as before.
+            project_format=editable,
+        )
+    except DexError as exc:
+        # A format with a placement gap fell back to dbt's project and dbt's
+        # surface, so a refusal here names dbt's paths for an edit the format
+        # placed in its own keyspace, which reads as dex refusing the format's
+        # own file. The gap is what explains it, and it is the reason there was a
+        # fallback at all.
+        if gap is None:
+            raise
+        raise type(exc)(f"{exc}. {gap}") from exc
+    return PlanResult(
+        plan_id=stored.plan_id,
+        intent=stored.intent,
+        paths=[e.path for e in stored.edits],
+        plan_path=engine.require_full_store("locating a plan").plan_locator(
+            stored.plan_id
+        ),
+        diffs=diffs,
+        warnings=[*warnings, gap] if gap else warnings,
+    )
+
+
+def _semantic_plan(
+    engine: DexEngine,
+    intent: str,
+    edits: list[PlanEdit],
+    *,
+    mode: str,
+    definitions: list[semantic_mod.DefinitionEdit] | None = None,
+    no_parse: bool = False,
+    declarations: list[Any] | None = None,
+) -> PlanResult:
+    from ..dbt_project import load as load_project
+
+    project = engine.project_dir()
+    view = load_project(project)
+
+    if definitions and edits:
+        raise ValueError(
+            f"semantic {mode} takes one payload: whole files (--edits-file) or "
+            "definitions (--definitions-file), not both"
+        )
+    # What the caller named, when they named definitions rather than files. The
+    # classification is narrowed to it: a spliced file carries every definition
+    # it already held, and those were not part of this change.
+    scope: set[semantic_mod.DefinitionKey] | None = None
+    # The removals in this payload, carried past the lowering rather than read
+    # back out of it: a removal's effect is the absence of something, which the
+    # content it produces cannot state.
+    removed: list[semantic_mod.DefinitionEdit] = []
+    placement_notes: list[str] = []
+    if definitions:
+        # Lowered to the whole-file unit before anything else looks at them, so
+        # the validation, classification, parse gate, and plan store below stay
+        # on one code path regardless of how the caller expressed the change.
+        edits = [
+            PlanEdit(path=path, kind=EditKind.SEMANTIC_YML, new_content=content)
+            for path, content in _semantic().splice_definitions(
+                definitions, view, notes=placement_notes
+            )
+        ]
+        scope = {(d.kind, d.name) for d in definitions}
+        removed = [d for d in definitions if d.op is EditOp.DELETE]
+
+    if not edits:
+        raise ValueError(
+            f"semantic {mode} needs content: pass --edits-file <path|-> with whole "
+            "semantic YAML files, or --definitions-file <path|-> with the "
+            "individual definitions to write"
+        )
+    non_semantic = [e.path for e in edits if e.kind is not EditKind.SEMANTIC_YML]
+    if non_semantic:
+        raise ValueError(
+            f"semantic {mode} takes only semantic_yml edits; got other kinds for: "
+            + ", ".join(non_semantic)
+        )
+    deletions = [e.path for e in edits if e.op is EditOp.DELETE]
+    if deletions:
+        raise ValueError(
+            f"semantic {mode} authors content and does not delete; remove the "
+            "semantic YAML with `transform plan` instead, for: " + ", ".join(deletions)
+        )
+
+    parsed_by_path = [(e.path, yaml.safe_load(e.new_content)) for e in edits]
+    parsed_edits = [parsed for _path, parsed in parsed_by_path]
+    classification = _semantic().check_mode(
+        mode,
+        parsed_by_path,
+        view,
+        scope=scope,
+        removed=[(d.kind, d.name) for d in removed],
+    )
+    # The two reference directions: what this payload's own definitions read,
+    # then what the surviving project reads out of what it removes.
+    _semantic().check_references(parsed_edits, view)
+    _semantic().check_removals(
+        removed, [(e.path, e.new_content or "") for e in edits], view
+    )
+    spine_warning = _semantic().time_spine_warning(view, parsed_edits)
+    period_agg_warnings = _semantic().cumulative_period_agg_warnings(parsed_edits)
+
+    # Declarations render after the semantic-only checks above, because what they
+    # produce is a model's properties (`schema_yml`), not a semantic definition,
+    # and before the parse below, so dbt reads the layer and the models together.
+    edits, declaration_notes, drafts = _declare(engine, edits, declarations)
+    # A derivation is parsed by dbt whatever `--no-parse` says: the flag is the
+    # caller's call about their own YAML, not about YAML dex wrote for them.
+    derived = _derive_semantic(engine, view, edits)
+    edits = derived.edits
+
+    # The authoritative gate: a plan that dbt cannot parse is never stored.
+    # Skipped when the time-spine warning fires (dbt would refuse to parse for
+    # that already-surfaced reason, and authoring the spine comes next), or
+    # when the caller opts out.
+    parse_warning: str | None = None
+    parse_deprecations: list[str] = []
+    if derived.parse is not None:
+        # The derivation's own parse covered exactly these edits, and passed.
+        parse_deprecations = [f"dbt: {m}" for m in derived.parse["messages"]]
+    elif no_parse:
+        pass
+    elif spine_warning:
+        parse_warning = "dbt parse skipped until the project has a time spine"
+    else:
+        from .build import shadow_parse
+
+        parse_result = shadow_parse(project, edits, target=engine.config.dbt_target)
+        if not parse_result["available"]:
+            parse_warning = parse_result["reason"]
+        elif not parse_result["success"]:
+            raise DbtParseError(
+                _failure_message("dbt parse failed", parse_result["messages"]),
+                warnings=parse_result["messages"][1:],
+            )
+        elif parse_result["messages"]:
+            # The parse passed, but dbt logged deprecation notices against this
+            # exact YAML: surface them now, at plan time, rather than let the
+            # author discover them for the first time at `transform build`
+            # (where they also poison the failure-error channel).
+            parse_deprecations = [f"dbt: {m}" for m in parse_result["messages"]]
+
+    result = _make_plan(engine, intent, edits)
+    result.defined = classification["defined"]
+    result.updated = classification["updated"]
+    result.unchanged = classification["unchanged"]
+    result.removed = classification["removed"]
+    # `plans.plan` emits one diff per edit whether or not the content moved, so
+    # a no-op is an all-empty diff set rather than an absent one.
+    if result.unchanged and all(
+        d["additions"] == 0 and d["deletions"] == 0 for d in result.diffs
+    ):
+        result.warnings.append(
+            "every definition in this payload is identical to the project's "
+            "current content, so this plan changes nothing"
+        )
+    result.warnings.extend(placement_notes)
+    if spine_warning:
+        result.warnings.append(spine_warning)
+    result.warnings.extend(period_agg_warnings)
+    if parse_warning:
+        result.warnings.append(parse_warning)
+    result.warnings.extend(parse_deprecations)
+    result.warnings.extend(declaration_notes)
+    result.warnings.extend(derived.warnings)
+    result.decisions = _plan_decisions(engine, edits, declarations)
+    result.declarations = drafts or None
+    result.semantic_proposal = derived.proposal
+    _contradiction_warnings(result)
+    return result
+
+
+def _derive_semantic(engine: DexEngine, view: Any, edits: list[PlanEdit]) -> Any:
+    """The semantic model each declared mart in ``edits`` implies (issue #499).
+
+    Free on every connector: it reads the post-change project and the stored
+    cache, and runs dbt's parse on a throwaway copy. See
+    :mod:`.semantic_derivation`.
+    """
+
+    from ..adapters import get_dialect
+    from ..storage import CacheUnreadableError
+    from . import declarations as declarations_mod
+    from . import semantic_derivation
+
+    models = declarations_mod.touched_models(edits)
+    if not models:
+        return semantic_derivation.Outcome(edits=edits)
+    try:
+        cache = readable_cache(engine.store)
+    except CacheUnreadableError:
+        cache = None
+    try:
+        return semantic_derivation.run(
+            view,
+            edits,
+            models,
+            project=engine.project_dir(),
+            marts_paths=engine.config.transform.marts_paths,
+            cache=cache,
+            dialect=get_dialect(engine.connector or engine.config.connector),
+            target=engine.config.dbt_target,
+            vendor=engine.config.semantic.vendor,
+        )
+    except Exception as exc:
+        # Total for the same reason drafting is: nothing was added to the plan
+        # yet, so a defect here costs the proposal and nothing else.
+        return semantic_derivation.Outcome(
+            edits=edits,
+            warnings=[
+                "no semantic model was derived: the derivation failed "
+                f"({type(exc).__name__}: {exc})"
+            ],
+        )
+
+
+def _has_seed(edits: list[PlanEdit]) -> bool:
+    """Whether the exploration cache is worth reading for this payload.
+
+    The cache is a stored document and only the seed gate has any use for it, so
+    a plan with no seed in it never pays to load one.
+    """
+
+    return any(e.kind is EditKind.SEED_CSV and e.op is EditOp.UPSERT for e in edits)
+
+
+def _definitions_from_payload(
+    definitions_file: str | None,
+) -> list[semantic_mod.DefinitionEdit]:
+    """Read the per-definition payload (a file path, or ``-`` for stdin).
+
+    Shape: ``{"definitions": [{"kind": ..., "path": ..., "content": ...}, ...]}``.
+    ``kind`` is ``semantic_model`` or ``metric``; ``content`` is that one
+    definition's YAML body; ``path`` may be omitted for a definition the project
+    already declares, which is then rewritten where it already lives.
+
+    An entry's ``op`` is ``upsert`` (the default, carrying ``content``) or
+    ``delete``, which carries ``name`` instead and removes that one definition
+    from the file that declares it. An omitted definition is never removed: only
+    a declared delete removes anything.
+    """
+
+    if definitions_file is None:
+        return []
+    raw = (
+        sys.stdin.read()
+        if definitions_file == "-"
+        else read_payload_file(definitions_file)
+    )
+    try:
+        payload = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"definitions payload is not valid JSON: {exc}") from exc
+    entries = payload.get("definitions") if isinstance(payload, dict) else None
+    if not isinstance(entries, list):
+        raise ValueError('definitions payload must be {"definitions": [...]}')
+    return _semantic().parse_definition_payload(entries)

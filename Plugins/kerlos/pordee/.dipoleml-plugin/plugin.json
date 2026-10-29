@@ -1,0 +1,16 @@
+{
+  "name": "pordee",
+  "displayName": "Pordee",
+  "version": "0.1.0",
+  "description": "โหมดสื่อสารแบบกระชับสำหรับภาษาไทย+อังกฤษ ลด output token ~60-75% โดยพูดไทยสั้นๆ แต่ยังถูกต้องทาง technical (Pordee — terse Thai+English mode for DipoleML, cuts ~60-75% of output tokens while keeping full technical accuracy.)",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Kerlos"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/kerlos/pordee",
+  "repository": "https://github.com/kerlos/pordee",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

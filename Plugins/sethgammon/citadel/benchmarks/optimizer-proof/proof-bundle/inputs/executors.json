@@ -1,0 +1,113 @@
+{
+  "schema": 1,
+  "executors": [
+    {
+      "schema": 1,
+      "profile_id": "codex-utility",
+      "runtime": "codex",
+      "provider": "openai",
+      "model": "gpt-5.6-luna",
+      "tier": "utility",
+      "executor_profile_digest": "sha256:4524d24f1b7c1bfb24f31fdb6a8505b3d4b8e070133adb38692be0fd7f57aae4",
+      "adapter_digest": "sha256:4bcc2471a6d224e23b6a939c2ed55dcc9070aed71fe11b90529efbf8bd10679e",
+      "capabilities": {
+        "code_edit": 0.52,
+        "repository_reasoning": 0.48,
+        "long_horizon": 0.35,
+        "recovery": 0.32,
+        "parallel_coordination": 0.3,
+        "safety_boundary": 0.42
+      },
+      "priors": {
+        "verified_completion_probability": null,
+        "median_cost_usd": null,
+        "median_duration_ms": null,
+        "human_intervention_rate": null,
+        "sample_size": 0,
+        "known_cost_sample_size": 0,
+        "source": "seed"
+      }
+    },
+    {
+      "schema": 1,
+      "profile_id": "claude-workhorse",
+      "runtime": "claude",
+      "provider": "anthropic",
+      "model": "claude-sonnet-5",
+      "tier": "workhorse",
+      "executor_profile_digest": "sha256:4f24b53e47b53390a53cecb07bc3e60b16a40b58f983d7db441b6a02423905f7",
+      "adapter_digest": "sha256:4bcc2471a6d224e23b6a939c2ed55dcc9070aed71fe11b90529efbf8bd10679e",
+      "capabilities": {
+        "code_edit": 0.8,
+        "repository_reasoning": 0.78,
+        "long_horizon": 0.72,
+        "recovery": 0.7,
+        "parallel_coordination": 0.7,
+        "safety_boundary": 0.76
+      },
+      "priors": {
+        "verified_completion_probability": null,
+        "median_cost_usd": null,
+        "median_duration_ms": null,
+        "human_intervention_rate": null,
+        "sample_size": 0,
+        "known_cost_sample_size": 0,
+        "source": "seed"
+      }
+    },
+    {
+      "schema": 1,
+      "profile_id": "claude-frontier",
+      "runtime": "claude",
+      "provider": "anthropic",
+      "model": "claude-opus-5",
+      "tier": "frontier",
+      "executor_profile_digest": "sha256:cc65f398955c8b853fc51e7eaa8d53ab6cd036eb516f6870ad22a7df6e3de988",
+      "adapter_digest": "sha256:4bcc2471a6d224e23b6a939c2ed55dcc9070aed71fe11b90529efbf8bd10679e",
+      "capabilities": {
+        "code_edit": 0.94,
+        "repository_reasoning": 0.95,
+        "long_horizon": 0.93,
+        "recovery": 0.92,
+        "parallel_coordination": 0.9,
+        "safety_boundary": 0.94
+      },
+      "priors": {
+        "verified_completion_probability": null,
+        "median_cost_usd": null,
+        "median_duration_ms": null,
+        "human_intervention_rate": null,
+        "sample_size": 0,
+        "known_cost_sample_size": 0,
+        "source": "seed"
+      }
+    },
+    {
+      "schema": 1,
+      "profile_id": "codex-frontier",
+      "runtime": "codex",
+      "provider": "openai",
+      "model": "gpt-5.6-sol",
+      "tier": "frontier",
+      "executor_profile_digest": "sha256:4469f699fc7ea4b317c347044f3d095bf3cbb00d03f346a47acab0249a069850",
+      "adapter_digest": "sha256:4bcc2471a6d224e23b6a939c2ed55dcc9070aed71fe11b90529efbf8bd10679e",
+      "capabilities": {
+        "code_edit": 0.95,
+        "repository_reasoning": 0.94,
+        "long_horizon": 0.92,
+        "recovery": 0.91,
+        "parallel_coordination": 0.92,
+        "safety_boundary": 0.93
+      },
+      "priors": {
+        "verified_completion_probability": null,
+        "median_cost_usd": null,
+        "median_duration_ms": null,
+        "human_intervention_rate": null,
+        "sample_size": 0,
+        "known_cost_sample_size": 0,
+        "source": "seed"
+      }
+    }
+  ]
+}

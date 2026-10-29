@@ -1,0 +1,549 @@
+/**
+ * Deeplake authentication — Device Authorization Flow (RFC 8628)
+ * and org/workspace management.
+ */
+
+import { deeplakeClientHeader } from "../utils/client-header.js";
+import { hivemindInstallIDHeader } from "./install-id.js";
+import { hivemindOsHeader } from "../utils/client-os.js";
+import { openInBrowser } from "../dashboard/open.js";
+import {
+  type Credentials,
+  loadCredentials,
+  saveCredentials,
+  deleteCredentials,
+  lookupWorkspaceAlias,
+} from "./auth-creds.js";
+import { findDirConfig } from "../dir-config.js";
+
+// Re-export so existing importers keep working without churn.
+export { loadCredentials, saveCredentials, deleteCredentials };
+export type { Credentials };
+
+const DEFAULT_API_URL = "https://api.deeplake.ai";
+
+// Output goes to stderr by default (safe for hooks).
+// auth-login.js sets this to console.log for direct CLI usage.
+export let authLog = (msg: string) => process.stderr.write(msg + "\n");
+
+interface DeviceCodeResponse {
+  device_code: string;
+  user_code: string;
+  verification_uri: string;
+  verification_uri_complete: string;
+  expires_in: number;
+  interval: number;
+}
+
+interface DeviceTokenResponse {
+  access_token: string;
+  token_type: string;
+  expires_in: number;
+}
+
+// ── JWT Helpers ──────────────────────────────────────────────────────────────
+
+export function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    let payload = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    while (payload.length % 4) payload += "=";
+    return JSON.parse(Buffer.from(payload, "base64").toString("utf8"));
+  } catch {
+    return null;
+  }
+}
+
+// ── API Helpers ──────────────────────────────────────────────────────────────
+
+async function apiGet(path: string, token: string, apiUrl: string, orgId?: string, signal?: AbortSignal): Promise<unknown> {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+    ...deeplakeClientHeader(),
+    ...hivemindOsHeader(),
+  };
+  if (orgId) headers["X-Activeloop-Org-Id"] = orgId;
+  const resp = await fetch(`${apiUrl}${path}`, { headers, signal });
+  if (!resp.ok) throw new Error(`API ${resp.status}: ${await resp.text().catch(() => "")}`);
+  return resp.json();
+}
+
+async function apiPost(path: string, body: unknown, token: string, apiUrl: string, orgId?: string): Promise<unknown> {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+    ...deeplakeClientHeader(),
+    ...hivemindOsHeader(),
+  };
+  if (orgId) headers["X-Activeloop-Org-Id"] = orgId;
+  const resp = await fetch(`${apiUrl}${path}`, { method: "POST", headers, body: JSON.stringify(body) });
+  if (!resp.ok) throw new Error(`API ${resp.status}: ${await resp.text().catch(() => "")}`);
+  return resp.json();
+}
+
+async function apiDelete(path: string, token: string, apiUrl: string, orgId?: string): Promise<void> {
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${token}`,
+    "Content-Type": "application/json",
+    ...deeplakeClientHeader(),
+    ...hivemindOsHeader(),
+  };
+  if (orgId) headers["X-Activeloop-Org-Id"] = orgId;
+  const resp = await fetch(`${apiUrl}${path}`, { method: "DELETE", headers });
+  if (!resp.ok) throw new Error(`API ${resp.status}: ${await resp.text().catch(() => "")}`);
+}
+
+// ── Device Flow ──────────────────────────────────────────────────────────────
+
+// Returns `{ "X-Hivemind-Referrer": "<code>" }` for spreading into a headers
+// object, or `{}` when there is no referral. The backend parks this code against
+// the device flow and attributes the signup if a NEW user registers. Trimmed
+// here; the backend lowercases + validates against its affiliate registry.
+export function hivemindReferrerHeader(ref?: string): Record<string, string> {
+  const code = ref?.trim();
+  if (!code) return {};
+  return { "X-Hivemind-Referrer": code };
+}
+
+// Tags the signup with the product entry point. The backend reads
+// X-Deeplake-Signup-Flow at user creation (first-write-wins) and persists it on
+// users.signup_flow, driving per-flow onboarding (the CLI signup plan step) and
+// attribution. Always "hivemind" for this CLI.
+export function signupFlowHeader(): Record<string, string> {
+  return { "X-Deeplake-Signup-Flow": "hivemind" };
+}
+
+export async function requestDeviceCode(apiUrl = DEFAULT_API_URL, ref?: string): Promise<DeviceCodeResponse> {
+  const resp = await fetch(`${apiUrl}/auth/device/code`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...deeplakeClientHeader(),
+      ...hivemindOsHeader(),
+      ...hivemindInstallIDHeader(),
+      ...hivemindReferrerHeader(ref),
+      ...signupFlowHeader(),
+    },
+  });
+  if (!resp.ok) throw new Error(`Device flow unavailable: HTTP ${resp.status}`);
+  return resp.json() as Promise<DeviceCodeResponse>;
+}
+
+export async function pollForToken(deviceCode: string, apiUrl = DEFAULT_API_URL): Promise<DeviceTokenResponse | null> {
+  const resp = await fetch(`${apiUrl}/auth/device/token`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...deeplakeClientHeader(),
+      ...hivemindOsHeader(),
+      ...hivemindInstallIDHeader(),
+      // The backend resolves/creates the user on this poll (trackDeviceFlowAuth),
+      // so the flow header must ride along here too — the /auth/device/code
+      // request alone no longer parks it (signup_flow_pending was dropped).
+      ...signupFlowHeader(),
+    },
+    body: JSON.stringify({ device_code: deviceCode }),
+  });
+  if (resp.ok) return resp.json() as Promise<DeviceTokenResponse>;
+  if (resp.status === 400) {
+    const err = await resp.json().catch(() => null) as { error?: string } | null;
+    if (err?.error === "authorization_pending" || err?.error === "slow_down") return null;
+    if (err?.error === "expired_token") throw new Error("Device code expired. Try again.");
+    if (err?.error === "access_denied") throw new Error("Authorization denied.");
+  }
+  throw new Error(`Token polling failed: HTTP ${resp.status}`);
+}
+
+/**
+ * Opens the device-flow URL, via the shared helper in dashboard/open.ts.
+ *
+ * This used to build its own shell string, and got Windows wrong in the one
+ * way open.ts already documents: `start "<url>"` under cmd.exe treats its
+ * first quoted argument as the WINDOW TITLE, so it opened a new console
+ * titled with the URL and never opened a browser. openCommandFor passes the
+ * empty title (`cmd /c start "" <url>`) that makes the URL an argument.
+ *
+ * The old version also could not report that honestly: `start "<url>"`
+ * *succeeds*, so execSync did not throw, so it returned true and the CLI
+ * printed "Browser opened. Waiting for sign in..." to someone staring at a
+ * shell. openInBrowser pre-checks the helper is on PATH and reports what it
+ * actually attempted.
+ */
+function openBrowser(url: string): boolean {
+  return openInBrowser(url).attempted;
+}
+
+export async function deviceFlowLogin(apiUrl = DEFAULT_API_URL, ref?: string): Promise<{ token: string; expiresIn: number }> {
+  const code = await requestDeviceCode(apiUrl, ref);
+
+  const opened = openBrowser(code.verification_uri_complete);
+  const msg = [
+    "\nDeeplake Authentication",
+    "─".repeat(40),
+    `\nOpen this URL: ${code.verification_uri_complete}`,
+    `Or visit ${code.verification_uri} and enter code: ${code.user_code}`,
+    opened ? "\nBrowser opened. Waiting for sign in..." : "\nWaiting for sign in...",
+  ].join("\n");
+
+  // Return the message and polling function for the caller to handle
+  process.stderr.write(msg + "\n");
+
+  const interval = Math.max(code.interval || 5, 5) * 1000;
+  const deadline = Date.now() + code.expires_in * 1000;
+
+  while (Date.now() < deadline) {
+    await new Promise(r => setTimeout(r, interval));
+    const result = await pollForToken(code.device_code, apiUrl);
+    if (result) {
+      process.stderr.write("\nAuthentication successful!\n");
+      return { token: result.access_token, expiresIn: result.expires_in };
+    }
+  }
+  throw new Error("Device code expired.");
+}
+
+// ── Organization Commands ────────────────────────────────────────────────────
+
+export async function listOrgs(token: string, apiUrl = DEFAULT_API_URL): Promise<{ id: string; name: string }[]> {
+  const data = await apiGet("/organizations", token, apiUrl) as { id: string; name: string }[];
+  return Array.isArray(data) ? data : [];
+}
+
+export async function switchOrg(orgId: string, orgName?: string): Promise<void> {
+  const creds = loadCredentials();
+  if (!creds) throw new Error("Not logged in. Run deeplake login first.");
+  // Token in creds is org-bound (org_id claim baked in at mint time at
+  // /users/me/tokens). Re-mint against the destination org so the claim
+  // matches creds.orgId — otherwise anything that trusts the token claim
+  // instead of the X-Activeloop-Org-Id header resolves to the old org.
+  // Name suffix uses Date.now() (not the date) because Deeplake's
+  // /users/me/tokens rejects duplicate (user_id, name) with a misleading
+  // 500 — same hazard the heal path documents; two switches the same day
+  // would otherwise fail.
+  const apiUrl = creds.apiUrl ?? DEFAULT_API_URL;
+  const tokenName = `deeplake-plugin-switch-${Date.now()}`;
+  const tokenData = await apiPost("/users/me/tokens", {
+    name: tokenName,
+    duration: 365 * 24 * 3600,
+    organization_id: orgId,
+  }, creds.token, apiUrl) as { token: { token: string } };
+  saveCredentials({ ...creds, orgId, orgName, token: tokenData.token.token });
+}
+
+// Detect and repair the legacy regression where `org switch` only rewrote
+// orgId without re-minting the org-bound API token. Returns updated creds
+// when a heal happens, the input creds when nothing to do, and the input
+// creds (after logging) when the mint fails — never throws, never blocks
+// session start.
+//
+// The same legacy regression that drifted the token also left `orgName` and
+// `workspaceId` pointing at the previous org. Re-minting the token realigns
+// every query (it carries the X-Activeloop-Org-Id header + an org-bound JWT)
+// to creds.orgId, but two consumers read the OTHER fields and would still
+// resolve to the stale org:
+//   - billingUrl() (src/deeplake-api.ts) builds the "top up" link from
+//     orgName → the user pays into the wrong org and the low-balance banner,
+//     driven by creds.orgId's real balance, never clears.
+//   - the SessionStart banner prints `org: ${orgName}` → "the shell said the
+//     wrong org".
+// So when we heal the token we also realign orgName and validate workspaceId
+// against creds.orgId. The realign is best-effort and gated behind the token
+// drift trigger: it costs one extra GET (two when a non-default workspace is
+// set) only on the rare session where drift is actually detected, and a
+// failure here must never undo the token heal.
+export async function healDriftedOrgToken(
+  creds: Credentials,
+  log: (msg: string) => void = () => {},
+): Promise<Credentials> {
+  if (!creds.token || !creds.orgId) return creds;
+  const payload = decodeJwtPayload(creds.token);
+  const claimOrg = payload && typeof payload.org_id === "string" ? payload.org_id : undefined;
+  if (!claimOrg || claimOrg === creds.orgId) return creds;
+  log(`token org drift detected: jwt.org_id=${claimOrg} creds.orgId=${creds.orgId} — re-minting`);
+  try {
+    const apiUrl = creds.apiUrl ?? DEFAULT_API_URL;
+    // Per-mint unique name. Deeplake rejects duplicate (user_id, name) with
+    // a 500 ("token creation failed"), and the heal runs on EVERY session
+    // start across multiple agents — a date-only suffix would collide as
+    // soon as the second agent heals on the same day. Date.now() suffices:
+    // resolution is ms, only one heal per session, single process per agent.
+    const tokenName = `deeplake-plugin-heal-${Date.now()}`;
+    const tokenData = await apiPost("/users/me/tokens", {
+      name: tokenName,
+      duration: 365 * 24 * 3600,
+      organization_id: creds.orgId,
+    }, creds.token, apiUrl) as { token: { token: string } };
+    const healed: Credentials = { ...creds, token: tokenData.token.token };
+
+    // Realign orgName + workspaceId to creds.orgId so billingUrl() and the
+    // SessionStart banner stop pointing at the stale org. Two INDEPENDENT
+    // best-effort blocks: a failed orgName lookup must not also skip the
+    // workspace repair (and vice versa) — otherwise one transient 5xx on the
+    // single session that heals the token leaves the OTHER field stale, and
+    // the heal trigger (jwt.org_id !== creds.orgId) won't re-fire next session
+    // to retry it. Both swallow errors so the token heal above still persists.
+    // Each uses the freshly-minted token, which is bound to creds.orgId.
+    try {
+      const orgs = await listOrgs(healed.token, apiUrl);
+      const matchedOrg = orgs.find(o => o.id === creds.orgId);
+      if (matchedOrg && matchedOrg.name !== creds.orgName) {
+        log(`orgName realigned: ${creds.orgName ?? "(unset)"} -> ${matchedOrg.name}`);
+        healed.orgName = matchedOrg.name;
+      }
+    } catch (e) {
+      log(`orgName realign skipped: ${(e as Error).message}`);
+    }
+
+    // "default" is the per-org sentinel the backend resolves itself, so it
+    // needs no validation. Only a concrete workspace id/name can belong to
+    // the previous org and must be re-resolved (or reset) against the new one.
+    const currentWs = creds.workspaceId ?? "default";
+    if (currentWs !== "default") {
+      try {
+        const wsList = await listWorkspaces(healed.token, apiUrl, creds.orgId);
+        const wsMatch = findWorkspace(wsList, currentWs);
+        if (!wsMatch) {
+          log(`workspace '${currentWs}' not in org ${creds.orgId} — reset to default`);
+          healed.workspaceId = "default";
+        } else if (wsMatch.id !== currentWs) {
+          log(`workspace '${currentWs}' resolved to id '${wsMatch.id}'`);
+          healed.workspaceId = wsMatch.id;
+        }
+      } catch (e) {
+        log(`workspace realign skipped: ${(e as Error).message}`);
+      }
+    }
+
+    saveCredentials(healed);
+    log(`token re-minted for org=${creds.orgId}`);
+    return healed;
+  } catch (err) {
+    log(`token re-mint failed (continuing with stale token): ${(err as Error).message}`);
+    return creds;
+  }
+}
+
+// ── Workspace Commands ───────────────────────────────────────────────────────
+
+// An exact id always wins over a name: workspace A named "build" must not
+// shadow workspace B whose id is "build".
+export function findWorkspace(
+  wsList: { id: string; name: string }[],
+  ref: string,
+): { id: string; name: string } | undefined {
+  const lc = ref.toLowerCase();
+  return wsList.find(w => w.id === ref) ?? wsList.find(w => w.name && w.name.toLowerCase() === lc);
+}
+
+export interface WorkspaceOverrideResult {
+  creds: Credentials;
+  // User-facing line when the override names a workspace the org doesn't
+  // have. Every write would 403 and capture would silently switch itself
+  // off, so SessionStart must say it out loud.
+  warning?: string;
+}
+
+// SessionStart must never hang on this lookup; the cached alias (if any)
+// keeps working when the request is cut off.
+const WORKSPACE_LOOKUP_TIMEOUT_MS = 5_000;
+
+// The warning below lands in the model's context. A `.hivemind` is committed
+// content from a cloned repo and workspace names come from the API, so
+// neither may carry newlines, control characters, or unbounded text into it.
+export function sanitizeForContext(value: string, max = 64): string {
+  const flat = value.replace(/[\p{Cc}\p{Cf}\s]+/gu, " ").trim();
+  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
+}
+
+// `HIVEMIND_WORKSPACE_ID` (and a `.hivemind` workspaceId) are documented as
+// workspace NAMES but the API only accepts ids in `/workspaces/{id}/...` — a
+// name gets a 403 on every query. Resolve the reference against the EFFECTIVE
+// org (env > .hivemind > login, same precedence as resolveDirConfig) and
+// persist it in creds.workspaceAliases so every later (synchronous) hook maps
+// it through loadConfig() without a round-trip. Runs every session, so a
+// rename or deletion is picked up on the next start; the cache only carries
+// the answer across hooks and network failures. Never throws.
+export async function resolveWorkspaceOverride(
+  creds: Credentials,
+  log: (msg: string) => void = () => {},
+  cwd: string = process.cwd(),
+): Promise<WorkspaceOverrideResult> {
+  const found = findDirConfig(cwd);
+  const ref = process.env.HIVEMIND_WORKSPACE_ID ?? found?.raw.workspaceId;
+  const token = process.env.HIVEMIND_TOKEN ?? creds.token;
+  if (!ref || ref === "default" || !token) return { creds };
+  const orgId = process.env.HIVEMIND_ORG_ID ?? found?.raw.orgId ?? creds.orgId;
+  const apiUrl = process.env.HIVEMIND_API_URL ?? creds.apiUrl ?? DEFAULT_API_URL;
+  const cached = lookupWorkspaceAlias(creds.workspaceAliases, orgId, ref);
+  try {
+    const wsList = await listWorkspaces(token, apiUrl, orgId, AbortSignal.timeout(WORKSPACE_LOOKUP_TIMEOUT_MS));
+    const match = findWorkspace(wsList, ref);
+    if (!match) {
+      const names = wsList.map(w => sanitizeForContext(w.name || w.id)).join(", ") || "(none)";
+      const source = process.env.HIVEMIND_WORKSPACE_ID ? "HIVEMIND_WORKSPACE_ID" : "the nearest .hivemind file";
+      log(`workspace '${ref}' not found in org ${orgId} (from ${source}${found ? `: ${found.path}` : ""})`);
+      return {
+        creds: cached ? forgetWorkspaceAlias(creds, orgId, ref) : creds,
+        warning: `Workspace '${sanitizeForContext(ref)}' (from ${source}) does not match any workspace in this org (available: ${names}); ` +
+          `capture and memory search will fail until it is fixed. Prefer \`hivemind workspace switch <name>\` over the env var.`,
+      };
+    }
+    if (match.id !== ref) log(`workspace '${ref}' resolved to id '${match.id}'`);
+    return { creds: cached === match.id ? creds : rememberWorkspaceAlias(creds, orgId, ref, match.id) };
+  } catch (e) {
+    log(`workspace resolve skipped (${(e as Error).message}); ${cached ? `using cached id '${cached}'` : "no cached id"}`);
+    return { creds };
+  }
+}
+
+// Re-read credentials right before writing: many sessions start in parallel
+// and one may have just healed the token. Only the alias map is merged in,
+// so a stale in-memory snapshot can never roll back another session's write.
+function rememberWorkspaceAlias(creds: Credentials, orgId: string, ref: string, id: string): Credentials {
+  const latest = loadCredentials() ?? creds;
+  const aliases = { ...latest.workspaceAliases, [orgId]: { ...latest.workspaceAliases?.[orgId], [ref.toLowerCase()]: id } };
+  saveCredentials({ ...latest, workspaceAliases: aliases });
+  return { ...creds, workspaceAliases: aliases };
+}
+
+function forgetWorkspaceAlias(creds: Credentials, orgId: string, ref: string): Credentials {
+  const latest = loadCredentials() ?? creds;
+  const org = { ...latest.workspaceAliases?.[orgId] };
+  delete org[ref.toLowerCase()];
+  const aliases = { ...latest.workspaceAliases, [orgId]: org };
+  saveCredentials({ ...latest, workspaceAliases: aliases });
+  return { ...creds, workspaceAliases: aliases };
+}
+
+export async function listWorkspaces(token: string, apiUrl = DEFAULT_API_URL, orgId?: string, signal?: AbortSignal): Promise<{ id: string; name: string }[]> {
+  const raw = await apiGet("/workspaces", token, apiUrl, orgId, signal) as { data?: { id: string; name: string }[] } | { id: string; name: string }[];
+  const data = (raw as { data?: { id: string; name: string }[] }).data ?? (raw as { id: string; name: string }[]);
+  return Array.isArray(data) ? data : [];
+}
+
+export async function switchWorkspace(workspaceId: string): Promise<void> {
+  const creds = loadCredentials();
+  if (!creds) throw new Error("Not logged in. Run deeplake login first.");
+  saveCredentials({ ...creds, workspaceId });
+}
+
+// ── Member Commands ──────────────────────────────────────────────────────────
+
+export async function inviteMember(
+  username: string,
+  accessMode: "ADMIN" | "WRITE" | "READ",
+  token: string,
+  orgId: string,
+  apiUrl = DEFAULT_API_URL,
+): Promise<void> {
+  await apiPost(`/organizations/${orgId}/members/invite`, { username, access_mode: accessMode }, token, apiUrl, orgId);
+}
+
+export async function listMembers(
+  token: string,
+  orgId: string,
+  apiUrl = DEFAULT_API_URL,
+): Promise<{ user_id: string; name: string; email: string; role: string }[]> {
+  const data = await apiGet(`/organizations/${orgId}/members`, token, apiUrl, orgId) as { members: { user_id: string; name: string; email: string; role: string }[] };
+  return data.members ?? [];
+}
+
+export async function removeMember(
+  userId: string,
+  token: string,
+  orgId: string,
+  apiUrl = DEFAULT_API_URL,
+): Promise<void> {
+  await apiDelete(`/organizations/${orgId}/members/${userId}`, token, apiUrl, orgId);
+}
+
+// ── Full Login Flow ──────────────────────────────────────────────────────────
+
+// Hydrate Credentials from a token: fetch /me, pick an org, optionally mint a
+// long-lived API token, and persist. Shared by the device flow (which passes
+// a short-lived Auth0 token and needs skipTokenMint=false) and the env-var /
+// --token paths (which receive a long-lived token already and pass
+// skipTokenMint=true). Centralizing here means there is exactly one place
+// that writes ~/.deeplake/credentials.json from a token.
+export async function saveCredentialsFromToken(
+  token: string,
+  apiUrl: string,
+  opts: { skipTokenMint?: boolean } = {},
+): Promise<Credentials> {
+  const user = await apiGet("/me", token, apiUrl) as { id: string; name: string; email?: string };
+  const userName = user.name || (user.email ? user.email.split("@")[0] : "unknown");
+  process.stderr.write(`\nLogged in as: ${userName}\n`);
+
+  const orgs = await listOrgs(token, apiUrl);
+  if (orgs.length === 0) throw new Error("No organizations found for this account.");
+
+  // Pick the org the token is bound to, in priority order:
+  //   1. HIVEMIND_ORG_ID env var override (explicit user choice).
+  //   2. `org_id` claim baked into the API-token JWT (skipTokenMint=true
+  //      path: the token was minted server-side bound to this org, so
+  //      using anything else would route hooks at the wrong org).
+  //   3. Fall back to orgs[0] for the device-flow path (will be re-bound
+  //      by the upcoming /users/me/tokens mint anyway).
+  // Without these layers a multi-org user pasting an API key would
+  // silently bind to the wrong org and every later capture would land
+  // there. Codex review surfaced this on PR #190.
+  const envOrgId = process.env.HIVEMIND_ORG_ID;
+  let preferredOrgId: string | undefined = envOrgId;
+  if (!preferredOrgId && opts.skipTokenMint) {
+    const claims = decodeJwtPayload(token);
+    const claimOrg = claims && typeof claims.org_id === "string" ? claims.org_id : undefined;
+    if (claimOrg) preferredOrgId = claimOrg;
+  }
+  let orgId: string;
+  let orgName: string;
+  const matched = preferredOrgId ? orgs.find(o => o.id === preferredOrgId) : undefined;
+  if (matched) {
+    orgId = matched.id;
+    orgName = matched.name;
+    process.stderr.write(`Organization: ${orgName}\n`);
+  } else if (orgs.length === 1) {
+    orgId = orgs[0].id;
+    orgName = orgs[0].name;
+    process.stderr.write(`Organization: ${orgName}\n`);
+  } else {
+    process.stderr.write("\nOrganizations:\n");
+    orgs.forEach((org, i) => process.stderr.write(`  ${i + 1}. ${org.name}\n`));
+    orgId = orgs[0].id;
+    orgName = orgs[0].name;
+    if (opts.skipTokenMint) {
+      process.stderr.write(`\nUsing: ${orgName} (set HIVEMIND_ORG_ID to override)\n`);
+    } else {
+      process.stderr.write(`\nUsing: ${orgName}\n`);
+    }
+  }
+
+  let apiToken = token;
+  if (!opts.skipTokenMint) {
+    const tokenName = `deeplake-plugin-${new Date().toISOString().slice(0, 10)}`;
+    const tokenData = await apiPost("/users/me/tokens", {
+      name: tokenName,
+      duration: 365 * 24 * 3600,
+      organization_id: orgId,
+    }, token, apiUrl) as { token: { token: string } };
+    apiToken = tokenData.token.token;
+  }
+
+  const creds: Credentials = {
+    token: apiToken,
+    orgId,
+    orgName,
+    userName,
+    workspaceId: "default",
+    apiUrl,
+    savedAt: new Date().toISOString(),
+  };
+  saveCredentials(creds);
+  return creds;
+}
+
+export async function login(apiUrl = DEFAULT_API_URL, ref?: string): Promise<Credentials> {
+  const { token: authToken } = await deviceFlowLogin(apiUrl, ref);
+  return saveCredentialsFromToken(authToken, apiUrl, { skipTokenMint: false });
+}

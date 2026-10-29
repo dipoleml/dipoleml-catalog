@@ -1,0 +1,53 @@
+# ---------------------------------------------------------------------------
+# Everything per release tag (see sources/README.md and CLAUDE.md's "Committed
+# vs git-ignored"): a plugin install fetches sources/<tag>/ and generates
+# knowledge/<tag>/ (plus knowledge/versions.json) entirely on the user's own
+# machine now - nothing per-release is committed any more, not even a rolling
+# window of it. Root-anchored so these never match inside tools/ (the metamodel-
+# gen test project keeps its own small, committed XMI fixture there).
+# ---------------------------------------------------------------------------
+/sources/*/
+/knowledge/*/
+/knowledge/versions.json
+
+# Belt and braces: no OMG PDF may be committed from anywhere in the tree, even
+# somewhere the per-tag rule above would not otherwise reach.
+*.pdf
+
+# ---------------------------------------------------------------------------
+# .NET (tools/metamodel-gen)
+# ---------------------------------------------------------------------------
+bin/
+obj/
+*.user
+*.suo
+.vs/
+
+# NOTE: the committed NativeAOT hook binaries live under hooks/native/, not hooks/bin/ - deliberately,
+# so they are never caught by the blanket bin/ ignore above (git cannot cleanly re-include a directory
+# once a parent-matching pattern like "bin/" has excluded it). See tools/hypha-cli/README.md and
+# .github/workflows/hook-binaries.yml.
+
+# ---------------------------------------------------------------------------
+# Python (tools/spec-extract)
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+*.egg-info/
+build/
+dist/
+
+# ---------------------------------------------------------------------------
+# Editors / OS
+# ---------------------------------------------------------------------------
+.idea/
+.DS_Store
+Thumbs.db

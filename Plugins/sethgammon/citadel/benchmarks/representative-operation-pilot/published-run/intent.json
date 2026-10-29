@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "freeze_id": "sha256:af6a158d6598e2fbb77931aa6fd3b89d6727b862736cd75a6540405d038942c9",
+  "schedule_cell": {
+    "order": 0,
+    "scenario_id": "refactor-dedupe-types",
+    "policy_id": "citadel-risk-profile-local",
+    "repetition": 1
+  },
+  "previous_cell_digest": null,
+  "written_at": "2026-08-01T05:13:04.850Z"
+}

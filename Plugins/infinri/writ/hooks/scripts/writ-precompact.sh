@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+# Writ PreCompact hook -- fires before context window compaction
+#
+# Drops the now-stale loaded_rules full objects from the session cache,
+# keeping loaded_rule_ids and loaded_rule_ids_by_phase for feedback/coverage
+# and exclusion logic.
+#
+# NOTE: the session cache is a separate /tmp file. It is
+# not part of the compacted context, so this does not shrink what the
+# summarizer compresses; it is boundary hygiene (the conversation those
+# objects annotated is being summarized away). A PreCompact hook also cannot
+# steer compaction: its stdout is not injected into the summary and it has no
+# additionalContext. Neither does PostCompact: CC's validator rejects a
+# PostCompact hookSpecificOutput reply outright ("(root): Invalid input",
+# observed 2026-08-14) and its bare stdout goes to the CC debug log like any
+# other non-special event. Nothing emitted at either compaction boundary reaches
+# the model; writ-postcompact.sh queues instead (post_compact_pending) and
+# writ-rag-inject.sh delivers on the next UserPromptSubmit.
+#
+# Hook type: PreCompact
+# Exit: always 0 (cannot block compaction)
+
+set -euo pipefail
+
+HOOK_DIR="$(cd "$(dirname "$0")" && pwd)"
+WRIT_DIR="$(cd "$HOOK_DIR/../.." && pwd)"
+SESSION_HELPER="$WRIT_DIR/bin/lib/writ-session.py"
+source "$WRIT_DIR/bin/lib/common.sh"
+
+
+# Session ID: from the stdin envelope (agent_id or session_id) and nowhere else.
+# load_hook_env no longer synthesizes one from PPID or md5(cwd:user); it leaves the
+# variable empty, and everything this hook does is keyed on it.
+load_hook_env
+SESSION_ID="$HOOK_SESSION_ID"
+
+# Every line below writes or reads under $SESSION_ID: clear-rules-for-compaction MUTATES
+# the cache, and _cache_path() has no empty-id guard, so it would create a cache named
+# for the empty string; the log redirect would open "/tmp/writ-precompact-.log". Compaction
+# is not blockable from here in any case (PreCompact stdout reaches nothing), so the
+# honest response to an unidentifiable session is to record it and do nothing.
+if [ -z "$SESSION_ID" ]; then
+    writ_critical writ-precompact "no session_id in hook payload; stale rule objects are left in place"
+    exit 0
+fi
+
+# Clear full rule objects, keep IDs
+_writ_session clear-rules-for-compaction "$SESSION_ID" \
+    >> "/tmp/writ-precompact-${SESSION_ID}.log" 2>/dev/null || true
+
+# Write the session handoff. THIS is the moment to do it: the context that holds the
+# session's state is about to be summarized away, and this hook already runs here and
+# already knows the session id. Best effort by design, because a handoff that fails must
+# never block a compaction the user asked for; the path is delivered on the next
+# UserPromptSubmit by writ-rag-inject.sh, since nothing emitted at this boundary reaches
+# the model (see the header of this file).
+python3 -c "
+import sys
+sys.path.insert(0, '$WRIT_DIR')
+from writ.session.handoff import write_handoff
+print(write_handoff('$SESSION_ID', '${WRIT_ROOT:-$WRIT_DIR}'))
+" >> "/tmp/writ-precompact-${SESSION_ID}.log" 2>&1 || true
+
+# Mode for hook_execution telemetry (audit #5).
+MODE=$(_writ_session "mode get" "$SESSION_ID" 2>/dev/null || echo "")
+MODE=$(echo "$MODE" | tr -d '[:space:]')
+exit 0

@@ -1,0 +1,88 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.josiahsiegel.python-master",
+  "type": "plugin",
+  "name": "Python Master",
+  "slug": "python-master",
+  "vendor": "josiahsiegel",
+  "description": "Comprehensive Python 3.13+ expertise covering modern Python, async, types, performance, and cloud deployment. PROACTIVELY activate for: (1) any Python task, (2) 3.13+ features (free-threading, JIT), (3) asyncio and concurrency, (4) type hints with mypy/pyright, (5) package management (uv/pip/poetry), (6) project layout, (7) FastAPI, (8) Pydantic, (9) pytest, (10) Cloudflare Workers/Containers Python, (11) GitHub Actions workflows, (12) profiling, (13) OWASP security, (14) Ruff linting. Provides:",
+  "version": "2.3.6",
+  "homepage": "https://github.com/JosiahSiegel/claude-plugin-marketplace",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "josiahsiegel",
+    "brandName": "josiahsiegel",
+    "source": "https://github.com/JosiahSiegel.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:13:33Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "JosiahSiegel/claude-plugin-marketplace",
+    "url": "https://github.com/JosiahSiegel/claude-plugin-marketplace",
+    "commit": "5a1b1123b9e50aa9a66a61005ca6fe012cc7442d",
+    "path": "plugins/python-master",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 59,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:49:31Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

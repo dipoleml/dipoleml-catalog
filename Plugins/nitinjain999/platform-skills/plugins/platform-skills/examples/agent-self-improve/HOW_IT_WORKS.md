@@ -1,0 +1,396 @@
+# How Agent Self-Improvement Works
+
+This document explains what the self-improve skill does, why it exists, and how to use each part of it.
+
+---
+
+## The Problem It Solves
+
+AI agents forget between sessions. Every time you start a new conversation, the agent has no memory of the last one. This means:
+
+- The same mistake gets made twice (or ten times)
+- A useful shortcut you discovered in one session is gone in the next
+- When a long task is interrupted mid-way, the agent cannot safely resume without manual re-briefing
+- Proactive actions happen on gut feel rather than a consistent decision framework
+
+The self-improve skill gives the agent a persistent memory layer and a set of behavioral protocols that survive session boundaries, context compaction, and interruptions.
+
+---
+
+## Two Patterns in One Skill
+
+The skill combines two complementary patterns:
+
+| Pattern | What it does |
+|---|---|
+| **Self-Improving Agent** | Captures mistakes, learnings, and feature requests in `.learnings/`. Detects recurring patterns. Promotes stable lessons to project memory. |
+| **Proactive Agent** | Gives the agent a consistent framework for when and how to act without being asked — WAL protocol, working buffer, decision scoring, heartbeat, and reverse prompting. |
+
+You can use either pattern in isolation, but they work best together.
+
+---
+
+## Directory Structure
+
+After running `/platform-skills:self-improve init`, your project gains:
+
+```
+.learnings/
+  LEARNINGS.md          # Positive learnings — what worked, useful techniques
+  ERRORS.md             # Mistakes and wrong assumptions — what broke and why
+  FEATURE_REQUESTS.md   # Recurring needs the current tool set couldn't meet
+  .pending-errors.log   # Scratch file written by the PostToolUseFailure hook (gitignored)
+memory/
+  working-buffer.md     # Live task state and WAL log
+  .session-count        # One appended timestamp per session end (gitignored)
+  .session-reminder.<n> # Marker claiming the last review reminder (gitignored)
+```
+
+### `.session-count`
+
+Every session end appends one UTC timestamp line. The count is the number of those lines, and the review reminder fires once per five sessions.
+
+The reminder claims the threshold it crossed rather than testing whether the total is a multiple of five. Appending is atomic but append-then-read is not, so from a baseline of 4 two sessions ending together can both read 6 and a `% 5` test would emit nothing, dropping the session-5 reminder. Claiming is an exclusive file create, so exactly one of them reminds.
+
+It is append-only on purpose. It used to hold a single integer rewritten as read, add one, write, so two sessions ending at the same moment lost an increment. `>>` is `O_APPEND`, which the kernel makes atomic for a write this small, so appending needs no lock.
+
+If your file still holds a bare integer from the old format, nothing needs to be done. Line 1 is read as a baseline and the count carries on from there, so the file looks like this after one more session:
+
+```
+1704
+2026-09-26T16:21:51Z
+```
+
+That is also how you set the count by hand: write a bare integer to the file and the next session end continues from it. `echo 0 > ~/.claude/memory/.session-count` restarts the cadence.
+
+Add to `.gitignore` for personal/local notes:
+```
+.learnings/
+memory/working-buffer.md
+memory/.session-*
+```
+
+Commit the directories if you want the team to share and build on them.
+
+---
+
+## Entry Lifecycle
+
+Every entry in `.learnings/` follows the same structure and lifecycle:
+
+```
+pending → resolved → promoted
+              ↘ superseded | revoked | discarded
+```
+
+```markdown
+### ERR-20260520-001
+**Status**: pending
+**Context**: Applying a Terraform plan that replaced an RDS instance
+**Content**: Assumed changing db_subnet_group_name was non-destructive. It forces replacement.
+**Action**: Added lifecycle { prevent_destroy = true }. Promote to references/terraform.md.
+**Source**: observed
+**Scope**: project:platform-infra
+**Paths**: infrastructure/**/*.tf
+**Verified**: 2026-05-20
+```
+
+| Stage | Meaning | Who acts |
+|---|---|---|
+| `pending` | Logged, not yet addressed | Agent logs automatically |
+| `resolved` | Fix applied — action recorded | Agent sets this in the same session if the fix was applied; otherwise user confirms |
+| `promoted` | Written to project memory | Agent after running `/platform-skills:self-improve promote` |
+| `superseded` | Replaced by a newer entry | Agent, when logging the replacement |
+| `revoked` | Wrong; must stop influencing behaviour | `/platform-skills:self-improve revoke` |
+| `discarded` | Not worth keeping | You, after `review` flags it |
+
+**Key rule:** If the agent logs an error and applies the fix in the same session, it sets `Status: resolved` immediately — no manual step needed.
+
+---
+
+## The Modes
+
+### `init global` / `init local` — Bootstrap the workspace
+
+Two explicit subcommands — no interactive prompt:
+
+```text
+/platform-skills:self-improve init global
+```
+
+Creates `~/.claude/.learnings/` and `~/.claude/memory/`. Learnings persist across **all projects** on your machine. Recommended for individuals. Offers to wire all four hooks in `~/.claude/settings.json` and create `~/.claude/CLAUDE.md` from the template.
+
+```text
+/platform-skills:self-improve init local
+```
+
+Creates `.learnings/` and `memory/` in the **current project directory**. Learnings live in the repo and can be committed and shared with the team. Asks whether to gitignore or commit. Offers to add the `PostToolUseFailure` hook to `.claude/settings.json`.
+
+```text
+/platform-skills:self-improve init
+```
+
+No argument — asks you to choose global or local, then proceeds as above.
+
+Both subcommands are idempotent: if the target directory already exists, they report the current state and stop without overwriting.
+
+---
+
+### `log` — Capture a learning, error, or feature request
+
+```text
+/platform-skills:self-improve log ERR
+We assumed the EKS node group could be renamed in-place. It cannot — rename forces replacement of all nodes.
+```
+
+What the agent does:
+
+1. Classifies the entry (`LRN`, `ERR`, or `FEAT`)
+2. Checks `.learnings/` for an existing entry with the same context — updates rather than duplicating
+3. Assigns the next sequential ID for today: `ERR-20260520-001`
+4. Writes the four-field entry and sets `Status: resolved` if the fix was applied
+5. Confirms: "Logged as `ERR-20260520-001` in `.learnings/ERRORS.md`"
+
+---
+
+### `resume` — Resume after an interruption
+
+```text
+/platform-skills:self-improve resume
+```
+
+Use this when a session was interrupted (context compaction, browser close, long pause). The agent:
+
+1. Reads `memory/working-buffer.md`
+2. Identifies the last completed step
+3. Verifies the actual state of affected resources before proceeding:
+   - Files: checks they exist and have expected content
+   - Kubernetes: `kubectl get <resource> -n <namespace>`
+   - Terraform: `terraform state list`
+   - Git: `git log --oneline -5`
+4. Resumes from the first incomplete step — does not re-run committed steps
+5. Resolves any WAL entries still in `PENDING` state
+
+**Example scenario:**
+
+```
+Session 1: You ask the agent to apply a Terraform plan across three modules.
+           The agent completes module 1 and 2, then your laptop sleeps.
+
+Session 2: /platform-skills:self-improve resume
+           Agent reads the buffer: "Step 3: [ ] Apply module 3"
+           Agent runs: terraform state list → confirms module 1 and 2 applied
+           Agent applies module 3 and updates the buffer to [x]
+```
+
+---
+
+### `review` — Surface recurring patterns
+
+```text
+/platform-skills:self-improve review
+```
+
+The agent reads all three `.learnings/` files, groups entries by shared root-cause keywords, and reports:
+
+- **Promotion candidates** — contexts that appear three or more times
+- **Stale entries** — `pending` entries older than 7 days
+- **Actionable FEATs** — feature requests that an existing platform-skills domain could now address
+
+Example output:
+
+```
+PROMOTION CANDIDATE — ERR: "resource limits missing"
+Entries: ERR-20260518-001, ERR-20260519-002, ERR-20260520-001
+Suggested target: CLAUDE.md → "Always add resource requests and limits to every container spec"
+
+Stale pending entries: 1
+  ERR-20260510-001 — "helm upgrade failed on rollback" — 10 days old, still pending
+
+Learnings: 8 total, 3 pending, 5 resolved
+Errors: 5 total, 1 pending, 4 resolved
+Feature requests: 2 total, 2 pending
+Promotion candidates: 1
+```
+
+---
+
+### `recall` — Look up what was learned
+
+```text
+/platform-skills:self-improve recall karpenter pod identity
+```
+
+```text
+recall: 2 match(es) for "karpenter pod identity" (1 excluded: 1 revoked; --all shows them)
+[7] ERR-20260910-001 resolved | source=observed verified=2026-09-10 | scope=project:platform-infra
+    Pod Identity association missing for the Karpenter controller
+[1] LRN-20260601-002 resolved | source=inferred verified=2026-06-01 | scope=global STALE | verify before use
+    Prefer Spot diversity across 15 instance types
+```
+
+Recall only reads. It hides lessons that were revoked, superseded, discarded or expired, and lessons from other repositories, and tells you how many it hid. The agent treats flagged results as leads to verify, not as facts.
+
+---
+
+### `promote` — Write a lesson to project memory
+
+```text
+/platform-skills:self-improve promote ERR-20260520-001
+```
+
+The agent:
+
+1. Checks the evidence. Only a `resolved` entry with `Source`, `Scope` and `Verified`, not stale or expired, can be promoted. An `inferred` lesson needs your confirmation first
+2. Picks a topic (`terraform`) and drafts one imperative line:
+   - ERR → negative rule: `"Never change db_subnet_group_name without a replace plan and snapshot"`
+   - LRN → positive rule: `"Run helm diff upgrade before helm upgrade to preview rendered changes"`
+3. Shows you a preview diff. A project lesson with `Paths: infrastructure/**/*.tf` becomes `.claude/rules/terraform.md` with that `paths:` frontmatter, so it only loads when Claude touches Terraform files. A global lesson goes to `~/.claude/rules/terraform.md`
+4. After you confirm, writes the rule with a `<!-- self-improve:ERR-20260520-001 -->` marker and sets the entry to `promoted`
+5. Commits repository targets with: `docs(memory): promote ERR-20260520-001 — never rename EKS node group in-place`
+
+Changed your mind? `learnings.sh unpromote ERR-20260520-001` removes exactly that rule.
+
+---
+
+## WAL Protocol — Safe Destructive Operations
+
+Before any hard-to-reverse operation, the agent writes a WAL entry to `memory/working-buffer.md`:
+
+```markdown
+## WAL Entry — 2026-05-20 14:32
+**Operation**: terraform apply — destroys and recreates payments-rds RDS instance
+**Affected resources**: aws_db_instance.payments (us-east-1)
+**Blast radius**: payments-api will lose database connectivity during replacement (~8 min)
+**Rollback**: Restore from snapshot rds:payments-rds-2026-05-20 using aws rds restore-db-instance-from-db-snapshot
+**Status**: PENDING
+```
+
+After the operation succeeds, it updates `Status: COMMITTED`. If aborted, `Status: ROLLED_BACK`.
+
+**Operations that always get a WAL entry:**
+- Deleting or overwriting files
+- `git reset --hard`, `git push --force`
+- `terraform destroy` or `terraform apply`
+- Dropping database tables or truncating data
+- Modifying shared infrastructure
+
+The WAL entry survives context compaction. If the session is interrupted between writing the entry and completing the operation, `resume` mode reads it and verifies actual resource state before proceeding.
+
+---
+
+## VFM Scoring — When to Act Without Being Asked
+
+Before taking any unsolicited proactive action, the agent scores the action:
+
+| Dimension | Weight | Example score |
+|---|---|---|
+| High Frequency (will this recur?) | ×3 | 8 |
+| Failure Reduction (prevents real breakage?) | ×3 | 9 |
+| User Burden (saves meaningful effort?) | ×2 | 7 |
+| Self Cost (low effort for the agent?) | ×2 | 9 |
+
+**Threshold:** score ≥ 50 → act proactively. Score < 50 → surface as a note and defer.
+
+Example — proactively adding missing resource limits to a Deployment:
+```
+High Frequency:    8 × 3 = 24  (missing limits is a repeat pattern)
+Failure Reduction: 9 × 3 = 27  (OOM kills cause production incidents)
+User Burden:       7 × 2 = 14  (user would need to find and fix manually)
+Self Cost:         9 × 2 = 18  (trivial three-line edit)
+Total: 83 → act
+```
+
+To raise the threshold for your project, add to `CLAUDE.md` or `AGENTS.md`:
+```
+VFM_THRESHOLD=70
+```
+
+---
+
+## The Growth Loop
+
+Each session follows a consistent cycle that compounds over time:
+
+```
+Session start
+  → Read working-buffer.md and .learnings/ to seed context
+  → If buffer shows incomplete task: run /platform-skills:self-improve resume
+
+During work
+  → Log errors to ERRORS.md as they occur (Status: resolved immediately if fix applied)
+  → Log useful techniques to LEARNINGS.md
+  → Write WAL entry before any destructive operation
+  → Update working-buffer.md after each significant step
+
+Session end
+  → Update buffer with final state
+  → Check for recurring patterns (three+ same-context entries → promote)
+  → Leave buffer intact if task is incomplete
+
+Next session start
+  → Buffer and learnings shorten ramp-up to < 60 seconds
+```
+
+---
+
+## Automatic Error Capture via Hook
+
+With the `PostToolUseFailure` hook configured, failed tool calls are appended to `$LEARNINGS_BASE/.learnings/.pending-errors.log`.
+
+`PostToolUse` is the wrong event for this: it fires only when a tool **succeeds**. Failures go to `PostToolUseFailure`, whose payload carries `tool_name`, `tool_input`, `tool_use_id`, `error` and `is_interrupt` as JSON on stdin.
+
+```json
+{
+  "hooks": {
+    "PostToolUseFailure": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash ~/.claude/scripts/self-improve-hook.sh tool-failure",
+            "async": true
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+The same block works for global (`~/.claude/settings.json`) and project-local (`.claude/settings.json`) setup. The script resolves the workspace itself on each invocation — `~/.claude/.learnings` wins, then `$CLAUDE_PROJECT_DIR/.learnings` — so the log always lands next to the `.learnings` directory that is actually in use, and there is no relative-path trap to fall into.
+
+Two things the hook deliberately does not do:
+
+- It never persists `error` or `tool_input`. A failed `Bash` call can carry a token in its command line and a failed `Edit` can carry file contents; neither belongs in a notes file that may be committed.
+- It ignores a failure whose `is_interrupt` is true. You pressing escape is not a lesson.
+
+Each captured line is one short `printf`, so concurrent async writers cannot interleave mid-record.
+
+On `/platform-skills:self-improve review`, the agent reads `.pending-errors.log`, converts each line into a proper `ERR` entry in `ERRORS.md`, and clears the log. `SessionEnd` does the same conversion unattended, grouping repeats so a run of ten failed `Edit` calls in one session becomes one `ERR` entry rather than ten.
+
+`PreCompact` runs that same drain before each compaction. `SessionEnd` is not guaranteed to fire: kill the process or close the window and it never runs, leaving the log undrained indefinitely. Wiring the drain to compaction as well makes it recurring within a long session instead of a single chance at the end. It skips the parts that only make sense at a close: no daily-note heading, no session recorded, and no `PENDING` WAL entry flagged, because mid-session that operation may simply be in flight.
+
+For project-local setup, add to `.gitignore`:
+```
+.learnings/.pending-errors.log
+```
+
+---
+
+## What This Skill Cannot Do
+
+- **It does not replace human post-mortems.** It captures agent-level errors. System-level incidents and team retrospectives still belong in your incident management process.
+- **It cannot verify that promoted rules are being followed.** Once a rule is in `CLAUDE.md`, it is up to you to review it periodically and retire it if it becomes stale.
+- **The working buffer is not a database.** Keep it lean — summarise completed WAL entries into a single `## Completed` block and delete individual entries once the task is done.
+- **Global learnings are not shared automatically.** The global workspace (`~/.claude/`) is local to your machine. To share lessons with the team, use project-local setup and commit `.learnings/`, or promote entries to a shared `references/` file.
+
+---
+
+## Further Reading
+
+- [references/agent-self-improve.md](../../references/agent-self-improve.md) — full reference for all protocols
+- [skills/self-improve/SKILL.md](../../skills/self-improve/SKILL.md) — slash command specification
+- [HOW_IT_WORKS.md](https://github.com/nitinjain999/platform-skills/blob/main/HOW_IT_WORKS.md) — how the platform-skills skill works in general
+- [GETTING_STARTED.md](https://github.com/nitinjain999/platform-skills/blob/main/GETTING_STARTED.md) — install and first session

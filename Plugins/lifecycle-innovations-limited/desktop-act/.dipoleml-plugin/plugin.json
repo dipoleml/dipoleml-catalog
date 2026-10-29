@@ -1,0 +1,16 @@
+{
+  "name": "desktop-act",
+  "displayName": "Desktop Act",
+  "version": "0.2.0",
+  "description": "Computer-use primitives + multi-desktop pool + autonomous act() loop. Screenshot, click, type, keypress, scroll, launch_app over platform backends (X11/Xvnc, macOS, Windows). Auth via DipoleML-agent-sdk OAuth — no API key required.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Lifecycle Innovations Limited"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/Lifecycle-Innovations-Limited/desktop-act",
+  "repository": "https://github.com/Lifecycle-Innovations-Limited/claude-ops",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

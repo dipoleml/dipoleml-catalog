@@ -1,0 +1,16 @@
+{
+  "name": "stark",
+  "displayName": "Stark",
+  "version": "0.7.2",
+  "description": "UI/UX design plugin for AI coding agents. Routes product flows, web, Windows, Apple, Android, cross-platform, and token requests to focused design skills before code.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "F0d010c"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/f0d010c/stark",
+  "repository": "https://github.com/f0d010c/stark",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,91 @@
+# PR cognitive-aid artifact
+
+After close and export, the host authors one v1 object from `EXPORT_PAYLOAD` and evidence; no extra model call.
+Use `diff_summary.merge_base_sha` / `diff_summary.head_sha` as `MERGE_BASE` / `HEAD_SHA`.
+Per-task evidence is under `specs[].tasks[]` (or the host's `tasks`), not `tasks_summary`.
+
+## Resolve, compose, validate
+
+```bash
+CURRENT_AID=$("$FLOWCTL" pr-cognitive-aid current "$SPEC_ID" --base-sha "$MERGE_BASE" --head-sha "$HEAD_SHA" --json)
+```
+Reuse `current` exactly; otherwise author a private 0600 `AID_INPUT` tempfile outside the repository.
+Over 500 changed files (`diff_summary.files_changed`) no artifact can validate: skip to the fallback under Render.
+Replace skeleton identities, paths and evidence with export values; declare every R-ID, even uncovered:
+```json
+{"schemaVersion":1,"artifactId":"aid-001","specId":"fn-7-rate-limit","specIds":["fn-7-rate-limit"],"baseSha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","headSha":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb","generatedAt":"2026-09-21T12:00:00Z",
+ "sources":[{"id":"spec","kind":"spec","ref":"fn-7-rate-limit"},{"id":"task","kind":"task","ref":"fn-7-rate-limit.1"},{"id":"rid","kind":"rid","ref":"R6"},{"id":"row-rid","kind":"rid","ref":"R7"},{"id":"review","kind":"review_receipt","ref":".flow/receipts/review.json"},{"id":"qa","kind":"qa_receipt","ref":".flow/receipts/qa.json"},{"id":"diff","kind":"diff_metadata","ref":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa..bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"},{"id":"commit","kind":"commit","ref":"bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}],
+ "changeWalkthrough":{"thesis":"Keep review grounded in the changed files.","userImpact":"Reviewers get a reading order.","blastRadius":"Read the validator first.","tradeoffs":"Keep provenance in the artifact.","openItems":"Live verification remains unverified.",
+ "groups":[{"ordinal":1,"kind":"problem","title":"Review context","summary":"Check the intended review boundary.","sourceRefs":["spec"],"rIds":[],"taskIds":[],"files":[]},{"ordinal":2,"kind":"step","title":"Validate and render","summary":"Check validation before reviewing output.","sourceRefs":["spec","task","rid","row-rid","diff"],"rIds":["R6"],"taskIds":["fn-7-rate-limit.1"],"files":[{"path":"src/change_0.py","summary":"Validates the briefing.","attentionClass":"canonical","rIds":["R7"]}]}],
+ "proof":[{"label":"Review","value":"Passed at the bound head","sourceRefs":["review"],"outcome":"pass"},{"label":"Render time","value":"12 ms","sourceRefs":["task"]}]}}
+```
+Use a unique portable `artifactId`; optional `supersedesArtifactId` names `latestArtifactId`.
+Export `tasks[].evidence.commits` are SHORT SHAs: expand with `git rev-parse` before citing full 40-hex commit refs.
+
+- `changeWalkthrough.thesis`: intent and approach. Optional authored strings:
+  `userImpact` describes user/operator changes; `tradeoffs` records rejected alternatives;
+  `openItems` records unfinished work.
+- `blastRadius` is the review focus, rendered right after Why, in two to five short sentences: where to
+  start reading; then one to three places to look hard, each with why (risk, surprising decision,
+  security, compatibility); then the feedback you want from the reviewer (for example "check the API
+  shape and the migration; the logic passed two review rounds"). Unproven work goes in `proof` cells
+  and `openItems`, which render under Needs you.
+- A bulk mechanical change (a formatter run, a codemod, a regenerated tree) is one sentence in the review
+  focus naming its commit and how it was checked; never describe its files one by one.
+- Optional `shape`: one fenced ```diff or ```text block of at most 25 lines showing the new or changed
+  public surface (types, signatures, CLI flags, schema, config keys) or a call tree of the load-bearing
+  flow, when the change has one; leave it out otherwise. Every name in it must appear in the diff or
+  the spec. Never a file list: the forge already shows the changed files.
+- Unevidenced work belongs in `openItems`; required PR findings belong there or in Tradeoffs.
+- Unattended runs put the run's Decisions list (defaults chosen, findings declined, reviews
+  skipped, each with its evidence; working-rules.md) in `tradeoffs`, so it reaches the PR body.
+- Proof comes from recorded evidence: receipts, task evidence and CI. Do not re-run tests or gates
+  to fill the body; a gate with no recorded result is `unverified`, with the gap in `value`.
+- `proof[]` has at most 16 cells with `label` and `value` (each at most 160 characters), `sourceRefs`, and optional `outcome`.
+  Use `pass` for a known green gate, `fail` for failure, `unverified` for inconclusive or never-run steps with the gap in `value`.
+  A passed gate without a stored receipt cites the merge commit or pull request that carried it (a `review_receipt` ref can be its URL).
+  Omit `outcome` only for a recorded fact that is neither passed nor failed, such as a measurement; it renders as a plain item.
+- Summarize a task's `Defect route:` block (`flow-next-work/references/defect-route.md`) in the existing prose fields and proof cells:
+  prior-fix findings, confirmed cause, introducing commit, and base/head/live observations. Cite the task records; show missing evidence as `not done: <reason>`.
+- When export has several `specs`, a task carries a `Hill climb:` block, or a QA receipt exists:
+  read the matching section of [aid-rare-inputs.md](aid-rare-inputs.md).
+- At most 11 ordered `groups[]`: optional `problem`, optional `principle`, 1–7 `step`,
+  optional `kept`, optional `verify`; author `ordinal`, `title`, `summary`, `sourceRefs`, `rIds`, `taskIds`.
+  Group order is review order; `files` is required even when `[]`. Group `summary` renders "what to check here" in one or two sentences.
+  Each file belongs to exactly one group: use the first whose review needs it, cite other specs' requirement IDs on its row and name those specs in its summary.
+- Describe files a reviewer must read from `diff_summary.files[]`, the one to start with first in each
+  group; classify the rest. Use
+  `path`, `summary`, and `attentionClass` unless a state/lockfile/mirror pattern supplies it. Explicit classes win.
+  Canonical means must read; mechanical/generated mean safe to skim.
+  Unlisted canonical paths stay in the artifact only; spec/task markdown under `.flow/` is canonical: describe it or class it mechanical.
+  Every id in a record's `rIds`/`taskIds` needs its source id in that record's effective `sourceRefs`.
+  For an id its group does not cite, add the source to the group's `sourceRefs`, or give the row complete `sourceRefs`, including its task and diff sources.
+  A row inherits group references unless it supplies its own; its nonempty `rIds` alone determine displayed tags.
+- Omit mechanical `changeType`, `additions`, `deletions`, `diffUrl`; supplied
+  values must validate. Added empty-summary rows count as “not described”. Never copy raw diff content.
+
+Sparse input works with validate/write and both `--file` readers; storage stays complete. Fix errors together; never truncate or overwrite.
+Use `validate` only for dry-run; real runs call `write` directly, which validates.
+```bash
+"$FLOWCTL" pr-cognitive-aid validate --file "$AID_INPUT" --json
+"$FLOWCTL" pr-cognitive-aid write "$SPEC_ID" --file "$AID_INPUT" --base-sha "$MERGE_BASE" --head-sha "$HEAD_SHA" --json
+```
+Run only the matching command; reused artifacts need neither.
+
+## Render
+
+Create a private 0600 `BODY_FILE` tempfile. Render once, redirecting stdout directly to it:
+```bash
+"$FLOWCTL" pr-cognitive-aid render "$SPEC_ID" --base-sha "$MERGE_BASE" --head-sha "$HEAD_SHA" > "$BODY_FILE"
+# Newly composed dry-run input: use this instead.
+"$FLOWCTL" pr-cognitive-aid render --file "$AID_INPUT" > "$BODY_FILE"
+```
+The renderer keeps authored sections and every group's title and summary, names each group's first described
+row as its start file and lists mechanical and generated files under Safe to skim; it never repeats the forge's
+file list or totals. No body budget or preview loop. Never merge export fields into rendered output.
+Invalid, stale or unsupported artifacts render nothing: print a stderr note and set `PR_AID_CURRENT=false`.
+Write a labeled fallback to `BODY_FILE` from the export's goal, tasks, verification and open items, excluding
+rejected fields. Keep the briefing's order and rules: Why, Review focus, Needs you, What changes, Reading order
+(numbered group titles and summaries with one start file each), Tradeoffs, Verified; no file lists or totals.
+On success set `PR_AID_CURRENT=true`.
+Keep the immutable artifact local. Next, [create-and-finalize.md](create-and-finalize.md) creates the PR and runs the tracker facade with `$PR_URL`.

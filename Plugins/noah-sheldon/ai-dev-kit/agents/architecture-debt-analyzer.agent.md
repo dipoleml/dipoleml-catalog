@@ -1,0 +1,1 @@
+architecture-debt-analyzer.md

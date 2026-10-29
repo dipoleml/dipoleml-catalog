@@ -1,0 +1,126 @@
+{
+  "schema": 2,
+  "cell_id": "022-multifile-profile-api--citadel-risk-profile-local--r1",
+  "order": 22,
+  "scenario_id": "multifile-profile-api",
+  "task_class": "multi-file-api-compatibility",
+  "policy_id": "citadel-risk-profile-local",
+  "repetition": 1,
+  "route": {
+    "initial_tier": "strong",
+    "escalation_tier": null,
+    "reason_code": "RISK_HIGH_STRONG"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "strong",
+      "started_at": "2026-08-01T05:23:27.245Z",
+      "duration_ms": 10976,
+      "output_text": "{\n  \"files\": {\n    \"src/format.js\": \"'use strict';\\n\\nfunction formatProfile(user) {\\n  return `${user.name} <${user.email}>`;\\n}\\n\\nmodule.exports = { formatProfile };\\n\",\n    \"src/render.js\": \"'use strict';\\nconst { formatProfile } = require('./format');\\n\\nfunction renderProfile(user) {\\n  return `Profile: ${formatProfile(user)}`;\\n}\\n\\nmodule.exports = { renderProfile };\\n\"\n  }\n}",
+      "output_digest": "sha256:2e00ef25e8b2e22913964846885af87677b0e140b272603a55497654a1d7aa78",
+      "verification": {
+        "status": "failed",
+        "code": "REPOSITORY_VERIFIER_FAILED",
+        "changed_paths": [
+          "src/format.js",
+          "src/render.js"
+        ],
+        "applied_file_digests": {
+          "src/format.js": "sha256:be7e9992fc625291f9672c9b635ce47ba0eb1ff818b04de64cfcc7c3b17dbeca",
+          "src/render.js": "sha256:6a582a7db619c6ca5e212949911354ba9f10bc9f1d726660c5cf4963215bc339"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 1,
+          "signal": null,
+          "stdout": "",
+          "stderr": "node:assert:95\r\n  throw new AssertionError(obj);\r\n  ^\r\n\r\nAssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\r\n+ actual - expected\r\n\r\n+ undefined\r\n- [Function: formatProfile]\r\n\r\n    at Object.<anonymous> (<ISOLATED_WORKSPACE>\\test.js:7:8)\r\n    at Module._compile (node:internal/modules/cjs/loader:1730:14)\r\n    at Object..js (node:internal/modules/cjs/loader:1895:10)\r\n    at Module.load (node:internal/modules/cjs/loader:1465:32)\r\n    at Function._load (node:internal/modules/cjs/loader:1282:12)\r\n    at TracingChannel.traceSync (node:diagnostics_channel:322:14)\r\n    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)\r\n    at Module.require (node:internal/modules/cjs/loader:1487:12)\r\n    at require (node:internal/modules/helpers:135:16)\r\n    at Object.<anonymous> (<ISOLATED_WORKSPACE>\\verifier.js:2:1) {\r\n  generatedMessage: true,\r\n  code: 'ERR_ASSERTION',\r\n  actual: undefined,\r\n  expected: [Function: formatProfile],\r\n  operator: 'strictEqual'\r\n}\r\n\r\nNode.js v22.17.1\r\n",
+          "error": null
+        },
+        "patch_digest": "sha256:6388cfb9b95596dcb979219d74889e764b253402678475e1d22904497fe8fb82"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "ollama-chat",
+        "requested_model": "qwen2.5-coder:7b",
+        "observed_model": "qwen2.5-coder:7b",
+        "model_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+        "done_reason": "stop",
+        "response_digest": "sha256:4bc039687c813bc07c46d93f47dc0ece19dd81354ccc90ca78bbf5c30f70f396",
+        "error": null
+      },
+      "usage": {
+        "prompt_tokens": 296,
+        "completion_tokens": 115,
+        "total_tokens": 411,
+        "provider_total_duration_ns": 10973235700
+      },
+      "economics": {
+        "provider_invoice": {
+          "status": "known",
+          "amount_usd": 0,
+          "source": "self_hosted_ollama_no_per_request_invoice"
+        },
+        "gpu_energy": {
+          "status": "measured",
+          "energy_kwh": 0.000254017,
+          "samples": 22,
+          "average_watts": 83.314545
+        },
+        "comparison_cost": {
+          "status": "derived-comparison",
+          "total_usd": 0.000081292,
+          "components": [
+            {
+              "kind": "gpu_electricity",
+              "status": "derived-comparison",
+              "amount_usd": 0.000050803,
+              "source": "average_gpu_power_times_request_wall_duration_times_frozen_rate"
+            },
+            {
+              "kind": "gpu_amortization",
+              "status": "derived-comparison",
+              "amount_usd": 0.000030489,
+              "source": "request_wall_duration_times_frozen_residual_value"
+            }
+          ]
+        },
+        "actual_end_to_end_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "whole_system_energy_setup_and_observed_utility_rate_not_measured"
+        }
+      }
+    }
+  ],
+  "status": "failed",
+  "final_verification": {
+    "status": "failed",
+    "code": "REPOSITORY_VERIFIER_FAILED",
+    "changed_paths": [
+      "src/format.js",
+      "src/render.js"
+    ],
+    "applied_file_digests": {
+      "src/format.js": "sha256:be7e9992fc625291f9672c9b635ce47ba0eb1ff818b04de64cfcc7c3b17dbeca",
+      "src/render.js": "sha256:6a582a7db619c6ca5e212949911354ba9f10bc9f1d726660c5cf4963215bc339"
+    },
+    "verifier": {
+      "command": "node verifier.js",
+      "status": 1,
+      "signal": null,
+      "stdout": "",
+      "stderr": "node:assert:95\r\n  throw new AssertionError(obj);\r\n  ^\r\n\r\nAssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\r\n+ actual - expected\r\n\r\n+ undefined\r\n- [Function: formatProfile]\r\n\r\n    at Object.<anonymous> (<ISOLATED_WORKSPACE>\\test.js:7:8)\r\n    at Module._compile (node:internal/modules/cjs/loader:1730:14)\r\n    at Object..js (node:internal/modules/cjs/loader:1895:10)\r\n    at Module.load (node:internal/modules/cjs/loader:1465:32)\r\n    at Function._load (node:internal/modules/cjs/loader:1282:12)\r\n    at TracingChannel.traceSync (node:diagnostics_channel:322:14)\r\n    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)\r\n    at Module.require (node:internal/modules/cjs/loader:1487:12)\r\n    at require (node:internal/modules/helpers:135:16)\r\n    at Object.<anonymous> (<ISOLATED_WORKSPACE>\\verifier.js:2:1) {\r\n  generatedMessage: true,\r\n  code: 'ERR_ASSERTION',\r\n  actual: undefined,\r\n  expected: [Function: formatProfile],\r\n  operator: 'strictEqual'\r\n}\r\n\r\nNode.js v22.17.1\r\n",
+      "error": null
+    },
+    "patch_digest": "sha256:6388cfb9b95596dcb979219d74889e764b253402678475e1d22904497fe8fb82"
+  },
+  "previous_cell_digest": "sha256:c80306c79c2dd5d3f24cdfca2ba75a4bf980cc49e37b6050a7749cc7c8683c3f",
+  "receipt_digest": "sha256:db43afabc6a737eb4e32a16a8f47d34a8a01b0d54cad82b268f15c24326a3f53",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:b4d13f8a96d1e3716932446c59e9d80427780f8a9518dfc29714e1ff5733c5d2",
+    "signature": "kXHd35VO7VuallkMp8dGysMajLjUiKCZcu0/XYDAO6lsICncg/T3ehSWtroC51/iHSJjyQJSRdSlnbFf/hCqAQ=="
+  }
+}

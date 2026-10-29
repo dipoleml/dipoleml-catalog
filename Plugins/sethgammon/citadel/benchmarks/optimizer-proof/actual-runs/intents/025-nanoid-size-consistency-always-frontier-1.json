@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "kind": "citadel_optimizer_matrix_intent",
+  "authorization_digest": "sha256:b17292a5a08b6ea705f82d5c265e047aa65bb9f774d2fc5ea085648e0fdab1eb",
+  "ordinal": 25,
+  "run_key": "nanoid-size-consistency/always-frontier/1",
+  "scenario_id": "nanoid-size-consistency",
+  "policy_id": "always-frontier",
+  "repetition": 1,
+  "state": "completed",
+  "started_at": "2026-07-30T22:15:17.906Z",
+  "completed_at": "2026-07-30T22:15:23.538Z",
+  "output_file": "records/025-nanoid-size-consistency-always-frontier-1.json",
+  "error": null
+}

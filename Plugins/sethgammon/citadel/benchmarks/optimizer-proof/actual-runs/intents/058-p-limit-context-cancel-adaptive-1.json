@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "kind": "citadel_optimizer_matrix_intent",
+  "authorization_digest": "sha256:b17292a5a08b6ea705f82d5c265e047aa65bb9f774d2fc5ea085648e0fdab1eb",
+  "ordinal": 58,
+  "run_key": "p-limit-context-cancel/adaptive/1",
+  "scenario_id": "p-limit-context-cancel",
+  "policy_id": "adaptive",
+  "repetition": 1,
+  "state": "completed",
+  "started_at": "2026-07-31T01:29:24.601Z",
+  "completed_at": "2026-07-31T01:38:45.257Z",
+  "output_file": "records/058-p-limit-context-cancel-adaptive-1.json",
+  "error": null
+}

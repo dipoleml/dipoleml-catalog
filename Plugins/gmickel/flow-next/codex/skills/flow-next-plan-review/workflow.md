@@ -1,0 +1,99 @@
+# Plan Review Workflow — Common
+
+## Philosophy
+
+Resolve the mode once, keep shared orchestration here, then load only the
+selected backend workflow. Backend execution and rubric material must not leak
+into this common file.
+
+## Phase 0: Backend Detection
+
+Run this first, exactly once.
+
+```bash
+set -e
+FLOWCTL="${CODEX_HOME:-$HOME/.codex}/scripts/flowctl"
+[ -x "$FLOWCTL" ] || FLOWCTL="<plugin-root>/scripts/flowctl"   # <plugin-root> = the directory two levels above this skill's SKILL.md file (the harness gave you that file's absolute path when the skill loaded); substitute it literally
+[ -x "$FLOWCTL" ] || FLOWCTL=".flow/bin/flowctl"
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+```
+
+Resolve the canonical spec id from the positional argument before backend
+routing. Parse `--review=<mode>` / `--review <mode>` from `$ARGUMENTS` first.
+Accepted explicit modes: `codex`, `copilot`, `cursor`, `claude`, `host`, `none`.
+An explicit `rp` or `export` was removed: tell the user in one line
+"RepoPrompt review (rp, export) was removed in flow-next 8.0.0; review backends: claude, codex, copilot, cursor, host."
+and exit 1, as for `ASK`.
+
+When an explicit mode exists, set `BACKEND` directly and do not call
+`review-backend`. Otherwise:
+
+```bash
+# Substitute the spec id from $ARGUMENTS literally: a Bash-prompt turn leaves $1
+# empty, which would silently route to the global backend.
+SPEC_ID="<fn-N spec id from \$ARGUMENTS>"
+$FLOWCTL show "$SPEC_ID" --json >/dev/null \
+  || { echo "Error: no spec '$SPEC_ID' - pass the spec id to review" >&2; exit 1; }
+BACKEND=$($FLOWCTL review-backend "$SPEC_ID")
+```
+
+`review-backend` preserves per-spec → env → config precedence and returns the
+bare backend name. If `BACKEND=ASK`, print the existing setup/override guidance
+and exit 1.
+
+If `BACKEND=none`, inform the user that plan review was skipped and return
+cleanly. Load no backend file and write no receipt/status.
+
+For an executable review backend, print the existing backend/override summary
+and continue.
+
+## Phase 1: Common Review Inputs
+
+The selected backend owns invocation, but all review routes use the current
+persisted spec:
+
+```bash
+$FLOWCTL show "$SPEC_ID" --json
+$FLOWCTL cat "$SPEC_ID"
+$FLOWCTL checkpoint save --spec "$SPEC_ID" --json
+```
+
+This re-anchor is mandatory before every fix cycle, and its checkpoint is the
+cycle's only one: backend files never save another. A user-edited spec is the
+source of truth; never review or restore a stale generated/checkpoint copy
+unless recovering after context compaction.
+
+For host, provide the current spec/task material and review focus.
+
+## Phase 2: Select One Backend Workflow
+
+Read exactly one backend file, per SKILL.md's routing list.
+
+Do not read any other backend file. Unknown/malformed values fail closed with
+the same `ASK`/error behavior; never guess a backend.
+
+## Common Terminal Contract
+
+- `NOT_RETRYABLE: artifact unchanged since last verdict` with exit `1` →
+  human-action terminal. Do not refund it, dispatch again, apply `--force`, or
+  run a reset in an autonomous flow. A human must edit the reviewed artifact,
+  explicitly reset its counter, or deliberately re-run with `--force`.
+- `SHIP` → latest status/receipt says ship; reset the cumulative counter where
+  the backend does not already do so; continue into SKILL.md's shared Fix Loop,
+  which completes on `SHIP`.
+- `NEEDS_WORK` → latest status/receipt says needs_work; continue immediately
+  into SKILL.md's shared Fix Loop.
+- `MAJOR_RETHINK` → latest status/receipt says needs_work; continue immediately
+  to SKILL.md's typed design-conflict escalation.
+- Backend unavailable/transport/no verdict → `RETRY: no verdict (backend or transport failure)` and
+  stop. Flowctl records and refunds the reserved round; never manually reset
+  the verdict counter. Exit 5 / `TRANSPORT_UNHEALTHY` stops automatic retries.
+  Never mix or fall back to another backend.
+
+## Anti-patterns
+
+- Resolving the backend twice
+- Loading all backend files before branching
+- Letting `none` read a backend file
+- Reviewing a checkpoint instead of the current user-edited spec
+- Backgrounding a review call

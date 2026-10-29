@@ -1,0 +1,29 @@
+{
+  "name": "aws-cost-saver",
+  "displayName": "AWS Cost Saver",
+  "version": "2.1.0",
+  "description": "180 AWS cost optimization checks with Cost Optimization Hub, Compute Optimizer ML integration, data transfer analysis, and reservation purchase recommendations. Read-only by design.",
+  "author": {
+    "name": "Mehul Prajapati",
+    "url": "https://github.com/prajapatimehul"
+  },
+  "homepage": "https://github.com/prajapatimehul/claude-aws-cost-saver",
+  "repository": "https://github.com/prajapatimehul/claude-aws-cost-saver",
+  "license": "MIT",
+  "keywords": [
+    "aws",
+    "cost-optimization",
+    "cloud",
+    "finops",
+    "savings",
+    "ec2",
+    "rds",
+    "s3",
+    "lambda",
+    "eks",
+    "mcp"
+  ],
+  "skills": "./skills/",
+  "hooks": "./hooks/hooks.json",
+  "mcpServers": "./.mcp.json"
+}

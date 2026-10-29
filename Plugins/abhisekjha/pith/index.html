@@ -1,0 +1,2047 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pith — token optimization for Claude Code</title>
+  <meta name="description" content="40–60% token reduction. Project wiki. Knowledge graph. Caching layer. Zero config." />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --font: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", sans-serif;
+      --mono: "SF Mono", ui-monospace, "Cascadia Code", monospace;
+      --bg:      #000;
+      --bg1:     #0a0a0a;
+      --bg2:     #111;
+      --fg:      #fff;
+      --fg2:     rgba(255,255,255,0.55);
+      --fg3:     rgba(255,255,255,0.25);
+      --fg4:     rgba(255,255,255,0.10);
+      --border:  rgba(255,255,255,0.08);
+      --border2: rgba(255,255,255,0.14);
+      --blue:    #0a84ff;
+      --green:   #30d158;
+      --red:     #ff453a;
+      --amber:   #ffd60a;
+      --violet:  #bf5af2;
+      --pink:    #f472b6;
+      --emerald: #34d399;
+      --indigo:  #818cf8;
+      --orange:  #fb923c;
+      --ease:    cubic-bezier(0.25,0.46,0.45,0.94);
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      background: var(--bg);
+      color: var(--fg);
+      font-family: var(--font);
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+
+    /* ━━━━━━━━━━━━━━━━━━━━ NAV ━━━━━━━━━━━━━━━━━━━━ */
+    nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 999;
+      display: flex;
+      align-items: center;
+      height: 48px;
+      padding: 0 24px;
+      background: rgba(0,0,0,0.72);
+      backdrop-filter: saturate(180%) blur(20px);
+      -webkit-backdrop-filter: saturate(180%) blur(20px);
+      border-bottom: 1px solid var(--border);
+    }
+    .logo {
+      font-size: 15px; font-weight: 600; letter-spacing: -0.01em;
+      color: var(--fg); text-decoration: none; margin-right: auto;
+      display: inline-flex; align-items: center; gap: 8px;
+    }
+    .logo-mark { flex-shrink: 0; }
+    .install-or {
+      font-size: 11px; color: var(--fg4); letter-spacing: 0.08em;
+      text-transform: uppercase; user-select: none;
+    }
+    .nav-links { display: flex; gap: 28px; list-style: none; margin-right: 28px; }
+    .nav-links a {
+      font-size: 13px; font-weight: 400; color: var(--fg2);
+      text-decoration: none; letter-spacing: -0.01em; transition: color 0.2s;
+    }
+    .nav-links a:hover { color: var(--fg); }
+    .btn-nav {
+      font-size: 13px; font-weight: 500; color: var(--fg);
+      background: rgba(255,255,255,0.12); border: 1px solid var(--border2);
+      padding: 6px 14px; border-radius: 980px; text-decoration: none;
+      letter-spacing: -0.01em; transition: background 0.2s;
+    }
+    .btn-nav:hover { background: rgba(255,255,255,0.18); }
+
+    /* ━━━━━━━━━━━━━━━━━━━━ HERO ━━━━━━━━━━━━━━━━━━━━ */
+    .hero {
+      position: relative; min-height: 100svh;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      text-align: center; padding: 80px 24px 64px; overflow: hidden;
+    }
+    .hero-mesh { position: absolute; inset: 0; pointer-events: none; z-index: 0; }
+    .mesh-orb { position: absolute; border-radius: 50%; filter: blur(100px); }
+    .m1 { width:800px;height:500px; background:radial-gradient(ellipse,rgba(10,132,255,0.12) 0%,transparent 70%); top:-10%;left:50%;transform:translateX(-50%); }
+    .m2 { width:400px;height:400px; background:radial-gradient(ellipse,rgba(52,211,153,0.07) 0%,transparent 70%); bottom:10%;right:5%; }
+    .m3 { width:300px;height:300px; background:radial-gradient(ellipse,rgba(191,90,242,0.07) 0%,transparent 70%); bottom:20%;left:5%; }
+    .m4 { width:500px;height:300px; background:radial-gradient(ellipse,rgba(244,114,182,0.05) 0%,transparent 70%); top:30%;right:-5%; }
+    .hero-inner { position:relative;z-index:1;max-width:900px; }
+    .hero-eyebrow {
+      display:inline-flex;align-items:center;gap:8px;
+      font-size:12px;font-weight:500;letter-spacing:0.04em;text-transform:uppercase;
+      color:var(--fg3);margin-bottom:40px;
+    }
+    .eyebrow-dot {
+      width:6px;height:6px;border-radius:50%;background:var(--blue);
+      box-shadow:0 0 10px rgba(10,132,255,0.8);animation:blink 2.5s ease-in-out infinite;
+    }
+    @keyframes blink { 0%,100%{opacity:1}50%{opacity:0.3} }
+    .hero h1 {
+      font-size:clamp(60px,10.5vw,108px);font-weight:700;
+      letter-spacing:-0.045em;line-height:0.95;margin-bottom:32px;
+    }
+    .h1-a { display:block;color:#fff; }
+    .h1-b { display:block;color:rgba(255,255,255,0.28); }
+    .hero-sub {
+      font-size:19px;font-weight:400;color:var(--fg2);line-height:1.6;
+      letter-spacing:-0.015em;max-width:440px;margin:0 auto 48px;
+    }
+    .hero-badges {
+      display:flex;gap:8px;justify-content:center;flex-wrap:wrap;margin-bottom:40px;
+    }
+    .badge {
+      display:inline-flex;align-items:center;gap:5px;
+      font-size:11px;font-weight:500;letter-spacing:0.02em;
+      padding:4px 10px;border-radius:980px;
+      border:1px solid;white-space:nowrap;
+    }
+    .badge-blue  { color:var(--blue); border-color:rgba(10,132,255,0.25); background:rgba(10,132,255,0.08); }
+    .badge-green { color:var(--emerald); border-color:rgba(52,211,153,0.25); background:rgba(52,211,153,0.08); }
+    .badge-violet{ color:var(--violet); border-color:rgba(191,90,242,0.25); background:rgba(191,90,242,0.08); }
+    .badge-amber { color:var(--amber); border-color:rgba(255,214,10,0.25); background:rgba(255,214,10,0.08); }
+
+    /* ━━━━━━━━━━━━━━━━━━━━ INSTALL ━━━━━━━━━━━━━━━━━━━━ */
+    .install-wrap { display:flex;flex-direction:column;align-items:center;gap:16px; }
+    .install-box {
+      display:inline-flex;align-items:center;
+      background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);
+      border-radius:12px;overflow:hidden;transition:border-color 0.2s;
+    }
+    .install-box:hover { border-color:rgba(255,255,255,0.22); }
+    .install-ps { padding:0 8px 0 18px;font-family:var(--mono);font-size:13px;color:var(--fg3);user-select:none; }
+    .install-code { padding:14px 0;font-family:var(--mono);font-size:13px;color:rgba(255,255,255,0.85);letter-spacing:-0.01em; }
+    .install-copy {
+      border:none;border-left:1px solid rgba(255,255,255,0.08);background:transparent;
+      color:var(--fg3);padding:14px 18px;font-size:12px;font-weight:600;
+      letter-spacing:0.04em;text-transform:uppercase;cursor:pointer;font-family:var(--font);
+      transition:color 0.15s,background 0.15s;
+    }
+    .install-copy:hover { color:var(--fg);background:rgba(255,255,255,0.04); }
+    .gh-link { font-size:14px;color:var(--fg3);text-decoration:none;letter-spacing:-0.01em;transition:color 0.2s; }
+    .gh-link:hover { color:var(--fg2); }
+
+    /* ━━━━━━━━━━━━━━━━━━━━ STATS ━━━━━━━━━━━━━━━━━━━━ */
+    .stats { display:grid;grid-template-columns:repeat(4,1fr);border-top:1px solid var(--border);border-bottom:1px solid var(--border); }
+    .stat { padding:48px 40px;border-right:1px solid var(--border); }
+    .stat:last-child { border-right:none; }
+    .stat-n { font-size:64px;font-weight:700;letter-spacing:-0.05em;line-height:1;color:#fff;margin-bottom:8px; }
+    .stat-l { font-size:14px;color:var(--fg2);letter-spacing:-0.01em;line-height:1.5; }
+
+    /* ━━━━━━━━━━━━━━━━━━━━ SHARED SECTION ━━━━━━━━━━━━━━━━━━━━ */
+    .s { max-width:1080px;margin:0 auto;padding:96px 48px; }
+    .s-eye { font-size:11px;font-weight:600;letter-spacing:0.1em;text-transform:uppercase;color:var(--blue);margin-bottom:20px; }
+    .s-eye.green  { color:var(--emerald); }
+    .s-eye.violet { color:var(--violet); }
+    .s-eye.amber  { color:var(--amber); }
+    .s-eye.pink   { color:var(--pink); }
+    .s-h { font-size:clamp(34px,4.5vw,56px);font-weight:700;letter-spacing:-0.035em;line-height:1.05;margin-bottom:20px; }
+    .s-p { font-size:17px;color:var(--fg2);line-height:1.7;letter-spacing:-0.01em;max-width:460px; }
+    .hr  { border:none;border-top:1px solid var(--border); }
+
+    /* ━━━━━━━━━━━━━━━━━━━━ BEFORE / AFTER ━━━━━━━━━━━━━━━━━━━━ */
+    .ba { display:grid;grid-template-columns:1fr 1fr;gap:2px;margin-top:56px; }
+    .ba-card { background:var(--bg1);border:1px solid var(--border);border-radius:20px;overflow:hidden; }
+    .ba-card.is-after { border-color:rgba(48,209,88,0.12); }
+    .ba-top { display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid var(--border); }
+    .ba-tag { font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase; }
+    .ba-tag.bad  { color:var(--red); }
+    .ba-tag.good { color:var(--green); }
+    .ba-pill { font-family:var(--mono);font-size:11px;font-weight:600;padding:3px 9px;border-radius:980px; }
+    .ba-pill.bad  { background:rgba(255,69,58,0.1);color:var(--red);border:1px solid rgba(255,69,58,0.2); }
+    .ba-pill.good { background:rgba(48,209,88,0.1);color:var(--green);border:1px solid rgba(48,209,88,0.2); }
+    .ba-row { display:flex;align-items:center;justify-content:space-between;padding:13px 20px;border-bottom:1px solid var(--border);gap:12px; }
+    .ba-row:last-child { border-bottom:none; }
+    .ba-op  { font-family:var(--mono);font-size:12px;color:var(--fg2); }
+    .ba-val { font-family:var(--mono);font-size:12px;font-weight:600;display:flex;align-items:center;gap:6px;white-space:nowrap; }
+    .ba-val.bad  { color:var(--red); }
+    .ba-val.good { color:var(--green); }
+    .pct-tag { font-family:var(--font);font-size:10px;font-weight:700;padding:2px 6px;border-radius:980px;background:rgba(48,209,88,0.1);color:var(--green);border:1px solid rgba(48,209,88,0.16); }
+
+    /* ━━━━━━━━━━━━━━━━━━━━ TERMINAL ━━━━━━━━━━━━━━━━━━━━ */
+    .term { margin-top:32px;background:#050505;border:1px solid var(--border);border-radius:20px;overflow:hidden; }
+    .term-chrome { display:flex;align-items:center;padding:13px 16px;border-bottom:1px solid var(--border);background:rgba(255,255,255,0.02);gap:6px; }
+    .dot { width:11px;height:11px;border-radius:50%; }
+    .dr { background:rgba(255,90,80,0.5); } .dy { background:rgba(255,190,50,0.5); } .dg { background:rgba(50,200,100,0.5); }
+    .term-name { margin:0 auto;font-family:var(--mono);font-size:11px;color:var(--fg4);letter-spacing:0.04em; }
+    .term-body { padding:24px;font-family:var(--mono);font-size:13px;line-height:2; }
+    .t-prompt { color:var(--blue); }
+    .t-cmd    { color:#fff; }
+    .t-ok     { color:var(--green); }
+    .t-out    { color:rgba(255,255,255,0.45); }
+    .t-hl     { color:var(--amber); }
+    .t-dim    { color:rgba(255,255,255,0.2); }
+    .t-violet { color:var(--violet); }
+    .t-emerald{ color:var(--emerald); }
+    .t-pink   { color:var(--pink); }
+    .t-indigo { color:var(--indigo); }
+    .t-orange { color:var(--orange); }
+
+    /* ━━━━━━━━━━━━━━━━━━━━ FEATURE GRID ━━━━━━━━━━━━━━━━━━━━ */
+    .feat-grid { display:grid;grid-template-columns:repeat(3,1fr);gap:2px;margin-top:56px; }
+    .feat {
+      background:var(--bg1);border:1px solid var(--border);border-radius:20px;padding:32px;
+      transition:background 0.25s var(--ease),border-color 0.25s var(--ease);
+    }
+    .feat:hover { background:var(--bg2);border-color:var(--border2); }
+    .feat-n { font-family:var(--mono);font-size:11px;color:var(--fg4);letter-spacing:0.06em;margin-bottom:20px; }
+    .feat h3 { font-size:17px;font-weight:600;letter-spacing:-0.02em;margin-bottom:10px;color:#fff;line-height:1.3; }
+    .feat p  { font-size:14px;color:var(--fg2);line-height:1.65;letter-spacing:-0.005em; }
+    .feat-icon { font-size:22px;margin-bottom:14px;display:block; }
+
+    /* ━━━━━━━━━━━━━━━━━━━━ WIKI PAGE TYPES ━━━━━━━━━━━━━━━━━━━━ */
+    .page-type-grid { display:grid;grid-template-columns:repeat(4,1fr);gap:2px;margin-top:48px; }
+    .pt {
+      background:var(--bg1);border:1px solid var(--border);border-radius:16px;padding:24px;
+      transition:border-color 0.2s,background 0.2s;
+    }
+    .pt:hover { background:var(--bg2);border-color:var(--border2); }
+    .pt-dot { width:10px;height:10px;border-radius:50%;margin-bottom:14px; }
+    .pt h4 { font-size:15px;font-weight:600;letter-spacing:-0.02em;margin-bottom:8px;color:#fff; }
+    .pt p  { font-size:13px;color:var(--fg2);line-height:1.6; }
+    .pt-fields { margin-top:12px;display:flex;flex-direction:column;gap:4px; }
+    .pt-field { font-family:var(--mono);font-size:11px;color:var(--fg3);padding:3px 0;border-top:1px solid var(--border); }
+
+    /* ━━━━━━━━━━━━━━━━━━━━ WIKI WORKFLOW ━━━━━━━━━━━━━━━━━━━━ */
+    .workflow { display:flex;align-items:flex-start;gap:0;margin-top:48px;position:relative; }
+    .workflow::before {
+      content:'';position:absolute;top:20px;left:20px;right:20px;height:1px;
+      background:linear-gradient(90deg,transparent,rgba(255,255,255,0.08) 20%,rgba(255,255,255,0.08) 80%,transparent);
+    }
+    .wf-step { flex:1;text-align:center;padding:0 16px;position:relative;z-index:1; }
+    .wf-num {
+      width:40px;height:40px;border-radius:50%;background:var(--bg1);border:1px solid var(--border2);
+      display:flex;align-items:center;justify-content:center;margin:0 auto 16px;
+      font-family:var(--mono);font-size:12px;font-weight:600;color:var(--fg2);
+    }
+    .wf-step h4 { font-size:14px;font-weight:600;letter-spacing:-0.01em;margin-bottom:6px; }
+    .wf-step p  { font-size:12px;color:var(--fg3);line-height:1.5; }
+
+    /* ━━━━━━━━━━━━━━━━━━━━ GRAPH DEMO ━━━━━━━━━━━━━━━━━━━━ */
+    .graph-demo {
+      margin-top:48px;background:#050505;border:1px solid var(--border);
+      border-radius:20px;overflow:hidden;height:420px;position:relative;
+    }
+    .graph-header {
+      position:absolute;top:14px;left:50%;transform:translateX(-50%);z-index:10;
+      display:flex;align-items:center;gap:10px;padding:6px 14px;
+      background:rgba(5,5,5,0.7);backdrop-filter:blur(12px);
+      border:1px solid rgba(255,255,255,0.08);border-radius:8px;
+      font-family:var(--mono);font-size:11px;color:rgba(255,255,255,0.5);white-space:nowrap;
+    }
+    .graph-logo { color:#a78bfa;font-weight:700;letter-spacing:0.08em; }
+    .graph-legend {
+      position:absolute;bottom:14px;left:14px;z-index:10;
+      display:flex;flex-direction:column;gap:5px;padding:8px 12px;
+      background:rgba(5,5,5,0.7);backdrop-filter:blur(12px);
+      border:1px solid rgba(255,255,255,0.08);border-radius:8px;
+    }
+    .gl-item { display:flex;align-items:center;gap:6px;font-size:10px;color:rgba(255,255,255,0.35); }
+    .gl-dot  { width:7px;height:7px;border-radius:50%;flex-shrink:0; }
+    #graph-canvas { width:100%;height:100%; }
+
+    /* ━━━━━━━━━━━━━━━━━━━━ PROVENANCE ━━━━━━━━━━━━━━━━━━━━ */
+    .provenance-card {
+      margin-top:48px;background:var(--bg1);border:1px solid var(--border);
+      border-radius:20px;overflow:hidden;
+    }
+    .prov-top {
+      padding:14px 20px;border-bottom:1px solid var(--border);
+      display:flex;align-items:center;justify-content:space-between;
+    }
+    .prov-file { font-family:var(--mono);font-size:12px;color:var(--fg2); }
+    .prov-badge {
+      font-size:10px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;
+      padding:3px 9px;border-radius:980px;background:rgba(191,90,242,0.1);
+      color:var(--violet);border:1px solid rgba(191,90,242,0.2);
+    }
+    .prov-body { padding:0; }
+    .prov-yaml {
+      padding:20px 24px;font-family:var(--mono);font-size:12.5px;line-height:1.9;
+      border-bottom:1px solid var(--border);
+    }
+    .yaml-key  { color:var(--indigo); }
+    .yaml-val  { color:rgba(255,255,255,0.7); }
+    .yaml-str  { color:var(--emerald); }
+    .yaml-comment { color:rgba(255,255,255,0.2); }
+    .yaml-delim { color:rgba(255,255,255,0.3); }
+    .prov-explain {
+      padding:16px 24px;font-size:13px;color:var(--fg3);line-height:1.6;
+    }
+
+    /* ━━━━━━━━━━━━━━━━━━━━ LINT ━━━━━━━━━━━━━━━━━━━━ */
+    .lint-demo {
+      margin-top:48px;background:var(--bg1);border:1px solid var(--border);
+      border-radius:20px;overflow:hidden;
+    }
+    .lint-row {
+      display:flex;align-items:flex-start;gap:16px;padding:16px 20px;
+      border-bottom:1px solid var(--border);transition:background 0.15s;
+    }
+    .lint-row:last-child { border-bottom:none; }
+    .lint-row:hover { background:rgba(255,255,255,0.02); }
+    .lint-icon { font-size:14px;margin-top:1px;flex-shrink:0; }
+    .lint-body { flex:1; }
+    .lint-title { font-size:13px;font-weight:500;color:var(--fg);margin-bottom:3px; }
+    .lint-desc  { font-size:12px;color:var(--fg3);line-height:1.5; }
+    .lint-action {
+      font-size:11px;font-weight:600;letter-spacing:0.04em;padding:3px 9px;
+      border-radius:6px;cursor:default;white-space:nowrap;flex-shrink:0;margin-top:2px;
+    }
+    .la-fix     { background:rgba(255,69,58,0.1);color:var(--red);border:1px solid rgba(255,69,58,0.2); }
+    .la-resolve { background:rgba(255,214,10,0.1);color:var(--amber);border:1px solid rgba(255,214,10,0.2); }
+    .la-warn    { background:rgba(10,132,255,0.1);color:var(--blue);border:1px solid rgba(10,132,255,0.2); }
+    .la-ok      { background:rgba(48,209,88,0.1);color:var(--green);border:1px solid rgba(48,209,88,0.2); }
+
+    /* ━━━━━━━━━━━━━━━━━━━━ COMMANDS ━━━━━━━━━━━━━━━━━━━━ */
+    .cmd-section { margin-top:56px; }
+    .cmd-group-label {
+      font-size:11px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;
+      color:var(--fg4);padding:10px 24px;background:rgba(255,255,255,0.02);
+      border-bottom:1px solid var(--border);border-top:1px solid var(--border);
+    }
+    .cmd-grid { background:var(--bg1);border:1px solid var(--border);border-radius:20px;overflow:hidden; }
+    .cmd-grid + .cmd-grid { margin-top:2px; }
+    .cmd { display:flex;align-items:center;gap:24px;padding:15px 24px;border-bottom:1px solid var(--border);transition:background 0.2s; }
+    .cmd:last-child { border-bottom:none; }
+    .cmd:hover { background:rgba(255,255,255,0.03); }
+    .cmd-k { font-family:var(--mono);font-size:13px;color:rgba(255,255,255,0.7);min-width:230px;flex-shrink:0; }
+    .cmd-k .hl { color:#fff; }
+    .cmd-v { font-size:14px;color:var(--fg2);letter-spacing:-0.01em;flex:1; }
+    .cmd-new {
+      font-size:10px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;
+      padding:2px 7px;border-radius:980px;background:rgba(52,211,153,0.1);
+      color:var(--emerald);border:1px solid rgba(52,211,153,0.2);flex-shrink:0;
+    }
+
+    /* ━━━━━━━━━━━━━━━━━━━━ MODES TABLE ━━━━━━━━━━━━━━━━━━━━ */
+    .modes-grid { display:grid;grid-template-columns:repeat(4,1fr);gap:2px;margin-top:48px; }
+    .mode-card {
+      background:var(--bg1);border:1px solid var(--border);border-radius:16px;padding:24px;
+      transition:background 0.2s,border-color 0.2s;
+    }
+    .mode-card:hover { background:var(--bg2);border-color:var(--border2); }
+    .mode-name { font-family:var(--mono);font-size:13px;font-weight:600;color:#fff;margin-bottom:10px; }
+    .mode-desc { font-size:13px;color:var(--fg2);line-height:1.6;margin-bottom:14px; }
+    .mode-example { font-family:var(--mono);font-size:11px;color:var(--fg4);padding:10px;background:rgba(0,0,0,0.3);border-radius:8px;line-height:1.7; }
+    .mode-example .ex-in  { color:rgba(255,255,255,0.35); }
+    .mode-example .ex-out { color:rgba(255,255,255,0.6); }
+
+    /* ━━━━━━━━━━━━━━━━━━━━ STRUCTURED FORMATS ━━━━━━━━━━━━━━━━━━━━ */
+    .format-grid { display:grid;grid-template-columns:repeat(3,1fr);gap:2px;margin-top:48px; }
+    .fmt {
+      background:var(--bg1);border:1px solid var(--border);border-radius:16px;padding:24px;
+      transition:background 0.2s;
+    }
+    .fmt:hover { background:var(--bg2); }
+    .fmt-cmd  { font-family:var(--mono);font-size:12px;color:var(--violet);margin-bottom:14px;font-weight:600; }
+    .fmt h4   { font-size:15px;font-weight:600;letter-spacing:-0.02em;margin-bottom:8px; }
+    .fmt p    { font-size:13px;color:var(--fg2);line-height:1.6;margin-bottom:12px; }
+    .fmt-fields { display:flex;flex-direction:column;gap:3px; }
+    .fmt-field  { font-family:var(--mono);font-size:11px;color:var(--fg4);padding:2px 0;border-top:1px solid var(--border); }
+
+    /* ━━━━━━━━━━━━━━━━━━━━ HOW IT INSTALLS ━━━━━━━━━━━━━━━━━━━━ */
+    .install-steps { display:grid;grid-template-columns:repeat(3,1fr);gap:2px;margin-top:48px; }
+    .is { background:var(--bg1);border:1px solid var(--border);border-radius:16px;padding:28px; }
+    .is-n { font-family:var(--mono);font-size:11px;color:var(--fg4);letter-spacing:0.06em;margin-bottom:16px; }
+    .is h4 { font-size:16px;font-weight:600;letter-spacing:-0.02em;margin-bottom:8px; }
+    .is p  { font-size:13px;color:var(--fg2);line-height:1.65; }
+
+    /* ━━━━━━━━━━━━━━━━━━━━ CTA ━━━━━━━━━━━━━━━━━━━━ */
+    .cta { text-align:center;padding:128px 24px;border-top:1px solid var(--border);position:relative;overflow:hidden; }
+    .cta-light {
+      position:absolute;width:700px;height:400px;
+      background:radial-gradient(ellipse,rgba(10,132,255,0.08) 0%,transparent 65%);
+      top:0;left:50%;transform:translateX(-50%);pointer-events:none;
+    }
+    .cta h2 { font-size:clamp(52px,8vw,96px);font-weight:700;letter-spacing:-0.045em;line-height:0.95;margin-bottom:24px;position:relative; }
+    .cta p  { font-size:19px;color:var(--fg2);letter-spacing:-0.015em;margin-bottom:48px;position:relative; }
+
+    /* ━━━━━━━━━━━━━━━━━━━━ FOOTER ━━━━━━━━━━━━━━━━━━━━ */
+    footer { display:flex;justify-content:space-between;align-items:center;padding:20px 48px;border-top:1px solid var(--border);font-size:12px;color:var(--fg3);letter-spacing:-0.01em; }
+    footer a { color:var(--fg3);text-decoration:none;transition:color 0.15s; }
+    footer a:hover { color:var(--fg2); }
+    footer .fl { display:flex;gap:20px; }
+
+    /* ━━━━━━━━━━━━━━━━━━━━ REVEAL ━━━━━━━━━━━━━━━━━━━━ */
+    .r { opacity:0;transform:translateY(28px);transition:opacity 0.8s var(--ease),transform 0.8s var(--ease); }
+    .r.on { opacity:1;transform:none; }
+    .r.d1 { transition-delay:0.1s; }
+    .r.d2 { transition-delay:0.2s; }
+    .r.d3 { transition-delay:0.3s; }
+    .r.d4 { transition-delay:0.4s; }
+
+    /* ━━━━━━━━━━━━━━━━━━━━ HAMBURGER NAV ━━━━━━━━━━━━━━━━━━━━ */
+    .nav-hamburger {
+      display: none;
+      background: transparent; border: 1px solid var(--border);
+      color: var(--fg2); padding: 5px 10px; border-radius: 8px;
+      cursor: pointer; font-size: 16px; line-height: 1;
+      margin-left: 12px; transition: background 0.15s, color 0.15s;
+    }
+    .nav-hamburger:hover { background: rgba(255,255,255,0.06); color: var(--fg); }
+
+    /* Mobile nav drawer */
+    .nav-drawer {
+      display: none;
+      position: fixed; top: 48px; left: 0; right: 0; z-index: 998;
+      background: rgba(0,0,0,0.96);
+      backdrop-filter: saturate(180%) blur(24px);
+      -webkit-backdrop-filter: saturate(180%) blur(24px);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 0 24px;
+      flex-direction: column;
+    }
+    .nav-drawer.open { display: flex; }
+    .nav-drawer a {
+      font-size: 15px; font-weight: 400; color: var(--fg2);
+      text-decoration: none; padding: 12px 24px;
+      border-bottom: 1px solid var(--border); letter-spacing: -0.01em;
+      transition: color 0.15s, background 0.15s;
+    }
+    .nav-drawer a:last-child { border-bottom: none; }
+    .nav-drawer a:hover { color: var(--fg); background: rgba(255,255,255,0.03); }
+    .nav-drawer .drawer-install {
+      margin: 16px 24px 0;
+      display: inline-flex; align-items: center;
+      background: rgba(255,255,255,0.12); border: 1px solid var(--border2);
+      padding: 10px 18px; border-radius: 980px; text-decoration: none;
+      font-size: 14px; font-weight: 500; color: var(--fg);
+      justify-content: center; transition: background 0.2s;
+    }
+    .nav-drawer .drawer-install:hover { background: rgba(255,255,255,0.18); }
+
+    /* ━━━━━━━━━━━━━━━━━━━━ RESPONSIVE — TABLET (≤900px) ━━━━━━━━━━━━━━━━━━━━ */
+    @media (max-width:900px) {
+      /* Nav */
+      .nav-links, .btn-nav { display:none; }
+      .nav-hamburger { display:block; }
+
+      /* Stats: 2×2 */
+      .stats { grid-template-columns:repeat(2,1fr); }
+      .stat:nth-child(2) { border-right:none; }
+      .stat:nth-child(3),
+      .stat:nth-child(4) { border-top:1px solid var(--border); }
+      .stat:nth-child(4) { border-right:none; }
+      .stat { padding:32px 28px; }
+      .stat-n { font-size:clamp(32px,6vw,52px); }
+
+      /* Section padding */
+      .s { padding:72px 24px; }
+
+      /* Grids → single column */
+      .ba,.feat-grid,.page-type-grid,.modes-grid,.format-grid,.install-steps {
+        grid-template-columns:1fr;
+      }
+
+      /* Workflow */
+      .workflow { flex-direction:column; gap:24px; }
+      .workflow::before { display:none; }
+
+      /* Graph */
+      .graph-demo { height:300px; }
+
+      /* Commands: stack key + value vertically */
+      .cmd { flex-wrap:wrap; gap:6px 12px; padding:14px 20px; }
+      .cmd-k { min-width:0; width:100%; font-size:12px; }
+      .cmd-v { font-size:13px; }
+      .cmd-group-label { padding:8px 20px; }
+
+      /* Install box: make code scrollable, don't overflow */
+      .install-box { max-width:100%; overflow-x:auto; }
+      .install-code { font-size:11.5px; white-space:nowrap; }
+
+      /* Hero */
+      .hero-badges { justify-content:center; }
+
+      /* Footer */
+      footer { padding:20px 24px; flex-direction:column; gap:12px; text-align:center; }
+    }
+
+    /* ━━━━━━━━━━━━━━━━━━━━ RESPONSIVE — PHONE (≤640px) ━━━━━━━━━━━━━━━━━━━━ */
+    @media (max-width:640px) {
+      /* Hero */
+      .hero { padding:88px 20px 56px; text-align:center; }
+      .hero-inner { display:flex; flex-direction:column; align-items:center; }
+      .hero-eyebrow { margin-bottom:16px; }
+      .hero h1 { font-size:clamp(40px,11vw,64px); }
+      .hero-sub { font-size:16px; max-width:100%; }
+      .hero-badges { gap:6px; }
+      .badge { font-size:10px; padding:3px 8px; }
+
+      /* Install boxes: stack vertically, scroll horizontally */
+      .install-wrap { width:100%; padding:0 4px; }
+      .install-box {
+        width:100%; border-radius:10px;
+        flex-wrap:nowrap; overflow-x:auto;
+      }
+      .install-ps { padding:0 6px 0 14px; font-size:12px; }
+      .install-code { font-size:11px; padding:12px 0; }
+      .install-copy { padding:12px 14px; font-size:11px; }
+      .install-or { font-size:10px; }
+
+      /* Stats: single column */
+      .stats { grid-template-columns:1fr; }
+      .stat { border-right:none !important; padding:28px 20px; }
+      .stat:nth-child(n+2) { border-top:1px solid var(--border); }
+
+      /* Section */
+      .s { padding:56px 20px; }
+      .s-h { font-size:clamp(28px,8vw,40px); }
+      .s-p { font-size:15px; }
+      .s-eye { font-size:10px; }
+
+      /* Cards */
+      .feat { padding:24px 20px; }
+      .feat h3 { font-size:15px; }
+      .feat p { font-size:13px; }
+
+      /* BA cards */
+      .ba-card { border-radius:16px; }
+      .ba-row { padding:11px 16px; }
+      .ba-op { font-size:11px; }
+      .ba-val { font-size:11px; }
+      .ba-top { padding:12px 16px; }
+      .ba-tag { font-size:10px; }
+
+      /* Terminal */
+      .term { border-radius:16px; }
+      .term-body { padding:16px; font-size:11.5px; line-height:1.8; }
+      .term-chrome { padding:11px 14px; }
+
+      /* Mode cards */
+      .mode-card { padding:20px; }
+      .mode-name { font-size:12px; }
+      .mode-desc { font-size:12px; }
+      .mode-example { font-size:10px; }
+
+      /* Commands */
+      .cmd { padding:12px 16px; gap:4px; }
+      .cmd-k { font-size:11.5px; }
+      .cmd-v { font-size:12px; }
+      .cmd-group-label { padding:8px 16px; font-size:10px; }
+      .cmd-new { font-size:9px; padding:2px 6px; }
+
+      /* Page types */
+      .pt { padding:20px; border-radius:14px; }
+      .pt h4 { font-size:14px; }
+      .pt p { font-size:12px; }
+      .pt-field { font-size:10px; }
+
+      /* Formats */
+      .fmt { padding:20px; }
+      .fmt h4 { font-size:14px; }
+      .fmt p { font-size:12px; }
+
+      /* Install steps */
+      .is { padding:22px; border-radius:14px; }
+      .is h4 { font-size:14px; }
+      .is p { font-size:12px; }
+
+      /* Install-steps grid: already 1-col from 900 breakpoint */
+      .install-steps { grid-template-columns:1fr; }
+
+      /* CTA */
+      .cta { padding:80px 20px; }
+      .cta h2 { font-size:clamp(36px,9vw,64px); }
+      .cta p { font-size:16px; }
+
+      /* Provenance */
+      .prov-yaml { font-size:11px; padding:16px 18px; }
+      .prov-explain { font-size:12px; padding:12px 18px; }
+
+      /* Lint demo */
+      .lint-row { padding:12px 16px; gap:10px; }
+      .lint-title { font-size:12px; }
+      .lint-desc { font-size:11px; }
+
+      /* Footer */
+      footer { padding:20px; font-size:11px; }
+      footer .fl { gap:16px; }
+
+      /* Section term */
+      .term-name { font-size:10px; }
+
+      /* Hero mesh orbs: scale down */
+      .m1 { width:300px; height:200px; }
+      .m2 { width:200px; height:160px; }
+      .m3 { width:150px; height:150px; }
+      .m4 { display:none; }
+
+      /* Graph */
+      .graph-demo { height:240px; }
+      .graph-header { font-size:10px; padding:5px 10px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ━━━━━━━━━━━━━━━━━━━━ NAV ━━━━━━━━━━━━━━━━━━━━ -->
+<nav>
+  <a class="logo" href="#">
+    <svg class="logo-mark" width="20" height="20" viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <!-- outer ring -->
+      <circle cx="10" cy="10" r="9" stroke="rgba(255,255,255,0.18)" stroke-width="1"/>
+      <!-- mid ring -->
+      <circle cx="10" cy="10" r="5.5" stroke="rgba(255,255,255,0.45)" stroke-width="1.2"/>
+      <!-- core dot -->
+      <circle cx="10" cy="10" r="2" fill="#fff"/>
+      <!-- compression tick marks -->
+      <line x1="10" y1="1.5" x2="10" y2="3.5" stroke="rgba(255,255,255,0.35)" stroke-width="1" stroke-linecap="round"/>
+      <line x1="10" y1="16.5" x2="10" y2="18.5" stroke="rgba(255,255,255,0.35)" stroke-width="1" stroke-linecap="round"/>
+      <line x1="1.5" y1="10" x2="3.5" y2="10" stroke="rgba(255,255,255,0.35)" stroke-width="1" stroke-linecap="round"/>
+      <line x1="16.5" y1="10" x2="18.5" y2="10" stroke="rgba(255,255,255,0.35)" stroke-width="1" stroke-linecap="round"/>
+    </svg>
+    Pith
+  </a>
+  <ul class="nav-links">
+    <li><a href="#compression">Compression</a></li>
+    <li><a href="#layers">Layers</a></li>
+    <li><a href="#adaptive">Adaptive</a></li>
+    <li><a href="#wiki">Wiki</a></li>
+    <li><a href="#compile">Compile</a></li>
+    <li><a href="#graph">Graph</a></li>
+    <li><a href="#provenance">Provenance</a></li>
+    <li><a href="#session">Sessions</a></li>
+    <li><a href="#commands">Commands</a></li>
+  </ul>
+  <a class="btn-nav" href="https://github.com/abhisekjha/pith" target="_blank">Install free</a>
+  <button class="nav-hamburger" id="nav-hamburger" aria-label="Open menu" aria-expanded="false">&#9776;</button>
+</nav>
+
+<!-- Mobile nav drawer -->
+<div class="nav-drawer" id="nav-drawer" role="navigation" aria-label="Mobile navigation">
+  <a href="#compression" onclick="closeDrawer()">Compression</a>
+  <a href="#layers"      onclick="closeDrawer()">Layers</a>
+  <a href="#adaptive"    onclick="closeDrawer()">Adaptive</a>
+  <a href="#wiki"        onclick="closeDrawer()">Wiki</a>
+  <a href="#compile"     onclick="closeDrawer()">Compile</a>
+  <a href="#graph"       onclick="closeDrawer()">Graph</a>
+  <a href="#provenance"  onclick="closeDrawer()">Provenance</a>
+  <a href="#session"     onclick="closeDrawer()">Sessions</a>
+  <a href="#commands"    onclick="closeDrawer()">Commands</a>
+  <a href="https://github.com/abhisekjha/pith" target="_blank" class="drawer-install">Install free →</a>
+</div>
+
+<!-- ━━━━━━━━━━━━━━━━━━━━ HERO ━━━━━━━━━━━━━━━━━━━━ -->
+<section class="hero">
+  <div class="hero-mesh">
+    <div class="mesh-orb m1"></div>
+    <div class="mesh-orb m2"></div>
+    <div class="mesh-orb m3"></div>
+    <div class="mesh-orb m4"></div>
+  </div>
+
+  <div class="hero-inner">
+    <div class="hero-eyebrow r on">
+      <div class="eyebrow-dot"></div>
+      Token optimization for Claude Code
+    </div>
+
+    <h1 class="r on d1">
+      <span class="h1-a">fewer tokens.</span>
+      <span class="h1-b">smarter sessions.</span>
+    </h1>
+
+    <p class="hero-sub r on d2">
+      ~50% fewer tokens in a typical Claude Code session. Zero config. Install once — every project, forever.
+    </p>
+
+    <div class="hero-badges r on d2">
+      <span class="badge badge-blue">Token compression</span>
+      <span class="badge badge-green">Project wiki</span>
+      <span class="badge badge-violet">Auto-escalation</span>
+      <span class="badge badge-amber">YAML provenance</span>
+      <span class="badge" style="color:var(--emerald);border-color:rgba(52,211,153,0.25);background:rgba(52,211,153,0.08)">Session reports</span>
+      <span class="badge" style="color:var(--indigo);border-color:rgba(129,140,248,0.25);background:rgba(129,140,248,0.08)">Symbol extraction</span>
+    </div>
+
+    <div class="install-wrap r on d3">
+      <div class="install-box">
+        <span class="install-ps">$</span>
+        <code class="install-code">bash &lt;(curl -s https://raw.githubusercontent.com/abhisekjha/pith/main/install.sh)</code>
+        <button class="install-copy" onclick="cp(this)" data-cmd="bash <(curl -s https://raw.githubusercontent.com/abhisekjha/pith/main/install.sh)">Copy</button>
+      </div>
+      <span class="install-or">or</span>
+      <div class="install-box">
+        <span class="install-ps">$</span>
+        <code class="install-code">git clone https://github.com/abhisekjha/pith &amp;&amp; bash pith/install.sh</code>
+        <button class="install-copy" onclick="cp(this)" data-cmd="git clone https://github.com/abhisekjha/pith && bash pith/install.sh">Copy</button>
+      </div>
+      <a class="gh-link" href="https://github.com/abhisekjha/pith" target="_blank">View on GitHub →</a>
+    </div>
+  </div>
+</section>
+
+<!-- ━━━━━━━━━━━━━━━━━━━━ STATS ━━━━━━━━━━━━━━━━━━━━ -->
+<div class="stats r">
+  <div class="stat">
+    <div class="stat-n" id="c1">0%</div>
+    <div class="stat-l">token reduction<br>on large file reads</div>
+  </div>
+  <div class="stat">
+    <div class="stat-n">0</div>
+    <div class="stat-l">config required<br>to get started</div>
+  </div>
+  <div class="stat">
+    <div class="stat-n">∞</div>
+    <div class="stat-l">session length<br>with auto-compact</div>
+  </div>
+  <div class="stat">
+    <div class="stat-n" style="color:var(--violet)">19</div>
+    <div class="stat-l">features shipped<br>across 10 research phases</div>
+  </div>
+</div>
+
+<hr class="hr" />
+
+<!-- ━━━━━━━━━━━━━━━━━━━━ TWO LAYERS ━━━━━━━━━━━━━━━━━━━━ -->
+<div class="s r" id="layers">
+  <div class="s-eye">Architecture</div>
+  <h2 class="s-h">Four hooks.<br>One install.</h2>
+  <p class="s-p">Pith intercepts Claude Code's session lifecycle at four points. Everything runs automatically — no config, no commands required.</p>
+
+  <div class="term r" style="margin-top:32px;margin-bottom:40px">
+    <div class="term-chrome">
+      <div class="dot dr"></div><div class="dot dy"></div><div class="dot dg"></div>
+      <span class="term-name">session lifecycle</span>
+    </div>
+    <div class="term-body" style="font-size:12px;line-height:1.8">
+      <div><span class="t-violet">┌─────────────────────────────────────────────────────┐</span></div>
+      <div><span class="t-violet">│</span>              <span class="t-out">Claude Code Session</span>                        <span class="t-violet">│</span></div>
+      <div><span class="t-violet">│</span>                                                     <span class="t-violet">│</span></div>
+      <div><span class="t-violet">│</span>  <span class="t-emerald">[SessionStart]</span> <span class="t-dim">──► inject rules, restore mode, cache-lock</span>  <span class="t-violet">│</span></div>
+      <div><span class="t-violet">│</span>                                                     <span class="t-violet">│</span></div>
+      <div><span class="t-violet">│</span>  User sends prompt                                   <span class="t-violet">│</span></div>
+      <div><span class="t-violet">│</span>       <span class="t-dim">│</span>                                               <span class="t-violet">│</span></div>
+      <div><span class="t-violet">│</span>  <span class="t-emerald">[UserPromptSubmit]</span> <span class="t-dim">──► parse /pith commands, context</span>   <span class="t-violet">│</span></div>
+      <div><span class="t-violet">│</span>       <span class="t-dim">│</span>                                               <span class="t-violet">│</span></div>
+      <div><span class="t-violet">│</span>  Claude thinks + calls tools                         <span class="t-violet">│</span></div>
+      <div><span class="t-violet">│</span>       <span class="t-dim">│</span>                                               <span class="t-violet">│</span></div>
+      <div><span class="t-violet">│</span>  <span class="t-emerald">[PostToolUse]</span> <span class="t-dim">──► compress tool output</span>               <span class="t-violet">│</span></div>
+      <div><span class="t-violet">│</span>  <span class="t-dim">  • File reads   → skeleton (imports + signatures)</span>   <span class="t-violet">│</span></div>
+      <div><span class="t-violet">│</span>  <span class="t-dim">  • Bash output  → errors + 3-line summary            </span><span class="t-violet">│</span></div>
+      <div><span class="t-violet">│</span>  <span class="t-dim">  • Grep results → capped at 25 matches               </span><span class="t-violet">│</span></div>
+      <div><span class="t-violet">│</span>  <span class="t-dim">  • Large output → offloaded, 3-line pointer          </span><span class="t-violet">│</span></div>
+      <div><span class="t-violet">│</span>       <span class="t-dim">│</span>                                               <span class="t-violet">│</span></div>
+      <div><span class="t-violet">│</span>  Claude responds                                     <span class="t-violet">│</span></div>
+      <div><span class="t-violet">│</span>       <span class="t-dim">│</span>                                               <span class="t-violet">│</span></div>
+      <div><span class="t-violet">│</span>  <span class="t-emerald">[Stop]</span> <span class="t-dim">──► record token usage, accumulate lifetime stats</span> <span class="t-violet">│</span></div>
+      <div><span class="t-violet">└─────────────────────────────────────────────────────┘</span></div>
+    </div>
+  </div>
+
+  <p class="s-p" style="margin-top:0">The PostToolUse hook is where most savings happen — file reads alone account for 30–50% of context in a typical coding session. It runs on every tool call, silently, without interrupting your flow.</p>
+
+  <p class="s-p">Pith also runs as two independent layers. The infrastructure layer is permanent — it activates on install and never turns off. The style compression layer is togglable — switch it on, off, or change modes mid-session without affecting anything else.</p>
+
+  <div class="ba" style="margin-top:48px">
+    <div class="ba-card" style="border-color:rgba(10,132,255,0.15)">
+      <div class="ba-top">
+        <span class="ba-tag" style="color:var(--blue)">Layer 1 — Infrastructure</span>
+        <span class="ba-pill" style="background:rgba(10,132,255,0.1);color:var(--blue);border:1px solid rgba(10,132,255,0.2)">Always on</span>
+      </div>
+      <div class="ba-row"><span class="ba-op">Context window tracking</span><span class="ba-val" style="color:var(--blue)">PITH 503/200k</span></div>
+      <div class="ba-row"><span class="ba-op">Token meter + statusline</span><span class="ba-val" style="color:var(--blue)">Every session</span></div>
+      <div class="ba-row"><span class="ba-op">Tool output compression</span><span class="ba-val" style="color:var(--blue)">File / bash / grep</span></div>
+      <div class="ba-row"><span class="ba-op">Auto-compact at 70%</span><span class="ba-val" style="color:var(--blue)">Automatic</span></div>
+      <div class="ba-row"><span class="ba-op">Auto-escalation (SWEzze)</span><span class="ba-val" style="color:var(--blue)">LEAN at 50% · ULTRA at 70%</span></div>
+      <div class="ba-row"><span class="ba-op">Hindsight pruning</span><span class="ba-val" style="color:var(--blue)">Nudges at 60% fill</span></div>
+      <div class="ba-row"><span class="ba-op">Cache-lock deduplication</span><span class="ba-val" style="color:var(--blue)">Saves ~300 tok/session</span></div>
+      <div class="ba-row"><span class="ba-op">Wiki system</span><span class="ba-val" style="color:var(--blue)">Ingest / query / lint</span></div>
+      <div class="ba-row"><span class="ba-op">Session state saving</span><span class="ba-val" style="color:var(--blue)">On every exit</span></div>
+      <div class="ba-row"><span class="ba-op">YAML provenance tracking</span><span class="ba-val" style="color:var(--blue)">All wiki writes</span></div>
+      <div class="ba-row"><span class="ba-op">Knowledge graph</span><span class="ba-val" style="color:var(--blue)">/pith-graph</span></div>
+    </div>
+    <div class="ba-card" style="border-color:rgba(52,211,153,0.12)">
+      <div class="ba-top">
+        <span class="ba-tag" style="color:var(--emerald)">Layer 2 — Style compression</span>
+        <span class="ba-pill" style="background:rgba(52,211,153,0.1);color:var(--emerald);border:1px solid rgba(52,211,153,0.2)">Togglable</span>
+      </div>
+      <div class="ba-row"><span class="ba-op">/pith lean</span><span class="ba-val" style="color:var(--emerald)">Default — drop filler</span></div>
+      <div class="ba-row"><span class="ba-op">/pith precise</span><span class="ba-val" style="color:var(--emerald)">No filler, full sentences</span></div>
+      <div class="ba-row"><span class="ba-op">/pith ultra</span><span class="ba-val" style="color:var(--emerald)">Max — arrows, tables</span></div>
+      <div class="ba-row"><span class="ba-op">/pith off</span><span class="ba-val" style="color:var(--fg3)">Disabled — raw Claude output</span></div>
+      <div class="ba-row" style="border-bottom:none;padding-top:20px">
+        <span class="ba-op" style="color:var(--fg4);font-size:11px">Mode OFF means Layer 2 is disabled. Layer 1 keeps running — context tracking, wiki, token meter, and tool compression all stay active.</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="term r" style="margin-top:32px">
+    <div class="term-chrome">
+      <div class="dot dr"></div><div class="dot dy"></div><div class="dot dg"></div>
+      <span class="term-name">compression layers in action</span>
+    </div>
+    <div class="term-body">
+      <div><span class="t-dim">── Layer 1 always visible in statusline ────────────</span></div>
+      <div><span class="t-dim">  PITH 503/200k &nbsp; ← context tracking, always on</span></div>
+      <br>
+      <div><span class="t-dim">── /pith status shows both layers ──────────────────</span></div>
+      <div><span class="t-violet">◆ PITH · SESSION STATUS</span></div>
+      <div>&nbsp;&nbsp;<span class="t-out">Context &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; [░░░░░░░░░░░░░░░░░░░░] &nbsp;0%</span>&nbsp;&nbsp;<span class="t-dim">← Layer 1</span></div>
+      <div>&nbsp;&nbsp;<span class="t-out">Mode &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="t-dim">OFF</span></span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="t-dim">← Layer 2</span></div>
+      <div>&nbsp;&nbsp;<span class="t-out">Budget &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; none</span></div>
+      <div>&nbsp;&nbsp;<span class="t-out">Total Saved &nbsp;&nbsp;&nbsp;&nbsp; <span class="t-ok">~714 (52%)</span></span>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;<span class="t-dim">← Layer 1 savings</span></div>
+      <br>
+      <div><span class="t-dim">── Layer 2 off, Layer 1 still compressing tools ────</span></div>
+      <div><span class="t-prompt">$</span> <span class="t-cmd">/pith lean</span>&nbsp;&nbsp;<span class="t-dim">← re-enable Layer 2</span></div>
+      <div><span class="t-ok">✓</span> <span class="t-out">Mode → <span class="t-emerald">LEAN</span>. Tool compression was already running.</span></div>
+    </div>
+  </div>
+</div>
+
+<hr class="hr" />
+
+<!-- ━━━━━━━━━━━━━━━━━━━━ HOW IT WORKS / COMPRESSION ━━━━━━━━━━━━━━━━━━━━ -->
+<div class="s r" id="compression">
+  <div class="s-eye">How it works</div>
+  <h2 class="s-h">Automatic compression<br>where it matters most.</h2>
+  <p class="s-p">The biggest token sink isn't your prompts — it's tool output. Pith intercepts file reads, bash results, and grep matches before they hit the context window. Claude gets the signal, not the scroll.</p>
+
+  <div class="ba">
+    <div class="ba-card">
+      <div class="ba-top">
+        <span class="ba-tag bad">Without Pith</span>
+        <span class="ba-pill bad">3,110 tokens</span>
+      </div>
+      <div class="ba-row"><span class="ba-op">Read large-service.ts</span><span class="ba-val bad">1,800</span></div>
+      <div class="ba-row"><span class="ba-op">Bash: npm install</span><span class="ba-val bad">640</span></div>
+      <div class="ba-row"><span class="ba-op">Grep: findAll errors</span><span class="ba-val bad">380</span></div>
+      <div class="ba-row"><span class="ba-op">Read config.json</span><span class="ba-val bad">290</span></div>
+    </div>
+    <div class="ba-card is-after">
+      <div class="ba-top">
+        <span class="ba-tag good">With Pith</span>
+        <span class="ba-pill good">675 tokens &mdash; −78%</span>
+      </div>
+      <div class="ba-row"><span class="ba-op">Read large-service.ts</span><span class="ba-val good">210 <span class="pct-tag">−88%</span></span></div>
+      <div class="ba-row"><span class="ba-op">Bash: npm install</span><span class="ba-val good">80 <span class="pct-tag">−87%</span></span></div>
+      <div class="ba-row"><span class="ba-op">Grep: findAll errors</span><span class="ba-val good">95 <span class="pct-tag">−75%</span></span></div>
+      <div class="ba-row"><span class="ba-op">Read config.json</span><span class="ba-val good">290</span></div>
+    </div>
+  </div>
+
+  <div class="term r">
+    <div class="term-chrome">
+      <div class="dot dr"></div><div class="dot dy"></div><div class="dot dg"></div>
+      <span class="term-name">claude — pith active</span>
+    </div>
+    <div class="term-body">
+      <div><span class="t-prompt">$</span> <span class="t-cmd">/pith ultra</span></div>
+      <div><span class="t-ok">✓</span> <span class="t-out">Ultra compression on — arrows →, tables over prose, abbreviate freely</span></div>
+      <br>
+      <div><span class="t-prompt">$</span> <span class="t-cmd">/budget 150</span></div>
+      <div><span class="t-ok">✓</span> <span class="t-out">Token ceiling: 150. Enforced.</span></div>
+      <br>
+      <div><span class="t-prompt">$</span> <span class="t-cmd">/pith status</span></div>
+      <div><span class="t-dim">◆ PITH · SESSION STATUS</span></div>
+      <div><span class="t-dim">&nbsp;&nbsp;Context &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; [▓▓▓░░░░░░░░░░░░░░░░░]&nbsp; 14%</span></div>
+      <div><span class="t-dim">&nbsp;&nbsp;Mode &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="t-ok">ULTRA</span></span></div>
+      <div><span class="t-dim">&nbsp;&nbsp;Budget &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 150 tok/resp</span></div>
+      <div><span class="t-dim">&nbsp;&nbsp;Model &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Sonnet 4.6 (in $3.0/1M · out $15.0/1M)</span></div>
+      <br>
+      <div><span class="t-dim">&nbsp;&nbsp;Tokens</span></div>
+      <div><span class="t-dim">&nbsp;&nbsp;Total Saved &nbsp;&nbsp;&nbsp;&nbsp; <span class="t-ok">~2,840 (52%)</span></span></div>
+      <div><span class="t-dim">&nbsp;&nbsp;Without Pith &nbsp;&nbsp;&nbsp; 5,912</span></div>
+      <br>
+      <div><span class="t-dim">&nbsp;&nbsp;Cost (this session)</span></div>
+      <div><span class="t-dim">&nbsp;&nbsp;Tokens in &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 3,072 → $0.0092</span></div>
+      <div><span class="t-dim">&nbsp;&nbsp;Tokens out &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; 420 → $0.0063</span></div>
+      <div><span class="t-dim">&nbsp;&nbsp;Actual spend &nbsp;&nbsp;&nbsp; <span style="color:var(--yellow)">$0.0155</span></span></div>
+      <div><span class="t-dim">&nbsp;&nbsp;Cost saved &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; <span class="t-ok">$0.0085</span></span></div>
+      <div><span class="t-dim">&nbsp;&nbsp;Without Pith &nbsp;&nbsp;&nbsp; <span style="color:#e06c75">$0.0240</span></span></div>
+      <br>
+      <div><span class="t-dim">&nbsp;&nbsp;Lifetime</span></div>
+      <div><span class="t-dim">&nbsp;&nbsp;Tokens saved &nbsp;&nbsp;&nbsp; ~7,700</span></div>
+      <div><span class="t-dim">&nbsp;&nbsp;Cost saved &nbsp;&nbsp;&nbsp;&nbsp;&nbsp; $0.0230</span></div>
+    </div>
+  </div>
+</div>
+
+<hr class="hr" />
+
+<!-- ━━━━━━━━━━━━━━━━━━━━ OUTPUT MODES ━━━━━━━━━━━━━━━━━━━━ -->
+<div class="s r">
+  <div class="s-eye">Output modes</div>
+  <h2 class="s-h">One command.<br>Four levels of compression.</h2>
+  <p class="s-p">Switch between modes instantly. Pith remembers your setting for the session — no flags, no config.</p>
+
+  <div class="modes-grid">
+    <div class="mode-card">
+      <div class="mode-name">/pith lean</div>
+      <div class="mode-desc">Default. Drop articles and filler. Short synonyms. Fragments OK. Best balance of readability and compression.</div>
+      <div class="mode-example">
+        <div class="ex-in">IN: "I would like to suggest that you consider..."</div>
+        <div class="ex-out">OUT: "Consider..."</div>
+      </div>
+    </div>
+    <div class="mode-card">
+      <div class="mode-name">/pith precise</div>
+      <div class="mode-desc">Professional and tight. No filler, full sentences kept. Use for docs, PRs, and communication.</div>
+      <div class="mode-example">
+        <div class="ex-in">IN: verbose explanation with hedges</div>
+        <div class="ex-out">OUT: clean technical prose, no hedging</div>
+      </div>
+    </div>
+    <div class="mode-card">
+      <div class="mode-name">/pith ultra</div>
+      <div class="mode-desc">Maximum compression. Arrows → over prose. Tables over lists. Abbreviate freely. Use when every token counts.</div>
+      <div class="mode-example">
+        <div class="ex-in">IN: multi-sentence explanation</div>
+        <div class="ex-out">OUT: A → B → C. Done.</div>
+      </div>
+    </div>
+    <div class="mode-card">
+      <div class="mode-name">/pith off</div>
+      <div class="mode-desc">Back to standard Claude output. No compression, no modification. Full fidelity when you need it.</div>
+      <div class="mode-example">
+        <div class="ex-in">IN: any prompt</div>
+        <div class="ex-out">OUT: unmodified Claude response</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<hr class="hr" />
+
+<!-- ━━━━━━━━━━━━━━━━━━━━ ADAPTIVE INTELLIGENCE ━━━━━━━━━━━━━━━━━━━━ -->
+<div class="s r" id="adaptive">
+  <div class="s-eye violet">Adaptive Intelligence</div>
+  <h2 class="s-h">Context-aware.<br>Gets smarter as it fills.</h2>
+  <p class="s-p">Pith watches your context window in real time and takes action before it causes problems — automatically ratcheting compression, flagging waste, and front-loading what future requests will need.</p>
+
+  <!-- Auto-escalation -->
+  <div class="ba" style="margin-top:56px">
+    <div class="ba-card" style="border-color:rgba(191,90,242,0.15)">
+      <div class="ba-top">
+        <span class="ba-tag" style="color:var(--violet)">Auto-escalation</span>
+        <span class="ba-pill" style="background:rgba(191,90,242,0.1);color:var(--violet);border:1px solid rgba(191,90,242,0.2)">Always on</span>
+      </div>
+      <div class="ba-row"><span class="ba-op">50% context fill</span><span class="ba-val" style="color:var(--violet)">→ LEAN mode activated</span></div>
+      <div class="ba-row"><span class="ba-op">70% context fill</span><span class="ba-val" style="color:var(--violet)">→ ULTRA mode activated</span></div>
+      <div class="ba-row"><span class="ba-op">85% context fill</span><span class="ba-val" style="color:var(--red)">→ Dynamic ceiling injected</span></div>
+      <div class="ba-row" style="border-bottom:none"><span class="ba-op" style="color:var(--fg4);font-size:11px">Ratchets up, never down mid-session. Prevents runaway responses from eating the remaining headroom. Toggle with /pith escalate on|off.</span></div>
+    </div>
+    <div class="ba-card is-after">
+      <div class="ba-top">
+        <span class="ba-tag good">Before / After</span>
+        <span class="ba-pill good">68% fill — auto-escalated</span>
+      </div>
+      <div class="ba-row"><span class="ba-op">Context fill</span><span class="ba-val bad">136k / 200k</span></div>
+      <div class="ba-row"><span class="ba-op">Response size (before)</span><span class="ba-val bad">1,840 tok — growing</span></div>
+      <div class="ba-row"><span class="ba-op">Mode injected</span><span class="ba-val good">ULTRA (auto)</span></div>
+      <div class="ba-row" style="border-bottom:none"><span class="ba-op">Response size (after)</span><span class="ba-val good" style="color:var(--emerald)">510 tok <span class="pct-tag">-72%</span></span></div>
+    </div>
+  </div>
+
+  <!-- Hindsight + Symbol extractor side by side -->
+  <div class="ba" style="margin-top:2px">
+    <div class="ba-card" style="border-color:rgba(255,214,10,0.12)">
+      <div class="ba-top">
+        <span class="ba-tag" style="color:var(--amber)">Hindsight pruning &nbsp;<span style="font-weight:400;opacity:0.5;font-size:10px">Hindsight · 2026</span></span>
+        <span class="ba-pill" style="background:rgba(255,214,10,0.1);color:var(--amber);border:1px solid rgba(255,214,10,0.2)">60% trigger</span>
+      </div>
+      <div class="ba-row"><span class="ba-op">Scan telemetry</span><span class="ba-val" style="color:var(--amber)">Every tool call logged</span></div>
+      <div class="ba-row"><span class="ba-op">Superseded reads</span><span class="ba-val" style="color:var(--amber)">File read 2+ times → flag</span></div>
+      <div class="ba-row"><span class="ba-op">Early-session blobs</span><span class="ba-val" style="color:var(--amber)">Large old outputs → prune</span></div>
+      <div class="ba-row" style="border-bottom:none"><span class="ba-op" style="color:var(--fg4);font-size:11px">Fires once per session when context passes 60%. Reports stale token cost. Recommends /compact with exact savings estimate.</span></div>
+    </div>
+    <div class="ba-card" style="border-color:rgba(129,140,248,0.12)">
+      <div class="ba-top">
+        <span class="ba-tag" style="color:var(--indigo)">Symbol extractor + Speculative Fetch</span>
+        <span class="ba-pill" style="background:rgba(129,140,248,0.1);color:var(--indigo);border:1px solid rgba(129,140,248,0.2)">~95% reduction</span>
+      </div>
+      <div class="ba-row"><span class="ba-op">Full file read</span><span class="ba-val bad">1,800 tokens</span></div>
+      <div class="ba-row"><span class="ba-op">/pith symbol auth.ts handleLogin</span><span class="ba-val good">38 tokens <span class="pct-tag">-98%</span></span></div>
+      <div class="ba-row"><span class="ba-op">Speculative fetch</span><span class="ba-val" style="color:var(--indigo)">+callee signatures auto-appended</span></div>
+      <div class="ba-row" style="border-bottom:none"><span class="ba-op" style="color:var(--fg4);font-size:11px">Tree-sitter AST when available, regex fallback. Appends signatures of called functions defined in the same file — eliminates ~60% of follow-up lookups.</span></div>
+    </div>
+  </div>
+
+  <!-- Terminal demo: auto-escalation in action -->
+  <div class="term r" style="margin-top:48px">
+    <div class="term-chrome">
+      <div class="dot dr"></div><div class="dot dy"></div><div class="dot dg"></div>
+      <span class="term-name">adaptive intelligence · live session</span>
+    </div>
+    <div class="term-body">
+      <div><span class="t-dim">── turn 24 · context fill: 52% ──────────────────────</span></div>
+      <div><span class="t-violet">[PITH AUTO-ESCALATED: context 52% full → LEAN compression active.</span></div>
+      <div><span class="t-violet"> Previous mode: off. Run /pith escalate off to disable.]</span></div>
+      <div>&nbsp;</div>
+      <div><span class="t-dim">── turn 31 · context fill: 71% ──────────────────────</span></div>
+      <div><span class="t-violet">[PITH AUTO-ESCALATED: context 71% full → ULTRA compression active.]</span></div>
+      <div>&nbsp;</div>
+      <div><span class="t-dim">── turn 33 · hindsight nudge (fires once at 60%+) ───</span></div>
+      <div><span class="t-amber">[PITH HINDSIGHT: 3 stale reads detected · 4,200 tokens recoverable</span></div>
+      <div><span class="t-amber">  auth.ts read 3× (keep latest: turn 29) · 1,840 tok</span></div>
+      <div><span class="t-amber">  npm install output (turn 2, now irrelevant) · 1,120 tok</span></div>
+      <div><span class="t-amber">  → Run /compact to recover ~4.2k tokens (21% of remaining headroom)]</span></div>
+      <div>&nbsp;</div>
+      <div><span class="t-prompt">$</span> <span class="t-cmd">/pith symbol src/auth.ts validateToken</span></div>
+      <div><span class="t-indigo">[PITH SYMBOL: validateToken in auth.ts (lines 47–81, tree-sitter)]</span></div>
+      <div><span class="t-out">  47  async function validateToken(token: string): Promise&lt;User | null&gt; {</span></div>
+      <div><span class="t-out">  48    const decoded = jwt.verify(token, process.env.JWT_SECRET);</span></div>
+      <div><span class="t-out">  ···  (35 lines extracted · 97% fewer tokens than reading auth.ts)</span></div>
+      <div><span class="t-dim">[PITH SPECULATIVE: called functions in same file → signToken (ln 31), hashPassword (ln 94)]</span></div>
+    </div>
+  </div>
+
+  <!-- Cache-lock + Report -->
+  <div class="ba" style="margin-top:2px">
+    <div class="ba-card" style="border-color:rgba(48,209,88,0.12)">
+      <div class="ba-top">
+        <span class="ba-tag" style="color:var(--green)">Cache-Lock &nbsp;<span style="font-weight:400;opacity:0.5;font-size:10px">Phase 9 · 2026</span></span>
+        <span class="ba-pill good">~300 tok/session</span>
+      </div>
+      <div class="ba-row"><span class="ba-op">Session-start hash</span><span class="ba-val" style="color:var(--green)">MD5 of rules block</span></div>
+      <div class="ba-row"><span class="ba-op">Same settings as last session</span><span class="ba-val good">1 line emitted, not full block</span></div>
+      <div class="ba-row"><span class="ba-op">Settings changed</span><span class="ba-val" style="color:var(--fg3)">Full block, hash updated</span></div>
+      <div class="ba-row" style="border-bottom:none"><span class="ba-op" style="color:var(--fg4);font-size:11px">Protects prompt cache. Dynamic values (token counts, timestamps) are excluded from the hash so cache hits are genuine stability signals.</span></div>
+    </div>
+    <div class="ba-card" style="border-color:rgba(10,132,255,0.12)">
+      <div class="ba-top">
+        <span class="ba-tag" style="color:var(--blue)">Session Report &nbsp;<span style="font-weight:400;opacity:0.5;font-size:10px">/pith report</span></span>
+        <span class="ba-pill" style="background:rgba(10,132,255,0.1);color:var(--blue);border:1px solid rgba(10,132,255,0.2)">HTML dashboard</span>
+      </div>
+      <div class="ba-row"><span class="ba-op">Token flow bars</span><span class="ba-val" style="color:var(--blue)">Baseline → removed → sent</span></div>
+      <div class="ba-row"><span class="ba-op">Savings donut</span><span class="ba-val" style="color:var(--blue)">Per-bucket breakdown</span></div>
+      <div class="ba-row"><span class="ba-op">Cost table</span><span class="ba-val" style="color:var(--blue)">Actual vs without Pith</span></div>
+      <div class="ba-row" style="border-bottom:none"><span class="ba-op" style="color:var(--fg4);font-size:11px">Standalone Chart.js dashboard written to ~/.pith/report.html. Opens in browser — auto-refreshes every 30s. Run any time to regenerate.</span></div>
+    </div>
+  </div>
+
+  <!-- /pith status screenshot -->
+  <div class="provenance-card r" style="margin-top:48px">
+    <div class="prov-top">
+      <span class="prov-file"><span style="color:var(--blue)">$</span> /pith status</span>
+      <span class="prov-badge" style="background:rgba(10,132,255,0.1);color:var(--blue);border-color:rgba(10,132,255,0.2)">Live output</span>
+    </div>
+    <div style="padding:0;overflow:hidden;border-radius:0 0 20px 20px;">
+      <img src="assets/status-screenshot-v1.2.png"
+           alt="/pith status — 92% compression, 47.2× ROI, $3.27 saved vs $0.07 actual spend"
+           style="width:100%;display:block;border:none;" />
+    </div>
+  </div>
+</div>
+
+<hr class="hr" />
+
+<!-- ━━━━━━━━━━━━━━━━━━━━ WIKI SYSTEM ━━━━━━━━━━━━━━━━━━━━ -->
+<div class="s r" id="wiki">
+  <div class="s-eye green">Project Wiki</div>
+  <h2 class="s-h">Your project's memory.<br>Built automatically.</h2>
+  <p class="s-p">First session in a new project, Pith creates a wiki. Every decision, architecture choice, and bug resolution gets captured as you work — without interrupting your flow.</p>
+
+  <div class="page-type-grid">
+    <div class="pt">
+      <div class="pt-dot" style="background:#34d399"></div>
+      <h4>Decision</h4>
+      <p>Architecture and technology choices with full context — why it was decided, what was rejected, and what it constrains.</p>
+      <div class="pt-fields">
+        <div class="pt-field">date · status</div>
+        <div class="pt-field">context · options table</div>
+        <div class="pt-field">decision · consequences</div>
+      </div>
+    </div>
+    <div class="pt">
+      <div class="pt-dot" style="background:#818cf8"></div>
+      <h4>Concept</h4>
+      <p>Ideas, patterns, and principles — how they work, why they matter, open questions, and concrete examples.</p>
+      <div class="pt-fields">
+        <div class="pt-field">definition · why it matters</div>
+        <div class="pt-field">how it works · related</div>
+        <div class="pt-field">examples · open questions</div>
+      </div>
+    </div>
+    <div class="pt">
+      <div class="pt-dot" style="background:#fb923c"></div>
+      <h4>Entity</h4>
+      <p>People, tools, services, and components — key facts, connections to other entities, and source citations.</p>
+      <div class="pt-fields">
+        <div class="pt-field">type · summary</div>
+        <div class="pt-field">key facts</div>
+        <div class="pt-field">connections · sources</div>
+      </div>
+    </div>
+    <div class="pt">
+      <div class="pt-dot" style="background:#f472b6"></div>
+      <h4>Synthesis</h4>
+      <p>Analysis pages with a thesis, evidence, counter-evidence, and a confidence rating. For conclusions that span multiple sources.</p>
+      <div class="pt-fields">
+        <div class="pt-field">thesis · confidence</div>
+        <div class="pt-field">evidence · counter-evidence</div>
+        <div class="pt-field">open questions</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="workflow r">
+    <div class="wf-step">
+      <div class="wf-num">01</div>
+      <h4>Ingest a source</h4>
+      <p>/pith ingest &lt;file&gt; or --url &lt;url&gt;<br>Extracts entities, claims, contradictions from files or fetched URLs</p>
+    </div>
+    <div class="wf-step">
+      <div class="wf-num">02</div>
+      <h4>Review diff</h4>
+      <p>Shows what will be created or updated — confirm before any write</p>
+    </div>
+    <div class="wf-step">
+      <div class="wf-num">03</div>
+      <h4>Wiki updates</h4>
+      <p>Pages written, index.md updated, log.md appended</p>
+    </div>
+    <div class="wf-step">
+      <div class="wf-num">04</div>
+      <h4>Compile</h4>
+      <p>/pith compile re-synthesizes all sources into cross-linked wiki pages — one command after N ingests</p>
+    </div>
+    <div class="wf-step">
+      <div class="wf-num">05</div>
+      <h4>Query anytime</h4>
+      <p>/pith wiki "&lt;question&gt;"<br>Synthesizes answer with citations</p>
+    </div>
+    <div class="wf-step">
+      <div class="wf-num">06</div>
+      <h4>Lint regularly</h4>
+      <p>/pith lint finds contradictions, gaps, missing pages, and imputable facts</p>
+    </div>
+  </div>
+
+  <div class="term r">
+    <div class="term-chrome">
+      <div class="dot dr"></div><div class="dot dy"></div><div class="dot dg"></div>
+      <span class="term-name">pith wiki</span>
+    </div>
+    <div class="term-body">
+      <div><span class="t-prompt">$</span> <span class="t-cmd">/pith ingest --url https://research.example.com/auth-patterns</span></div>
+      <div><span class="t-ok">→</span> <span class="t-out">Fetched → <span class="t-hl">raw/sources/2026-04-17-auth-patterns.md</span></span></div>
+      <div><span class="t-ok">→</span> <span class="t-out">Found: <span class="t-hl">3 entities</span>, <span class="t-emerald">2 new concepts</span>, <span class="t-pink">1 contradiction</span></span></div>
+      <div>&nbsp;&nbsp;<span class="t-out">Will update: <span class="t-hl">[[auth-middleware]]</span>, <span class="t-hl">[[session-tokens]]</span></span></div>
+      <div>&nbsp;&nbsp;<span class="t-out">Will create: <span class="t-emerald">[[JWT-refresh-flow]]</span></span></div>
+      <br>
+      <div><span class="t-prompt">$</span> <span class="t-cmd">/pith compile</span></div>
+      <div><span class="t-ok">→</span> <span class="t-out">Found <span class="t-hl">8 sources</span>. Building compile plan...</span></div>
+      <div>&nbsp;&nbsp;<span class="t-out">Topics: <span class="t-hl">5</span> · Synthesis pages: <span class="t-emerald">3</span> · Gaps: <span class="t-pink">2</span></span></div>
+      <div>&nbsp;&nbsp;<span class="t-out">Creating <span class="t-emerald">[[auth-strategy-synthesis]]</span> from 3 sources...</span></div>
+      <div>&nbsp;&nbsp;<span class="t-out">Compile complete. 3 created · 2 updated.</span></div>
+      <br>
+      <div><span class="t-prompt">$</span> <span class="t-cmd">/pith wiki "how does auth work?"</span></div>
+      <div><span class="t-ok">→</span> <span class="t-out">Based on <span class="t-hl">[[auth-middleware]]</span> and <span class="t-hl">[[auth-strategy-synthesis]]</span>:</span></div>
+      <div>&nbsp;&nbsp;<span class="t-out">Auth: JWT + refresh tokens, httpOnly cookie. Decision: cookies &gt; localStorage (XSS).</span></div>
+    </div>
+  </div>
+</div>
+
+<hr class="hr" />
+
+<!-- ━━━━━━━━━━━━━━━━━━━━ COMPILE ━━━━━━━━━━━━━━━━━━━━ -->
+<div class="s r" id="compile">
+  <div class="s-eye blue">Compile Pass</div>
+  <h2 class="s-h">Many sources.<br>One coherent wiki.</h2>
+  <p class="s-p">After ingesting several sources, <code style="font-family:var(--mono);font-size:15px;color:rgba(255,255,255,0.7)">/pith compile</code> re-reads all of them together and synthesizes cross-source wiki pages — evidence from multiple documents combined into a single, cited, cross-linked page. This is the Karpathy compile pass: raw/ in, wiki/ out.</p>
+
+  <div class="workflow r">
+    <div class="wf-step">
+      <div class="wf-num">01</div>
+      <h4>Plan</h4>
+      <p>Claude reads all raw/sources/ and identifies cross-cutting topics, synthesis opportunities, and gaps</p>
+    </div>
+    <div class="wf-step">
+      <div class="wf-num">02</div>
+      <h4>Synthesize</h4>
+      <p>Creates or updates wiki/concepts/ pages — each one cites every source it draws from</p>
+    </div>
+    <div class="wf-step">
+      <div class="wf-num">03</div>
+      <h4>File gaps</h4>
+      <p>Topics implied by sources but not yet covered are recorded in log.md for follow-up</p>
+    </div>
+    <div class="wf-step">
+      <div class="wf-num">04</div>
+      <h4>Dry run</h4>
+      <p>/pith compile --dry-run shows the full plan — topics, pages, gaps — without writing anything</p>
+    </div>
+  </div>
+
+  <div class="term r">
+    <div class="term-chrome">
+      <div class="dot dr"></div><div class="dot dy"></div><div class="dot dg"></div>
+      <span class="term-name">pith compile</span>
+    </div>
+    <div class="term-body">
+      <div><span class="t-prompt">$</span> <span class="t-cmd">/pith compile --dry-run</span></div>
+      <div><span class="t-ok">→</span> <span class="t-out">Found <span class="t-hl">8 sources</span>. Building compile plan...</span></div>
+      <div>&nbsp;&nbsp;<span class="t-out">Topics to process: <span class="t-hl">5</span></span></div>
+      <div>&nbsp;&nbsp;<span class="t-out">Synthesis pages: <span class="t-emerald">[[auth-strategy-synthesis]]</span>, <span class="t-emerald">[[rate-limit-patterns]]</span>, <span class="t-emerald">[[infra-evolution]]</span></span></div>
+      <div>&nbsp;&nbsp;<span class="t-out">Gaps: <span class="t-pink">WebSocket auth</span> (referenced in 3 sources, no page) · <span class="t-pink">token rotation</span></span></div>
+      <div>&nbsp;&nbsp;<span class="t-out">[dry-run] No files written.</span></div>
+      <br>
+      <div><span class="t-prompt">$</span> <span class="t-cmd">/pith compile</span></div>
+      <div>&nbsp;&nbsp;<span class="t-out">Creating <span class="t-emerald">[[auth-strategy-synthesis]]</span> from 3 sources... ✓</span></div>
+      <div>&nbsp;&nbsp;<span class="t-out">Creating <span class="t-emerald">[[rate-limit-patterns]]</span> from 2 sources... ✓</span></div>
+      <div>&nbsp;&nbsp;<span class="t-out">Updating <span class="t-hl">[[infra-decisions]]</span> with new evidence... ✓</span></div>
+      <div><span class="t-ok">✓</span> <span class="t-out">Compile complete. <span class="t-emerald">3 created</span> · <span class="t-hl">2 updated</span> · <span class="t-pink">2 gaps filed</span></span></div>
+    </div>
+  </div>
+</div>
+
+<hr class="hr" />
+
+<!-- ━━━━━━━━━━━━━━━━━━━━ KNOWLEDGE GRAPH ━━━━━━━━━━━━━━━━━━━━ -->
+<div class="s r" id="graph">
+  <div class="s-eye violet">Knowledge Graph</div>
+  <h2 class="s-h">See the whole wiki<br>as a living network.</h2>
+  <p class="s-p"><code style="font-family:var(--mono);font-size:15px;color:rgba(255,255,255,0.7)">/pith-graph</code> scans every wiki page, extracts <code style="font-family:var(--mono);font-size:14px;color:rgba(255,255,255,0.7)">[[wikilinks]]</code>, and renders a zero-dependency interactive graph. No Obsidian, no framework. One command — browser opens instantly.</p>
+
+  <div class="graph-demo r">
+    <div class="graph-header">
+      <span class="graph-logo">◆ PITH WIKI</span>
+      <span style="opacity:0.3">·</span>
+      <span id="graph-stats">loading…</span>
+      <span style="opacity:0.3">·</span>
+      <span style="opacity:0.5;font-size:10px">hover a node to focus</span>
+    </div>
+    <div class="graph-legend">
+      <div class="gl-item"><div class="gl-dot" style="background:#34d399"></div>Decisions</div>
+      <div class="gl-item"><div class="gl-dot" style="background:#818cf8"></div>Concepts</div>
+      <div class="gl-item"><div class="gl-dot" style="background:#fb923c"></div>Entities</div>
+      <div class="gl-item"><div class="gl-dot" style="background:#f472b6"></div>Syntheses</div>
+    </div>
+    <svg id="graph-canvas"></svg>
+  </div>
+
+  <div class="feat-grid r" style="margin-top:2px">
+    <div class="feat">
+      <span class="feat-icon">🎯</span>
+      <h3>Focus hover</h3>
+      <p>Hover any node — the entire graph dims to 10% opacity. Only the hovered node and its direct 1st-degree connections stay at full brightness. Instantly trace dependencies without visual noise.</p>
+    </div>
+    <div class="feat">
+      <span class="feat-icon">💊</span>
+      <h3>Label pills</h3>
+      <p>Every node label sits on a semi-transparent dark pill that masks lines behind it. Stays legible at 50 nodes, 200 nodes, or more — no overlapping text.</p>
+    </div>
+    <div class="feat">
+      <span class="feat-icon">☀︎</span>
+      <h3>Light / dark mode</h3>
+      <p>One-click toggle between dark canvas and warm light mode. Pill backgrounds, text colours, and link tints all update live — no reload.</p>
+    </div>
+    <div class="feat">
+      <span class="feat-icon">🧲</span>
+      <h3>Force-directed physics</h3>
+      <p>Nodes repel each other; links act as springs. Drag any node and the simulation reacts. Zoom and pan the full canvas. Ghost nodes show referenced-but-missing pages.</p>
+    </div>
+    <div class="feat">
+      <span class="feat-icon">🎨</span>
+      <h3>Type-coded colours</h3>
+      <p>Emerald for decisions. Indigo for concepts. Amber for entities. Pink for syntheses. Each node has a matching glow so it pops off the dark canvas.</p>
+    </div>
+    <div class="feat">
+      <span class="feat-icon">📦</span>
+      <h3>Zero dependencies</h3>
+      <p>Output is a single standalone HTML file. D3.js from CDN. No install, no build step, no framework. Share the file with anyone — it runs anywhere.</p>
+    </div>
+  </div>
+</div>
+
+<hr class="hr" />
+
+<!-- ━━━━━━━━━━━━━━━━━━━━ YAML PROVENANCE ━━━━━━━━━━━━━━━━━━━━ -->
+<div class="s r" id="provenance">
+  <div class="s-eye amber">YAML Provenance</div>
+  <h2 class="s-h">Every claim traceable<br>to its source.</h2>
+  <p class="s-p">Every wiki page Pith creates or updates carries YAML frontmatter linking back to the exact source — raw file, GitHub PR, or Claude session timestamp. If the AI hallucinates, you can trace it.</p>
+
+  <div class="provenance-card r">
+    <div class="prov-top">
+      <span class="prov-file">wiki/decisions/auth-middleware.md</span>
+      <span class="prov-badge">Provenance block</span>
+    </div>
+    <div class="prov-body">
+      <div class="prov-yaml">
+<span class="yaml-delim">---</span>
+<span class="yaml-key">title</span><span class="yaml-val">: </span><span class="yaml-str">auth-middleware</span>
+<span class="yaml-key">type</span><span class="yaml-val">: </span><span class="yaml-str">decision</span>
+<span class="yaml-key">created</span><span class="yaml-val">: </span><span class="yaml-str">2026-04-15T14:32:00Z</span>
+<span class="yaml-key">updated</span><span class="yaml-val">: </span><span class="yaml-str">2026-04-15T18:44:00Z</span>
+<span class="yaml-key">sources</span><span class="yaml-val">:</span>
+<span class="yaml-val">  - </span><span class="yaml-key">type</span><span class="yaml-val">: </span><span class="yaml-str">file</span>
+<span class="yaml-val">    </span><span class="yaml-key">path</span><span class="yaml-val">: </span><span class="yaml-str">raw/sources/auth-spec.md</span>
+<span class="yaml-val">    </span><span class="yaml-key">ingested</span><span class="yaml-val">: </span><span class="yaml-str">2026-04-15T14:32:00Z</span>
+<span class="yaml-val">  - </span><span class="yaml-key">type</span><span class="yaml-val">: </span><span class="yaml-str">claude-session</span>
+<span class="yaml-val">    </span><span class="yaml-key">session_date</span><span class="yaml-val">: </span><span class="yaml-str">2026-04-15</span>
+<span class="yaml-val">    </span><span class="yaml-key">note</span><span class="yaml-val">: </span><span class="yaml-str">"Decision reached during auth refactor discussion"</span>
+<span class="yaml-key">confidence</span><span class="yaml-val">: </span><span class="yaml-str">high</span>
+<span class="yaml-key">contradictions</span><span class="yaml-val">: </span><span class="yaml-str">none</span>
+<span class="yaml-delim">---</span>
+      </div>
+      <div class="prov-explain">
+        Raw source files in <code style="font-family:var(--mono);font-size:11px;color:rgba(255,255,255,0.5)">wiki/raw/sources/</code> are <strong>immutable</strong> — Pith never modifies them. The provenance block on derived pages always points back to the original. If a claim looks wrong, follow the chain.
+      </div>
+    </div>
+  </div>
+</div>
+
+<hr class="hr" />
+
+<!-- ━━━━━━━━━━━━━━━━━━━━ SEMANTIC LINT ━━━━━━━━━━━━━━━━━━━━ -->
+<div class="s r">
+  <div class="s-eye pink">Semantic Lint</div>
+  <h2 class="s-h">Contradictions surface<br>automatically.</h2>
+  <p class="s-p"><code style="font-family:var(--mono);font-size:15px;color:rgba(255,255,255,0.7)">/pith lint</code> goes beyond broken links. Structural checks run instantly. The LLM pass finds semantic contradictions, missing entity pages, unlinked related pages, knowledge gaps, and facts that can be inferred from the wiki but aren't stated yet. <code style="font-family:var(--mono);font-size:13px;color:rgba(255,255,255,0.5)">--fix</code> auto-creates stub pages. <code style="font-family:var(--mono);font-size:13px;color:rgba(255,255,255,0.5)">--quick</code> skips the LLM.</p>
+
+  <div class="lint-demo r">
+    <div class="lint-row">
+      <span class="lint-icon">🔴</span>
+      <div class="lint-body">
+        <div class="lint-title">Semantic contradiction — cloud provider</div>
+        <div class="lint-desc"><strong>[[infra-decisions]]</strong> states "strictly on Google Cloud" · <strong>[[q2-migration]]</strong> states "migrating to AWS" — which is current?</div>
+      </div>
+      <span class="lint-action la-resolve">Resolve</span>
+    </div>
+    <div class="lint-row">
+      <span class="lint-icon">🟡</span>
+      <div class="lint-body">
+        <div class="lint-title">Orphan page — no inbound links</div>
+        <div class="lint-desc"><strong>[[legacy-auth-flow]]</strong> is not referenced by any other page or index.md. May be stale.</div>
+      </div>
+      <span class="lint-action la-fix">Orphan</span>
+    </div>
+    <div class="lint-row">
+      <span class="lint-icon">🟡</span>
+      <div class="lint-body">
+        <div class="lint-title">Stale contradiction — unresolved for 32 days</div>
+        <div class="lint-desc">Contradiction in <strong>[[auth-middleware]]</strong> flagged on 2026-03-14 — "httpOnly cookie" vs "localStorage" — still unresolved.</div>
+      </div>
+      <span class="lint-action la-warn">Stale</span>
+    </div>
+    <div class="lint-row">
+      <span class="lint-icon">🔵</span>
+      <div class="lint-body">
+        <div class="lint-title">Missing entity page — referenced 4×</div>
+        <div class="lint-desc"><strong>Redis</strong> is mentioned in [[caching-strategy]], [[session-tokens]], [[infra-decisions]], and [[q2-migration]] but has no dedicated page. Run with <code style="font-family:var(--mono);font-size:11px">--fix</code> to create stub.</div>
+      </div>
+      <span class="lint-action la-fix">Missing</span>
+    </div>
+    <div class="lint-row">
+      <span class="lint-icon">🔵</span>
+      <div class="lint-body">
+        <div class="lint-title">Suggested connection — unlinked related pages</div>
+        <div class="lint-desc"><strong>[[rate-limiting]]</strong> and <strong>[[auth-middleware]]</strong> both discuss token expiry but don't cross-link. Add <code style="font-family:var(--mono);font-size:11px">[[rate-limiting]]</code> to auth-middleware's Related section.</div>
+      </div>
+      <span class="lint-action la-fix">Unlinked</span>
+    </div>
+    <div class="lint-row">
+      <span class="lint-icon">🟠</span>
+      <div class="lint-body">
+        <div class="lint-title">Knowledge gap — thin coverage</div>
+        <div class="lint-desc"><strong>WebSocket auth</strong> is referenced in 3 pages but no concept page exists. Heavy cross-reference with no dedicated coverage.</div>
+      </div>
+      <span class="lint-action la-warn">Gap</span>
+    </div>
+    <div class="lint-row">
+      <span class="lint-icon">💡</span>
+      <div class="lint-body">
+        <div class="lint-title">Imputable fact — derivable from wiki</div>
+        <div class="lint-desc"><strong>[[session-tokens]]</strong> is missing: "token lifetime is 15 min" — this follows directly from [[auth-middleware]] + [[rate-limiting]] and should be stated explicitly.</div>
+      </div>
+      <span class="lint-action la-ok">Infer</span>
+    </div>
+    <div class="lint-row">
+      <span class="lint-icon">🟢</span>
+      <div class="lint-body">
+        <div class="lint-title">Pages with no sources</div>
+        <div class="lint-desc">0 pages lack source citations — all provenance blocks present.</div>
+      </div>
+      <span class="lint-action la-ok">Clean</span>
+    </div>
+  </div>
+</div>
+
+<hr class="hr" />
+
+<!-- ━━━━━━━━━━━━━━━━━━━━ STRUCTURED FORMATS ━━━━━━━━━━━━━━━━━━━━ -->
+<div class="s r">
+  <div class="s-eye">Structured formats</div>
+  <h2 class="s-h">The right shape<br>for every task.</h2>
+  <p class="s-p">One-shot formats that force Claude's output into a predictable, scannable structure. No summaries, no prose padding — just the signal.</p>
+
+  <div class="format-grid">
+    <div class="fmt">
+      <div class="fmt-cmd">/pith debug</div>
+      <h4>Debug</h4>
+      <p>Structured diagnosis for errors, crashes, and unexpected behaviour.</p>
+      <div class="fmt-fields">
+        <div class="fmt-field">Problem</div>
+        <div class="fmt-field">Cause</div>
+        <div class="fmt-field">Fix</div>
+        <div class="fmt-field">Verify</div>
+      </div>
+    </div>
+    <div class="fmt">
+      <div class="fmt-cmd">/pith review</div>
+      <h4>Code review</h4>
+      <p>One line per issue. No summaries. Use for PRs, diffs, and file reviews.</p>
+      <div class="fmt-fields">
+        <div class="fmt-field">Issue · file:line</div>
+        <div class="fmt-field">Severity · suggestion</div>
+        <div class="fmt-field">(repeat per issue)</div>
+      </div>
+    </div>
+    <div class="fmt">
+      <div class="fmt-cmd">/pith arch</div>
+      <h4>Architecture</h4>
+      <p>Technology choices, design decisions, system design questions.</p>
+      <div class="fmt-fields">
+        <div class="fmt-field">Decision</div>
+        <div class="fmt-field">Options table</div>
+        <div class="fmt-field">Choice · Risks · Next</div>
+      </div>
+    </div>
+    <div class="fmt">
+      <div class="fmt-cmd">/pith plan</div>
+      <h4>Planning</h4>
+      <p>Feature planning, task breakdowns, sprint planning, implementation plans.</p>
+      <div class="fmt-fields">
+        <div class="fmt-field">Goal</div>
+        <div class="fmt-field">Steps</div>
+        <div class="fmt-field">Risks · Done-when</div>
+      </div>
+    </div>
+    <div class="fmt">
+      <div class="fmt-cmd">/pith commit</div>
+      <h4>Commit message</h4>
+      <p>Conventional Commits format. Subject ≤50 chars. Reads staged diff automatically.</p>
+      <div class="fmt-fields">
+        <div class="fmt-field">type(scope): subject</div>
+        <div class="fmt-field">body — what + why</div>
+        <div class="fmt-field">breaking changes</div>
+      </div>
+    </div>
+    <div class="fmt">
+      <div class="fmt-cmd">/pith tour</div>
+      <h4>Guided tour</h4>
+      <p>Interactive walkthrough of every Pith feature — hands-on, one step at a time, resumable.</p>
+      <div class="fmt-fields">
+        <div class="fmt-field">Compression modes</div>
+        <div class="fmt-field">Wiki system</div>
+        <div class="fmt-field">Graph · Provenance</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<hr class="hr" />
+
+<!-- ━━━━━━━━━━━━━━━━━━━━ ALL FEATURES ━━━━━━━━━━━━━━━━━━━━ -->
+<div class="s r" id="features">
+  <div class="s-eye">Everything</div>
+  <h2 class="s-h">Every feature.<br>Every detail.</h2>
+  <p class="s-p">Pith is installed once, globally. It activates automatically in every Claude Code project — no per-project setup, no CLAUDE.md edits required.</p>
+
+  <div class="feat-grid">
+    <div class="feat">
+      <div class="feat-n">01</div>
+      <h3>Tool output compression</h3>
+      <p>File reads return imports, signatures, and types — not every line. JSON outputs are serialised as <strong>TOON</strong> (~40% fewer tokens). Bash returns errors and a summary. Grep caps at 25 matches. Automatic, session-wide, always on.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-n">02</div>
+      <h3>Live context meter</h3>
+      <p>Exact context window usage, mode, budget, and a full per-format savings breakdown — skeletons, bash/build, grep, TOON, web fetch, offload, output mode — each with a mini bar showing its share. Now includes an ASCII token flow diagram: baseline vs compressed vs output, showing exactly how much was intercepted and what arrived in context. Cost is split at the correct rate: tool compression at $3/1M, output mode savings at $15/1M. For a richer view, <code style="font-family:var(--mono);font-size:11px">/pith report</code> generates an interactive HTML dashboard.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-n">03</div>
+      <h3>Auto-compact at 70%</h3>
+      <p>History is summarised automatically before the context window fills. Sessions run indefinitely. No more "context limit reached" mid-task.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-n">04</div>
+      <h3>Project wiki</h3>
+      <p>Four page types — Decision, Concept, Entity, Synthesis — written and maintained as you work. Cross-linked, sourced, and queryable at any time.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-n">05</div>
+      <h3>Interactive knowledge graph</h3>
+      <p>Force-directed D3.js graph of your entire wiki. Focus hover, pill labels, light/dark mode, zoom/pan, drag physics. Standalone HTML — zero dependencies.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-n">06</div>
+      <h3>YAML provenance</h3>
+      <p>Every wiki page carries a frontmatter block linking claims back to raw source files, GitHub PRs, or session timestamps. Hallucinations become traceable.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-n">07</div>
+      <h3>Semantic lint</h3>
+      <p>Detects contradictions between pages — not just broken links. Flags stale claims, orphan pages, missing source citations, and index mismatches.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-n">08</div>
+      <h3>Token budgets</h3>
+      <p>Hard ceilings enforced by Pith — Claude won't exceed the limit without warning. Set with <code style="font-family:var(--mono);font-size:11px">/budget 150</code>, clear with <code style="font-family:var(--mono);font-size:11px">/budget off</code>.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-n">09</div>
+      <h3>Ingest pipeline</h3>
+      <p>Feed any file to the wiki with <code style="font-family:var(--mono);font-size:11px">/pith ingest</code>. Pith extracts entities, concepts, and contradictions, shows a diff, and waits for your confirmation before writing anything.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-n">10</div>
+      <h3>Session persistence</h3>
+      <p>Mode, wiki state, and budget are saved on session exit — per project. Next session offers one-line restore. <code style="font-family:var(--mono);font-size:11px">/pith recall</code> restores mid-session. <code style="font-family:var(--mono);font-size:11px">/pith configure</code> walks through all settings interactively.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-n">11</div>
+      <h3>In-Claude install</h3>
+      <p>Install Pith without leaving Claude Code. <code style="font-family:var(--mono);font-size:11px">/pith install</code> locates the plugin, runs the installer, copies hooks, patches <code style="font-family:var(--mono);font-size:11px">settings.json</code>, registers slash commands, and verifies every step succeeded.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-n">12</div>
+      <h3>Clean uninstall</h3>
+      <p><code style="font-family:var(--mono);font-size:11px">/pith uninstall</code> removes hooks, slash commands, and all <code style="font-family:var(--mono);font-size:11px">settings.json</code> entries cleanly. Asks for confirmation first. Your project wikis and lifetime token history are preserved unless you explicitly request a full wipe.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-n">13</div>
+      <h3>Symbol extractor</h3>
+      <p>Jump directly to any function, class, or method with <code style="font-family:var(--mono);font-size:11px">/pith symbol &lt;file&gt; &lt;name&gt;</code>. Returns the exact 30–50 lines of the definition — ~95% fewer tokens than reading the full file. Uses tree-sitter AST when available, regex fallback otherwise. Supports Python, TS/JS, Go, and more.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-n">14</div>
+      <h3>Tool result offloading</h3>
+      <p>Tool outputs that exceed 300 tokens after compression are automatically written to <code style="font-family:var(--mono);font-size:11px">~/.pith/tmp/</code> and replaced with a 3-line pointer in context. Claude can read them on demand — nothing is lost, but large payloads never bloat the context window. Offloaded bytes tracked in <code style="font-family:var(--mono);font-size:11px">/pith status</code>.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-n">17</div>
+      <h3>jCodeMunch wiki ingest <span style="font-size:10px;font-weight:400;opacity:0.5;margin-left:4px">jCodeMunch · 2026</span></h3>
+      <p>When you <code style="font-family:var(--mono);font-size:11px">/pith ingest</code> a code file, Pith runs <code style="font-family:var(--mono);font-size:11px">symbols.py --list</code> first to extract the structural skeleton — imports, signatures, class outlines — then passes that to a code-aware analysis prompt instead of raw source lines. Creates <strong>Module</strong> and <strong>Class</strong> wiki pages with exports, key methods, and architectural dependencies rather than generic concept pages.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-n">16</div>
+      <h3>Hindsight pruning <span style="font-size:10px;font-weight:400;opacity:0.5;margin-left:4px">Hindsight · 2026</span></h3>
+      <p>Scans the session's tool call telemetry for stale context: files read multiple times (only the latest matters), large bash outputs from early-session setup steps, results that are now irrelevant. Reports total stale token cost and recommends <code style="font-family:var(--mono);font-size:11px">/compact</code>. Fires automatically once when context passes 60%.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-n">15</div>
+      <h3>Auto-escalation</h3>
+      <p>As context fills, Pith automatically ratchets the output mode up — switching to <strong>LEAN</strong> at 50% and <strong>ULTRA</strong> at 70%. At 85%, a dynamic response ceiling is injected equal to 8% of remaining headroom. Claude's responses stop growing the context window unchecked. Toggle with <code style="font-family:var(--mono);font-size:11px">/pith escalate on|off</code>.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-n">18</div>
+      <h3>Cache-Lock <span style="font-size:10px;font-weight:400;opacity:0.5;margin-left:4px">Phase 9 · 2026</span></h3>
+      <p>Session-start injection is hashed (MD5, 8 chars). If settings are identical to the previous session, a single compact summary line is emitted instead of the full rules block — saving ~300 tokens per session start. Dynamic values (token counts, timestamps) are deliberately excluded from the hash, ensuring cache hits are true stability signals, not coincidences.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-n">19</div>
+      <h3>Speculative Fetch + Session Report <span style="font-size:10px;font-weight:400;opacity:0.5;margin-left:4px">Phase 10 · 2026</span></h3>
+      <p>When <code style="font-family:var(--mono);font-size:11px">/pith symbol</code> extracts a function, it automatically scans the body for calls to other functions defined in the same file and appends their signatures — eliminating a follow-up round-trip in ~60% of lookups. Pairs with <code style="font-family:var(--mono);font-size:11px">/pith report</code>, which generates a standalone HTML dashboard (Chart.js) showing token flow, per-bucket savings, cost breakdown, and a compression event timeline.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-n">20</div>
+      <h3>Multi-model pricing</h3>
+      <p>Cost estimates auto-detect your model from the transcript — Opus 4.x, Sonnet 4.x, Haiku 4.x, and prior generations. Correct $/MTok rates applied per session automatically. No config needed. Falls back to Sonnet 4.6 rates if model ID is unavailable.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-n">21</div>
+      <h3>Self-updating</h3>
+      <p>Already installed? <code style="font-family:var(--mono);font-size:11px">/pith update</code> pulls the latest version and re-syncs all hooks, slash commands, and settings in one step. No manual reinstall or curl-pipe needed for existing users.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-n">22</div>
+      <h3>Mtime caching — symbol &amp; focus <span style="font-size:10px;font-weight:400;opacity:0.5;margin-left:4px">v1.3 · 2026</span></h3>
+      <p>Every <code style="font-family:var(--mono);font-size:11px">/pith symbol</code> and <code style="font-family:var(--mono);font-size:11px">/pith focus</code> result is cached keyed by <code style="font-family:var(--mono);font-size:11px">path:mtime:symbol</code> in <code style="font-family:var(--mono);font-size:11px">/tmp/pith-symbols-cache.json</code>. Repeated lookups on the same file within a session return instantly — no re-read, no re-parse. Cache is invalidated the moment the file changes. Cap of 500 entries; oldest pruned automatically.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-n">23</div>
+      <h3>Source manifest + parallel compile <span style="font-size:10px;font-weight:400;opacity:0.5;margin-left:4px">v1.3 · 2026</span></h3>
+      <p><code style="font-family:var(--mono);font-size:11px">/pith compile</code> fingerprints every source file (<code style="font-family:var(--mono);font-size:11px">mtime:size</code>) and stores the manifest in <code style="font-family:var(--mono);font-size:11px">wiki/.compile-manifest.json</code>. On the next run, only changed sources are reprocessed — unchanged sources are skipped instantly. Page writes run in parallel via <code style="font-family:var(--mono);font-size:11px">ThreadPoolExecutor(4)</code>, cutting wall-clock time 3–5×. An exclusive lock file prevents concurrent runs from racing. Prompt caching via <code style="font-family:var(--mono);font-size:11px">cache_control: ephemeral</code> amortizes the static instruction block across all N page-write API calls in a compile run.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-n">24</div>
+      <h3>Ingest deduplication <span style="font-size:10px;font-weight:400;opacity:0.5;margin-left:4px">v1.3 · 2026</span></h3>
+      <p>Before running a Claude analysis, <code style="font-family:var(--mono);font-size:11px">/pith ingest</code> checks <code style="font-family:var(--mono);font-size:11px">wiki/.ingest-manifest.json</code> for a fingerprint of the source file. If the file hasn't changed since it was last ingested, the command exits immediately — no duplicate wiki pages, no wasted API call. Pass <code style="font-family:var(--mono);font-size:11px">--force</code> to override. The manifest is updated atomically after every successful ingest.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-n">25</div>
+      <h3>Atomic writes + lint fingerprint cache <span style="font-size:10px;font-weight:400;opacity:0.5;margin-left:4px">v1.3 · 2026</span></h3>
+      <p>Every wiki file write — pages, index, log — now goes through a <code style="font-family:var(--mono);font-size:11px">path.{pid}.tmp → rename()</code> pattern, which is atomic on POSIX. A crash mid-write leaves a stale <code style="font-family:var(--mono);font-size:11px">.tmp</code> file instead of a corrupted wiki page. <code style="font-family:var(--mono);font-size:11px">/pith lint</code> fingerprints all wiki pages via SHA-256 of combined mtimes; if the wiki is unchanged since the last run, the LLM semantic analysis is skipped entirely and the cached result is returned instantly.</p>
+    </div>
+  </div>
+</div>
+
+<hr class="hr" />
+
+<!-- ━━━━━━━━━━━━━━━━━━━━ HOW IT INSTALLS ━━━━━━━━━━━━━━━━━━━━ -->
+<div class="s r">
+  <div class="s-eye">Installation</div>
+  <h2 class="s-h">One command.<br>Global, permanent.</h2>
+  <p class="s-p">Pith installs into <code style="font-family:var(--mono);font-size:14px;color:rgba(255,255,255,0.6)">~/.claude/hooks/</code>. Claude Code loads hooks globally — no per-project setup, no CLAUDE.md edits, no environment variables.</p>
+
+  <div class="install-steps">
+    <div class="is">
+      <div class="is-n">Step 01</div>
+      <h4>Run the installer</h4>
+      <p>The curl command auto-clones Pith to <code style="font-family:var(--mono);font-size:11px">~/.local/share/pith</code> and copies hooks into <code style="font-family:var(--mono);font-size:11px">~/.claude/hooks/pith/</code>. Or: <code style="font-family:var(--mono);font-size:11px">git clone https://github.com/abhisekjha/pith &amp;&amp; bash pith/install.sh</code></p>
+    </div>
+    <div class="is">
+      <div class="is-n">Step 02</div>
+      <h4>Reload Claude Code</h4>
+      <p>Restart your Claude Code session. Pith hooks load automatically. No <code style="font-family:var(--mono);font-size:11px">/enable</code> command, no activation step.</p>
+    </div>
+    <div class="is">
+      <div class="is-n">Step 03</div>
+      <h4>It's running</h4>
+      <p>Every tool call is now intercepted and compressed. Run <code style="font-family:var(--mono);font-size:11px">/pith status</code> to confirm. LEAN mode is active by default.</p>
+    </div>
+    <div class="is">
+      <div class="is-n">In Claude</div>
+      <h4>Install without leaving Claude</h4>
+      <p>Already in a session? Run <code style="font-family:var(--mono);font-size:11px">/pith install</code> — Pith finds itself, runs the installer, verifies every step, and confirms. To remove: <code style="font-family:var(--mono);font-size:11px">/pith uninstall</code>.</p>
+    </div>
+  </div>
+</div>
+
+<hr class="hr" />
+
+<!-- ━━━━━━━━━━━━━━━━━━━━ SESSION PERSISTENCE ━━━━━━━━━━━━━━━━━━━━ -->
+<div class="s r" id="session">
+  <div class="s-eye green">Session Persistence</div>
+  <h2 class="s-h">Pick up exactly<br>where you left off.</h2>
+  <p class="s-p">Every time a session ends, Pith saves your mode, wiki state, and token budget. The next session opens with a single non-blocking offer to restore — one line, before your first message.</p>
+
+  <div class="term r">
+    <div class="term-chrome">
+      <div class="dot dr"></div><div class="dot dy"></div><div class="dot dg"></div>
+      <span class="term-name">session start</span>
+    </div>
+    <div class="term-body">
+      <div><span class="t-dim">── New session ─────────────────────────────────────</span></div>
+      <div><span class="t-violet">◆ Pith</span> <span class="t-out">Last session: mode=<span class="t-emerald">ULTRA</span>, wiki=<span class="t-emerald">ON</span>, budget=<span class="t-hl">150</span> — restore? <span class="t-dim">(yes/no)</span></span></div>
+      <br>
+      <div><span class="t-dim">── Mid-session restore ─────────────────────────────</span></div>
+      <div><span class="t-prompt">$</span> <span class="t-cmd">/pith recall</span></div>
+      <div><span class="t-ok">✓</span> <span class="t-out">Restored: mode=<span class="t-emerald">ULTRA</span>, wiki=<span class="t-emerald">ON</span>, budget=<span class="t-hl">150</span></span></div>
+      <br>
+      <div><span class="t-dim">── Config wizard ───────────────────────────────────</span></div>
+      <div><span class="t-prompt">$</span> <span class="t-cmd">/pith configure</span></div>
+      <div><span class="t-violet">◆</span> <span class="t-out">Current: mode=<span class="t-emerald">LEAN</span>, wiki=<span class="t-dim">OFF</span>, budget=<span class="t-dim">none</span>, auto-compact=<span class="t-emerald">ON</span></span></div>
+      <div><span class="t-violet">◆</span> <span class="t-out">Output mode? <span class="t-dim">[lean / precise / ultra / off]</span></span></div>
+      <div><span class="t-prompt">&gt;</span> <span class="t-cmd">ultra</span></div>
+      <div><span class="t-ok">✓</span> <span class="t-out">Mode → <span class="t-emerald">ULTRA</span></span></div>
+      <div><span class="t-violet">◆</span> <span class="t-out">Enable wiki mode? <span class="t-dim">[yes / no]</span></span></div>
+      <div><span class="t-prompt">&gt;</span> <span class="t-cmd">yes</span></div>
+      <div><span class="t-ok">✓</span> <span class="t-out">Wiki → <span class="t-emerald">ON</span></span></div>
+      <div><span class="t-violet">◆</span> <span class="t-out">Token budget? <span class="t-dim">[number or skip]</span></span></div>
+      <div><span class="t-prompt">&gt;</span> <span class="t-cmd">200</span></div>
+      <div><span class="t-ok">✓</span> <span class="t-out">Budget → <span class="t-hl">200</span></span></div>
+      <div><span class="t-violet">◆</span> <span class="t-out">Auto-compact at 70%? <span class="t-dim">[yes / no]</span></span></div>
+      <div><span class="t-prompt">&gt;</span> <span class="t-cmd">yes</span></div>
+      <div><span class="t-ok">✓</span> <span class="t-out">Auto-compact → <span class="t-emerald">ON</span></span></div>
+      <div><span class="t-ok">◆</span> <span class="t-out">Done — ULTRA · wiki=ON · budget=200 · auto-compact=ON</span></div>
+    </div>
+  </div>
+
+  <div class="feat-grid r" style="margin-top:2px">
+    <div class="feat">
+      <div class="feat-n">Automatic</div>
+      <h3>Session end saves state</h3>
+      <p>When a session closes, Pith writes the current mode, wiki state, and budget to a local state file. Nothing to configure — it happens on every session exit.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-n">Non-blocking</div>
+      <h3>One-line restore offer</h3>
+      <p>On the first message of a new session, Pith offers to restore — a single line before your question. Say yes, no, or just ignore it and keep working. It never delays you.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-n">/pith recall</div>
+      <h3>Restore mid-session</h3>
+      <p>Forgot to restore at session start? <code style="font-family:var(--mono);font-size:11px">/pith recall</code> reads the saved state at any point and re-applies mode, wiki, and budget — confirmed in one line.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-n">/pith configure</div>
+      <h3>Full config wizard</h3>
+      <p>Shows current settings upfront. Walks through mode → wiki → budget → auto-compact, one question at a time. Each setting applies as you answer. Ends with a one-line summary.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-n">Isolated</div>
+      <h3>Per-project state</h3>
+      <p>State is saved per working directory. Your auth-service session restores ULTRA + budget=150. Your docs project restores PRECISE + no budget. They never cross.</p>
+    </div>
+    <div class="feat">
+      <div class="feat-n">Visible</div>
+      <h3>Always inspectable</h3>
+      <p>The saved state file is plain JSON in your project root — human-readable, editable, committable to git if you want the whole team to share defaults.</p>
+    </div>
+  </div>
+</div>
+
+<hr class="hr" />
+
+<!-- ━━━━━━━━━━━━━━━━━━━━ ALL COMMANDS ━━━━━━━━━━━━━━━━━━━━ -->
+<div class="s r" id="commands">
+  <div class="s-eye">Commands</div>
+  <h2 class="s-h">Everything in one place.</h2>
+  <p class="s-p">Every command works inside any Claude Code session. Type it and go — no flags, no config files, no setup.</p>
+
+  <div class="cmd-section">
+
+    <div class="cmd-grid">
+      <div class="cmd-group-label">Compression modes</div>
+      <div class="cmd"><span class="cmd-k"><span class="hl">/pith lean</span></span><span class="cmd-v">Default mode — drop articles, short synonyms, fragments OK</span></div>
+      <div class="cmd"><span class="cmd-k"><span class="hl">/pith precise</span></span><span class="cmd-v">Professional and tight — no filler, full sentences kept</span></div>
+      <div class="cmd"><span class="cmd-k"><span class="hl">/pith ultra</span></span><span class="cmd-v">Maximum compression — arrows →, tables over prose, abbreviate freely</span></div>
+      <div class="cmd"><span class="cmd-k"><span class="hl">/pith off</span></span><span class="cmd-v">Back to standard Claude output, no compression applied</span></div>
+    </div>
+
+    <div class="cmd-grid" style="margin-top:2px">
+      <div class="cmd-group-label">Session control</div>
+      <div class="cmd"><span class="cmd-k"><span class="hl">/pith status</span></span><span class="cmd-v">ASCII token flow chart + health report — input, output, saved, context fill, cost</span></div>
+      <div class="cmd"><span class="cmd-k"><span class="hl">/pith report</span></span><span class="cmd-v">Generate interactive HTML dashboard — token flow bars, savings donut, cost table, event timeline</span><span class="cmd-new">New</span></div>
+      <div class="cmd"><span class="cmd-k"><span class="hl">/pith hindsight</span></span><span class="cmd-v">Identify stale tool results consuming context — shows token cost, recommends /compact</span><span class="cmd-new">New</span></div>
+      <div class="cmd"><span class="cmd-k"><span class="hl">/pith escalate</span></span><span class="cmd-v">Show auto-escalation status — context fill thresholds and current mode</span><span class="cmd-new">New</span></div>
+      <div class="cmd"><span class="cmd-k"><span class="hl">/pith escalate on|off</span></span><span class="cmd-v">Enable or disable SWEzze auto-escalation (LEAN at 50%, ULTRA at 70%)</span><span class="cmd-new">New</span></div>
+      <div class="cmd"><span class="cmd-k"><span class="hl">/pith budget &lt;N&gt;</span></span><span class="cmd-v">Set a hard token ceiling — enforced, not suggested</span><span class="cmd-new">New</span></div>
+      <div class="cmd"><span class="cmd-k"><span class="hl">/pith budget off</span></span><span class="cmd-v">Clear the token budget ceiling</span><span class="cmd-new">New</span></div>
+      <div class="cmd"><span class="cmd-k"><span class="hl">/pith focus &lt;file&gt;</span></span><span class="cmd-v">Focus context on a specific file for the current task</span><span class="cmd-new">New</span></div>
+      <div class="cmd"><span class="cmd-k"><span class="hl">/pith recall</span></span><span class="cmd-v">Restore last session's mode, wiki, and budget mid-session — one line confirm</span></div>
+      <div class="cmd"><span class="cmd-k"><span class="hl">/pith configure</span></span><span class="cmd-v">Interactive config wizard — mode → wiki → budget → auto-compact, one question at a time</span></div>
+      <div class="cmd"><span class="cmd-k"><span class="hl">/pith reset-cache</span></span><span class="cmd-v">Force full session-start injection next session — clears the cache-lock hash</span><span class="cmd-new">New</span></div>
+    </div>
+
+    <div class="cmd-grid" style="margin-top:2px">
+      <div class="cmd-group-label">Structured output formats (one-shot, do not persist)</div>
+      <div class="cmd"><span class="cmd-k"><span class="hl">/pith debug</span></span><span class="cmd-v">Problem / Cause / Fix / Verify — 4 fields, no prose</span></div>
+      <div class="cmd"><span class="cmd-k"><span class="hl">/pith review</span></span><span class="cmd-v">Code review — one line per issue, no summaries</span></div>
+      <div class="cmd"><span class="cmd-k"><span class="hl">/pith arch</span></span><span class="cmd-v">Architecture decision — Options table / Choice / Risks / Next</span></div>
+      <div class="cmd"><span class="cmd-k"><span class="hl">/pith plan</span></span><span class="cmd-v">Implementation plan — Goal / Steps / Risks / Done-when</span></div>
+      <div class="cmd"><span class="cmd-k"><span class="hl">/pith commit</span></span><span class="cmd-v">Commit message — Conventional Commits, subject ≤50 chars</span></div>
+    </div>
+
+    <div class="cmd-grid" style="margin-top:2px">
+      <div class="cmd-group-label">Wiki system</div>
+      <div class="cmd"><span class="cmd-k"><span class="hl">/pith wiki "&lt;question&gt;"</span></span><span class="cmd-v">Query the wiki — synthesises answer with page citations</span></div>
+      <div class="cmd"><span class="cmd-k"><span class="hl">/pith ingest &lt;file&gt;</span></span><span class="cmd-v">Parse a file into wiki pages — code files use jCodeMunch structure-aware analysis</span></div>
+      <div class="cmd"><span class="cmd-k"><span class="hl">/pith lint</span></span><span class="cmd-v">Semantic contradiction detection, orphan pages, stale claims, broken index</span></div>
+    </div>
+
+    <div class="cmd-grid" style="margin-top:2px">
+      <div class="cmd-group-label">Graph &amp; visualisation</div>
+      <div class="cmd">
+        <span class="cmd-k"><span class="hl">/pith-graph</span></span>
+        <span class="cmd-v">Generate wiki-graph.html — force-directed D3 network, opens in browser</span>
+        <span class="cmd-new">New</span>
+      </div>
+    </div>
+
+    <div class="cmd-grid" style="margin-top:2px">
+      <div class="cmd-group-label">Onboarding &amp; help</div>
+      <div class="cmd"><span class="cmd-k"><span class="hl">/pith help</span></span><span class="cmd-v">Full command reference — every command grouped by category, in one shot</span><span class="cmd-new">New</span></div>
+      <div class="cmd"><span class="cmd-k"><span class="hl">/pith tour</span></span><span class="cmd-v">Interactive guided tour of every Pith feature — resumable, skippable</span></div>
+      <div class="cmd"><span class="cmd-k"><span class="hl">/pith setup</span></span><span class="cmd-v">Run first-session wiki onboarding in any project</span></div>
+    </div>
+
+    <div class="cmd-grid" style="margin-top:2px">
+      <div class="cmd-group-label">Code navigation</div>
+      <div class="cmd"><span class="cmd-k"><span class="hl">/pith symbol &lt;file&gt; &lt;name&gt;</span></span><span class="cmd-v">Extract exact source lines for a named function, class, or method (~95% token reduction)</span><span class="cmd-new">New</span></div>
+      <div class="cmd"><span class="cmd-k"><span class="hl">/pith symbol --list &lt;file&gt;</span></span><span class="cmd-v">List all top-level symbols in a file with line numbers</span><span class="cmd-new">New</span></div>
+    </div>
+
+    <div class="cmd-grid" style="margin-top:2px">
+      <div class="cmd-group-label">Integrations</div>
+      <div class="cmd"><span class="cmd-k"><span class="hl">/pith grepai</span></span><span class="cmd-v">Show GrepAI status — whether it's installed and the wiki index is ready</span><span class="cmd-new">New</span></div>
+      <div class="cmd"><span class="cmd-k"><span class="hl">/pith grepai skip</span></span><span class="cmd-v">Dismiss the GrepAI install nudge permanently for this project</span><span class="cmd-new">New</span></div>
+      <div class="cmd"><span class="cmd-k"><span class="hl">/pith grepai enable</span></span><span class="cmd-v">Re-enable the GrepAI nudge if previously dismissed</span><span class="cmd-new">New</span></div>
+    </div>
+
+    <div class="cmd-grid" style="margin-top:2px">
+      <div class="cmd-group-label">Install, update &amp; uninstall</div>
+      <div class="cmd">
+        <span class="cmd-k"><span class="hl">/pith install</span></span>
+        <span class="cmd-v">Install Pith into Claude Code — copies hooks, patches settings.json, registers slash commands</span>
+        <span class="cmd-new">New</span>
+      </div>
+      <div class="cmd">
+        <span class="cmd-k"><span class="hl">/pith update</span></span>
+        <span class="cmd-v">Pull latest Pith version and re-sync all hooks, commands, and settings — for existing installs</span>
+        <span class="cmd-new">New</span>
+      </div>
+      <div class="cmd">
+        <span class="cmd-k"><span class="hl">/pith uninstall</span></span>
+        <span class="cmd-v">Remove Pith cleanly — hooks, commands, and settings.json entries. Preserves wiki and token history.</span>
+        <span class="cmd-new">New</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ━━━━━━━━━━━━━━━━━━━━ CTA ━━━━━━━━━━━━━━━━━━━━ -->
+<div class="cta r">
+  <div class="cta-light"></div>
+  <h2>Install once.<br>Save forever.</h2>
+  <p>One command. Works in every Claude Code project from that point on.</p>
+  <div class="install-wrap" style="align-items:center">
+    <div class="install-box" style="display:inline-flex; position:relative;">
+      <span class="install-ps">$</span>
+      <code class="install-code">bash &lt;(curl -s https://raw.githubusercontent.com/abhisekjha/pith/main/install.sh)</code>
+      <button class="install-copy" onclick="cp(this)" data-cmd="bash <(curl -s https://raw.githubusercontent.com/abhisekjha/pith/main/install.sh)">Copy</button>
+    </div>
+    <span class="install-or">or</span>
+    <div class="install-box" style="display:inline-flex; position:relative;">
+      <span class="install-ps">$</span>
+      <code class="install-code">git clone https://github.com/abhisekjha/pith &amp;&amp; bash pith/install.sh</code>
+      <button class="install-copy" onclick="cp(this)" data-cmd="git clone https://github.com/abhisekjha/pith && bash pith/install.sh">Copy</button>
+    </div>
+  </div>
+</div>
+
+<!-- ━━━━━━━━━━━━━━━━━━━━ FOOTER ━━━━━━━━━━━━━━━━━━━━ -->
+<footer>
+  <span>Pith v1.3.0 — token optimization for Claude Code</span>
+  <div class="fl">
+    <a href="https://github.com/abhisekjha/pith" target="_blank">GitHub</a>
+    <a href="https://github.com/abhisekjha/pith/blob/main/README.md" target="_blank">Docs</a>
+    <a href="https://github.com/abhisekjha/pith/issues" target="_blank">Issues</a>
+  </div>
+</footer>
+
+<!-- ━━━━━━━━━━━━━━━━━━━━ D3 DEMO GRAPH ━━━━━━━━━━━━━━━━━━━━ -->
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<script>
+  // ── Mobile nav hamburger ──────────────────────────────────────────────────────
+  const hamburger = document.getElementById('nav-hamburger');
+  const drawer    = document.getElementById('nav-drawer');
+
+  function closeDrawer() {
+    drawer.classList.remove('open');
+    hamburger.setAttribute('aria-expanded', 'false');
+    hamburger.innerHTML = '&#9776;';
+    document.body.style.overflow = '';
+  }
+
+  hamburger.addEventListener('click', () => {
+    const isOpen = drawer.classList.toggle('open');
+    hamburger.setAttribute('aria-expanded', isOpen);
+    hamburger.innerHTML = isOpen ? '&#10005;' : '&#9776;';
+    document.body.style.overflow = isOpen ? 'hidden' : '';
+  });
+
+  // Close drawer when clicking outside
+  document.addEventListener('click', e => {
+    if (drawer.classList.contains('open') &&
+        !drawer.contains(e.target) && e.target !== hamburger) {
+      closeDrawer();
+    }
+  });
+
+  // Close drawer on scroll (user navigated)
+  window.addEventListener('scroll', () => {
+    if (drawer.classList.contains('open')) closeDrawer();
+  }, { passive: true });
+
+  // ── Copy button ──────────────────────────────────────────────────────────────
+  function cp(btn) {
+    const cmd = btn.dataset.cmd || 'bash <(curl -s https://raw.githubusercontent.com/abhisekjha/pith/main/install.sh)';
+    navigator.clipboard.writeText(cmd).then(() => {
+      const o = btn.textContent;
+      btn.textContent = 'Copied'; btn.style.color = 'var(--green)';
+      setTimeout(() => { btn.textContent = o; btn.style.color = ''; }, 2000);
+    });
+  }
+
+  // ── Scroll reveal ─────────────────────────────────────────────────────────────
+  const io = new IntersectionObserver(
+    es => es.forEach(e => { if(e.isIntersecting){ e.target.classList.add('on'); io.unobserve(e.target); } }),
+    { threshold: 0.06, rootMargin: '0px 0px -40px 0px' }
+  );
+  document.querySelectorAll('.r:not(.on)').forEach(el => io.observe(el));
+
+  // ── Counter animation ─────────────────────────────────────────────────────────
+  function animCount(el, end, suffix, dur) {
+    let start = null;
+    const step = ts => {
+      if (!start) start = ts;
+      const p = Math.min((ts - start) / dur, 1);
+      const ease = 1 - Math.pow(1 - p, 3);
+      el.textContent = Math.round(ease * end) + suffix;
+      if (p < 1) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+  const statsEl = document.querySelector('.stats');
+  let counted = false;
+  const sio = new IntersectionObserver(es => {
+    if (es[0].isIntersecting && !counted) {
+      counted = true;
+      animCount(document.getElementById('c1'), 88, '%', 1400);
+      animCount(document.getElementById('c4'), 4, '', 1000);
+    }
+  }, { threshold: 0.4 });
+  sio.observe(statsEl);
+
+  // ── Demo graph ────────────────────────────────────────────────────────────────
+  const DEMO_NODES = [
+    { id:'ui-stack',       label:'ui-stack',       group:'decisions' },
+    { id:'mac-mini',       label:'mac-mini-llm',   group:'decisions' },
+    { id:'agentic',        label:'Agentic-Workflows', group:'concepts' },
+    { id:'autonomous',     label:'Autonomous-AI',  group:'concepts' },
+    { id:'pith-graph',     label:'Pith-Wiki-Graph',group:'concepts' },
+    { id:'nextjs',         label:'Next.js',        group:'entities'  },
+    { id:'shadcn',         label:'shadcn/ui',      group:'entities'  },
+    { id:'tailwind',       label:'Tailwind-CSS',   group:'entities'  },
+    { id:'provenance',     label:'Provenance',     group:'concepts'  },
+    { id:'lint',           label:'Semantic-Lint',  group:'syntheses' },
+  ];
+  const DEMO_EDGES = [
+    {source:'ui-stack',   target:'nextjs'},
+    {source:'ui-stack',   target:'shadcn'},
+    {source:'ui-stack',   target:'tailwind'},
+    {source:'ui-stack',   target:'agentic'},
+    {source:'ui-stack',   target:'pith-graph'},
+    {source:'agentic',    target:'autonomous'},
+    {source:'agentic',    target:'pith-graph'},
+    {source:'mac-mini',   target:'agentic'},
+    {source:'mac-mini',   target:'autonomous'},
+    {source:'shadcn',     target:'nextjs'},
+    {source:'shadcn',     target:'tailwind'},
+    {source:'pith-graph', target:'provenance'},
+    {source:'lint',       target:'provenance'},
+    {source:'lint',       target:'agentic'},
+  ];
+
+  const GROUP_COLORS = {
+    decisions:'#34d399', concepts:'#818cf8',
+    entities:'#fb923c',  syntheses:'#f472b6',
+  };
+  const GROUP_GLOW = {
+    decisions:'drop-shadow(0 0 5px rgba(52,211,153,0.6))',
+    concepts: 'drop-shadow(0 0 5px rgba(129,140,248,0.6))',
+    entities: 'drop-shadow(0 0 5px rgba(251,146,60,0.6))',
+    syntheses:'drop-shadow(0 0 5px rgba(244,114,182,0.6))',
+  };
+  function nc(d){ return GROUP_COLORS[d.group]||'#818cf8'; }
+
+  const container = document.getElementById('graph-canvas');
+  const svg = d3.select('#graph-canvas');
+
+  const nb = {}; DEMO_NODES.forEach(n=>{ nb[n.id]=new Set(); });
+  DEMO_EDGES.forEach(e=>{ nb[e.source].add(e.target); nb[e.target].add(e.source); });
+
+  document.getElementById('graph-stats').textContent =
+    `${DEMO_NODES.length} pages · ${DEMO_EDGES.length} links`;
+
+  function buildGraph() {
+    svg.selectAll('*').remove();
+    const W = container.getBoundingClientRect().width;
+    const H = container.getBoundingClientRect().height || 420;
+    const g = svg.append('g');
+
+    const zoom = d3.zoom().scaleExtent([0.3,4])
+      .on('zoom', e => g.attr('transform', e.transform));
+    svg.call(zoom);
+    svg.call(zoom.transform, d3.zoomIdentity.translate(W/2, H/2).scale(0.9));
+
+    const nodes = DEMO_NODES.map(n=>({...n}));
+    const edges = DEMO_EDGES.map(e=>({...e}));
+
+    const sim = d3.forceSimulation(nodes)
+      .force('link',   d3.forceLink(edges).id(d=>d.id).distance(80).strength(0.4))
+      .force('charge', d3.forceManyBody().strength(-200))
+      .force('center', d3.forceCenter(0,0))
+      .force('collide',d3.forceCollide(26));
+
+    const link = g.append('g').selectAll('line').data(edges).join('line')
+      .attr('stroke', d => { const sn = nodes.find(n=>n.id===d.source||n.id===d.source?.id); return sn?nc(sn):'#27272a'; })
+      .attr('stroke-opacity', 0.22).attr('stroke-width', 1.4);
+
+    const nodeG = g.append('g').selectAll('g').data(nodes).join('g')
+      .style('cursor','grab')
+      .call(d3.drag()
+        .on('start',(ev,d)=>{ if(!ev.active)sim.alphaTarget(0.3).restart(); d.fx=d.x;d.fy=d.y; })
+        .on('drag', (ev,d)=>{ d.fx=ev.x;d.fy=ev.y; })
+        .on('end',  (ev,d)=>{ if(!ev.active)sim.alphaTarget(0); d.fx=null;d.fy=null; }));
+
+    nodeG.append('circle')
+      .attr('r', 9).attr('fill', d=>nc(d)).attr('fill-opacity', 0.2)
+      .attr('stroke', nc).attr('stroke-width', 1.5)
+      .attr('filter', d=>GROUP_GLOW[d.group]||'none');
+
+    nodeG.append('rect').attr('class','pill').attr('rx',3).attr('ry',3)
+      .attr('fill','rgba(5,5,5,0.82)').attr('opacity',0);
+
+    nodeG.append('text').text(d=>d.label)
+      .attr('x',13).attr('y',0).attr('font-size',9.5)
+      .attr('font-family','SF Mono,ui-monospace,monospace')
+      .attr('dominant-baseline','central')
+      .attr('fill','rgba(255,255,255,0.6)').attr('pointer-events','none');
+
+    nodeG.on('mouseover',(ev,d)=>{
+      const nbs = nb[d.id]||new Set();
+      nodeG.selectAll('circle').attr('opacity', n => n.id===d.id||nbs.has(n.id)?1:0.07);
+      nodeG.selectAll('.pill').attr('opacity', n => n.id===d.id||nbs.has(n.id)?1:0.07);
+      nodeG.selectAll('text').attr('opacity', n => n.id===d.id||nbs.has(n.id)?1:0.07);
+      link.attr('stroke-opacity', e => {
+        const s=e.source?.id||e.source, t=e.target?.id||e.target;
+        return s===d.id||t===d.id ? 0.9 : 0.04;
+      }).attr('stroke-width', e => {
+        const s=e.source?.id||e.source, t=e.target?.id||e.target;
+        return s===d.id||t===d.id ? 2 : 1.4;
+      });
+    }).on('mouseout',()=>{
+      nodeG.selectAll('circle').attr('opacity',1);
+      nodeG.selectAll('.pill').attr('opacity',null);
+      nodeG.selectAll('text').attr('opacity',1);
+      link.attr('stroke-opacity',0.22).attr('stroke-width',1.4);
+    });
+
+    sim.on('tick',()=>{
+      link.attr('x1',d=>d.source.x).attr('y1',d=>d.source.y)
+          .attr('x2',d=>d.target.x).attr('y2',d=>d.target.y);
+      nodeG.attr('transform',d=>`translate(${d.x},${d.y})`);
+      nodeG.each(function(){
+        const t=d3.select(this).select('text').node();
+        const r=d3.select(this).select('.pill');
+        if(!t) return;
+        try { const bb=t.getBBox(); r.attr('x',bb.x-4).attr('y',bb.y-2).attr('width',bb.width+8).attr('height',bb.height+4).attr('opacity',1); } catch(e){}
+      });
+    });
+  }
+
+  // Build after section enters viewport
+  const graphIo = new IntersectionObserver(es=>{
+    if(es[0].isIntersecting){ buildGraph(); graphIo.disconnect(); }
+  },{ threshold:0.1 });
+  graphIo.observe(document.getElementById('graph-canvas'));
+  window.addEventListener('resize',()=>{ if(document.getElementById('graph-canvas').querySelector('g')) buildGraph(); });
+</script>
+</body>
+</html>

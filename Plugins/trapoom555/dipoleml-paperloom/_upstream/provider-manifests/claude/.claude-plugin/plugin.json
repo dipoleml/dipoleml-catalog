@@ -1,0 +1,23 @@
+{
+  "name": "paperloom",
+  "version": "0.1.0",
+  "description": "Karpathy-style LLM wiki for research papers. Ingest a URL / arXiv ID / DOI / PDF, write a structured summary into a local Obsidian vault, and maintain a finding-level knowledge graph via wikilinks + Dataview.",
+  "author": { "name": "trapoom555" },
+  "keywords": ["research", "obsidian", "knowledge-graph", "papers", "arxiv"],
+  "license": "MIT",
+  "userConfig": {
+    "vault_path": {
+      "type": "string",
+      "title": "Obsidian Vault Path",
+      "description": "Local directory for the research vault. Created by /paperloom:init if it does not exist.",
+      "default": "~/PaperLoom",
+      "required": true
+    },
+    "open_in_obsidian": {
+      "type": "boolean",
+      "title": "Open new pages in Obsidian after ingest",
+      "description": "If true, ingest opens the new paper page via the obsidian:// URI scheme.",
+      "default": true
+    }
+  }
+}

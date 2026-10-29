@@ -1,0 +1,661 @@
+# pdlc-skills 使用手册
+
+> 这是 pdlc-skills 唯一的用户文档。涵盖：怎么安装、怎么调用、有哪些工作流、状态机怎么看、典型场景、扩展方式。
+
+---
+
+## 目录
+
+1. [5 分钟上手](#1-5-分钟上手)
+2. [安装 / 升级 / 卸载](#2-安装升级卸载)
+3. [怎么调用 PDLC](#3-怎么调用-pdlc)
+4. [38 个内置阶段（按层）](#4-38-个内置阶段按层)
+   - [在状态栏显示 PDLC 状态（可选）](#45-在状态栏显示-pdlc-状态可选)
+5. [状态机文件](#5-状态机文件)
+6. [目标项目目录契约](#6-目标项目目录契约)
+7. [典型场景](#7-典型场景)
+8. [设计哲学 + IRON LAW](#8-设计哲学--iron-law)
+9. [四段式工作流](#9-四段式工作流)
+10. [扩展：自定义文档模板](#10-扩展自定义文档模板)
+11. [FAQ](#11-faq)
+
+---
+
+## 1. 5 分钟上手
+
+pdlc-skills 是一个 Claude Code plugin，给 Claude 加上完整的 PDLC（产品开发生命周期）工作流——38 个标准化阶段，全部以斜杠命令暴露。
+
+最常用三件事：
+
+| 我想做... | 在 Claude Code 里输入 |
+|---|---|
+| 写一个新功能（PRD → 设计 → TDD → 实现 → 评审） | `/pdlc-feature 给登录加手机号验证` |
+| 修一个 bug | `/pdlc-fix 修分页器在 0 条时崩溃` |
+| 看当前 PDLC 进展 | `/pdlc-status` |
+
+输入 `/pdlc-` 后下拉菜单会列出全部 38 个阶段，按 Tab 补全或直接挑。
+
+---
+
+## 2. 安装 / 升级 / 卸载
+
+### 安装（推荐：一行 curl，无需 clone）
+
+```bash
+# 全局
+curl -fsSL https://raw.githubusercontent.com/kanfu-panda/pdlc-skills/main/install.sh \
+  | bash -s -- --global
+
+# 项目级
+curl -fsSL https://raw.githubusercontent.com/kanfu-panda/pdlc-skills/main/install.sh \
+  | bash -s -- --project /path/to/my-project
+```
+
+### 升级
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kanfu-panda/pdlc-skills/main/install.sh \
+  | bash -s -- --upgrade --global
+```
+
+### 卸载
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kanfu-panda/pdlc-skills/main/install.sh \
+  | bash -s -- --uninstall --global
+```
+
+### 查看版本
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kanfu-panda/pdlc-skills/main/install.sh \
+  | bash -s -- --version
+```
+
+输出会告诉你"已安装版本 vs GitHub 最新版本"，落后时给出升级命令。
+
+### 验证安装
+
+```bash
+ls ~/.claude/plugins/pdlc/                       # 全局
+ls /path/to/my-project/.claude/plugins/pdlc/     # 项目级
+```
+
+应能看到 `.claude-plugin/` / `skills/` / `references/` / `VERSION` 等。
+
+在 Claude Code 里输入 `/pdlc-`，下拉框出现 38 个阶段就说明 plugin 已生效。
+
+### 想自定义模板的高级用户
+
+```bash
+git clone https://github.com/kanfu-panda/pdlc-skills.git
+cd pdlc-skills
+# 改 references/templates/*-template.md
+bash install.sh --global
+```
+
+---
+
+## 3. 怎么调用 PDLC
+
+pdlc-skills 是 Claude Code plugin，**38 个阶段都是独立斜杠命令**，全部以 `/pdlc-` 开头：
+
+```
+/pdlc-feature      ← 一句话需求驱动全流程
+/pdlc-prd          ← 单独走 PRD 阶段
+/pdlc-design       ← 单独走技术设计
+/pdlc-tdd          ← 测试先行
+/pdlc-implement    ← 实现代码
+/pdlc-review       ← 代码评审
+/pdlc-ship         ← 发布
+... 共 38 个
+```
+
+输入 `/` 然后开始打 `pdlc-`，Claude Code 会自动补全。
+
+每个斜杠命令后跟参数（自然语言描述）：
+
+```
+/pdlc-feature 给用户登录加手机号验证（P0）
+/pdlc-feature F20260502-090000          # 中途停下后按功能ID续跑
+/pdlc-feature 给 mul 加参数个数校验 --lite   # 小功能：只写精简 PRD，不写设计，照常先红灯再实现
+/pdlc-prd 只生成 PRD：登录加验证码
+/pdlc-tdd 给 F20260502-090000 写测试用例
+/pdlc-fix 分页器在结果列表为 0 条时崩溃
+```
+
+每个阶段也支持自然语言自动触发——不打斜杠也能 work：
+
+```
+"用 PDLC 给登录加验证码"  ← Claude 自动路由到 /pdlc-feature
+"按 PDLC 写测试"          ← Claude 自动路由到 /pdlc-tdd
+```
+
+---
+
+## 4. 38 个内置阶段（按层）
+
+### Layer 1 · 入口（3 个，新手只看这层）
+
+一句话需求驱动整条链路。
+
+| 斜杠命令 | 用途 |
+|---|---|
+| `/pdlc-feature` | 全自动新功能（PRD → 设计 → TDD → 实现 → 评审 → 发布）；小功能加 `--lite`，跳过任务拆解、PRD 评审和技术设计。Claude Code 里阶段二～五各交给一个全新的子代理，写实现的看不到写测试时的推理 |
+| `/pdlc-fix` | 全自动 Bug 修复（定位 → 复现 → 修复 → 测试 → 文档），下一步 `/pdlc-review` |
+| `/pdlc-status` | 项目 PDLC 状态总览（不落盘） |
+
+### Layer 2 · 阶段（11 个，单阶段精细控制）
+
+| 斜杠命令 | 用途 | 下一阶段 |
+|---|---|---|
+| `/pdlc-prd` | 创建 PRD | `/pdlc-design` |
+| `/pdlc-design` | 技术设计（API/DB/架构/UI 按需；有技术取舍时先比较 2～3 个方案再选） | `/pdlc-tdd` |
+| `/pdlc-tdd` | 测试先行（红灯） | `/pdlc-implement` |
+| `/pdlc-implement` | 按设计 + 测试实现代码（绿灯）；任务清单里 4 个以上 feat 任务时按批实现，每批小评审 | `/pdlc-review` |
+| `/pdlc-review` | 代码 + 文档评审 + 自动修复（与项目类型不符的检查项标「不适用」，不据此改代码） | `/pdlc-ship` |
+| `/pdlc-e2e` | 端到端测试 | `/pdlc-review` |
+| `/pdlc-refactor` | 代码重构（外部行为不变） | `/pdlc-review` |
+| `/pdlc-ship` | 发布评审通过的功能（测试 → bump → CHANGELOG → 发布说明草稿 → tag；草稿可直接作 PR 描述；默认不动 CI 配置） | `/pdlc-deploy` |
+| `/pdlc-deploy` | 部署文档：按版本（覆盖该版本全部功能）或按单个功能 | — |
+| `/pdlc-retro` | 迭代复盘（趋势对比；用过循环驱动的，另汇总各阶段被拦次数与卡点原因） | — |
+| `/pdlc-task` | 阶段内任务跟踪 | — |
+
+### Layer 3 · 工具（24 个，专项叠加）
+
+**🎨 设计（4）**：`/pdlc-ui-design` · `/pdlc-ui-design-pro` · `/pdlc-db-design` · `/pdlc-arch`
+**🔍 质量（5）**：`/pdlc-quality`（常设闸门——跑真实 check、核对每条核心流都有通过的 E2E、与 PRD 强制对账防 false-green，出报告由人签字；报告为 `.md` 真源 + 零依赖自包含 `.html` 视图，后者双击就开、可打印签字）· `/pdlc-test-setup`（立客观 check 地基——探测技术栈、逐条验证命令真能跑，再写 `docs/00_standards/test-commands.yml`；没验证通过的项留空，绝不写一条没跑过的命令）· `/pdlc-lint` · `/pdlc-perf` · `/pdlc-security`
+**🔧 工程（7）**：`/pdlc-code-gen` · `/pdlc-add-service` · `/pdlc-add-app` · `/pdlc-api-mock` · `/pdlc-db-migrate` · `/pdlc-i18n` · `/pdlc-changelog`
+**🔗 治理（2）**：`/pdlc-standard` · `/pdlc-relate`
+**🏗️ 项目生命周期（3）**：`/pdlc-bootstrap` · `/pdlc-adopt` · `/pdlc-onboard`
+**🔁 循环工具（2）**：`/pdlc-loop-next`（打印下一条机械收敛命令）· `/pdlc-loop-run`（收敛引擎：自动推进 `tdd → implement → review` 到「评审通过、等发布」（`next_step: pdlc-ship`），发布留人）。见 `docs/decisions/0001-loop-engineering-integration.md`
+**⚙️ 设置（1）**：`/pdlc-settings`（交互式配置，当前含状态栏 statusline 的启用/停用/展示项）。见下方「在状态栏显示 PDLC 状态」及 `docs/decisions/0002-statusline-pdlc-status.md`
+
+---
+
+## 4.5 在状态栏显示 PDLC 状态（可选）
+
+pdlc-skills 可在 Claude Code 底部状态栏**独占一行**显示当前 PDLC 运行状态——功能名、阶段进度条、下一步、检查结果、blocked。**默认关闭**，用 `/pdlc-settings` 一步开启，无需手改配置文件。
+
+```
+● PDLC auth · PRD·设计·TDD·[实现]·评审·发布 · →评审 · 👤          ← 手动开发中
+● PDLC payment · PRD·设计·TDD·[实现]·评审·发布 · →评审 · 🤖 ✓unit ✓lint ⏱3m   ← loop 自主收敛中
+⛔ PDLC search blocked: PRD 取舍需人工 · ⏱12m                     ← 卡住等人（全行最醒目）
+```
+
+### 开启
+
+```
+/pdlc-settings statusline
+```
+
+选「启用」，它会：建稳定链接 `~/.claude/pdlc-statusline` → **追加**到你现有的 `statusLine.command` 后（幂等、绝不覆盖你已有的状态栏/HUD）→ 备份 + 展示 diff + 你确认后写入。
+
+> ⚠️ **机制**：Claude Code 只有一个 `statusLine.command` 槽。PDLC 段是**追加**进这条命令（多输出一行），**不是**新增第二个 statusLine——所以不会覆盖你现有的状态栏。写全局 `~/.claude/settings.json` 可能被安全层拦截，届时 `/pdlc-settings` 会给出「算好的那一行 + 手动粘贴位置」，不会谎报已启用。
+>
+> ℹ️ **和会排空 stdin 的状态栏（如 claude-hud）组合时**：`your-hud.sh; ~/.claude/pdlc-statusline` 里前一条命令会读掉 stdin，PDLC 段拿到空输入——此时它**自动回退用终端当前目录**（Claude Code 会把状态栏命令的 cwd 设为你的项目），照常识别 PDLC 状态。无需你做额外处理。
+
+### 展示项与配置
+
+`/pdlc-settings` 的「展示项」交互勾选下列开关，写入 `~/.claude/pdlc-statusline.json`（或项目级 `docs/.pdlc-state/statusline.json` 覆盖）；模板见 `references/templates/pdlc-statusline.example.json`：
+
+| 键 | 默认 | 说明 |
+|---|---|---|
+| `show_progress_bar` | on | 迷你进度条 |
+| `show_next` | on | 下一步 |
+| `show_run_icon` | on | 👤手动 / 🤖autonomous |
+| `show_checks` | auto | 检查结果，auto=仅 autonomous 显 |
+| `show_elapsed` | auto | 停留时长，auto=blocked/autonomous 显 |
+| `show_full_id` | off | 显示完整 ID 而非仅功能名 |
+| `pick_feature` | auto | 多 feature 选谁：非终态+blocked 优先 |
+| `color` | on | ANSI 颜色（`NO_COLOR` 也会关） |
+
+非 PDLC 项目 / 无状态文件时该行**自动为空**，不干扰其它项目。
+
+### 停用
+
+```
+/pdlc-settings statusline   # 选「停用」——只摘掉 PDLC 段，不动你其它状态栏配置
+```
+
+---
+
+## 4.6 在其它工具里用 PDLC（多平台）
+
+Claude Code **集成最全**（本手册前面全部内容）。但 PDLC 的方法论、状态机、模板是**平台中立**的——同一份 `docs/.pdlc-state/` 谁都能推，换工具不丢状态。设计见 `docs/decisions/0007-agent-skills-standard.md`。
+
+**1. 支持 Agent Skills 标准的工具 · 原生 skill**
+
+多数 AI 编程工具已按 [Agent Skills 开放标准](https://agentskills.io/specification) 加载 skill（文件夹 + `SKILL.md`，按描述触发）。两种装法，都不用克隆：
+
+**① 通用安装器 `npx skills`**（最省事）：
+
+```bash
+npx skills add kanfu-panda/pdlc-skills            # 交互选择装进哪些工具；-g 装到用户级，-a <工具> 指定工具，-y 跳过确认
+```
+
+它直接读本仓库 main 上的 `skills/`，装的是 skill 原样：36 个（`pdlc-settings`、`pdlc-loop-run` 只对 Claude Code 有用，标了
+`metadata.internal`，默认不装）。和投影的差别是参数行仍是 `$ARGUMENTS` 占位符、frontmatter 多一个 `argument-hint`；
+GitHub Copilot CLI 1.0.88 上实测能触发、能正确理解参数。**Claude Code 用户不要用它**，装插件即可，否则会多出一份同名 skill。
+
+**② 本仓库的安装脚本**：把 skill 构建成符合标准的投影（通过官方校验器），装到工具读取的目录。需要 python3；
+没有本地克隆时，脚本先下载 main 的源码包到临时目录，构建完即删：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kanfu-panda/pdlc-skills/main/install.sh | bash -s -- --target agents
+# 其它落点（在克隆里就直接 bash install.sh …）：
+#   --target agents                  ~/.agents/skills/：GitHub Copilot、Gemini CLI、OpenCode、Amp、Goose
+#   --target agents --project DIR    DIR/.agents/skills/（只对这个项目生效）
+#   --target agents --dest DIR       用自己目录的工具：Cursor（.cursor/skills）、Windsurf（.windsurf/skills）、
+#                                    Kiro（.kiro/skills）、Roo Code（.roo/skills）、
+#                                    Antigravity CLI（~/.gemini/config/skills，1.2.9 不读工作区 .agents/skills/）
+#   --target codex                   ~/.codex/skills/（我们验证过的 Codex 发行版读这里，不读 ~/.agents/skills/）
+#   加 --uninstall 移除。只写入、只删除 pdlc-* 目录，不碰同目录下的其它 skill
+```
+
+装好后重启工具，用自然语言驱动：
+
+```
+用 pdlc 写个 PRD：给登录加验证码        → pdlc-prd
+按 pdlc review 执行 F20260502-090000    → pdlc-review
+按 pdlc 看状态                          → pdlc-status
+```
+
+投影与源码的区别：正文里的 `/pdlc-<名字>` 指同名技能（开头有一句说明）；参数行改写成「用户请求里跟在技能名后面的内容」；
+`pdlc-settings`（状态栏配置）和 `pdlc-loop-run`（Task 版收敛引擎）不投影，多功能循环驱动随 `pdlc-status` 一起带过去。
+
+**各工具的验证状态**
+
+| 工具 | 状态 |
+|---|---|
+| Claude Code | 一等公民（插件，不经投影） |
+| Codex | 已过状态完整性准入闸（ADR 0004）。验证的是读 `~/.codex/skills/` 的 Codex 发行版，原版 OpenAI Codex 未验证 |
+| GitHub Copilot | CLI 1.0.88 能加载、能触发（`npx skills add` 与 `--target agents` 两种装法都实测过）。CLI 1.0.95 + v1.7.10 **通过**状态完整性准入闸（默认模型 3/3，见 ADR 0007 §6.4；此前 1.0.88 + v1.7.0 为 3/3 未过）。尚未内置进循环驱动，需要时用 `--platform custom`。VS Code 里的 Copilot agent 未跑 |
+| Grok CLI | 不用另装：它读 `~/.claude/plugins/installed_plugins.json`，自动加载已装的 Claude Code 插件。1.0.41 **已过**状态完整性准入闸（3/3 轮，见 ADR 0007 §6）。暂未加进循环驱动 |
+| Antigravity CLI（`agy`） | 用 `--dest ~/.gemini/config/skills` 装（1.2.9 实测不读工作区的 `.agents/skills/`）。能加载、能触发，但**未过**准入闸：声称「实现完成、状态已更新、测试全绿」，实际一个文件都没写（见 ADR 0007 §6） |
+| Gemini CLI、OpenCode、Amp、Goose、Cursor、Windsurf、Kiro、Roo Code | 按各自文档可加载，我们没跑过 |
+
+> ⚠️ **能加载不等于状态可信**。新工具要先过状态完整性准入闸：`./evals/run.sh --platform <工具> --only honest-checks`
+> 故意造一个红灯测试，看写进状态机的 `checks` 是否来自真实退出码、`ok=false` 有没有如实写出。任一工具写脏状态，
+> 就污染所有工具共用的那份（ADR 0003 §6.1）。没过准入闸的工具可以用来写文档、跑单个阶段，不建议交给自主循环。
+
+**2. 任意工具 · 方法论文档**
+
+工具不读 skill 目录时，把平台中立方法论文档 `docs/pdlc-methodology.md` 作为项目规则（`AGENTS.md` / `.cursor/rules/` / `.github/copilot-instructions.md` / `.clinerules/` 等），然后用自然语言驱动：agent 读到指令后按文档执行——读/建状态机 → 四段式 → 客观检查 → 更新状态机并交接。
+
+**3. Codex · 自主收敛循环**
+
+```bash
+adapters/codex-loop-run.sh <功能ID>... --project <项目目录> [--max-steps 4] [--parallel N] [--dry-run]
+```
+
+它就是 `bin/pdlc-loop.sh --platform codex`：每轮读状态机 → 判下一跳 → `codex exec "按 pdlc <阶段> <id> --autonomous"` → 读回判护栏（上限停机 / fail-stop / stuck-stop）。**发布永远人工**——到「评审通过、等发布」（`next_step: pdlc-ship`）即停。多个功能、并行、依赖排序见 §7 场景 G。
+
+**4. 其它 CLI · 自主收敛循环（未验证）**
+
+```bash
+bin/pdlc-loop.sh <功能ID>... --platform custom \
+  --cmd 'copilot -p "按 pdlc {stage} {id} --autonomous" --allow-all-tools' [--max-steps 4] [--parallel N] [--dry-run]
+```
+
+只要一个 CLI 能接受一句提示词、并且装好了 PDLC 技能（§4.6），就能用它驱动循环：每一步把 `{stage}`（tdd / implement / review）、`{id}`、`{dir}`（工作目录，并行时是各自的 worktree）填进模板执行。模板必须带 `--autonomous`。
+
+自定义平台一律标为**未验证**（启动提示、运行记录 `verified: false`、`--status` 里都写明）：驱动照样每步重读状态机、红了就停、绝不发布，但管不了它的花费，只能靠 `--max-steps` 限步。无人值守地跑之前，先用 `evals/run.sh` 的 `honest-checks` 场景验一下这个平台（评测已内置 copilot / agy / grok 臂）。某个平台过了准入闸，再升级成内置的 `--platform <名字>`——这就是「转正」。
+
+> **哪些能力仅 Claude Code**：状态栏（§4.5）、`pdlc-loop-run` 的 Task 版、配置命令 `pdlc-settings`。
+
+---
+
+## 5. 状态机文件
+
+每个功能在你的项目里对应一个 `docs/.pdlc-state/<feature-id>.json`，记录该功能走过的阶段、产物、自检结果、下一跳建议。
+
+### Schema 示例
+
+```json
+{
+  "feature_id": "F20260502-090000",
+  "feature_name": "user-auth",
+  "created_at": "2026-05-02T10:00:00+08:00",
+  "current_stage": "review",
+  "history": [
+    {
+      "stage": "requirements",
+      "done_at": "2026-05-02T10:05:00+08:00",
+      "produced": ["docs/01_requirements/prd/F20260502-090000-user-auth-prd.md"],
+      "self_audit": { "passed": 8, "failed": 0, "manual": 0 }
+    }
+  ],
+  "next_step": "pdlc-ship"
+}
+```
+
+上例是「评审通过、等待发布」的样子：`current_stage` 是阶段短名 `review`，`next_step` 是 `pdlc-ship`。
+
+**`_done` 只表示「已发布」**：只有 `/pdlc-ship` 写 `ship_done`、`/pdlc-deploy` 写 `deploy_done`，其它命令（含 `/pdlc-feature`）一律写阶段短名。
+`/pdlc-ship` 据此收集要发布的功能——`next_step` 为 `pdlc-ship` 且没有阻塞的，纳入本次发布；
+旧版本留下的 `feature_done` / `fix_done` / `review_done` 分不清是否已发布，它会列出来请你确认。
+实例里不写 `terminal_state`（那是 skill 定义里的字段，不是状态）。
+
+### 怎么用
+
+- `/pdlc-status` → 列所有功能的当前阶段、待办建议
+- `/pdlc-status F20260502-090000` → 单功能完整 history
+- `/pdlc-status --stale 3` → 列出停 3 天以上的功能
+- `/pdlc-status --loop` → 只看最近一次循环驱动运行的进度（用 `bin/pdlc-loop.sh` 跑过才有）
+- `/pdlc-retro --range 30d` → 月度复盘趋势报告
+
+> **读状态机之前先体检**：`/pdlc-status`、`/pdlc-retro`、`/pdlc-relate` 会先对 `docs/.pdlc-state/`
+> 跑一次契约体检（随 skill 自带的 `scripts/pdlc-state-lint.sh`，源头是仓库里的 `bin/pdlc-state-lint.sh`，只读）。状态文件若不是 `/pdlc-*` 命令写出来的——缺 `created_at`、
+> 阶段名写成 `prd` / `implementation`、`relations` 不是六键对象、时间戳只有日期、实例里多出 `terminal_state`
+> 等——偏差会汇总成一个「⚠️ 输入契约体检」块，**放在结论最前面**，逐类写明是怎么处理的
+> （忽略 / 归一化 / 记为不可测）。判终态只看 `current_stage` 是否以 `_done` 结尾。
+>
+> `/pdlc-relate` 的 `query` / `impact` / `orphans` / `validate` 是只读的：索引 `_relations.json`
+> 缺失或过期时当场现算、不落盘；要持久化请显式跑 `/pdlc-relate rebuild`。
+
+### 提交 git
+
+**建议提交**。这是项目交付审计记录，别加 `.gitignore`。
+
+---
+
+## 6. 目标项目目录契约
+
+执行 PDLC 命令时会在你项目的 `docs/` 下读写这些路径：
+
+```
+docs/00_standards/coding/                                   # 编码规范（被 prd/implement/tdd/code-gen/onboard 读取，可选）
+docs/00_standards/test-commands.yml                        # check 命令唯一真源（unit/coverage/lint/e2e），被各阶段的状态推进脚本与循环驱动读取
+docs/00_standards/pdlc-hooks.yml                           # Claude Code 护栏开关（/pdlc-settings hooks 写入；没有它 = 护栏关闭，可选）
+docs/01_requirements/prd/                                   # PRD
+docs/02_design/{api,database,architecture,ui-ux}/           # 技术设计
+docs/03_development/                                        # 开发者手册（onboard 产出）
+docs/04_testing/{unit-tests,e2e-tests,defects,security,perf}/   # 测试与缺陷
+docs/05_deployment/                                         # 部署（按版本发布时为 guides/v<版本>-deploy.md；/pdlc-ship 写 releases/v<版本>-release-notes.md 作 PR 描述草稿）
+docs/06_tasks/                                              # 任务跟踪
+docs/07_reviews/{doc,code,design,retro,quality}/            # 评审 + 复盘 + 质量报告
+docs/.pdlc-state/<feature-id>.json                          # 状态机（每功能一份）
+.worktrees/pdlc-loop/<feature-id>/                          # 自动 · bin/pdlc-loop.sh 并行时每个功能一个 worktree（已写进 git 排除）
+.git/pdlc-loop/                                             # 自动 · 循环驱动的运行记录与日志（非 git 项目在 docs/.pdlc-state/_loop/）
+```
+
+### PDLC-TRACE 追溯头
+
+每个带编号的 PDLC 文档顶部必须有：
+
+```html
+<!-- PDLC-TRACE -->
+<!-- 功能ID: F20260502-090000 -->
+<!-- 功能名称: user-auth -->
+<!-- 阶段: requirements -->
+<!-- 前置文档: 无 -->
+<!-- 创建时间: 2026-05-02T10:00:00+08:00 -->
+```
+
+作用：从任一文档反向追溯它属于哪个功能、哪个阶段、前置文档是什么。
+
+### ID 规则
+
+- **功能 ID**：`F<YYYYMMDD>-<HHMMSS>`（创建时刻的时分秒，如 `F20260717-122801`）
+- **缺陷 ID**：`B<YYYYMMDD>-<HHMMSS>`（如 `B20260717-122801`）
+- 用时分秒而非当日序号，是为了**多人 / 多 AI 并行时零协调也几乎不撞号、合并零冲突**（仅同一秒创建才可能撞，撞了自动 +1 秒）。旧的 2 位序号 ID（`F<日期>-01`）仍兼容可解析。
+
+---
+
+## 7. 典型场景
+
+### 场景 A：从零做个功能（一条命令）
+
+```
+/pdlc-feature 给用户登录加手机号验证（P0），支持中国大陆手机号，失败 3 次锁定 15 分钟
+```
+
+Claude 会自动：
+1. 分配功能 ID `F20260502-090000`，创建 PRD
+2. 设计 API、数据模型、前端页面
+3. 生成失败的测试用例（红灯）
+4. 实现代码到测试绿灯
+5. Review 代码 + 文档
+6. 提示用 `/pdlc-ship` 发布
+
+描述只有一句、缺得多（比如只写「加个导出功能」）时，开工前会先问一轮，最多 3 个问题，每题带默认答案，回「按默认」就开工。不想被问就加 `--autonomous`：缺的项按默认补上，逐条列进 PRD 的「待确认问题」，回头再确认。
+
+小功能可以加 `--lite`：PRD 只写「背景与目标」「功能需求」「待确认问题」三章，跳过任务拆解、PRD 评审和技术设计，PRD 写完直接进测试；先红灯再实现、检查结果按退出码判定、代码评审，这些照常。只会写 `docs/` 下四个目录（PRD、状态、测试计划、代码评审）。改到对外接口、数据库表结构或跨服务调用的功能，别用 `--lite`——那正是设计文档该出场的地方。
+
+### 场景 B：手动控制每阶段
+
+```
+/pdlc-prd 登录加手机号验证      # 停在 PRD
+# 你审 docs/01_requirements/prd/F20260502-090000-*.md，调整后：
+/pdlc-design F20260502-090000
+/pdlc-tdd F20260502-090000
+/pdlc-implement F20260502-090000
+/pdlc-review F20260502-090000
+/pdlc-ship
+/pdlc-deploy v<版本>             # 按 ship 交接给的版本号出部署文档
+```
+
+### 场景 C：修 bug
+
+```
+/pdlc-fix 分页器在 0 条时崩溃
+```
+
+自动：分配缺陷 ID `B20260502-090000` → 定位根因 → 写回归测试（红） → 修代码（绿） → 跑全量测试 → 更新 CHANGELOG 和缺陷记录。
+完成后下一步是 `/pdlc-review B20260502-090000`，评审通过再进 `/pdlc-ship`。
+
+### 场景 D：发布版本
+
+```
+/pdlc-ship --version <目标版本号>   # 如 1.5.0
+```
+
+自动：收集评审通过、待发布的功能（其余进行中的列出来问你） → 询问是否跑测试 → bump VERSION → 汇总 CHANGELOG → git tag → 把纳入的功能写成 `ship_done`。
+tag 要落在主干上：它先判断发布分支怎么合进主干。普通合并就当场打；squash 或 rebase 合并会让分支上的提交进不了主干，这时不打，等合并后在主干上运行 `/pdlc-ship --tag-after-merge v<版本>` 补打（只打 tag、不推送）。
+CI 配置默认不生成也不修改；需要时明确说，它会先给出用量估算，且默认只用手动触发 + 发布 tag 触发。
+之后 `/pdlc-deploy v<版本>` 出一份覆盖该版本全部功能的部署文档，并把这些功能推进到 `deploy_done`。
+
+### 场景 E：月度复盘
+
+```
+/pdlc-retro --range 30d
+```
+
+生成 `docs/07_reviews/retro/2026-05-retro.md`，含交付量、各阶段自检通过率、平均耗时、卡点案例。
+
+### 场景 F：旧项目接入 PDLC
+
+```
+/pdlc-adopt 帮我接入 PDLC 流程
+```
+
+走 `adopt` 阶段：扫描现有 `docs/`，逆向生成基线状态机，输出"接入报告"列出哪些章节需要补齐。
+
+### 场景 G：自主循环收敛（Loop 工程）
+
+`/pdlc-loop-run <功能ID>` 从 `current_stage` 自动推进 `tdd → implement → review` 到「评审通过、等发布」（`next_step: pdlc-ship`）或 blocked，无人值守。**到这里就停——发布永远留人**，循环绝不自动 `/pdlc-ship`（详见 [ADR 0001](./decisions/0001-loop-engineering-integration.md)）。
+
+前提：项目有 `docs/00_standards/test-commands.yml`（check 命令唯一真源），循环靠真跑退出码判停，不靠模型自评。
+
+**插件内（便捷，适合短收敛）**：
+
+```
+/pdlc-loop-run F20260714-090000
+```
+
+每个 stage 派发一个 fresh Task subagent，遇 `blocked` 或状态未推进即停，默认迭代上限 4。
+
+**多个功能 / 并行 / 长跑：驱动脚本 `bin/pdlc-loop.sh`**。每一步是一个独立进程（真 fresh context），不用自己写外层循环：
+
+```bash
+# 先看每个功能的下一步决策，不调用模型
+bin/pdlc-loop.sh F20260714-090000 F20260714-100000 --platform claude --dry-run
+# 真跑。claude 平台必须给每次调用的预算上限
+bin/pdlc-loop.sh F20260714-090000 F20260714-100000 --platform claude --max-budget-usd 5
+# 所有处于收敛段、未阻塞的功能，两个一起跑
+bin/pdlc-loop.sh --ready --platform claude --max-budget-usd 5 --parallel 2
+# 看进度（/pdlc-status 也会显示这一节）
+bin/pdlc-loop.sh --status
+```
+
+驱动随 `/pdlc-loop-run`、`/pdlc-status` 分发在各自的 `scripts/` 下，在 Claude Code 里让它「用 loop 驱动并行跑这几个功能」即可；
+插件缓存里的路径是 `~/.claude/plugins/cache/pdlc-skills/pdlc/<版本>/bin/pdlc-loop.sh`。
+
+| 参数 | 含义 |
+|---|---|
+| `<功能ID>...` / `--ready` | 要跑的功能；`--ready` 挑出所有 `next_step` 在收敛段（tdd / implement / review）且未阻塞的 |
+| `--platform claude\|codex` | 每一步用 `claude -p "/pdlc-<阶段> <ID> --autonomous"` 或 `codex exec "按 pdlc <阶段> <ID> --autonomous"` |
+| `--parallel N` | 同时跑几个功能，默认 1。N>1 时每个功能在 `.worktrees/pdlc-loop/<ID>`（分支 `pdlc-loop/<ID>`）里跑 |
+| `--max-steps N` | 每个功能至多几步，默认 4（3 段 + 1 步余量） |
+| `--max-budget-usd X` | claude 平台每次调用的预算上限，真跑必填 |
+| `--dry-run` | 只打印决策，不调用模型、不写任何东西 |
+
+- **护栏**：步数上限；某步 `last_phase_result.ok` 不是 `true` 即停（fail-stop）；`current_stage` 没变即停（stuck-stop）；收敛 = `next_step` 为 `pdlc-ship`，**绝不调用 ship / deploy**
+- **依赖**：按状态机 `relations.depends_on` 排先后，依赖没收敛就不跑依赖方，成环的全部跳过。并行时依赖方在被依赖方的 worktree 里接着跑（看得到它的改动）
+- **并行的前提**：项目是 git 仓库，且状态文件已提交（worktree 从 `HEAD` 建）。驱动**不提交、不合并**，产物留在 worktree 里由你审阅合并；worktree 目录自动写进 `.git/info/exclude`，不出现在 `git status` 里
+- **运行记录**：git 项目在 `.git/pdlc-loop/`（不入库），非 git 项目在 `docs/.pdlc-state/_loop/`。每个功能一份进度记录和一份日志（模型的完整输出）
+- **复盘**：`--report [--since YYYY-MM-DD]` 汇总历次运行——各阶段步数、被拦次数、耗时中位数、卡点原因，`/pdlc-retro` 把它原样放进复盘报告
+- **进度**：`--status` / `/pdlc-status --loop` 显示功能数、各状态计数、每个功能在哪一步、本步已跑多久；驱动进程已不在或单步超过 45 分钟会给出提示。**不给预计完成时间**——各步耗时差异太大
+- **退出码**：`0` 全部收敛；`2` 有功能阻塞或被跳过；`3` 达步数上限；`4` 平台命令出错；`5` 状态没推进（多个功能取最大值）
+- Ctrl-C 会终止正在跑的步骤并记下「被中断」；重跑同样的命令从各功能当前阶段继续
+
+---
+
+## 8. 设计哲学 + IRON LAW
+
+### 三层分层心智
+
+PDLC 把 38 个阶段按使用频率分 3 层暴露：
+
+- **Layer 1（3 个）**：高频入口，新手只学这层即可完成 80% 工作
+- **Layer 2（11 个）**：单阶段精细控制
+- **Layer 3（24 个）**：专项工具，按需叠加（含循环工具 `/pdlc-loop-next` · `/pdlc-loop-run`、设置 `/pdlc-settings`）
+
+**你的心智**：做功能用 `feature`，修 bug 用 `fix`，看状态用 `status`——三个动词级指令。其他 35 个阶段需要时再用。
+
+### IRON LAW：硬门禁不可协商
+
+每个**产出文件**的 Layer 1/2 阶段都强制六条规则（`/pdlc-status` 这种只读阶段豁免）：
+
+1. **文件必须落盘** — 不能只在对话里输出
+2. **阶段必须落章** — 状态机 history 必须追加
+3. **测试必须存在** — 进入 `implement` 前测试必须红灯
+4. **自检必须执行** — 段二自检不可跳过
+5. **防循环** — 段三修复仅一轮，不递归
+6. **状态必推进** — 成功执行后 `current_stage` 必须变更，未推进即报错、不静默返回（防自主循环空转烧额度）；主动 block 例外，此时写 `blocked_reason`
+
+**违反任一条 = 立即中止**。这避免 AI "轻飘飘地说做了但没落盘"，也避免循环拿滞后状态空转。
+
+### 规则写了，怎么确认模型真的照做
+
+IRON LAW 写在 skill 正文里，执行者是模型——光写不查，等于相信模型自觉。所以另有三层去查：
+
+- **检查结果不让模型填**：`last_phase_result.checks` 由 skill 自带的 `scripts/pdlc-checks.sh` 按 `test-commands.yml` 的真实退出码生成；命令跑不起来记 `null`，不记 `false`，更不记 `true`
+- **推进阶段不让模型决定**：阶段收尾只能调 `scripts/pdlc-advance.sh`，它自己跑本阶段的检查，红了就不推进；tdd 写的测试在实现阶段被改，也不推进，除非带 `--tests-changed "<理由>"`（理由记进 `auto_decisions`）。没有 `test-commands.yml` 的旧项目照常推进，`checks` 写 `{}`；没有测试指纹的旧功能不比对
+- **Claude Code 护栏（可选）**：`/pdlc-settings hooks on` 在项目里写 `docs/00_standards/pdlc-hooks.yml`，之后用 Write / Edit 直接写状态文件会被拦下，收尾时还会体检本次改动的状态文件。默认关闭；Codex 等工具没有这套 hooks
+- **写完即体检**：每个写状态的阶段写完立刻跑 `scripts/pdlc-state-lint.sh`，缺字段、未知阶段名、非 ship / deploy 写 `_done` 都当场报出来
+- **拿真实模型跑**：仓库里的 `evals/` 在一次性样例项目里真跑 skill，每个样例都设计成「老实干」和「偷懒」结果不一样；发版前在 Claude Code 和 Codex 两边跑，场景见 `evals/EVALS.md`
+
+### Handoff：显式下一跳
+
+每个 Layer 1/2 阶段结束时，Claude 会输出 handoff 块，告诉你"下一步该做什么"，并给出可直接复制的下一句调用。
+
+---
+
+## 9. 四段式工作流
+
+每个 Layer 1/2 阶段统一为四段：
+
+| 段 | 名称 | 职责 |
+|---|---|---|
+| 段一 | 执行 | 产出主文档 / 代码 / 配置 |
+| 段二 | 自检 | 重读产物，按质量清单逐项检查 |
+| 段三 | 修复 | 自动修复可修部分（单次，防循环） |
+| 段四 | 交接 | 更新状态机 + 输出 handoff 下一步 |
+
+`/pdlc-prd` 的执行轨迹示例：
+
+```
+段一：生成 PRD
+  └→ docs/01_requirements/prd/F20260502-090000-user-auth-prd.md
+
+段二：自检
+  ✓ 背景与目标清晰
+  ✓ 用户故事 >= 3 条
+  ✗ 功能清单缺优先级
+  ✓ 验收标准可度量
+  ...（共 8 项质量关卡）
+
+段三：修复
+  → 自动补齐 P0/P1/P2 优先级标注
+  → 重新检查：✓
+
+段四：交接
+  ✅ PRD 已创建
+  📊 自检：8/8 通过
+  📦 状态机已更新
+  👉 下一步：/pdlc-design F20260502-090000
+```
+
+---
+
+## 10. 扩展：自定义文档模板
+
+plugin 自带 11 份用户文档模板（`references/templates/*-template.md`）。如果你的团队有自己的 PRD 格式 / API 设计模板，可以本地修改后重装：
+
+```bash
+git clone https://github.com/kanfu-panda/pdlc-skills.git
+cd pdlc-skills
+
+# 修改你需要定制的模板，例如 PRD：
+$EDITOR references/templates/prd-template.md
+
+# 把改动同步进用到该模板的各 skill 文件夹（skill 运行时读的是自带的 assets/ 副本）
+python3 adapters/sync_skills.py
+
+# 重新安装到本地
+bash install.sh --upgrade --global
+```
+
+之后所有走 `/pdlc-prd` 阶段的产出都会用你改过的模板。
+
+> 想自定义阶段定义本身、加新阶段、改 IRON LAW 语气？这些是贡献者级别的扩展，请看 `CONTRIBUTING.md` 和 `CLAUDE.md`。
+
+---
+
+## 11. FAQ
+
+**Q：可以跳过某个阶段吗？**
+A：Layer 2 可以，但 `/pdlc-implement` 会检查测试是否存在——没测试会提示要先跑 `/pdlc-tdd`，这是**硬门禁（IRON LAW）**，不可绕过。
+
+**Q：状态机文件要提交到 git 吗？**
+A：**要**。`docs/.pdlc-state/*.json` 是审计记录，便于后续复盘和团队协作。
+
+**Q：我卡在某一阶段了，怎么办？**
+A：三步排查：
+1. `/pdlc-status <feature-id>` 看当前在哪、下一步建议什么
+2. 如果 Claude 报错，读错误信息（通常是硬门禁：缺文档、缺测试）
+3. 补齐前置条件后重跑——状态机会自动续接，不会重复做已完成的阶段
+
+**Q：AI 自动走完所有阶段会不会"跑偏"？**
+A：每阶段有**自检 + 单次修复**机制（防循环），走完会输出自检报告。如果对某阶段产出不满意，单独跑该阶段的 Layer 2 命令即可，前后阶段不受影响。
+
+**Q：怎么接入专业级 UI 设计（ui-ux-pro-max）？**
+A：先装 `npm install -g uipro-cli && uipro init --ai claude`，然后 `/pdlc-ui-design-pro <设计目标>` 会自动调用它的 67 风格 / 161 配色 / 13 技术栈库。
+
+**Q：产出语言怎么决定？**
+A：**默认匹配你和 Claude 的对话语言**——你用中文聊，产出中文 PRD/代码注释；用英文聊，产出英文。也可以显式指定：`/pdlc-prd 给 X 做 PRD，用英文写`。
+
+**Q：我想确认 plugin 已正确加载怎么办？**
+A：在 Claude Code 里打 `/`，看下拉里能否找到 `/pdlc-feature` 等。能找到就是装好了。
+
+**Q：能不能在多个仓库共享 PDLC 状态？**
+A：当前不行。每个目标项目维护自己的 `docs/.pdlc-state/`，跨仓库共享需要团队约定，超出 plugin 范围。
+
+**Q：发现 bug 或想提建议怎么办？**
+A：[GitHub Issues](https://github.com/kanfu-panda/pdlc-skills/issues)（用模板）。讨论性问题用 [Discussions](https://github.com/kanfu-panda/pdlc-skills/discussions)。安全问题见 [SECURITY.md](../SECURITY.md)。
+
+---
+
+**变更记录见 [`CHANGELOG.md`](../CHANGELOG.md)。贡献流程见 [`CONTRIBUTING.md`](../CONTRIBUTING.md)。**

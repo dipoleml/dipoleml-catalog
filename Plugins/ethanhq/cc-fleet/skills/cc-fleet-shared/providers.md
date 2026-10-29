@@ -1,0 +1,74 @@
+# Provider selection + prompt profiles
+
+Shared provider reference for the cc-fleet skills.
+
+## Contents
+- Picking a provider + model
+- Provider cheat sheet
+- Prompt profiles (subagent + workflow leaves)
+
+---
+
+## Picking a provider + model
+
+1. **List configured providers.** `cc-fleet list --json`. Skip any provider with `"enabled": false`.
+2. **Filter by need** against the cheat sheet below (capability + cost + language).
+3. **Check the provider's model roster.** `cc-fleet models <provider> --json` → the configured `default` / `strong` / `fast` slots (a blank slot follows `default`). It returns ONLY these 3 configured slots, never the provider's full catalog. If a slot isn't what you expect, the user changes it with `cc-fleet edit <provider> --default-model/--strong-model/--fast-model <id>` or the TUI. `cc-fleet refresh` only updates the local models cache behind `list --json`'s `models_count` / `models_stale`; it never changes the slots.
+4. **Pick the model.** Omit `--model` to use the provider's `default`, or pass the keyword `default` | `strong` | `fast` to select a slot. A literal model id also works for subagents and workflow leaves, but prefer the slots — they are what the user configured. A teammate takes a slot only (`teammate check --slot`).
+
+---
+
+## Provider cheat sheet
+
+Template seeds for the built-in presets (what the TUI add picker prefills). Suggestions only — always confirm current state via `cc-fleet list --json` and `cc-fleet models <provider> --json`.
+
+| Provider | Seeded default model | Notes |
+|---|---|---|
+| `deepseek` | `deepseek-v4-flash` | Use canonical names; legacy aliases silently fall back to default. |
+| `kimi` (Moonshot) | `kimi-latest` | 200k+ context; strong Chinese. |
+| `kimi-code` (Kimi Code) | `kimi-for-coding` | Kimi Code Console API key tied to Kimi membership benefits; preset uses medium effort for Thinking/K2.7. Not Kimi CLI OAuth or Moonshot Platform billing. Use `--profile full` for subagent leaves when K2.7 Thinking behavior matters, because slim disables thinking. |
+| `glm` (智谱, bigmodel.cn) | `glm-4.6` | Domain Chinese, industry vertical. |
+| `zai` (GLM international, z.ai) | `glm-4.6` | Same models as `glm`; separate site + separate key. |
+| `qwen` (DashScope) | `qwen-max` | Endpoint/plan vary by region; consult user docs if `refresh` fails. |
+| `minimax` | `MiniMax-M2` | — |
+| `xiaomimimo` (Xiaomi MiMo) | `mimo-v2.5-pro` | Models endpoint sits at the host root. |
+| `stepfun` (阶跃) | `step-3.5-flash-2603` | Step-plan coding endpoint. |
+| `longcat` (Meituan) | `LongCat-Flash-Chat` | — |
+| `volcengine` (Ark, ByteDance) | `ark-code-latest` | Coding-plan; endpoint-id scheme — the model list may probe empty. |
+| `doubao` (Doubao Seed) | `doubao-seed-2-0-code-preview-latest` | Endpoint-id scheme. |
+| `qianfan` (Baidu) | `qianfan-code-latest` | Coding-plan endpoint. |
+| `bailing` (Ant Ling) | `Ling-2.5-1T` | — |
+| `codex` (ChatGPT subscription) | `gpt-5.5`, `gpt-5.3-codex` | Setup: `cc-fleet codex add` (another subscription: `cc-fleet codex add --name <name>`), then the `cc-fleet codex login …` line it prints as `next:` (user-run; the provider on the default credential, `secret_ref` `codex-oauth`, can instead ride a signed-in codex CLI — see `cc-fleet codex status`). Quota = the subscription; a 429 carries its reset time. |
+
+OpenAI-protocol presets also exist — `openai` (Responses API), `openai-chat` (Chat Completions), and any OpenAI-compatible endpoint (Groq / Together / Fireworks / vLLM). They are registered via the TUI add form (not `cc-fleet add`), carry no seeded default model (pick from the probed list), and behave like any other provider once configured.
+
+A provider with no built-in seed works the same way — the user adds it first: `cc-fleet add <provider> --base-url <url> --models-endpoint <url> --default-model <id> --secret-ref <provider>.key --api-key-stdin <<<"$KEY"` (use `--api-key-stdin` or `--api-key-file`; **never** the raw key in argv).
+
+**The reserved id `claude` is not a table row** — it is not a configured provider. Two different things share the name:
+
+- **The native reserved id `claude`** — the subagent / workflow lanes support it (unchanged): `claude` runs the official `claude` CLI on the user's OWN Claude Code login (subscription OAuth) — no providers.toml row, no profile, no key. It needs a real stored login (file / OS keychain); env-key auth (`ANTHROPIC_API_KEY`) is scrubbed like for every child — an API-key user adds a normal `anthropic` provider instead. It never shows in `cc-fleet list` (selected by the literal id, not discovered), can't be the default, and the name is reserved (`cc-fleet add claude` / the TUI add form reject it). `--model` / `model:` takes a literal id only (`fable` / `opus` / `sonnet` / a full id; the slots `default`/`strong`/`fast` are rejected — no roster); omitted = claude's login default, typically the costliest tier, so name one. It spends the **lead session's own subscription window** — one or two synthesis / judgement nodes, never a wide fan-out. `cc-fleet run` does not take it, and the teammate lane does not need it: a native Claude teammate is the native `Agent` tool with a native agent type, so cc-fleet generates no `ccf-claude` type, and `ccf-claude` / `cc-fleet teammate check claude` return `BAD_ARGS`.
+- **A providers.toml row named `claude`** (from before the reservation) — it still loads and lists, but the subagent, workflow and teammate lanes refuse it: a subagent / workflow `claude` call fails with `PROVIDER_RESERVED`, and the teammate lane generates no agent definition for it. `cc-fleet run claude` is the one exception: for compatibility it still launches that row. Tell the user to rename or remove the row (`cc-fleet remove claude`).
+
+---
+
+## Prompt profiles (subagent + workflow leaves)
+
+One model, two surfaces with identical semantics: flags on `cc-fleet subagent` (`--profile`, `--tools`, `--skills=false`, `--mcp`) and options on a workflow `agent()` leaf (`profile`, `tools`, `skills`, `mcp`); `--disallowed-tools` is the one CLI-only flag.
+
+- **`slim` — the DEFAULT.** Generic-subagent mirror: keeps CLAUDE.md + gitStatus, write-capable. Tools: Bash, Edit, Glob, Grep, Read, Skill, Write.
+- **`slim-ro`.** Read-only Explore mirror: no CLAUDE.md, advisory read-only. Tools: Bash, Glob, Grep, Read, Skill.
+- **`full`.** Restores the full session prompt. Use it ONLY to compare behavior against a full session or to diagnose a suspected slim regression.
+
+Rule of thumb: the leaf writes files → `slim`; read-only research → `slim-ro`.
+
+`slim` / `slim-ro` replace the full session prompt with the native subagent shape plus a restricted tool whitelist — a far smaller first request, which cache-less providers pay per call. Refinements (slim-only — combined with `full` they are rejected):
+
+- **`--tools` / `tools` REPLACES the whole set, never appends.** `--tools "WebSearch"` gives the subagent ONLY WebSearch. Any tool beyond the default whitelist (e.g. WebSearch / WebFetch) must be passed explicitly.
+- **`--skills=false` / `skills: false`** drops the Skill tool + the host skill listing (default keeps both).
+- **`--mcp` / `mcp`** defaults per profile: `slim` inherits the host MCP config (native parity); `slim-ro` runs `--strict-mcp-config`. An explicit value (either way) overrides.
+
+`--tools` / `tools` does not restrict MCP tools on any profile: an inherited MCP config exposes every host server's tools regardless of the whitelist. To keep a subagent off specific MCP tools (e.g. a broker's order tools), pass `--disallowed-tools mcp__<server>__<tool>` (or `mcp__<server>`), a comma- or space-separated list passed to claude as-is. It works on every profile and exists only on the CLI, not as a workflow `agent()` option.
+
+The profiles need **claude ≥ 2.1.88**. On an older claude the profile **fails open to `full`** — the subagent envelope carries `slim_downgrade`; a workflow leaf logs a notice.
+
+Weak provider models skip tools on weak-imperative prompts under ANY profile — write prescriptive prompts ("Run `cmd`", "Use the Read tool on X"), not "look at" / "check".

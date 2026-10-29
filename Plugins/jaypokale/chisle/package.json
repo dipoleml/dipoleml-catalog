@@ -1,0 +1,109 @@
+{
+  "name": "chisle",
+  "version": "3.8.1",
+  "description": "Fewer tokens than caveman and ponytail, no accuracy lost. Zero-fluff prose, YAGNI-first code, and safe tool-output compression for 13 AI coding agents.",
+  "keywords": [
+    "claude-code",
+    "claude-code-plugin",
+    "pi-package",
+    "pi-coding-agent",
+    "token-optimization",
+    "token-reduction",
+    "context-compression",
+    "llm",
+    "ai",
+    "anthropic",
+    "cost-optimization",
+    "cursor",
+    "codex",
+    "copilot",
+    "antigravity",
+    "opencode",
+    "hermes-agent",
+    "hermes",
+    "gemini",
+    "agents",
+    "productivity",
+    "yagni",
+    "minimal"
+  ],
+  "license": "MIT",
+  "author": {
+    "name": "Jay Pokale",
+    "url": "https://github.com/JayPokale"
+  },
+  "contributors": [
+    {
+      "name": "Claude (Anthropic)",
+      "url": "https://claude.com/claude-code"
+    },
+    {
+      "name": "Codex (OpenAI)",
+      "url": "https://openai.com/codex/"
+    }
+  ],
+  "homepage": "https://chisle.jaypokale.me",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/JayPokale/Chisle.git"
+  },
+  "bugs": {
+    "url": "https://github.com/JayPokale/Chisle/issues"
+  },
+  "bin": {
+    "chisle": "bin/install.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "omp": {
+    "extensions": [
+      "./pi-extension/index.cjs"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  },
+  "pi": {
+    "extensions": [
+      "./pi-extension/index.js"
+    ],
+    "skills": [
+      "./skills"
+    ]
+  },
+  "scripts": {
+    "test": "node --test tests/*.js",
+    "build:rules": "node scripts/build-rules.js",
+    "check:rules": "node scripts/build-rules.js --check",
+    "build:chart": "node scripts/build-chart.js",
+    "check:chart": "node scripts/build-chart.js --check",
+    "bench": "bash benchmarks/run-live.sh",
+    "build:samples": "node scripts/build-samples.js",
+    "check:samples": "node scripts/build-samples.js --check"
+  },
+  "files": [
+    "bin/",
+    "hooks/",
+    "pi-extension/",
+    "skills/",
+    "commands/",
+    "rules/",
+    "AGENTS.md",
+    ".cursor/",
+    ".windsurf/",
+    ".clinerules/",
+    ".kiro/",
+    ".agents/",
+    ".github/copilot-instructions.md",
+    ".claude-plugin/",
+    ".opencode/",
+    "README.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  }
+}

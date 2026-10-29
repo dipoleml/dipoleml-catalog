@@ -1,0 +1,116 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.heycubit.effortless",
+  "type": "plugin",
+  "name": "Effortless",
+  "slug": "effortless",
+  "vendor": "heycubit",
+  "description": "Mods for DipoleML. effortless picks the reasoning effort for every prompt and shows the cache countdown. textless (desktop app) shows art, quotes and chess instead of the wall of text while DipoleML works.",
+  "version": "1.72.0",
+  "homepage": "https://github.com/HeyCubit/effortless",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "anthropic",
+    "chess",
+    "claude-code-mod",
+    "claude-code-plugin",
+    "developer-tools",
+    "prompt-caching",
+    "textless"
+  ],
+  "tags": [
+    "ai-tools",
+    "anthropic",
+    "chess",
+    "claude",
+    "claude-code",
+    "claude-code-mod",
+    "claude-code-plugin",
+    "developer-tools",
+    "prompt-caching",
+    "textless"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "heycubit",
+    "brandName": "heycubit",
+    "source": "https://github.com/HeyCubit.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:13:14Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "HeyCubit/effortless",
+    "url": "https://github.com/HeyCubit/effortless",
+    "commit": "e5c590dfd9402244ea66a8bf795d1cb86d1df7b9",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 284,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:01:23Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Effortless | Mods for Claude Code. effortless picks the reasoning effort for every prompt and shows the cache countdown. textless (desktop app) shows art, quotes and chess instead of the wall of text while Claude works.",
+        "after": "Effortless | Mods for DipoleML. effortless picks the reasoning effort for every prompt and shows the cache countdown. textless (desktop app) shows art, quotes and chess instead of the wall of text while DipoleML works.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [
+      "TYPESAFE_API_KEY"
+    ],
+    "credentials": [
+      "TYPESAFE_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,518 @@
+package workspace_test
+
+import (
+	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
+	hashidlib "github.com/mertcikla/tld/v2/internal/hashids"
+	"github.com/mertcikla/tld/v2/internal/workspace"
+	"gopkg.in/yaml.v3"
+)
+
+func TestSlugify(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"API Service", "api-service"},
+		{"My DB!", "my-db"},
+		{"  leading spaces  ", "leading-spaces"},
+		{"multiple---hyphens", "multiple-hyphens"},
+		{"ı", ""},
+	}
+	for _, tc := range cases {
+		if got := workspace.Slugify(tc.in); got != tc.want {
+			t.Fatalf("Slugify(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestValidateRef(t *testing.T) {
+	tests := []struct {
+		name      string
+		ref       string
+		allowRoot bool
+		wantErr   bool
+	}{
+		{name: "slug", ref: "api-service"},
+		{name: "dots and underscores", ref: "api.v1_service"},
+		{name: "empty", ref: "", wantErr: true},
+		{name: "uppercase", ref: "API", wantErr: true},
+		{name: "colon", ref: "api:db", wantErr: true},
+		{name: "root resource", ref: "root", wantErr: true},
+		{name: "root parent", ref: "root", allowRoot: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := workspace.ValidateRef(tt.ref, tt.allowRoot)
+			if tt.wantErr && err == nil {
+				t.Fatal("expected error")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
+func TestUpsertElement_CreatesAndMergesPlacements(t *testing.T) {
+	dir := t.TempDir()
+	if err := workspace.UpsertElement(dir, "api", &workspace.Element{
+		Name:       "API",
+		Kind:       "service",
+		Placements: []workspace.ViewPlacement{{ParentRef: "root", PositionX: 10, PositionY: 20}},
+	}); err != nil {
+		t.Fatalf("first UpsertElement: %v", err)
+	}
+	if err := workspace.UpsertElement(dir, "api", &workspace.Element{
+		Name:        "API",
+		Kind:        "service",
+		Description: "Handles traffic",
+		HasView:     true,
+		ViewLabel:   "Container",
+		Placements: []workspace.ViewPlacement{
+			{ParentRef: "root", PositionX: 30, PositionY: 40},
+			{ParentRef: "platform", PositionX: 50, PositionY: 60},
+		},
+	}); err != nil {
+		t.Fatalf("second UpsertElement: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "elements.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]workspace.Element
+	if err := yaml.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	element := got["api"]
+	if element.Description != "Handles traffic" || !element.HasView || element.ViewLabel != "Container" {
+		t.Fatalf("unexpected merged element: %+v", element)
+	}
+	if len(element.Placements) != 2 {
+		t.Fatalf("expected 2 placements, got %d", len(element.Placements))
+	}
+	if element.Placements[0].ParentRef != "root" || element.Placements[0].PositionX != 30 || element.Placements[0].PositionY != 40 {
+		t.Fatalf("root placement not updated: %+v", element.Placements[0])
+	}
+}
+
+func TestUpsertElement_WritesExplicitFalseHasView(t *testing.T) {
+	dir := t.TempDir()
+	if err := workspace.UpsertElement(dir, "api", &workspace.Element{
+		Name:       "API",
+		Kind:       "service",
+		HasView:    false,
+		Placements: []workspace.ViewPlacement{{ParentRef: "root"}},
+	}); err != nil {
+		t.Fatalf("UpsertElement: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "elements.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), "has_view: false") {
+		t.Fatalf("elements.yaml should make missing child view explicit:\n%s", data)
+	}
+}
+
+func TestUpsertElement_MarksExistingParentAsHavingView(t *testing.T) {
+	dir := t.TempDir()
+	if err := workspace.UpsertElement(dir, "platform", &workspace.Element{
+		Name:       "Platform",
+		Kind:       "workspace",
+		Placements: []workspace.ViewPlacement{{ParentRef: "root"}},
+	}); err != nil {
+		t.Fatalf("parent UpsertElement: %v", err)
+	}
+	if err := workspace.UpsertElement(dir, "api", &workspace.Element{
+		Name:       "API",
+		Kind:       "service",
+		Placements: []workspace.ViewPlacement{{ParentRef: "platform"}},
+	}); err != nil {
+		t.Fatalf("child UpsertElement: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "elements.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]workspace.Element
+	if err := yaml.Unmarshal(data, &got); err != nil {
+		t.Fatal(err)
+	}
+	if !got["platform"].HasView {
+		t.Fatalf("parent should have a view after child placement, got %+v\n%s", got["platform"], data)
+	}
+	if got["api"].HasView {
+		t.Fatalf("child should not get its own view by default, got %+v\n%s", got["api"], data)
+	}
+}
+
+func TestUpsertElement_ErrorsOnKindMismatch(t *testing.T) {
+	dir := t.TempDir()
+	if err := workspace.UpsertElement(dir, "shared", &workspace.Element{Name: "Shared", Kind: "service"}); err != nil {
+		t.Fatalf("first UpsertElement: %v", err)
+	}
+	err := workspace.UpsertElement(dir, "shared", &workspace.Element{Name: "Shared", Kind: "database"})
+	if err == nil {
+		t.Fatal("expected kind mismatch error")
+	}
+	if !strings.Contains(err.Error(), "already exists with kind") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestUpsertElement_PersistsElementAndViewMetadataToLockFile(t *testing.T) {
+	dir := t.TempDir()
+	content := "api:\n" +
+		"  name: API\n" +
+		"  kind: service\n" +
+		"  placements:\n" +
+		"    - parent: root\n" +
+		"      position_x: 10\n" +
+		"      position_y: 20\n" +
+		"_meta_elements:\n" +
+		"  api:\n" +
+		"    id: 11\n" +
+		"    updated_at: 2024-01-01T00:00:00Z\n" +
+		"_meta_views:\n" +
+		"  api:\n" +
+		"    id: 21\n" +
+		"    updated_at: 2024-01-02T00:00:00Z\n"
+	if err := os.WriteFile(filepath.Join(dir, "elements.yaml"), []byte(content), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := workspace.WriteLockFile(dir, &workspace.LockFile{Version: "v1"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := workspace.UpsertElement(dir, "api", &workspace.Element{
+		Name:        "API",
+		Kind:        "service",
+		Description: "Updated",
+		Placements:  []workspace.ViewPlacement{{ParentRef: "root", PositionX: 50, PositionY: 60}},
+	}); err != nil {
+		t.Fatalf("UpsertElement: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "elements.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if strings.Contains(text, "_meta_elements:") || strings.Contains(text, "_meta_views:") {
+		t.Fatalf("elements.yaml should not keep migrated metadata sections:\n%s", text)
+	}
+	lockFile, err := workspace.LoadLockFile(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lockFile.CurrentElements["api"] == nil || lockFile.CurrentElements["api"].ID != 11 {
+		t.Fatalf("lockfile current element metadata missing: %+v", lockFile.CurrentElements)
+	}
+	if lockFile.CurrentViews["api"] == nil || lockFile.CurrentViews["api"].ID != 21 {
+		t.Fatalf("lockfile current view metadata missing: %+v", lockFile.CurrentViews)
+	}
+}
+
+func TestAppendConnector_WritesFlatList(t *testing.T) {
+	dir := t.TempDir()
+	encodedID := hashidlib.Encode(1)
+	content := "- view: system\n" +
+		"  source: api\n" +
+		"  target: db\n" +
+		"  label: reads\n" +
+		"  id: " + encodedID + "\n" +
+		"  updated_at: 2024-01-01T00:00:00Z\n"
+	if err := os.WriteFile(filepath.Join(dir, "connectors.yaml"), []byte(content), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := workspace.AppendConnector(dir, &workspace.Connector{
+		View:   "system",
+		Source: "api",
+		Target: "queue",
+		Label:  "publishes",
+	}); err != nil {
+		t.Fatalf("AppendConnector: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(dir, "connectors.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(data)
+	if strings.Contains(text, "_meta_connectors:") {
+		t.Fatalf("connectors.yaml should not have _meta_connectors:\n%s", text)
+	}
+	if !strings.Contains(text, "- view: system") {
+		t.Fatalf("connectors.yaml should use list format, got:\n%s", text)
+	}
+	if !strings.Contains(text, "label: publishes") || !strings.Contains(text, "target: queue") {
+		t.Fatalf("connectors.yaml missing appended connector:\n%s", text)
+	}
+	if !strings.Contains(text, "id: "+encodedID) {
+		t.Fatalf("connectors.yaml lost connector metadata:\n%s", text)
+	}
+}
+
+func TestSave_WritesElementsAndConnectorsAndRemovesLegacyFiles(t *testing.T) {
+	dir := t.TempDir()
+	for _, legacyFile := range []string{"diagrams.yaml", "objects.yaml", "edges.yaml", "links.yaml"} {
+		if err := os.WriteFile(filepath.Join(dir, legacyFile), []byte("legacy: true\n"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := workspace.WriteLockFile(dir, &workspace.LockFile{Version: "v1"}); err != nil {
+		t.Fatal(err)
+	}
+
+	ws := &workspace.Workspace{
+		Dir: dir,
+		Elements: map[string]*workspace.Element{
+			"api": {
+				Name:       "API",
+				Kind:       "service",
+				HasView:    true,
+				Placements: []workspace.ViewPlacement{{ParentRef: "root"}},
+			},
+			"db": {
+				Name:       "DB",
+				Kind:       "database",
+				Placements: []workspace.ViewPlacement{{ParentRef: "api"}},
+			},
+		},
+		Connectors: map[string]*workspace.Connector{
+			"api/api~db/reads": {View: "api", Source: "api", Target: "db", Label: "reads"},
+		},
+		Meta: &workspace.Meta{
+			Elements: map[string]*workspace.ResourceMetadata{
+				"api": {ID: 1, UpdatedAt: time.Now()},
+			},
+			Views: map[string]*workspace.ResourceMetadata{
+				"api": {ID: 2, UpdatedAt: time.Now()},
+			},
+			Connectors: map[string]*workspace.ResourceMetadata{
+				"api/api~db/reads": {ID: 3, UpdatedAt: time.Now()},
+			},
+		},
+	}
+
+	if err := workspace.Save(ws); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	elementsData, _ := os.ReadFile(filepath.Join(dir, "elements.yaml"))
+	if strings.Contains(string(elementsData), "_meta_elements:") || strings.Contains(string(elementsData), "_meta_views:") {
+		t.Fatalf("elements.yaml should not contain current metadata sections:\n%s", elementsData)
+	}
+	lockFile, err := workspace.LoadLockFile(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if lockFile.CurrentElements["api"] == nil || lockFile.CurrentElements["api"].ID != 1 {
+		t.Fatalf("lockfile current element metadata missing: %+v", lockFile.CurrentElements)
+	}
+	if lockFile.CurrentViews["api"] == nil || lockFile.CurrentViews["api"].ID != 2 {
+		t.Fatalf("lockfile current view metadata missing: %+v", lockFile.CurrentViews)
+	}
+	if lockFile.CurrentConnectors["api/api~db/reads"] == nil || lockFile.CurrentConnectors["api/api~db/reads"].ID != 3 {
+		t.Fatalf("lockfile current connector metadata missing: %+v", lockFile.CurrentConnectors)
+	}
+	connectorsData, _ := os.ReadFile(filepath.Join(dir, "connectors.yaml"))
+	if strings.Contains(string(connectorsData), "_meta_connectors:") || !strings.Contains(string(connectorsData), "label: reads") {
+		t.Fatalf("connectors.yaml unexpected content:\n%s", connectorsData)
+	}
+	if !strings.Contains(string(connectorsData), "id: ") {
+		t.Fatalf("connectors.yaml missing inline metadata:\n%s", connectorsData)
+	}
+	if strings.Contains(string(connectorsData), "updated_at:") {
+		t.Fatalf("connectors.yaml should not keep inline updated_at when lockfile exists:\n%s", connectorsData)
+	}
+	for _, legacyFile := range []string{"diagrams.yaml", "objects.yaml", "edges.yaml", "links.yaml"} {
+		if _, err := os.Stat(filepath.Join(dir, legacyFile)); !os.IsNotExist(err) {
+			t.Fatalf("expected %s to be removed, err=%v", legacyFile, err)
+		}
+	}
+}
+
+func TestConnectorKeyCanonicalFormat(t *testing.T) {
+	cases := []struct {
+		spec workspace.Connector
+		want string
+	}{
+		{workspace.Connector{View: "action", Source: "devicedetail", Target: "action"}, "action/devicedetail~action"},
+		{workspace.Connector{View: "system", Source: "web", Target: "api", Label: "reads"}, "system/web~api/reads"},
+	}
+	for _, tc := range cases {
+		if got := workspace.ConnectorKey(&tc.spec); got != tc.want {
+			t.Fatalf("ConnectorKey(%+v) = %q, want %q", tc.spec, got, tc.want)
+		}
+	}
+}
+
+func TestNormalizeConnectorKey(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"system:api:db:reads", "system/api~db/reads"},
+		{"action:devicedetail:action:", "action/devicedetail~action"},
+		{"system:api:db:", "system/api~db"},
+		{"system/api~db/reads", "system/api~db/reads"},
+		{"action/devicedetail~action", "action/devicedetail~action"},
+		{"system/api/db~reads", "system/api~db/reads"},
+		{"system/api/db", "system/api~db"},
+		{"system:api:db:label/with/slash", "system/api~db/label/with/slash"},
+		{"system:api:db:label~with~tilde", "system/api~db/label~with~tilde"},
+	}
+	for _, tc := range cases {
+		if got := workspace.NormalizeConnectorKey(tc.in); got != tc.want {
+			t.Fatalf("NormalizeConnectorKey(%q) = %q, want %q", tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestParseConnectorKey(t *testing.T) {
+	cases := []struct {
+		in                        string
+		view, source, target, lbl string
+		ok                        bool
+	}{
+		{"system/web~api/reads", "system", "web", "api", "reads", true},
+		{"action/devicedetail~action", "action", "devicedetail", "action", "", true},
+		{"system/api~db/a:b/c", "system", "api", "db", "a:b/c", true},
+		{"system/api~db/label~with~tilde", "system", "api", "db", "label~with~tilde", true},
+		{"not-a-key", "", "", "", "", false},
+	}
+	for _, tc := range cases {
+		view, source, target, label, ok := workspace.ParseConnectorKey(tc.in)
+		if ok != tc.ok || view != tc.view || source != tc.source || target != tc.target || label != tc.lbl {
+			t.Fatalf("ParseConnectorKey(%q) = (%q,%q,%q,%q,%v), want (%q,%q,%q,%q,%v)",
+				tc.in, view, source, target, label, ok, tc.view, tc.source, tc.target, tc.lbl, tc.ok)
+		}
+	}
+}
+
+func firstLine(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read %s: %v", path, err)
+	}
+	return strings.SplitN(string(data), "\n", 2)[0]
+}
+
+func assertSchemaDirective(t *testing.T, path, wantURL string) {
+	t.Helper()
+	line := firstLine(t, path)
+	want := "# yaml-language-server: $schema=" + wantURL
+	if line != want {
+		t.Fatalf("%s first line = %q, want %q", filepath.Base(path), line, want)
+	}
+}
+
+// Saved workspaces must carry the yaml-language-server schema directive so
+// editors validate and autocomplete elements.yaml/connectors.yaml.
+func TestSaveWritesSchemaDirective(t *testing.T) {
+	dir := t.TempDir()
+	ws := &workspace.Workspace{
+		Dir:        dir,
+		Elements:   map[string]*workspace.Element{"api": {Name: "API", Kind: "service"}},
+		Connectors: map[string]*workspace.Connector{"root/api~db/reads": {View: "root", Source: "api", Target: "db", Label: "reads"}},
+	}
+	if err := workspace.Save(ws); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	assertSchemaDirective(t, filepath.Join(dir, "elements.yaml"), workspace.ElementsSchemaURL)
+	assertSchemaDirective(t, filepath.Join(dir, "connectors.yaml"), workspace.ConnectorsSchemaURL)
+}
+
+// Merging (used by `tld pull`) must add the directive to legacy files that
+// predate the schema, and must not duplicate it on subsequent merges.
+func TestMergeWorkspaceAddsSchemaDirective(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "elements.yaml"), []byte("api:\n  name: API\n  kind: service\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "connectors.yaml"), []byte("[]\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	emptyMeta := &workspace.Meta{
+		Elements:   map[string]*workspace.ResourceMetadata{},
+		Views:      map[string]*workspace.ResourceMetadata{},
+		Connectors: map[string]*workspace.ResourceMetadata{},
+	}
+	ws := &workspace.Workspace{
+		Dir:        dir,
+		Elements:   map[string]*workspace.Element{"api": {Name: "API", Kind: "service"}},
+		Connectors: map[string]*workspace.Connector{},
+		Meta:       emptyMeta,
+	}
+	for i := 0; i < 2; i++ {
+		if _, err := workspace.MergeWorkspace(dir, ws, emptyMeta, emptyMeta); err != nil {
+			t.Fatalf("MergeWorkspace: %v", err)
+		}
+		assertSchemaDirective(t, filepath.Join(dir, "elements.yaml"), workspace.ElementsSchemaURL)
+		assertSchemaDirective(t, filepath.Join(dir, "connectors.yaml"), workspace.ConnectorsSchemaURL)
+	}
+	// Ensure the directive appears exactly once, not duplicated across merges.
+	data, _ := os.ReadFile(filepath.Join(dir, "elements.yaml"))
+	if got := strings.Count(string(data), "yaml-language-server"); got != 1 {
+		t.Fatalf("elements.yaml schema directive count = %d, want 1:\n%s", got, data)
+	}
+}
+
+func TestMergeWorkspacePreservesExistingSchemaDirective(t *testing.T) {
+	for _, separator := range []string{"", "\n"} {
+		t.Run(fmt.Sprintf("blank_line=%t", separator != ""), func(t *testing.T) {
+			dir := t.TempDir()
+			files := map[string]string{
+				"elements.yaml":   "api:\n  name: API\n  kind: service\n",
+				"connectors.yaml": "- view: root\n  source: api\n  target: db\n  label: reads\n",
+			}
+			for filename, content := range files {
+				data := workspace.SchemaComment(filename) + "\n" + separator + "# Workspace notes\n" + content
+				if err := os.WriteFile(filepath.Join(dir, filename), []byte(data), 0600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			emptyMeta := &workspace.Meta{
+				Elements:   map[string]*workspace.ResourceMetadata{},
+				Views:      map[string]*workspace.ResourceMetadata{},
+				Connectors: map[string]*workspace.ResourceMetadata{},
+			}
+			ws := &workspace.Workspace{
+				Dir:        dir,
+				Elements:   map[string]*workspace.Element{"api": {Name: "API", Kind: "service"}},
+				Connectors: map[string]*workspace.Connector{"root/api~db/reads": {View: "root", Source: "api", Target: "db", Label: "reads"}},
+				Meta:       emptyMeta,
+			}
+			for i := 0; i < 2; i++ {
+				if _, err := workspace.MergeWorkspace(dir, ws, emptyMeta, emptyMeta); err != nil {
+					t.Fatalf("MergeWorkspace: %v", err)
+				}
+				for filename := range files {
+					path := filepath.Join(dir, filename)
+					data, err := os.ReadFile(path)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if firstLine(t, path) != workspace.SchemaComment(filename) {
+						t.Fatalf("%s lost its schema header:\n%s", filename, data)
+					}
+					if got := strings.Count(string(data), "yaml-language-server"); got != 1 {
+						t.Fatalf("%s schema directive count = %d, want 1:\n%s", filename, got, data)
+					}
+					if !strings.Contains(string(data), "# Workspace notes") {
+						t.Fatalf("%s lost its user comment:\n%s", filename, data)
+					}
+				}
+			}
+		})
+	}
+}

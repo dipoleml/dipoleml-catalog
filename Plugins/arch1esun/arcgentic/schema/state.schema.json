@@ -1,0 +1,303 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Arch1eSUN/arcgentic/schema/state.schema.json",
+  "title": "arcgentic round-state",
+  "description": "v0.1 schema for .agentic-rounds/state.yaml. The state.yaml file is the single source of truth for the current round and accumulated project history under the arcgentic plugin. All role skills and sub-agents read this file as their first action.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "project", "current_round", "states"],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+$",
+      "description": "arcgentic state schema version. v0.1 is alpha; will be promoted to v1.0 after MVP gates pass."
+    },
+    "project": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "root", "round_naming", "paths"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "root": { "type": "string", "minLength": 1, "description": "Absolute path to project root." },
+        "round_naming": {
+          "type": "string",
+          "description": "Free-form description of project's round-id convention (e.g. 'phase.round[.fix]' or 'sprint.story' or 'epic.task'). Skills read this to format output correctly."
+        },
+        "paths": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["plans_dir", "audits_dir"],
+          "properties": {
+            "plans_dir": { "type": "string", "description": "Project-relative path where handoff docs (= round plans) live." },
+            "audits_dir": { "type": "string", "description": "Project-relative path where audit verdicts live (may use {N} placeholder for phase/sprint number)." },
+            "refs_index": { "type": "string", "description": "Project-relative path to the reference categorization index (e.g. references/INDEX.md). Optional; omit if project doesn't track external refs." },
+            "memory_store": { "type": "string", "description": "URI or path to the project's persistent memory store (e.g. obsidian://VaultName, file:///path/to/notes, github://owner/repo)." },
+            "tech_debt_registry": { "type": "string", "description": "Project-relative path to tech-debt registry (e.g. docs/tech-debt.md). Optional." }
+          }
+        },
+        "verification_command": {
+          "type": "string",
+          "description": "Project's standard verification command (run by verify-gates before commit, e.g. './scripts/dev.sh check' or 'npm test')."
+        },
+        "audit_check_command": {
+          "type": "string",
+          "description": "Project's audit-fact verification command template. Use {file} as placeholder for the verdict file path."
+        },
+        "session_mode": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "required": ["mode", "decided_at_round"],
+          "properties": {
+            "mode": { "type": "string", "enum": ["single-session", "multi-session"] },
+            "decided_at_round": { "type": "string" },
+            "decided_by": { "type": "string" },
+            "decided_at": { "type": "string", "format": "date-time" }
+          }
+        },
+        "arcgentic_v2": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "host": { "type": "string", "enum": ["codex", "claude-code-broker"] },
+            "mode": { "type": "string", "enum": ["single-session-subagent", "multi-session-subthread"] },
+            "next_role": { "type": "string", "enum": ["orchestrator", "planner", "developer", "test", "auditor"] },
+            "orchestrator_status": { "type": "string", "enum": ["active", "sleeping", "idle"] },
+            "active_user_request": {
+              "type": "string",
+              "description": "The user request currently being served. Closed V2 workflows use this to distinguish a repeated role-return request from a genuinely new user request."
+            },
+            "project_status": { "type": "string", "enum": ["active", "closed"] },
+            "round_status": { "type": "string", "enum": ["active", "closed"] },
+            "current_phase_index": { "type": "integer", "minimum": 0 },
+            "current_round_id": { "type": "string" },
+            "phase_boundary": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "project_plan": {
+              "type": "object",
+              "additionalProperties": true,
+              "properties": {
+                "phases": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": true
+                  }
+                }
+              }
+            },
+            "pending_role": { "type": "string", "enum": ["planner", "developer", "test", "auditor"] },
+            "pending_thread_id": { "type": "string" },
+            "pending_since": { "type": "string", "format": "date-time" },
+            "role_sessions": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "orchestrator": { "$ref": "#/$defs/v2_role_session" },
+                "planner": { "$ref": "#/$defs/v2_role_session" },
+                "developer": { "$ref": "#/$defs/v2_role_session" },
+                "test": { "$ref": "#/$defs/v2_role_session" },
+                "auditor": { "$ref": "#/$defs/v2_role_session" }
+              }
+            },
+            "topology": {
+              "type": "object",
+              "additionalProperties": false,
+              "description": "Optional project-defined role/state routing graph. Omit to use the built-in default (today's fixed 5-role sequence). See toolkit/src/arcgentic/topology.py.",
+              "properties": {
+                "roles": { "type": "object" },
+                "routes": { "type": "object" },
+                "default_next_role": { "type": "object" }
+              }
+            },
+            "last_signal": { "$ref": "#/$defs/v2_role_return_signal" }
+          }
+        }
+      }
+    },
+    "current_round": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "state", "state_history"],
+      "properties": {
+        "id": { "type": "string", "description": "Round identifier following project.round_naming convention. Empty string allowed in intake state before a round id is assigned." },
+        "state": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Round state. Validated against the project's active topology at runtime (project.arcgentic_v2.topology if set, else the built-in default 12-state graph) — not by this schema, which cannot express that cross-field constraint."
+        },
+        "state_history": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["state", "ts", "by"],
+            "properties": {
+              "state": { "type": "string" },
+              "ts": { "type": "string", "format": "date-time" },
+              "by": { "type": "string", "description": "Actor who triggered the transition (e.g. 'planner-agent', 'developer-agent', 'auditor-agent', 'orchestrator', 'human:founder')." },
+              "artifact": { "type": "string", "description": "Optional reference to artifact produced at this transition (e.g. 'docs/.../handoff.md@a15d5a4')." }
+            }
+          }
+        },
+        "handoff_doc": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "path": { "type": "string" },
+            "commit": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+            "sections_present": { "type": "integer", "minimum": 0 },
+            "sections_required": { "type": "integer", "minimum": 1 }
+          }
+        },
+        "expected_dev_commits": { "type": "integer", "minimum": 1, "description": "How many commits this round expects (4 by default for entry-admin → design → dev → state-refresh chain; projects may override)." },
+        "dev_commits": {
+          "type": "array",
+          "items": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" }
+        },
+        "self_audit_doc": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "path": { "type": "string" },
+            "commit": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" }
+          }
+        },
+        "audit_verdict": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "properties": {
+            "path": { "type": "string" },
+            "commit": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+            "outcome": { "type": "string", "enum": ["PASS", "NEEDS_FIX", "AUDIT_INCOMPLETE"] },
+            "fact_table_total": { "type": "integer", "minimum": 0 },
+            "fact_table_pass": { "type": "integer", "minimum": 0 },
+            "findings": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["id", "priority"],
+                "properties": {
+                  "id": { "type": "string" },
+                  "priority": { "type": "string", "enum": ["P0", "P1", "P2", "P3"] },
+                  "summary": { "type": "string" },
+                  "evidence": { "type": "string" },
+                  "expected": { "type": "string" },
+                  "actual": { "type": "string" },
+                  "recommended_fix": { "type": "string" },
+                  "verification": { "type": "string" }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "states": {
+      "type": "object",
+      "description": "State-machine definition. Plugin ships defaults; project may override via init.",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "next": { "type": "array", "items": { "type": "string" } },
+          "gate": { "type": "string", "description": "Optional gate script path (relative to plugin scripts/gates/). Transition refuses if gate fails." }
+        }
+      }
+    },
+    "last_passed_round": {
+      "type": ["object", "null"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "commit": { "type": "string", "pattern": "^[0-9a-f]{7,40}$" },
+        "verdict_doc": { "type": "string" },
+        "closed_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "mandates": {
+      "type": "array",
+      "description": "Project-specific mandates accumulated over time. The plugin ships default mandate hooks (e.g. reference-first); projects can extend.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "version", "location"],
+        "properties": {
+          "id": { "type": "string" },
+          "version": { "type": "integer", "minimum": 1 },
+          "location": { "type": "string", "description": "Where this mandate is canonically defined (e.g. 'CLAUDE.md#section-8')." }
+        }
+      }
+    },
+    "lessons": {
+      "type": "array",
+      "description": "Project-specific lessons codified via codify-lesson skill. Each lesson tracks streak + novel-type observations.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "name", "streak"],
+        "properties": {
+          "id": { "type": "string" },
+          "name": { "type": "string" },
+          "streak": { "type": "integer", "minimum": 0, "description": "How many consecutive rounds applied this lesson successfully." },
+          "novel_types_seen": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type", "first_seen"],
+              "properties": {
+                "type": { "type": "string" },
+                "first_seen": { "type": "string", "description": "Round id where this novel type was first observed." }
+              }
+            }
+          },
+          "last_application": { "type": "string", "description": "Most recent round id where this lesson applied." }
+        }
+      }
+    },
+    "active_debts": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Mirrored counts from tech-debt registry (if project tracks tech-debt).",
+      "properties": {
+        "p0": { "type": "integer", "minimum": 0 },
+        "p1": { "type": "integer", "minimum": 0 },
+        "p2": { "type": "integer", "minimum": 0 },
+        "p3": { "type": "integer", "minimum": 0 }
+      }
+    }
+  },
+  "$defs": {
+    "v2_role_session": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "title", "thread_id", "host", "updated_at"],
+      "properties": {
+        "role": { "type": "string", "enum": ["orchestrator", "planner", "developer", "test", "auditor"] },
+        "title": { "type": "string", "enum": ["Orchestrator", "Planner", "Developer", "Test", "Auditor"] },
+        "thread_id": { "type": "string", "minLength": 1 },
+        "host": { "type": "string", "enum": ["codex", "claude-code-broker"] },
+        "updated_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "v2_role_return_signal": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["role", "status", "round_id", "state", "artifacts", "next_recommended_role"],
+      "properties": {
+        "role": { "type": "string", "enum": ["orchestrator", "planner", "developer", "test", "auditor"] },
+        "status": { "type": "string", "minLength": 1 },
+        "round_id": { "type": "string" },
+        "state": { "type": "string", "minLength": 1 },
+        "artifacts": { "type": "object" },
+        "next_recommended_role": {
+          "type": ["string", "null"],
+          "enum": ["orchestrator", "planner", "developer", "test", "auditor", null]
+        }
+      }
+    }
+  }
+}

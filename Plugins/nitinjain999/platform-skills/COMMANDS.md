@@ -1,0 +1,2989 @@
+# Skill Commands — Detailed Usage Guide
+
+Every `/platform-skills:<command>` slash command available in Claude Code, with all modes, what to pass, and what to expect back.
+
+## Prerequisites
+
+```bash
+claude plugin install platform-skills
+# Then restart Claude Code
+```
+
+Commands work in any conversation — type the slash command or describe your problem and the skill activates automatically.
+
+---
+
+## Table of Contents
+
+| Command | What it's for |
+|---------|--------------|
+| [/platform-skills:preflight](#platform-skillspreflight) | Production-readiness preflight for a folder, repo, or single file |
+| [/platform-skills:debug](#platform-skillsdebug) | Structured troubleshooting for any symptom |
+| [/platform-skills:terraform](#platform-skillsterraform) | Terraform validation pipeline + blast radius |
+| [/platform-skills:checkov](#platform-skillscheckov) | Checkov bootstrap, static + plan-level Terraform scanning, multi-cloud, fix mode |
+| [/platform-skills:trivy](#platform-skillstrivy) | Container image, fs, repo, SBOM, and cluster CVE scanning; three-layer wizard; Trivy Operator via Flux |
+| [/platform-skills:zizmor](#platform-skillszizmor) | GitHub Actions workflow security audit — template injection, unpinned uses, permissions; three-layer wizard; auto-fix, policy file, CI gate, pre-commit |
+| [/platform-skills:kingfisher](#platform-skillskingfisher) | Find, live-validate, map blast radius of, and revoke leaked secrets — repo, Git history, GitHub/GitLab/Bitbucket orgs, S3/GCS, Slack, Jira; baseline tracking, CI gate, pre-commit |
+| [/platform-skills:ai-governance](#platform-skillsai-governance) | Policy gate for AI coding agents — Copilot and Claude Code session hooks that deny protected-path edits and dangerous commands, plus a merge-time backstop; dry-run, fleet audit, plain-English explain |
+| [/platform-skills:token-optimizer](#platform-skillstoken-optimizer) | Route broad repository discovery to a cheaper worker model via native subagents — `inspect`, `setup`, `doctor`, `explain`, `benchmark`, `report`, `disable`, `remove` |
+| [/platform-skills:gitops](#platform-skillsgitops) | Flux CD / Argo CD — debug live cluster issues or audit a GitOps repo |
+| [/platform-skills:linkerd](#platform-skillslinkerd) | Linkerd mTLS, injection, policy, multi-cluster |
+| [/platform-skills:linux](#platform-skillslinux) | Linux, DNS, load balancing, VPC/VNet, networking |
+| [/platform-skills:helmchart](#platform-skillshelmchart) | Helm chart scaffold, review, security audit |
+| [/platform-skills:commit](#platform-skillscommit) | Conventional commit message generation |
+| [/platform-skills:observability](#platform-skillsobservability) | Instrument, alert, dashboard, load test, capacity |
+| [/platform-skills:opa](#platform-skillsopa) | OPA/Conftest Rego policy generate, test, validate |
+| [/platform-skills:kyverno](#platform-skillskyverno) | Kyverno policy generate, test, audit, debug, migrate |
+| [/platform-skills:compliance](#platform-skillscompliance) | SOC 2 gap analysis and Terraform remediation |
+| [/platform-skills:datadog](#platform-skillsdatadog) | Datadog setup, APM, monitors, SLOs, incidents |
+| [/platform-skills:dynatrace](#platform-skillsdynatrace) | Dynatrace Operator, OneAgent, SLOs, incidents |
+| [/platform-skills:document](#platform-skillsdocument) | Docstrings, OpenAPI specs, docs sites, guides |
+| [/platform-skills:mcp](#platform-skillsmcp) | MCP server scaffold, review, debug |
+| [/platform-skills:aws-profile](#platform-skillsaws-profile) | AWS profile management for MCP servers — discover, switch, login, org-scan |
+| [/platform-skills:product](#platform-skillsproduct) | DevEx, RFC/ADR, post-mortems, capacity, cost |
+| [/platform-skills:pr-review](#platform-skillspr-review) | Comprehensive PR risk review |
+| [/platform-skills:triage](#platform-skillstriage) | Triage and resolve PR comments |
+| [/platform-skills:keda](#platform-skillskeda) | KEDA ScaledObject/ScaledJob — generate, debug, review, scale |
+| [/platform-skills:gateway-api](#platform-skillsgateway-api) | Migrate off retired ingress-nginx to Gateway API — assess, convert, scaffold, cutover, debug, review, rollback |
+| [/platform-skills:karpenter](#platform-skillskarpenter) | Karpenter NodePool/EC2NodeClass — generate, debug, review, audit scale history, plan capacity, migrate from CA, upgrade |
+| [/platform-skills:cluster-upgrade](#platform-skillscluster-upgrade) | Plan, scan, run and roll back a Kubernetes minor-version upgrade, EKS version rollback included |
+| [/platform-skills:progressive-delivery](#platform-skillsprogressive-delivery) | Flagger canaries on Gateway API with metric-gated promotion and automatic rollback |
+| [/platform-skills:backup-dr](#platform-skillsbackup-dr) | Velero backups, timed restore drills, namespace restore, DR to another cluster |
+| [/platform-skills:finops](#platform-skillsfinops) | Infracost PR cost diff, OpenCost allocation, four-layer cost-tag enforcement |
+| [/platform-skills:kubescape](#platform-skillskubescape) | NSA/MITRE/CIS/SOC2 posture for manifests, charts and clusters; PR gate on new findings; exceptions; fix; CEL admission library |
+| [/platform-skills:kubescape-operator](#platform-skillskubescape-operator) | Kubescape operator: continuous posture, relevancy-ranked CVEs, runtime detection, NetworkPolicies from traffic |
+| [/platform-skills:self-improve](#platform-skillsself-improve) | Bootstrap, log, review, or promote agent self-improvement entries |
+| [/platform-skills:chaos](#platform-skillschaos) | Install Litmus Chaos or Chaos Mesh, generate fault experiments, schedule chaos, run GameDay, debug, report |
+| [/platform-skills:dora](#platform-skillsdora) | Instrument DORA metrics, generate Grafana dashboards, benchmark against performance bands, debug metric gaps |
+| [/platform-skills:awesome-docs](#platform-skillsawesome-docs) | Generate any animated Markdown doc (README, architecture guide, runbook, tutorial, RFC, post-mortem, or custom), convert existing Markdown, update/diff/audit, preview, export |
+| [/platform-skills:aws](#platform-skillsaws) | CloudFront, WAF, Lambda@Edge, Firewall Manager multi-account enforcement, and Terraform module generation |
+| [/platform-skills:composite-actions](#platform-skillscomposite-actions) | Generate, review, secure, and test composite GitHub Actions |
+| [/platform-skills:github-actions](#platform-skillsgithub-actions) | Design reusable workflows, harden with OIDC and SHA pinning, review for production readiness, and debug CI failures |
+| [/platform-skills:kubernetes](#platform-skillskubernetes) | Cluster baseline scaffold, RBAC diagnosis and generation, workload hardening, and pod debug |
+| [/platform-skills:azure](#platform-skillsazure) | Workload Identity, resource tagging, AKS provisioning, RBAC scoping, and production-readiness review |
+| [/platform-skills:openshift](#platform-skillsopenshift) | SCC diagnosis, Route TLS modes, OpenShift GitOps delivery, and cluster upgrade validation |
+| [/platform-skills:secrets](#platform-skillssecrets) | ESO and Sealed Secrets strategy, scaffolding, rotation runbooks, and Kubernetes-side audit |
+| [/platform-skills:fluxcd](#platform-skillsfluxcd) | FluxCD entry point — routes to debug, audit, or helm review based on your input |
+| [/platform-skills:renovate](#platform-skillsrenovate) | Generate renovate.json (with private registry support), pre-commit hook, or GHA validation workflow |
+| [/platform-skills:setup-agents](#platform-skillssetup-agents) | Scaffold multi-agent AI setup — generate, upgrade, add, review |
+
+---
+
+## `/platform-skills:preflight`
+
+**What it does:** Production-readiness preflight check for a directory, repo, or single file. Discovers all files, classifies by type, and runs type-specific checks across the whole scope. Returns a per-file summary table and aggregated verdict (BLOCKED / NEEDS_FIX / MERGE_READY).
+
+**Works on:** Entire folders, globs, or single files — Kubernetes manifests, Terraform modules, GitHub Actions workflows, Helm values, Flux resources, Dockerfiles, shell scripts.
+
+```
+/platform-skills:preflight ./k8s/
+/platform-skills:preflight releases/my-app/ --env prod
+/platform-skills:preflight [paste single file content]
+```
+
+**What gets checked:**
+
+| Priority | Checks |
+|----------|--------|
+| 1. Correctness | API versions, required fields, label/namespace consistency, will it do what it intends? |
+| 2. Security | Least-privilege RBAC/IAM, no plaintext secrets, non-root containers, SHA-pinned actions, scoped IAM |
+| 3. Operational safety | Rollback path, blast radius, resource limits, liveness/readiness probes, GitOps prune behaviour |
+| 4. Deprecations | Deprecated APIs, action versions, fields that will break on next minor version |
+
+**Examples:**
+
+Review a Deployment manifest — paste it inline:
+```
+/platform-skills:preflight
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orders-service
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+        - name: app
+          image: my-registry/orders:latest
+          env:
+            - name: DB_PASSWORD
+              value: "hunter2"
+```
+
+Review a GitHub Actions workflow file by path:
+```
+/platform-skills:preflight .github/workflows/deploy.yml
+```
+
+Review a Terraform IAM module inline:
+```
+/platform-skills:preflight
+resource "aws_iam_role_policy" "app" {
+  policy = jsonencode({
+    Statement = [{ Effect = "Allow", Action = "*", Resource = "*" }]
+  })
+}
+```
+
+Review Helm values against a specific chart:
+```
+/platform-skills:preflight my values.yaml for the envoy-gateway chart — are resource limits set? Is the service account locked down?
+```
+
+**What comes back:** A structured report grouped by severity. Critical items block merge; Improvements are non-blocking; Notes are informational.
+
+---
+
+## `/platform-skills:debug`
+
+**What it does:** Structured troubleshooting using a 6-step framework: classify layer → collect evidence → root-cause hypothesis → fix → validate → rollback. Forces you to gather evidence before applying a fix.
+
+**Works on:** Any platform symptom across Terraform, Kubernetes, OpenShift, Flux CD, Argo CD, Linkerd, GitHub Actions, AWS/Azure, Secrets management.
+
+```
+/platform-skills:debug [symptom or error message]
+```
+
+**The 6-step output you get:**
+
+1. **Layer classification** — which system owns this problem (Flux reconciliation? K8s scheduling? AWS IAM?)
+2. **Evidence to collect** — exact commands with flags, namespaces, resource names from your description
+3. **Root-cause hypothesis** — most likely cause with reasoning; ranked if multiple are plausible
+4. **Proposed fix** — exact config change, command, or patch with before/after
+5. **Validation** — commands to confirm the fix worked
+6. **Rollback** — how to safely undo if validation fails
+
+**Examples:**
+
+Pod stuck in CrashLoopBackOff:
+```
+/platform-skills:debug orders-service pod CrashLoopBackOff: exit code 137
+```
+
+Flux reconciliation not picking up merged changes:
+```
+/platform-skills:debug Flux Kustomization stuck in NotReady — "context deadline exceeded" — changes merged 20 minutes ago but cluster not updated
+```
+
+GitHub Actions OIDC failing:
+```
+/platform-skills:debug GitHub Actions OIDC error: "Error assuming role with web identity: not authorized to perform sts:AssumeRoleWithWebIdentity"
+```
+
+Mysterious 503s after a deploy:
+```
+/platform-skills:debug 503 errors spiked immediately after deploying v2.3.0 of payments-service, rolling back didn't fully stop them
+```
+
+AWS resource creation failing:
+```
+/platform-skills:debug Terraform apply fails: "Error creating IAM role: LimitExceeded: Cannot exceed quota for InstanceSessionsPerInstanceProfile: 1"
+```
+
+---
+
+## `/platform-skills:checkov`
+
+**What it does:** Bootstraps Checkov on the developer's laptop (Homebrew/pip/venv), then runs static or plan-level Terraform security scanning for AWS, Azure, GCP, and EKS. Detects cloud provider from `required_providers`, resolves private GitHub modules with a `GITHUB_PAT` you export (never derived by the skill), generates `.pre-commit-config.yaml` entries if pre-commit is installed, supports multi-format output (cli/json/sarif/junitxml), creates `.checkov.baseline` for brownfield repos, and offers AI-generated fix suggestions or auto-apply patches.
+
+```
+/platform-skills:checkov
+/platform-skills:checkov static terraform/aws/
+/platform-skills:checkov plan terraform/azure/ --output sarif
+/platform-skills:checkov baseline .
+/platform-skills:checkov fix terraform/gcp/
+/platform-skills:checkov scaffold
+```
+
+**Example prompts:**
+```
+/platform-skills:checkov scan my Terraform for security issues
+/platform-skills:checkov plan — run terraform plan and scan the output
+/platform-skills:checkov I'm getting CKV_AWS_19 failures — fix them
+/platform-skills:checkov set up checkov pre-commit hook for my repo
+/platform-skills:checkov scaffold a .checkov.yaml for my Azure Terraform
+```
+
+---
+
+## `/platform-skills:trivy`
+
+**What it does:** Scans container images, local filesystems, remote git repos, and existing Syft-generated SBOMs for CVEs, secrets, and license violations. A three-layer interactive wizard routes intent → end goal → tuned scan. Continuous cluster image-CVE monitoring via Trivy Operator deployed through a Flux HelmRelease. Hard handoffs ensure no overlap with Checkov (IaC), Kyverno (admission posture), or Syft (SBOM generation).
+
+```
+/platform-skills:trivy
+/platform-skills:trivy image ghcr.io/org/image:latest
+/platform-skills:trivy fs .
+/platform-skills:trivy secrets
+/platform-skills:trivy sbom sbom.spdx.json
+/platform-skills:trivy k8s
+```
+
+**Example prompts:**
+```
+/platform-skills:trivy is this image safe to ship?
+/platform-skills:trivy scan this repo for secrets and CVEs
+/platform-skills:trivy set up a CI severity gate for my container image
+/platform-skills:trivy deploy Trivy Operator for continuous cluster monitoring
+/platform-skills:trivy scan this SBOM for known vulnerabilities
+```
+
+---
+
+## `/platform-skills:zizmor`
+
+**What it does:** Audits GitHub Actions workflows, composite actions, `dependabot.yml`, and `.pre-commit-config.yaml` for security findings using [zizmor](https://docs.zizmor.sh) — template injection, credential persistence via `actions/checkout`, unpinned `uses:`, over-broad `permissions:`, impostor commits, known-vulnerable action versions, and 35 more audits. A three-layer interactive wizard routes intent → scope and operating mode → explicit trade-offs, so the output is a triaged verdict rather than a finding dump.
+
+Zizmor answers *"is this workflow safe?"*; actionlint answers *"is this workflow valid?"* This command complements `/platform-skills:github-actions` — it does not replace it.
+
+```
+/platform-skills:zizmor
+/platform-skills:zizmor scan .
+/platform-skills:zizmor audit
+/platform-skills:zizmor fix
+/platform-skills:zizmor triage
+/platform-skills:zizmor config
+/platform-skills:zizmor ci
+/platform-skills:zizmor precommit
+/platform-skills:zizmor explain template-injection
+```
+
+**Modes:**
+
+| Mode | What it does |
+|------|-------------|
+| `scan` | Default-persona audit with `--strict-collection`, online if a token is available — the everyday run |
+| `audit` | Deep sweep for human review: `--persona=auditor --min-confidence=low --collect=all --no-ignores` |
+| `fix` | `--fix=safe` on a clean tree, diff review, then re-audit what remains |
+| `triage` | Walk findings one at a time → fix / inline-ignore / config-ignore / severity remap / disable |
+| `config` | Generate or repair `.github/zizmor.yml` — pinning policy, allowlists, suppressions with justifications |
+| `ci` | Emit the GHA workflow: SARIF alerts, hard-fail severity gate, or both |
+| `precommit` | Add the `zizmorcore/zizmor-pre-commit` hook and state the offline caveat |
+| `explain` | Explain one audit id or finding: mechanism, why it matters, persona gating, exact remediation |
+
+**Guardrails it enforces:**
+
+- Asks the pinning policy explicitly before reporting `unpinned-uses` findings or writing a config — full commit SHA (`hash-pin`, recommended) or semver tag (`ref-pin`) — and states what a tag pin costs: a tag is a mutable pointer the author can repoint at different code after review. Never relaxes the policy just to clear findings.
+- Never reports a repo "clean" from an offline run without naming the four online-only audits that did not execute (`impostor-commit`, `known-vulnerable-actions`, `ref-confusion`, `stale-action-refs`).
+- Never presents a SARIF-only workflow as a merge blocker — `--format=sarif` suppresses exit codes 11–14, so the job stays green with high-severity findings.
+- Never puts `--fix` inside a CI gate — a gate that repairs its own input always passes.
+- Never gates CI on `--persona=auditor`, which is documented to include likely false positives.
+- Always adds `--strict-collection`, so "0 findings" cannot silently mean "0 files audited".
+
+**Example prompts:**
+```
+/platform-skills:zizmor audit my workflows before I merge this PR
+/platform-skills:zizmor pin every action to a SHA and show me the diff
+/platform-skills:zizmor these findings are too noisy — help me triage
+/platform-skills:zizmor set up a PR check that actually fails on medium+ findings
+/platform-skills:zizmor why is this run: block flagged as template-injection?
+```
+
+---
+
+## `/platform-skills:kingfisher`
+
+**What it does:** Finds, live-validates, maps the blast radius of, and revokes leaked secrets using [Kingfisher](https://github.com/mongodb/kingfisher) — across a local repo and Git history, or a GitHub/GitLab/Bitbucket/Gitea/Azure Repos/Hugging Face org, S3/GCS bucket, Docker image, Slack, Jira, Confluence, Microsoft Teams, or Postman workspace. A three-layer interactive wizard routes intent → scan target and invasiveness → explicit trade-offs (gate threshold, suppression method, alert payload contents), so the output is a validated, triaged verdict rather than a wall of candidate strings.
+
+Kingfisher answers *"is this secret still live, and what can it reach?"*; Trivy's `secrets` mode answers *"does this look like a secret?"* offline, bundled with a CVE scan. Run both — they are complementary depths, not alternatives.
+
+```
+/platform-skills:kingfisher
+/platform-skills:kingfisher scan .
+/platform-skills:kingfisher audit
+/platform-skills:kingfisher validate --rule github-pat "ghp_..."
+/platform-skills:kingfisher revoke
+/platform-skills:kingfisher baseline
+/platform-skills:kingfisher triage
+/platform-skills:kingfisher config
+/platform-skills:kingfisher ci
+/platform-skills:kingfisher precommit
+/platform-skills:kingfisher explain betterleaks.github-pat
+```
+
+**Modes:**
+
+| Mode | What it does |
+|------|-------------|
+| `scan` | Default local/repo run, live validation on — the everyday check |
+| `audit` | Deep sweep for a security review: low confidence, full history, blast-radius, all outcomes |
+| `validate` | Check whether one known secret string is still live — no scan |
+| `revoke` | Kill one known secret directly through its provider — destructive, confirm first |
+| `baseline` | Create or update a baseline so future scans report only new secrets |
+| `triage` | Walk existing findings one at a time → validate / revoke / rotate / accept-in-baseline / false-positive |
+| `config` | Generate or repair `kingfisher.yaml` |
+| `ci` | Emit a CI gate: hard-fail, SARIF alerts, or Docker-based |
+| `precommit` | Add the `kingfisher` pre-commit hook, which runs the installed binary (or Husky), and state the caveat |
+| `explain` | Explain a rule id, an exit code, or a validation outcome |
+
+**Guardrails it enforces:**
+
+- Never runs `revoke` without three-part confirmation: validated live, owner identified, replacement ready to redeploy — a wrong revoke is an outage, not a rollback.
+- Never runs blast-radius mapping, a platform-target scan, or a Slack/Jira/Confluence/Teams search without confirming authorization first — these authenticate against or pull from live systems.
+- Never treats an `assumed` (high-confidence, not network-checked) finding as confirmed-live.
+- Never gates a first-time CI rollout on exit code `200` (any candidate) without surfacing the fixture-noise trade-off — recommends `205` (confirmed-live only) plus a baseline instead.
+- Never suggests disabling a whole rule family to silence one fixture — uses a baseline entry or scoped `skip-word`/`skip-regex` instead.
+- Never enables `--alert-include-secret` without stating plainly that the literal secret value lands in the alert payload.
+
+**Example prompts:**
+```
+/platform-skills:kingfisher scan our Git history for leaked secrets
+/platform-skills:kingfisher is this AWS key still live, and what can it reach?
+/platform-skills:kingfisher set up a baseline so we only get paged on new secrets
+/platform-skills:kingfisher add a CI gate that fails on confirmed-live credentials
+/platform-skills:kingfisher revoke this GitHub token — rotation is already done
+```
+
+---
+
+## `/platform-skills:ai-governance`
+
+**What it does:** Scaffolds and enforces a policy gate for AI coding agents (GitHub Copilot, Claude Code) operating on a repo. Two layers, one shared bash evaluator: a real-time `preToolUse` session hook that denies an edit to a protected path or a dangerous shell command *before* it executes, and a merge-time GitHub Actions check that catches anything bypassing the hook — a different tool, a manual push, or an edit to the governance files themselves. The merge-time check gets its trust from *which copy* of the evaluator runs: the base branch's, fetched via `git show`, never the PR's own.
+
+Policy lives in `.ai-governance.yaml` (`protected_paths`, `denied_commands`, `max_diff_files`, `require_disclosure`) with three enforcement tiers — `audit`, `warn`, `block` — so a team ratchets up once it trusts the false-positive rate rather than starting on a hard block that gets uninstalled on day one.
+
+`/platform-skills:setup-agents` scaffolds what AI tools *are*; this command scaffolds what they are *allowed to do*. `/platform-skills:opa` is infra policy-as-code against manifests; this is agent-behavior policy against tool calls and diffs. Two different engines — do not conflate them.
+
+```
+/platform-skills:ai-governance
+/platform-skills:ai-governance generate
+/platform-skills:ai-governance check .github/workflows/release.yml
+/platform-skills:ai-governance check --diff main...HEAD
+/platform-skills:ai-governance audit
+/platform-skills:ai-governance explain .ai-governance.yaml
+```
+
+**Modes:**
+
+| Mode | What it does |
+|------|-------------|
+| `generate` | Scaffold `.ai-governance.yaml`, the evaluator, Copilot/Claude session hooks, and the merge-time check |
+| `check` | Dry-run the evaluator against a path, a command string, or a diff range — no live agent session, no audit-log writes |
+| `audit` | Scan repos in an org via `gh api` for policy presence, enforcement tier, and hook drift — zero infrastructure |
+| `explain` | Plain-English translation of an existing `.ai-governance.yaml`, including what a developer actually sees at the active tier |
+
+**Guardrails it enforces:**
+
+- Never overwrites `.claude/settings.json` — always reads, merges the hook entries into the existing matcher-group structure, and writes back, so pre-existing hooks and settings survive.
+- Never uses an HTTP-based hook — those are fail-open on network error, which silently disables enforcement under packet loss. The evaluator is always a local `command`-type script.
+- Never defaults to `enforcement: block` — `audit` is the default, `block` is an explicit opt-in after the team has run `audit` long enough to trust it.
+- Never claims unconditional fail-closed enforcement: a Copilot hook timeout and a Claude Code crash/timeout both default to *allow*. The merge-time check exists specifically to catch what leaks through that gap.
+- Never logs denials via `postToolUse` — a denied call never runs, so nothing "completed"; the audit line is written synchronously inside the `preToolUse` invocation that decided.
+- Never treats `denied_commands` as a security boundary — matching is word-tokenized prefix matching, a deterrent against unintentional dangerous commands, with the known bypasses documented and pinned by tests.
+
+**Example prompts:**
+```
+/platform-skills:ai-governance stop AI agents from editing our workflow files
+/platform-skills:ai-governance we're rolling this out org-wide — start in audit mode
+/platform-skills:ai-governance which repos in our org have adopted this, and at what tier?
+/platform-skills:ai-governance would this policy have blocked yesterday's PR?
+/platform-skills:ai-governance why did the Claude Code hook not fire on that edit?
+```
+
+---
+
+## `/platform-skills:token-optimizer`
+
+**What it does:** Routes broad repository discovery to a cheaper worker model via subagent delegation where the client supports it. Classifies requested read size (line count and byte count against absolute gates) and emits pass, audit log entry, or denial.
+
+Covers eight modes: `inspect` detects installed clients and reports versions, agents, and hooks; `setup` installs the core script, writes `.token-optimizer.yaml`, registers PreToolUse hooks, and creates state directories; `doctor` reports four separate states (delegation, model, redirection, read limit) and never collapses them; `explain` dry-runs classification for a file path or JSON payload; `benchmark` records and aggregates what the client exposes, and `report` aggregates the decision log (reconciliation is against the provider's billing); `disable` and `remove` reverse the config.
+
+```
+/platform-skills:token-optimizer
+/platform-skills:token-optimizer inspect
+/platform-skills:token-optimizer setup
+/platform-skills:token-optimizer doctor
+/platform-skills:token-optimizer explain --path=references/aws-waf.md
+/platform-skills:token-optimizer benchmark all
+/platform-skills:token-optimizer report
+/platform-skills:token-optimizer disable
+/platform-skills:token-optimizer remove
+```
+
+**Modes:**
+
+| Mode | What it does |
+|------|-------------|
+| `inspect` | Detect installed clients (Claude, Copilot CLI, Copilot VS Code), report versions, existing agents, hooks, and coexistence notes |
+| `setup` | Install core script, write `.token-optimizer.yaml` with 18 config keys, copy agent templates to chosen scope, register PreToolUse hooks, create state directories |
+| `doctor` | Four-state report: delegation verified/unverified, resolved worker model, redirection on/off/unsupported, read limit. Never one green line |
+| `explain` | Dry-run size classification for a file path or JSON payload, show which rule fires and effective mode |
+| `benchmark` | Run fixture suites in isolated arms (baseline, concise, delegated, native) with declared cache state, append JSONL |
+| `report` | Aggregate decision log into summary table with measured/estimated/unavailable visually distinct |
+| `disable` | Set `enabled: false` in config, deactivate owned routing-instruction blocks by marker |
+| `remove` | Delete only assets with ownership marker AND matching shipped content hash, print edited assets for review |
+
+**Client support:**
+
+- **Claude Code** — redirection architecturally possible (`agent_type` documented on `PreToolUse`), but probe ships un-run so `doctor` reports `no (runtime fixture required)` on fresh install
+- **GitHub Copilot CLI** — delegation unverified, redirection unsupported (documented `preToolUse` payload carries no per-call worker identity), capped to audit-only
+- **GitHub Copilot VS Code** — delegation unverified, redirection conditional (agent-scoped hooks preview, gated on `chat.useCustomAgentHooks`), capped to audit
+
+**Notes:**
+
+- No client's delegation is verified in this repository. The probe ships un-run (`delegation_verified: false`, `client_version: null`).
+- `handoffs` is not confirmed to be a subagent dispatch. `copilot help commands` lists `/fleet` and `/tasks` as subagent execution; `/agent` is "browse and select", a session transition.
+- No cost claim for any client. Benchmark harness ships runnable; acceptance targets are goals, not measured outcomes.
+- Fails open on every error path. Pass emits nothing (never `permissionDecision: "allow"`). Bounded recovery: at most one denial per target per session.
+
+**Example prompts:**
+```
+/platform-skills:token-optimizer what clients do I have, and can I use this here?
+/platform-skills:token-optimizer set up token optimization for this repo
+/platform-skills:token-optimizer is delegation actually working?
+/platform-skills:token-optimizer would reading aws-waf.md be delegated?
+/platform-skills:token-optimizer run benchmarks and show me the results
+/platform-skills:token-optimizer turn off delegation but keep the config
+```
+
+---
+
+## `/platform-skills:terraform`
+
+**What it does:** Full Terraform review covering the validation pipeline, blast radius analysis, IAM/security audit, state impact, and module design — in that order.
+
+```
+/platform-skills:terraform [paste terraform code, plan output, or describe the change]
+```
+
+**The 6-section output:**
+
+| Section | What it covers |
+|---------|---------------|
+| 1. Validation pipeline | fmt → validate → tflint → tfsec/checkov — pass/fail per gate with exact errors |
+| 2. Blast radius | What gets created/modified/destroyed, what gets **replaced** (destructive), downstream dependencies, mid-apply failure impact |
+| 3. IAM and security | Wildcard actions/resources, default_tags enforcement, sensitive variables, state backend encryption |
+| 4. State impact | Migration requirements, unmanaged resources that could conflict, state isolation by environment |
+| 5. Module design | Variable validation blocks, typed outputs, provider placement in caller not module |
+| 6. Recommended actions | Exact HCL snippets for each fix |
+
+**Examples:**
+
+Review an IAM policy for wildcards:
+```
+/platform-skills:terraform
+resource "aws_iam_policy" "app" {
+  name = "app-policy"
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect   = "Allow"
+      Action   = ["s3:*"]
+      Resource = "*"
+    }]
+  })
+}
+```
+
+Blast radius check before applying:
+```
+/platform-skills:terraform I'm about to run terraform apply on a change that modifies aws_db_subnet_group — what could break and how do I validate it?
+```
+
+Review a Terraform plan output:
+```
+/platform-skills:terraform [paste output of terraform plan]
+```
+
+Check a module for reuse quality:
+```
+/platform-skills:terraform review my EKS module — does it follow module design best practices? Are variables validated?
+```
+
+Check state isolation strategy:
+```
+/platform-skills:terraform we have one state file for all environments in s3://company-tfstate — is this a problem?
+```
+
+---
+
+## `/platform-skills:gitops`
+
+**What it does:** Two modes for all GitOps work. `debug` for live cluster issues — five structured Flux workflows (installation, source, HelmRelease, Kustomization, ResourceSet) plus Argo CD diagnostics, producing a 5-section report with root cause and rollback. `audit` for repo health — 6-phase read-only analysis (discovery, manifest validation, API compliance, best practices, security) producing a prioritized Critical / Warning / Info report.
+
+**Usage:** `/platform-skills:gitops <mode>`
+
+```
+/platform-skills:gitops debug [describe symptom or paste flux/argocd output]
+/platform-skills:gitops audit [repo path or paste directory listing]
+```
+
+**Examples:**
+
+Flux Kustomization not ready:
+```
+/platform-skills:gitops debug flux get kustomizations -A shows apps NotReady: "dependency not found: infrastructure"
+```
+
+HelmRelease stuck on upgrade:
+```
+/platform-skills:gitops debug HelmRelease orders-service stuck in "upgrade retries exhausted"
+```
+
+Argo CD perpetually OutOfSync:
+```
+/platform-skills:gitops debug ArgoCD application shows OutOfSync despite successful manual sync
+```
+
+Audit a repo before a release:
+```
+/platform-skills:gitops audit ./clusters
+```
+
+Security-focused audit:
+```
+/platform-skills:gitops audit — check for plain secrets and missing Cosign verification
+```
+
+---
+
+## `/platform-skills:linkerd`
+
+**What it does:** Linkerd-specific diagnostics across 8 problem classes, with exact `linkerd` CLI evidence commands, root-cause hypothesis, fix, and validation using `linkerd viz edges` / `linkerd check`.
+
+```
+/platform-skills:linkerd [describe the Linkerd symptom or paste linkerd check / viz output]
+```
+
+**Problem classes:**
+
+| Class | What it diagnoses |
+|-------|-----------------|
+| Injection | Proxies not being injected; annotation vs namespace annotation conflicts |
+| mTLS | Edges showing plaintext; certificate expiry; trust anchor mismatch |
+| Authorization policy | Traffic denied by Server/AuthorizationPolicy; identity string mismatches |
+| Observability | Missing metrics; PodMonitor selector not matching; linkerd viz not showing data |
+| Traffic management | HTTPRoute not splitting traffic; retries not firing; timeout not respected |
+| Multi-cluster | Mirrored services unreachable; gateway health; firewall blocking port 4143 |
+| Performance | High proxy latency; proxy CPU/memory pressure |
+| Control plane | identity/destination/proxy-injector component failures |
+
+**Evidence commands provided:**
+```bash
+linkerd check
+linkerd check --proxy
+linkerd viz edges deployment -n <namespace>
+linkerd viz stat deploy -n <namespace>
+linkerd viz tap deploy/<name> -n <namespace>
+kubectl get pods -n <ns> -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.metadata.annotations.linkerd\.io/proxy-version}{"\n"}{end}'
+kubectl get secret linkerd-identity-issuer -n linkerd -o jsonpath='{.data.tls\.crt}' | base64 -d | openssl x509 -noout -dates
+```
+
+**Examples:**
+
+mTLS not working between services:
+```
+/platform-skills:linkerd linkerd viz edges shows plaintext between orders-service and payments-service
+```
+
+Proxy injection not happening:
+```
+/platform-skills:linkerd pods in the checkout namespace are not getting the linkerd-proxy sidecar after I added the namespace annotation
+```
+
+Traffic not splitting on HTTPRoute:
+```
+/platform-skills:linkerd HTTPRoute for canary deploy is configured 90/10 but all traffic is going to stable — no traffic to canary pods
+```
+
+Multi-cluster service unreachable:
+```
+/platform-skills:linkerd mirrored service payments-service-remote is unreachable from the primary cluster — gateway shows healthy but curl times out
+```
+
+Certificate expiry:
+```
+/platform-skills:linkerd linkerd check shows "Certificate not yet valid" on the identity issuer — cert renews in 2 days but already failing
+```
+
+---
+
+## `/platform-skills:linux`
+
+**What it does:** Linux administration and networking diagnostics across 7 topic areas. Each topic has its own structured framework. Always ends with a validation command and rollback.
+
+```
+/platform-skills:linux [topic: dns | lb | vpc | process | disk | network | security-groups | troubleshoot]
+```
+
+**Topic frameworks:**
+
+### `dns`
+Walks the resolution path client → resolver → authoritative; identifies the break; provides exact `dig`/`nslookup` commands; covers CoreDNS health inside Kubernetes clusters, `ndots` behaviour, and search domain issues.
+
+```
+/platform-skills:linux dns pod cannot resolve payments-service.checkout.svc.cluster.local
+```
+```
+/platform-skills:linux dns external DNS propagation delay after updating Route 53 record — TTL is 300s but clients still seeing old IP after 10 minutes
+```
+
+### `lb`
+Diagnoses L4 vs L7 choice, health check failures, routing issues, target group type, source IP preservation on NLB.
+
+```
+/platform-skills:linux lb ALB returning 502 — target group shows healthy but upstream still getting 502s intermittently
+```
+```
+/platform-skills:linux lb should I use ALB or NLB for a gRPC service? What are the implications?
+```
+
+### `vpc`
+Subnet tier review, route table correctness, IGW/NAT GW attachment, security group rules. Peering vs Transit Gateway scale/cost trade-off. PrivateLink producer/consumer placement.
+
+```
+/platform-skills:linux vpc EKS pods in private subnet cannot reach ECR — what route and security group changes are needed?
+```
+```
+/platform-skills:linux vpc 12 VPCs need to talk to each other — peering or Transit Gateway?
+```
+
+### `process`
+Crashed services, resource exhaustion, misconfigurations. Provides `systemctl`, `journalctl`, `ps`, `lsof`, `strace` commands. Covers memory (`free -h`, `/proc/meminfo`) and CPU (`vmstat`, `mpstat`).
+
+```
+/platform-skills:linux process nginx keeps restarting — how do I find the root cause and make the fix survive a reboot?
+```
+```
+/platform-skills:linux process Java process OOMKilled by the OS but -Xmx is set to 2g and node has 8g RAM
+```
+
+### `disk`
+Checks both space (`df -hT`) and inodes (`df -i`). Finds large files with `du -sh`, identifies deleted-but-open files with `lsof | grep deleted`.
+
+```
+/platform-skills:linux disk /var/log is at 95% — how do I find what's consuming space without taking down the service?
+```
+```
+/platform-skills:linux disk disk shows full but df shows 80% — how to find the "missing" space?
+```
+
+### `network`
+Full connectivity ladder: L3 (`ping`) → L4 (`nc -zv`) → L7 (`curl -v`). Interface state, route table, socket stats. Kernel tuning for high-traffic services (`somaxconn`, `tcp_max_syn_backlog`, `ip_local_port_range`).
+
+```
+/platform-skills:linux network two pods can ping each other but TCP connection is refused on port 8080 — same namespace, same node
+```
+```
+/platform-skills:linux network high connection reset rate under load — suspect kernel TCP backlog limits
+```
+
+### `security-groups`
+Maps traffic flow source → SG on LB → SG on target → NACL. Identifies missing or incorrect rules. Notes NLB source IP preservation behaviour.
+
+```
+/platform-skills:linux security-groups ALB to ECS task health check failing — security group rule looks correct but target health shows unhealthy
+```
+```
+/platform-skills:linux security-groups NLB target is unhealthy but the same target passes curl from within the VPC
+```
+
+### `troubleshoot`
+General-purpose structured checklist when you don't know the topic. Classifies symptom first, then applies the appropriate framework.
+
+```
+/platform-skills:linux troubleshoot service was reachable 30 minutes ago, now timing out — no recent deploys
+```
+
+---
+
+## `/platform-skills:helmchart`
+
+**What it does:** Eight modes covering the full Helm chart lifecycle — scaffold, lint, review, security audit, upgrade, schema generation, test, and dependency management.
+
+```
+/platform-skills:helmchart [create | lint | review | security | upgrade | schema | test | deps] [chart path or description]
+```
+
+---
+
+### Mode: `create`
+
+Generates a complete, production-ready Helm chart based on workload type.
+
+| Workload type | Resources generated |
+|---------------|-------------------|
+| Web service | Deployment + Service + Ingress |
+| Worker | Deployment only (no Service) |
+| CronJob | CronJob + ServiceAccount |
+| Stateful | StatefulSet + PVC + Headless Service |
+
+**What gets generated:**
+- `Chart.yaml` with name, description, type, version, appVersion
+- `_helpers.tpl` with all 6 standard helpers: `name`, `fullname`, `chart`, `labels`, `selectorLabels`, `serviceAccountName` — `selectorLabels` correctly excludes `app.kubernetes.io/version` (immutable after creation)
+- `values.yaml` — every key commented, defaults that work with zero overrides, hardened `securityContext` (non-root, readOnlyRootFilesystem, drop ALL), resource requests+limits present
+- `deployment.yaml`, `service.yaml`, `serviceaccount.yaml` (with `automountServiceAccountToken: false`)
+- Optional: `ingress.yaml`, `hpa.yaml` (autoscaling/v2), `pdb.yaml` (policy/v1), `networkpolicy.yaml`
+- Validation pipeline: `helm lint --strict`, `helm template --debug`, `kubeconform -strict`
+
+**Examples:**
+
+```
+/platform-skills:helmchart create web service for a Node.js REST API — needs ingress, HPA, and network policy
+```
+```
+/platform-skills:helmchart create worker for a Python background job that reads from SQS — no inbound traffic
+```
+```
+/platform-skills:helmchart create stateful for PostgreSQL with PVC and headless service
+```
+
+---
+
+### Mode: `review`
+
+Checks a chart against a severity table. Reports Critical/High/Medium/Low findings with exact fixes.
+
+**Checks include:** missing `_helpers.tpl`, no resource limits, no probes, hardcoded image tags, wrong label immutability, missing NOTES.txt, `automountServiceAccountToken: true`, undocumented values.
+
+```
+/platform-skills:helmchart review ./charts/orders-service
+```
+```
+/platform-skills:helmchart review — the chart has no liveness probes and I suspect the values.yaml has secrets hardcoded
+```
+
+---
+
+### Mode: `security`
+
+Full security audit across pod security, RBAC, network, and secrets.
+
+**Checks include:**
+- Pod: no `securityContext`, running as root, `readOnlyRootFilesystem: false`, capabilities not dropped, `privileged: true`, `allowPrivilegeEscalation: true`
+- RBAC: missing dedicated ServiceAccount, `automountServiceAccountToken: true`, ClusterRole used where Role would do, wildcard verbs
+- Network: missing NetworkPolicy, `hostNetwork/hostPID/hostIPC: true`
+- Secrets: plaintext in values.yaml defaults, missing PDB
+
+```
+/platform-skills:helmchart security ./charts/payments-service
+```
+```
+/platform-skills:helmchart security — our chart runs as root and mounts the host docker socket, help me fix it
+```
+
+---
+
+## `/platform-skills:commit`
+
+**What it does:** Generates, validates, and stages [Conventional Commits](https://www.conventionalcommits.org/) messages. Four modes: analyze → generate → stage → validate.
+
+```
+/platform-skills:commit [analyze|generate|stage|validate] [optional: type/scope override or description]
+```
+
+**Commit message format:**
+```
+<type>(<scope>): <imperative subject — 72 chars max>
+
+<body — explains WHY, wraps at 72 chars>
+
+<footers — BREAKING CHANGE:, Fixes #N>
+```
+
+---
+
+### Mode: `analyze`
+
+Inspects staged diff (or unstaged if nothing staged). Groups files by logical concern, detects type and scope, flags breaking changes.
+
+**Type detected from:**
+
+| Type | When |
+|------|------|
+| `feat` | New capability or behavior added |
+| `fix` | Corrects broken behavior |
+| `refactor` | Restructures without changing behavior |
+| `perf` | Measurably improves performance |
+| `test` | Tests only |
+| `docs` | Documentation only |
+| `chore` | Deps, build tooling, no production effect |
+| `ci` | CI/CD pipeline changes |
+| `revert` | Reverts a prior commit |
+
+**Returns:** detected type, inferred scope, breaking change flag, one-line WHY summary.
+
+```
+/platform-skills:commit analyze
+```
+```
+/platform-skills:commit analyze — I changed the auth middleware to reject tokens missing the 'sub' claim
+```
+
+---
+
+### Mode: `generate`
+
+Runs `analyze` internally, then writes the full commit message — subject (imperative mood, WHY-focused, ≤72 chars), body, and footers.
+
+```
+/platform-skills:commit generate
+```
+```
+/platform-skills:commit generate feat auth — I added OIDC login support with PKCE flow
+```
+```
+/platform-skills:commit generate — breaking change, removed the /v1/orders endpoint
+```
+
+**Example output:**
+```
+feat(auth): add OIDC login with PKCE flow
+
+Previous password-based login could not support SSO providers. PKCE
+prevents auth code interception on public clients without requiring
+a client secret.
+
+BREAKING CHANGE: /api/auth/login now returns an authorization_url
+instead of a session token. Clients must redirect to this URL.
+
+Closes #142
+```
+
+---
+
+### Mode: `stage`
+
+Lists all modified files, groups them by logical change, identifies unrelated changes that should be separate commits, and stages the chosen group.
+
+```
+/platform-skills:stage
+```
+
+**Useful when:** you've changed multiple unrelated things and want clean atomic commits.
+
+**Example:**
+```
+/platform-skills:commit stage
+```
+Output groups might be:
+- Group A: `src/auth/oidc.ts`, `src/auth/oidc.test.ts` → `feat(auth): add OIDC`
+- Group B: `package.json`, `package-lock.json` → `chore(deps): bump axios to 1.7.0`
+- Group C: `README.md` → `docs: document OIDC setup`
+
+---
+
+### Mode: `validate`
+
+Checks an existing commit message against the full spec. Reports PASS or exact violations with the corrected line.
+
+**Rules checked:** valid type, lowercase scope, `!` only with `BREAKING CHANGE` footer, subject starts lowercase, no trailing period, ≤72 chars, blank line before body, body wraps at 72 chars, well-formed footers.
+
+```
+/platform-skills:commit validate "Fix: updated auth service"
+```
+```
+/platform-skills:commit validate "$(git log -1 --format=%B)"
+```
+
+---
+
+## `/platform-skills:observability`
+
+**What it does:** Add the three pillars to a service (logs/metrics/traces), build Grafana dashboards, write Prometheus alerting rules, design k6 load tests, or estimate capacity and HPA configuration.
+
+```
+/platform-skills:observability [instrument|dashboard|alert|loadtest|capacity] [service description]
+```
+
+---
+
+### Mode: `instrument`
+
+Adds structured logging, RED metrics, and OpenTelemetry tracing to a service. Asks for: language/framework, existing logging library, metrics backend (Prometheus/Datadog/CloudWatch), tracing backend (Jaeger/Tempo/OTLP).
+
+**What gets generated:**
+- Structured JSON logging with correlation IDs (Pino for Node.js, structlog for Python)
+- RED metrics: `http_requests_total` counter + `http_request_duration_seconds` histogram, labelled by route and status
+- OpenTelemetry tracing with span attributes on critical paths
+- `/metrics` Prometheus scrape endpoint
+- `/healthz` and `/readyz` health check endpoints
+- List of what NOT to log (passwords, tokens, PII)
+
+```
+/platform-skills:observability instrument a Node.js Express API — Prometheus metrics, Tempo tracing, Pino logging
+```
+```
+/platform-skills:observability instrument a Python FastAPI service — I'm already using structlog, add RED metrics and OpenTelemetry spans for the payment and order endpoints
+```
+
+---
+
+### Mode: `dashboard`
+
+Generates a Grafana dashboard using RED (request-based services) or USE (resource-based infrastructure) method.
+
+**Panels generated:** request rate (req/s), error rate (%), p50/p95/p99 latency (ms), active connections, queue depth. Threshold lines at SLO boundaries, template variables for `env` and `service`.
+
+```
+/platform-skills:observability dashboard for the orders-service — RED method, SLO is 99.9% availability and p99 < 500ms
+```
+```
+/platform-skills:observability dashboard USE method for the Postgres database — CPU, memory, disk I/O, connection pool
+```
+
+---
+
+### Mode: `alert`
+
+Writes Prometheus alerting rules using `rate()` over 5-minute windows, with `for:` duration, `severity` label, and `runbook` annotation.
+
+**Alert design enforced:**
+- Page on symptoms (error rate, latency) — not causes (CPU %)
+- Every alert must have a `runbook` annotation URL
+- SLO burn-rate alerts derived from error budget, not raw thresholds
+
+```
+/platform-skills:observability alert write SLO burn-rate alerts for orders-service — 99.9% availability target, 30-day window
+```
+```
+/platform-skills:observability alert high p99 latency alert for the payments-service — critical at 1s, warning at 500ms, fire after 5 minutes
+```
+
+---
+
+### Mode: `loadtest`
+
+Writes a k6 load test with ramp-up → steady-state → ramp-down stages, thresholds matching the SLO, and `check()` assertions on status code and response time.
+
+Asks for: target endpoint, expected peak RPS, SLO thresholds (p95 latency, error rate).
+
+```
+/platform-skills:observability loadtest for POST /orders — peak 500 RPS, p95 must be under 200ms, error rate under 0.1%
+```
+```
+/platform-skills:observability loadtest simulate 2000 concurrent users on the checkout flow — ramp up over 5 minutes
+```
+
+---
+
+### Mode: `capacity`
+
+Estimates replica count, resource requests/limits, and HPA configuration based on expected load.
+
+**Formula used:** `replicas = ceil((peak_rps × avg_latency_s) / target_concurrency_per_pod)` + 50% headroom. HPA CPU target ≤ 60%.
+
+```
+/platform-skills:observability capacity orders-service handles 200 RPS at p99 150ms, expecting 3× growth — what are the resource requests and HPA settings?
+```
+```
+/platform-skills:observability capacity current 4 pods at 70% CPU at 1000 RPS — what's the right HPA min/max and target utilisation?
+```
+
+---
+
+## `/platform-skills:opa`
+
+**What it does:** Generate Rego policies, write unit tests, run the full validation pipeline (fmt → regal → conftest verify), explain policies in plain English, or debug why a rule isn't firing.
+
+```
+/platform-skills:opa [generate|test|validate|explain|debug] [policy description or file path]
+```
+
+---
+
+### Mode: `generate`
+
+Writes a production-ready Rego policy from a description. Asks for: target resource type (Terraform HCL/plan JSON, Kubernetes manifest, GitHub Actions, Dockerfile), rule logic, and whether a named package is needed.
+
+**What gets generated:**
+- METADATA block: `title`, `description`, `authors`, `entrypoint: true`
+- `package <namespace>` — named packages for multi-domain repos (`package terraform.iam`, `package k8s.pods`)
+- `import rego.v1`
+- `deny` for hard failures, `warn` for advisory, `violation` for Gatekeeper
+- Descriptive `msg` including resource name and remediation hint
+- Conftest command to test it
+
+```
+/platform-skills:opa generate a policy that denies Kubernetes Deployments without resource limits set on all containers
+```
+```
+/platform-skills:opa generate a Terraform policy that denies S3 buckets with public ACLs and warns if versioning is not enabled
+```
+```
+/platform-skills:opa generate a policy for GitHub Actions workflows that warns if actions are not pinned to a SHA commit
+```
+
+---
+
+### Mode: `test`
+
+Writes `_test.rego` unit tests for a given policy with minimal focused fixtures.
+
+**Structure generated:**
+- Package: `package <namespace>_test`
+- Imports policy under test: `import data.<namespace>`
+- For each `deny`/`warn` rule: a positive test (`test_deny_*`, asserts count > 0) and a negative test (`test_allow_*`, asserts count == 0)
+- Helper functions to build input fixtures for each case
+- Command: `conftest verify --policy <dir>`
+
+```
+/platform-skills:opa test write unit tests for my S3 encryption policy
+```
+```
+/platform-skills:opa test — [paste policy file] — generate tests for all deny and warn rules
+```
+
+---
+
+### Mode: `validate`
+
+Runs the full 5-step validation pipeline in order. Fixes each stage before proceeding to the next.
+
+| Step | Tool | What it catches |
+|------|------|----------------|
+| 1. Format check | `conftest fmt --check` | Inconsistent indentation, non-canonical formatting |
+| 2. Auto-format | `conftest fmt` | Rewrites files in place if check failed |
+| 3. Lint | `regal lint` | Style violations, `no-defined-entrypoint`, unused variables |
+| 4. Unit tests | `conftest verify --policy` | Logic correctness against fixtures |
+| 5. Integration test | `conftest test --policy <dir> <input-files>` | Real input parsing against actual files |
+
+```
+/platform-skills:opa validate ./policies
+```
+```
+/platform-skills:opa validate — regal is reporting "no-defined-entrypoint" on all my files, how do I fix it?
+```
+
+---
+
+### Mode: `explain`
+
+Translates Rego into plain English, rule by rule. Maps each `input.<field>` to the actual resource attribute being read. Notes `data.*` dependencies.
+
+**For each rule explains:**
+- What resource type and attribute it checks
+- What condition triggers a deny/warn
+- What the developer sees when it fires
+- Any allow-list or exception conditions
+
+```
+/platform-skills:opa explain
+deny contains msg if {
+    some name
+    bucket := input.resource.aws_s3_bucket[name]
+    bucket.acl == "public-read"
+    msg := sprintf("S3 bucket '%s' must not be public", [name])
+}
+```
+```
+/platform-skills:opa explain ./policies/deny_unencrypted_s3.rego
+```
+
+---
+
+### Mode: `debug`
+
+Diagnoses why a policy is not firing (or firing when it shouldn't). Checks in order: namespace mismatch → rule name → input shape → partial vs set comprehension → `import rego.v1` missing → `some` missing.
+
+```
+/platform-skills:opa debug my deny rule produces no output when I run conftest test against main.tf
+```
+```
+/platform-skills:opa debug — I have a warn rule that fires on everything, even compliant resources
+```
+```
+/platform-skills:opa debug — conftest test passes with exit 0 but I expected a failure — [paste policy and input]
+```
+
+---
+
+## `/platform-skills:kyverno`
+
+**What it does:** Generate, test, audit, debug, and migrate Kyverno policies using the new CEL-based policy types (`ValidatingPolicy`, `MutatingPolicy`, `GeneratingPolicy`, `ImageValidatingPolicy` — all `apiVersion: policies.kyverno.io/v1`). Covers `matchConstraints`, `matchConditions`, CEL validations/mutations, `generator.Apply()`, Audit→Deny promotion, PolicyException, PolicyReport analysis, and migration from legacy `ClusterPolicy` or PodSecurityPolicy.
+
+```
+/platform-skills:kyverno [generate|test|audit|debug|migrate] [policy description or file path]
+```
+
+---
+
+### Mode: `generate`
+
+Writes a production-ready Kyverno policy using the new CEL-based types. Always starts in `validationActions: [Audit]` unless Deny is explicitly requested.
+
+**What gets generated:**
+- `apiVersion: policies.kyverno.io/v1` with the appropriate kind (`ValidatingPolicy`, `MutatingPolicy`, `GeneratingPolicy`, or `ImageValidatingPolicy`)
+- `annotations` block: `policies.kyverno.io/title`, `category`, `severity`, `description`
+- `matchConstraints.resourceRules` targeting only the required kinds and operations
+- `matchConditions` with CEL to exclude system namespaces — replaces the old `exclude` block
+- For `ValidatingPolicy`: `validations[].expression` (CEL boolean); `messageExpression` for dynamic messages
+- For `MutatingPolicy`: `mutations[].patchType: ApplyConfiguration` with `Object{...}` CEL for merges; `patchType: JSONPatch` with `[JSONPatch{...}]` CEL for precise path operations
+- For `GeneratingPolicy`: `variables` with `dyn()` for inline resources; `generate[].expression` using `generator.Apply(namespace, [resources])`; `evaluation.synchronize.enabled: true`
+- For `ImageValidatingPolicy`: `matchImageReferences`; `attestors` with Cosign keyless or key-based; `validations` using `verifyImageSignatures()` CEL function
+- kyverno-cli command to dry-run: `kyverno apply <policy.yaml> --resource <manifest.yaml> --detailed-results`
+
+```
+/platform-skills:kyverno generate a ValidatingPolicy that requires all Deployments to have app.kubernetes.io/team and app.kubernetes.io/name labels
+```
+```
+/platform-skills:kyverno generate a ValidatingPolicy that denies privileged containers in all namespaces except kube-system
+```
+```
+/platform-skills:kyverno generate a GeneratingPolicy that creates a default-deny-ingress NetworkPolicy in every new namespace
+```
+```
+/platform-skills:kyverno generate an ImageValidatingPolicy that requires all images to be signed with Cosign keyless (Sigstore)
+```
+
+---
+
+### Mode: `test`
+
+Writes a `kyverno-test.yaml` manifest and resource fixture files to verify a policy with the kyverno CLI.
+
+**Structure generated:**
+- A **passing resource** (result: pass) for each validation
+- A **failing resource** (result: fail) for each validation
+- A **skipped resource** (result: skip) if `matchConditions` exclude a namespace
+- `kyverno-test.yaml` referencing all resources with expected results
+- Command: `kyverno test .`
+
+```
+/platform-skills:kyverno test — [paste ValidatingPolicy YAML] — write the test manifest and resource fixtures
+```
+```
+/platform-skills:kyverno test write tests for my disallow-privileged-containers ValidatingPolicy
+```
+
+---
+
+### Mode: `audit`
+
+Reads PolicyReport data from a running cluster and produces a ranked, actionable violation summary.
+
+**What it does:**
+1. Queries `kubectl get policyreport -A` and `kubectl get clusterpolicyreport` for all failures
+2. Groups violations by policy (highest severity first), then by resource kind
+3. Assesses each violation: fixable in the manifest, or needs a PolicyException?
+4. Shows the `kubectl patch` command to promote each zero-violation policy from Audit to Deny: `kubectl patch validatingpolicy <name> --type merge -p '{"spec":{"validationActions":["Deny"]}}'`
+5. Flags Deny-mode policies with active violations — indicates a suppressed PolicyException needs review
+
+```
+/platform-skills:kyverno audit — here is my policyreport output: [paste JSON or describe violations]
+```
+```
+/platform-skills:kyverno audit we're ready to move require-labels to Deny, what violations remain?
+```
+
+---
+
+### Mode: `debug`
+
+Diagnoses why a Kyverno policy is not behaving as expected.
+
+**Checks in order:**
+1. Webhook not registered (`kubectl get validatingwebhookconfigurations`)
+2. `matchConstraints.resourceRules` not covering the resource kind, apiGroup, or operation
+3. `matchConditions` CEL expression filtering out the resource unexpectedly
+4. `validationActions: [Audit]` — policy reports violations but does not block; check PolicyReport, not admission events
+5. `evaluation.background.enabled: false` — existing resources never evaluated
+6. CEL expression syntax error (check `kubectl describe` events on the resource)
+7. PolicyException silently suppressing a violation
+
+```
+/platform-skills:kyverno debug my ValidatingPolicy is in Audit mode but policyreport shows no violations for existing Deployments
+```
+```
+/platform-skills:kyverno debug my CEL expression blocks every Pod even when it should pass — [paste ValidatingPolicy YAML]
+```
+```
+/platform-skills:kyverno debug CEL evaluation error on admission — [paste policy and the admission event]
+```
+
+---
+
+### Mode: `migrate`
+
+Guides migration from legacy `ClusterPolicy` (`kyverno.io/v1`) or PodSecurityPolicy to the new CEL-based types.
+
+**From legacy ClusterPolicy:**
+
+| Legacy field | New equivalent |
+|---|---|
+| `spec.rules[].match.any[].resources` | `spec.matchConstraints.resourceRules[]` |
+| `spec.rules[].exclude` | `spec.matchConditions` with CEL negation |
+| `validate.pattern` (JMESPath anchors) | `validations[].expression` (CEL boolean) |
+| `validate.deny.conditions` | `validations[].expression` with inverted CEL |
+| `mutate.patchStrategicMerge` | `mutations[].patchType: ApplyConfiguration` with `Object{...}` |
+| `mutate.patchesJSON6902` | `mutations[].patchType: JSONPatch` with `[JSONPatch{...}]` |
+| `generate.data` / `generate.clone` | `generate[].expression` using `generator.Apply()` and `resource.Get()` |
+| `validationFailureAction: Enforce` | `validationActions: [Deny]` |
+| `validationFailureAction: Audit` | `validationActions: [Audit]` |
+
+**From PodSecurityPolicy:**
+- Maps each PSP field to a `ValidatingPolicy` CEL expression
+- Deploys all policies in `[Audit]` mode first
+- Fixes workloads, creates PolicyExceptions for legitimate carve-outs
+- Removes PSPs only after all equivalents are in `[Deny]` with zero violations
+
+**From OPA/Gatekeeper:**
+- Translates ConstraintTemplate Rego logic to `ValidatingPolicy` CEL expressions
+- Maps `input.review.object` → `object`, `deny` rule → `validations[].expression` with inverted logic
+- Runs Gatekeeper and Kyverno policies in parallel for violation-count comparison before decommissioning
+
+```
+/platform-skills:kyverno migrate I'm migrating from PSP — here are my existing PodSecurityPolicies: [paste YAML]
+```
+```
+/platform-skills:kyverno migrate translate this legacy ClusterPolicy to the new ValidatingPolicy type: [paste YAML]
+```
+```
+/platform-skills:kyverno migrate translate this Gatekeeper ConstraintTemplate to a Kyverno ValidatingPolicy: [paste YAML]
+```
+
+---
+
+## `/platform-skills:compliance`
+
+**What it does:** SOC 2 compliance for Terraform infrastructure. Gap analysis, control implementation, audit evidence collection, Checkov remediation — all mapped to Trust Services Criteria (TSC).
+
+```
+/platform-skills:compliance [topic: gap | control | evidence | remediate | checklist]
+```
+
+---
+
+### Mode: `gap`
+
+Maps your Terraform config or description to SOC 2 TSC criteria, identifies gaps, and prioritises: Critical (audit blocker) / High (likely finding) / Medium (improvement).
+
+**Output format:**
+```
+Criterion  | Finding                           | Severity  | Fix
+CC6.7      | S3 bucket missing KMS CMK         | Critical  | Add aws_s3_bucket_server_side_encryption_configuration
+CC7.2      | CloudTrail not multi-region       | Critical  | Set is_multi_region_trail = true
+CC6.6      | Security group allows 0.0.0.0/0   | High      | Restrict to VPN CIDR
+```
+
+```
+/platform-skills:compliance gap analyze my EKS Terraform module for SOC 2 CC6.1 access control gaps
+```
+```
+/platform-skills:compliance gap we're going through a SOC 2 Type II audit in 3 months — run a gap analysis on our AWS infrastructure config
+```
+
+---
+
+### Mode: `control`
+
+Implements a specific SOC 2 control in Terraform. States the criterion, provides the exact resource(s), lists the Checkov rule IDs, and shows the auditor evidence command.
+
+```
+/platform-skills:compliance control implement CC6.7 encryption at rest for our RDS instances
+```
+```
+/platform-skills:compliance control CC7.2 — how do I implement CloudTrail with integrity validation and multi-region coverage?
+```
+
+---
+
+### Mode: `evidence`
+
+Provides copy-paste AWS CLI commands to gather audit evidence for a specific criterion. Notes what each output proves and flags any elevated permissions required.
+
+```
+/platform-skills:compliance evidence CC6.7 — what AWS CLI commands do I run to show auditors that all S3 buckets have encryption enabled?
+```
+```
+/platform-skills:compliance evidence CC6.6 — how do I prove to auditors that no security groups allow 0.0.0.0/0 on port 22?
+```
+
+---
+
+### Mode: `remediate`
+
+Fixes a specific Checkov or audit finding. Provides: criterion mapping, root cause, exact old → new Terraform block, blast radius (will this replace the resource?), validation steps, rollback.
+
+```
+/platform-skills:compliance remediate CKV_AWS_18: S3 bucket does not have access logging enabled
+```
+```
+/platform-skills:compliance remediate CKV_AWS_86: CloudFront distribution does not have logging enabled
+```
+
+---
+
+### Mode: `checklist`
+
+Runs through the full SOC 2 readiness checklist. For each item: pass / fail / unknown. For fails and unknowns: what's needed + which Checkov rule enforces it. Ends with a prioritised action list.
+
+```
+/platform-skills:compliance checklist — we have Terraform for EKS, RDS, S3, IAM, and CloudTrail
+```
+
+---
+
+## `/platform-skills:datadog`
+
+**What it does:** End-to-end Datadog coverage — Agent deployment on Kubernetes, APM instrumentation, monitors, dashboards, SLOs, live incident investigation via the Datadog MCP server, pup CLI operations, and LLM Observability instrumentation and evaluation.
+
+```
+/platform-skills:datadog [setup|instrument|monitor|dashboard|slo|investigate|debug|pup|llmo] [service or description]
+```
+
+---
+
+### Mode: `setup`
+
+Deploys the Datadog Agent on Kubernetes via Helm. Asks for: Kubernetes distribution (EKS/AKS/GKE), Datadog site (EU `datadoghq.eu` / US `datadoghq.com`), features needed.
+
+**Generates:** Helm values with API key from Kubernetes Secret (never hardcoded), APM enabled, log collection enabled, cluster name set, Cluster Agent with 2 replicas. Adds Unified Service Tagging (`DD_ENV`, `DD_SERVICE`, `DD_VERSION`) to app Deployment.
+
+```
+/platform-skills:datadog setup EKS cluster, EU site, need APM and log collection
+```
+```
+/platform-skills:datadog setup how do I add Unified Service Tagging to my existing Deployments?
+```
+
+---
+
+### Mode: `instrument`
+
+Adds APM tracing to a service. Asks for: language and framework, whether log-trace correlation is needed.
+
+- **Node.js**: `dd-trace` init as the **first** import
+- **Python**: `ddtrace-run` entry point or `patch_all()` + `DD_TRACE_ENABLED`
+- Adds custom spans for business-critical paths
+- Shows expected APM UI outcome: service map entry, latency/error rate populated
+
+```
+/platform-skills:datadog instrument Node.js Express orders service — need log-trace correlation
+```
+```
+/platform-skills:datadog instrument Python FastAPI payments service — add custom spans for the payment processing flow
+```
+
+---
+
+### Mode: `monitor`
+
+Generates a Terraform `datadog_monitor` resource. Sets `notify_no_data: true`, warning and critical thresholds, PagerDuty/Slack notification handles, and `service:`, `env:`, `team:` tags for routing.
+
+```
+/platform-skills:datadog monitor high error rate on orders-service — critical at 5%, warning at 2%, notify @pagerduty-platform @slack-alerts
+```
+```
+/platform-skills:datadog monitor p99 latency for the checkout service — critical over 1s, warning over 500ms
+```
+
+---
+
+### Mode: `dashboard`
+
+Generates a Terraform `datadog_dashboard` with RED method widgets using APM metrics. Template variables for `env` and `service`.
+
+```
+/platform-skills:datadog dashboard orders-service RED dashboard — request rate, error rate, p50/p95/p99 latency
+```
+
+---
+
+### Mode: `slo`
+
+Generates a Terraform `datadog_service_level_objective`. Links to monitors for error budget burn alerts.
+
+```
+/platform-skills:datadog slo orders-service availability SLO — 99.9% target, 30-day window, warn at 99.95%
+```
+
+---
+
+### Mode: `investigate`
+
+**Live incident investigation using the Datadog MCP server.** Requires the MCP server connected — see `references/datadog.md` → MCP Server Setup.
+
+Runs a 4-phase investigation through the MCP:
+
+| Phase | What gets queried |
+|-------|-----------------|
+| 1. Triage | Active monitors in ALERT/WARN, event stream last 30 min, recent deployments |
+| 2. Signals | Error logs for the incident window, APM error rate + p99 time series, sample failing traces |
+| 3. Root cause | Before/after metric comparison, endpoint-level error breakdown, host CPU/memory |
+| 4. Resolution | Acknowledge/resolve monitor, post incident Slack update, create post-mortem notebook |
+
+```
+/platform-skills:datadog investigate orders-service error rate spiked at 14:30 UTC — still ongoing
+```
+
+Natural language queries Claude sends to the MCP:
+```
+What monitors are firing for service:orders-service env:production right now?
+Show error logs for orders-service between 14:30 and 15:00 UTC.
+Compare the error rate before and after 14:30 UTC.
+Which endpoints have the highest error rate?
+```
+
+---
+
+### Mode: `debug`
+
+Diagnoses Datadog data gaps without the MCP server. Classifies: Agent unhealthy, APM missing, logs not ingested, Monitor in No Data, custom metric not visible.
+
+```
+/platform-skills:datadog debug APM traces are missing for the payments-service — agent shows healthy
+```
+```
+/platform-skills:datadog debug monitor is stuck in "No Data" — the service is definitely running
+```
+
+---
+
+### `pup` mode
+
+Scripted Datadog operations via the `pup` CLI — log search, metric queries, monitor management, and post-deploy quality gates.
+
+```
+/platform-skills:datadog pup search error logs for orders-service in the last 30 minutes
+/platform-skills:datadog pup query p99 latency for orders-service over the last hour
+/platform-skills:datadog pup mute the high error rate monitor for orders-service for 1 hour
+/platform-skills:datadog pup generate a post-deploy gate script that fails CI if error rate exceeds 5%
+```
+
+### `llmo` mode
+
+Instrument an AI application with Datadog LLM Observability, bootstrap evaluators, or root-cause LLM failures.
+
+```
+/platform-skills:datadog llmo instrument my Python OpenAI app with LLMObs — I need faithfulness scoring
+/platform-skills:datadog llmo add evaluation scores to my Node.js LLM spans and set up a CI quality gate
+/platform-skills:datadog llmo root-cause this failing trace — trace ID 8f3a2b1c9d4e5f6a
+/platform-skills:datadog llmo compare gpt-4o vs gpt-4o-mini on my orders-assistant over the last 7 days
+```
+
+---
+
+## `/platform-skills:dynatrace`
+
+**What it does:** Dynatrace Operator deployment, OneAgent injection, code-level instrumentation, custom metrics, SLOs, dashboards, anomaly detection, Davis AI, and live incident investigation via the Dynatrace MCP server.
+
+```
+/platform-skills:dynatrace [setup|instrument|monitor|slo|dashboard|investigate|debug] [service or description]
+```
+
+---
+
+### Mode: `setup`
+
+Deploys the Dynatrace Operator and OneAgent on Kubernetes. Asks for: environment ID, Kubernetes distribution, monitoring mode.
+
+- Uses `cloudNativeFullStack` for automatic injection — no pod restarts required
+- Creates Kubernetes Secret with `apiToken` and `dataIngestToken` — never plain values
+- Enables `metadataEnrichment: true` for k8s metadata on all telemetry
+
+**Required token scopes:**
+- `apiToken`: ReadConfig, WriteConfig, DataExport, LogExport, ReadSyntheticData, WriteAnomalyDetection
+- `dataIngestToken`: metrics.ingest, logs.ingest
+
+```
+/platform-skills:dynatrace setup EKS cluster, environment ID abc12345, cloudNativeFullStack injection
+```
+
+---
+
+### Mode: `instrument`
+
+Adds custom spans for business logic (OneAgent auto-instruments HTTP/DB/cache/messaging). Asks for: language, operations to trace.
+
+- **Node.js**: `@dynatrace/oneagent-sdk`
+- **Python**: `oneagent-sdk`
+- **Java**: OneAgent Java SDK
+- Cross-service propagation via `x-dynatrace` header
+
+```
+/platform-skills:dynatrace instrument Node.js — add custom spans for the payment processing and order creation flows
+```
+
+---
+
+### Mode: `monitor`
+
+Generates Terraform `dynatrace_service_anomalies_v2` for failure rate and response time, plus `dynatrace_alerting` profile linked to PagerDuty/Slack/Opsgenie.
+
+```
+/platform-skills:dynatrace monitor orders-service — auto-detect anomalies, alert to PagerDuty platform-oncall
+```
+
+---
+
+### Mode: `slo`
+
+Generates Terraform `dynatrace_slo_v2`. Uses built-in availability metrics: `builtin:service.errors.server.successCount` / `builtin:service.requestCount.server`.
+
+```
+/platform-skills:dynatrace slo orders-service availability — 99.9% target, 30-day timeframe, warn at 99.5%
+```
+
+---
+
+### Mode: `dashboard`
+
+Generates Terraform `dynatrace_json_dashboard` with `DATA_EXPLORER` tiles for key service metrics.
+
+```
+/platform-skills:dynatrace dashboard orders-service — request count, response time, error rate, availability
+```
+
+---
+
+### Mode: `investigate`
+
+**Live incident investigation using the Dynatrace MCP server.** Requires the MCP server connected — see `references/dynatrace.md` → MCP Server Setup.
+
+> **Cost note**: `execute_dql` queries scan Grail data and may incur costs. Start with short timeframes (1h–24h). Set `DT_GRAIL_QUERY_BUDGET_GB` to cap session spend.
+
+Runs a 4-phase investigation:
+
+| Phase | What gets queried |
+|-------|-----------------|
+| 1. Triage | Open Davis AI Problems, root cause entity and affected services, k8s events |
+| 2. Signals | Error logs via DQL, exceptions with stack traces, distributed traces with errors |
+| 3. Root cause (Davis AI) | Davis Copilot plain-English explanation, Davis Analyzer automated root cause |
+| 4. Resolution | Create Dynatrace Notebook, send Slack/email, close Problem with resolution note |
+
+Example DQL queries the MCP runs:
+```dql
+fetch logs
+| filter service.name == "orders-service" and loglevel == "ERROR"
+| sort timestamp desc
+| limit 50
+| fields timestamp, content, trace_id, span_id
+```
+
+```
+/platform-skills:dynatrace investigate orders-service has an open Davis AI Problem since 14:00 UTC
+```
+
+---
+
+### Mode: `debug`
+
+Diagnoses data gaps without the MCP server. Classifies: injection failure, traces broken, custom metrics missing, SLO showing 0%, Davis AI not firing Problems.
+
+```
+/platform-skills:dynatrace debug OneAgent not injecting into pods in the checkout namespace
+```
+```
+/platform-skills:dynatrace debug custom metrics not showing in Metrics Explorer — ingest endpoint returns 202
+```
+
+---
+
+## `/platform-skills:document`
+
+**What it does:** Generate or improve technical documentation — docstrings, OpenAPI 3.1 specs, documentation sites, and getting started guides.
+
+```
+/platform-skills:document [docstrings|openapi|site|guide] [language/framework] [path or description]
+```
+
+---
+
+### Mode: `docstrings`
+
+Adds or improves inline documentation. Asks for: language and preferred style.
+
+| Language | Style options |
+|----------|-------------|
+| Python | Google, NumPy, Sphinx |
+| TypeScript/JavaScript | JSDoc |
+
+For each undocumented public function/class: purpose, all parameters with types, return value, exceptions raised, at least one example. Validates examples run (`python -m doctest`, `tsc --noEmit`). Generates coverage report (`interrogate`, `typedoc-coverage`).
+
+**Does NOT document:** obvious getters/setters, private methods without complex invariants.
+
+```
+/platform-skills:document docstrings python Google-style — add docstrings to all public functions in src/auth/
+```
+```
+/platform-skills:document docstrings typescript JSDoc — document the OrderService class and all public methods
+```
+
+---
+
+### Mode: `openapi`
+
+Generates or improves an OpenAPI 3.1 spec. Asks for: framework and existing routes or codebase.
+
+**What gets generated:**
+- All endpoints mapped: method, path, request body, response schemas per status code
+- Shared schemas extracted to `components/schemas`
+- Shared responses (400, 401, 404, 500) extracted to `components/responses`
+- `operationId` on every operation
+- Security scheme declared and applied globally or per-operation
+- Validated with `npx @redocly/cli lint`
+
+Framework-specific patterns:
+- **FastAPI**: Pydantic `Field(description=...)` + route docstrings → auto-generates `/docs`
+- **NestJS**: `@ApiProperty`, `@ApiOperation`, `@ApiResponse` decorators
+
+```
+/platform-skills:document openapi generate a spec for our Orders REST API — POST /orders, GET /orders/{id}, GET /orders with pagination
+```
+```
+/platform-skills:document openapi FastAPI — generate OpenAPI spec from the existing route functions in app/routes/
+```
+
+---
+
+### Mode: `site`
+
+Sets up a documentation site for a project.
+
+| Project type | Recommended generator |
+|-------------|----------------------|
+| Python library | MkDocs + mkdocstrings + Material theme |
+| TypeScript SDK | TypeDoc + typedoc-material-theme |
+| API portal | Redocly or Stoplight |
+| General docs | Docusaurus |
+
+Generates site config, nav structure (Getting Started, API Reference, Guides, Changelog), docstring auto-generation from source, search plugin, serve and build commands.
+
+```
+/platform-skills:document site Python library — set up MkDocs with auto-generated API reference from docstrings
+```
+```
+/platform-skills:document site REST API portal — we want rendered API docs with try-it-out for partners
+```
+
+---
+
+### Mode: `guide`
+
+Writes a getting started guide or tutorial. Structure enforced:
+
+1. **Prerequisites** — exact versions, accounts, permissions
+2. **Installation** — copy-paste commands
+3. **Quick start** — simplest working example (under 10 lines)
+4. **Next steps** — links to deeper topics
+
+Rules: all code examples tested and runnable, realistic values (not `<YOUR_VALUE>` placeholders), one concept per section, expected output for each command.
+
+```
+/platform-skills:document guide write a getting started guide for the orders-service SDK — Node.js, installing from npm, making the first API call
+```
+```
+/platform-skills:document guide Kubernetes deployment guide for new engineers — assumes basic kubectl, no Helm knowledge
+```
+
+---
+
+## `/platform-skills:mcp`
+
+**What it does:** Scaffold, review, or debug Model Context Protocol (MCP) server implementations in TypeScript or Python.
+
+```
+/platform-skills:mcp [create|review|debug] [typescript|python] [description]
+```
+
+---
+
+### Mode: `create`
+
+Scaffolds a production-ready MCP server. Asks for: language, transport (stdio / HTTP+SSE), list of tools and resources needed.
+
+**What gets generated:**
+- Project scaffold with correct SDK setup (TypeScript SDK or Python `mcp` package)
+- Tool handlers with Zod (TypeScript) or Pydantic (Python) schema validation — no `z.any()` or empty schemas
+- Resource providers and prompt templates
+- Transport configuration
+- Error handling: `isError: true` content on failures, no unhandled exceptions
+- Authentication and rate limiting for HTTP transports
+- MCP Inspector test commands and expected responses
+- Deployment checklist (env vars, secrets, logging)
+
+```
+/platform-skills:mcp create typescript — MCP server that exposes Kubernetes pod logs and events as tools, uses stdio transport
+```
+```
+/platform-skills:mcp create python — MCP server that wraps our internal deployment API — 3 tools: list_services, get_status, trigger_deploy
+```
+
+---
+
+### Mode: `review`
+
+Reviews an existing MCP server or client. Evaluates in priority order:
+
+1. **Protocol compliance** — JSON-RPC 2.0, capability negotiation, well-formed content arrays
+2. **Schema validation** — Zod/Pydantic on all inputs, no `z.any()`
+3. **Security** — no credentials in tool responses, auth on HTTP transports, rate limiting
+4. **Error handling** — `isError: true` with message, no unhandled exceptions
+5. **Transport** — correct transport for use case, no blocking sync code in async transports
+
+```
+/platform-skills:mcp review my MCP server — focus on whether error handling is correct and if the schemas are tight enough
+```
+
+---
+
+### Mode: `debug`
+
+Diagnoses protocol and integration failures. Classifies: Transport → Protocol → Schema → Handler → Integration.
+
+**Evidence to collect:**
+```bash
+# Verify protocol compliance
+npx @modelcontextprotocol/inspector node dist/index.js
+
+# Smoke-test via stdio
+echo '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}' | node dist/index.js
+```
+
+```
+/platform-skills:mcp debug tool is not appearing in the tools list in Claude — server starts without errors
+```
+```
+/platform-skills:mcp debug tool call returns empty result but no error — the handler is executing
+```
+```
+/platform-skills:mcp debug schema validation rejecting a valid input — Zod error: "Expected string, received number"
+```
+
+---
+
+## `/platform-skills:aws-profile`
+
+**What it does:** Discover AWS profiles through CLI metadata, check authentication with STS, switch profiles across VS Code and Claude Code MCP server configs, and scan AWS Organization accounts for unconfigured entries. Credential TTL is `unknown` unless the user shares a profile-specific expiration timestamp without credentials; the skill does not inspect credential caches.
+
+```
+/platform-skills:aws-profile [discover|status|switch <profile>|login <profile>|org-scan] [flags]
+```
+
+**Modes:**
+
+| Mode | What it does |
+|------|-------------|
+| `discover` | Classify profiles from safe metadata, with env tags and known TTL; otherwise mark type or TTL unknown |
+| `status` | Show configured MCP profiles, current authentication and known expiry; verify refresh behaviour separately |
+| `switch` | Patch `AWS_PROFILE` in VS Code and/or Claude Code MCP configs, with prod safety guard |
+| `login` | Emit the correct auth command for the profile type (sso login / assume / role chain) |
+| `org-scan` | List all AWS Org accounts, flag those without configured profiles |
+
+**Common usage:**
+
+```
+/platform-skills:aws-profile discover
+/platform-skills:aws-profile discover --type sso --chain
+/platform-skills:aws-profile status --watch
+/platform-skills:aws-profile switch prod-platform-eu --scope workspace --confirm
+/platform-skills:aws-profile switch --env dev --scope global
+/platform-skills:aws-profile login dev-sandbox
+/platform-skills:aws-profile org-scan --profile org-management --generate-profiles
+```
+
+---
+
+## `/platform-skills:product`
+
+**What it does:** Platform product thinking — DevEx audits, friction analysis, RFC/ADR drafting, incident communication, blameless post-mortems, capacity planning, cost optimisation, and platform health review.
+
+```
+/platform-skills:product [topic: devex | friction | rfc | adr | incident | postmortem | capacity | cost | review]
+```
+
+Every response ends with: **Next step** (one concrete action to take immediately) + **Signal to watch** (one metric or observable that confirms the change is working).
+
+---
+
+### `devex`
+
+Audits developer experience using the SPACE framework (Satisfaction, Performance, Activity, Communication, Efficiency). Identifies the top friction point from description, proposes one systemic fix (not a local patch), and suggests one metric to track improvement.
+
+```
+/platform-skills:product devex developers are spending 45 minutes to get a new service to production on day 1
+```
+```
+/platform-skills:product devex CI pipeline takes 25 minutes — engineers skip it and push directly to staging
+```
+
+---
+
+### `friction`
+
+Maps the problem to the friction audit table (onboarding / CI / secrets / environment / ownership). States root cause, proposes the platform-level response, defines measurable "done".
+
+```
+/platform-skills:product friction every team has their own Terraform repo with different patterns — no shared modules
+```
+```
+/platform-skills:product friction rotating secrets takes 3 engineers and an incident window
+```
+
+---
+
+### `rfc`
+
+Produces a complete RFC:
+- Problem (what is broken, why now)
+- Proposal (concrete change)
+- Alternatives considered
+- Impact (which teams, what migration)
+- Open questions
+
+```
+/platform-skills:product rfc draft an RFC for migrating from Argo CD to Flux CD — 15 teams affected, GitOps repo restructure required
+```
+```
+/platform-skills:product rfc adopt Gateway API as the standard ingress interface across all clusters
+```
+
+---
+
+### `adr`
+
+Produces a complete Architecture Decision Record:
+- Context (what forced this decision)
+- Decision (what was decided)
+- Consequences (what becomes easier / harder / what to monitor)
+
+```
+/platform-skills:product adr decision to use Crossplane instead of Terraform for cluster-level infrastructure
+```
+```
+/platform-skills:product adr we decided to use a mono-repo GitOps structure over per-team repos
+```
+
+---
+
+### `incident`
+
+Produces a structured incident status update:
+- Time, severity, affected component
+- Impact statement (user-visible, quantified if possible)
+- What we know / what we are doing
+- Next update time
+
+```
+/platform-skills:product incident orders-service is returning 500s, started at 14:30 UTC, about 20% of requests affected
+```
+
+---
+
+### `postmortem`
+
+Produces a blameless post-mortem structure:
+- Timeline with timestamps
+- Impact: duration, affected users, business impact
+- Root cause: systemic, not human blame
+- Contributing factors
+- Action items with owner and due date
+
+```
+/platform-skills:product postmortem database failover at 02:15 UTC caused 18 minutes of downtime for checkout — root cause was missing health check on standby
+```
+
+---
+
+### `capacity`
+
+Ties growth to a business metric, states current baseline and projected growth, recommends headroom target and trigger threshold, proposes next review date.
+
+```
+/platform-skills:product capacity orders-service — currently 500 RPS at 60% CPU on 8 pods, expecting 3× growth in Q3
+```
+
+---
+
+### `cost`
+
+Identifies top cost driver, applies the monthly cost loop (rightsizing → unused resources → showback), proposes a specific reduction action with owner and deadline.
+
+```
+/platform-skills:product cost EC2 spend is $40k/month — largest cluster has m5.2xlarge nodes at 15% average CPU
+```
+```
+/platform-skills:product cost we have 200 EBS volumes and no visibility into which are orphaned
+```
+
+---
+
+### `review`
+
+Runs the full platform health checklist covering Developer Experience, Operations, Security and Compliance, and Cost. Flags gaps and proposes the minimum action to close each.
+
+```
+/platform-skills:product review we're a 3-team platform org, 12 clusters, planning a SOC 2 audit in 6 months
+```
+
+---
+
+## `/platform-skills:pr-review`
+
+Comprehensive pre-merge risk review across six dimensions. Each mode inspects the diff and current file state, reports findings with severity, and recommends concrete fixes.
+
+**Modes**
+
+| Mode | What it reviews |
+|---|---|
+| `cost` | Compute, storage, and network spend delta |
+| `drift` | Environment alignment across dev/staging/prod overlays and values files |
+| `ownership` | CODEOWNERS gaps, missing team labels, Terraform module README, PR governance |
+| `compliance` | SOC 2 control impact — IAM, encryption, logging, network, change management |
+| `upgrade` | Deprecated Kubernetes APIs, loose Terraform provider constraints, floating action versions, `:latest` images |
+| `rollback` | Reversibility and blast radius score for every change |
+| `full` | All six modes in sequence with a Merge Readiness Summary |
+
+**Usage**
+
+```
+/platform-skills:pr-review cost [paste gh pr diff output or PR number]
+/platform-skills:pr-review drift
+/platform-skills:pr-review ownership
+/platform-skills:pr-review compliance
+/platform-skills:pr-review upgrade
+/platform-skills:pr-review rollback
+/platform-skills:pr-review full 42
+```
+
+**Example prompts**
+
+```
+/platform-skills:pr-review cost — here is the diff for PR #42: [paste output of gh pr diff 42]
+```
+```
+/platform-skills:pr-review drift — values-dev.yaml changed, check if prod is aligned
+```
+```
+/platform-skills:pr-review compliance — new IAM role added, verify CC6.1 and CC6.2
+```
+```
+/platform-skills:pr-review rollback — we're renaming a Deployment and adding an RDS storage increase
+```
+```
+/platform-skills:pr-review full 42
+```
+
+**Multi-mode workflow**
+
+```
+/platform-skills:pr-review full   # get the complete risk picture
+# fix blockers
+/platform-skills:preflight           # validate specific manifests before re-review
+```
+
+Reference: `references/pr-review.md`
+
+---
+
+## `/platform-skills:triage`
+
+Triage a PR review or issue comment from a bot, CI tool, or human reviewer. Every Git and GitHub mechanic runs through `examples/triage/scripts/triage_helper.py` (identity checks, one paginated thread snapshot, per-file diff evidence, isolated-worktree edit, push, reply, resolve, local run lock and state record) instead of hand-rolled `gh`/`jq` pipelines. The command classifies the finding, applies a justified fix inside a disposable worktree, publishes it only after a validation command reports PASS, replies on the thread, and resolves the thread only when that specific finding is eligible for closure.
+
+**Modes**
+
+| Mode | What it does |
+|---|---|
+| `<PR number> <comment ID>` | Triage one specific review comment or PR conversation comment |
+| `--all <PR number>` | Triage every unresolved review thread captured in one pinned snapshot |
+| `--dry-run` | Read-only investigation. Prints the plan. Zero mutations, local or remote |
+| `--no-resolve` | Runs the full authorized fix/reply workflow but never resolves a thread |
+| `--repo OWNER/REPO` | Overrides repo auto-detection. Valid on either invocation form |
+
+**Usage**
+
+```
+/platform-skills:triage 42 123456789
+/platform-skills:triage --all 42
+/platform-skills:triage --all 42 --dry-run
+/platform-skills:triage 42 123456789 --no-resolve --repo acme/widgets
+```
+
+**Classifications**
+
+| Classification | Meaning |
+|---|---|
+| `ACTIONABLE_FIX` | Demonstrable defect or policy violation inside this PR's authorized scope, with a justified remediation |
+| `ALREADY_FIXED` | Current head and change/test evidence show the original concern is already addressed |
+| `INFORMATIONAL` | Question, explanation, or pure status notification with no established defect |
+| `NOT_APPLICABLE` | Positive evidence disproves the finding's premise in this context |
+| `NEEDS_CLARIFICATION` | Intent, correctness, or required configuration cannot be established from available evidence |
+| `OUT_OF_SCOPE` | Potentially valid issue whose remediation sits outside this authorized change |
+| `DUPLICATE` | Another identified finding addresses the same underlying concern |
+
+**Resolution is eligibility-gated, not automatic**
+
+| Classification | Eligible to close a thread? |
+|---|---|
+| `ACTIONABLE_FIX` | Only after remediation is validated, published, and confirmed live |
+| `ALREADY_FIXED` | Only with current-head evidence |
+| `DUPLICATE` | Only once the canonical concern is verified addressed and linked |
+| `INFORMATIONAL`, `NEEDS_CLARIFICATION`, `OUT_OF_SCOPE`, disputed `NOT_APPLICABLE` | No — reply and leave the thread open |
+
+A mixed thread stays open while any substantive concern remains, and a PR conversation comment has no thread to resolve at all. Classification, fix execution state, and discussion state are reported as three separate facts, so "fixed, pushed, thread open pending CI" is a complete outcome rather than a partial failure.
+
+Reference: `skills/triage/SKILL.md` (router), `references/triage.md` (evidence rules, helper contract, failure recovery), and `examples/triage/README.md`
+
+---
+
+## `/platform-skills:gateway-api`
+
+**What it does:** Moves ingress traffic off the retired ingress-nginx controller (best-effort maintenance ended March 2026: no releases, bug fixes or security fixes) onto Kubernetes Gateway API without a user-visible change. Envoy Gateway is the default implementation. The command inventories annotations and classifies each as auto, decision, or blocked, converts with ingress2gateway, rewrites the output for a platform-owned shared Gateway, and plans a parallel-run DNS cutover that keeps a one-step rollback until the old path is provably unused.
+
+**Modes**
+
+| Mode | What it does |
+|---|---|
+| `assess` | Inventory Ingresses, classes, annotations and controller ConfigMap settings; flag what will not translate |
+| `convert` | ingress2gateway v1.2.0 per namespace, then shared-Gateway rewrite and kubeconform validation |
+| `scaffold` | Standard-channel CRDs with `keep`, controller, GatewayClass, shared Gateway, cert-manager, Flux layers |
+| `cutover` | Per-hostname shadow test, TTL plan, soak criteria and decommission gate |
+| `debug` | Route, listener, certificate and Gateway address problems by condition reason |
+| `review` | Correctness, security, operational safety and portability review |
+| `rollback` | The rollback for the stage reached |
+
+**Usage**
+
+```
+/platform-skills:gateway-api
+/platform-skills:gateway-api assess
+/platform-skills:gateway-api convert payments
+/platform-skills:gateway-api scaffold Flux, Envoy Gateway, cert-manager HTTP-01
+/platform-skills:gateway-api cutover payments.example.com
+/platform-skills:gateway-api debug my HTTPRoute shows NotAllowedByListeners
+/platform-skills:gateway-api review
+/platform-skills:gateway-api rollback
+```
+
+**Example prompts**
+
+```
+/platform-skills:gateway-api we run ingress-nginx in production with configuration-snippet on a dozen Ingresses. What blocks a migration?
+/platform-skills:gateway-api convert the payments namespace and point every route at our shared platform-gateway
+/platform-skills:gateway-api why does cert-manager not create a certificate for my Gateway listener?
+```
+
+Reference: `skills/gateway-api/SKILL.md`, `references/gateway-api.md`, `examples/gateway-api/README.md`, and the full layout in `examples/fluxcd/basic-monorepo`
+
+---
+
+## `/platform-skills:keda`
+
+Design, generate, debug, and review KEDA (Kubernetes Event-Driven Autoscaling) ScaledObject and ScaledJob resources.
+
+**Modes**
+
+| Mode | What it does |
+|---|---|
+| `generate` | Write a production-ready ScaledObject or ScaledJob from a description |
+| `debug` | Diagnose why a ScaledObject is not scaling as expected |
+| `review` | Correctness, security, and operational safety review |
+| `scale` | Design a scaling strategy for a workload from requirements |
+
+**Usage**
+
+```
+/platform-skills:keda generate
+/platform-skills:keda generate SQS queue, scale-to-zero, IRSA auth, max 20 replicas
+/platform-skills:keda generate cron schedule weekday 08:00-20:00 Europe/Berlin, safety-net Prometheus trigger
+/platform-skills:keda debug
+/platform-skills:keda review
+[paste ScaledObject YAML]
+/platform-skills:keda scale
+```
+
+**Generate examples**
+
+```
+/platform-skills:keda generate
+```
+*Generates a ScaledObject for the orders-processor Deployment using SQS. Uses IRSA (no static credentials), scale-to-zero, activationQueueLength to prevent flapping, and HPA stabilization.*
+
+```
+/platform-skills:keda generate cron schedule checkout-api 08:00-20:00 Europe/Berlin
+```
+*Generates a ScaledObject with weekday/weekend Cron windows plus a Prometheus safety-net trigger for unexpected spikes.*
+
+```
+/platform-skills:keda generate ScaledJob SQS batch one-job-per-message
+```
+*Generates a ScaledJob with `restartPolicy: Never`, `activeDeadlineSeconds`, and security hardening.*
+
+**Debug checklist**
+
+The debug mode works through this checklist in order:
+
+1. Is the ScaledObject `Active: true`? — check `kubectl describe scaledobject`
+2. Is the HPA showing `<unknown>` targets? — metrics adapter connection
+3. Is `activationThreshold` / `activationQueueLength` too high?
+4. Is `minReplicaCount: 1` preventing scale-to-zero?
+5. Is a Cron trigger keeping a replica floor?
+6. Has `cooldownPeriod` elapsed?
+7. Is there an existing HPA conflict?
+
+**Key rules enforced**
+
+- Never inline credentials in ScaledObject — always `TriggerAuthentication`
+- Prefer IRSA over static access keys
+- Never create your own HPA for a KEDA-managed Deployment
+- Always set `timezone` explicitly on Cron triggers
+- Never overlap Cron windows
+- Set `restoreToOriginalReplicaCount: true`
+
+Reference: `skills/keda/SKILL.md`, `references/keda.md`, and `examples/keda/`
+
+---
+
+## `/platform-skills:karpenter`
+
+**What it does:** Full Karpenter lifecycle for EKS admins — install, design NodePools, debug provisioning failures, audit why nodes scaled in or out, predict what would be provisioned before a rollout, migrate from Cluster Autoscaler, and upgrade (including the breaking v0.x → v1.x CRD migration).
+
+**Works on:** EKS clusters running Karpenter v1.x (`karpenter.sh/v1` API). NodePool, EC2NodeClass, NodeClaim manifests, Helm values, Terraform modules.
+
+```
+/platform-skills:karpenter [generate|debug|review|audit|plan|migrate|upgrade] [description or file path]
+```
+
+When invoked with no arguments, the command asks two questions before proceeding:
+1. Which mode (generate / debug / review / audit / plan / migrate / upgrade)
+2. Environment context: EKS version, Karpenter version, identity method (Pod Identity vs IRSA), private cluster, Spot usage, CA migration
+
+| Mode | What it does |
+|---|---|
+| `generate` | Designs EC2NodeClass + NodePool from workload requirements — asks about instance families, AMI family, Spot tolerance, and GitOps method |
+| `debug` | Diagnoses pending pods / stuck NodeClaims — collects evidence first, maps symptom to cause via decision tree |
+| `review` | Reviews NodePool/EC2NodeClass for correctness, cost, reliability, security, GitOps safety — outputs Critical / Improvement / Note |
+| `audit` | Reconstructs scale-out/scale-in history with timestamps, disruption reasons, and trigger source — with CloudTrail fallback when kubectl events have aged out |
+| `plan` | Predicts which NodePool would be selected, likely instance type, AZ, limits headroom, and cost estimate before deploying a workload |
+| `migrate` | Safe CA → Karpenter migration: pre-migration checklist, cordon/drain sequence, conflict risks, rollback |
+| `upgrade` | Patch/minor upgrades and the breaking v0.x → v1.x CRD migration with field-mapping table |
+
+**Common usage:**
+
+```
+/platform-skills:karpenter generate
+/platform-skills:karpenter generate spot-tolerant batch workloads, m and c families, scale-to-zero
+/platform-skills:karpenter generate critical On-Demand API tier, pinned AMI, no consolidation
+/platform-skills:karpenter debug
+/platform-skills:karpenter review [paste NodePool YAML]
+/platform-skills:karpenter audit why did ip-10-0-1-42 terminate at 14:32
+/platform-skills:karpenter plan deployment.yaml
+/platform-skills:karpenter plan orders-api requests 500m CPU 512Mi, 3 replicas, no nodeSelector
+/platform-skills:karpenter migrate from cluster-autoscaler
+/platform-skills:karpenter upgrade v0.37 to v1.0
+```
+
+**What to expect back:**
+
+- `generate` — EC2NodeClass + NodePool + PDB + IAM policy skeleton + validation commands
+- `debug` — evidence collection commands → root cause → corrected spec → verify command
+- `review` — findings table (Critical / Improvement / Note) with exact field and fix for each
+- `audit` — timeline table (time / event / node / reason / trigger) + one-line verdict
+- `migrate` — pre-migration checklist + cordon/drain script + blast radius + rollback
+- `upgrade` — diff preview + helm upgrade command + v0→v1 field mapping table + rollback
+
+**Key principles enforced:**
+
+- `limits` is required on every NodePool — missing limits = unbounded provisioning
+- `minValues` on instance family requirements — enforces Spot diversity
+- IMDSv2 required (`httpTokens: required`, `httpPutResponseHopLimit: 1`) — blocks pod IMDS access
+- EBS encryption mandatory on all `blockDeviceMappings`
+- IRSA or Pod Identity only — no static AWS credentials in EC2NodeClass or controller config
+- OCI chart only (`oci://public.ecr.aws/karpenter/karpenter`) — `charts.karpenter.sh` is deprecated and unmaintained
+- CA and Karpenter must not coexist on the same nodes — scale CA to 0 before Karpenter takes over
+
+Reference: `skills/karpenter/SKILL.md`, `references/karpenter.md`, and `examples/karpenter/`
+
+---
+
+## `/platform-skills:cluster-upgrade`
+
+**What it does:** Plans a Kubernetes minor-version upgrade one phase at a time (removed APIs, add-ons, control plane, nodes) and states the validation and rollback for each phase before anything changes. It scans three places removed APIs hide (Git, rendered Helm charts, the live cluster) with pluto and EKS upgrade insights, checks add-on compatibility against the target version, finds PodDisruptionBudgets that will stall a drain, and picks the right rollback: EKS one-step version rollback within 7 days of an in-place upgrade, a node pool or add-on rollback, or a blue/green cluster. The command produces commands for you to run; it never runs an upgrade or a drain itself.
+
+**Modes**
+
+| Mode | What it does |
+|---|---|
+| `plan` | Full phased plan with blast radius, validation and rollback per phase |
+| `scan` | Removed and deprecated APIs in Git, rendered Helm, deployed releases and the live API, plus EKS upgrade insights |
+| `addons` | Add-on compatibility for the target version and whether each upgrades before or after the control plane |
+| `drain` | PDBs and pods that block a drain or lose data in one, with fixes |
+| `rotate` | Node rotation per pool type, smallest blast radius first |
+| `rollback` | The rollback for what failed and how long ago: EKS version rollback, node pool, add-on, or blue/green |
+| `validate` | Post-phase checks |
+
+**Usage**
+
+```
+/platform-skills:cluster-upgrade
+/platform-skills:cluster-upgrade plan prod-eks 1.33 to 1.34
+/platform-skills:cluster-upgrade scan 1.34
+/platform-skills:cluster-upgrade addons 1.34
+/platform-skills:cluster-upgrade drain
+/platform-skills:cluster-upgrade rollback
+```
+
+**Example prompts**
+
+```
+/platform-skills:cluster-upgrade what breaks if we upgrade prod-eks from 1.33 to 1.34? We use Flux, Karpenter and KEDA
+/platform-skills:cluster-upgrade the node group upgrade is stuck draining ip-10-0-12-34
+/platform-skills:cluster-upgrade we upgraded the control plane two days ago and CoreDNS is failing. Can we roll back?
+```
+
+Reference: `skills/cluster-upgrade/SKILL.md` and `references/cluster-upgrade.md`
+
+---
+
+## `/platform-skills:progressive-delivery`
+
+**What it does:** Adds canary releases with automatic promotion and rollback using Flagger on Flux. Flagger shifts traffic through Gateway API HTTPRoute weights (Envoy Gateway north-south, Linkerd east-west), gates each step on success rate and latency measured for the canary pods only, and rolls back on its own when the checks fail. Flagger installs from the signed OCI chart with cosign verification.
+
+**Modes**
+
+| Mode | What it does |
+|---|---|
+| `install` | Flagger via Flux from the signed OCI chart, with `meshProvider` and `metricsServer` set for your traffic and metrics |
+| `canary` | Canary and MetricTemplates for one app, adapted to its ports, hostname, listener and HPA |
+| `metrics` | Design or fix MetricTemplate queries so they measure the canary pods only, and prove they return data |
+| `debug` | Why a canary is stuck, never starts, or always rolls back |
+| `rollback` | Automatic rollback, a revert in Git, `skipAnalysis`, or `suspend`, depending on the situation |
+
+**Usage**
+
+```
+/platform-skills:progressive-delivery
+/platform-skills:progressive-delivery install Envoy Gateway, Prometheus in monitoring
+/platform-skills:progressive-delivery canary podinfo
+/platform-skills:progressive-delivery debug podinfo
+/platform-skills:progressive-delivery rollback
+```
+
+**Example prompts**
+
+```
+/platform-skills:progressive-delivery add a canary to the checkout service behind our shared Gateway, 10% steps, roll back above 1% errors
+/platform-skills:progressive-delivery why does my canary roll back every time even though the new version is healthy?
+```
+
+Reference: `skills/progressive-delivery/SKILL.md`, `references/progressive-delivery.md`, and `examples/progressive-delivery/README.md`
+
+---
+
+## `/platform-skills:backup-dr`
+
+**What it does:** Backs up and restores Kubernetes workloads with Velero, and proves recovery works. It installs Velero on EKS via Flux with IRSA, an S3 backup location and EBS snapshots, derives schedules and retention from the recovery point objective, states what a backup does not contain, and runs restore drills that restore a namespace into an isolated copy and measure the recovery time.
+
+**Modes**
+
+| Mode | What it does |
+|---|---|
+| `install` | Velero via Flux with IRSA, the scoped IAM policy and a backup bucket protected from deletion |
+| `schedule` | Schedules and retention from the recovery point objective |
+| `drill` | Run and interpret `restore-drill.sh`; compare the measured time with the recovery time objective |
+| `restore` | Restore a namespace or specific resources, including into a different namespace |
+| `dr` | Recovery into a new cluster: Flux bootstrap first, read-only backup location, then application namespaces |
+| `debug` | Failed or partial backups and restores |
+
+**Usage**
+
+```
+/platform-skills:backup-dr
+/platform-skills:backup-dr install prod-eks eu-north-1
+/platform-skills:backup-dr schedule RPO 1h for payments, 24h for everything else
+/platform-skills:backup-dr drill payments
+/platform-skills:backup-dr restore payments
+/platform-skills:backup-dr dr
+```
+
+**Example prompts**
+
+```
+/platform-skills:backup-dr we have Velero but have never restored anything. How long would recovering the payments namespace take?
+/platform-skills:backup-dr someone deleted the orders namespace an hour ago, restore it from last night's backup
+```
+
+Reference: `skills/backup-dr/SKILL.md`, `references/backup-dr.md`, and `examples/backup-dr/README.md`
+
+---
+
+## `/platform-skills:finops`
+
+**What it does:** Makes the cost of platform changes visible before they merge and attributable after they run. It adds an Infracost monthly cost diff to Terraform pull requests, allocates in-cluster cost by namespace and label with OpenCost, and enforces required cost tags in four layers: provider `default_tags` with variable validation, a Conftest gate on the plan, the AWS Config `REQUIRED_TAGS` rule, and a Kyverno namespace-label policy. The required tag keys come from the plugin's `required_tag_keys` setting.
+
+**Modes**
+
+| Mode | What it does |
+|---|---|
+| `estimate` | Monthly cost difference of a Terraform change, and the Infracost PR workflow |
+| `allocate` | OpenCost via Flux, pointed at your Prometheus, with a per-cluster ID |
+| `tags` | The four-layer tag enforcement for your tag keys, Kyverno in Audit first |
+| `audit` | Untagged resources and unowned namespaces now, plus OpenCost's idle and unallocated cost |
+
+**Usage**
+
+```
+/platform-skills:finops
+/platform-skills:finops estimate terraform/network
+/platform-skills:finops allocate
+/platform-skills:finops tags owner,cost-center,environment
+/platform-skills:finops audit
+```
+
+**Example prompts**
+
+```
+/platform-skills:finops what will this PR cost per month?
+/platform-skills:finops enforce cost-center and owner tags on every AWS resource and every namespace without breaking existing deploys
+```
+
+Reference: `skills/finops/SKILL.md`, `references/finops.md`, and `examples/finops/README.md`
+
+---
+
+## `/platform-skills:kubescape`
+
+**What it does:** Measures Kubernetes manifests, Helm charts, Kustomize overlays and live clusters against NSA-CISA, MITRE ATT&CK, CIS (EKS, AKS, GKE, vanilla) and SOC2 with the Kubescape CLI, and explains the result as a short card: score, the five findings to fix first, and one next step. It adds a GitHub Actions gate that fails a pull request only on findings it introduces (`--baseline` against the base branch), installs the CLI with a verified signature instead of the stale `kubescape/github-action`, writes exceptions with the action that actually suppresses (`disable`, not `alertOnly`) and a review date, previews `kubescape fix` and lists what it cannot fix, and rolls out Kubescape's CEL admission policies from Warn to Deny. Runs an interactive wizard when called without arguments.
+
+**Modes**
+
+| Mode | What it does |
+|---|---|
+| `scan` | Score a path, chart, overlay or git URL against a framework |
+| `cluster` | Score the current cluster (or several kube contexts) and say what a CLI-only scan cannot see |
+| `ci` | PR gate on new findings, signature-verified CLI, SARIF and job summary |
+| `exceptions` | An exception that suppresses, with a reason and an `until-` date the CI enforces |
+| `fix` | Preview, apply in a clean tree, hand-fix the rest |
+| `vap` | Kubescape's ValidatingAdmissionPolicy library, bound by control ID, Warn → Deny |
+| `image` | One-off image CVE check (CI image gates: `/platform-skills:trivy`) |
+
+**Usage**
+
+```
+/platform-skills:kubescape
+/platform-skills:kubescape scan charts/payments-api
+/platform-skills:kubescape cluster cis-eks-t1.8.0
+/platform-skills:kubescape ci
+/platform-skills:kubescape exceptions C-0030 payments/payments-api
+/platform-skills:kubescape fix k8s/
+/platform-skills:kubescape vap C-0057 payments
+```
+
+**Example prompts**
+
+```
+/platform-skills:kubescape how does our EKS cluster measure against the CIS benchmark?
+/platform-skills:kubescape fail PRs that add high-severity Kubernetes misconfigurations, but not for problems that are already there
+```
+
+Reference: `skills/kubescape/SKILL.md`, `references/kubescape.md`, and `examples/kubescape/README.md`
+
+---
+
+## `/platform-skills:kubescape-operator`
+
+**What it does:** Runs Kubescape inside the cluster. It checks the nodes' kernel and looks for Falco, Trivy Operator, Kyverno and the Prometheus Operator before asking anything, recommends one of four install profiles, and writes the Flux (or Argo CD) manifests with every capability set explicitly, the chart pinned, and the scanner image overridden (the bundled v4.0.13 scanner produces no results). It then reads posture and vulnerability results (ranked by whether the vulnerable package loads), enables runtime detection with a stated learning period, turns generated NetworkPolicies into reviewed Git changes, writes `SecurityException`s with an expiry, sets up metrics and alerts, and debugs node-agent and scan failures. Ends every mode with a status card.
+
+**Modes**
+
+| Mode | What it does |
+|---|---|
+| `install` | Preflight, profile, manifests, verification, upgrade and rollback |
+| `vulns` | CVEs ranked by relevancy, on-demand scans, private registries |
+| `runtime` | Detection, learning progress, rule bindings, alert routing, a test alert |
+| `netpol` | Generated policy → reviewed NetworkPolicy in Git |
+| `exceptions` | `SecurityException` / `ClusterSecurityException` with reason, author, expiry |
+| `metrics` | Exporter, ServiceMonitor, alert rules |
+| `debug` | node-agent crash loops, empty results, uninstalled releases, storage, profiles |
+
+**Usage**
+
+```
+/platform-skills:kubescape-operator
+/platform-skills:kubescape-operator install
+/platform-skills:kubescape-operator vulns payments
+/platform-skills:kubescape-operator netpol payments
+/platform-skills:kubescape-operator debug
+```
+
+**Example prompts**
+
+```
+/platform-skills:kubescape-operator install Kubescape on our EKS clusters with Flux; we already run Falco
+/platform-skills:kubescape-operator node-agent is in CrashLoopBackOff with "no container runtime can be monitored with fanotify"
+```
+
+Reference: `skills/kubescape-operator/SKILL.md`, `references/kubescape-operator.md`, and `examples/kubescape-operator/README.md`
+
+---
+
+## `/platform-skills:self-improve`
+
+**What it does:** Bootstrap and operate a self-improving agent workspace. Creates and maintains `.learnings/` directories, logs LRN/ERR/FEAT entries, reviews accumulated patterns, and promotes recurring learnings to project memory.
+
+**Works on:** Any project workspace. Most useful when working with an AI assistant over multiple sessions to accumulate reusable patterns, catch recurring errors, and evolve agent behavior.
+
+```
+/platform-skills:self-improve [init|log|review|promote] [description or file path]
+```
+
+| Mode | What it does |
+|------|--------------|
+| `init` | Scaffold `.learnings/` directory with `LEARNINGS.md`, `ERRORS.md`, `FEATURE_REQUESTS.md`, and `memory/working-buffer.md` |
+| `log` | Append a new LRN, ERR, or FEAT entry to the appropriate file based on the description |
+| `review` | Scan `.learnings/` for recurring patterns (threshold: 3+ occurrences) and surface candidates for promotion |
+| `promote` | Promote a recurring pattern from `.learnings/` into `CLAUDE.md` or project memory |
+
+**Example usage:**
+
+```
+/platform-skills:self-improve init
+```
+*Creates the full `.learnings/` scaffold in the current workspace.*
+
+```
+/platform-skills:self-improve log ERR helm upgrade failed due to immutable selectorLabels
+```
+*Appends an ERR entry with timestamp, context, and resolution to `.learnings/ERRORS.md`.*
+
+```
+/platform-skills:self-improve review
+```
+*Scans all `.learnings/` files, identifies patterns appearing 3+ times, and returns promotion candidates ranked by VFM score.*
+
+```
+/platform-skills:self-improve promote "never include app.kubernetes.io/version in selectorLabels"
+```
+*Appends the pattern to `CLAUDE.md` memory and marks the source entry as promoted.*
+
+**Key rules enforced**
+
+- Entry format: `[YYYY-MM-DD] [ID] [TAG] description` with `Context:`, `Resolution:`, `Frequency:` fields
+- Promotion threshold: 3+ occurrences or single high-severity ERR
+- WAL protocol: append-only `.learnings/` files; never edit existing entries
+- VFM scoring: Velocity × Frequency × Magnitude determines promotion priority
+- ADL protocol: decide Adopt / Defer / Reject for each promotion candidate
+
+Reference: `skills/self-improve/SKILL.md`, `references/agent-self-improve.md`, and `examples/agent-self-improve/`
+
+---
+
+## `/platform-skills:supply-chain`
+
+Secure the software supply chain from build pipeline to running container.
+
+**Modes**
+
+| Mode | What it does |
+|---|---|
+| `audit` | Review an existing pipeline for supply chain security gaps |
+| `sign` | Walk through Cosign keyless signing setup (Sigstore/Rekor, no key management) |
+| `sbom` | Generate and attest an SBOM with Syft |
+| `scan` | Trivy or Grype CVE scan with configurable severity gate |
+| `enforce` | Generate Kyverno `ImageValidatingPolicy` to block unsigned images at admission |
+| `slsa` | SLSA Level 2 provenance via `slsa-github-generator` GitHub Actions reusable workflow |
+
+**Usage**
+
+```
+/platform-skills:supply-chain audit
+/platform-skills:supply-chain sign
+/platform-skills:supply-chain sbom
+/platform-skills:supply-chain scan
+/platform-skills:supply-chain enforce
+/platform-skills:supply-chain slsa
+[paste workflow YAML or describe your registry/CI setup]
+```
+
+**Key rules enforced**
+
+- Never store signing keys in CI — use keyless (OIDC + Rekor) only
+- Always sign the digest (`@sha256:…`), never the tag
+- Pin all action versions to SHA, not tag
+- Gate on CRITICAL+HIGH by default; document exceptions
+- Deploy Kyverno `ImageValidatingPolicy` in Audit mode first, then Deny
+
+Reference: `references/supply-chain.md` and `examples/supply-chain/`
+
+---
+
+## `/platform-skills:runtime-security`
+
+Detect and respond to in-container threats at the syscall level using Falco.
+
+**Modes**
+
+| Mode | What it does |
+|---|---|
+| `install` | Deploy Falco on EKS/GKE with eBPF driver via Helm |
+| `rules` | Write and unit-test custom Falco rules |
+| `alerts` | Configure Falcosidekick to route alerts to Slack, PagerDuty, or webhook |
+| `debug` | Diagnose why a Falco rule is not firing |
+| `harden` | Map Falco alert metadata to Kyverno admission enforcement |
+
+**Usage**
+
+```
+/platform-skills:runtime-security install
+/platform-skills:runtime-security rules
+[describe the threat you want to detect]
+/platform-skills:runtime-security alerts
+/platform-skills:runtime-security debug
+[paste kubectl logs output from Falco pod]
+/platform-skills:runtime-security harden
+```
+
+**Key rules enforced**
+
+- Always use eBPF driver on managed Kubernetes — never kernel module
+- Never run Falco as a sidecar — must be a DaemonSet
+- Do not set CPU limits on Falco DaemonSet — event processing is bursty
+- Set `minimumpriority: warning` for Slack routing; suppress DEBUG/INFO noise
+- Test every custom rule with `falco-event-generator` before production
+
+Reference: `references/runtime-security.md` and `examples/runtime-security/`
+
+---
+
+## `/platform-skills:chaos`
+
+Litmus Chaos and Chaos Mesh fault injection, steady-state hypothesis, GameDay workflow, and DORA feedback loop.
+
+**Modes:**
+
+| Mode | What it does |
+|---|---|
+| `install` | Helm install for Litmus Chaos or Chaos Mesh with namespace isolation and RBAC |
+| `experiment` | Generate a fault experiment (ChaosEngine or Chaos Mesh CRD) from a description |
+| `schedule` | Wrap an experiment in a recurring schedule (ChaosSchedule or Chaos Mesh Schedule CRD) |
+| `gameday` | Structured GameDay runbook: steady-state → blast radius → inject → observe → verdict → DORA impact |
+| `debug` | Diagnose failed or stuck experiments — ChaosResult, chaos-runner logs, RBAC gaps |
+| `report` | Summarize blast radius, steady-state probe timeline, recovery time, and DORA delta |
+
+**Usage:**
+
+```
+/platform-skills:chaos install [litmus|chaos-mesh] [namespace]
+/platform-skills:chaos experiment [fault-class] [target-workload]
+/platform-skills:chaos schedule [experiment-name] [interval]
+/platform-skills:chaos gameday
+/platform-skills:chaos debug [experiment-name]
+/platform-skills:chaos report [experiment-name]
+```
+
+**Examples:**
+
+```
+/platform-skills:chaos install litmus
+/platform-skills:chaos experiment pod-delete my-service
+/platform-skills:chaos schedule pod-delete weekly
+/platform-skills:chaos gameday
+/platform-skills:chaos debug pod-delete-engine
+/platform-skills:chaos report pod-delete-engine
+```
+
+Reference: `references/chaos.md` and `examples/chaos/`
+
+---
+
+## `/platform-skills:dora`
+
+GitHub Actions + Prometheus instrumentation for all four DORA metrics — Deployment Frequency, Lead Time for Changes, Change Failure Rate, and MTTR.
+
+**Modes:**
+
+| Mode | What it does |
+|---|---|
+| `instrument` | Generate GitHub Actions steps to push deploy and incident events to Prometheus Pushgateway |
+| `dashboard` | Generate a Grafana dashboard with four DORA panels and Elite/High/Medium/Low threshold bands |
+| `benchmark` | Classify current metric values against 2023 DORA performance bands; identify weakest metric |
+| `debug` | Diagnose missing deployment events, missing MTTR, CFR stuck at 0%, or metrics stopping at a date |
+
+**Usage:**
+
+```
+/platform-skills:dora instrument [workflow-file]
+/platform-skills:dora dashboard
+/platform-skills:dora benchmark [metric-values]
+/platform-skills:dora debug [metric-name]
+```
+
+**Examples:**
+
+```
+/platform-skills:dora instrument .github/workflows/deploy.yml
+/platform-skills:dora dashboard
+/platform-skills:dora benchmark "deploy_freq=2, lead_time=3600, cfr=8, mttr=7200"
+/platform-skills:dora debug mttr
+```
+
+Reference: `references/dora.md` and `examples/dora/`
+
+---
+
+## `/platform-skills:awesome-docs`
+
+Generate, convert, and maintain animated GitHub-safe Markdown documents with animated SVG diagrams.
+
+**Usage:** `/platform-skills:awesome-docs <mode> [topic or file path]`
+
+### Mode: `generate`
+
+Create any animated Markdown document from scratch. The skill asks for doc type (readme, architecture-guide, runbook, tutorial, api-reference, how-it-works, rfc, post-mortem, or custom), topic, output path, and key components — then generates relevant SVGs one at a time with confirmation before the next.
+
+```
+/platform-skills:awesome-docs generate readme for orders-service
+/platform-skills:awesome-docs generate architecture-guide for the KEDA autoscaling system
+/platform-skills:awesome-docs generate runbook for Kubernetes cluster upgrade
+/platform-skills:awesome-docs generate post-mortem for the 2026-05-21 checkout outage
+/platform-skills:awesome-docs generate --theme docs-light tutorial for setting up Falco
+```
+
+### Mode: `convert`
+
+Inject animated SVGs into an existing plain Markdown doc.
+
+```
+/platform-skills:awesome-docs convert docs/keda-guide.md
+/platform-skills:awesome-docs convert README.md
+```
+
+### Mode: `update`
+
+Revise a single diagram in an existing doc.
+
+```
+/platform-skills:awesome-docs update assets/keda-arch-flow.svg
+/platform-skills:awesome-docs update "Architecture section"
+```
+
+### Mode: `diff`
+
+Detect stale diagrams vs `git HEAD`.
+
+```
+/platform-skills:awesome-docs diff docs/architecture.md
+```
+
+### Mode: `audit`
+
+Quality check — missing captions, broken refs, env-specific IDs, missing diagrams.
+
+```
+/platform-skills:awesome-docs audit docs/architecture.md
+```
+
+### Mode: `preview`
+
+Open the doc locally in a browser before committing.
+
+```
+/platform-skills:awesome-docs preview docs/architecture.md
+```
+
+### Mode: `export`
+
+Generate animated HTML for Confluence/Notion, or get PNG export instructions.
+
+```
+/platform-skills:awesome-docs export docs/architecture.md html
+/platform-skills:awesome-docs export docs/architecture.md png
+```
+
+Reference: `references/awesome-docs.md` and `examples/awesome-docs/`
+
+---
+
+## Tips for best results
+
+**Paste context** — paste the manifest, error output, plan output, or code block directly after the command. The more concrete the input, the more actionable the output.
+
+**You don't need the slash command** — describe your problem in plain English and the skill activates automatically when you're working with relevant files.
+
+**Chain commands** — `/platform-skills:debug` to diagnose, then `/platform-skills:preflight` to validate the fix before merging.
+
+**Multi-mode workflows:**
+- New service: `instrument` → `alert` → `dashboard` → `loadtest`
+- New policy: `generate` → `test` → `validate`
+- New Helm chart: `create` → `review` → `security`
+- Incident: `investigate` → `postmortem` → `rfc` (if systemic)
+- Compliance: `gap` → `remediate` → `evidence` → `checklist`
+
+**Deep-dive references** — each command points to a `references/<domain>.md` file. Read those for full spec coverage, edge cases, and worked examples.
+
+---
+
+## `/platform-skills:aws`
+
+**What it does:** Structured guidance for AWS CloudFront, WAF, Lambda@Edge, and multi-account security patterns. Routes to the correct reference section, calls out common footguns (WAF scope, us-east-1 constraint, Lambda@Edge numbered ARN), and generates production-ready Terraform modules with best practices.
+
+**Usage:** `/platform-skills:aws <mode>`
+
+```
+/platform-skills:aws cloudfront        # distribution setup, OAC, cache policies, security headers
+/platform-skills:aws waf               # web ACL, managed rules, rate limiting, logging
+/platform-skills:aws lambda-edge       # Lambda@Edge vs CloudFront Functions decision + implementation
+/platform-skills:aws multi-account     # Firewall Manager, FMS policy, Organizations enforcement
+/platform-skills:aws review            # production-readiness checklist for CloudFront + WAF config
+/platform-skills:aws terraform         # generate complete Terraform module scaffold
+```
+
+**Examples:**
+
+```
+/platform-skills:aws cloudfront — how do I restrict my S3 origin to only CloudFront?
+/platform-skills:aws waf — add rate limiting on /api/ to 500 req/5min
+/platform-skills:aws lambda-edge — should I use Lambda@Edge or CloudFront Functions for URL rewrites?
+/platform-skills:aws multi-account — enforce WAF on all CloudFront distributions in our production OU
+/platform-skills:aws review — here is my distribution Terraform, is it production ready?
+/platform-skills:aws terraform — generate a CloudFront + S3 + WAF module for a static site
+```
+
+Reference: `skills/aws/SKILL.md`, `references/aws-cloudfront.md`, `references/aws-waf.md`, and `examples/aws/`
+
+---
+
+## `/platform-skills:composite-actions`
+
+**What it does:** Interview-driven scaffold, review, hardening, and test generation for composite GitHub Actions. Enforces SHA pinning, secrets-as-inputs, `$GITHUB_OUTPUT` / `$GITHUB_STEP_SUMMARY` observability, input validation, and actionlint-clean workflows.
+
+**Usage:** `/platform-skills:composite-actions <mode>`
+
+```
+/platform-skills:composite-actions generate   # interview-driven full repo scaffold (action.yml, README, test/release workflows, dependabot.yml)
+/platform-skills:composite-actions review     # review an existing action.yml for correctness and security
+/platform-skills:composite-actions secure     # harden with SHA pinning, env isolation, ::add-mask::
+/platform-skills:composite-actions test       # generate a test workflow for the composite action
+/platform-skills:composite-actions migrate    # migrate a JS/Docker action to composite steps
+/platform-skills:composite-actions publish    # versioning, release workflow, dependabot.yml
+```
+
+**Examples:**
+
+```
+/platform-skills:composite-actions generate — build a composite action that deploys to Kubernetes with dry-run support
+/platform-skills:composite-actions review — here is my action.yml, check it for security issues
+/platform-skills:composite-actions secure — pin all uses: refs to SHAs and mask sensitive outputs
+/platform-skills:composite-actions test — generate a test-action.yml for my db-migrate composite action
+/platform-skills:composite-actions migrate — convert this Docker action to a composite action
+/platform-skills:composite-actions publish — set up semantic versioning and a release.yml workflow
+```
+
+Reference: `skills/composite-actions/SKILL.md`, `references/composite-actions.md`, and `examples/github-actions/composite-actions/`
+
+---
+
+## `/platform-skills:fluxcd`
+
+**What it does:** Smart entry point for all FluxCD work. Identifies the right workflow from your input — live cluster debugging (5-workflow structured trace), GitOps repository audit (6-phase analysis), or Helm chart review — and routes directly to the correct command.
+
+**Usage:** `/platform-skills:fluxcd [describe your situation, error, repo path, or intent]`
+
+```
+/platform-skills:fluxcd [error message or flux get output]         # → debug mode
+/platform-skills:fluxcd [repo path or "audit"]                     # → audit mode
+/platform-skills:fluxcd [Chart.yaml or "helm"]                     # → helm mode
+/platform-skills:fluxcd [Kustomization or HelmRelease YAML]        # → review mode
+```
+
+**Routing logic:**
+
+| If your input contains… | Routes to |
+|---|---|
+| Error message, `flux get` output, pod logs, "not reconciling" | `/platform-skills:gitops debug` — 5-workflow debug |
+| Repo path, "audit", "review", "before merge", "is this correct" | `/platform-skills:gitops audit` — 6-phase audit |
+| Helm chart path, `Chart.yaml`, `values.yaml`, "helm", "chart" | `/platform-skills:helmchart` — chart review |
+| A manifest to review (Kustomization, HelmRelease, FluxInstance YAML) | `/platform-skills:preflight` — production-readiness check |
+
+**Examples:**
+
+```
+/platform-skills:fluxcd — my HelmRelease is stuck in "Progressing" after a values change
+/platform-skills:fluxcd ./clusters — audit our GitOps repo before the Monday release
+/platform-skills:fluxcd — is this FluxInstance YAML production-ready? [paste YAML]
+/platform-skills:fluxcd — review this Chart.yaml and values.yaml for security issues
+```
+
+Reference: `skills/fluxcd/SKILL.md`, `references/fluxcd.md`, `references/fluxcd-sources.md`, `references/fluxcd-operator.md`, and `examples/fluxcd/`
+
+---
+
+## `/platform-skills:renovate`
+
+**What it does:** Interactive wizard that scans your repo for dependency file types and generates a complete Renovate setup — `renovate.json` with per-ecosystem rules, private registry auth, custom regex managers for internal sources, a pre-commit validation hook, and a GitHub Actions validation workflow. No secrets or tokens required for the workflow; registry credentials use env-var templating.
+
+**Works on:** Any repo using GitHub Actions, Terraform, Helm, Go, Node, Python, Docker, Rust, Kubernetes manifests, or any combination — including repos with internal GitHub org modules, private Terraform registries, ECR/GCR/ACR/Harbor image registries, and private Helm OCI or HTTP chart registries.
+
+```
+/platform-skills:renovate [generate|workflow|precommit|all]
+```
+
+**Wizard questions (asked when no arguments are given, or for any mode that emits renovate.json):**
+
+| Q | Asks | Options |
+|---|------|---------|
+| Q1 | Mode | generate / workflow / precommit / all |
+| Q2 | Pinning strategy | digest (SHA for Actions + images) / semver (version tags only) |
+| Q3 | Automerge scope | patch-only / minor+patch / none |
+| Q4 | Update schedule | weekday mornings / monday / weekend / always |
+| Q5 | Internal Terraform modules | GitHub org / private TF registry / no |
+| Q6 | Private Helm registry | OCI / HTTP / no |
+| Q7 | Private container registry | ECR / GCR / ACR / Harbor / no (multi-select) |
+
+**Modes:**
+
+| Mode | What it does |
+|------|-------------|
+| `generate` | Scans repo → detects ecosystems → emits `renovate.json` with per-manager packageRules, `hostRules` for private registries, `regexManagers` for internal module sources |
+| `precommit` | Emits `.pre-commit-config.yaml` with `renovatebot/pre-commit-hooks` for local validation before every commit |
+| `workflow` | Emits `.github/workflows/validate-renovate.yml` — JSON syntax check + `renovate-config-validator` (Node 24) + ecosystem coverage scan, triggered on PRs that touch `renovate.json` |
+| `all` | Runs generate → precommit → workflow in sequence, prints a single consolidated commit block at the end |
+
+**Examples:**
+
+```
+/platform-skills:renovate
+/platform-skills:renovate all
+/platform-skills:renovate generate
+/platform-skills:renovate precommit
+/platform-skills:renovate workflow
+```
+
+**Reference:** `references/renovate.md`
+
+---
+
+## `/platform-skills:github-actions`
+
+Design, review, secure, and debug GitHub Actions workflows.
+
+| Mode | What it does |
+|------|-------------|
+| `design` | Reusable workflow and job graph design; promotion orchestration patterns |
+| `security` | OIDC federation (AWS/Azure), SHA pinning with `gh api` resolution, token scoping per job, secret hygiene |
+| `review` | Production-readiness checklist — CRITICAL/WARNING/INFORMATIONAL findings with score |
+| `debug` | Classify failure layer (syntax, auth, context, action version, runner, downstream); OIDC rejection diagnosis |
+
+```
+/platform-skills:github-actions design
+/platform-skills:github-actions security
+/platform-skills:github-actions review
+/platform-skills:github-actions debug
+```
+
+**Handoffs:** Step extraction → `/platform-skills:composite-actions`; Terraform plan/apply → `/platform-skills:terraform`
+
+**Reference:** `references/github-actions.md`
+
+---
+
+## `/platform-skills:kubernetes`
+
+Cluster baseline scaffolding, RBAC diagnosis, workload hardening, and pod debug.
+
+| Mode | What it does |
+|------|-------------|
+| `baseline` | Namespace, ResourceQuota, LimitRange, default-deny NetworkPolicy, PDB scaffold |
+| `rbac` | Diagnose 401 vs 403; `auth can-i` simulation; generate minimum Role/RoleBinding |
+| `workload` | Hardened Deployment template, HPA, liveness/readiness/startup probes, securityContext |
+| `debug` | CrashLoopBackOff, OOMKill, Pending scheduling, ImagePullBackOff — structured evidence collection |
+
+```
+/platform-skills:kubernetes baseline
+/platform-skills:kubernetes rbac
+/platform-skills:kubernetes workload
+/platform-skills:kubernetes debug
+```
+
+**Handoffs:** Policy enforcement → `/platform-skills:kyverno` or `/platform-skills:opa`; Secrets → `/platform-skills:secrets`; KEDA autoscaling → `/platform-skills:keda`
+
+**Reference:** `references/kubernetes.md`
+
+---
+
+## `/platform-skills:azure`
+
+Azure identity, resource tagging, AKS platform patterns, RBAC, and production-readiness review.
+
+| Mode | What it does |
+|------|-------------|
+| `identity` | Workload Identity federation, OIDC for GitHub Actions, managed identities, Entra ID groups |
+| `tagging` | `merge(local.common_tags, {...})` pattern, Azure Policy enforce/remediate, AKS MC_ group tagging |
+| `aks` | Terraform AKS baseline with Azure CNI Overlay, workload identity, node pools, Flux bootstrap |
+| `rbac` | Role assignment scoping, custom roles, audit over-permissioned identities |
+| `review` | Production-readiness checklist — CRITICAL/WARNING/INFORMATIONAL |
+
+```
+/platform-skills:azure identity
+/platform-skills:azure tagging
+/platform-skills:azure aks
+/platform-skills:azure rbac
+/platform-skills:azure review
+```
+
+**Handoffs:** Terraform generation → `/platform-skills:terraform`; In-cluster secrets → `/platform-skills:secrets`; GitOps bootstrap → `/platform-skills:gitops`
+
+**Reference:** `references/azure.md`
+
+---
+
+## `/platform-skills:openshift`
+
+OpenShift SCC diagnosis, Route TLS patterns, GitOps delivery, and cluster upgrade validation.
+
+| Mode | What it does |
+|------|-------------|
+| `scc` | Diagnose SCC rejections; map rejection to root cause; generate minimum SCC; PSA interaction |
+| `route` | Route TLS modes (edge/passthrough/reencrypt), 503/504 diagnosis, Route vs Ingress decision |
+| `gitops` | OpenShift GitOps (Argo CD) app-of-apps, sync wave ordering, SCC + Argo interaction fix |
+| `upgrade` | Pre-upgrade checklist, operator InstallPlan approval, post-upgrade validation, rollback notes |
+| `debug` | Classify symptom → SCC / Route / GitOps / runtime; route to matching mode |
+
+```
+/platform-skills:openshift scc
+/platform-skills:openshift route
+/platform-skills:openshift gitops
+/platform-skills:openshift upgrade
+/platform-skills:openshift debug
+```
+
+**Handoffs:** Standard Kubernetes debug → `/platform-skills:kubernetes`; Argo CD deep debug → `/platform-skills:gitops`
+
+**Reference:** `references/openshift.md`
+
+---
+
+## `/platform-skills:secrets`
+
+Secrets strategy, ESO scaffolding, Sealed Secrets with controller interview, rotation runbooks, and audit.
+
+| Mode | What it does |
+|------|-------------|
+| `design` | ESO vs Sealed Secrets decision matrix based on infrastructure and GitOps setup |
+| `eso` | SecretStore/ExternalSecret scaffold for AWS SM, Azure KV, Vault; ESO installation callout; debug sync errors |
+| `sealed` | Controller interview (namespace, deploy name) before generating any commands; seal, rotate, backup, restore, troubleshoot |
+| `rotate` | End-to-end rotation runbook — update provider, force sync, verify Kubernetes Secret, reload pods |
+| `audit` | SA token hygiene, ExternalSecret health across namespaces, SecretStore status, operational rules checklist |
+
+```
+/platform-skills:secrets design
+/platform-skills:secrets eso
+/platform-skills:secrets sealed
+/platform-skills:secrets rotate
+/platform-skills:secrets audit
+```
+
+**Handoffs:** Git/FS secret scanning → `/platform-skills:trivy`; Azure Key Vault identity → `/platform-skills:azure identity`; AWS IRSA → `/platform-skills:aws`
+
+**Reference:** `references/secrets.md`
+
+---
+
+## `/platform-skills:setup-agents`
+
+Scan a repo, interview the developer, generate multi-agent AI configs specific to that codebase — GitHub Copilot, Claude Code, Cursor, Codex, or all.
+
+**Works on:** Any repo, any language, any framework.
+
+| Mode | What it does |
+|------|-------------|
+| `generate` | Ranked scan, interview (starts with "last change shipped"), roster decision, full scaffold with metadata block |
+| `upgrade` | Reads prior interview from metadata block, git-diff since last update, tool migration check |
+| `add` | Add one agent without re-interview |
+| `review` | 6-dimension quality check including staleness, output as file/PR comment/chat |
+
+Every generated file carries a managed-file marker, but not always on line 1: `<!-- generated by platform-skills -->` on line 1 for `AGENTS.md` and `.windsurfrules`, and `# generated by platform-skills` on line 2 — inside the frontmatter — for `.github/agents/*.agent.md` and `.cursor/rules/*.mdc`, so `---` stays at byte 0. The per-format rule in `references/setup-agents-schemas.md` → "Managed-file marker" is the single source of truth.
+AGENTS.md always includes `## How to invoke agents` so developers know how to use @mentions.
+Hand-authored AGENTS.md (no marker) never overwritten.

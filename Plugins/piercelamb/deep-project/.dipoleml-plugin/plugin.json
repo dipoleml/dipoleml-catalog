@@ -1,0 +1,16 @@
+{
+  "name": "deep-project",
+  "displayName": "Deep Project",
+  "version": "0.2.1",
+  "description": "Split vague project requirements into well-scoped units for /deep-plan",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Piercelamb"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/piercelamb/deep-project",
+  "repository": "https://github.com/piercelamb/deep-project",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

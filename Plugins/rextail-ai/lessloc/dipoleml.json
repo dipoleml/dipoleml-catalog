@@ -1,0 +1,141 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.rextail-ai.lessloc",
+  "type": "plugin",
+  "name": "Lessloc",
+  "slug": "lessloc",
+  "vendor": "rextail-ai",
+  "description": "Keeps AI coding agents such as DipoleML, Codex, GitHub Copilot, Gemini CLI and Cursor to the least code that does the job and still works.",
+  "version": "0.10.1",
+  "homepage": "https://github.com/rextail-ai/lessloc",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agent-hooks",
+    "ai-coding-agent",
+    "amp",
+    "claude-code-plugin",
+    "cline",
+    "code-quality",
+    "code-review",
+    "codex",
+    "coding-agent"
+  ],
+  "tags": [
+    "agent-hooks",
+    "ai-coding-agent",
+    "amp",
+    "claude-code",
+    "claude-code-plugin",
+    "cline",
+    "code-quality",
+    "code-review",
+    "codex",
+    "coding-agent",
+    "cursor",
+    "dead-code",
+    "duplicate-code",
+    "gemini-cli",
+    "gemini-cli-extension",
+    "github-copilot",
+    "llm",
+    "opencode",
+    "pi-package",
+    "qwen-code"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "github",
+    "brandName": "github",
+    "source": "https://cdn.simpleicons.org/github",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:14:37Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "rextail-ai/lessloc",
+    "url": "https://github.com/rextail-ai/lessloc",
+    "commit": "fc9567933d0c522fc33208ad629182e0cb9b8aa4",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 108,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:04:14Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude,cursor",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".cursor-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/cursor/.cursor-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Lessloc | Keeps AI coding agents such as Claude Code, Codex, GitHub Copilot, Gemini CLI and Cursor to the least code that does the job and still works.",
+        "after": "Lessloc | Keeps AI coding agents such as DipoleML, Codex, GitHub Copilot, Gemini CLI and Cursor to the least code that does the job and still works.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Keeps AI coding agents such as Claude Code, Codex, GitHub Copilot, Gemini CLI and Cursor to the least code that does the job and still works: reuse hints and an edit gate while it writes, a review of exactly what it changed, a handoff record for the next agent, gates for commits and CI.",
+        "after": "Keeps AI coding agents such as DipoleML, Codex, GitHub Copilot, Gemini CLI and Cursor to the least code that does the job and still works: reuse hints and an edit gate while it writes, a review of exactly what it changed, a handoff record for the next agent, gates for commits and CI.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=20"
+    ],
+    "packages": [
+      "lessloc"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude",
+      "cursor"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

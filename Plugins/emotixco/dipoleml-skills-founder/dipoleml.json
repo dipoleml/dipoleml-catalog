@@ -1,0 +1,124 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.emotixco.dipoleml-skills-founder",
+  "type": "plugin",
+  "name": "DipoleML Skills Founder",
+  "slug": "dipoleml-skills-founder",
+  "vendor": "emotixco",
+  "description": "DipoleML skills for startup founders — product briefs, competitor analysis, pricing strategy, pitch decks, and GTM plans from your terminal",
+  "version": "2.1.7",
+  "homepage": "https://github.com/emotixco/claude-skills-founder",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "claude-code-plugin",
+    "competitor-analysis",
+    "founder",
+    "go-to-market",
+    "pitch-deck",
+    "product-management",
+    "skills",
+    "slash-commands",
+    "startup"
+  ],
+  "tags": [
+    "ai",
+    "claude",
+    "claude-code",
+    "claude-code-plugin",
+    "competitor-analysis",
+    "founder",
+    "go-to-market",
+    "pitch-deck",
+    "product-management",
+    "skills",
+    "slash-commands",
+    "startup"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "emotixco",
+    "brandName": "emotixco",
+    "source": "https://github.com/emotixco.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:12:55Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "emotixco/claude-skills-founder",
+    "url": "https://github.com/emotixco/claude-skills-founder",
+    "commit": "a194aaa1919fffbb56b2dea27eaaeff0b3add2f3",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 750,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:59:31Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Claude Skills Founder | Claude Code skills for startup founders — product briefs, competitor analysis, pricing strategy, pitch decks, and GTM plans from your terminal",
+        "after": "DipoleML Skills Founder | DipoleML skills for startup founders — product briefs, competitor analysis, pricing strategy, pitch decks, and GTM plans from your terminal",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "claude-skills-founder",
+        "after": "dipoleml-skills-founder",
+        "reason": "provider token neutralized in slug/id"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [
+      "IMPORTANT"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

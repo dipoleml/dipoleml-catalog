@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+# ops-infra — Infrastructure health across all ECS clusters → JSON
+# Reads clusters from registry.json, checks ECS service health
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+OPS_PLUGIN_ROOT_FALLBACK="${SCRIPT_DIR}/.." . "${SCRIPT_DIR}/../lib/registry-path.sh"
+
+if [ ! -f "$REGISTRY" ]; then
+  echo '{"error":"registry.json not found"}' && exit 1
+fi
+
+# Check if AWS CLI is available
+if ! command -v aws &>/dev/null; then
+  echo '{"error":"aws CLI not found","clusters":[]}' && exit 0
+fi
+
+# Collect unique ECS clusters.
+# registry.json is operationally owned by ops-gsd-registry-sync (GSD schema,
+# no .infra block) and is fully rewritten twice daily — so clusters cannot
+# live there durably. Read them from a dedicated $OPS_DATA_DIR/infra.json
+# (survives the sync + plugin upgrades) AND from any .projects[].infra block
+# that may exist (partner-schema installs), then merge + dedupe.
+INFRA_JSON="${OPS_DATA_DIR:-$HOME/.claude/plugins/data/ops-ops-marketplace}/infra.json"
+
+CLUSTERS_REG=$(jq -r '[.projects[]?.infra.ecs_clusters // [] | .[]?] | .[]' "$REGISTRY" 2>/dev/null)
+CLUSTERS_INFRA=""
+REGION=""
+if [ -f "$INFRA_JSON" ]; then
+  # Accept either {"ecs_clusters":[...]} or {"projects":[{"ecs_clusters":[...]}]}
+  CLUSTERS_INFRA=$(jq -r '
+    [ (.ecs_clusters // [])[]?,
+      (.projects[]?.ecs_clusters // [])[]? ] | .[]' "$INFRA_JSON" 2>/dev/null)
+  # Optional region — applied to all aws calls (clusters often live outside the
+  # box's default region, e.g. my-project in us-east-1).
+  REGION=$(jq -r '.region // empty' "$INFRA_JSON" 2>/dev/null)
+fi
+AWS_REGION_ARG=()
+[ -n "$REGION" ] && AWS_REGION_ARG=(--region "$REGION")
+
+CLUSTERS=$(printf '%s\n%s\n' "$CLUSTERS_REG" "$CLUSTERS_INFRA" \
+  | sed '/^$/d' | sort -u)
+
+if [ -z "$CLUSTERS" ]; then
+  echo '{"clusters":[],"summary":"No ECS clusters configured (seed '"$INFRA_JSON"' with {\"ecs_clusters\":[...]})"}' && exit 0
+fi
+
+TMPDIR_OPS=$(mktemp -d)
+trap 'rm -rf "$TMPDIR_OPS"' EXIT
+
+# Check each cluster in parallel
+for cluster in $CLUSTERS; do
+  (
+    # Cluster values may be full ARNs; use a filesystem-safe result filename.
+    cluster_file=$(printf '%s' "$cluster" | tr '/:' '__')
+
+    # List services. AWS returns full ARNs; keep only the final service segment.
+    SERVICES=$(aws ecs list-services ${AWS_REGION_ARG[@]+"${AWS_REGION_ARG[@]}"} --cluster "$cluster" --query 'serviceArns[*]' --output text 2>/dev/null \
+      | tr '\t' '\n' | sed '/^$/d; s#.*/##' | tr '\n' ' ')
+
+    if [ -z "$SERVICES" ]; then
+      echo "{\"cluster\":\"$cluster\",\"status\":\"empty\",\"services\":[]}" > "$TMPDIR_OPS/$cluster_file.json"
+    else
+      RESULT=$(aws ecs describe-services ${AWS_REGION_ARG[@]+"${AWS_REGION_ARG[@]}"} --cluster "$cluster" --services $SERVICES \
+        --query 'services[*].{name:serviceName,running:runningCount,desired:desiredCount,status:status}' \
+        --output json 2>/dev/null || echo '[]')
+
+      # Calculate health
+      TOTAL=$(echo "$RESULT" | jq 'length')
+      HEALTHY=$(echo "$RESULT" | jq '[.[] | select(.running == .desired)] | length')
+
+      if [ "$TOTAL" -eq "$HEALTHY" ]; then
+        STATUS="healthy"
+      elif [ "$HEALTHY" -eq 0 ]; then
+        STATUS="down"
+      else
+        STATUS="degraded"
+      fi
+
+      echo "{\"cluster\":\"$cluster\",\"status\":\"$STATUS\",\"services\":$RESULT}" > "$TMPDIR_OPS/$cluster_file.json"
+    fi
+  ) &
+done
+wait
+
+# Assemble
+echo -n '{"clusters":['
+first=true
+for f in "$TMPDIR_OPS"/*.json; do
+  [ ! -f "$f" ] && continue
+  [ "$first" = true ] && first=false || echo -n ','
+  cat "$f"
+done
+echo ']}'

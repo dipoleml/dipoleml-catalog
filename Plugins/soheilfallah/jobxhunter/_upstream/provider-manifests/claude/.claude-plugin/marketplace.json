@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-marketplace.json",
+  "name": "soheil-jobxhunter",
+  "owner": {
+    "name": "Soheil",
+    "url": "https://github.com/soheilfallah"
+  },
+  "description": "Job-hunting tooling for the UK and Canada: profile intake, ATS-safe CV tailoring, sourcing, cover letters, and application tracking.",
+  "plugins": [
+    {
+      "name": "jobxhunter",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/soheilfallah/jobxhunter.git"
+      },
+      "displayName": "JobXHunter",
+      "version": "1.6.1",
+      "description": "Build a master profile from a dump folder, tailor ATS-safe CVs to a JD, source live UK roles across connectors, write cover letters, and track every application.",
+      "repository": "https://github.com/soheilfallah/jobxhunter",
+      "license": "MIT",
+      "keywords": ["jobs", "cv", "cover-letter", "ats", "uk", "recruitment"]
+    }
+  ]
+}

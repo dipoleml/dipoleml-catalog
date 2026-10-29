@@ -1,0 +1,111 @@
+{
+  "schema": 1,
+  "cell_id": "010-security-filename-boundary--always-claude-sonnet",
+  "order": 10,
+  "scenario_id": "security-filename-boundary",
+  "task_class": "security-repair",
+  "risk": "high",
+  "policy_id": "always-claude-sonnet",
+  "repetition": 1,
+  "route": {
+    "initial_tier": "cloud",
+    "escalation_tier": null,
+    "reason_code": "BASELINE_ALWAYS_CLAUDE"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "cloud",
+      "started_at": "2026-08-02T00:56:44.022Z",
+      "duration_ms": 5777,
+      "output_text": "{\"files\":{\"src/filename.js\":\"'use strict';\\nfunction isSafeFilename(value) {\\n  if (typeof value !== 'string' || value.length === 0) {\\n    return false;\\n  }\\n  if (value.includes('/') || value.includes('\\\\\\\\')) {\\n    return false;\\n  }\\n  if (value.includes('\\\\0')) {\\n    return false;\\n  }\\n  if (value === '.' || value === '..') {\\n    return false;\\n  }\\n  return true;\\n}\\nmodule.exports = { isSafeFilename };\\n\"}}",
+      "output_digest": "sha256:4e3045955546794dbc4ed233b0d401303ed53f856f6c09aa93e81aac06ec352d",
+      "verification": {
+        "status": "passed",
+        "code": null,
+        "changed_paths": [
+          "src/filename.js"
+        ],
+        "applied_file_digests": {
+          "src/filename.js": "sha256:3e480588776de4ba427aed8b3416a2db7d243d7e829bcb7f00b5cc4e48074ed3"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 0,
+          "signal": null,
+          "stdout": "",
+          "stderr": "",
+          "error": null
+        },
+        "patch_digest": "sha256:cc7cb9b1e1ab0da0434b9cb9b87d9a3f35eb520714faa7eef0ae18f4816801e8"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "claude-code-print",
+        "requested_model": "sonnet",
+        "canonical_model": "claude-sonnet-5",
+        "cli_version": "2.1.219",
+        "response_digest": "sha256:e7752ccb40bdad7bd6772bfb5f89cd96be2765a2ddda78e7d6a0d8fbf7240acf",
+        "exit_status": 0,
+        "terminal_reason": "completed",
+        "error": null
+      },
+      "usage": {
+        "input_tokens": 522,
+        "output_tokens": 191,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0
+      },
+      "economics": {
+        "comparison_cost": {
+          "status": "provider-reported-equivalent",
+          "total_usd": 0.005285,
+          "source": "claude_code_total_cost_usd"
+        },
+        "provider_reported_equivalent_cost": {
+          "status": "provider-reported-equivalent",
+          "amount_usd": 0.005285,
+          "source": "claude_code_total_cost_usd"
+        },
+        "local_gpu_energy": {
+          "status": "not-applicable",
+          "energy_kwh": 0,
+          "samples": 0,
+          "average_watts": null
+        },
+        "actual_subscription_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "pro_subscription_cost_not_allocated_per_request"
+        }
+      }
+    }
+  ],
+  "status": "passed",
+  "final_verification": {
+    "status": "passed",
+    "code": null,
+    "changed_paths": [
+      "src/filename.js"
+    ],
+    "applied_file_digests": {
+      "src/filename.js": "sha256:3e480588776de4ba427aed8b3416a2db7d243d7e829bcb7f00b5cc4e48074ed3"
+    },
+    "verifier": {
+      "command": "node verifier.js",
+      "status": 0,
+      "signal": null,
+      "stdout": "",
+      "stderr": "",
+      "error": null
+    },
+    "patch_digest": "sha256:cc7cb9b1e1ab0da0434b9cb9b87d9a3f35eb520714faa7eef0ae18f4816801e8"
+  },
+  "previous_cell_digest": "sha256:fe8e2a2d055bba993dad8c665e2c07740f7eb375df4b814e88c2c552eb90aa20",
+  "receipt_digest": "sha256:38e57fdd7a15af615e3d17eff0ad75c492e1f76bf252a41d8b661f1930ad08a0",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:6807be2b12020b636297edbab7bb92c13fff9a89ef93d83e04cfcbd57ef2587a",
+    "signature": "+ISKxoS5wlXB+Eql+o9IXMig6QMUjt2W9jbuZPKLYcX8zRoNMEXNuaubU1YwlumWoeNWX7cJkdSMfpQZAZ1aAQ=="
+  }
+}

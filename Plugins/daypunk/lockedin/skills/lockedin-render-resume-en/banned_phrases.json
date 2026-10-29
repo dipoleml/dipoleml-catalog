@@ -1,0 +1,388 @@
+{
+  "schema_version": 2,
+  "status": "v2.0 — research-based; cross-source confirmed; upgraded to object format",
+  "rationale": "Each entry was flagged by 3+ independent US tech-resume guides as weak / vague / templated. Sources: The Pragmatic Engineer (Gergely Orosz), Lenny's Newsletter, MIT CAPD, Harvard FAS Mignone Center, Yale Office of Career Strategy, Workology, Tealhq, ResumeWorded, IGotAnOffer, Toptal, Resufit, Recruiter.com, Language Log, plus academic resume linguistics literature. See research-notes.md for citations.",
+  "phrases": [
+    {
+      "phrase": "responsible for",
+      "category": "weak_ownership",
+      "severity": "high",
+      "sources": [
+        "https://capd.mit.edu/resources/resumes-cvs-cover-letters-and-linkedin/",
+        "https://ocs.fas.harvard.edu/files/ocs/files/hes-resume-cover-letter-guide.pdf"
+      ]
+    },
+    {
+      "phrase": "was responsible for",
+      "category": "weak_ownership",
+      "severity": "high",
+      "sources": [
+        "https://capd.mit.edu/resources/resumes-cvs-cover-letters-and-linkedin/",
+        "https://ocs.fas.harvard.edu/files/ocs/files/hes-resume-cover-letter-guide.pdf"
+      ]
+    },
+    {
+      "phrase": "duties included",
+      "category": "weak_ownership",
+      "severity": "high",
+      "sources": [
+        "https://capd.mit.edu/resources/resumes-cvs-cover-letters-and-linkedin/",
+        "https://ocs.yale.edu/channels/resumes-and-cvs/"
+      ]
+    },
+    {
+      "phrase": "duties involved",
+      "category": "weak_ownership",
+      "severity": "high",
+      "sources": [
+        "https://capd.mit.edu/resources/resumes-cvs-cover-letters-and-linkedin/",
+        "https://ocs.yale.edu/channels/resumes-and-cvs/"
+      ]
+    },
+    {
+      "phrase": "helped to",
+      "category": "weak_ownership",
+      "severity": "high",
+      "sources": [
+        "https://www.resumeworded.com/resume-action-verbs",
+        "https://capd.mit.edu/resources/resumes-cvs-cover-letters-and-linkedin/"
+      ]
+    },
+    {
+      "phrase": "helped with",
+      "category": "weak_ownership",
+      "severity": "high",
+      "sources": [
+        "https://www.resumeworded.com/resume-action-verbs",
+        "https://ocs.fas.harvard.edu/files/ocs/files/hes-resume-cover-letter-guide.pdf"
+      ]
+    },
+    {
+      "phrase": "worked on",
+      "category": "weak_ownership",
+      "severity": "high",
+      "sources": [
+        "https://www.resumeworded.com/resume-action-verbs",
+        "https://capd.mit.edu/resources/resumes-cvs-cover-letters-and-linkedin/"
+      ]
+    },
+    {
+      "phrase": "was involved in",
+      "category": "weak_ownership",
+      "severity": "high",
+      "sources": [
+        "https://capd.mit.edu/resources/resumes-cvs-cover-letters-and-linkedin/",
+        "https://ocs.yale.edu/channels/resumes-and-cvs/"
+      ]
+    },
+    {
+      "phrase": "involved in",
+      "category": "weak_ownership",
+      "severity": "medium",
+      "sources": [
+        "https://capd.mit.edu/resources/resumes-cvs-cover-letters-and-linkedin/",
+        "https://www.resumeworded.com/resume-action-verbs"
+      ]
+    },
+    {
+      "phrase": "assisted with",
+      "category": "weak_ownership",
+      "severity": "high",
+      "sources": [
+        "https://www.resumeworded.com/resume-action-verbs",
+        "https://ocs.fas.harvard.edu/files/ocs/files/hes-resume-cover-letter-guide.pdf"
+      ]
+    },
+    {
+      "phrase": "assisted in",
+      "category": "weak_ownership",
+      "severity": "high",
+      "sources": [
+        "https://www.resumeworded.com/resume-action-verbs",
+        "https://capd.mit.edu/resources/resumes-cvs-cover-letters-and-linkedin/"
+      ]
+    },
+    {
+      "phrase": "participated in",
+      "category": "weak_ownership",
+      "severity": "high",
+      "sources": [
+        "https://www.resumeworded.com/resume-action-verbs",
+        "https://ocs.yale.edu/channels/resumes-and-cvs/"
+      ]
+    },
+    {
+      "phrase": "team player",
+      "category": "buzzword",
+      "severity": "high",
+      "sources": [
+        "https://ocs.yale.edu/channels/resumes-and-cvs/",
+        "https://www.workology.com/resume-buzzwords-to-avoid/"
+      ]
+    },
+    {
+      "phrase": "self-starter",
+      "category": "buzzword",
+      "severity": "high",
+      "sources": [
+        "https://www.workology.com/resume-buzzwords-to-avoid/",
+        "https://ocs.yale.edu/channels/resumes-and-cvs/"
+      ]
+    },
+    {
+      "phrase": "self starter",
+      "category": "buzzword",
+      "severity": "high",
+      "sources": [
+        "https://www.workology.com/resume-buzzwords-to-avoid/",
+        "https://capd.mit.edu/resources/resumes-cvs-cover-letters-and-linkedin/"
+      ]
+    },
+    {
+      "phrase": "self-motivated",
+      "category": "buzzword",
+      "severity": "high",
+      "sources": [
+        "https://www.workology.com/resume-buzzwords-to-avoid/",
+        "https://ocs.fas.harvard.edu/files/ocs/files/hes-resume-cover-letter-guide.pdf"
+      ]
+    },
+    {
+      "phrase": "results-oriented",
+      "category": "buzzword",
+      "severity": "high",
+      "sources": [
+        "https://www.workology.com/resume-buzzwords-to-avoid/",
+        "https://ocs.yale.edu/channels/resumes-and-cvs/"
+      ]
+    },
+    {
+      "phrase": "results oriented",
+      "category": "buzzword",
+      "severity": "high",
+      "sources": [
+        "https://www.workology.com/resume-buzzwords-to-avoid/",
+        "https://capd.mit.edu/resources/resumes-cvs-cover-letters-and-linkedin/"
+      ]
+    },
+    {
+      "phrase": "results-driven",
+      "category": "buzzword",
+      "severity": "high",
+      "sources": [
+        "https://www.workology.com/resume-buzzwords-to-avoid/",
+        "https://ocs.yale.edu/channels/resumes-and-cvs/"
+      ]
+    },
+    {
+      "phrase": "results driven",
+      "category": "buzzword",
+      "severity": "high",
+      "sources": [
+        "https://www.workology.com/resume-buzzwords-to-avoid/",
+        "https://ocs.fas.harvard.edu/files/ocs/files/hes-resume-cover-letter-guide.pdf"
+      ]
+    },
+    {
+      "phrase": "detail-oriented",
+      "category": "buzzword",
+      "severity": "high",
+      "sources": [
+        "https://www.workology.com/resume-buzzwords-to-avoid/",
+        "https://ocs.yale.edu/channels/resumes-and-cvs/"
+      ]
+    },
+    {
+      "phrase": "detail oriented",
+      "category": "buzzword",
+      "severity": "high",
+      "sources": [
+        "https://www.workology.com/resume-buzzwords-to-avoid/",
+        "https://capd.mit.edu/resources/resumes-cvs-cover-letters-and-linkedin/"
+      ]
+    },
+    {
+      "phrase": "hardworking",
+      "category": "buzzword",
+      "severity": "high",
+      "sources": [
+        "https://www.workology.com/resume-buzzwords-to-avoid/",
+        "https://ocs.fas.harvard.edu/files/ocs/files/hes-resume-cover-letter-guide.pdf"
+      ]
+    },
+    {
+      "phrase": "hard-working",
+      "category": "buzzword",
+      "severity": "high",
+      "sources": [
+        "https://www.workology.com/resume-buzzwords-to-avoid/",
+        "https://ocs.yale.edu/channels/resumes-and-cvs/"
+      ]
+    },
+    {
+      "phrase": "hard working",
+      "category": "buzzword",
+      "severity": "high",
+      "sources": [
+        "https://www.workology.com/resume-buzzwords-to-avoid/",
+        "https://capd.mit.edu/resources/resumes-cvs-cover-letters-and-linkedin/"
+      ]
+    },
+    {
+      "phrase": "synergy",
+      "category": "buzzword",
+      "severity": "high",
+      "sources": [
+        "https://www.workology.com/resume-buzzwords-to-avoid/",
+        "https://ocs.yale.edu/channels/resumes-and-cvs/"
+      ]
+    },
+    {
+      "phrase": "synergistic",
+      "category": "buzzword",
+      "severity": "high",
+      "sources": [
+        "https://www.workology.com/resume-buzzwords-to-avoid/",
+        "https://ocs.fas.harvard.edu/files/ocs/files/hes-resume-cover-letter-guide.pdf"
+      ]
+    },
+    {
+      "phrase": "synergize",
+      "category": "buzzword",
+      "severity": "high",
+      "sources": [
+        "https://www.workology.com/resume-buzzwords-to-avoid/",
+        "https://capd.mit.edu/resources/resumes-cvs-cover-letters-and-linkedin/"
+      ]
+    },
+    {
+      "phrase": "go-getter",
+      "category": "buzzword",
+      "severity": "high",
+      "sources": [
+        "https://www.workology.com/resume-buzzwords-to-avoid/",
+        "https://ocs.yale.edu/channels/resumes-and-cvs/"
+      ]
+    },
+    {
+      "phrase": "go getter",
+      "category": "buzzword",
+      "severity": "high",
+      "sources": [
+        "https://www.workology.com/resume-buzzwords-to-avoid/",
+        "https://capd.mit.edu/resources/resumes-cvs-cover-letters-and-linkedin/"
+      ]
+    },
+    {
+      "phrase": "think outside the box",
+      "category": "buzzword",
+      "severity": "high",
+      "sources": [
+        "https://www.workology.com/resume-buzzwords-to-avoid/",
+        "https://ocs.yale.edu/channels/resumes-and-cvs/"
+      ]
+    },
+    {
+      "phrase": "thought leader",
+      "category": "buzzword",
+      "severity": "high",
+      "sources": [
+        "https://www.workology.com/resume-buzzwords-to-avoid/",
+        "https://ocs.fas.harvard.edu/files/ocs/files/hes-resume-cover-letter-guide.pdf"
+      ]
+    },
+    {
+      "phrase": "thought leadership",
+      "category": "buzzword",
+      "severity": "high",
+      "sources": [
+        "https://www.workology.com/resume-buzzwords-to-avoid/",
+        "https://capd.mit.edu/resources/resumes-cvs-cover-letters-and-linkedin/"
+      ]
+    },
+    {
+      "phrase": "passionate about",
+      "category": "buzzword",
+      "severity": "high",
+      "sources": [
+        "https://www.workology.com/resume-buzzwords-to-avoid/",
+        "https://ocs.yale.edu/channels/resumes-and-cvs/"
+      ]
+    },
+    {
+      "phrase": "passionate professional",
+      "category": "buzzword",
+      "severity": "high",
+      "sources": [
+        "https://www.workology.com/resume-buzzwords-to-avoid/",
+        "https://ocs.fas.harvard.edu/files/ocs/files/hes-resume-cover-letter-guide.pdf"
+      ]
+    },
+    {
+      "phrase": "dynamic professional",
+      "category": "buzzword",
+      "severity": "high",
+      "sources": [
+        "https://www.workology.com/resume-buzzwords-to-avoid/",
+        "https://capd.mit.edu/resources/resumes-cvs-cover-letters-and-linkedin/"
+      ]
+    },
+    {
+      "phrase": "proactive professional",
+      "category": "buzzword",
+      "severity": "high",
+      "sources": [
+        "https://www.workology.com/resume-buzzwords-to-avoid/",
+        "https://ocs.yale.edu/channels/resumes-and-cvs/"
+      ]
+    },
+    {
+      "phrase": "proven track record",
+      "category": "buzzword",
+      "severity": "high",
+      "sources": [
+        "https://www.workology.com/resume-buzzwords-to-avoid/",
+        "https://ocs.fas.harvard.edu/files/ocs/files/hes-resume-cover-letter-guide.pdf"
+      ]
+    },
+    {
+      "phrase": "proven ability",
+      "category": "buzzword",
+      "severity": "high",
+      "sources": [
+        "https://www.workology.com/resume-buzzwords-to-avoid/",
+        "https://capd.mit.edu/resources/resumes-cvs-cover-letters-and-linkedin/"
+      ]
+    },
+    {
+      "phrase": "experienced in",
+      "category": "weak_ownership",
+      "severity": "medium",
+      "sources": [
+        "https://www.resumeworded.com/resume-action-verbs",
+        "https://ocs.yale.edu/channels/resumes-and-cvs/"
+      ]
+    },
+    {
+      "phrase": "familiar with",
+      "category": "weak_ownership",
+      "severity": "medium",
+      "sources": [
+        "https://www.resumeworded.com/resume-action-verbs",
+        "https://capd.mit.edu/resources/resumes-cvs-cover-letters-and-linkedin/"
+      ]
+    }
+  ],
+  "soft_overuse": [
+    "leveraged",
+    "leverage",
+    "spearheaded",
+    "utilized",
+    "utilize",
+    "various",
+    "etc.",
+    "and more"
+  ],
+  "match_semantics": "Case-insensitive whole-phrase match with word boundaries on both sides (regex \\b<phrase>\\b). Implementations that use bare substring matching MUST tighten to whole-phrase to avoid false positives such as 'various' inside 'cross-functional' or 'etc.' inside structured prose.",
+  "policy": "Each phrases[] occurrence reduces banned_phrase_cleanliness by 1.0 (floor 0). soft_overuse[] entries flag in notes only — they deduct 0.5 if the SAME phrase occurs ≥2 times in the draft (floor 0). The reviewer turn surfaces the offending bullet via banned_phrase_hits in pipe-separated format: '<phrase>|<bullet text>'."
+}

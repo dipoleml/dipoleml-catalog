@@ -1,0 +1,119 @@
+{
+  "schema": 1,
+  "cell_id": "000-weighted-path--always-strong-local--r1",
+  "order": 0,
+  "scenario_id": "weighted-path",
+  "policy_id": "always-strong-local",
+  "repetition": 1,
+  "route": {
+    "initial_tier": "strong",
+    "escalation_tier": null,
+    "features": {
+      "word_count": 60,
+      "constraint_count": 3,
+      "reasoning_count": 5,
+      "structure_count": 0,
+      "difficulty_score": 0.32125
+    },
+    "reason_code": "BASELINE_ALWAYS_STRONG"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "strong",
+      "started_at": "2026-08-01T03:02:13.749Z",
+      "duration_ms": 60005,
+      "output_text": "",
+      "output_digest": "sha256:12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+      "answer": null,
+      "verification": {
+        "status": "failed",
+        "verifier_id": "exact-answer-v1",
+        "answer_digest": null,
+        "failure_code": "ANSWER_JSON_MISSING"
+      },
+      "execution_evidence": {
+        "status": "unknown",
+        "runtime": "ollama-chat",
+        "requested_model": "qwen2.5-coder:7b",
+        "observed_model": null,
+        "model_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+        "done_reason": null,
+        "response_digest": null,
+        "error": "timeout from http://127.0.0.1:11434/api/chat"
+      },
+      "usage": {
+        "prompt_tokens": 0,
+        "completion_tokens": 0,
+        "total_tokens": 0,
+        "provider_total_duration_ns": 0
+      },
+      "economics": {
+        "provider_invoice": {
+          "status": "known",
+          "amount_usd": 0,
+          "source": "self_hosted_ollama_no_per_request_invoice"
+        },
+        "gpu_energy": {
+          "status": "measured",
+          "energy_kwh": 0.000702132,
+          "samples": 118,
+          "average_watts": 42.124407
+        },
+        "comparison_cost": {
+          "status": "derived-comparison",
+          "total_usd": 0.000307107,
+          "components": [
+            {
+              "kind": "gpu_electricity",
+              "status": "derived-comparison",
+              "amount_usd": 0.000140426,
+              "energy_kwh": 0.000702132,
+              "rate_usd_per_kwh": 0.2,
+              "source": "nvidia_smi_energy_times_frozen_scenario_rate"
+            },
+            {
+              "kind": "gpu_amortization",
+              "status": "derived-comparison",
+              "amount_usd": 0.000166681,
+              "residual_value_usd": 100,
+              "useful_compute_hours": 10000,
+              "source": "duration_times_frozen_residual_value_scenario"
+            },
+            {
+              "kind": "provider_invoice",
+              "status": "known",
+              "amount_usd": 0,
+              "source": "self_hosted_ollama_no_per_request_invoice"
+            },
+            {
+              "kind": "cpu_memory_storage_display_energy",
+              "status": "unknown",
+              "amount_usd": null,
+              "source": "not_measured"
+            }
+          ]
+        },
+        "actual_end_to_end_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "whole_system_energy_and_actual_utility_rate_not_observed"
+        }
+      }
+    }
+  ],
+  "status": "unknown",
+  "final_verification": {
+    "status": "failed",
+    "verifier_id": "exact-answer-v1",
+    "answer_digest": null,
+    "failure_code": "ANSWER_JSON_MISSING"
+  },
+  "previous_cell_digest": null,
+  "receipt_digest": "sha256:c5cc883fe42e1776633baac9a340439e393aac5d2d9e6424b4aadab03561fc4f",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:93d91d44544b66870fff94ccab58f3be479d61d18e29e3a86f897536da39f856",
+    "signature": "RGyN1MZU75issJVndF4ViRjbKWm3ArT2P39pZJ7H/Q5JVzNyR/2k9+N6LNU59ZjxbGPe+g6gphH8Jd4EXIWQCQ=="
+  }
+}

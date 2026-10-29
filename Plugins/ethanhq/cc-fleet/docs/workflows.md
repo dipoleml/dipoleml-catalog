@@ -1,0 +1,105 @@
+# Writing workflows
+
+A workflow is a JavaScript file that orchestrates provider subagents — fan-out, pipelines, loops, barriers — executed by `cc-fleet workflow run <script.js>` in a **detached engine**, so the run outlives your terminal and costs a Claude session none of its context. The API mirrors Claude Code's native Workflow tool; the one addition is the `provider` option on `agent()`.
+
+This page is the script-API reference. Command flags and exit codes live in [the CLI reference](cli.md#workflows); how the engine works (journal, held leaves, the `wait` push) is in [architecture.md](architecture.md).
+
+## A first script
+
+```js
+const meta = {
+  name: "api audit",
+  description: "map endpoints, then draft audit checklists",
+  phases: [{ title: "map" }, { title: "build" }],
+};
+
+phase("map");
+const maps = (await parallel(
+  args.map((m) => () => agent("List the exported endpoints in module " + m,
+                              { provider: "deepseek", label: "map:" + m }))
+)).filter(Boolean);
+
+phase("build");
+const checklists = await pipeline(maps,
+  (endpoints, _, i) => agent("Draft an audit checklist:\n" + endpoints,
+                             { provider: "glm", label: "build:" + i }));
+return { checklists };
+```
+
+```bash
+RUN=$(cc-fleet workflow run audit.js --args-json '["auth","billing","users"]')
+cc-fleet workflow status "$RUN" --json    # run → phase → leaf tree, spend, budget
+cc-fleet workflow wait "$RUN" --timeout 10m   # block until it settles
+```
+
+## The API
+
+- **`meta`** — a top-level **pure literal** (no calls, variables, or spreads): `{name, description, whenToUse?, model?, phases?: [{title, detail?}]}`. `name` and `description` are required. It is read statically before the run starts, so the board shows the named, phase-skeletoned run immediately.
+- **`agent(prompt, opts) → Promise<string|object>`** — one provider-subagent leaf. All options are optional: `provider` (omitted → the run's default provider, resolved once at launch and recorded with the run; `provider: "claude"` runs the leaf on your own Claude Code login — literal `model` ids only, explicit-only, bills your subscription, so keep it to a synthesis node or two), `model` (`"strong"` / `"fast"` / a literal id), `schema`, `label`, `phase`, `timeout` (seconds; a leaf with no timeout defaults to 300s), `max_budget_usd`, `max_turns`, `isolation: "worktree"` (run in a fresh git worktree so parallel file-editing leaves don't collide; changes are kept as a branch — see [Isolated worktrees](#isolated-worktrees)), `profile` (`"slim"` default / `"slim-ro"` read-only / `"full"` diagnostic), `tools` (replaces the whole whitelist, never appends), `skills`, `mcp`. `tools` does not restrict MCP tools, and there is no per-leaf deny option yet (`mcp: false` drops every MCP server). An unknown option key throws — typos fail loudly. On a leaf failure the promise **rejects**: an uncaught top-level `await agent()` aborts the run; inside `parallel`/`pipeline` a failed element degrades to `null`.
+- **Background = an unawaited promise.** There is no `run_in_background`: start a leaf with `const p = agent(...)`, keep going, `await p` later. Every leaf — awaited or not — is pool-bounded and journaled, and the run only finalizes after all of them settle. A leaf that rejects with nobody handling it **fails the run**; fire-and-forget tolerance is an explicit `p.catch(() => null)`.
+- **`parallel(thunks) → Promise<array>`** — run 0-arg thunks concurrently; a **barrier** (settles when all finish), `null` where an element failed.
+- **`pipeline(items, ...stages) → Promise<array>`** — push each item through all stages independently, **no inter-stage barrier** (item A can be in stage 3 while B is in stage 1). Each stage is `(prev, item, index) => …`. A failing stage drops that item to `null`. **Default to `pipeline`**; use `parallel` only when a stage genuinely needs all prior results together.
+- **`workflow(path, args?) → Promise`** — run another `.js` inline on the same engine (shared pool, journal, budget), one level deep only.
+- **`budget`** — two cap surfaces. USD (`--budget-usd`): `budget.total`, `budget.spent()`, `budget.remaining()`. Tokens (`--budget-tokens`): `budget.tokens_total`, `budget.tokens_spent()`, `budget.tokens_remaining()`. `agent()` throws when the next leaf does not fit. Each call reserves $1.00 (or its `max_budget_usd`, if larger) and 50,000 tokens the moment it is made — before it waits for a free slot — and holds them until the leaf finishes and is charged its real cost; a call is refused when spent + the reservations held + its own would pass **either** cap. A leaf replayed from the journal on `--resume` reserves nothing and is never refused. A refused call never waits for room, and a lower `--max-concurrency` does not help. So a cap under $1.00 or 50,000 tokens runs no leaf at all; a `parallel()` of N leaves needs about N × $1.00 of room, and the leaves that do not fit come back `null` (each refusal is logged, so `workflow watch` shows it); and a `while (budget.remaining() > N) { … }` loop that scales depth to the cap needs N of at least one reservation: `remaining()` is cap − spent and does not subtract reservations.
+- **`phase(title, detail?)`** — name the current phase (tags subsequent agents); **`log(msg)`**— a narrator line on the board's live log (`console.*` alias onto it).
+- **`args`** — the parsed `--args-json` value (or the value passed by a parent `workflow()` call); `undefined` when none was given.
+
+### Structured output (`schema`)
+
+Pass a plain JSON-Schema object and the leaf's `claude` child is forced to call a `StructuredOutput` tool; the promise resolves with the parsed payload. Three rules:
+
+- a validation failure fails the leaf — there is **no automatic retry**;
+- the forced call costs turns — give a schema'd leaf `max_turns` ≥ 3;
+- it needs claude ≥ 2.1.88; older versions fail the leaf with a classified error.
+
+The client-side validator covers a JSON-Schema subset: `type`, `required`, nested `properties`, array `items`, `enum` (members may be any JSON value, compared by deep equality), string `pattern`/`format`, `additionalProperties`, `allOf`/`anyOf`/`oneOf`, and intra-document `$ref` (`#/…`; external URIs are unsupported). The forced `StructuredOutput` tool is profile-independent — it survives a custom slim `tools` whitelist, so a schema'd leaf works regardless of `tools`.
+
+## Determinism (and why)
+
+`new Date()` with no arguments and `Date.now()` **throw** (`Date.parse` / `Date.UTC` / `new Date(…args)` still work); `Math.random()` **throws**. `eval`, `Function`, `setTimeout`, `require`, `fs`, and ESM `import` don't exist. Pass timestamps or randomness in via `args`. This is what makes the journal exact: with no clock or PRNG, the same script + args always produce the same leaf keys.
+
+## Resume — the content-hash journal
+
+Every completed leaf is journaled, keyed by its determinant (provider + model + prompt + schema + isolation + profile shape):
+
+```bash
+cc-fleet workflow run audit.js --resume "$RUN"
+```
+
+Unchanged leaves return cached (no provider call); a leaf you edited — and everything downstream of its output — re-runs. A killed run resumes by replaying what finished — and any re-run reusing the same run id resumes against the journal, `--resume` being the explicit form. Failed leaves are never journaled, so a resume always retries them. A script that does not parse or compile, or whose `meta` is invalid, is refused before anything is written: the run and its saved script — the one `restart` runs — stay as they were.
+
+A resumed or restarted run works in the directory it was first started from (recorded with the run), whatever directory you run `--resume` / `restart` from, so its leaves and worktrees land in the same project. If that directory no longer exists, the run fails with `run directory <dir> no longer exists` — restore it, or start a new run from the project directory.
+
+## Isolated worktrees
+
+`isolation: "worktree"` gives the leaf a fresh detached `git worktree` of the run's repository at `HEAD`. When the leaf ends (done or failed):
+
+- **No changes** — the worktree is removed.
+- **Changes** (edited files or new commits) — they are committed as a snapshot and saved as branch `cc-fleet/wf-<job>-a<attempt>` in your repository (a short random suffix is added if that name is taken), then the worktree is removed. The engine log shows `isolation worktree kept: job <job> attempt <n> → branch …` (`cc-fleet workflow watch "$RUN"`). List them with `git branch --list 'cc-fleet/wf-*'`. Uncommitted changes are snapshotted with `git add -A` and one commit on top of the leaf's own commits (`user.name=cc-fleet`, `--no-verify`, unsigned): untracked files are included; git-ignored files are not, and go away with the worktree.
+- **The snapshot fails** — the directory stays where it is with a `.cc-fleet-keep` file holding the reason. Clean-ups and `workflow rm` / `prune` skip it, and `rm` / `prune` / `restart` print `keeping <dir>: <reason>` on stderr. Remove the directory yourself once the work is saved.
+- **`UNPROTECTED` in `workflow watch`** — even the `.cc-fleet-keep` marker could not be written, so nothing protects that directory from clean-up. Copy it out by hand before any `workflow restart`, `rm` or `prune`, or a new run in this repository.
+
+A run that was stopped or killed never reaches the end of its leaves. The next clean-up of its worktrees first rescues unsaved work to a branch `cc-fleet/wf-salvage-<run>-<first 8 characters of the worktree directory name>`; a directory it cannot rescue is kept with a `.cc-fleet-keep` marker, as above. Clean-ups happen on `restart` / `--resume`, `workflow rm` / `prune`, the board's `d` (delete), `cc-fleet uninstall`, and — once the run's engine is provably dead and none of its leaves can still be running — when another run starts in the same repository with the same cc-fleet config directory and temp directory. `subagent-gc` and the board's `c` (clear finished) rescue the same way for the runs they remove.
+
+cc-fleet never deletes `cc-fleet/wf-*` branches: merge or cherry-pick what you need, then `git branch -D` them.
+
+## Live control
+
+```bash
+cc-fleet workflow stop "$RUN" --leaf <job-or-label>     # hold ONE leaf; the run keeps going
+cc-fleet workflow restart "$RUN" --leaf <job-or-label>  # re-run it in place (attempt +1)
+cc-fleet workflow stop/restart "$RUN" --phase <title>   # same, per phase
+```
+
+A held leaf is parked indefinitely — not an error, never auto-retried; its `agent()` promise simply stays unsettled until you restart it. The TUI board's Dynamic Workflows view does the same per row (`x` / `r`) with prompt/answer drill-in and per-leaf spend.
+
+## Waiting on a run
+
+`cc-fleet workflow wait "$RUN" --timeout 10m` blocks silently and exits exactly once — `0` done/stopped, `1` failed or engine-gone, `3` parked (every remaining leaf is held), `124` timeout heartbeat, `130` interrupt, `2` IO/unknown-run error. Run it in a backgrounded shell and its exit is your completion notification; no polling loop needed.
+
+## Limits
+
+- 1,000 `agent()` calls per run; a single `parallel`/`pipeline` list caps at 100,000 items.
+- Concurrency pools at `min(16, cores − 2)` (override with `--max-concurrency`).
+- No pause: a running `claude -p` can't be cleanly suspended — `stop` + `--resume` is the cheap equivalent, courtesy of the journal.
+- Key safety is unchanged: prompts reach leaves via stdin, keys only via `apiKeyHelper`, and the journal/events/board never carry either.

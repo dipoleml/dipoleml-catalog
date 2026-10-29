@@ -1,0 +1,4 @@
+interface:
+  display_name: "Bug Bounty Workflow"
+  short_description: "Scope-aware recon, testing, dedupe, and high-signal reports"
+  default_prompt: "Use $bug-bounty-workflow to run a bounty engagement end to end inside program rules."

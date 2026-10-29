@@ -1,0 +1,16 @@
+{
+  "name": "corezoid",
+  "displayName": "Corezoid",
+  "version": "3.11.0",
+  "description": "Corezoid AI Documentation and Templates — skills and MCP server for working with Corezoid processes.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Corezoid"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/corezoid/corezoid-ai-plugin",
+  "repository": "https://github.com/corezoid/corezoid-ai-plugin",
+  "skills": "./skills/",
+  "commands": [],
+  "agents": []
+}

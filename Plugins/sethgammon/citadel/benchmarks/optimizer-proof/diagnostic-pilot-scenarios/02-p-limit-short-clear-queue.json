@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "id": "p-limit-short-clear-queue",
+  "category": "short_control",
+  "repository": "https://github.com/sindresorhus/p-limit.git",
+  "pinned_ref": "df476048d023ff868cd45b35ee47f5fb0ca2b25a",
+  "task": "Add a regression test showing that clearQueue with its default options leaves the active promise untouched and clears every queued function without changing the public API.",
+  "setup_command": ["npm", "install", "--ignore-scripts"],
+  "verification_command": ["npm", "test"],
+  "expected_artifacts": ["test.js"],
+  "allowed_tools": ["read", "search", "edit", "test", "git"],
+  "timeout_minutes": 25,
+  "probe_budget": {
+    "max_files": 200,
+    "max_bytes": 1048576,
+    "max_duration_ms": 1500
+  },
+  "max_attempts": 2,
+  "max_agents": 1,
+  "candidate_executors": ["codex-utility", "claude-workhorse", "claude-frontier", "codex-frontier"],
+  "holdout": true,
+  "adversarial_case": null
+}

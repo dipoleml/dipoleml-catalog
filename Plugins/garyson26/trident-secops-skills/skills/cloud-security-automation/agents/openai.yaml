@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cloud Security Automation"
+  short_description: "AWS/Azure/GCP posture, IaC scan, drift-and-fix"
+  default_prompt: "Use $cloud-security-automation to harden cloud accounts you own with IaC-first fixes."

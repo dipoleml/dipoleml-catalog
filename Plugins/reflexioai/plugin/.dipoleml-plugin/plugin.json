@@ -1,0 +1,16 @@
+{
+  "name": "plugin",
+  "displayName": "Plugin",
+  "version": "0.3.16",
+  "description": "Self-improving DipoleML, Codex, and OpenCode plugin that turns corrections and successful workflows into Preferences, Project-specific skills, and Shared skills",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Reflexioai"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/ReflexioAI/claude-smart",
+  "repository": "https://github.com/ReflexioAI/claude-smart",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

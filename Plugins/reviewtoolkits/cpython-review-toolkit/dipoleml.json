@@ -1,0 +1,98 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.reviewtoolkits.cpython-review-toolkit",
+  "type": "plugin",
+  "name": "Cpython Review Toolkit",
+  "slug": "cpython-review-toolkit",
+  "vendor": "reviewtoolkits",
+  "description": "A DipoleML plugin for exploring, analyzing, and reviewing CPython's C source code.",
+  "version": "0.8.0",
+  "homepage": "https://github.com/ReviewToolkits/cpython-review-toolkit",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "claude-plugin"
+  ],
+  "tags": [
+    "claude-plugin",
+    "python"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "reviewtoolkits",
+    "brandName": "reviewtoolkits",
+    "source": "https://github.com/ReviewToolkits.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:14:37Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "ReviewToolkits/cpython-review-toolkit",
+    "url": "https://github.com/ReviewToolkits/cpython-review-toolkit",
+    "commit": "8abed1123b7e7516924496bc0e67f1135e20ccc1",
+    "path": "plugins/cpython-review-toolkit",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 10,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:51:46Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Cpython Review Toolkit | A Claude Code plugin for exploring, analyzing, and reviewing CPython's C source code.",
+        "after": "Cpython Review Toolkit | A DipoleML plugin for exploring, analyzing, and reviewing CPython's C source code.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

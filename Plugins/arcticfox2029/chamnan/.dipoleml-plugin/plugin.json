@@ -1,0 +1,16 @@
+{
+  "name": "chamnan",
+  "displayName": "Chamnan",
+  "version": "1.36.1",
+  "description": "Preserves repository architecture, decisions, work state, and reusable engineering context across coding-agent sessions.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Arcticfox2029"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/ArcticFox2029/chamnan",
+  "repository": "https://github.com/ArcticFox2029/chamnan",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

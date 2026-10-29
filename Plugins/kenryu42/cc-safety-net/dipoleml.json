@@ -1,0 +1,147 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.kenryu42.cc-safety-net",
+  "type": "plugin",
+  "name": "CC Safety Net",
+  "slug": "cc-safety-net",
+  "vendor": "kenryu42",
+  "description": "A pre-execution guard for AI coding agents. It blocks destructive Git and file system commands, plus common attempts to access sensitive files, before a tool call runs. Supports Amp Code, Antigravity CLI, DipoleML, Codex, Cursor, DeepSeek Harness, Devin CLI, GitHub Copilot CLI, Grok Build, Hermes Agent, Kimi Code, OpenClaw, OpenCode, and Pi.",
+  "version": "2.7.0",
+  "homepage": "https://github.com/kenryu42/cc-safety-net",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "ai-safety",
+    "antigravity",
+    "claude-code-plugin",
+    "codex",
+    "codex-cli",
+    "coding-agent",
+    "cursor",
+    "developer-tools",
+    "dsh"
+  ],
+  "tags": [
+    "ai-agents",
+    "ai-safety",
+    "antigravity",
+    "claude",
+    "claude-code",
+    "claude-code-plugin",
+    "codex",
+    "codex-cli",
+    "coding-agent",
+    "cursor",
+    "developer-tools",
+    "dsh",
+    "dsh-plugin",
+    "guardrails",
+    "hermes-agent",
+    "hooks",
+    "openclaw",
+    "opencode",
+    "pi-extension",
+    "security"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "github",
+    "brandName": "github",
+    "source": "https://cdn.simpleicons.org/github",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:13:42Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "kenryu42/cc-safety-net",
+    "url": "https://github.com/kenryu42/cc-safety-net",
+    "commit": "a84eb80e5e93433b026b6dcf78044e0b2f2cf721",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1842,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:58:41Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude,cursor",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".cursor-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/cursor/.cursor-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "CC Safety Net | A pre-execution guard for AI coding agents. It blocks destructive Git and file system commands, plus common attempts to access sensitive files, before a tool call runs. Supports Amp Code, Antigravity CLI, Claude Code, Codex, Cursor, DeepSeek Harness, Devin CLI, GitHub Copilot CLI, Grok Build, Hermes Agent, Kimi Code, OpenClaw, OpenCode, and Pi.",
+        "after": "CC Safety Net | A pre-execution guard for AI coding agents. It blocks destructive Git and file system commands, plus common attempts to access sensitive files, before a tool call runs. Supports Amp Code, Antigravity CLI, DipoleML, Codex, Cursor, DeepSeek Harness, Devin CLI, GitHub Copilot CLI, Grok Build, Hermes Agent, Kimi Code, OpenClaw, OpenCode, and Pi.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=22"
+    ],
+    "packages": [
+      "cc-safety-net"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude",
+      "cursor"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

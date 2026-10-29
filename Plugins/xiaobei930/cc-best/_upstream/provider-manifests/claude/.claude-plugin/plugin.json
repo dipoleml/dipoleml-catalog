@@ -1,0 +1,54 @@
+{
+  "name": "cc-best",
+  "version": "0.11.0",
+  "description": "Production-ready Claude Code configuration with role-based workflows (PM→Lead→Designer→Dev→QA), safety hooks, 44 commands, 19 skills, 8 agents, 43 rules, 30 hook scripts across 20 events, auto-learning pipeline, hook profiles, and multi-language coding standards",
+  "author": {
+    "name": "xiaobei930",
+    "url": "https://github.com/xiaobei930"
+  },
+  "homepage": "https://github.com/xiaobei930/cc-best",
+  "repository": "https://github.com/xiaobei930/cc-best",
+  "license": "MIT",
+  "keywords": [
+    "claude-code",
+    "agents",
+    "skills",
+    "hooks",
+    "commands",
+    "rules",
+    "workflow",
+    "role-based",
+    "pm",
+    "lead",
+    "dev",
+    "qa",
+    "tdd",
+    "code-review",
+    "security",
+    "best-practices",
+    "chinese",
+    "rust",
+    "tauri"
+  ],
+  "hooks": "./hooks/hooks.json",
+  "bin": ["./bin/"],
+  "userConfig": {
+    "hookProfile": {
+      "title": "Hook execution tier: minimal (safety only), standard (safety + quality), full (all hooks)",
+      "type": "string",
+      "default": "full"
+    }
+  },
+  "commands": ["./commands/"],
+  "skills": ["./skills/"],
+  "agents": [
+    "./agents/architect.md",
+    "./agents/build-error-resolver.md",
+    "./agents/code-reviewer.md",
+    "./agents/code-simplifier.md",
+    "./agents/planner.md",
+    "./agents/requirement-validator.md",
+    "./agents/security-reviewer.md",
+    "./agents/tdd-guide.md"
+  ]
+}

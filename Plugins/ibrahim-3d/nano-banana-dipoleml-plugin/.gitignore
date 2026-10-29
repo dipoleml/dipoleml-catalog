@@ -1,0 +1,25 @@
+# Nano Banana runtime
+scripts/.env
+__pycache__/
+*.pyc
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Editor files
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Node (if any scripts use it)
+node_modules/
+
+# Logs
+*.log
+
+# Generated images (local only)
+generated_image.png

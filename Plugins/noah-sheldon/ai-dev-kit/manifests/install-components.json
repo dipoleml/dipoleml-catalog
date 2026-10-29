@@ -1,0 +1,40 @@
+{
+  "agents": [
+    "planner",
+    "architect",
+    "code-reviewer",
+    "security-reviewer",
+    "tdd-guide",
+    "build-error-resolver",
+    "e2e-runner",
+    "doc-updater",
+    "refactor-cleaner",
+    "docs-lookup",
+    "python-reviewer",
+    "database-reviewer",
+    "ai-judge",
+    "git-agent-coordinator",
+    "ml-engineer",
+    "chrome-ext-developer",
+    "data-engineer",
+    "infra-as-code-specialist",
+    "observability-telemetry"
+  ],
+  "skills": [
+    "tdd-workflow",
+    "code-review",
+    "security-review",
+    "verification-loop",
+    "frontend-patterns",
+    "backend-patterns",
+    "python-patterns",
+    "typescript-patterns",
+    "wxt-chrome-extension",
+    "mlops-workflow",
+    "data-pipelines",
+    "aws-deployment",
+    "observability-telemetry",
+    "git-workflow",
+    "context-prune"
+  ]
+}

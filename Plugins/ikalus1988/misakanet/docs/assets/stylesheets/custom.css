@@ -1,0 +1,170 @@
+/* Custom styles for MisakaNet documentation */
+
+/* MisakaNet brand colors — the cyan accent of docs/_partials/design-tokens.html
+   (--accent: #00e5ff, 12.79:1 against --bg-0 #070b15).
+
+   Declared on <body> on purpose: Material puts the palette on the element that
+   carries [data-md-color-primary] (the body), so a bare :root declaration is
+   inherited away and never reaches the header. */
+body[data-md-color-primary][data-md-color-scheme] {
+  --md-primary-fg-color: #00e5ff;          /* header / primary surface */
+  --md-primary-fg-color--light: #33eaff;    /* tint (was a violet) */
+  --md-primary-fg-color--dark: #00c3d9;     /* shade (was a violet) */
+  --md-primary-bg-color: #070b15;           /* text on the cyan surface */
+  --md-primary-bg-color--light: #070b15b3;
+  --md-accent-fg-color: #00e5ff;            /* was a violet */
+  --md-accent-fg-color--transparent: #00e5ff1a;
+  --md-accent-bg-color: #070b15;            /* text on an accent surface */
+  --md-typeset-a-color: #00e5ff;            /* content links */
+}
+
+/* Cyan is a light accent: on the white (default) scheme it needs a darker
+   shade of the same hue to stay readable (4.72:1 on white). */
+body[data-md-color-scheme=default][data-md-color-primary] {
+  --md-accent-fg-color: #007f92;
+  --md-accent-fg-color--transparent: #007f921a;
+  --md-accent-bg-color: #fff;
+  --md-typeset-a-color: #007f92;
+}
+
+/* Improve code blocks */
+.md-typeset pre > code {
+  font-size: 0.85em;
+}
+
+/* Better admonition styling */
+.md-typeset .admonition,
+.md-typeset details {
+  border-radius: 0.5rem;
+}
+
+/* Custom admonition types */
+.md-typeset .admonition.tip {
+  border-color: #10b981;
+}
+
+.md-typeset .admonition.tip > .admonition-title {
+  background-color: #10b9811a;
+  border-color: #10b981;
+}
+
+.md-typeset .admonition.warning {
+  border-color: #f59e0b;
+}
+
+.md-typeset .admonition.warning > .admonition-title {
+  background-color: #f59e0b1a;
+  border-color: #f59e0b;
+}
+
+/* Improve navigation */
+.md-nav__link {
+  font-size: 0.85rem;
+}
+
+.md-nav__link--active {
+  font-weight: 600;
+}
+
+/* Better table styling */
+.md-typeset table:not([class]) {
+  font-size: 0.85rem;
+}
+
+.md-typeset table:not([class]) th {
+  background-color: var(--md-primary-fg-color--light);
+  color: var(--md-primary-bg-color);
+  font-weight: 600;
+}
+
+/* Improve search results */
+.md-search-result__article {
+  padding: 0.5rem;
+  border-radius: 0.25rem;
+}
+
+.md-search-result__article:hover {
+  background-color: var(--md-accent-fg-color--transparent);
+}
+
+/* Mermaid diagrams */
+.mermaid {
+  font-size: 0.9em;
+  text-align: center;
+}
+
+/* Task list styling */
+.md-typeset .task-list-item {
+  list-style-type: none;
+}
+
+.md-typeset .task-list-item input[type="checkbox"] {
+  margin-right: 0.5rem;
+}
+
+/* Badge styling */
+.md-typeset .badge {
+  display: inline-block;
+  padding: 0.25rem 0.5rem;
+  border-radius: 1rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background-color: var(--md-accent-fg-color);
+  color: var(--md-accent-bg-color);
+}
+
+/* Improve footer */
+.md-footer {
+  margin-top: 2rem;
+}
+
+/* Better content spacing */
+.md-content {
+  margin-top: 1rem;
+}
+
+/* Responsive images */
+.md-typeset img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.5rem;
+}
+
+/* Improve inline code */
+.md-typeset code {
+  font-size: 0.85em;
+  padding: 0.1rem 0.3rem;
+  border-radius: 0.2rem;
+}
+
+/* Better blockquotes */
+.md-typeset blockquote {
+  border-left: 4px solid var(--md-accent-fg-color);
+  padding-left: 1rem;
+  margin-left: 0;
+}
+
+/* Improve tabs */
+.md-typeset .tabbed-set > input:checked + label {
+  border-bottom-color: var(--md-accent-fg-color);
+}
+
+/* Better content tabs */
+.md-typeset .tabbed-content {
+  padding-top: 0.5rem;
+}
+
+/* Improve grid cards */
+.md-typeset .grid {
+  gap: 1rem;
+}
+
+.md-typeset .grid > .card {
+  border-radius: 0.5rem;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  transition: box-shadow 0.2s ease;
+}
+
+.md-typeset .grid > .card:hover {
+  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.15);
+}

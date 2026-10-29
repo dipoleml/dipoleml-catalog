@@ -1,0 +1,16 @@
+{
+  "name": "vibekit",
+  "displayName": "Vibekit",
+  "version": "0.8.0",
+  "description": "Efficient, Evidence-based, Opinionated vibe-coding pipeline",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Rizukirr"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/rizukirr/vibekit",
+  "repository": "https://github.com/rizukirr/vibekit",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,76 @@
+{
+  "schema": 1,
+  "evidence_kind": "actual-run",
+  "scenario_set_id": "optimizer-scenarios-sha256:602e496906f3a293203750602234ba88a55a86b9e4f54f32239264098dcebe5b",
+  "metric_set_id": "optimizer-metrics-sha256:bedffbda2b18d725610b0f294a8273ef908237fd957bf9e51a5af4885b123e4f",
+  "scenario_id": "p-limit-context-cancel",
+  "category": "context_reset",
+  "holdout": false,
+  "policy_id": "prompt-only",
+  "repetition": 3,
+  "decision_id": "sha256:091c0efac1f6558eb7526701fa360234ac4f67d77895334c2a0ab6cfda124eeb",
+  "selected_profile_id": "claude-workhorse",
+  "observed_profile_id": "claude-workhorse",
+  "requested_model": "claude-sonnet-5",
+  "observed_model": "claude-sonnet-5",
+  "model_proof_status": "passed",
+  "started_at": "2026-07-31T01:21:16.814Z",
+  "duration_ms": 487764,
+  "outcome": "failed",
+  "verified": false,
+  "attempts": 1,
+  "human_interventions": 0,
+  "topology": "sequential-recovery",
+  "cost": {
+    "status": "known",
+    "amount_usd": 2.114619,
+    "provenance": "tool_reported",
+    "source": "citadel_optimizer_runner",
+    "source_ref": "summed_attempts:1",
+    "pricing_snapshot_digest": null,
+    "components": [
+      {
+        "kind": "model",
+        "amount_usd": 2.1146192,
+        "source": "attempt_1:claude total_cost_usd"
+      }
+    ]
+  },
+  "artifact_paths": [
+    "index.js",
+    "index.d.ts",
+    "test.js",
+    "readme.md"
+  ],
+  "verification_receipts": [
+    {
+      "attempt": 1,
+      "profile_id": "claude-workhorse",
+      "status": "failed",
+      "exit_code": 1,
+      "timed_out": false,
+      "output_digest": "sha256:e9f65d6ea0b1253db8c3d63a6105457446cdff4207ad4b9249e6e3004c5a461a",
+      "output_excerpt": "[stdout]\n\n> p-limit@7.3.1 test\n> xo && ava && tsd\n\n\n[stderr]\n",
+      "output_truncated": false,
+      "patch_exit_code": 0,
+      "patch_digest": "sha256:84dd2a933c5cd58cad33d70987a5429977b7d48938af4e68419358dd2035fac2",
+      "patch_excerpt": "diff --git a/index.d.ts b/index.d.ts\nindex 5a64963..0090771 100644\n--- a/index.d.ts\n+++ b/index.d.ts\n@@ -104,6 +104,15 @@ export type Options = {\n \tThis is recommended if you await the returned promises, for example with `Promise.all`, so pending tasks do not remain unresolved after `clearQueue()`.\n \t*/\n \treadonly rejectOnClear?: boolean;\n+\n+\t/**\n+\tAn `AbortSignal` to cancel queued tasks.\n+\n+\tWhen the signal aborts, pending (not yet started) tasks are discarded, the same as calling `clearQueue()`. Already-running tasks are not affected. Any task queued after the signal has aborted is discarded immediately.\n+\n+\tWhen `rejectOnClear` is enabled, discarded tasks are rejected with the signal's abort reason instead of being silently discarded.\n+\t*/\n+\treadonly signal?: AbortSignal;\n };\n \n /**\ndiff --git a/index.js b/index.js\nindex 5ecd392..ff4cee3 100644\n--- a/index.js\n+++ b/index.js\n@@ -2,9 +2,10 @@ import Queue from 'yocto-queue';\n \n export default function pLimit(concurrency) {\n \tlet rejectOnClear = false;\n+\tlet signal;\n \n \tif (typeof concurrency === 'object') {\n-\t\t({concurrency, rejectOnClear = false} = concurrency);\n+\t\t({concurrency, rejectOnClear = false, signal} = concurrency);\n \t}\n \n \tvalidateConcurrency(concurrency);\n@@ -13,8 +14,13 @@ export default function pLimit(concurrency) {\n \t\tthrow new TypeError('Expected `rejectOnClear` to be a boolean');\n \t}\n \n+\tif (signal !== undefined && !(signal instanceof AbortSignal)) {\n+\t\tthrow new TypeError('Expected `signal` to be an AbortSignal');\n+\t}\n+\n \tconst queue = new Queue();\n \tlet activeCount = 0;\n+\tlet aborted = false;\n \n \tconst resumeNext = () => {\n \t\t// Process the next queued function if we're under the concurrency limit\n@@ -47,7 +53,49 @@ export default function pLimit(concurrency) {\n \t\tnext();\n \t};\n \n+\tconst discardQueue = () => {\n+\t\tqueue.clear();\n+\t};\n+\n+\tconst rejectQueue = reason => {\n+\t\twhile (queue.size > 0) {\n+\t\t\tqueue.dequeue().reject(reason);\n+\t\t}\n+\t};\n+\n+\tconst clearQueue = reason => {\n+\t\tif (rejectOnClear) {\n+\t\t\trejectQueue(reason ?? AbortSignal.abort().reason);\n+\t\t} else {\n+\t\t\tdiscardQueue();\n+\t\t}\n+\t};\n+\n+\tif (signal) {\n+\t\tconst onAbort = () => {\n+\t\t\taborted = true;\n+\t\t\tclearQueue(signal.reason);\n+\t\t};\n+\n+\t\tif (signal.aborted) {\n+\t\t\tonAbort();\n+\t\t} else {\n+\t\t\tsignal.addEventListener('abort', onAbort, {once: true});\n+\t\t}\n+\t}\n+\n \tconst enqueue = (function_, resolve, reject, arguments_) => {\n+\t\t// Once the signal has fired, refuse new queued work the same way an\n+\t\t// already-cleared queue does: reject when `rejectOnClear` is set,\n+\t\t// otherwise leave the promise unsettled.\n+\t\tif (aborted) {\n+\t\t\tif (rejectOnClear) {\n+\t\t\t\treject(signal.reason);\n+\t\t\t}\n+\n+\t\t\treturn;\n+\t\t}\n+\n \t\tconst queueItem = {reject};\n \n \t\t// Queue the internal resolve function instead of the run function\n@@ -76,16 +124,7 @@ export default function pLimit(concurrency) {\n \t\t},\n \t\tclearQueue: {\n \t\t\tvalue() {\n-\t\t\t\tif (!rejectOnClear) {\n-\t\t\t\t\tqueue.clear();\n-\t\t\t\t\treturn;\n-\t\t\t\t}\n-\n-\t\t\t\tconst abortError = AbortSignal.abort().reason;\n-\n-\t\t\t\twhile (queue.size > 0) {\n-\t\t\t\t\tqueue.dequeue().reject(abortError);\n-\t\t\t\t}\n+\t\t\t\tclearQueue();\n \t\t\t},\n \t\t},\n \t\tconcurrency: {\ndiff --git a/index.test-d.ts b/index.test-d.ts\nindex 672c31a..9cbc792 100644\n--- a/index.test-d.ts\n+++ b/index.test-d.ts\n@@ -3,6 +3,7 @@ import pLimit, {limitFunction} from './index.js';\n \n const limit = pLimit(1);\n const limitWithRejectOnClear = pLimit({concurrency: 1, rejectOnClear: true});\n+const limitWithSignal = pLimit({concurrency: 1, signal: new AbortController().signal});\n \n const input = [\n \tlimit(async () => 'foo'),\n@@ -27,6 +28,8 @@ expectType<Promise<string>>(lf('input'));\n \n expectError(limitFunction((_a: string) => 'x', {concurrency: 1}));\n expectError(pLimit({concurrency: 1, rejectOnClear: 'nope'}));\n+expectError(pLimit({concurrency: 1, signal: 'nope'}));\n+expectType<Promise<string>>(limitWithSignal(async () => 'ok'));\n \n // LimitFunction.map accepts iterables\n expectType<Promise<string[]>>(limit.map(new Set(['a', 'b', 'c']), async x => x + x));\ndiff --git a/readme.md b/readme.md\nindex 0e019f4..c2dc127 100644\n--- a/readme.md\n+++ b/readme.md\n@@ -57,6 +57,24 @@ import pLimit from 'p-limit';\n const limit = pLimit({concurrency: 1});\n ```\n \n+#### signal\n+\n+Type: [`AbortSignal`](https://developer.mozilla.org/en-US/docs/Web/API/AbortSignal)\n+\n+Cancel queued (not yet started) tasks when the signal aborts. This is equivalent to calling `clearQueue()` when the signal fires, and also discards any task queued afterwards. Already-running tasks are not affected.\n+\n+Combine with `rejectOnClear` to reject discarded tasks with the signal's abort reason instead of leaving them unresolved.\n+\n+```js\n+import pLimit from 'p-limit';\n+\n+const controller = new AbortController();\n+const limit = pLimit({concurrency: 1, rejectOnClear: true, signal: controller.signal});\n+\n+// Later, for example on shutdown\n+controller.abort();\n+```\n+\n ### limit(fn, ...args)\n \n Returns the promise returned by calling `fn(...args)`.\ndiff --git a/recipes.md b/recipes.md\nindex efe53cd..942e11b 100644\n--- a/recipes.md\n+++ b/recipes.md\n@@ -75,7 +75,7 @@ for (const result of results) {\n \n ## Graceful shutdown\n \n-Use `clearQueue()` to discard pending tasks when shutting down. Promises for discarded tasks never settle, so only wait for already running tasks during shutdown:\n+Use `clearQueue()` to discard pending tasks when shutting down. Promises for discarded tasks never settle, so only wait for already running tasks during shutdown. Alternatively, pass a `signal` to `pLimit()` up front and call `controller.abort()` to achieve the same effect without wiring up the shutdown handler yourself:\n \n ```js\n import pLimit from 'p-limit';\ndiff --git a/test.js b/test.js\nindex e303a46..a9e2186 100644\n--- a/test.js\n+++ b/test.js\n@@ -214,6 +214,73 @@ testClearQueueRejects('clearQueue rejects pending promises when enabled', async\n \tawait t.throwsAsync(pendingPromiseTwo, {name: 'AbortError'});\n });\n \n+test('throws on invalid signal argument', t => {\n+\tt.throws(() => {\n+\t\tpLimit({concurrency: 1, signal: 'nope'});\n+\t});\n+\n+\tt.throws(() => {\n+\t\tpLimit({concurrency: 1, signal: {}});\n+\t});\n+});\n+\n+test('signal discards pending tasks on abort', async t => {\n+\tconst controller = new AbortController();\n+\tconst limit = pLimit({concurrency: 1, signal: controller.signal});\n+\n+\tconst runningPromise = limit(() => delay(50));\n+\tlimit(() => delay(10));\n+\tlimit(() => delay(10));\n+\n+\tawait Promise.resolve();\n+\tt.is(limit.pendingCount, 2);\n+\n+\tcontroller.abort();\n+\tt.is(limit.pendingCount, 0);\n+\n+\tawait runningPromise;\n+\tt.is(limit.activeCount, 0);\n+\n+\t// Discarded promises never settle; assert a task queued after the abort\n+\t// is also discarded rather than run.\n+\tlet ran = false;\n+\tlimit(() => {\n+\t\tran = true;\n+\t});\n+\tawait delay(10);\n+\tt.is(ran, false);\n+});\n+\n+testClearQueueRejects('signal rejects pending tasks when rejectOnClear is enabled', async t => {\n+\tconst controller = new AbortController();\n+\tconst limit = pLimit({concurrency: 1, rejectOnClear: true, signal: controller.signal});\n+\n+\tconst runningPromise = limit(() => delay(50));\n+\tconst pendingPromiseOne = limit(() => delay(10));\n+\tconst pendingPromiseTwo = limit(() => delay(10));\n+\n+\tawait Promise.resolve();\n+\tt.is(limit.pendingCount, 2);\n+\n+\tcontroller.abort();\n+\tt.is(limit.pendingCount, 0);\n+\n+\tawait runningPromise;\n+\tawait t.throwsAsync(pendingPromiseOne, {name: 'AbortError'});\n+\tawait t.throwsAsync(pendingPromiseTwo, {name: 'AbortError'});\n+\tawait t.throwsAsync(limit(() => delay(10)), {name: 'AbortError'});\n+});\n+\n+testClearQueueRejects('signal already aborted before any task is queued', async t => {\n+\tconst controller = new AbortController();\n+\tcontroller.abort();\n+\n+\tconst limit = pLimit({concurrency: 1, rejectOnClear: true, signal: controller.signal});\n+\n+\tawait t.throwsAsync(limit(() => delay(10)), {name: 'AbortError'});\n+\tt.is(limit.pendingCount, 0);\n+});\n+\n test('map', async t => {\n \tconst limit = pLimit(1);\n \tconst results = await limit.map([1, 2, 3, 4, 5, 6, 7], input => input + 1);\n",
+      "patch_truncated": false,
+      "changed_paths": [
+        "index.d.ts",
+        "index.js",
+        "index.test-d.ts",
+        "readme.md",
+        "recipes.md",
+        "test.js"
+      ]
+    }
+  ],
+  "receipt_status": "verified",
+  "adversarial_result": null,
+  "failure_code": "VERIFICATION_FAILED",
+  "attestation": {
+    "algorithm": "ed25519",
+    "signature_base64": "KGqgKu08rTOpWMBncDRRQbGT1kOQsHI/HgBpzeZWv23LNRjI3oCBvWZv/BEPzi9M9fie0HKaWC7GIDxA4jcaCQ=="
+  }
+}

@@ -1,0 +1,359 @@
+# shinkoku
+
+確定申告を自動化する AI コーディングエージェント向けプラグイン。個人事業主・会社員の所得税・消費税の確定申告を、帳簿の記帳から確定申告書等作成コーナーへの入力代行までエンドツーエンドで支援します。
+
+**Claude Code Plugin** として動作するほか、**SKILL.md オープン標準** に準拠した Agent Skills パッケージとして、Claude Code / Cursor / Windsurf / GitHub Copilot / Gemini CLI / Codex / Cline / Roo Code / Antigravity など 40 以上の AI コーディングエージェントで利用できます。
+
+## 想定ユーザー
+
+| 対象 | 対応レベル | 備考 |
+|------|-----------|------|
+| 個人事業主（青色申告・一般用） | Full | メインターゲット。帳簿 → 決算書 → 税額計算 → 作成コーナー入力 |
+| 会社員 + 副業（事業所得） | Full | 源泉徴収票 + 事業所得の税額計算 → 作成コーナー入力 |
+| 給与所得のみ（会社員） | Full | 還付申告・医療費控除等 → 作成コーナー入力 |
+| 消費税課税事業者 | Full | 2割特例・簡易課税・本則課税すべて対応 |
+| ふるさと納税利用者 | Full | 寄附金 CRUD + 控除計算 + 限度額推定 |
+| 住宅ローン控除（初年度） | Full | 控除額計算（添付書類は別途必要） |
+| 医療費控除 | Full | 明細集計＋控除額計算 |
+| 仮想通貨トレーダー | Full | 雑所得（総合課税）として申告書に自動反映 |
+
+## 非対応
+
+以下のケースには対応していません。
+
+| 対象 | 理由 |
+|------|------|
+| 株式投資家（分離課税） | 株式譲渡所得・配当の分離課税 |
+| FX トレーダー | 先物取引に係る雑所得等 |
+| 不動産所得 | 不動産所得用の決算書・申告 |
+| 退職所得 | 退職所得控除の計算 |
+| 譲渡所得（不動産売却） | 長期/短期税率、3,000万円特別控除 |
+| 外国税額控除 | 外国税支払額の追跡・控除計算 |
+| 農業所得・山林所得 | 専用所得区分 |
+| 白色申告 | 青色申告のみ対応 |
+| 非居住者 | 日本居住者専用 |
+
+---
+
+## ⚠️ 免責事項
+
+**確定申告は自己責任で行ってください。**
+
+- 本ツールが生成した申告書・計算結果は、提出前に**必ずご自身で内容を確認**してください
+- 税法の解釈や申告内容に不安がある場合は、**税理士等の専門家に相談**することを強く推奨します
+- 本ツールの利用によって生じた**いかなる損害についても、開発者は責任を負いません**
+- 税制は毎年改正されます。本ツールは令和7年分（2025年）と令和8年分（2026年、令和8年度税制改正反映）の所得税・消費税計算に対応しています
+- 令和9年分以後について計算に反映済みのもの: 消費税の3割特例（令和9・10年分）、ふるさと納税 特例控除額の193万円上限（令和9年中以後の寄附）、住宅ローン控除の借入限度額（令和12年入居まで）、基礎控除・給与所得控除の令和10年分以後の本則値
+- 令和9年分以後について定数・注記のみで計算に未反映のもの: 防衛特別所得税と復興特別所得税1.1%への分割（合計2.1%で税額は不変）、青色申告特別控除の65万/75万への見直し、ひとり親控除38万、公的年金等控除の280万円上限、暗号資産の申告分離課税、基礎控除等の物価連動改定値
+
+---
+
+## インストール
+
+### 前提条件
+
+- Python 3.11 以上
+- [uv](https://docs.astral.sh/uv/) パッケージマネージャ
+
+### CLI のインストール
+
+スキルが内部で `shinkoku` コマンドを呼び出します。通常は `/setup` スキルが自動でインストールしますが、手動で行う場合は以下を実行してください。
+
+```bash
+# インストール
+uv tool install git+https://github.com/kazukinagata/shinkoku
+
+# 更新
+uv tool upgrade shinkoku
+```
+
+> Cowork の場合は、チャットで Claude にインストールを依頼してください。
+
+### 方法 1: Claude Code プラグイン（フル機能）
+
+プラグイン機能を使い、OCR 画像読取を含む全機能を利用できます。
+
+```bash
+# マーケットプレイスを追加
+/plugin marketplace add kazukinagata/shinkoku
+
+# プラグインをインストール
+/plugin install shinkoku@shinkoku
+```
+
+### 方法 2: スキルのみインストール（40+ エージェント対応）
+
+[skills](https://github.com/vercel-labs/skills) CLI でスキルをインストールできます。
+
+```bash
+# スキルのインストール（インストール先エージェントを対話的に選択）
+npx skills add kazukinagata/shinkoku
+
+# 特定のエージェントにグローバルインストール
+npx skills add kazukinagata/shinkoku -g -a claude-code -a cursor
+
+# インストール可能なスキル一覧を確認
+npx skills add kazukinagata/shinkoku --list
+
+```
+
+### 環境別の補足
+
+| 環境 | 設定方法 |
+|------|---------|
+| Claude Code | `/plugin marketplace add kazukinagata/shinkoku` → `/plugin install shinkoku@shinkoku` |
+| Cowork | プラグイン > 個人用 > GitHub からマーケットプレイスを追加 > `kazukinagata/shinkoku` を入力してマーケットプレイスを追加し、その後表示される shinkoku プラグインをインストール |
+| その他 | `npx skills add kazukinagata/shinkoku` でインストール（方法 2 を参照） |
+
+### ブラウザ自動化（e-Tax に必要）
+
+`/e-tax` スキルでは、確定申告書等作成コーナーへの入力にブラウザ自動化が必要です。以下の3方式に対応しています。
+
+| 方式 | 対象環境 | 備考 |
+|------|---------|------|
+| Claude in Chrome（推奨） | Windows / macOS のネイティブ Chrome | Claude in Chrome 拡張機能が必要 |
+| Antigravity Browser Sub-Agent | Windows / macOS / Linux | Antigravity IDE のブラウザ操作機能を利用 |
+| Playwright CLI（β版） | WSL / Linux 等 | `@playwright/cli` のインストールが必要 |
+
+#### Claude in Chrome の有効化（Claude Code）
+
+Claude in Chrome を利用するには、Claude Code 起動時にフラグを付けるか、セッション内でコマンドを実行します。
+
+```bash
+# 起動時に有効化
+claude --chrome
+
+# セッション内で有効化
+/chrome
+```
+
+#### Playwright CLI のインストール
+
+Claude in Chrome, Antigravity を利用する場合このステップは不要です。
+
+```bash
+# パッケージインストール
+npm install -g @playwright/cli@latest
+
+# スキルインストール（エージェントがコマンドを認識するために必要）
+playwright-cli install --skills
+
+# Chromium インストール
+npx playwright install chromium
+```
+
+WSL の場合、GUI 表示が必要です（headed モードで Chrome を操作するため）。Windows 11 では WSLg が標準搭載されており追加設定は不要です。Windows 10 では X Server（VcXsrv 等）が必要です。
+
+## 使い方
+
+### 作業ディレクトリの準備
+
+shinkoku はプラグイン（またはスキル）としてインストールして使います。**このリポジトリを clone する必要はありません。**
+
+お好きなディレクトリを作業フォルダとして使ってください。確定申告に関するデータはすべてこのフォルダ内に保存されます。
+
+```bash
+# 例: 確定申告用のフォルダを作成
+mkdir ~/kakuteishinkoku && cd ~/kakuteishinkoku
+
+# git で管理する場合（推奨）
+git init
+```
+
+### セットアップ
+
+作業ディレクトリで `/setup` と入力すると、対話形式で初期設定が始まります。
+
+```
+/setup
+```
+
+セットアップでは以下が行われます:
+
+1. 設定ファイル（`shinkoku.config.yaml`）の生成
+2. `.gitignore` の自動設定（git リポジトリの場合）
+3. データベース（`shinkoku.db`）の初期化
+
+### 個人データの保護
+
+shinkoku は作業ディレクトリに以下のファイルを生成します。これらにはマイナンバー・住所・財務データ等の**個人情報が含まれます**。
+
+| ファイル | 内容 |
+|---------|------|
+| `shinkoku.config.yaml` | マイナンバー・電話番号・住所等の個人情報 |
+| `shinkoku.db` / `shinkoku.db-wal` / `shinkoku.db-shm` | 帳簿・仕訳の財務データ |
+| `.shinkoku/` | 進捗ファイル（納税者情報のサマリー） |
+| `output/` | 生成レポート |
+
+`/setup` を git リポジトリ内で実行すると、これらのファイルが `.gitignore` に自動追加されます。ユーザーが設定した書類ディレクトリ（請求書・レシート等）も同様に追加されます。
+
+> **注意**: `.gitignore` に登録されていても、`git add -f` で強制追加するとコミットされてしまいます。個人情報を含むファイルを絶対にリモートリポジトリにプッシュしないよう注意してください。
+
+## スキル一覧
+
+### メインワークフロー
+
+| スキル | 説明 |
+|-------|------|
+| `/setup` | 初回セットアップ。設定ファイル（`shinkoku.config.yaml`）の生成とデータベースの初期化 |
+| `/assess` | 確定申告が必要かどうか、所得税・消費税の申告要否を判定 |
+| `/gather` | 必要書類のチェックリストと取得先を案内 |
+| `/journal` | CSV・レシート・請求書・源泉徴収票を取り込み、複式簿記の仕訳を登録 |
+| `/settlement` | 減価償却・決算整理仕訳の登録、残高試算表・損益計算書・貸借対照表の生成 |
+| `/income-tax` | 所得税額を計算（所得控除・税額控除・復興特別所得税） |
+| `/consumption-tax` | 消費税額を計算（2割特例・簡易課税・本則課税） |
+| `/submit` | 最終確認チェックリストと提出方法（e-Tax / 郵送 / 持参）の案内 |
+| `/e-tax` | 確定申告書等作成コーナーへの入力代行（Claude in Chrome / Playwright / Antigravity） |
+
+### 補助スキル
+
+| スキル | 説明 |
+|-------|------|
+| `/tax-advisor` | 控除・節税・税制についての質問に回答する税務アドバイザー |
+| `/furusato` | ふるさと納税の寄附金登録・一覧・削除・集計と控除限度額推定 |
+| `/invoice-system` | インボイス制度関連の参照情報 |
+| `/capabilities` | shinkoku の対応範囲・対応ペルソナ・既知の制限事項を表示 |
+| `/incorporation` | 法人成り（個人事業主から法人への移行）の税額比較・設立手続き相談 |
+
+### OCR 読取スキル
+
+| スキル | 読取対象 |
+|-------|---------|
+| `/reading-receipt` | レシート・領収書・ふるさと納税受領証明書 |
+| `/reading-withholding` | 源泉徴収票 |
+| `/reading-invoice` | 請求書 |
+| `/reading-deduction-cert` | 控除証明書（生命保険料・地震保険料等） |
+| `/reading-payment-statement` | 支払調書 |
+
+## 対応エージェント
+
+### OCR 画像読取
+
+レシート・源泉徴収票等の画像読取（`/reading-*` スキル）は、利用する LLM がマルチモーダル（画像認識）に対応している必要があります。これはエージェントプラットフォームではなく、接続先の LLM の能力に依存します。
+
+- **マルチモーダル LLM**（Claude Opus 4.6, GPT-5.2, Gemini 3.1 等）: OCR 読取可能
+- **テキスト専用 LLM**: 手動入力が必要
+
+### OCR デュアル検証（サブエージェント利用）
+
+2つのサブエージェントが独立に画像を読み取り、結果をクロスチェックする機能です。サブエージェントの並列実行に対応したプラットフォームで利用できます。非対応のプラットフォームでは、単一読取 + ユーザー確認にフォールバックします。
+
+| エージェント | デュアル検証 |
+|-------------|:---:|
+| Claude Code | ✓ |
+| Cowork | ✓ |
+| Cursor 2.5+ | ✓ |
+| GitHub Copilot | ✓ |
+| Cline | ✓ |
+| Antigravity | ✓ |
+| Windsurf | — |
+| Gemini CLI | △ |
+| Roo Code | △ |
+
+- **△**: サブエージェント機能はあるが並列実行が制限的
+
+## 開発者向け情報
+
+### テスト
+
+```bash
+make test                              # 全テスト実行
+uv run pytest tests/unit/ -v           # ユニットテスト
+uv run pytest tests/scripts/ -v        # CLI テスト
+uv run pytest tests/integration/ -v    # 統合テスト
+```
+
+### Lint / 型チェック
+
+```bash
+make lint                                            # Ruff lint + format + mypy
+uv run ruff format --check src/ tests/               # フォーマットチェック
+uv run mypy src/shinkoku/ --ignore-missing-imports   # 型チェック
+```
+
+### プロジェクト構成
+
+```
+shinkoku/
+├── .claude-plugin/
+│   └── plugin.json              # Claude Code プラグインマニフェスト
+├── .github/
+│   └── workflows/
+│       └── test.yml             # CI パイプライン
+├── skills/                      # Agent Skills（SKILL.md オープン標準）
+│   ├── setup/SKILL.md           #   初回セットアップ
+│   ├── assess/SKILL.md          #   申告要否判定
+│   ├── gather/SKILL.md          #   書類収集
+│   ├── journal/SKILL.md         #   仕訳入力・帳簿管理
+│   ├── settlement/SKILL.md      #   決算整理・決算書作成
+│   ├── income-tax/SKILL.md      #   所得税計算
+│   ├── consumption-tax/SKILL.md #   消費税計算
+│   ├── submit/SKILL.md          #   提出準備
+│   ├── tax-advisor/SKILL.md     #   税務アドバイザー
+│   ├── furusato/SKILL.md        #   ふるさと納税
+│   ├── e-tax/SKILL.md           #   e-Tax 電子申告（Claude in Chrome）
+│   ├── capabilities/SKILL.md    #   機能確認
+│   ├── incorporation/SKILL.md   #   法人成り相談
+│   ├── reading-receipt/SKILL.md          # OCR: レシート
+│   ├── reading-withholding/SKILL.md      # OCR: 源泉徴収票
+│   ├── reading-invoice/SKILL.md          # OCR: 請求書
+│   ├── reading-deduction-cert/SKILL.md   # OCR: 控除証明書
+│   └── reading-payment-statement/SKILL.md # OCR: 支払調書
+├── src/shinkoku/
+│   ├── cli/                     # CLI エントリーポイント（shinkoku コマンド）
+│   │   ├── __init__.py          #   main() + サブコマンド登録
+│   │   ├── ledger.py            #   帳簿管理 CLI
+│   │   ├── tax_calc.py          #   税額計算 CLI
+│   │   ├── import_data.py       #   データ取込 CLI
+│   │   ├── pdf.py               #   PDF ユーティリティ CLI
+│   │   ├── furusato.py          #   ふるさと納税 CLI
+│   │   └── profile.py           #   プロファイル CLI
+│   ├── tools/                   # ビジネスロジック（純粋関数）
+│   │   ├── ledger.py            #   帳簿管理
+│   │   ├── tax_calc.py          #   税額計算
+│   │   ├── import_data.py       #   データ取り込み
+│   │   ├── pdf.py               #   PDF ユーティリティ
+│   │   ├── furusato.py          #   ふるさと納税
+│   │   └── profile.py           #   プロファイル取得
+│   ├── models.py                # Pydantic モデル定義
+│   ├── db.py                    # SQLite DB 管理
+│   ├── master_accounts.py       # 勘定科目マスタ
+│   ├── tax_constants.py         # 税制定数
+│   ├── config.py                # 設定ファイル読み込み
+│   ├── hashing.py               # ハッシュユーティリティ
+│   └── duplicate_detection.py   # 重複検出ロジック
+├── tests/
+│   ├── unit/                    # ユニットテスト
+│   ├── scripts/                 # CLI テスト
+│   ├── integration/             # 統合テスト
+│   ├── fixtures/                # テストフィクスチャ
+│   └── helpers/                 # テストヘルパー
+├── shinkoku.config.example.yaml # 設定ファイルテンプレート
+├── pyproject.toml
+├── Makefile
+└── uv.lock
+```
+
+### 技術スタック
+
+- Python 3.11+
+- SQLite（WAL モード）
+- Pydantic（モデル定義・バリデーション）
+- pdfplumber（PDF 読取）
+- Playwright（ブラウザ自動化フォールバック — Python `playwright` + npm `@playwright/cli`）
+- PyYAML（設定ファイル読み込み）
+- Ruff（lint / format）
+- mypy（型チェック）
+- pytest（テスト）
+
+## ライセンス
+
+MIT License -- 詳細は [LICENSE](./LICENSE) を参照してください。
+
+## コントリビュート
+
+Issue や Pull Request を歓迎します。日本語での報告・提案で構いません。
+
+- バグ報告: Issue を作成してください。再現手順があると助かります
+- 機能提案: Issue で議論した上で PR を作成してください
+- PR: `main` ブランチに対して作成してください。CI（lint + テスト）が通ることを確認してください

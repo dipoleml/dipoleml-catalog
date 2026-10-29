@@ -1,0 +1,103 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.prime-radiant-inc.iterative-development",
+  "type": "plugin",
+  "name": "Iterative Development",
+  "slug": "iterative-development",
+  "vendor": "prime-radiant-inc",
+  "description": "Iterative development methodology plugin for DipoleML — extracts requirements, defines walking skeleton, loops through audited sprints autonomously",
+  "version": "0.1.0",
+  "homepage": "https://github.com/prime-radiant-inc/iterative-development",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "autonomous-agents",
+    "claude-code-plugin",
+    "methodology"
+  ],
+  "tags": [
+    "ai-agents",
+    "autonomous-agents",
+    "claude-code",
+    "claude-code-plugin",
+    "methodology"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "prime-radiant-inc",
+    "brandName": "prime-radiant-inc",
+    "source": "https://github.com/prime-radiant-inc.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:14:30Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "prime-radiant-inc/iterative-development",
+    "url": "https://github.com/prime-radiant-inc/iterative-development",
+    "commit": "c05889aeb28f1f2c93f88232236e6ed906d32a6f",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 183,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:48:54Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Iterative Development | Iterative development methodology plugin for Claude Code — extracts requirements, defines walking skeleton, loops through audited sprints autonomously",
+        "after": "Iterative Development | Iterative development methodology plugin for DipoleML — extracts requirements, defines walking skeleton, loops through audited sprints autonomously",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

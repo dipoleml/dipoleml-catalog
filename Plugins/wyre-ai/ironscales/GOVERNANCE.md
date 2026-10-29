@@ -1,0 +1,133 @@
+# IRONSCALES plugin — governance and safety model
+
+Unofficial. Community-built plugin for the IRONSCALES API. Not
+affiliated with, endorsed by, or sponsored by the vendor.
+
+## What it connects as
+
+This plugin does not hold credentials. It reaches IRONSCALES through the
+WYRE Conduit gateway (`https://conduit.wyre.ai/v1/mcp`), which brokers
+authentication centrally and scopes every call to the tenant the
+operator is authorised for.
+
+- No IRONSCALES API key or company ID is stored on the technician's
+  machine, in this repo, or in the model's context.
+- The org's IRONSCALES credential is stored once at the gateway, so
+  replacing it is one edit rather than a change on every
+  technician's machine. There is no rotate action, though — you
+  re-submit the connect form, which overwrites the stored credential
+  in place, and nothing tracks its age or prompts you.
+
+- Every call carries operator identity, so the gateway audit log answers
+  "who classified that as legitimate" — IRONSCALES records only the API
+  account.
+- Removing someone from the organisation clears their per-vendor grants and revokes their gateway refresh tokens at once; a user deactivated in your identity provider is refused on their very next request.
+
+Confirm the live permission grant in the gateway access editor before you rely on a tier in this document. This note does not describe gateway enforcement internals.
+
+## Tool permission tiers
+
+> **Confirm the live grant in the access editor.** The grouping below is a risk reading of what these tools can do. It is not a description of gateway enforcement. Confirm the live permission grant before you rely on a tier in this table.
+
+| Tier | What it can do | Tools |
+|---|---|---|
+| **Read** | Cannot change mailbox, incident, or policy state. Safe for autonomous agents. | `ironscales_incidents_list`, `ironscales_incidents_get`, `ironscales_stats_company`, `ironscales_email_classify`, `ironscales_navigate`, `ironscales_status`, `ironscales_back` |
+| **Write** | Empty. Nothing here changes a record without also changing mail delivery or detection coverage. | — |
+| **Destructive** | Deletes mail, alters what the filter will catch in future, or notifies end users. | `ironscales_remediation_act`, `ironscales_allowlist_manage` |
+
+`ironscales_remediation_act` is destructive under every value of its
+`action` argument, not only `delete`:
+
+- `delete` removes the message from all mailboxes permanently — the
+  evidence goes with it.
+- `quarantine` moves mail out of inboxes across the tenant.
+- `block_sender` changes deliverability for every future message from
+  that address.
+- `mark_false_positive` restores a message that was classified as
+  phishing back to the users who received it.
+- `report_to_microsoft` transmits a customer's email to a third party
+  and cannot be recalled.
+
+It also accepts `notify_users`, which fans out mail to affected end
+users. That notification cannot be unsent.
+
+`ironscales_allowlist_manage` sits in the destructive tier as a
+judgement call. Adding an entry permanently exempts a sender, domain, or
+IP from phishing detection for the whole company — a silent, durable
+reduction in the customer's protection that produces no alert and no
+visible change until an attacker spoofs the exempted sender. The verb is
+benign; the blast radius is not. Reasonable operators may argue this
+belongs in Write; we would rather it require an approver.
+
+Conduit does not enforce any of that as an approval requirement. Per-call approval is a workflow you impose on your agents, and it is only as good as the agent configuration that carries it.
+
+## Recommended agent policy
+
+The safe default is **read autonomously, propose writes, never
+self-approve destructive calls.**
+
+- Read tools: allow. Triage sweeps, backlog review, and weekly
+  statistics reporting are the intended autonomous use.
+- Write tools: none exist here.
+- Destructive tools: require a named human approver per invocation. Do
+  not grant either destructive tool to scheduled or unattended agents.
+  In particular, an agent that sweeps the queue and remediates what it
+  judges malicious is one model error away from deleting a customer's
+  legitimate mail — and there is no vendor-supplied verdict on an incident
+  to check itself against, because no tool here produces one.
+
+## What it cannot reach
+
+- Only the IRONSCALES company ID mapped to the operator's gateway
+  identity. IRONSCALES scopes credentials per company, so an MSP with
+  many customers has many mappings — there is no cross-tenant query.
+- No filesystem, no shell, no other vendor's data.
+- No pre-delivery queue. IRONSCALES acts on mail already sitting in
+  mailboxes; anything a gateway held upstream is out of scope.
+- No identity actions. Remediation removes mail and blocks senders; it
+  cannot reset a credential a phish harvested.
+- Remediation reach depends on the customer's M365/Exchange integration,
+  not on this plugin's permissions. Partial success is normal and
+  reported as such.
+
+## Data handling
+
+- Responses pass through the gateway into model context for the session
+  and are not persisted by this plugin.
+- `ironscales_incidents_get` and `ironscales_incidents_list` return
+  subject lines, sender addresses, threat indicators, and recipient lists
+  and counts for a customer's real mail. `ironscales_incidents_get` is
+  vendor pass-through, so a tenant's payload may carry more — reply-to,
+  sender IP, per-URL verdicts — none of which is guaranteed.
+- `ironscales_stats_company` is vendor pass-through and typically includes
+  a most-targeted-users list: named employees of the customer, ranked by
+  how often they are attacked. Treat it as sensitive security information,
+  not a metric.
+- `ironscales_email_classify` is the inverse flow: the operator supplies
+  raw headers, plain-text and HTML bodies, and URLs, which are sent to
+  IRONSCALES for analysis. It changes no state, so it is tiered Read,
+  but it exports customer email content outbound. Do not paste content
+  from a tenant the operator is not authorised for.
+
+## Known sharp edges
+
+- **Classification changes nothing, and the name hides that.**
+  `ironscales_email_classify` takes a raw email, not an incident ID. It
+  returns a verdict and writes nothing — no incident is labelled, contained,
+  or closed by it. No tool on this server sets a verdict on an incident. An
+  agent that "classified the backlog" has contained nothing; only
+  `ironscales_remediation_act` changes state.
+- **Closed incidents reject remediation.** The resulting error reads
+  like a permissions failure. Verify status first. The four statuses are
+  `open`, `in_progress`, `pending`, and `closed`.
+- **Domain blocking is not available here.** `block_sender` covers one
+  address. An agent asked to "block the campaign's domain" cannot do it from
+  this server and must say so rather than substituting a sender block.
+- **Allowlist scope is narrower than it looks.** An entry for a single
+  address does not cover other addresses on the same domain; an agent
+  told to "allowlist this vendor" will under-deliver unless it uses a
+  domain entry — which is a much larger trust grant.
+- **Federated learning is one-way but not private-by-default.**
+  Classification decisions feed IRONSCALES' cross-tenant model. That is
+  the product working as designed, and worth stating to customers with
+  data-residency requirements.

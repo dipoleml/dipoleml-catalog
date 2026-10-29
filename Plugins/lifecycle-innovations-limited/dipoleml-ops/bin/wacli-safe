@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# wacli-safe — DEPRECATED. wacli is decommissioned.
+#
+# The Baileys whatsapp-bridge manages its own store locking internally.
+# No external lock/pause mechanism is needed. This script is a no-op shim
+# kept for backwards compatibility with any scripts that may invoke it.
+#
+# For bridge operations use mcp__whatsapp__* tools directly.
+set -euo pipefail
+
+if [[ $# -eq 0 ]]; then
+  echo "wacli-safe: wacli is decommissioned. Use mcp__whatsapp__* tools instead." >&2
+  exit 1
+fi
+
+echo "wacli-safe: wacli is decommissioned. Command ignored: $*" >&2
+echo "Use mcp__whatsapp__send_message / mcp__whatsapp__list_messages etc. instead." >&2
+exit 1

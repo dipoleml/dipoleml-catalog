@@ -1,0 +1,225 @@
+import shutil
+from datetime import datetime
+from pathlib import Path
+from types import SimpleNamespace
+from typing import List, Optional
+
+from git import Repo
+from gitlab import Gitlab
+from gitlab.v4.objects.branches import ProjectBranch
+from gitlab.v4.objects.projects import Project
+from pydantic import BaseModel, Field
+
+import config
+from config import load_config_from_file
+from handlers.analyze import AnalyzeHandler, AnalyzeHandlerConfig
+from utils import Logger
+from utils.dict import merge_dicts
+
+from .base_handler import AbstractHandler
+
+COMMIT_MESSAGE_TITLE = "[AI] Analyzer-Agent: Create/Update AI Analysis"
+IGNORED_PROJECTS: List[int] = [  # List of project IDs to ignore
+]
+
+IGNORED_SUBGROUPS: List[str] = [  # List of subgroup `names` to ignore
+]
+
+
+class JobAnalyzeHandlerConfig(BaseModel):
+    max_days_since_last_commit: Optional[int] = Field(
+        default=30,
+        description="Maximum days since last commit to consider a project for cronjob execution",
+    )
+    working_path: Optional[Path] = Field(
+        default=Path("/tmp/cronjob/projects"),
+        description="Path to clone projects for cronjob execution",
+    )
+    group_project_id: Optional[int] = Field(
+        default=3,
+        description="Group project ID to analyze",
+    )
+
+
+class JobAnalyzeHandler(AbstractHandler):
+    def __init__(self, gitlab_client: Gitlab, config: JobAnalyzeHandlerConfig) -> None:
+        super().__init__()
+
+        self._config = config
+        self._gitlab_client = gitlab_client
+
+        self._config.working_path.mkdir(parents=True, exist_ok=True)
+
+    async def handle(self):
+        Logger.info("Starting cronjob handler")
+
+        git_group = self._gitlab_client.groups.get(id=self._config.group_project_id)
+
+        for group_project in git_group.projects.list(iterator=True, include_subgroups=True):
+            try:
+                Logger.info(f"Checking project {group_project.name} (ID: {group_project.id})")
+                project = self._gitlab_client.projects.get(id=group_project.get_id())
+                if self._is_applicable_project(project):
+                    Logger.debug(f"Project {group_project.name} (ID: {group_project.id}) is applicable")
+                    await self._handle_project(project)
+            except Exception as err:
+                Logger.error(
+                    f"Error handling project {group_project.name} (ID: {group_project.id}): {err}",
+                    data={
+                        "project_id": group_project.id,
+                        "project_name": group_project.name,
+                    },
+                    exc_info=True,
+                )
+
+    def _is_applicable_project(self, project: Project) -> bool:
+        # Check if project is archived
+        if project.archived:
+            return False
+
+        # Check if project is in ignored subgroups
+        for subgroup in IGNORED_SUBGROUPS:
+            project_subgroups = project.namespace.get("full_path", "").lower().split("/")
+            if subgroup in project_subgroups:
+                return False
+
+        # Check if project is in ignored projects
+        if int(project.get_id()) in IGNORED_PROJECTS:
+            Logger.debug(f"Project {project.name} is ignored for cronjob")
+            return False
+
+        default_branch: ProjectBranch = project.branches.get(project.default_branch)
+
+        # Check if project is not updated since last analysis
+        last_commit_message = default_branch.commit.get("message", "")
+        if COMMIT_MESSAGE_TITLE in last_commit_message:
+            Logger.debug(f"Project {project.name} is not updated since last analysis")
+            return False
+
+        # Check if project is not updated since last analysis
+        if commited_at := default_branch.commit.get("committed_date"):
+            last_commit_date = datetime.fromisoformat(commited_at).replace(tzinfo=None)
+            days_since_last_commit = (datetime.now() - last_commit_date).days
+            if days_since_last_commit > self._config.max_days_since_last_commit:
+                Logger.debug(f"Project {project.name} is not updated since last analysis")
+                return False
+
+        # Check if today's branch already exists
+        branch_name = self._get_branch_name(project)
+        if project.branches.list(search=branch_name):
+            Logger.debug(f"Today's branch {branch_name} already exists")
+            return False
+
+        # Check if similar MR already exists
+        if project.mergerequests.list(
+            state="opened",
+            author_username=config.GITLAB_USER_USERNAME,
+            search=COMMIT_MESSAGE_TITLE,
+        ):
+            Logger.debug("Similar MR already exists")
+            return False
+
+        return True
+
+    async def _handle_project(self, project: Project):
+        Logger.info(f"Running cronjob for project {project.name} (ID: {project.id})")
+
+        try:
+            # Clone Project
+            repo = self._clone_project(project)
+            # # Analyze project
+            await self._analyze_project(project=project, repo=repo)
+            # Create MR
+            await self._create_merge_request(project=project, repo=repo)
+            # Cleanup
+        finally:
+            self._cleanup_project(project=project, repo=repo)
+
+    def _clone_project(self, project: Project) -> Repo:
+        Logger.info(f"Cloning project {project.name} (ID: {project.id})")
+
+        git_url = project.http_url_to_repo
+
+        project_dir = self._config.working_path / f"{project.name}-{project.id}"
+
+        if project_dir.exists():
+            Logger.debug(f"Removing existing project directory {project_dir}")
+            shutil.rmtree(project_dir, ignore_errors=True)
+
+        repo = Repo.clone_from(
+            url=git_url,
+            to_path=self._config.working_path / f"{project.name}-{project.id}",
+            branch=project.default_branch,
+        )
+
+        repo.git.config("user.name", config.GITLAB_USER_NAME)
+        repo.git.config("user.email", config.GITLAB_USER_EMAIL)
+
+        branch_name = self._get_branch_name(project)
+        repo.git.checkout("-b", branch_name)
+
+        Logger.debug(f"Cloned project {project.name} to branch {branch_name}")
+
+        return repo
+
+    async def _analyze_project(self, project: Project, repo: Repo):
+        Logger.info(f"Analyzing project {project.name} (ID: {project.id})")
+
+        # Create an args object for config loading
+        args = SimpleNamespace(repo_path=repo.working_dir, config=None)
+        project_config = load_config_from_file(args, "analyzer")
+
+        # Base config with cronjob defaults
+        base_config = {
+            "repo_path": Path(repo.working_dir),
+        }
+
+        # Merge project config with base config (project config takes precedence)
+        final_config = merge_dicts(base_config, project_config)
+
+        analyzer = AnalyzeHandler(config=AnalyzeHandlerConfig(**final_config))
+
+        await analyzer.handle()
+
+    async def _create_merge_request(self, project: Project, repo: Repo):
+        Logger.info(f"Creating merge request for project {project.name} (ID: {project.id})")
+
+        repo.git.add(".")
+        commit_message = f"{COMMIT_MESSAGE_TITLE} [skip ci]\n\nAnalyzer Version: {config.VERSION}"
+
+        repo.git.commit("-m", commit_message)
+        repo.git.push("origin", repo.active_branch.name, "-f")
+
+        mr = project.mergerequests.create(
+            {
+                "source_branch": repo.active_branch.name,
+                "target_branch": project.default_branch,
+                "title": f"{COMMIT_MESSAGE_TITLE} for {project.name} - {datetime.now().strftime('%Y-%m-%d')} [skip ci]",
+                "description": f"This merge request contains Updated AI analysis results.\n\n"
+                f"Analyzer Version: `{config.VERSION}`\n\n"
+                "**Note:** This merge request is automatically created by the AI Analyzer Agent.",
+            }
+        )
+
+        Logger.debug(
+            f"Created merge request {mr.id} for project {project.name} (ID: {project.id})",
+            data={
+                "merge_request_id": mr.id,
+                "merge_request_title": mr.title,
+                "web_url": mr.web_url,
+            },
+        )
+
+    def _cleanup_project(self, project: Project, repo: Repo):
+        Logger.info(f"Cleaning up project {project.name} (ID: {project.id})")
+
+        repo.close()
+        repo.git.clear_cache()
+
+        project_path = Path(repo.working_dir)
+        shutil.rmtree(project_path, ignore_errors=True)
+
+        Logger.debug(f"Cleaned up project {project.name} at {project_path}")
+
+    def _get_branch_name(self, project: Project) -> str:
+        return f"ai-analyzer-{datetime.now().strftime('%Y-%m-%d')}"

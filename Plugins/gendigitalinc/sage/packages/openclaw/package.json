@@ -1,0 +1,76 @@
+{
+  "name": "@gendigital/sage-openclaw",
+  "license": "Apache-2.0",
+  "version": "0.14.0",
+  "type": "module",
+  "description": "Safety for Agents — ADR layer for OpenClaw",
+  "homepage": "https://github.com/gendigitalinc/sage",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gendigitalinc/sage.git",
+    "directory": "packages/openclaw"
+  },
+  "bugs": {
+    "url": "https://github.com/gendigitalinc/sage/issues"
+  },
+  "main": "./dist/index.cjs",
+  "files": [
+    "dist/**",
+    "resources/**",
+    "openclaw.plugin.json",
+    "package.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "pnpm run clean && pnpm run sync:assets && node esbuild.config.js",
+    "clean": "node ../../scripts/clean.mjs dist resources",
+    "prepack": "node ../../scripts/check-workspace-refs.mjs",
+    "sync:assets": "node scripts/sync-assets.mjs",
+    "test": "vitest run"
+  },
+  "optionalDependencies": {
+    "koffi": "^2.9.0"
+  },
+  "devDependencies": {
+    "@gendigital/sage-core": "workspace:*",
+    "@gendigital/sage-mcp": "workspace:*",
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.9.0",
+    "vitest": "^4.0.0"
+  },
+  "openclaw": {
+    "extensions": [
+      "./dist/index.cjs"
+    ],
+    "compat": {
+      "pluginApi": ">=2026.3.28"
+    },
+    "activation": {
+      "onCapabilities": [
+        "hook"
+      ]
+    },
+    "build": {
+      "openclawVersion": "2026.3.28"
+    }
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "openclaw",
+    "openclaw-plugin",
+    "security",
+    "adr",
+    "agent-security",
+    "safety",
+    "malware-detection",
+    "skill",
+    "ai-safety"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
+}

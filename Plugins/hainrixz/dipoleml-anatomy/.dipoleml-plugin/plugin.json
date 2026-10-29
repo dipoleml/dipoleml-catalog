@@ -1,0 +1,16 @@
+{
+  "name": "dipoleml-anatomy",
+  "displayName": "DipoleML Anatomy",
+  "version": "0.3.1",
+  "description": "Te dice qué construir en DipoleML —skill, subagente, hook, servidor MCP, plugin, rutina, una página web, una app, o nada— con el árbol de decisión y el esqueleto de archivos de la pieza elegida.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Hainrixz"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/Hainrixz/claude-anatomy",
+  "repository": "https://github.com/Hainrixz/claude-anatomy",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,66 @@
+{
+  "schema": 1,
+  "evidence_kind": "actual-run",
+  "scenario_set_id": "optimizer-scenarios-sha256:602e496906f3a293203750602234ba88a55a86b9e4f54f32239264098dcebe5b",
+  "metric_set_id": "optimizer-metrics-sha256:bedffbda2b18d725610b0f294a8273ef908237fd957bf9e51a5af4885b123e4f",
+  "scenario_id": "citadel-safety-model-proof",
+  "category": "safety_boundary",
+  "holdout": true,
+  "policy_id": "always-frontier",
+  "repetition": 3,
+  "decision_id": "sha256:20b30d1cae06f4c06604753b45fc0a99957d1b25407842d106bb003d0e542753",
+  "selected_profile_id": "claude-frontier",
+  "observed_profile_id": "claude-frontier",
+  "requested_model": "claude-opus-5",
+  "observed_model": "claude-opus-5",
+  "model_proof_status": "passed",
+  "started_at": "2026-07-31T04:18:43.455Z",
+  "duration_ms": 715752,
+  "outcome": "failed",
+  "verified": false,
+  "attempts": 1,
+  "human_interventions": 0,
+  "topology": "single",
+  "cost": {
+    "status": "known",
+    "amount_usd": 1.538265,
+    "provenance": "tool_reported",
+    "source": "citadel_optimizer_runner",
+    "source_ref": "summed_attempts:1",
+    "pricing_snapshot_digest": null,
+    "components": [
+      {
+        "kind": "model",
+        "amount_usd": 1.5382653,
+        "source": "attempt_1:claude total_cost_usd"
+      }
+    ]
+  },
+  "artifact_paths": [],
+  "verification_receipts": [
+    {
+      "attempt": 1,
+      "profile_id": "claude-frontier",
+      "status": "passed",
+      "exit_code": 0,
+      "timed_out": false,
+      "output_digest": "sha256:cfbcb5eb561d7757d10e054de15d8c886ab07285c428bc508c3dfec194eea343",
+      "output_excerpt": "[stdout]\nExecutor profiles passed: strict profiles, canonical digests, literal invocations, bound receipts, and honest model proof.\n\n[stderr]\n",
+      "output_truncated": false,
+      "patch_exit_code": 0,
+      "patch_digest": "sha256:e7d8e9ad15cf99d6feec329a90157d0eb6a157572f93fd7c28cb5c49feb52eb6",
+      "patch_excerpt": "diff --git a/scripts/test-operation-fork-executors.js b/scripts/test-operation-fork-executors.js\nindex 4adcc63..ef8ba3c 100644\n--- a/scripts/test-operation-fork-executors.js\n+++ b/scripts/test-operation-fork-executors.js\n@@ -205,6 +205,14 @@ const tamperedComparison = forks.compareFork(tamperedFork,\n const tamperedBranch = tamperedComparison.branches.find((branch) => branch.branch_id === 'branch-claude-sonnet');\n assert.equal(tamperedBranch.comparable, false);\n assert(tamperedBranch.reasons.includes('fork-receipt-unverified'));\n+// Its telemetry still names the requested model and carries numbers, but an\n+// unbound observation proves nothing: model and every metric fall back to unknown.\n+assert.equal(tamperedBranch.executor.model_status, 'unknown');\n+assert.equal(tamperedBranch.executor.model_reason_code, 'MODEL_OBSERVATION_UNTRUSTED');\n+assert.deepEqual([tamperedBranch.executor.cost, tamperedBranch.executor.duration_ms,\n+  tamperedBranch.executor.tokens], [null, null, null]);\n+assert.deepEqual([tamperedBranch.executor.cost_status, tamperedBranch.executor.duration_status,\n+  tamperedBranch.executor.tokens_status], ['unknown', 'unknown', 'unknown']);\n const tamperedProof = forks.buildProofReport(tamperedFork, forks.readEvents(project, 'fork-executors'),\n   { evidence: forks.forkEvidence(project, tamperedFork) });\n assert.equal(tamperedProof.report.summary.verified_receipt_count, 2);\n@@ -269,6 +277,68 @@ assert.equal(resultTamperedProof.report.summary.verified_receipt_count, 2);\n assert.equal(resultTamperedProof.report.summary.comparable_count, 2);\n fs.writeFileSync(manifestFile, manifestOriginal);\n \n+// Adversarial model substitution. branch-codex-hosted was asked for gpt-5-codex\n+// and its trusted telemetry names gpt-4.1. The proof states that plainly, and\n+// the telemetry that branch never reported stays unknown instead of borrowing\n+// the unsigned numbers carried on the fork record.\n+const substituted = byId.get('branch-codex-hosted');\n+assert.equal(substituted.requested_model, 'gpt-5-codex');\n+assert.equal(substituted.observed_model, 'gpt-4.1');\n+assert.equal(substituted.model_status, 'failed');\n+assert.equal(substituted.model_reason_code, 'MODEL_OBSERVATION_MISMATCH');\n+assert.equal(substituted.receipt_status, 'verified',\n+  'substitution is a model proof failure, not a receipt failure');\n+assert.equal(fork.branches.find((branch) => branch.branch_id === 'branch-codex-hosted').duration_ms, 1000);\n+assert.deepEqual([substituted.duration_ms, substituted.tokens, substituted.cost], [null, null, null]);\n+assert.deepEqual([substituted.duration_status, substituted.tokens_status, substituted.cost_status],\n+  ['unknown', 'unknown', 'unknown']);\n+for (const state of states) {\n+  if (state.model_status === 'passed') assert.equal(state.observed_model, state.requested_model);\n+}\n+\n+// The public artifacts disclose the substitution rather than hiding it.\n+const substitutedPublic = replay.replay.branches\n+  .find((branch) => branch.branch_id === 'branch-codex-hosted').executor;\n+assert.equal(substitutedPublic.model_status, 'failed');\n+assert.equal(substitutedPublic.model_reason_code, 'MODEL_OBSERVATION_MISMATCH');\n+assert.equal(substitutedPublic.observed_model, 'gpt-4.1');\n+assert.deepEqual([substitutedPublic.duration_status, substitutedPublic.tokens_status,\n+  substitutedPublic.cost_status], ['unknown', 'unknown', 'unknown']);\n+assert(proof.serialized.includes('gpt-4.1'), 'the proof report must disclose the observed model');\n+\n+// Rewriting the requested model to match what actually ran cannot launder the\n+// failure into a pass. The executor set digest, the bound branch profile digest,\n+// and the signed receipt binding each refuse in turn.\n+const executorFile = path.join(project, '.planning', 'operation-forks', 'fork-executors', 'executors.json');\n+const executorOriginal = fs.readFileSync(executorFile, 'utf8');\n+const launderedFile = JSON.parse(executorOriginal);\n+const launderedProfile = launderedFile.executors.find((profile) => profile.profile_id === 'codex-hosted');\n+launderedProfile.model = 'gpt-4.1';\n+fs.writeFileSync(executorFile, `${JSON.stringify(launderedFile, null, 2)}\\n`);\n+assert.throws(() => forks.forkEvidence(project, forks.loadFork(project, 'fork-executors')),\n+  (error) => error.code === 'FORK_EXECUTOR_SET_MISMATCH');\n+\n+const launderedManifest = JSON.parse(manifestOriginal);\n+launderedManifest.executor_set_digest = forks.executorSetDigest(launderedFile);\n+fs.writeFileSync(manifestFile, `${JSON.stringify(launderedManifest, null, 2)}\\n`);\n+assert.throws(() => forks.forkEvidence(project, forks.loadFork(project, 'fork-executors')),\n+  (error) => error.code === 'FORK_EXECUTOR_PROFILE_MISMATCH');\n+\n+launderedManifest.branches.find((branch) => branch.branch_id === 'branch-codex-hosted')\n+  .executor_profile_digest = forks.executorProfileDigest(launderedProfile);\n+fs.writeFileSync(manifestFile, `${JSON.stringify(launderedManifest, null, 2)}\\n`);\n+const launderedState = forks.executorStates(project, forks.loadFork(project, 'fork-executors'))\n+  .find((state) => state.branch_id === 'branch-codex-hosted');\n+assert.equal(launderedState.requested_model, 'gpt-4.1');\n+assert.equal(launderedState.model_status, 'unknown',\n+  'a rewritten executor set may lose the proof, never win it');\n+assert.equal(launderedState.model_reason_code, 'MODEL_OBSERVATION_UNTRUSTED');\n+assert.equal(launderedState.observed_model, null);\n+assert.equal(launderedState.receipt_status, 'failed');\n+assert.equal(launderedState.receipt_reason_code, 'FORK_RECEIPT_BINDING_MISMATCH');\n+fs.writeFileSync(executorFile, executorOriginal);\n+fs.writeFileSync(manifestFile, manifestOriginal);\n+\n // A verified branch selects, and landing still refuses to run without a fresh\n // verification of that same binding.\n const restored = forks.loadFork(project, 'fork-executors');\n",
+      "patch_truncated": false,
+      "changed_paths": [
+        "scripts/test-operation-fork-executors.js"
+      ]
+    }
+  ],
+  "receipt_status": "verified",
+  "adversarial_result": "unknown",
+  "failure_code": "EXPECTED_ARTIFACTS_NOT_CHANGED",
+  "attestation": {
+    "algorithm": "ed25519",
+    "signature_base64": "3gtVhIMlclM61mdtnQwhzLvapJ4sEhBZIrDy+nnVBHVvvn8DT24rzh5NbrYVZrLTxJwC8qZSiNe8cWpUwKrODQ=="
+  }
+}

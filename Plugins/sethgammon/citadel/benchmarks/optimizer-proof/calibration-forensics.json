@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "kind": "citadel_optimizer_calibration_forensics",
+  "observed_at": "2026-07-30",
+  "model_calls_made": 0,
+  "scenario_id": "p-limit-cleanup-pending",
+  "repository": "https://github.com/sindresorhus/p-limit.git",
+  "pinned_ref": "df476048d023ff868cd45b35ee47f5fb0ca2b25a",
+  "environment": {
+    "platform": "win32",
+    "node": "v22.17.1",
+    "npm": "10.9.2"
+  },
+  "original_setup_command": ["npm", "install", "--ignore-scripts"],
+  "original_verification_command": ["npm", "test"],
+  "original_verifier_baseline": {
+    "exit_code": 1,
+    "task_tests_reached": false,
+    "failure_classes": [
+      "UNRELATED_TODO_LINT_WARNING",
+      "TYPESCRIPT_PROJECT_SERVICE_PARSE_ERROR"
+    ]
+  },
+  "task_focused_baseline": {
+    "command": ["npx", "--no-install", "ava", "test.js"],
+    "exit_code": 1,
+    "passed_tests": 21,
+    "failed_tests": 1,
+    "unhandled_rejections": 1,
+    "failure_class": "CLEAR_QUEUE_ABORT_REJECTION"
+  },
+  "reference_repair": {
+    "changed_artifacts": ["index.js", "test.js"],
+    "patch_digest": "sha256:996027c55996354bcc05476421d025e2493f63b59e1ac50ef063790e49130fd5",
+    "verification_command": ["npx", "--no-install", "ava", "test.js"],
+    "exit_code": 0,
+    "passed_tests": 22,
+    "failed_tests": 0,
+    "unhandled_rejections": 0
+  },
+  "conclusion": "The completed calibration established executor identity, receipt, and cost telemetry, but its 0/4 task result is not interpretable as model quality because the original full verifier failed on unrelated tooling before reaching the task tests. The task-focused verifier fails on the queue bug and passes after a bounded repair touching both expected artifacts."
+}

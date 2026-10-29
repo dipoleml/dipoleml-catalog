@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "kind": "citadel_optimizer_calibration_plan",
+  "scenario_ids": [
+    "p-limit-cleanup-pending"
+  ],
+  "profile_ids": [
+    "codex-utility",
+    "claude-workhorse",
+    "claude-frontier",
+    "codex-frontier"
+  ],
+  "runs_per_pair": 1,
+  "total_runs": 4,
+  "no_holdouts": true,
+  "access_basis": "subscription",
+  "quota_budget": {
+    "max_cli_runs": 4,
+    "max_model_runtime_minutes": 160
+  },
+  "approval_status": "completed",
+  "quota_acknowledged": true,
+  "approved_by": "Seth Gammon",
+  "approved_at": "2026-07-30T14:22:41.597Z",
+  "record_digest": "sha256:007953799c8422a61cca18abd28f54433d12f3fa63e8fdaf6fbf1fc8a498282c"
+}

@@ -1,0 +1,24 @@
+{
+  "name": "showtime",
+  "owner": {
+    "name": "Favio Vazquez"
+  },
+  "metadata": {
+    "description": "showtime: a local video studio for your coding agent",
+    "version": "0.4.6"
+  },
+  "plugins": [
+    {
+      "name": "showtime",
+      "source": "./",
+      "description": "A local video studio for your coding agent. Describe a video. Your agent directs. Your machine renders. Motion graphics, voice-over, music, footage editing, captions and platform-ready exports, with no cloud AI services or API keys.",
+      "version": "0.4.6",
+      "author": {
+        "name": "Favio Vazquez"
+      },
+      "license": "MIT",
+      "keywords": ["video", "motion-graphics", "tts", "music", "captions", "ffmpeg"],
+      "category": "media"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "name": "app-it-windows",
+  "displayName": "App It Windows",
+  "version": "0.2.0",
+  "description": "Turn local web projects into Windows Start Menu launchable .exe apps. Beta · first real-hardware fixes landed · maintainer wanted.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Christian Katzmann"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/Christian-Katzmann/app-it/blob/main/docs/WINDOWS.md",
+  "repository": "https://github.com/Christian-Katzmann/app-it",
+  "skills": "./skills/",
+  "commands": [],
+  "agents": []
+}

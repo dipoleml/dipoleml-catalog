@@ -1,0 +1,16 @@
+{
+  "name": "video-recap-skills",
+  "displayName": "Video Recap Skills",
+  "version": "0.6.2",
+  "description": "Independent stages plus a thin orchestrator for Chinese-narration recaps from supported video files: local Python/ffmpeg; remote Xiaomi MiMo ASR, VLM, and default TTS; optional Fish Audio TTS with a separate API key or a self-hosted HTTP TTS endpoint; final playback review required.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Zenstory Ai"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/zenstory-ai/video-recap-skills",
+  "repository": "https://github.com/zenstory-ai/video-recap-skills",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

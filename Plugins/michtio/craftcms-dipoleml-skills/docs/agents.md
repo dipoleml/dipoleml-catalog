@@ -1,0 +1,398 @@
+# Agents
+
+Six specialized sub-agents, each with a dedicated model, effort level, and tool scope. Agents are invoked from within Claude Code to handle specific types of work. Each preloads the skills it needs on every run and loads the rest on demand through the Skill tool, and enforces project conventions.
+
+Models are set with the `opus` / `sonnet` aliases, so agents follow each family to its current version instead of pinning one. Builders list both `TodoWrite` and the `Task*` tools because a background subagent keeps only `TodoWrite`, while a foreground one inherits whichever the main session has. Agents with a browser-verification step list `mcp__chrome-devtools`; it resolves only when Chrome DevTools MCP is installed (see the `ddev` skill). Plugin subagents ignore `hooks`, `mcpServers`, and `permissionMode`, so none are set. See the [subagents docs](https://code.claude.com/docs/en/sub-agents) for the frontmatter fields.
+
+## When to Use Agents
+
+Use agents when work is scoped and repeatable. A single conversation can delegate to multiple agents -- plan with the planner, build with the builder, review with the reviewer.
+
+| Situation | Agent |
+|-----------|-------|
+| Breaking a feature into implementation steps | `craft-planner` |
+| Building a new plugin feature (elements, services, controllers) | `craft-feature-builder` |
+| Building site templates, components, or content architecture | `craft-site-builder` |
+| Investigating a bug or unexpected behavior | `craft-debugger` |
+| Reviewing code before merge | `craft-code-reviewer` |
+| Deep review of a high-stakes change (release branch, security-sensitive code, migrations, multi-service flows) | `craft-code-reviewer-deep` |
+
+For complex work (more than 3 steps), always plan first, then build. The planner's output feeds directly into the builder.
+
+---
+
+## craft-planner
+
+**Model:** Opus (`high` effort)
+**Tools:** Read, Grep, Glob, Bash, WebFetch, Skill (read-only on the project — Bash for `git`/`gh` research and clones into the research folder)
+**Skills preloaded:** `craftcms` (others on demand: `craft-pest`, `craft-content-modeling`, `craft-garnish`, `craft-plugins`, `craft-cloud`, `servd`)
+
+Breaks large tasks into scoped implementation steps that can each be completed in a single session.
+
+### What it does
+
+1. Reads the high-level requirement
+2. Identifies all affected areas (elements, queries, services, controllers, migrations, templates, project config, tests)
+3. Maps dependencies -- what must be built first
+4. Breaks work into steps of roughly equal size
+5. Returns the plan, headed with its intended path `docs/plans/{feature-name}.md`, for the caller to save (the planner has no Write tool)
+
+### Plan format
+
+Each step includes:
+- Files to create or modify (exact paths)
+- Dependencies on previous steps
+- Which `ddev craft make` command to scaffold with
+- A **verification gate** -- a runnable command with expected outcome (not "looks right")
+- Estimated complexity: small (< 15 min), medium (15-30 min), large (30-45 min)
+
+### Rules
+
+- Each step's verification gate must be a runnable command. "Check that it works" is not a gate -- `ddev craft migrate/up` succeeds and shows the new table" is a gate.
+- Steps are ordered so each layer can be verified before the next depends on it: migrations before records, records before services, services before controllers.
+- No step may require a later step to verify itself.
+- Architectural decisions are surfaced as explicit decision points, not buried as assumptions.
+- Multi-site implications and project config impacts are flagged.
+- Auth level is asked upfront: public, any user, admin, or permission-gated.
+
+### Example delegation
+
+```
+Plan the implementation of a Job Listings custom element type with
+department relations, salary range, and a full CP edit page.
+```
+
+---
+
+## craft-feature-builder
+
+**Model:** Opus (`high` effort)
+**Tools:** Read, Write, Edit, Bash, Grep, Glob, Skill, WebFetch, TodoWrite, TaskCreate, TaskUpdate, TaskList, ToolSearch, `mcp__chrome-devtools`
+**Skills preloaded:** `craftcms`, `craft-php-guidelines`, `craft-pest` (on demand: `craft-garnish` for CP JavaScript, `ddev`)
+
+Builds production-quality plugin code following project architecture. Receives implementation plans and executes them layer by layer.
+
+### The Build-Verify Gate Pattern
+
+This is the core discipline. Each layer must pass its gate before the next layer starts. The builder never writes five files and verifies at the end -- that compounds debugging complexity.
+
+**Gate order for plugin work:**
+
+1. **Migration** -- `ddev craft migrate/up` succeeds, schema exists
+2. **Record / Model** -- class resolves, `ddev craft` doesn't throw on boot
+3. **Service** -- its Pest test, written alongside it, is green (`--filter=MyServiceTest`)
+4. **Controller** -- its HTTP test is green; permission-gated users get 403
+5. **CP templates** -- edit/index pages render without Twig errors
+6. **Full suite** -- every test green, not just the new ones
+7. **Simplification pass** -- collapse nesting, remove debug artifacts, verify PHPDocs
+8. **Final verification** -- `ddev composer check-cs` + `ddev composer phpstan` clean
+
+Pest always runs from the plugin's own root, because craft-pest-core reads the plugin's `phpunit.xml.dist` `<env>` database pins from the working directory. A run from the host project root (including `ddev craft pest -- --configuration=…`) tests against the development database. See the `craft-pest` skill's `references/isolation.md`.
+
+```bash
+# Plugin inside a host project
+ddev exec --dir /var/www/html/vendor/{vendor}/{plugin} vendor/bin/pest
+# Plugin with its own DDEV project
+ddev exec --dir /var/www/html vendor/bin/pest
+```
+
+A gate is "I ran the thing and saw it work." If a gate fails, the builder stops and fixes before moving on. It never plasters over a failed gate.
+
+### Mandatory todo list
+
+When a plan has more than 3 steps, the builder creates a todo list (TodoWrite or the Task tools, whichever its run has) before writing any code. One todo per plan step. A step is marked `completed` only after its verification gate passes -- never batch-completed.
+
+### Prevention rules
+
+The builder enforces these rules that the reviewer will flag if violated:
+
+- `andWhere()` not `where()` on element queries
+- No hardcoded site IDs
+- `$allowAnonymous` lists specific actions, never blanket `true`
+- No `$e->getMessage()` returned to anonymous users
+- Permission handles as class constants
+- Cached badge counts in `getCpNavItem()`
+- `Gc::EVENT_RUN` for cleanup, not synchronous hooks
+- Conditional asset bundle registration
+- No `|raw` on admin content in `<style>`/`<script>`
+- All query properties wired in `beforePrepare()`
+- Twig extension functions return, not echo
+- `addSelect()` not `select()`, `site('*')` in queue workers
+- `Db::parseParam()` for user input
+- Idempotent migrations with `muteEvents`
+- No improvised CP UI — copy the core/vendor idiom and cite the template matched
+- Restructures re-verify standing behavioral decisions, not just routes/tests
+
+### Simplification pass
+
+After all gates pass, the builder does one sweep on files it just wrote (while context is fresh):
+- Collapse nesting with early returns
+- Remove temporary debug variables
+- Simplify conditionals (`match` over `switch`)
+- Delete dead code and unused imports
+- Verify section headers and PHPDocs
+- Re-run ECS and PHPStan
+
+### Example delegation
+
+```
+Build the Job Listings element type following the plan in docs/plans/job-listings.md
+```
+
+---
+
+## craft-site-builder
+
+**Model:** Opus (`high` effort)
+**Tools:** Read, Write, Edit, Bash, Grep, Glob, Skill, WebFetch, TodoWrite, TaskCreate, TaskUpdate, TaskList, ToolSearch, `mcp__chrome-devtools`
+**Skills preloaded:** `craft-site`, `craft-twig-guidelines`, `craft-content-modeling` (on demand: `craft-plugins`, `craft-cloud`, `servd`, `ddev`)
+
+Builds site templates, content architecture, and component systems following atomic design principles.
+
+### The Build-Verify Gate Pattern (Site Edition)
+
+Adapted for site work, but the same discipline applies -- verify each layer before composing the next.
+
+**Gate order for site work:**
+
+1. **Content model** -- sections, entry types, fields created. Verified in CP.
+2. **Sample content** -- at least one entry per type exists for rendering
+3. **Atoms** -- render standalone in a scratch template without errors
+4. **Molecules** -- render with real atom compositions, props flow correctly
+5. **Organisms / layouts** -- full-page render succeeds, no Twig errors
+6. **Routes / views** -- actual page load returns expected HTML
+7. **Eager loading audit** -- Elements Panel shows no N+1 on relational fields
+8. **Responsive / a11y check** -- after content renders correctly
+
+### What it does well
+
+- Plans content models and presents them as decision tables before implementing
+- Builds atoms before molecules before organisms (never top-down)
+- Enforces `only` on every `{% include %}`
+- Uses `.eagerly()` on every relational field in loops
+- Applies atomic design naming (by visual treatment, not parent context)
+- Uses `collect({})` for props and class collections
+- Handles Matrix block rendering with `ignore missing`
+
+### What it never does
+
+- Install plugins without approval
+- Write PHP plugin/module code (that's `craft-feature-builder`)
+- Skip eager loading on relational fields
+- Use macros for UI components
+- Hardcode content that should come from fields
+
+### Example delegation
+
+```
+Build the blog listing and detail templates with a card component,
+topic filtering, and pagination.
+```
+
+---
+
+## craft-debugger
+
+**Model:** Sonnet (`high` effort)
+**Tools:** Read, Write, Edit, Bash, Grep, Glob, Skill, WebFetch, ToolSearch, `mcp__chrome-devtools`
+**Skills preloaded:** `craftcms`, `craft-php-guidelines`, `craft-pest` (on demand: `craft-garnish`, `craft-site`, `craft-twig-guidelines`, `ddev`, `craft-cloud`, `servd`, `craft-plugins`)
+
+Systematic bug investigation with a hypothesis-driven approach.
+
+### Debugging workflow
+
+1. **Reproduce** -- understand the exact steps, read error logs and queue failures
+2. **Hypothesize** -- form 2-3 possible explanations before reading code
+3. **Investigate** -- read relevant code, check `storage/logs/`, run targeted tests
+4. **Isolate** -- write a minimal failing test that captures the bug
+5. **Fix** -- make the smallest change that fixes the issue
+6. **Verify** -- regression test red before the fix and green after, then ECS, PHPStan, and the full test suite (run from the plugin's own root)
+
+### Craft-specific investigation points
+
+The debugger knows where to look for common Craft issues:
+
+- **Element not found?** Check site context -- queue workers run in primary site. Try `->site('*')->status(null)`.
+- **Project config drift?** Compare YAML with database via `ddev craft project-config/diff`.
+- **Migration failed?** Check for stale mutex locks in `cache` table.
+- **Queue job failing silently?** Check `ddev craft queue/info` and Craft logs for TTR timeouts.
+- **Element status wrong?** Status is computed from dates/conditions, not stored -- check `getStatus()`.
+
+### Rules
+
+- Always writes a regression test before fixing
+- Backs every conclusion with evidence (file:line, log line, test output)
+- Never fixes a symptom without finding the root cause
+- States what has been ruled out if the cause is not found
+
+### Example delegation
+
+```
+The sync queue job is failing silently on the staging server. No errors
+in the queue log, but entries aren't being updated. Investigate.
+```
+
+---
+
+## craft-code-reviewer
+
+**Model:** Sonnet (`high` effort)
+**Tools:** Read, Grep, Glob, Bash, Skill, ToolSearch, `mcp__chrome-devtools` (read-only — Bash for `git diff`/`log`/`show`/`blame` only)
+**Skills preloaded:** `craftcms`, `craft-php-guidelines` (loaded by diff type: `craft-twig-guidelines` + `craft-site` for Twig, `craft-garnish` for CP JS, `craft-pest` for tests, `craft-cloud` for Cloud projects, `craft-plugins` for named plugins)
+
+Code review with a structured findings report. Read-only -- it never modifies files.
+
+### Review workflow
+
+1. Identify changed files via `git diff`
+2. Classify the diff and load the skills it needs
+3. Read each changed file thoroughly
+4. Check against the checklist
+5. Generate a findings report grouped by severity
+
+### Report format
+
+- **Critical** (must fix before merge) -- security issues, data integrity risks, broken conventions
+- **Important** (should fix) -- missing PHPDocs, incomplete `@throws`, architectural violations, new branches without tests
+- **Suggestions** (nice to have) -- naming improvements, simplification opportunities
+
+It reports every issue that could cause incorrect behaviour, a security gap, data loss, or a test failure, including uncertain ones marked `Verify:`, and omits only style preferences no skill states as a rule.
+
+### The checklist
+
+**Security (5 checks):**
+1. `$allowAnonymous` uses specific action names, never blanket `true`
+2. Exception messages never returned to anonymous users
+3. `|raw` in CP templates reviewed for XSS
+4. Permission handles match between registration and checking
+5. `Db::parseParam()` for user input
+
+**Query safety (5 checks):**
+6. `addSelect()` not `select()`
+7. `andWhere()` not `where()`
+8. No hardcoded site IDs
+9. All query class properties wired in `beforePrepare()`
+10. `site('*')` in queue workers
+
+**Performance (4 checks):**
+11. `getCpNavItem()` badge counts are cheap
+12. No synchronous cleanup in `init()`
+13. `defineSources()` uses aggregate queries
+14. Asset bundles registered conditionally
+
+**Code quality (5 checks):**
+15. PHPDoc completeness on every class, method, property
+16. Section headers present and correct
+17. Early returns, `match` over `switch`
+18. Twig extensions return (not echo), delegate to services
+19. Migration safety: idempotent, `muteEvents`
+
+### CP JavaScript checks (when JS files are in scope)
+
+- Classes extend `Garnish.Base`
+- Listeners use `addListener()`, not jQuery `.on()`
+- Non-button elements use `activate` event, not `click`
+- Key codes use Garnish constants
+- ESC handling through `uiLayerManager`
+- Webpack uses externals for Garnish
+- `destroy()` calls `this.base()`
+- Deprecated APIs flagged
+
+### Test checks (when tests are in scope)
+
+- `craft-pest` isolation checklist: `RefreshesDatabase` bound, DB pins present, suite invoked from the plugin's own root. A suite that can reach a real database is **Critical**.
+- New branches without tests, or tests that would pass with the change reverted, are **Important**.
+
+### Example delegation
+
+```
+Review the changes in the job-listings branch before I open a PR.
+```
+
+---
+
+## craft-code-reviewer-deep
+
+**Model:** Opus (`xhigh` effort)
+**Tools:** Read, Grep, Glob, Bash, Skill (read-only — Bash for `git diff`/`log`/`show`/`blame` only)
+**Skills preloaded:** `craftcms`, `craft-php-guidelines`, `craft-garnish`, `craft-twig-guidelines`, `craft-site`, `craft-pest` (on demand: `craft-plugin-release` when the branch bumps a version or touches tags/changelog dating, `craft-cloud`, `servd`, `craft-plugins`)
+
+The deep-review counterpart to `craft-code-reviewer`. The standard reviewer (Sonnet) catches checklist violations per file; this one (Opus, xhigh) catches what surface pattern-matching misses. Use it when the extra scrutiny is worth the token cost — release branches, security-sensitive code, large architectural changes, migrations, multi-service flows. Use the standard reviewer for daily review.
+
+### Where it looks that the standard reviewer doesn't
+
+- **Cross-file data flow** — traces request data controller → service → element → DB to catch multi-file authorization gaps and TOCTOU escalations.
+- **Untested paths** — reads the test suite and identifies new branches, exception paths, and negative cases the diff doesn't cover, and checks the harness against the `craft-pest` isolation checklist.
+- **Architecture** — whether the abstraction is right, whether a service should exist, whether a migration can roll back.
+- **Race conditions & transaction boundaries** — read-then-write without locking, resaves inside loops without `muteEvents`, single-worker assumptions in queue jobs.
+- **N+1 at production scale** — eager-loading gaps in services called from loops elsewhere, with the math run at real data volume.
+- **Semantic correctness** — does the code do what was *intended*, including empty arrays, soft-deleted parents, disabled multi-site, drafts.
+- **Migration safety at scale** — add-column on million-row tables, unbatched long migrations, index additions that lock.
+- **Plugin lifecycle correctness** — settings that mutate mid-request, events wired after they fire, DB hits during plugin boot.
+
+### Discipline
+
+It does not fabricate runtime bugs from generic framework intuition — claims about state staleness, DI timing, or cache lifecycle must trace through Craft's actual Yii2 source, or they're downgraded to "Verify". Depth means *more accurate*, not longer: a correct one-line finding beats a three-paragraph speculation.
+
+### Report format
+
+Same severity grouping as the standard reviewer (Critical / Important / Suggestions), but each finding adds *why it matters at depth* — the subtle issue surface scanning would miss. Read-only; never modifies files.
+
+### Example delegation
+
+```
+Deep-review the release/1.6.0 branch before tagging — it touches migrations,
+the asset filesystem, and the permission layer.
+```
+
+---
+
+## Prevention/Detection Parity
+
+The builder and reviewer are designed as complementary pairs. The builder's prevention rules map to the reviewer's checklist items. Everything the builder prevents, the reviewer detects -- and vice versa.
+
+This means code built by the `craft-feature-builder` agent passes the `craft-code-reviewer` agent's checklist with zero findings if the builder followed its own rules. The overlap is intentional: if the builder misses something (it sometimes does), the reviewer catches it.
+
+## Agent Composition Patterns
+
+### Plan then build
+
+The most common pattern. Plan first to break down complexity, then build layer by layer.
+
+```
+1. Delegate to craft-planner: "Plan the implementation of..."
+2. Review the plan, adjust if needed
+3. Save the returned plan to docs/plans/{feature-name}.md
+4. Delegate to craft-feature-builder: "Build following the plan in docs/plans/..."
+```
+
+### Build then review
+
+After building, get a second opinion.
+
+```
+1. Delegate to craft-feature-builder: "Build the webhook controller..."
+2. Delegate to craft-code-reviewer: "Review the changes in the webhook branch"
+3. Fix any findings from the review
+```
+
+### Debug then fix
+
+When something breaks, investigate before patching.
+
+```
+1. Delegate to craft-debugger: "The sync job is failing silently..."
+2. Debugger identifies root cause and writes regression test
+3. If fix is complex, delegate to craft-feature-builder for the implementation
+```
+
+### Full cycle
+
+For significant features:
+
+```
+1. craft-planner -- break down the feature
+2. craft-feature-builder -- implement layer by layer
+3. craft-code-reviewer -- review before merge
+4. craft-debugger -- investigate if anything breaks in staging
+```

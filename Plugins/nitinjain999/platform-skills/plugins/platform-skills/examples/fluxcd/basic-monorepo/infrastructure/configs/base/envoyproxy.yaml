@@ -1,0 +1,39 @@
+---
+# Data-plane settings for every Gateway of the envoy-gateway class. Without this,
+# Envoy Gateway runs one proxy replica: a single point of failure for all traffic.
+apiVersion: gateway.envoyproxy.io/v1alpha1
+kind: EnvoyProxy
+metadata:
+  name: platform-proxy
+  namespace: envoy-gateway-system
+spec:
+  provider:
+    type: Kubernetes
+    kubernetes:
+      envoyDeployment:
+        replicas: 2
+        pod:
+          # Two replicas only remove the single point of failure if they run on
+          # different nodes; without this both can land on one node.
+          # matchLabelKeys scopes the spread to one Gateway's proxies, because
+          # this EnvoyProxy is shared by every Gateway of the class.
+          topologySpreadConstraints:
+            - maxSkew: 1
+              topologyKey: kubernetes.io/hostname
+              whenUnsatisfiable: DoNotSchedule
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: envoy
+                  app.kubernetes.io/component: proxy
+              matchLabelKeys:
+                - gateway.envoyproxy.io/owning-gateway-name
+                - gateway.envoyproxy.io/owning-gateway-namespace
+        container:
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              memory: 512Mi
+      envoyPDB:
+        minAvailable: 1  # Node drains keep one proxy serving

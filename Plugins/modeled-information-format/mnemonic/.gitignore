@@ -1,0 +1,27 @@
+# Mnemonic local data
+refactor-result-*
+.claude/mnemonic/
+.claude/.mnemonic-integration-manifest.json
+.fastembed_cache/
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+*.so
+
+# Environment
+.env
+.venv/
+venv/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+.claude/tests/.fastembed_cache/

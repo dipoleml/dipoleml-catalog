@@ -1,0 +1,42 @@
+{
+  "schema": 1,
+  "evidence_kind": "actual-run",
+  "scenario_set_id": "optimizer-scenarios-sha256:602e496906f3a293203750602234ba88a55a86b9e4f54f32239264098dcebe5b",
+  "metric_set_id": "optimizer-metrics-sha256:bedffbda2b18d725610b0f294a8273ef908237fd957bf9e51a5af4885b123e4f",
+  "scenario_id": "nanoid-size-consistency",
+  "category": "long_task",
+  "holdout": true,
+  "policy_id": "always-frontier",
+  "repetition": 1,
+  "decision_id": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "selected_profile_id": "codex-utility",
+  "observed_profile_id": "codex-utility",
+  "requested_model": "gpt-5.6-luna",
+  "observed_model": null,
+  "model_proof_status": "unknown",
+  "started_at": "2026-07-30T22:15:18.171Z",
+  "duration_ms": 5313,
+  "outcome": "unknown",
+  "verified": false,
+  "attempts": 1,
+  "human_interventions": 0,
+  "topology": "single",
+  "cost": {
+    "status": "unknown",
+    "amount_usd": null,
+    "provenance": "unknown",
+    "source": "optimizer_runner",
+    "source_ref": "one_or_more_attempt_costs_unknown",
+    "pricing_snapshot_digest": null,
+    "components": []
+  },
+  "artifact_paths": [],
+  "verification_receipts": [],
+  "receipt_status": "unknown",
+  "adversarial_result": null,
+  "failure_code": "SETUP_FAILED",
+  "attestation": {
+    "algorithm": "ed25519",
+    "signature_base64": "2Bo5Wn3gd9DqaVYMuUHCi0+wnafYz2BV3KvcNjHjYa5new5cHJHEbNN2kY4A3nKE+vVFnpTnxO/zvAVSwJgtCA=="
+  }
+}

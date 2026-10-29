@@ -1,0 +1,45 @@
+{
+  "name": "supergraph",
+  "version": "2.3.0",
+  "description": "Evidence-gated AI coding workflow: scan → analyze → plan → TDD → execute → fix → verify → review, powered by Codebase Memory MCP >= 0.10.8,<0.11.0 with optional Serena LSP intelligence, 7 specialized subagents, native Rust CDP browser/API automation, blast-radius checks, and independent review.",
+  "author": {
+    "name": "datit309",
+    "email": "trantandat0919@gmail.com"
+  },
+  "license": "MIT",
+  "skills": "./skills/",
+  "agents": "./agents/",
+  "hooks": {},
+  "interface": {
+    "displayName": "Supergraph — Graph-Driven AI Workflows",
+    "shortDescription": "Evidence-based coding pipeline: scan → plan → TDD → fix → verify → review.",
+    "category": "workflow",
+    "capabilities": [
+      "skills",
+      "mcp",
+      "hooks"
+    ],
+    "brandColor": "#6C63FF"
+  },
+  "mcpServers": "./.mcp.json",
+  "keywords": [
+    "codebase-memory-mcp",
+    "supergraph",
+    "serena",
+    "tdd",
+    "blast-radius",
+    "code-review",
+    "workflow",
+    "debugging",
+    "architecture",
+    "triage",
+    "prd",
+    "nodejs",
+    "flutter",
+    "php",
+    "python",
+    "go",
+    "rust"
+  ],
+  "homepage": "https://github.com/datit309/supergraph"
+}

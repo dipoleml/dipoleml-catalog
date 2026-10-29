@@ -1,0 +1,510 @@
+#!/bin/bash
+# This file deliberately uses plain [ ] / unbraced-$VAR style throughout; the
+# optional shellcheck style rules below would demand the other convention.
+# Never let an autofix restyle it — on 2026-08-18 one such run corrupted a
+# variable name mid-rewrite ("for $down_checks" → "fo${ $down_chec}ks").
+# shellcheck disable=SC2248,SC2249,SC2250,SC2292,SC2310,SC2312
+# WhatsApp agent watchdog — detects stuck Claude sessions and nudges them.
+# If nudging doesn't unstick it within STUCK_STREAK_LIMIT consecutive checks
+# (e.g. the WhatsApp/Baileys connection itself dropped, which a nudge can't
+# fix), it hard-restarts the agent instead — via $HOME/start-whatsapp-agent.sh
+# if you have one, otherwise a launchd kickstart.
+# Also detects API auth failures (401) in the agent's tmux pane and fires an
+# external alert hook so you find out before replies silently die for hours.
+# Finally, it watches for one-way silence: a Baileys socket that stays open and
+# keeps sending while never receiving another inbound message again.
+#
+# Setup:
+#   cp scripts/watchdog.sh ~/.whatsapp-channel/watchdog.sh
+#   chmod +x ~/.whatsapp-channel/watchdog.sh
+#
+# Crontab (every 2 minutes):
+#   */2 * * * * $HOME/.whatsapp-channel/watchdog.sh >> $HOME/.whatsapp-channel/watchdog.log 2>&1
+#
+# Auth-failure alert hook (optional but recommended):
+#   If $HOME/.whatsapp-channel/notify-hook.sh exists and is executable, it is
+#   invoked with one argument when the agent's API has 401'd:
+#       notify-hook.sh "<alert message>"
+#
+#   Without a hook, the watchdog falls back to a local macOS notification
+#   (only useful if you're sitting at the Mac).
+#
+#   Example notify-hook.sh body — pick one channel:
+#     # ntfy.sh — free, no signup. Subscribe to your topic in the ntfy iOS/Android app.
+#     curl -s -d "$1" "https://ntfy.sh/your-private-topic-name"
+#
+#     # Pushover ($5 one-time, very reliable):
+#     curl -s -F "token=APP_TOKEN" -F "user=USER_KEY" -F "message=$1" \
+#       https://api.pushover.net/1/messages.json
+#
+#     # iMessage (requires Messages.app logged in on this Mac):
+#     osascript -e "tell application \"Messages\" to send \"$1\" \
+#       to buddy \"+1XXXXXXXXXX\" of service \"iMessage\""
+
+set -euo pipefail
+export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin"
+
+STATE_DIR="$HOME/.whatsapp-channel"
+MSG_LOG="$STATE_DIR/messages.jsonl"
+PENDING_DIR="$STATE_DIR/pending"
+TMUX_SESSION="whatsapp-agent"
+COOLDOWN_FILE="$STATE_DIR/.watchdog-cooldown"
+AUTH_ALERT_FILE="$STATE_DIR/.watchdog-auth-alert"
+NOTIFY_HOOK="$STATE_DIR/notify-hook.sh"
+STUCK_STREAK_FILE="$STATE_DIR/.watchdog-stuck-streak"
+RESTART_COOLDOWN_FILE="$STATE_DIR/.watchdog-restart-cooldown"
+NET_FAIL_FILE="$STATE_DIR/.watchdog-net-fail-streak"
+NET_ALERT_FILE="$STATE_DIR/.watchdog-net-alert"
+INBOUND_ALERT_FILE="$STATE_DIR/.watchdog-inbound-alert"
+INBOUND_BASELINE_FILE="$STATE_DIR/.watchdog-inbound-baseline"
+INBOUND_RESTART_FILE="$STATE_DIR/.watchdog-inbound-restart"
+# Optional: a full agent restart script (graceful /exit + relaunch), e.g. one
+# that ends with `tmux new-session -d -s whatsapp-agent ... claude ...`.
+# If absent, hard restarts fall back to a launchd kickstart.
+RESTART_SCRIPT="$HOME/start-whatsapp-agent.sh"
+LOCK_FILE="$STATE_DIR/.server.lock"
+
+# Thresholds — only nudge if things are really stuck
+MSG_STALE_SECS=600 # 10 min unreplied message
+# Ceiling on the same window. Past this an unreplied line means "nobody
+# answered", not "the session is stuck". Before 0.25.0 an unanswered inbound
+# aged out of the log after 24h, so Check 1 was self-limiting; with one 7-day
+# horizon (30 with WHATSAPP_MESSAGE_TTL_DAYS) a single message nobody ever
+# replies to would otherwise make the watchdog declare the session stuck and
+# fire recovery on every cycle for a week. Mirrors MSG_STALE_MAX_SECS in
+# scripts/doctor.ts.
+MSG_STALE_MAX_SECS=86400 # 24h; older than this is not a stuck session
+# Deliberately no INFO/report path for the >24h ones here, unlike doctor.ts,
+# which reports them separately so a long-dead session cannot hide behind a
+# PASS. Check 1 is the "stuck despite traffic" signal, not the liveness one;
+# liveness is the one-way-silence pair further down (INBOUND_STALE_SECS 6h ->
+# alert, INBOUND_RESTART_SECS 12h -> restart).
+#
+# WHAT THAT PAIR DOES NOT COVER, stated because this comment used to claim it
+# covered everything: inbound_silence is measured from max(last inbound,
+# inbound_baseline), and the baseline is REBASED on every restart and network
+# recovery. So immediately after a restart, a 25h-old unanswered message is
+# excluded from Check 1 by the ceiling above AND produces no silence alert for
+# a further 6h. The ceiling is still right - firing recovery every cycle for a
+# week over one unanswered message is worse - but the gap is real, and doctor
+# is where a long-dead session is meant to become visible.
+PENDING_STALE_MIN=15          # 15 min pending file untouched
+COOLDOWN_SECS=600             # don't nudge more than once per 10 min
+AUTH_ALERT_COOLDOWN_SECS=1800 # don't re-alert auth failure more than once per 30 min
+STUCK_STREAK_LIMIT=3          # after this many consecutive stuck-and-nudged checks
+# (~20-30 min), stop nudging and hard-restart instead —
+# a nudge only re-asks the agent to call its tools, which
+# can't fix a dead WhatsApp connection the agent itself
+# can't reconnect (see docs/governance/A-diagnosis.md #2)
+RESTART_COOLDOWN_SECS=1800               # don't hard-restart more than once per 30 min
+NET_PROBE_URL="https://web.whatsapp.com" # cheap outbound reachability target
+NET_FAIL_LIMIT=3                         # consecutive failed probes before alerting
+NET_ALERT_COOLDOWN_SECS=1800             # don't re-alert an outage more than once per 30 min
+# One-way-silence thresholds. Deliberately generous: a genuinely quiet stretch
+# (asleep, at work, away for the day) is indistinguishable from a half-dead
+# socket, so the cheap action (an alert) comes first and the expensive one (a
+# restart that costs the agent its context) waits much longer. Tune both to
+# your own rhythm — someone who messages all day can safely halve them.
+INBOUND_STALE_SECS=21600           # 6h with nothing received at all -> alert
+INBOUND_RESTART_SECS=43200         # 12h -> assume the socket is half-dead, restart
+INBOUND_ALERT_COOLDOWN_SECS=10800  # don't re-alert one-way silence more than once per 3h
+INBOUND_RESTART_BACKOFF_SECS=86400 # after one inbound restart fails, escalate instead of restarting again
+
+now=$(date +%s)
+
+# Kill an orphaned WhatsApp server left behind by a dead agent (reparented to
+# PID 1). It keeps holding the singleton lock and the Baileys session, so the
+# relaunched agent's own server can never start — seen 2026-07-18. Target only
+# the PID named in the lockfile: pattern-matching "bun server.ts" could hit
+# unrelated projects on the same box.
+kill_orphaned_server() {
+	[ -f "$LOCK_FILE" ] || return 0
+	local pid ppid
+	pid=$(head -1 "$LOCK_FILE" 2>/dev/null | tr -d '[:space:]')
+	case "$pid" in '' | *[!0-9]*) return 0 ;; esac
+	ppid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+	[ -z "$ppid" ] && return 0     # lockholder already dead; server.ts handles the stale file
+	[ "$ppid" != "1" ] && return 0 # parent still alive — a healthy server, not ours to kill
+	echo "[$(date -Iseconds)] killing orphaned whatsapp server (pid $pid, ppid 1) holding the singleton lock"
+	kill "$pid" 2>/dev/null || true
+	for _ in 1 2 3 4 5; do
+		kill -0 "$pid" 2>/dev/null || return 0
+		sleep 1
+	done
+	kill -9 "$pid" 2>/dev/null || true
+	rm -f "$LOCK_FILE"
+}
+
+# Full restart: tmux session is alive but repeated nudges haven't unstuck it
+# (e.g. the WhatsApp/Baileys connection itself dropped and won't self-heal —
+# a nudge just re-asks the agent to call tools against a connection that's
+# still dead). Returns 1 (does nothing) if the restart cooldown is active.
+hard_restart() {
+	local reason="$1"
+	local last_restart=0
+	[ -f "$RESTART_COOLDOWN_FILE" ] && last_restart=$(cat "$RESTART_COOLDOWN_FILE" 2>/dev/null || echo 0)
+	if [ $((now - last_restart)) -lt $RESTART_COOLDOWN_SECS ]; then
+		echo "[$(date -Iseconds)] would hard-restart ($reason) but restart cooldown active; nudging instead"
+		return 1
+	fi
+
+	echo "[$(date -Iseconds)] HARD-RESTART: $reason"
+	kill_orphaned_server
+	if [ -x "$RESTART_SCRIPT" ]; then
+		nohup "$RESTART_SCRIPT" >>"$STATE_DIR/watchdog-restart.log" 2>&1 &
+	else
+		launchctl kickstart -k "gui/$(id -u)/com.claude.whatsapp-agent" 2>&1 || true
+	fi
+
+	msg="WhatsApp agent on $(hostname -s) auto-restarted by watchdog ($reason)."
+	if [ -x "$NOTIFY_HOOK" ]; then
+		"$NOTIFY_HOOK" "$msg" || echo "[$(date -Iseconds)] notify-hook failed (exit $?)"
+	elif command -v osascript >/dev/null 2>&1; then
+		osascript -e "display notification \"$msg\" with title \"WhatsApp agent auto-restarted\" sound name \"Funk\"" 2>/dev/null || true
+	fi
+
+	echo "0" >"$STUCK_STREAK_FILE"
+	echo "$now" >"$RESTART_COOLDOWN_FILE"
+	echo "$now" >"$COOLDOWN_FILE"
+	# A fresh session hasn't had a chance to receive anything yet; without this
+	# the one-way-silence check below would still see the pre-restart timestamp
+	# and restart again on the very next run.
+	echo "$now" >"$INBOUND_BASELINE_FILE"
+	return 0
+}
+
+# ── Outbound-connectivity probe ──
+# A dead uplink looks exactly like a quiet night to every check below: WhatsApp
+# can't deliver inbound messages, so nothing goes unreplied and pending/ stays
+# empty while the tmux session and the agent both look perfectly healthy. On
+# 2026-08-17 that blind spot cost 1h20m of silent downtime — macOS had dropped
+# its primary IPv4 service, so every socket that didn't explicitly bind an
+# interface got NetworkUnreachable.
+# Alert only, never restart: relaunching the agent cannot bring back a route.
+if curl -fsS --max-time 5 -o /dev/null "$NET_PROBE_URL" 2>/dev/null; then
+	# Report the outage on the way out. The alert below fires while the network
+	# is down, which is exactly when the notify hook can't reach anywhere — so
+	# this recovery notice is often the only one that actually gets delivered.
+	if [ -f "$NET_ALERT_FILE" ]; then
+		down_checks=0
+		[ -f "$NET_FAIL_FILE" ] && down_checks=$(cat "$NET_FAIL_FILE" 2>/dev/null || echo 0)
+		msg="WhatsApp agent on $(hostname -s) is back online — outbound connectivity was down for $down_checks consecutive watchdog checks."
+		echo "[$(date -Iseconds)] NET-RECOVERED: $msg"
+		if [ -x "$NOTIFY_HOOK" ]; then
+			"$NOTIFY_HOOK" "$msg" || echo "[$(date -Iseconds)] notify-hook failed (exit $?)"
+		elif command -v osascript >/dev/null 2>&1; then
+			osascript -e "display notification \"$msg\" with title \"WhatsApp agent back online\" sound name \"Funk\"" 2>/dev/null || true
+		fi
+		rm -f "$NET_ALERT_FILE"
+		# Nothing could arrive while the uplink was down, so the inbound clock
+		# starts again here. Without this, a 10h outage would look like 10h of
+		# one-way silence the moment connectivity returns.
+		echo "$now" >"$INBOUND_BASELINE_FILE"
+	fi
+	echo "0" >"$NET_FAIL_FILE"
+else
+	net_streak=0
+	[ -f "$NET_FAIL_FILE" ] && net_streak=$(cat "$NET_FAIL_FILE" 2>/dev/null || echo 0)
+	case "$net_streak" in '' | *[!0-9]*) net_streak=0 ;; esac
+	net_streak=$((net_streak + 1))
+	echo "$net_streak" >"$NET_FAIL_FILE"
+	echo "[$(date -Iseconds)] NET-DOWN: $NET_PROBE_URL unreachable (streak $net_streak/$NET_FAIL_LIMIT)"
+
+	if [ "$net_streak" -ge "$NET_FAIL_LIMIT" ]; then
+		last_alert=0
+		[ -f "$NET_ALERT_FILE" ] && last_alert=$(cat "$NET_ALERT_FILE" 2>/dev/null || echo 0)
+		if [ $((now - last_alert)) -ge $NET_ALERT_COOLDOWN_SECS ]; then
+			detail=""
+			if command -v route >/dev/null 2>&1 && ! route -n get 8.8.8.8 >/dev/null 2>&1; then
+				detail=" No default route — the host has no primary IPv4 service."
+			elif command -v ip >/dev/null 2>&1 && ! ip route get 8.8.8.8 >/dev/null 2>&1; then
+				detail=" No default route."
+			fi
+			msg="WhatsApp agent on $(hostname -s) has no outbound connectivity ($NET_PROBE_URL unreachable for $net_streak consecutive checks).$detail Nothing will send or arrive until the network is back — the agent is left running."
+			echo "[$(date -Iseconds)] NET-DOWN-ALERT: $msg"
+			if [ -x "$NOTIFY_HOOK" ]; then
+				"$NOTIFY_HOOK" "$msg" || echo "[$(date -Iseconds)] notify-hook failed (exit $?)"
+			elif command -v osascript >/dev/null 2>&1; then
+				osascript -e "display notification \"$msg\" with title \"WhatsApp agent offline\" sound name \"Funk\"" 2>/dev/null || true
+			fi
+			echo "$now" >"$NET_ALERT_FILE"
+		fi
+	fi
+
+	# Every check below reads a signal a dead network cannot produce, so the
+	# stuck-streak would march into a hard restart that fixes nothing. Stop here.
+	exit 0
+fi
+
+# ── Auth-failure detection ──
+# If the agent's tmux pane shows 401 / "Please run /login", nudging is
+# counter-productive — every nudge triggers another 401 that floods the pane.
+# Fire the alert hook (rate-limited) and bail. This runs BEFORE the cooldown
+# gate because auth failure is special and the user needs to know now.
+if tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
+	pane_recent=$(tmux capture-pane -t "$TMUX_SESSION" -p -S -50 2>/dev/null || true)
+	if echo "$pane_recent" | grep -qE "(API Error: 401|Please run /login|authentication_error|Invalid authentication credentials)"; then
+		last_alert=0
+		[ -f "$AUTH_ALERT_FILE" ] && last_alert=$(cat "$AUTH_ALERT_FILE" 2>/dev/null || echo 0)
+		if [ $((now - last_alert)) -ge $AUTH_ALERT_COOLDOWN_SECS ]; then
+			msg="Claude Code on $(hostname -s) needs you to sign in again (API 401). WhatsApp replies are paused.
+
+1. Open Terminal on your computer and paste:
+ssh -t $(hostname -s) '$(command -v tmux) attach -t $TMUX_SESSION'
+
+2. In the Claude Code screen, type /login and press Enter. Follow the sign-in link.
+
+3. After signing in, tell Claude: Use catch_up to check for missed messages.
+
+4. Leave the agent running: press Ctrl+B, release, then press D to detach."
+			echo "[$(date -Iseconds)] AUTH-BROKEN: $msg"
+			if [ -x "$NOTIFY_HOOK" ]; then
+				"$NOTIFY_HOOK" "$msg" || echo "[$(date -Iseconds)] notify-hook failed (exit $?)"
+			elif command -v osascript >/dev/null 2>&1; then
+				osascript -e "display notification \"$msg\" with title \"WhatsApp agent auth broken\" sound name \"Funk\"" 2>/dev/null || true
+			fi
+			echo "$now" >"$AUTH_ALERT_FILE"
+		fi
+		exit 0
+	fi
+fi
+
+# ── One-way-silence detection ──
+# The failure this catches (2026-08-22): Baileys' socket stays open and keeps
+# writing creds/pre-keys, cron pushes keep firing and replies keep going out —
+# but nothing the user sends arrives. It does not have to be the whole socket:
+# that day it was the group sender-key path alone, and DMs kept working the
+# entire time, which is why the alert below tells a human to test with a DM.
+# Every other check in this file reads green during that state. The network
+# probe passes. pending/ is empty, because an inbound message that never
+# arrives can't create a pending file. Nothing is unreplied, because a message
+# has to be received before it can go unanswered. The tmux pane looks healthy
+# and the agent really is healthy — it just never hears anything again.
+# That cost 15h of one-way silence before a human noticed and asked.
+#
+# There is no clean signal here: a quiet night looks exactly like a half-dead
+# socket. So this alerts long before it restarts, and the clock is reset both
+# by a network recovery and by a restart, so neither can cascade.
+inbound_baseline=0
+if [ -f "$INBOUND_BASELINE_FILE" ]; then
+	inbound_baseline=$(cat "$INBOUND_BASELINE_FILE" 2>/dev/null || echo 0)
+	case "$inbound_baseline" in '' | *[!0-9]*) inbound_baseline=0 ;; esac
+else
+	# First run, or a fresh install with no inbound history to judge against.
+	echo "$now" >"$INBOUND_BASELINE_FILE"
+	inbound_baseline=$now
+fi
+
+last_inbound=0
+if [ -f "$MSG_LOG" ]; then
+	last_inbound=$(python3 -c "
+import json, os
+from datetime import datetime, timezone
+latest = 0
+try:
+  with open(os.path.expanduser(\"$MSG_LOG\")) as f:
+    for line in f:
+      try:
+        m = json.loads(line)
+        if m.get('direction') != 'in':
+          continue
+        ts = datetime.fromisoformat(m['ts'].replace('Z','+00:00')).timestamp()
+        if ts > latest:
+          latest = ts
+      except Exception:
+        continue
+except FileNotFoundError:
+  pass
+print(int(latest))
+" 2>/dev/null || echo 0)
+	case "$last_inbound" in '' | *[!0-9]*) last_inbound=0 ;; esac
+fi
+
+# Keep the raw figure: it is the only evidence that something was genuinely
+# received, as opposed to the clock merely having been rebased.
+msg_last_inbound=$last_inbound
+
+# The baseline wins whenever it is newer: it marks the last moment we know the
+# receive path was given a fair chance (restart, or network coming back).
+[ "$inbound_baseline" -gt "$last_inbound" ] && last_inbound=$inbound_baseline
+inbound_silence=$((now - last_inbound))
+
+last_inbound_restart=0
+if [ -f "$INBOUND_RESTART_FILE" ]; then
+	last_inbound_restart=$(cat "$INBOUND_RESTART_FILE" 2>/dev/null || echo 0)
+	case "$last_inbound_restart" in '' | *[!0-9]*) last_inbound_restart=0 ;; esac
+fi
+
+if [ "$inbound_silence" -ge "$INBOUND_RESTART_SECS" ] &&
+	[ $((now - last_inbound_restart)) -lt $INBOUND_RESTART_BACKOFF_SECS ]; then
+	# A restart already failed to bring the receive path back — on 2026-08-22 a
+	# restart left the group path just as dead as before. Restarting again only
+	# adds downtime and rebases the baseline for another 12h, which is how that
+	# outage stayed invisible. Hand it to a human with the test that splits it.
+	last_alert=0
+	[ -f "$INBOUND_ALERT_FILE" ] && last_alert=$(cat "$INBOUND_ALERT_FILE" 2>/dev/null || echo 0)
+	case "$last_alert" in '' | *[!0-9]*) last_alert=0 ;; esac
+	if [ $((now - last_alert)) -ge $INBOUND_ALERT_COOLDOWN_SECS ]; then
+		msg="WhatsApp agent on $(hostname -s): still receiving nothing $((inbound_silence / 3600))h after a watchdog restart already failed to fix it. Not restarting again. Send it a DM: if the DM arrives but group messages do not, the group sender-key path is broken, not the socket. $STATE_DIR/diag.log shows whether anything reaches the server at all ('inbound upsert' lines)."
+		echo "[$(date -Iseconds)] INBOUND-RESTART-INEFFECTIVE: $msg"
+		if [ -x "$NOTIFY_HOOK" ]; then
+			"$NOTIFY_HOOK" "$msg" || echo "[$(date -Iseconds)] notify-hook failed (exit $?)"
+		elif command -v osascript >/dev/null 2>&1; then
+			osascript -e "display notification \"$msg\" with title \"WhatsApp agent still receiving nothing\" sound name \"Funk\"" 2>/dev/null || true
+		fi
+		echo "$now" >"$INBOUND_ALERT_FILE"
+	fi
+elif [ "$inbound_silence" -ge "$INBOUND_RESTART_SECS" ]; then
+	if hard_restart "nothing received for $((inbound_silence / 3600))h — inbound path presumed dead"; then
+		# Remembered so the branch above can tell "first attempt" from "that
+		# did not work". Cleared as soon as anything is received again.
+		echo "$now" >"$INBOUND_RESTART_FILE"
+		exit 0
+	fi
+elif [ "$inbound_silence" -ge "$INBOUND_STALE_SECS" ]; then
+	last_alert=0
+	[ -f "$INBOUND_ALERT_FILE" ] && last_alert=$(cat "$INBOUND_ALERT_FILE" 2>/dev/null || echo 0)
+	case "$last_alert" in '' | *[!0-9]*) last_alert=0 ;; esac
+	if [ $((now - last_alert)) -ge $INBOUND_ALERT_COOLDOWN_SECS ]; then
+		msg="WhatsApp agent on $(hostname -s) has received nothing for $((inbound_silence / 3600))h while still sending fine. Either it has been quiet or the receive path is dead. Test it with a DM first, then a group message — a DM that arrives while groups stay silent means the group sender-key path, not the socket. It auto-restarts once at ${INBOUND_RESTART_SECS}s of silence."
+		echo "[$(date -Iseconds)] INBOUND-SILENT-ALERT: $msg"
+		if [ -x "$NOTIFY_HOOK" ]; then
+			"$NOTIFY_HOOK" "$msg" || echo "[$(date -Iseconds)] notify-hook failed (exit $?)"
+		elif command -v osascript >/dev/null 2>&1; then
+			osascript -e "display notification \"$msg\" with title \"WhatsApp agent receiving nothing\" sound name \"Funk\"" 2>/dev/null || true
+		fi
+		echo "$now" >"$INBOUND_ALERT_FILE"
+	fi
+else
+	rm -f "$INBOUND_ALERT_FILE"
+	# Only a genuinely received message retires the "a restart did not fix it"
+	# marker. A restart rebases the baseline, so silence looks like zero on the
+	# very next run — clearing the marker here unconditionally would erase it
+	# before it could ever be read, and the agent would restart-loop in silence.
+	[ "$msg_last_inbound" -gt "$last_inbound_restart" ] &&
+		rm -f "$INBOUND_RESTART_FILE"
+fi
+
+# ── Dead-pane detection ──
+# A tmux session whose pane is dead means claude exited without a relaunch
+# (e.g. the start script's /exit went through but the script was interrupted
+# before spawning the replacement). has-session still passes in that state,
+# so without this check the watchdog stays blind until pending files pile up.
+# hard_restart carries its own cooldown, so this can't churn.
+if tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
+	if [ "$(tmux list-panes -t "$TMUX_SESSION" -F '#{pane_dead}' 2>/dev/null | head -1)" = "1" ]; then
+		echo "[$(date -Iseconds)] pane dead in $TMUX_SESSION; hard-restarting"
+		hard_restart "dead pane (claude exited, no relaunch)" || true
+		exit 0
+	fi
+fi
+
+# Cooldown
+if [ -f "$COOLDOWN_FILE" ]; then
+	last=$(cat "$COOLDOWN_FILE" 2>/dev/null || echo 0)
+	if [ $((now - last)) -lt $COOLDOWN_SECS ]; then
+		exit 0
+	fi
+fi
+
+# ── Liveness check: if tmux pane shows Claude actively working, skip nudging ──
+if tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
+	pane=$(tmux capture-pane -t "$TMUX_SESSION" -p 2>/dev/null | tail -20)
+	# NOTE: no bare "tokens" here — the idle prompt's "/clear to save NNNk tokens"
+	# hint matches it and blinds the watchdog (seen 2026-07-18: 11h of silence).
+	if echo "$pane" | grep -qE "(Sautéing|Embellishing|Crunching|Boogieing|Thinking|Noodling|thinking with|esc to interrupt|\(ctrl\+)"; then
+		echo "0" >"$STUCK_STREAK_FILE"
+		exit 0
+	fi
+fi
+
+stuck=0
+reason=""
+
+# Check 1: unreplied messages older than MSG_STALE_SECS
+if [ -f "$MSG_LOG" ]; then
+	stale_count=$(python3 -c "
+import json, os
+from datetime import datetime, timezone
+now = datetime.now(timezone.utc).timestamp()
+stale = 0
+try:
+  with open(os.path.expanduser(\"$MSG_LOG\")) as f:
+    for line in f:
+      try:
+        m = json.loads(line)
+        if m.get('replied') is False:
+          ts = datetime.fromisoformat(m['ts'].replace('Z','+00:00')).timestamp()
+          age = now - ts
+          if $MSG_STALE_SECS < age < $MSG_STALE_MAX_SECS:
+            stale += 1
+      except Exception:
+        continue
+except FileNotFoundError:
+  pass
+print(stale)
+" 2>/dev/null || echo 0)
+	if [ "$stale_count" -gt 0 ]; then
+		stuck=1
+		reason="$stale_count unreplied msg(s) ${MSG_STALE_SECS}-${MSG_STALE_MAX_SECS}s old"
+	fi
+fi
+
+# Check 2: pending/ files older than PENDING_STALE_MIN
+if [ -d "$PENDING_DIR" ]; then
+	pending_stale=$(find "$PENDING_DIR" -type f -mmin +$PENDING_STALE_MIN 2>/dev/null | wc -l | tr -d " ")
+	if [ "$pending_stale" -gt 0 ]; then
+		stuck=1
+		reason="${reason:+$reason; }$pending_stale pending file(s) >${PENDING_STALE_MIN}m"
+	fi
+fi
+
+if [ "$stuck" -eq 0 ]; then
+	echo "0" >"$STUCK_STREAK_FILE"
+	exit 0
+fi
+
+echo "[$(date -Iseconds)] STUCK: $reason"
+
+# Missing tmux session → relaunch via the restart script when available
+# (falling back to launchd). Kickstarting a launchd service that was never
+# installed 502s forever and the agent stays down — seen 2026-07-14.
+if ! tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
+	kill_orphaned_server
+	if [ -x "$RESTART_SCRIPT" ]; then
+		echo "[$(date -Iseconds)] tmux session $TMUX_SESSION missing; relaunching via $RESTART_SCRIPT"
+		nohup "$RESTART_SCRIPT" >>"$STATE_DIR/watchdog-restart.log" 2>&1 &
+	else
+		echo "[$(date -Iseconds)] tmux session $TMUX_SESSION missing; kickstarting launchd"
+		launchctl kickstart -k "gui/$(id -u)/com.claude.whatsapp-agent" 2>&1 || true
+	fi
+	echo "0" >"$STUCK_STREAK_FILE"
+	echo "$now" >"$COOLDOWN_FILE"
+	exit 0
+fi
+
+# Session is alive but stuck again — bump the streak. Past STUCK_STREAK_LIMIT
+# consecutive stuck checks, nudging clearly isn't working (e.g. the WhatsApp
+# connection itself died), so hard-restart instead of nudging forever.
+streak=0
+[ -f "$STUCK_STREAK_FILE" ] && streak=$(cat "$STUCK_STREAK_FILE" 2>/dev/null || echo 0)
+streak=$((streak + 1))
+
+if [ "$streak" -ge "$STUCK_STREAK_LIMIT" ]; then
+	if hard_restart "$reason; stuck through $streak consecutive checks"; then
+		exit 0
+	fi
+	# restart cooldown was active — fall through and nudge as a fallback
+fi
+
+echo "$streak" >"$STUCK_STREAK_FILE"
+
+# Nudge: ESC + catch-up prompt
+tmux send-keys -t "$TMUX_SESSION" Escape
+sleep 1
+tmux send-keys -t "$TMUX_SESSION" "Watchdog: call whatsapp catch_up with no arguments for the per-chat waiting counts and open tasks, then call catch_up again with chat set to each chat that has messages waiting - that view carries the chat_id and the message text you need to reply in-context. Then process any files in ~/.whatsapp-channel/pending/ (execute each prompt, send to chat_id, then rm)." Enter
+sleep 1
+tmux send-keys -t "$TMUX_SESSION" Enter
+
+echo "$now" >"$COOLDOWN_FILE"
+echo "[$(date -Iseconds)] nudged agent (streak $streak/$STUCK_STREAK_LIMIT)"

@@ -1,0 +1,329 @@
+import type {ReactNode} from 'react';
+import Link from '@docusaurus/Link';
+import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
+import Layout from '@theme/Layout';
+import Tabs from '@theme/Tabs';
+import TabItem from '@theme/TabItem';
+import CodeBlock from '@theme/CodeBlock';
+
+function Hero() {
+  // Read from customFields, which docusaurus.config.js derives from
+  // .claude-plugin/plugin.json. Do not hardcode a version here: the previous
+  // hardcoded string sat at v1.38.0 across three releases because no gate
+  // covered website/.
+  const {siteConfig} = useDocusaurusContext();
+  const version = siteConfig.customFields?.pluginVersion as string;
+  return (
+    <div className="hero-section">
+      <div className="hero-section__eyebrow">
+        v{version} &mdash;{' '}
+        <a href="https://github.com/nitinjain999/platform-skills/blob/main/CHANGELOG.md">
+          What&apos;s new
+        </a>
+      </div>
+      <h1 className="hero-section__title">Platform Skills</h1>
+      <p className="hero-section__subtitle">
+        Your AI agent generates config. It doesn&apos;t know what breaks.
+        Platform Skills gives it the missing context — blast radius, validation steps, and rollback plan, built in.
+      </p>
+      <div className="hero-section__ctas">
+        <Link className="button button--primary button--lg" to="/docs/kubernetes">
+          Get Started
+        </Link>
+        <Link
+          className="button button--secondary button--lg"
+          to="https://github.com/nitinjain999/platform-skills"
+        >
+          View on GitHub
+        </Link>
+      </div>
+      <div className="hero-section__badge">
+        Works with Claude Code · Cursor · VS Code / Copilot · Codex
+      </div>
+    </div>
+  );
+}
+
+function ProblemStatement() {
+  return (
+    <section className="problem-section">
+      <div className="problem-section__inner">
+        <div className="problem-section__label">The problem</div>
+        <h2 className="problem-section__heading">
+          AI agents are great at writing YAML.<br />They&apos;re not great at knowing what happens next.
+        </h2>
+        <div className="problem-grid">
+          <div className="problem-item">
+            <div className="problem-item__icon">💥</div>
+            <div className="problem-item__text">Adds a CPU limit that throttles production at peak load</div>
+          </div>
+          <div className="problem-item">
+            <div className="problem-item__icon">🔓</div>
+            <div className="problem-item__text">Writes IAM policies with wildcards because it&apos;s &quot;simpler&quot;</div>
+          </div>
+          <div className="problem-item">
+            <div className="problem-item__icon">🕳️</div>
+            <div className="problem-item__text">No mention of what breaks if the change is wrong</div>
+          </div>
+          <div className="problem-item">
+            <div className="problem-item__icon">🤷</div>
+            <div className="problem-item__text">No validation steps. No rollback plan. Ships anyway.</div>
+          </div>
+        </div>
+        <p className="problem-section__resolution">
+          Platform Skills is a plugin that teaches your agent to think like a senior platform engineer —
+          not just generate, but reason.
+        </p>
+      </div>
+    </section>
+  );
+}
+
+const STAR_SCENARIOS = [
+  {
+    tag: 'Security',
+    situation: 'A pipeline flags a CRITICAL CVE in your base image 30 minutes before a release window.',
+    task: 'Scan the image, understand blast radius, decide whether to block or accept risk with a documented exception.',
+    command: '/platform-skills:trivy image',
+    result: 'Severity-gated scan with exploitability context, a pre-filled .trivyignore entry with expiry date, and a go/no-go recommendation with rollback path if you ship.',
+  },
+  {
+    tag: 'Code Review',
+    situation: 'Copilot left 12 unresolved review threads on your PR. Release is blocked until they\'re cleared.',
+    task: 'Classify each comment, fix the real issues, reply to every thread, and resolve them — without missing one.',
+    command: '/platform-skills:triage --all 100',
+    result: 'Every thread triaged: ACTIONABLE ones fixed and committed, INFORMATIONAL ones answered, NOT_APPLICABLE ones closed with a reason. Summary table printed.',
+  },
+  {
+    tag: 'CI/CD',
+    situation: 'Your workflows have never been audited. Someone asks whether a PR from a fork could steal your deploy credentials.',
+    task: 'Audit every workflow and composite action, separate real exposure from noise, and decide what to pin and what to fix first.',
+    command: '/platform-skills:zizmor',
+    result: 'Findings grouped by severity with the four online-only audits named explicitly, an explicit hash-pin vs semver-tag decision (SHA recommended, and why), auto-fixable items applied as a reviewable diff, and a CI gate that starts advisory instead of blocking every PR on day one.',
+  },
+  {
+    tag: 'Infrastructure',
+    situation: 'Security asks if a Terraform change is safe to apply to production. You have 20 minutes.',
+    task: 'Scan against the actual plan (not just source), surface HIGH/CRITICAL findings, map them to SOC 2 controls.',
+    command: '/platform-skills:checkov plan',
+    result: 'Deep analysis against live state values, findings grouped by control, a .checkov.baseline diff showing what\'s new vs existing, and a one-line verdict: safe / needs fix / block.',
+  },
+];
+
+function StarScenarios() {
+  return (
+    <section className="star-section">
+      <div className="star-section__label">Real usage, real results</div>
+      <h2 className="star-section__heading">See it in a real situation</h2>
+      <p className="star-section__sub">
+        Every command follows the same pattern: understand the situation, take the right action, show the result.
+      </p>
+      <div className="star-cards">
+        {STAR_SCENARIOS.map((s) => (
+          <div className="star-card" key={s.command}>
+            <div className="star-card__tag">{s.tag}</div>
+            <div className="star-card__row">
+              <span className="star-card__letter">S</span>
+              <span className="star-card__content">{s.situation}</span>
+            </div>
+            <div className="star-card__row">
+              <span className="star-card__letter">T</span>
+              <span className="star-card__content">{s.task}</span>
+            </div>
+            <div className="star-card__row star-card__row--action">
+              <span className="star-card__letter star-card__letter--action">A</span>
+              <code className="star-card__command">{s.command}</code>
+            </div>
+            <div className="star-card__row">
+              <span className="star-card__letter star-card__letter--result">R</span>
+              <span className="star-card__content">{s.result}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+const FEATURES = [
+  {
+    icon: '⎈',
+    title: 'Kubernetes',
+    desc: 'Cluster baseline, Helm, KEDA autoscaling, Karpenter node provisioning',
+  },
+  {
+    icon: '🔄',
+    title: 'GitOps',
+    desc: 'Flux CD, Argo CD, OCI delivery, Flux Operator, gitless clusters',
+  },
+  {
+    icon: '🏗️',
+    title: 'Terraform',
+    desc: 'Blast radius analysis, IAM least-privilege, SOC 2 controls',
+  },
+  {
+    icon: '☁️',
+    title: 'AWS & Azure',
+    desc: 'CloudFront, WAF, Lambda@Edge, IAM / IRSA, AKS, Workload Identity, Azure Policy',
+  },
+  {
+    icon: '⚙️',
+    title: 'GitHub Actions',
+    desc: 'OIDC federation, SHA pinning, token scoping, composite actions, zizmor workflow audit',
+  },
+  {
+    icon: '🔐',
+    title: 'Secrets',
+    desc: 'External Secrets Operator, Sealed Secrets, provider setup, rotation runbook, audit',
+  },
+  {
+    icon: '🔒',
+    title: 'Security',
+    desc: 'Supply chain (Cosign, SBOM, SLSA), Falco, OPA, Kyverno, Trivy',
+  },
+  {
+    icon: '📊',
+    title: 'Observability',
+    desc: 'Datadog, Dynatrace, OpenTelemetry, LLM observability, DORA',
+  },
+];
+
+const GOVERNANCE_CAPABILITIES = [
+  {
+    name: '/platform-skills:ai-governance',
+    desc: 'Decides what an AI agent is allowed to do in your repo. Real-time session hooks for Copilot and Claude Code deny edits to protected paths and dangerous shell commands before they run. A merge-time check then re-runs the base branch\u2019s copy of the policy against the pull request\u2019s diff, so a PR cannot weaken the rule meant to catch it. Its scope is bounded and documented: it is a pull_request check, so a direct push to a branch it does not run on is not covered, and edits to the workflow file itself need CODEOWNERS review rather than the check. Three enforcement tiers so a rollout starts by logging, not blocking.',
+    link: '/platform-skills/commands/ai-governance',
+  },
+  {
+    name: '/platform-skills:token-optimizer',
+    desc: 'Decides which model does the reading. Broad repository discovery moves to a cheaper worker through each client’s native subagent, while the main agent keeps decisions and targeted verification. Ships a runnable benchmark rather than a savings claim, and reports delegation, worker model, redirection and read limit as four separate states, splitting the requested model from the observed one so nothing reads as proven when it is not.',
+    link: '/platform-skills/commands/token-optimizer',
+  },
+];
+
+function GovernanceSection() {
+  return (
+    <section className="feature-strip">
+      <h2 className="feature-strip__heading">
+        Govern what your agent does, and what it costs
+      </h2>
+      <p className="install-section__sub">
+        Two companion commands. One bounds an agent&apos;s authority, the other bounds its
+        spend. They register on the same hook event and their failure directions are
+        deliberately opposite: the governance evaluator fails closed once it runs, so a
+        broken policy denies rather than waving work through, while the cost optimizer
+        fails open so a broken config never blocks work. Neither can act if the
+        client&apos;s hook transport times out or crashes &mdash; that always fails open,
+        which is the gap the merge-time check exists to cover.
+      </p>
+      <div className="command-cards">
+        {GOVERNANCE_CAPABILITIES.map((c) => (
+          <div className="command-card" key={c.name}>
+            <div className="command-card__name">
+              <Link to={c.link}>{c.name}</Link>
+            </div>
+            <div className="command-card__desc">{c.desc}</div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function FeatureStrip() {
+  const {siteConfig} = useDocusaurusContext();
+  const commandCount = siteConfig.customFields?.commandCount as number;
+  return (
+    <section className="feature-strip">
+      <h2 className="feature-strip__heading">{commandCount} commands. Every domain a platform team touches.</h2>
+      <div className="feature-grid">
+        {FEATURES.map((f) => (
+          <div className="feature-tile" key={f.title}>
+            <div className="feature-tile__icon">{f.icon}</div>
+            <div className="feature-tile__title">{f.title}</div>
+            <div className="feature-tile__desc">{f.desc}</div>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function InstallSection() {
+  return (
+    <section className="install-section">
+      <h2 className="install-section__heading">Install in your agent</h2>
+      <p className="install-section__sub">One command. Works where you work.</p>
+      <Tabs>
+        <TabItem value="claude" label="Claude Code" default>
+          <div className="install-block__step-label">Add to marketplace</div>
+          <CodeBlock language="bash">
+            claude plugin marketplace add https://github.com/nitinjain999/platform-skills
+          </CodeBlock>
+          <div className="install-block__step-label">Install</div>
+          <CodeBlock language="bash">
+            claude plugin install platform-skills
+          </CodeBlock>
+          <div className="install-block__step-label">Upgrade to latest</div>
+          <CodeBlock language="bash">
+            claude plugin update platform-skills
+          </CodeBlock>
+        </TabItem>
+        <TabItem value="cursor" label="Cursor">
+          <div className="install-block__step-label">Install from marketplace</div>
+          <p>
+            Open Cursor Settings → Rules → search <code>platform-skills</code> in the marketplace.
+          </p>
+          <div className="install-block__step-label">Or install manually</div>
+          <CodeBlock language="bash">
+            ./install.sh --cursor --target .
+          </CodeBlock>
+          <div className="install-block__step-label">Upgrade</div>
+          <CodeBlock language="bash">
+            ./install.sh --cursor --target . --upgrade
+          </CodeBlock>
+        </TabItem>
+        <TabItem value="copilot" label="VS Code / Copilot">
+          <div className="install-block__step-label">Add to marketplace</div>
+          <CodeBlock language="bash">
+            copilot plugin marketplace add nitinjain999/platform-skills
+          </CodeBlock>
+          <div className="install-block__step-label">Install</div>
+          <CodeBlock language="bash">
+            copilot plugin install platform-skills@platform-skills
+          </CodeBlock>
+          <div className="install-block__step-label">Or install manually</div>
+          <CodeBlock language="bash">
+            ./install.sh --copilot --target .
+          </CodeBlock>
+        </TabItem>
+        <TabItem value="codex" label="Codex">
+          <div className="install-block__step-label">Install</div>
+          <CodeBlock language="bash">
+            codex skill add nitinjain999/platform-skills
+          </CodeBlock>
+          <div className="install-block__step-label">Upgrade</div>
+          <CodeBlock language="bash">
+            codex skill update nitinjain999/platform-skills
+          </CodeBlock>
+        </TabItem>
+      </Tabs>
+    </section>
+  );
+}
+
+export default function Home(): ReactNode {
+  const {siteConfig} = useDocusaurusContext();
+  return (
+    <Layout title={siteConfig.title} description={siteConfig.tagline}>
+      <main>
+        <Hero />
+        <ProblemStatement />
+        <StarScenarios />
+        <GovernanceSection />
+        <FeatureStrip />
+        <InstallSection />
+      </main>
+    </Layout>
+  );
+}

@@ -1,0 +1,16 @@
+{
+  "name": "tanstack-start-expert",
+  "displayName": "Tanstack Start Expert",
+  "version": "1.0.9",
+  "description": "Expert TanStack Start (React, RC) full-stack framework with file-based routing, createServerFn server functions, selective SSR, and Nitro deployment",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Fusengine"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/fusengine/agents",
+  "repository": "https://github.com/Fusengine/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

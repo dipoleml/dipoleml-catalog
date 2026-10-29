@@ -1,0 +1,130 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.keli-wen.agy-staff",
+  "type": "plugin",
+  "name": "Agy Staff",
+  "slug": "agy-staff",
+  "vendor": "keli-wen",
+  "description": "Hire Google's Antigravity CLI (agy) as a fast Gemini staffer for DipoleML and OpenAI Codex.",
+  "version": "0.7.4",
+  "homepage": "https://github.com/keli-wen/agy-staff",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agent-evaluation",
+    "agentic-ai",
+    "antigravity",
+    "antigravity-cli",
+    "benchmark",
+    "claude-code-plugin",
+    "code-review",
+    "codex",
+    "codex-plugin"
+  ],
+  "tags": [
+    "agent-evaluation",
+    "agentic-ai",
+    "ai-agents",
+    "antigravity",
+    "antigravity-cli",
+    "benchmark",
+    "claude-code",
+    "claude-code-plugin",
+    "code-review",
+    "codex",
+    "codex-plugin",
+    "developer-tools",
+    "gemini",
+    "llm",
+    "llm-evaluation",
+    "multi-agent",
+    "openai-codex",
+    "opencode-plugin",
+    "opencode-skills",
+    "pi-skills"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "google",
+    "brandName": "google",
+    "source": "https://cdn.simpleicons.org/google",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:13:41Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "keli-wen/agy-staff",
+    "url": "https://github.com/keli-wen/agy-staff",
+    "commit": "79254522dbf622d197e30ae352785861b632e71c",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 795,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:59:27Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Agy Staff | Hire Google's Antigravity CLI (agy) as a fast Gemini staffer for Claude Code and OpenAI Codex.",
+        "after": "Agy Staff | Hire Google's Antigravity CLI (agy) as a fast Gemini staffer for DipoleML and OpenAI Codex.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "agy-staff"
+    ],
+    "env": [
+      "IMPORTANT"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

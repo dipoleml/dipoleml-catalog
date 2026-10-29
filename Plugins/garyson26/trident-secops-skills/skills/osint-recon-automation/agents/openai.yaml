@@ -1,0 +1,4 @@
+interface:
+  display_name: "OSINT Recon Automation"
+  short_description: "Passive recon, pivoting, exposure monitoring"
+  default_prompt: "Use $osint-recon-automation for authorized asset discovery and exposure monitoring."

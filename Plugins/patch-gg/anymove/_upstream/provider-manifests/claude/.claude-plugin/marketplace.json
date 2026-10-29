@@ -1,0 +1,17 @@
+{
+  "name": "anymove",
+  "description": "anymove by Patch: motion capture for any creature from one AI video.",
+  "owner": {
+    "name": "Patch",
+    "url": "https://patch.gg"
+  },
+  "plugins": [
+    {
+      "name": "anymove",
+      "source": "./",
+      "description": "Skills to rig a creature, film it with two cameras in one AI clip, train its joint reader, capture the move as a GLB, and train the MiniMax H3 LoRA.",
+      "category": "gamedev",
+      "tags": ["animation", "motion-capture", "creature", "blender"]
+    }
+  ]
+}

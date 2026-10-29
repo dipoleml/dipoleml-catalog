@@ -1,0 +1,126 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.scaccogatto.okf-skills",
+  "type": "plugin",
+  "name": "Okf Skills",
+  "slug": "okf-skills",
+  "vendor": "scaccogatto",
+  "description": "The OKF toolkit for DipoleML — author, maintain, validate & visualize Open Knowledge Format bundles. Plugin, agent skills, and a GitHub Action.",
+  "version": "0.12.0",
+  "homepage": "https://github.com/scaccogatto/okf-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agent-skills",
+    "claude-code-plugin",
+    "developer-tools",
+    "knowledge-graph",
+    "knowledge-management",
+    "llm-tools",
+    "markdown",
+    "okf",
+    "open-knowledge-format"
+  ],
+  "tags": [
+    "agent-skills",
+    "ai-agents",
+    "claude-code",
+    "claude-code-plugin",
+    "developer-tools",
+    "knowledge-graph",
+    "knowledge-management",
+    "llm-tools",
+    "markdown",
+    "mcp",
+    "okf",
+    "open-knowledge-format",
+    "structured-knowledge",
+    "yaml"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "github",
+    "brandName": "github",
+    "source": "https://cdn.simpleicons.org/github",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:14:44Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "scaccogatto/okf-skills",
+    "url": "https://github.com/scaccogatto/okf-skills",
+    "commit": "5979b0cf8b8584c5fe17092a175e0fbddae54e21",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 433,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:00:28Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Okf Skills | The OKF toolkit for Claude Code — author, maintain, validate & visualize Open Knowledge Format bundles. Plugin, agent skills, and a GitHub Action.",
+        "after": "Okf Skills | The OKF toolkit for DipoleML — author, maintain, validate & visualize Open Knowledge Format bundles. Plugin, agent skills, and a GitHub Action.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "${DIPOLEML_PLUGIN_ROOT}/servers/okf_mcp.py"
+      ]
+    },
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative. Upstream plugin scripts may reference CLAUDE_PLUGIN_ROOT; the DipoleML loader must set it as an alias for DIPOLEML_PLUGIN_ROOT.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

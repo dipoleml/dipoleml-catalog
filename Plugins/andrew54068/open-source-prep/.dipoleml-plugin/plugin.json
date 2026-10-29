@@ -1,0 +1,16 @@
+{
+  "name": "open-source-prep",
+  "displayName": "Open Source Prep",
+  "version": "0.1.0",
+  "description": "Prepare a private codebase for safe open-source release with secret scanning, license guidance, and standard repository documentation.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Andrew54068"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/andrew54068/claude-plugins",
+  "repository": "https://github.com/andrew54068/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

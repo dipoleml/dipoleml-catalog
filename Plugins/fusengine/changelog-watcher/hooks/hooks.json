@@ -1,0 +1,16 @@
+{
+  "description": "Changelog Watcher - research tracking (delegated to @fusengine/harness) | PostToolUse[0]: Harness: track Exa/WebFetch/WebSearch research into ~/.claude/logs/00-changelog state (ports track-watch-research.py)",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "mcp__.*exa|WebFetch|WebSearch",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bun $HOME/.claude/plugins/marketplaces/fusengine-plugins/plugins/node_modules/@fusengine/harness/dist/cli/bin.mjs hook claude-code changelog"
+          }
+        ]
+      }
+    ]
+  }
+}

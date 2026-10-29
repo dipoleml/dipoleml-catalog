@@ -1,0 +1,16 @@
+{
+  "name": "weft",
+  "displayName": "Weft",
+  "version": "0.3.0",
+  "description": "Deterministic workflow tracking with event-sourced logs for DipoleML",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Dioptx"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/dioptx/weft",
+  "repository": "https://github.com/dioptx/weft",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

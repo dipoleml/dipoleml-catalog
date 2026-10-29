@@ -1,0 +1,128 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.voygr-tech.placecall",
+  "type": "plugin",
+  "name": "Placecall",
+  "slug": "placecall",
+  "vendor": "voygr-tech",
+  "description": "The phone is your last API. Give your agent a voice to call any US business - reservations, inquiries, quotes. Verified outcome + transcript. First 250 calls free.",
+  "version": "6.5.1",
+  "homepage": "https://github.com/voygr-tech/placecall",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agent-skills",
+    "calls",
+    "claude-code-plugins",
+    "claude-code-skills",
+    "claude-plugin",
+    "claude-skill",
+    "gemini-cli-extension",
+    "phone",
+    "reservations"
+  ],
+  "tags": [
+    "agent-skills",
+    "ai-agent",
+    "calls",
+    "claude-code",
+    "claude-code-plugins",
+    "claude-code-skills",
+    "claude-plugin",
+    "claude-skill",
+    "gemini-cli-extension",
+    "mcp",
+    "mcp-server",
+    "phone",
+    "reservations",
+    "telephony",
+    "voice"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "voygr-tech",
+    "brandName": "voygr-tech",
+    "source": "https://github.com/voygr-tech.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:15:19Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "voygr-tech/placecall",
+    "url": "https://github.com/voygr-tech/placecall",
+    "commit": "072ec621e4cedf5d83a9ac0a15ccbf9946827b06",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 107,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:04:15Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude,cursor",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".cursor-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/cursor/.cursor-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [
+      "PLACECALL_API_KEY",
+      "MCP_PLACECALL_API_KEY",
+      "KEY_EXPIRED"
+    ],
+    "credentials": [
+      "PLACECALL_API_KEY",
+      "MCP_PLACECALL_API_KEY",
+      "KEY_EXPIRED"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude",
+      "cursor"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

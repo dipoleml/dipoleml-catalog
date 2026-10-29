@@ -1,0 +1,317 @@
+# The repository-root action.yml is what GitHub Marketplace publishes, so this file is the action's
+# public interface: `uses: Ikalus1988/MisakaNet@v1`. It used to live in
+# .github/actions/misaka-intake-bot/, a path no `owner/repo@ref` reference can reach — Marketplace
+# only ever publishes the root action.yml. Same file, one directory up; the caller-side workflow and
+# the input/output contract are documented in docs/agents/external-usage.md.
+name: 'MisakaNet Intake Bot'
+description: 'Your CI failed → search MisakaNet lessons, optionally report the gap. No MisakaNet checkout needed.'
+branding:
+  icon: 'search'
+  color: 'blue'
+
+inputs:
+  mode:
+    description: 'Operation mode: suggest-only or suggest-and-intake'
+    required: false
+    default: 'suggest-only'
+  error:
+    description: 'Error text (alternative to log-file)'
+    required: false
+    default: ''
+  log-file:
+    description: 'Path to CI log file for error extraction'
+    required: false
+    default: ''
+  source:
+    description: 'Intake source identifier'
+    required: false
+    default: 'github-action'
+  source-ref:
+    description: >-
+      Fallback only. The ref of MisakaNet to fetch intake_bot.py from, used when the script is not
+      discoverable locally (the action ships scripts/ with itself, so the default path needs no
+      network fetch and this input usually stays untouched).
+    required: false
+    default: 'main'
+  sim:
+    description: >-
+      Hit threshold on the weighted score max(title-overlap x2, body-overlap), i.e. 0.0-2.0 and NOT
+      a percentage: 0.45 means "title overlap >= 0.23 OR body overlap >= 0.45". Scores above 1.0 can
+      only come from the title.
+    required: false
+    default: '0.45'  # v1.0: 0.30 曾致跨语言 FP 38%（#1529）
+  what-tried:
+    description: 'What was tried before the error'
+    required: false
+    default: ''
+  comment-on-pr:
+    description: 'Post results as PR comment'
+    required: false
+    default: 'true'
+  pr-number:
+    description: >-
+      PR to comment on. Empty (the default) means "the PR GitHub associates with the failing run".
+      Set it to test the comment path by hand — a workflow_dispatch has no associated run, so
+      without this the bot has no PR to talk to and the only way to exercise the comment was to wait
+      for a real CI failure.
+    required: false
+    default: ''
+
+outputs:
+  decision:
+    description: 'Decision: hit, intake, or ignore'
+    value: ${{ steps.intake.outputs.decision }}
+  fingerprint:
+    description: 'Error fingerprint hash'
+    value: ${{ steps.intake.outputs.fingerprint }}
+  lesson-url:
+    description: 'URL of matched lesson (if hit)'
+    value: ${{ steps.intake.outputs.lesson-url }}
+  sample:
+    description: 'NDJSON sample line (repo/workflow/decision/lesson/intake) for external pilot reports'
+    value: ${{ steps.intake.outputs.sample }}
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Setup Python
+      uses: actions/setup-python@v7
+      with:
+        python-version: '3.11'
+
+    - name: Get failure context
+      id: context
+      if: ${{ inputs.error == '' && inputs.log-file == '' }}
+      uses: actions/github-script@v9
+      with:
+        script: |
+          const run = context.payload.workflow_run;
+          if (!run || run.conclusion !== 'failure') {
+            core.setOutput('error', '');
+            return;
+          }
+
+          // Get failed jobs
+          const { data: jobs } = await github.rest.actions.listJobsForWorkflowRun({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            run_id: run.id,
+            filter: 'failed'
+          });
+
+          let errorLines = [];
+          for (const job of jobs.jobs.slice(0, 3)) {
+            try {
+              const { data: logs } = await github.rest.actions.downloadJobLogsForWorkflowRun({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                job_id: job.id
+              });
+              const lines = logs.split('\n');
+              const errors = lines
+                .filter(l => /error|fail|exception|traceback/i.test(l))
+                .slice(-10);
+              errorLines.push(...errors);
+            } catch (e) {
+              core.warning(`Could not fetch logs for job ${job.name}: ${e.message}`);
+            }
+          }
+
+          const errorText = errorLines.join('\n').slice(0, 2000);
+          core.setOutput('error', errorText);
+
+    - name: Run intake bot
+      id: intake
+      shell: bash
+      env:
+        INPUT_ERROR: ${{ inputs.error || steps.context.outputs.error }}
+        INPUT_LOG_FILE: ${{ inputs.log-file }}
+        INPUT_SOURCE: ${{ inputs.source }}
+        INPUT_SIM: ${{ inputs.sim }}
+        INPUT_WHAT_TRIED: ${{ inputs.what-tried }}
+        INPUT_MODE: ${{ inputs.mode }}
+        INPUT_PR_NUMBER: ${{ inputs.pr-number }}
+        # `source-ref` reaches the shell as `INPUT_SOURCE-REF` (the dash survives), which is not a
+        # valid variable name, so `${INPUT_SOURCE_REF:-main}` below could never see it: the
+        # self-contained fetch silently always used main. Mapped explicitly.
+        INPUT_SOURCE_REF: ${{ inputs.source-ref }}
+      run: |
+        set -e
+        REPO_ROOT="${GITHUB_WORKSPACE:-.}"
+
+        # Where is intake_bot.py? Two places, in order:
+        #   1. the caller's own checkout (same-repo dogfood: this repository),
+        #   2. $GITHUB_ACTION_PATH — the action now lives at the repository root, so a caller using
+        #      `Ikalus1988/MisakaNet@v1` gets the whole repository on the runner and
+        #      scripts/intake_bot.py is already there. No MisakaNet checkout, no network fetch, and
+        #      the script version always matches the action ref the caller pinned.
+        # Only if neither exists do we fall back to fetching from `source-ref` (the pre-v1 path,
+        # kept for callers that reach the action without its repository).
+        SCRIPT=""
+        for CANDIDATE in "$REPO_ROOT/scripts/intake_bot.py" "${GITHUB_ACTION_PATH:+$GITHUB_ACTION_PATH/scripts/intake_bot.py}"; do
+          if [ -n "$CANDIDATE" ] && [ -f "$CANDIDATE" ]; then SCRIPT="$CANDIDATE"; break; fi
+        done
+        if [ -z "$SCRIPT" ]; then
+          FETCH_REF="${INPUT_SOURCE_REF:-main}"
+          mkdir -p "$RUNNER_TEMP/misaka-intake-bot"
+          SCRIPT="$RUNNER_TEMP/misaka-intake-bot/intake_bot.py"
+          curl -fsSL --retry 3 \
+            "https://raw.githubusercontent.com/Ikalus1988/MisakaNet/$FETCH_REF/scripts/intake_bot.py" \
+            -o "$SCRIPT" || {
+              echo "::warning::could not fetch intake_bot.py from MisakaNet@$FETCH_REF, skipping"
+              echo "decision=skip" >> "$GITHUB_OUTPUT"
+              exit 0
+            }
+          echo "::notice::fetched MisakaNet intake_bot.py@$FETCH_REF (fallback mode)"
+        fi
+
+        # A bash ARRAY, and every value quoted. This is the whole of #1825: `--error` carries a
+        # multi-line excerpt of the failing job's log, and `python3 $SCRIPT $ARGS` split it on
+        # whitespace — argparse got `--error` plus a pile of unrecognised positionals, exited 2, and
+        # `2>/dev/null ||` replaced the reason with a generic object, so the job went green and posted
+        # nothing. 21,732 runs, zero comments. `"${ARGS[@]}"` keeps one argv element per value.
+        ARGS=(--json --source "$INPUT_SOURCE" --sim "$INPUT_SIM")
+        if [ -n "$INPUT_WHAT_TRIED" ]; then ARGS+=(--what-tried "$INPUT_WHAT_TRIED"); fi
+        if [ "$INPUT_MODE" = "suggest-and-intake" ]; then ARGS+=(--auto-intake); fi
+
+        if [ -n "$INPUT_LOG_FILE" ] && [ -f "$INPUT_LOG_FILE" ]; then
+          ARGS+=(--log "$INPUT_LOG_FILE")
+        elif [ -n "$INPUT_ERROR" ]; then
+          ARGS+=(--error "$INPUT_ERROR")
+        else
+          echo "::warning::No error input provided, skipping"
+          echo "decision=skip" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+
+        # stderr is kept, not discarded: "script failed" with the reason thrown away is what made
+        # this failure invisible for a month. The exit code and the stderr tail become the decision's
+        # `reason`, so the annotation, the step summary and the PR comment all say what happened.
+        ERRLOG="$RUNNER_TEMP/intake-bot.err"
+        if python3 "$SCRIPT" "${ARGS[@]}" >"$RUNNER_TEMP/intake-bot.out" 2>"$ERRLOG"; then
+          RESULT=$(cat "$RUNNER_TEMP/intake-bot.out")
+        else
+          RC=$?
+          echo "::error::intake_bot.py exited $RC (this is the bot failing, not a CI finding)"
+          sed 's/^/    /' "$ERRLOG" | tail -20
+          RESULT=$(python3 -c 'import json,sys; print(json.dumps({"decision":"error","reason":f"intake bot exited {sys.argv[1]}","stderr":sys.argv[2][-400:]}, ensure_ascii=False))' "$RC" "$(cat "$ERRLOG")")
+        fi
+        echo "result=$RESULT" >> "$GITHUB_OUTPUT"
+
+        # Parse outputs
+        DECISION=$(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('decision','unknown'))")
+        FINGERPRINT=$(echo "$RESULT" | python3 -c "import sys,json; print(json.load(sys.stdin).get('fingerprint',''))")
+        LESSON_URL=$(echo "$RESULT" | python3 -c "import sys,json; d=json.load(sys.stdin).get('lesson',{}); print(d.get('url',''))")
+
+        echo "decision=$DECISION" >> "$GITHUB_OUTPUT"
+        echo "fingerprint=$FINGERPRINT" >> "$GITHUB_OUTPUT"
+        echo "lesson-url=$LESSON_URL" >> "$GITHUB_OUTPUT"
+
+        # ── G2: sample report line (NDJSON, one per decision) ──────────────
+        # External pilots collect these into a ≥N-sample report; every line is
+        # redaction-safe (error text already capped by intake_bot) and carries
+        # the source + decision + lesson/intake references for the flywheel.
+        SAMPLE=$(python3 "${GITHUB_ACTION_PATH:-.}/scripts/sample_report.py" "$RESULT")
+        echo "sample=$SAMPLE" >> "$GITHUB_OUTPUT"
+        echo "### MisakaNet intake-bot sample" >> "$GITHUB_STEP_SUMMARY"
+        echo "\`\`\`json" >> "$GITHUB_STEP_SUMMARY"
+        echo "$SAMPLE" >> "$GITHUB_STEP_SUMMARY"
+        echo "\`\`\`" >> "$GITHUB_STEP_SUMMARY"
+
+        # A broken bot must not look like "CI failed and there was nothing to say". Until 2026-09-19
+        # the step exited 0 with `decision=error`, the comment step skipped it, and the run was green
+        # (#1825). A red run here is a maintainer-facing signal, not a PR gate: this workflow reacts
+        # to someone else's failure and is not a required check.
+        if [ "$DECISION" = "error" ]; then
+          echo "::error::the intake bot could not run (decision=error) — this run found nothing because it did not search, not because there was nothing to find"
+          exit 1
+        fi
+
+    - name: Comment on PR
+      if: ${{ inputs.comment-on-pr == 'true' && steps.intake.outputs.result != '' }}
+      uses: actions/github-script@v9
+      env:
+        RESULT: ${{ steps.intake.outputs.result }}
+        INPUT_PR_NUMBER: ${{ inputs.pr-number }}
+      with:
+        script: |
+          const result = JSON.parse(process.env.RESULT || '{}');
+          const decision = result.decision || 'unknown';
+
+          let body = '';
+          if (decision === 'hit') {
+            const l = result.lesson || {};
+            // The score is the weighted `sim` (0..2), not a 0..1 ratio: show the scale so a reader
+            // does not read 1.67 as "167% similar" or assume 1.0 is the ceiling. `sim_norm` is the
+            // 0..1 view of the same number.
+            const scale = l.sim_scale || 2;
+            const simText = (l.sim === undefined || l.sim === null)
+              ? '?'
+              : `${l.sim}/${scale}${l.sim_norm === undefined ? '' : ` (= ${l.sim_norm} of full marks)`}`;
+            body = `## 💡 MisakaNet: Lesson Found\n\n` +
+                   `**Similarity:** ${simText}\n` +
+                   `**Lesson:** [${l.title || l.id}](${l.url || '#'})\n\n` +
+                   `> This error matches an existing lesson — **suggest-only (仅供参考)**; please verify before applying.`;
+          } else if (decision === 'intake') {
+            if (result.dry_run) {
+              body = `## 🧪 MisakaNet: Intake Candidate (Dry Run)\n\n` +
+                     `**Fingerprint:** \`${result.fingerprint || '?'}\`\n\n` +
+                     `<details><summary>Payload</summary>\n\n` +
+                     `\`\`\`json\n${JSON.stringify(result.payload || {}, null, 2).slice(0, 1500)}\n\`\`\`\n` +
+                     `</details>\n\n` +
+                     `> To actually submit, use \`mode: suggest-and-intake\`.`;
+            } else {
+              body = `## 📥 MisakaNet: Intake Submitted\n\n` +
+                     `**Fingerprint:** \`${result.fingerprint || '?'}\`\n` +
+                     `**Receipt:** \`${(result.receipt || '').slice(0, 120)}\`\n\n` +
+                     `> Error pattern submitted to MisakaNet for lesson creation.`;
+            }
+          } else if (decision === 'ignore') {
+            body = `## 🚫 MisakaNet: Skipped\n\n` +
+                   `**Reason:** ${result.reason || 'unknown'}\n` +
+                   `**Fingerprint:** \`${result.fingerprint || '?'}\``;
+          } else {
+            // Loud on purpose: a decision with no template used to `return` silently, which is
+            // indistinguishable from "the bot had nothing to say" (#1825).
+            core.warning(`intake bot decision "${decision}" has no comment template — nothing posted`);
+            return;
+          }
+
+          // Which PR to comment on. Explicit input first (that is what makes this path testable by
+          // hand — see the `pr-number` input and `intake-bot-demo.yml`'s dispatch inputs), then the
+          // PR GitHub associates with the failing run, then a lookup by head branch: `pull_requests`
+          // is empty for a run GitHub did not associate (a push, or a fork association that failed),
+          // and the old code logged that at `info` and gave up — the second of the two ways this bot
+          // produced 21,732 runs without a single comment.
+          let prNumber = Number(process.env.INPUT_PR_NUMBER || 0) || 0;
+          if (!prNumber) {
+            prNumber = context.payload.workflow_run?.pull_requests?.[0]?.number || 0;
+          }
+          if (!prNumber) {
+            const head = context.payload.workflow_run?.head_branch;
+            if (head) {
+              const { data: open } = await github.rest.pulls.list({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                state: 'open',
+                per_page: 100
+              });
+              const match = open.find((p) => p.head.ref === head);
+              if (match) {
+                prNumber = match.number;
+                core.info(`resolved PR #${prNumber} from head branch "${head}"`);
+              }
+            }
+          }
+          if (!prNumber) {
+            core.warning('no PR to comment on (no input, no associated PR, no open PR for this branch)'
+              + ' — the decision above is in this run\'s summary');
+            return;
+          }
+
+          await github.rest.issues.createComment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: prNumber,
+            body: body.slice(0, 65000)
+          });

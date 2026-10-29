@@ -1,0 +1,428 @@
+# Changelog
+
+All notable changes to Chisle are documented here.
+Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
+
+## [Unreleased]
+
+## [3.8.1] - 2026-10-18
+
+### Fixed
+- **Claude plugin directory validation.** Removed `.gitattributes` (its `text=auto eol=lf` rule blocked validation; every file was already LF) and added author, homepage, repository and license to `plugin.json` (#46).
+
+### Docs
+- README's "What it compresses" table lists the OpenCode plugin, the Copilot CLI hook and `npx chisle mcp wrap`.
+
+## [3.8.0] - 2026-10-16
+
+Minor: Copilot CLI as a global agent, MCP output compression for any agent, and a ruleset that thinks less.
+
+### Changed
+- **Less hidden reasoning.** The "Thinking is billed too" rule now says to reason about the problem, never the wording: no drafting the answer in thinking, no checking it against the rules. On the default suite (Haiku 4.5, tools off, 21 cells) Chisle's billed output fell from 127% to 84% of a bare model and reasoning from 190% to 113%. `run-live.sh` gains `ARMS` and `CHISLE_SKILL` overrides for testing candidate rulesets.
+- README and site lead with the results where Chisle is leanest; the full tables stay in `docs/benchmarks.md`.
+
+### Added
+- **Copilot CLI as a global agent.** `npx chisle --only copilot-cli` writes the ruleset into `~/.copilot/copilot-instructions.md` and registers the existing compressor as a user-level `postToolUse` hook (`~/.copilot/hooks/chisle.json`). Verified live on Copilot CLI 1.0.95: a 13.9k-char shell result reached the model at ~100 lines, mid-log error and exit-code tail intact. Copilot compression now follows `CHISLE_DEFAULT_MODE` / the shared config instead of being unconditionally on. `--stats --only copilot-cli` reads its ledger.
+- **MCP output compression for any agent.** `npx chisle mcp wrap` routes stdio MCP servers in Cursor, Windsurf, Cline, Kiro, Gemini CLI, Qwen Code and Copilot CLI through `hooks/chisle-mcp-proxy.js`, which compresses oversized `tools/call` results with the shared core and forwards every other byte unchanged. Opt-in, strict-JSON only, backup on first write, never touches Claude Code; `mcp unwrap`, `mcp status`, and `--uninstall` reverse it. Verified live in Copilot CLI: 27,734 chars saved on one call, answer unchanged.
+
+### Fixed
+- **OpenCode install follows OpenCode's config root.** Install, detection, update, uninstall, plugin state and `--stats --only opencode` now resolve `OPENCODE_CONFIG_DIR`, then `$XDG_CONFIG_HOME/opencode`, then `~/.config/opencode`. Previously the installer always wrote `~/.config/opencode` while the plugin honored `XDG_CONFIG_HOME`. (#33)
+- **Spill, dedup and stats writes are symlink-safe and atomic** for every agent sharing the compressor core. Subdirectories Chisle creates and the files it writes must not be links; a symlinked state root (e.g. dotfiles via GNU stow) is still accepted. (#33)
+- **Error lines inside underscore codes survive compression.** `FATAL_MEMORY_PROBE: …`, `APP_ERROR_CODE: …` and `npm ERR! …` in an elided middle were dropped because `\b` treats `_` as a word character and finds no boundary after `ERR!`. Severity words now match on letter/digit boundaries; words like `fatalistic` or `terror` still don't. (#38)
+- **`npm test` no longer uninstalls live integrations.** The standalone Claude test ran `--uninstall` without `--only claude` and with the real `PATH`, so it stripped OpenCode and other hosts and could run `claude plugin uninstall` on the real install. It is now scoped, with an empty `PATH` and a temporary `HOME`. (#39)
+- **Benchmark headline withdrawn and re-measured.** `run-live.sh` never turned Claude Code's tools off, so in 14 of 26 prompts an arm tried `Write`/`Bash`, was denied and wrote the code again, double-counting it. It now passes `--tools "" --strict-mcp-config`. With tools off (2026-10-12, same prompts and versions) the three rulesets shorten answers by a similar amount (Chisle 56%, ponytail 58%, caveman 65%), Chisle and caveman tie on the bill (82%, 81%), and ponytail bills 127%. The "33% shorter and 24% cheaper, while caveman and ponytail make them longer" claim is gone from the README, docs and site. (#37)
+- **ponytail in the agentic benchmark.** `benchmarks/agentic/run.js` gains a `ponytail` arm. On the six fixtures (6 seeds) ponytail passed 32/36 hidden tests against 28/36 for both vanilla and Chisle (p = 0.34, not separable from noise), at +14% cost per run. (#37)
+
+### Docs
+- **One benchmark chart.** README and site now chart only the Pi answer-length result (Chisle 37%, ponytail 49%, caveman 56% of a bare model). The re-run, Claude coding, June 20-task, per-task, by-size and by-kind charts are gone; their numbers stay as tables in README, `docs/benchmarks.md` and the site. `scripts/build-chart.js` now builds only `assets/benchmark-pi.svg`.
+- Failed OpenCode Bash calls verified live on OpenCode 1.18.31: they reach `tool.execute.after` and are compressed with exit metadata intact. (#29, #33)
+- **Credit caveman and ponytail.** Chisle's ruleset began as a merge of both MIT-licensed skills; their copyright notices are now in `LICENSE` and the README names them. (#37)
+
+## [3.7.0] - 2026-10-04
+
+Minor: a new agent. Also ships the contributor benchmark work merged since 3.6.1.
+
+### Added
+- **Antigravity support (agent twelve).** `npx chisle --only antigravity` writes the ruleset to `.agents/rules/chisle.md` in the current project with `trigger: always_on`, which Antigravity requires before it loads a workspace rule ([rules docs](https://antigravity.google/docs/rules)). Detected by the `antigravity` or `agy` (Antigravity CLI) command, or `~/.antigravity`. Project-scoped like Cursor and Kiro: run it once per repo, and `--update` refreshes it in place.
+- **Replay breaks savings down by tool.** `benchmarks/replay-compress.js` prints outputs, chars before → after and chars saved per tool, for both Claude Code and Pi transcripts. (#30, [@anshlakhera048](https://github.com/anshlakhera048))
+- **Agentic score reports turns.** `benchmarks/agentic/score.js` adds mean turns per run to the Overall table; the README tables now come from the script (5.42 vs 5.92 on the October cells). (#35, [@anshlakhera048](https://github.com/anshlakhera048))
+- **A large-file agentic fixture.** `routing-catalog` plants a boundary bug in a 1,447-line courier module, to measure whether the context-diet rules pay off where files are big. Not yet run. (#36, [@Sinkleberg](https://github.com/Sinkleberg))
+- **Charts for the October re-run and the Pi run**, generated from the raw cells and covered by `npm run check:chart`. (#34, [@anshlakhera048](https://github.com/anshlakhera048))
+
+### Changed
+- **The README is cut from 600 to ~260 lines.** It leads with the Pi chart, showing answer length and billed tokens side by side, since ponytail wins the bill. Every removed section moved verbatim to `docs/benchmarks.md` or `docs/usage.md`.
+- **The site's Compare section shows the October transcripts**, not the June ones, with their real token counts. (#32, [@ZeroElemental](https://github.com/ZeroElemental))
+
+### Fixed
+- **`run-live.sh` retries failed cells.** A failed or killed call used to leave a partial `<task>__<arm>.json` that later runs skipped as cached; calls now write to a temp file and move it into place only on success. (#31, [@ZeroElemental](https://github.com/ZeroElemental))
+
+## [3.6.1] - 2026-10-02
+
+### Changed
+- **OpenCode no longer compresses MCP tools unless you allowlist them.** It used to guess that a `server_tool` name was a read-only MCP tool. That name shows nothing about safety, so MCP tools now need `CHISLE_COMPRESS_TOOLS`. Tools that return source or change files (`read`, `edit`, `write`, `patch`, `apply_patch`, `multiedit`, notebook tools) are never compressed, even when that variable lists them. (#19, [@lextiz](https://github.com/lextiz))
+
+### Fixed
+- **OpenCode output now stays within `CHISLE_COMPRESS_MAX_CHARS`.** The final bound covers duplicate markers and short inputs, and an output that already carries a Chisle marker but is still over the limit is compressed again. Each elided output saves the full original to a spill file. Repeat-output detection is tracked per session, so concurrent sessions no longer overwrite each other's state. Saved characters are counted in the stats file. `--uninstall` removes the new `chisle-dedup` state. (#19)
+- **Long error lines keep the part that matched.** A salvaged diagnostic line over the length cap is now windowed around the match instead of cut from the start. Every cut also avoids splitting a surrogate pair, so emoji and other non-BMP characters can't become broken text. This shared core runs for Claude Code, Pi and Copilot too; a 411-line ASCII build log replays byte-identical. ([receipt](benchmarks/results/2026-10-01-opencode-hardening.md))
+
+## [3.6.0] - 2026-10-01
+
+### Changed
+- **The ruleset costs half as much per request: ~900 tokens, was ~1.8k.** It rides along on every request, so its size is paid again on each turn of an agent loop. `SKILL.md` was cut from 6,725 to ~3,300 injected chars, measured live at 1,779 → 877 tokens per request. Every rule and safety carve-out stays; the examples section, the destructive-op sample and the repetition went. ([results](benchmarks/results/2026-10-01-ruleset-trim.md))
+  - **"Grep every caller before editing" is gone.** Both arms failed the one fixture that tests it 8 times in 12; it changed nothing and cost tokens every turn.
+  - **The examples no longer mirror benchmark prompts.** The old ones answered `rest-graphql`, the auth expiry bug and `deadlock` almost verbatim, which taught the ruleset to its own test. The new ones (a timezone bug, a CDN) appear in no suite.
+  - A 5-prompt live check caught the first cut doubling explanation length (28 → 60 lines); restoring "numbered steps" and "two tight paragraphs beat five headed sections" brought it to 39.
+  - **Agent loops still cost a little more, not less.** Six fixtures × 6 seeds: pass rate ties (28/36 each), context +16%, cost +6.8%. Per-request logs split that: the ruleset adds ~0.9k tokens to every request (about 4% on these small repos), and the rest is turn count, which flipped direction between batches. ([agentic results](benchmarks/agentic/README.md))
+  - The `What it sounds like` heading is gone, so it left the `sections.prose` group.
+- **Every always-on ruleset now carries the structure rules.** The five generated rule files gain "numbered steps" and "two tight paragraphs beat five headed sections"; `AGENTS.md` and `GEMINI.md` (Codex, OpenCode, Hermes, Gemini) had no structure rule or terse-is-not-incomplete guard at all, and now have both.
+- **The headline is re-measured: 83% of a bare model, not 52%.** A fresh 4-arm run (13 prompts × 2 seeds, current harness and rival versions) puts Chisle at 83% (95% CI 69–95%), the only arm below 100%; caveman 102%, ponytail 105%. It pays on long answers (77%) and breaks even on short ones (106%). The June 52% leaned on one outlier baseline (`cache`: 4,910 tokens, later runs 375–813) and on cells an old ruleset example may have primed. Site, README, `llms.txt`, metadata and share image now lead with the re-run; the June tables stay, marked superseded. ([results](benchmarks/results/2026-10-01-live-rerun.md))
+
+### Fixed
+- **The compressor never reached failing commands, and the docs implied it did.** Claude Code sends a failed call (a non-zero `Bash` exit included) to `PostToolUseFailure`, whose output schema allows only `additionalContext` (checked on 2.1.285), so no hook can shrink a failing test run. The site demo showed exactly that case, with a `34,120 → 612` figure head + tail could never produce; it now shows a successful 411-line build log with the real hook's numbers (37,745 → 8,756 chars, both mid-log warnings salvaged). The replay no longer counts failed results as savings; on today's corpus that moved 163 outputs to 162, so the per-output numbers stand.
+- `run-live.sh` finds caveman's skill in its newer plugin-cache layout.
+- The site's structured data no longer claims version 1.2.1.
+
+### Added
+- **Agentic benchmark instrumentation.** `ARMS` (with a `chisle-hook` arm wiring the shipped PostToolUse hook from `plugin.json`), `FIXTURES` and `RAW_DIR` select what runs where; each cell now records its tool calls and every request's prompt size. A new `noisylog` fixture prints 401 test results (17k chars) with one failure mid-log; since the run fails, no hook can compress it, so it measures whether the agent filters the log itself.
+- **The long-answer suite has run.** `SUITE=large` (7 prompts) existed but had never been measured; it is half of the re-measured headline.
+- **Tested and rejected: writing the ruleset in shorthand.** Telegraphic and near-unreadable variants cut characters 27% and 52% but tokens only 21% and 34%, broke the no-headings rule and grew visible answers 27%. ([results](benchmarks/results/2026-10-01-prompt-compression.md))
+
+## [3.5.0] - 2026-09-19
+
+### Added
+- **Output styles are detected automatically.** Claude Code's output-style mechanism also governs prose structure, so an active style and Chisle's prose section issued directly contradicting instructions with no precedence between them: the style mandates tables and bullets for a comparison, Chisle's prose section forbids the ones the question didn't ask for. Chisle now reads the active style and steps its prose rules aside on its own — `/output-style Explanatory` and the prose section stops shipping, back to `default` and it returns. Nothing to configure. ([#17](https://github.com/JayPokale/Chisle/issues/17))
+  - Detection reads the `outputStyle` key across Claude Code's own settings precedence: `.claude/settings.local.json` (where `/output-style` persists the selection), then `.claude/settings.json`, then the user settings file.
+  - **Code rules never yield.** Output styles govern prose, not the efficiency ladder or the context diet, so only the prose section steps aside. The compressor is untouched.
+  - **An explicit `sections.prose` always wins.** Only an unwritten key yields to detection, so a user who set `prose: true` keeps their prose rules alongside an active style. A non-boolean is not explicit and falls back.
+  - Claude Code only. Pi has no output-style mechanism and is unchanged.
+- **`sections.prose` / `sections.code` config.** Suppress Chisle's prose rules or code rules independently while keeping the other, via `~/.config/chisle/config.json`. Config-file only, no env override; absent, malformed or non-boolean falls back to enabled. Honoured at every runtime emission point — the SessionStart ruleset, its no-SKILL.md fallback, the per-turn reinforcement line, and pi-extension's SKILL.md load. Persistence, Thinking Is Billed Too, Auto-Clarity, When NOT to be lazy and Boundaries always ship, and the reinforcement line's Boundaries carve-out is emitted outside the code group so suppressing code rules cannot drop a safety rule. Thanks [@zaphod72](https://github.com/zaphod72) ([#15](https://github.com/JayPokale/Chisle/issues/15), [#16](https://github.com/JayPokale/Chisle/pull/16)).
+
+### Fixed
+- **The Pi extension did not load under OMP at all.** OMP (oh-my-pi) ships a subset of Pi's `sessionManager`, and chisle called `ctx.sessionManager.buildContextEntries()` unguarded inside `session_start`, so the extension threw `ctx.sessionManager.buildContextEntries is not a function` before it finished loading. `getBranch()` was reachable the same way. Both now read through a helper returning `[]` when the method is absent, the manager is missing, or the call throws; neither caller needs the data to be correct, only safe when unknown. A full Pi `sessionManager` takes exactly the path it did before. Thanks [@pyshivam](https://github.com/pyshivam) ([#14](https://github.com/JayPokale/Chisle/issues/14)).
+- **Pi's fallback ruleset ignored `sections`.** `FALLBACK_RULES` carried no `##` headings, so the section filter could match nothing and a user's `sections.prose: false` was silently dropped the moment SKILL.md became unreadable. Restructured to match `chisle-activate.js`'s fallback, with the safety line outside both groups.
+
+### Changed
+- **The `sections` key is documented in the README, not in the prompts.** Documenting it in the five static rule files added 202 chars (~9%) to each always-on ruleset to describe a key those agents cannot read, and the `SKILL.md` paragraph spent tokens in every Claude Code and Pi session on configuration the model cannot act on. Both reverted; the five static files are byte-identical to 3.4.0 again.
+- Guards for the one place SKILL.md content is duplicated into code: every prose/code heading constant must exist in SKILL.md, every SKILL.md heading must be classified (a new one would otherwise become silently always-on), and no `## ` line may hide inside a code fence, since the section filter splits on `/^## /m`.
+
+## [3.4.0] - 2026-09-17
+
+### Added
+- **GitHub Copilot CLI tool-output compression.** The `postToolUse` hook now recognises Copilot CLI's flat camelCase payload (`toolName` + `toolResult.textResultForLlm`) and replies with `modifiedResult`, reusing the same scrub -> dedup -> elide core as every other agent. Copilot state (dedup/spill/stats) lives under `~/.copilot` via a new `getCopilotDir()`, never `~/.claude`. Copilot's `view`/`create`/`edit` are excluded for the same reason `Read`/`Edit`/`Write` are. Detection is structural, so the Claude/Pi path is untouched. Thanks [@ishaksar](https://github.com/ishaksar) ([#11](https://github.com/JayPokale/Chisle/pull/11)).
+  - Installer wiring for Copilot hooks is deliberately not included yet; the compression core is in place but Copilot is not yet advertised as having the input axis.
+- **OpenCode tool-output compression.** `npx chisle --only opencode` now also installs a native OpenCode plugin (`~/.config/opencode/plugins/chisle.js` + the zero-dep compressor core in `chisle-hooks/`). It elides oversized read-only tool output (bash, grep, glob, webfetch, MCP `server_tool` results) via two hooks, reusing the exact scrub+elide core the Claude/Pi hook uses; `read`/`edit`/`write` stay untouched (even under `CHISLE_COMPRESS_TOOLS`).
+  - `tool.execute.after` rewrites `output.output` in place. For outputs under OpenCode's on-disk store limits (~50 KB / 2000 lines) the mutation persists onto the tool part's `state.output`, so every later turn reuses the compressed form.
+  - `experimental.chat.messages.transform` re-applies compression over completed tool parts just before parts become model messages — a request-time safety net for full output the store still holds (e.g. recorded before install). Idempotent: parts already carrying the `[chisle:` marker are skipped.
+  - Measured on gpt-5.5: a 30 KB / 999-line `cat` (kept full by OpenCode) shrank to ~3.3 KB, cutting the tool-ingestion step from 13,382 to 1,747 fresh input tokens (-87%) with a byte-identical, correct answer.
+  - Spill/recovery files live under `~/.config/opencode/`. Kill switch `CHISLE_COMPRESS=0`, disable by default with `CHISLE_DEFAULT_MODE=off`. Uninstall removes the plugin, its core, and spill/state. This closes the one axis static-rule hosts previously could not get (see `docs/agent-portability.md` feature map).
+- **OpenCode support.** `npx chisle --only opencode` appends the fenced Chisle ruleset to the global `~/.config/opencode/AGENTS.md` (existing instructions preserved, refresh only under `--force`/`--update`) and copies the bundled skills into `~/.config/opencode/skills/` for on-demand loading via the native `skill` tool. No `instructions` entry, no second system message. Uninstall removes only the fenced block and the `chisle*` skill dirs.
+- **Hermes Agent support.** `npx chisle --only hermes` copies the bundled skills verbatim into `~/.hermes/skills/` (Agent Skills standard, `/chisle` commands). No ruleset injection, no config rewrite. Portable via `CHISLE_HOME`; uninstall prunes only owned skill dirs.
+- Shared `writeFencedRuleset` helper: Codex and OpenCode now share one append/refresh path (behavior unchanged, covered by a refactor-guard test).
+
+### Fixed
+- **`CHISLE_COMPRESS_TOOLS` could defeat the `Read`/`Edit`/`Write` exclusion.** The override replaces the allowlist, and on the Claude and Copilot paths it was consulted *before* any exclusion check — so `CHISLE_COMPRESS_TOOLS=Read` genuinely re-enabled compression of `Read` output. That output feeds `Edit`'s `old_string` matching, so eliding it can make the model edit text it never saw. The Pi extension (`NEVER_COMPRESS`) and the OpenCode path (`UNSAFE_TOOLS_OPENCODE`) always checked first; all four paths now do. The exclusion is a correctness guarantee, not a default.
+- **A failed install reported success.** `spawnSync` returns `{ status: null, error: ENOENT }` when the target CLI is not on `PATH` (and `{ status: null, signal }` on a signal death), and the `(r.status || 0) === 0` check read that `null` as `0`. On a machine without `gemini` or `pi`, `npx chisle` printed `installed: gemini` and exited `0` while installing nothing. Four call sites shared the pattern; all now require an explicit zero exit. `--dry-run` still reports success.
+- **The OpenCode compressor core could fail to load.** OpenCode's config dir declares `"type": "module"`, which Node applies to every `.js` beneath it — including the CommonJS core copied to `plugins/chisle-hooks/`. It then threw `ReferenceError` on its first `require`, taking the plugin with it. The installer now writes `chisle-hooks/package.json` pinning `"type": "commonjs"`. Bun tolerated this; Node did not.
+- **A compressed Copilot tool result was always labelled `success`.** The reply builder hard-coded `resultType: 'success'`, so compressing the output of a call that errored relabelled it. It now echoes back the `resultType` it was given.
+
+### Changed
+- **Benchmarks publish their results.** `benchmarks/README.md`, `quality/README.md` and `agentic/README.md` described how to run each suite but printed no numbers. All three now carry result tables regenerated from the committed raw data by the deterministic graders — including both null results (Fisher p = 1.000 on correctness and on the agentic suite) and the agentic cost regression ($0.0276 vs $0.0269).
+- `benchmarks/quality/README.md` claimed 20 maths and 12 coding items; the real counts are 32 and 20. The table predated the `hard` tier and only ever counted `base`.
+- `SECURITY.md` declared Chisle "pre-1.0" and listed `0.x` as the supported line, several majors out of date.
+- Support routing: `SUPPORT.md` is now a routing table and `.github/ISSUE_TEMPLATE/config.yml` points questions at GitHub Discussions Q&A rather than the issue tracker.
+- CI runs `scripts/build-samples.js --check` alongside the rule and chart checks, in both the test and publish workflows.
+
+## [3.3.0] - 2026-09-13
+
+### Added
+- **Elision is recoverable.** The compressor used to delete the middle of an oversized
+  output outright. If the agent then needed a line from it, the only way back was
+  re-running the command: more expensive than the elision saved, and simply wrong when
+  the command is not idempotent (a test run, a build, a `git log` at a moment in time).
+  The full output now spills to `<config>/chisle-spill/` first and the marker carries the
+  path, so recovery is a targeted grep. Newest 40 kept, mode 0600, `CHISLE_COMPRESS_SPILL=0`
+  to disable, removed by `--uninstall`. Best-effort: a failed spill still elides, just
+  without the escape hatch.
+  Credit where due: this is the failure mode the
+  [THOL benchmark](https://github.com/pi-infected/token-harness-optimizer-leaderboard)
+  names as reason #2 that compressors fail to pay for themselves. No code was taken from
+  any other project.
+
+## [3.2.1] - 2026-09-13
+
+### Added
+- **`npx chisle --update`.** Refreshes every agent that already has Chisle and installs it
+  into none that don't.
+
+### Fixed
+- **The documented upgrade command did nothing.** The README said re-running the installer
+  "is idempotent and overwrites the previous copy". It is not: every install path (Claude
+  plugin, Claude standalone hooks, Pi, Gemini, Codex, and all five project-rule agents)
+  skips when Chisle is already present, so an upgrade run printed a success summary and
+  changed no files. `--update` pairs the existing force paths with an installed-or-not
+  check, and the README and website now document it, including the `npx chisle@latest` pin
+  that stops npx serving a cached copy of the package.
+
+## [3.2.0] - 2026-09-13
+
+### Added
+- **Deliberation budget rule ("Thinking is billed too").** The Pi benchmark exposed a
+  gap the ruleset never addressed: every rule trimmed what the model *writes*, nothing
+  trimmed what it spends getting there. On the six-task Pi run Chisle produced the
+  smallest visible answers of any arm (814 tokens vs ponytail's 1,027) and still billed
+  more (1,328 vs 1,265), because 39% of its output was reasoning against ponytail's 19%.
+  The new rule makes the ladder an explicit stopping rule rather than a checklist to walk
+  aloud, and it keeps the existing carve-out intact: never think less about understanding
+  the problem. Added to `skills/chisle/SKILL.md`, the `build-rules.js` body, and
+  `AGENTS.md`/`GEMINI.md`.
+  **Unvalidated:** the mechanism is measured, the fix is not. Re-running the Pi arm is
+  the only thing that settles whether it works.
+
+- **`npx chisle --stats`.** The compressor has always kept a savings ledger at
+  `<config>/.chisle-compress-stats.json`, but nothing could read it except the statusline
+  badge, so the answer to "how much did this save me" was a repo clone away
+  ([#8](https://github.com/JayPokale/Chisle/issues/8), asked by
+  [@cosjef](https://github.com/cosjef)). The flag prints saved chars, estimated tokens, and
+  the compressed-output count. Read-only, creates nothing, refuses a symlinked ledger, and
+  treats a corrupt one as empty rather than trusting it.
+  It reports the **input axis only**. Elided chars have a real baseline; the output axis has
+  none, and is measured with benchmark arms instead. Blending them would invent the number.
+
+### Changed
+- **Em dashes removed from the README, docs, website, and rulesets.** Prose only; raw
+  benchmark transcripts, `samples.json`, and the compressor's own elision marker are left
+  byte-exact, since editing those would falsify committed receipts.
+- **Website updated for the Pi release.** Agent count, install commands, the Pi package
+  path, the corrected input-axis claim, and a new benchmark section publishing the Pi arm,
+  including the billed-output row Chisle lost to ponytail.
+- **Contributor avatars removed from the site.** The "Built in the open" section keeps its
+  copy and links; `getContributors()` had no other caller and went with them.
+
+## [3.1.0] - 2026-09-11
+
+### Added
+- **Pi harness integration.** New zero-dependency Pi package extension supplies the always-on ruleset, `/chisle` and natural-language toggles, footer savings badge, and `tool_result` compression while preserving `details`, `isError`, and `usage`. Parallel sibling results cannot dedup one another; `read`, `edit`, and `write` are always untouched.
+- **Pi install and replay support.** `npx chisle` detects Pi and delegates package settings to `pi install` / `pi remove`; `--only pi`, `--dry-run`, and scoped uninstall are covered. `package.json` exposes the extension and Agent Skills resources. Transcript replay reads Pi session JSONL and reports marginal savings after Pi's native 50KB/2,000-line truncation.
+- **Pi receipts.** Committed 24 raw live event streams plus normalized cells. Chisle used 61% of vanilla billed output versus ponytail's 59%, while producing the smallest visible answers (37%) and fewest lines (37%). Local Pi replay measured 27.4% marginal tool-output reduction after native truncation. ([#6](https://github.com/JayPokale/Chisle/issues/6))
+
+### Fixed
+- **`CHISLE_DEFAULT_MODE=off` blocked explicit activation.** It now controls session startup only; `/chisle` or an activation phrase enables the current Claude Code or Pi session as documented.
+- **Duplicate hook registration made dedup destroy first-seen tool output.**
+  When `chisle-compress-output.js` was registered twice (plugin manifest plus a
+  leftover standalone entry in `settings.json`), both copies ran on the same
+  tool call and shared one state file: copy A stored the output hash, copy B
+  matched it and replaced content the model had never seen with a
+  `[chisle: output byte-identical to the previous <tool> result …]` marker.
+  `dedupCheck` now records the payload's `tool_use_id` alongside the hash and
+  skips the marker when the match comes from the same tool call. Old
+  string-valued state entries still load, and a payload without a
+  `tool_use_id` keeps the previous behaviour. A genuine re-run is a different
+  tool call, so real dedup still fires.
+  ([#4](https://github.com/JayPokale/Chisle/issues/4), reported by
+  [@aermak](https://github.com/aermak))
+- **The installer left both registrations live.** `installClaude()` picked one
+  wiring path per run and never removed the other's, so a machine that once
+  fell back to standalone hooks kept them after the plugin installed. The
+  plugin branch now strips `chisle-` entries from `settings.json`.
+
+## [3.0.0] - 2026-07-28
+
+### Changed
+- **BREAKING: one mode. `lite`, `full` and `ultra` are gone.** Three dials on a
+  tool whose argument is "fewer knobs" was the joke writing itself, and only the
+  middle setting was ever benchmarked. `/chisle` turns it on, `/chisle off`
+  turns it off. A stray `/chisle full` still just activates, so old habits keep
+  working.
+  - Compressor thresholds are now fixed at the old `full` values
+    (8k chars, 60 head lines, 40 tail) — the published numbers were measured
+    there. `CHISLE_COMPRESS_*` still overrides them.
+  - `CHISLE_DEFAULT_MODE` and `config.json` `defaultMode` now take `on` / `off`.
+    An existing `lite`/`full`/`ultra` value is no longer valid and falls through
+    to the default, which is `on` — so the tool stays enabled either way, and
+    SessionStart says once that the setting no longer does anything.
+  - Statusline renders `[CHISLE]` only; the `[CHISLE:ULTRA]` variant is gone.
+  - Note for anyone re-deriving the benchmarks: the injected ruleset changed
+    with this release (the intensity table left SKILL.md), so a fresh run will
+    not reproduce the committed cells byte-for-byte.
+
+### Fixed
+- **Tool-output compression never actually applied.** The `PostToolUse` hook
+  returned the compressed text as a bare string, but Claude Code validates
+  `updatedToolOutput` against the tool's own output schema — and object-shaped
+  results (`Bash` → `{stdout, stderr, …}`) rejected it every time with
+  `expected object, received string`. The hook ran, reported savings, and the
+  model still received the full output. `rebuildResponse()` now puts the
+  compressed text back into the original shape and skips shapes it cannot
+  rebuild rather than emitting a replacement the harness will refuse.
+  Found and diagnosed with transcript evidence, plus the fix, by
+  [@sovdchains](https://github.com/sovdchains) (#3).
+- **The stats file counted savings that never happened.** `recordSavings()`
+  ran before the replacement was emitted, so `.chisle-compress-stats.json` and
+  the statusline `⇣` badge credited every compression the harness went on to
+  reject. It now records only when a replacement is actually sent. Same report
+  (#3).
+- **The full ruleset was re-injected on every resume, clear and compact.**
+  `SessionStart` matches `startup|resume|clear|compact`, and the hook never
+  read `source`, so all four re-sent the whole ~1.6k-token ruleset. Only
+  `startup` now sends it; the rest get a 27-token reactivation line, since the
+  per-turn `UserPromptSubmit` reminder already restates the active behaviour.
+  Measured across 173 real sessions — including the observation that the
+  overhead was cancelling most of the compressor's savings, and that the
+  standing instruction load was competing with the user's actual requests — by
+  [@enc0ded](https://github.com/enc0ded) (#2).
+
+## [2.0.0] - 2026-07-28
+
+### Changed
+- **Renamed project: RDXmin → Chisle.** Package, plugin, skills
+  (`chisle`, `chisle-audit`, `chisle-review`, `chisle-help`), commands
+  (`/chisle`, `/chisle-audit`, `/chisle-review`, `/chisle-help`), env vars
+  (`CHISLE_*`), config path (`~/.config/chisle/`), and all per-agent rule
+  mirrors renamed to match. Entries below predate the rename and refer to
+  the project by its former name, RDXmin.
+
+Published to npm as `chisle`; `rdxmin` deprecated with a pointer.
+
+## [1.2.2] - 2026-07-11
+
+### Added
+- Website: [rdx.jaypokale.me](https://rdx.jaypokale.me) — npm/README homepage
+  now points there. Site lives in `site/`, ships in neither the npm package
+  nor the plugin install.
+
+## [1.2.1] - 2026-07-11
+
+### Fixed
+- **Windows statusline never rendered** — `rdx-statusline.ps1` combined
+  `Get-Content -Raw -TotalCount`, which are mutually exclusive in every
+  PowerShell; the throw was swallowed by `SilentlyContinue`, the empty mode
+  hit the whitelist default, and the badge silently exited. Cap the string
+  after a plain `-Raw` read instead. Reported by
+  [@TDimovski](https://github.com/TDimovski) (#1).
+- `rdx-statusline.ps1` now refuses symlinked/reparse-point flag and stats
+  files, matching the `.sh` guard.
+
+## [1.2.0] - 2026-07-09
+
+### Added
+- Major-version update notice on session start (registry check cached 3 days,
+  `RDX_UPDATE_CHECK=0` kill switch).
+- Contributor credits: `package.json` contributors, README contributors
+  section with auto-updating contrib.rocks image.
+
+### Changed
+- CI: actions bumped to v5; publish step idempotent (skips versions already
+  on npm).
+
+## [1.1.0] - 2026-07-07
+
+Same content as 0.2.0 plus the total-bill chart redesign. The version jumps
+past 1.0.0 because the repo's very first commit shipped `"version": "1.0.0"`
+before being re-numbered to 0.1.0 — plugin resolvers with that payload cached
+treat every 0.x release as a downgrade and silently keep serving the ancient
+code. 1.0.0 is skipped forever; nothing may ever claim it again.
+
+## [0.2.0] - 2026-07-07
+
+### Added
+- **Tool-output compression (input axis)** — `PostToolUse` hook
+  (`hooks/rdx-compress-output.js`) elides the middle of oversized tool results
+  before the model reads them: head + tail kept, up to 12 error-like lines
+  salvaged from the cut. Deterministic, zero LLM, zero network, zero deps.
+  Allowlist-only for correctness (Bash/Agent/WebFetch/WebSearch/Grep/Glob/
+  `mcp__*` — never Read/Edit/Write, whose exact bytes feed later edits).
+  Thresholds track the `/rdx` level (lite 16k / full 8k / ultra 5k chars);
+  env-tunable; `RDX_COMPRESS=0` kill switch. Wired via plugin manifest and the
+  standalone installer (settings merge grew `matcher` support).
+- **Measured, not estimated:** across 171 real transcripts, tool output is
+  67.5% of context content; the shipped compressor replayed over that corpus
+  shrinks eligible outputs ~46% (receipts + reproducible replay script:
+  `benchmarks/replay-compress.js`, `benchmarks/results/2026-07-07-input-axis.md`).
+- Savings ledger (`.rdx-compress-stats.json`, measured chars elided) rendered
+  by both statuslines as `⇣9k tok` — this one has a real baseline, unlike the
+  fabricated output-side counter removed in 0.1.0.
+- **Context Diet** ruleset section (all 8 agents): fetch the slice, not the
+  file — Grep before Read, offset/limit reads, filter long output at the
+  source. Prevention for the `Read` whale the compressor must not touch.
+- 15 new tests (compressor correctness guardrails, allowlist, kill switch,
+  never-throws). Suite: 49.
+
+### Added (2026-07-07, second pass)
+- **Scrub tier** (lossless) in the output compressor: ANSI/OSC escape strip,
+  blank-run collapse, `line repeated N×` collapse — applies to medium outputs
+  below the elision threshold. Techniques adapted from headroom's transform
+  set, implemented zero-dep. Replay: 53 outputs touched in full mode (was 39),
+  ~61k tokens one-shot on the measured corpus.
+- **Dedup tier**: a tool output byte-identical to that tool's previous output
+  in the *same session* becomes a one-line marker (the copy is already in
+  context). Session-scoped by hook `session_id` — never fires across sessions,
+  where the earlier copy wouldn't be in context; skipped when no session id.
+  0 hits in the replay corpus — labeled speculative, `RDX_COMPRESS_DEDUP=0`.
+- README rebuilt around the three-axis story with verified numbers and a
+  prior-art table (real repo links); CONTRIBUTING corrected (wrong test glob
+  that matched zero files, missing compressor row, stale savings-counter
+  mention, checklist aligned with the deliberate build-rules mirror).
+
+### Verified / Fixed (2026-07-07 re-verification)
+- June benchmark numbers reproduced exactly from committed raw cells (billed
+  `usage.output_tokens`); metric now stated explicitly — on the alternative
+  visible-answer metric the June data held one RDXmin over-baseline cell.
+- **Retired the "0 backfires" claim.** A fresh 24-cell run against the
+  *installed* caveman/ponytail plugins produced one RDXmin backfire
+  (rest-graphql, 173% billed) vs caveman 5/6 (worst 424%) and ponytail 4/6.
+  Combined 20-task ledger: RDXmin 1, caveman 6, ponytail 8. All 24 fresh
+  answers graded correct — no accuracy loss in any arm.
+- Root-caused the backfire (comparison prompts → headed pro/con bullet walls,
+  structure the ruleset already banned but too weakly) and hardened the rule;
+  re-validated live at 93% of a fair 3-trial vanilla baseline (was 145%).
+  Writeup: `benchmarks/results/2026-07-07-verify-rerun.md`.
+- Fixed two-sources-of-truth bug: `scripts/build-rules.js` carried its own
+  rule BODY, so SKILL.md edits never reached the per-agent copies (CI checked
+  the copies against the same stale BODY — green while wrong). BODY updated +
+  labeled as a manual mirror.
+- Benchmark harness: competitor skills resolve from installed plugin cache,
+  arms run in parallel per task, fresh-run dir override (`run-live.sh [model]
+  [raw-dir]`, `RAW_DIR=` for `aggregate.js`).
+
+## [0.1.0] - 2026-06-29
+
+### Added
+- Unified efficiency mode: zero-fluff prose + YAGNI-first code, always active together.
+- **`/rdx-audit`** — one-shot audit of a diff/file/repo across both axes: over-engineered
+  code *and* bloated prose/docs/comments, ranked biggest-cut-first. Neither a code-only
+  auditor nor a prose compressor does both; this is the union.
+- **Reliability finding** (14 tasks, 2 models): RDXmin never exceeded the no-tool token
+  baseline (worst case 83%), while caveman hit 130% once and ponytail 227% on 4 tasks. The
+  honest value prop is "no failure mode," not "tersest on every task." See
+  `benchmarks/results/2026-06-29-reliability.md`.
+- `/rdx` command with `lite` / `full` / `ultra` levels; natural-language activation.
+- SessionStart + UserPromptSubmit hooks with symlink-safe flag handling (`O_NOFOLLOW`, 0600).
+- Statusline badge `[RDX]` / `[RDX:ULTRA]` (bash + PowerShell). Shows plan rate-limit
+  usage + reset countdown, or session cost (`$`) on API keys — read from Claude's
+  statusline JSON, no extra API calls. No fabricated "tokens saved" counter (an earlier
+  build's `turns × 350` estimate was removed; a live session has no baseline to measure against).
+- **`npx rdxmin` installer** — auto-detects 8 agents (Claude Code, Gemini, Codex,
+  Cursor, Windsurf, Cline, Kiro, Copilot) and installs for each. Flags: `--list`,
+  `--only`, `--dry-run`, `--force`, `--uninstall`, `--config-dir`, `--help`. Claude path
+  does a plugin install with automatic fallback to standalone hooks + JSONC-safe
+  `settings.json` merge. Idempotent; clean round-trip uninstall.
+- `curl | bash` and `irm | iex` shims delegating to the Node installer.
+- Multi-agent distribution: Cursor, Windsurf, Cline, Kiro, Codex, Gemini, Copilot rule copies, generated from one source via `scripts/build-rules.js`.
+- **Live 4-arm benchmark** (`benchmarks/run-live.sh` + `aggregate.js`): vanilla vs
+  caveman vs ponytail vs rdxmin over 24 real model runs, isolated so the arm is the
+  only variable. Raw outputs committed under `benchmarks/results/raw/`. README chart and
+  numbers are generated from this real data (replacing an earlier chart modeled from
+  hand-authored examples). Finding: rdxmin is leanest on coding tasks; on pure prose a
+  dedicated prose compressor wins — stated plainly, not cherry-picked.
+- Chart generator (`scripts/build-chart.js`, reliability worst-case from real cells) + promptfoo config.
+- npm trusted publishing (OIDC, provenance) + GitHub Release workflow on `v*` tags.
+- Test suite: 34 tests across flag safety, tracker, settings merge, installer integration. CI on Node 18/20/22.
+
+### Fixed
+- Deactivation no longer triggers on unrelated sentences that merely mention "rdx"
+  alongside "off"/"stop" (e.g. "use rdx to turn off the logger"). Now requires the
+  off-verb to target rdx directly. Regression-tested.
+
+### Notes
+- Statusline reads live rate-limit/cost from Claude's JSON; no per-session "savings" figure is invented.
+- Example outputs are representative/illustrative; the *measurement* over them is reproducible.

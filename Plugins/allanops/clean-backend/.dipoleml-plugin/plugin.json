@@ -1,0 +1,16 @@
+{
+  "name": "clean-backend",
+  "displayName": "Clean Backend",
+  "version": "2.0.1",
+  "description": "The backend habits an AI assistant misses on its own — API versioning, feature flags, circuit breakers, and four more. Measured across 13 baseline runs; everything the model already does reliably was cut.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Allanops"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/AllanOps/Clean-Backend",
+  "repository": "https://github.com/AllanOps/Clean-Backend",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

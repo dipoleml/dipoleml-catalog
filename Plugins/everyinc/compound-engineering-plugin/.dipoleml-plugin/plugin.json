@@ -1,0 +1,16 @@
+{
+  "name": "compound-engineering-plugin",
+  "displayName": "Compound Engineering Plugin",
+  "version": "3.33.1",
+  "description": "Brainstorm, plan, debug, review, and compound learnings with AI agents",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Everyinc"
+  },
+  "license": "MIT",
+  "homepage": "https://every.to/source-code/my-ai-had-already-fixed-the-code-before-i-saw-it",
+  "repository": "https://github.com/EveryInc/compound-engineering-plugin",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

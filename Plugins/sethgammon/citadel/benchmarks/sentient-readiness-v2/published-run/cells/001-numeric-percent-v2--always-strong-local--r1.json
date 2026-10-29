@@ -1,0 +1,113 @@
+{
+  "schema": 2,
+  "cell_id": "001-numeric-percent-v2--always-strong-local--r1",
+  "order": 1,
+  "scenario_id": "numeric-percent-v2",
+  "policy_id": "always-strong-local",
+  "repetition": 1,
+  "route": {
+    "capability_class": "baseline",
+    "initial_tier": "strong",
+    "escalation_tier": null,
+    "reason_code": "BASELINE_ALWAYS_STRONG"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "strong",
+      "started_at": "2026-08-01T03:44:45.192Z",
+      "duration_ms": 6916,
+      "output_text": "{\n  \"answer\": 20\n}",
+      "output_digest": "sha256:b6de8d60a1856fcf24890ba1af7210b2983a2eed51f59c56498881bc6d739c36",
+      "answer": 20,
+      "verification": {
+        "status": "passed",
+        "verifier_id": "exact-answer-v1",
+        "answer_digest": "sha256:f5ca38f748a1d6eaf726b8a42fb575c3c71f1864a8143301782de13da2d9202b",
+        "failure_code": null
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "ollama-chat",
+        "requested_model": "qwen2.5-coder:7b",
+        "observed_model": "qwen2.5-coder:7b",
+        "model_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+        "done_reason": "stop",
+        "response_digest": "sha256:7aa0bda02725975309eda1c0b4a9f768512e3f43864005df7f4056d8734a27f7",
+        "error": null
+      },
+      "usage": {
+        "prompt_tokens": 64,
+        "completion_tokens": 11,
+        "total_tokens": 75,
+        "provider_total_duration_ns": 6913593100
+      },
+      "economics": {
+        "provider_invoice": {
+          "status": "known",
+          "amount_usd": 0,
+          "source": "self_hosted_ollama_no_per_request_invoice"
+        },
+        "gpu_energy": {
+          "status": "measured",
+          "energy_kwh": 0.00010114,
+          "samples": 14,
+          "average_watts": 52.646429
+        },
+        "comparison_cost": {
+          "status": "derived-comparison",
+          "total_usd": 0.000039439,
+          "components": [
+            {
+              "kind": "gpu_electricity",
+              "status": "derived-comparison",
+              "amount_usd": 0.000020228,
+              "energy_kwh": 0.00010114,
+              "rate_usd_per_kwh": 0.2,
+              "source": "nvidia_smi_energy_times_frozen_scenario_rate"
+            },
+            {
+              "kind": "gpu_amortization",
+              "status": "derived-comparison",
+              "amount_usd": 0.000019211,
+              "residual_value_usd": 100,
+              "useful_compute_hours": 10000,
+              "source": "duration_times_frozen_residual_value_scenario"
+            },
+            {
+              "kind": "provider_invoice",
+              "status": "known",
+              "amount_usd": 0,
+              "source": "self_hosted_ollama_no_per_request_invoice"
+            },
+            {
+              "kind": "cpu_memory_storage_display_energy",
+              "status": "unknown",
+              "amount_usd": null,
+              "source": "not_measured"
+            }
+          ]
+        },
+        "actual_end_to_end_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "whole_system_energy_and_actual_utility_rate_not_observed"
+        }
+      }
+    }
+  ],
+  "status": "passed",
+  "final_verification": {
+    "status": "passed",
+    "verifier_id": "exact-answer-v1",
+    "answer_digest": "sha256:f5ca38f748a1d6eaf726b8a42fb575c3c71f1864a8143301782de13da2d9202b",
+    "failure_code": null
+  },
+  "previous_cell_digest": "sha256:025fb9acb6ebfb4abf556b9e1bfb7dbc65739d296f75415779872d10c1009426",
+  "receipt_digest": "sha256:6761366a0e5021858476cd8687d22e5b096eb994d6dd9fa5a73a5e93db13c7af",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:594dd2089c7963f5487ff24e6287efe5c32adc423fa47baa1f2f7c7380e0a3b9",
+    "signature": "WuvdyQPAAigEiNp9O9e/TSgSe83k1iyJ7kZjW3aCYffQMc82kvL4UZWty9d6YcK0LzMC4HvCNOMcGuczav1PDg=="
+  }
+}

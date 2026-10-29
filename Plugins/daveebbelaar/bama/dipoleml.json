@@ -1,0 +1,119 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.daveebbelaar.bama",
+  "type": "plugin",
+  "name": "Bama",
+  "slug": "bama",
+  "vendor": "daveebbelaar",
+  "description": "BAMA: Build Any Mac App. Agent skills to research, clone, design, build, optimize, and test native macOS apps with Swift and SwiftUI.",
+  "version": "1.0.0",
+  "homepage": "https://github.com/daveebbelaar/bama",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agent-skills",
+    "app-clone",
+    "claude-code-plugin",
+    "codex",
+    "computer-use",
+    "liquid-glass",
+    "macos",
+    "macos-app",
+    "native-apps"
+  ],
+  "tags": [
+    "agent-skills",
+    "ai-agents",
+    "app-clone",
+    "claude-code",
+    "claude-code-plugin",
+    "codex",
+    "computer-use",
+    "liquid-glass",
+    "macos",
+    "macos-app",
+    "native-apps",
+    "skills",
+    "swift",
+    "swiftdata",
+    "swiftui"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "daveebbelaar",
+    "brandName": "daveebbelaar",
+    "source": "https://github.com/daveebbelaar.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:12:45Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "daveebbelaar/bama",
+    "url": "https://github.com/daveebbelaar/bama",
+    "commit": "15356bd8ebff408222ad21395aea09bd74b15310",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 583,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:59:49Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

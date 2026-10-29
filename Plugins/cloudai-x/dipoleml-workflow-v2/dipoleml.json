@@ -1,0 +1,132 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.cloudai-x.dipoleml-workflow-v2",
+  "type": "plugin",
+  "name": "DipoleML Workflow V2",
+  "slug": "dipoleml-workflow-v2",
+  "vendor": "cloudai-x",
+  "description": "Universal DipoleML workflow plugin with agents, skills, hooks, and commands",
+  "version": "2.0.7",
+  "homepage": "https://github.com/CloudAI-X/claude-workflow-v2",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agent-skills",
+    "codex",
+    "cursor",
+    "skills",
+    "workflow"
+  ],
+  "tags": [
+    "agent-skills",
+    "ai",
+    "ai-agents",
+    "claude-code",
+    "codex",
+    "cursor",
+    "skills",
+    "workflow"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "cloudai-x",
+    "brandName": "cloudai-x",
+    "source": "https://github.com/CloudAI-X.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:12:33Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "CloudAI-X/claude-workflow-v2",
+    "url": "https://github.com/CloudAI-X/claude-workflow-v2",
+    "commit": "3b5a89ec1c106dd387e372aec073f9401336382a",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 1420,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:48:33Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Claude Workflow V2 | Universal Claude Code workflow plugin with agents, skills, hooks, and commands",
+        "after": "DipoleML Workflow V2 | Universal DipoleML workflow plugin with agents, skills, hooks, and commands",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Universal Claude Code workflow with specialized agents, skills, hooks, and mode commands for any software project. Includes orchestrator, code-reviewer, debugger, docs-writer, security-auditor, refactorer, and test-architect agents.",
+        "after": "Universal DipoleML workflow with specialized agents, skills, hooks, and mode commands for any software project. Includes orchestrator, code-reviewer, debugger, docs-writer, security-auditor, refactorer, and test-architect agents.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "claude-workflow-v2",
+        "after": "dipoleml-workflow-v2",
+        "reason": "provider token neutralized in slug/id"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [
+      "AUTH_SECRET",
+      "API_KEY"
+    ],
+    "credentials": [
+      "AUTH_SECRET",
+      "API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

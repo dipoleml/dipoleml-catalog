@@ -1,0 +1,16 @@
+{
+  "name": "dev-skills",
+  "displayName": "Dev Skills",
+  "version": "0.29.3",
+  "description": "Lightweight skills for users with existing workflows - coding best practices, testing principles, and design guidelines without recipe workflows or agents",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Shinpr"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/shinpr/claude-code-workflows",
+  "repository": "https://github.com/shinpr/claude-code-workflows",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,16 @@
+{
+  "name": "dipoleml-auto-resume",
+  "displayName": "DipoleML Auto Resume",
+  "version": "0.1.0",
+  "description": "当 DipoleML 因「系统繁忙 / 限流 / 5xx / 超时 / 网络错误」等临时性错误中断时，自动注入继续指令恢复任务；永久性错误（认证、余额、模型不存在等）不盲目重试。",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Cv Superding"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/cv-superding/zcode-auto-resume",
+  "repository": "https://github.com/cv-superding/zcode-auto-resume",
+  "skills": [],
+  "commands": "commands",
+  "agents": []
+}

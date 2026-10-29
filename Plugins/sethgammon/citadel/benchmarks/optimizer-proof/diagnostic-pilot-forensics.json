@@ -1,0 +1,47 @@
+{
+  "schema": 1,
+  "kind": "citadel_optimizer_diagnostic_pilot_forensics",
+  "observed_at": "2026-07-30",
+  "model_calls_made": 0,
+  "scenario_id": "p-limit-cleanup-pending",
+  "pilot_record_digest": "sha256:3ec28ceb8612a9e611d29886d54245819d7015de17d98db09a0d246151667e3b",
+  "pilot_scenario_set_id": "optimizer-scenarios-sha256:1269928412c49b9405293a0cbf814d6e62ab50988579f0fbdb1353b4c17df2b2",
+  "corrected_scenario_set_id": "optimizer-scenarios-sha256:602e496906f3a293203750602234ba88a55a86b9e4f54f32239264098dcebe5b",
+  "classification": "ARTIFACT_GATE_FALSE_NEGATIVE",
+  "claude_observation": {
+    "profile_id": "claude-frontier",
+    "model_proof_status": "passed",
+    "receipt_status": "verified",
+    "verification_status": "passed",
+    "verification_exit_code": 0,
+    "verification_output_digest": "sha256:086d62f51921717ade994e6e874487915bd81af091ccb9290575a21ef1cea59c",
+    "patch_digest": "sha256:a730a477aedebf505f7ca57442f59655a9973dc829d602fcc09bf8566f82285a",
+    "changed_paths": ["index.js"],
+    "original_failure_code": "EXPECTED_ARTIFACTS_NOT_CHANGED",
+    "original_task_verified": false,
+    "replay_artifact_gate_passed": true,
+    "replay_task_verified": true
+  },
+  "codex_observation": {
+    "profile_id": "codex-frontier",
+    "model_proof_status": "passed",
+    "receipt_status": "verified",
+    "verification_status": "failed",
+    "verification_exit_code": 1,
+    "verification_output_digest": "sha256:9941c85d5f3afac4e8fe10e9bee85fb8cab8ec2624f7a17b2f8fadde1b199ca5",
+    "patch_digest": "sha256:12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+    "changed_paths": [],
+    "original_failure_code": "VERIFICATION_FAILED",
+    "original_task_verified": false,
+    "replay_artifact_gate_passed": false,
+    "replay_task_verified": false
+  },
+  "correction": {
+    "original_expected_artifacts": ["index.js", "test.js"],
+    "corrected_expected_artifacts": ["index.js"],
+    "reason": "The pinned repository already contains the regression test that fails on the queue bug and passes after the Claude implementation repair. Requiring an unnecessary test.js edit rejected a verifier-passing fix and rewarded artificial test churn.",
+    "pilot_record_rewritten": false,
+    "additional_model_calls": 0
+  },
+  "conclusion": "The immutable pilot record remains failed under its original two-artifact gate. Its receipts nevertheless prove that the corrected task-focused verifier can produce a clean pass: Claude changed index.js, all 22 tests passed, model identity passed, and the execution receipt verified. Replaying only the corrected artifact predicate classifies that run as task-verified while Codex remains failed because it made no patch and the verifier failed. This is diagnostic evidence about the harness, not comparative performance or savings evidence."
+}

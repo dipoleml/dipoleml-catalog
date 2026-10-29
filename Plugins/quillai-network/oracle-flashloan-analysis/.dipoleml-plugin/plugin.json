@@ -1,0 +1,16 @@
+{
+  "name": "oracle-flashloan-analysis",
+  "displayName": "Oracle Flashloan Analysis",
+  "version": "1.0.0",
+  "description": "Detects price oracle manipulation and flash loan attack vectors in DeFi smart contracts. Classifies oracle trust models (Chainlink, TWAP, spot price), identifies stale price risks, circular dependencies, and flash loan atomicity exploitation patterns. Covers the #2 OWASP Smart Contract vulnerability category.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Quillai Network"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/quillai-network/quillshield_skills",
+  "repository": "https://github.com/quillai-network/quillshield_skills",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

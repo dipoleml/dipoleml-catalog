@@ -1,0 +1,113 @@
+{
+  "name": "flow-scenes",
+  "displayName": "Flow Scenes",
+  "version": "0.9.0",
+  "description": "Ambient scenes above the prompt that move with your agent's work: a fire, bubbles, surf, ski, rockets, a hot-air balloon and more, by day or night. /flow to control it.",
+  "author": {
+    "name": "Rob Macrae"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/robdmac/flow",
+  "homepage": "https://github.com/robdmac/flow",
+  "documentationUrl": "https://github.com/robdmac/flow#readme",
+  "supportUrl": "https://github.com/robdmac/flow/issues",
+  "privacyPolicyUrl": "https://github.com/robdmac/flow#what-flow-does-on-your-machine",
+  "termsOfServiceUrl": "https://github.com/robdmac/flow/blob/main/LICENSE",
+  "keywords": [
+    "fun",
+    "ui",
+    "animation",
+    "ambient",
+    "status",
+    "terminal-art"
+  ],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "mode": {
+      "type": "string",
+      "title": "Scene mode",
+      "description": "auto moves with Claude's work; manual holds the level below",
+      "default": "auto",
+      "options": [
+        "auto",
+        "manual"
+      ]
+    },
+    "style": {
+      "type": "string",
+      "title": "Scene",
+      "description": "fire: a ░▒▓█ fire with sparks and smoke; warp: stars that speed up to hyperspace; avalon: a colony ship whose shield burns up the asteroids that hit it; balloon: a hot-air balloon that climbs from the grass to space; engine: a steampunk engine that runs up to full speed; falcon: a Falcon 9 carrying Dragon: its booster lands on its legs, Dragon comes home under parachutes to a splashdown; starship: a bigger rocket that hot-stages: its booster is caught by the tower's arms, the Ship splashes down; surf: a surfer and the swell; ski: a skier down the mountain; bubbles: bubbles fizzing up; train: a train through the countryside, faster with the work; earthrise: the Earth over the moon, rising and turning faster with the work; doom: a space marine fighting through a 1993 techbase, faster and harder with the work; doom3d: the same fight through his own eyes, in a taller band; roadster: Tesla's new Roadster, from a city lot to the freeway with the work, flipping over the traffic at 10",
+      "default": "fire",
+      "options": [
+        "fire",
+        "warp",
+        "avalon",
+        "balloon",
+        "engine",
+        "falcon",
+        "starship",
+        "surf",
+        "ski",
+        "bubbles",
+        "train",
+        "earthrise",
+        "doom",
+        "doom3d",
+        "roadster"
+      ]
+    },
+    "idle": {
+      "type": "string",
+      "title": "Scene while idle",
+      "description": "Auto mode while Claude is idle: a low glow, or dark (the band gives its rows back)",
+      "default": "glow",
+      "options": [
+        "glow",
+        "dark"
+      ]
+    },
+    "layout": {
+      "type": "string",
+      "title": "Scene layout",
+      "description": "band: a strip above the prompt; spine: a tall pane docked beside the transcript (fullscreen)",
+      "default": "band",
+      "options": [
+        "band",
+        "spine"
+      ]
+    },
+    "level": {
+      "type": "number",
+      "title": "Manual level",
+      "description": "Manual mode's level: 0 (off) to 10 (the busiest the scene gets)",
+      "default": 8
+    },
+    "time": {
+      "type": "string",
+      "title": "Day or night",
+      "description": "For balloon, falcon, starship, surf, ski, bubbles, train and roadster: clock follows your local time (night from 19:00 to 7:00); day or night pins it",
+      "default": "clock",
+      "options": [
+        "clock",
+        "day",
+        "night"
+      ]
+    },
+    "sound": {
+      "type": "string",
+      "title": "Sound",
+      "description": "A soundscape for each scene that swells with the work: crackling fire, surf, chuffing steam, rocket roar (macOS only; off by default)",
+      "default": "off",
+      "options": [
+        "off",
+        "on"
+      ]
+    },
+    "volume": {
+      "type": "number",
+      "title": "Sound volume",
+      "description": "How loud the soundscape plays: 1 (quietest) to 10; 7, the default, is as it was tuned, each step below it 3 dB quieter. Above 7 the quieter sounds come up most: the loudest already play near full",
+      "default": 7
+    }
+  }
+}

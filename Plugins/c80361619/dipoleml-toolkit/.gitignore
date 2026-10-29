@@ -1,0 +1,53 @@
+# 运行时产物
+_sync.log
+_sync.last
+_watchdog.pid
+_watchdog.want
+_client_fingerprint.json
+_autoinject.done
+_apply_after_exit.log
+apply_after_exit.log
+__pycache__/
+*.py[cod]
+
+# 补丁运行时产物（备份 / 逐字节记录）——只属于本机
+*.bak
+*.bak.meta.json
+*.bak.stale-*
+*.tps.bak
+*.puller.bak
+*.slider.bak
+*.original.bak
+*-patch.json
+*.chart-patch.json
+*.tps-patch.json
+*.puller-patch.json
+*.slider-patch.json
+*.reasoning-bak
+*.tps-tmp
+*.tmp
+
+# 捕获/探测产物（含 API Key 与请求体，禁止入库）
+tap-capture*.jsonl
+probe-max-tokens*.jsonl
+
+# 全自动流水线日志（autopilot.py / run.sh / run.cmd 运行时产物）
+logs/
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+apply_after_exit.log
+
+# 本地 agent / 工具工作目录
+.workbuddy-ai/
+.box-agent/
+.box-agent-scratch/
+NVIDIA Corporation/
+
+# 本地视觉验收夹具与截图（临时验证产物，不入库）
+_smoke/
+.playwright-mcp/
+slider-panel-*.png

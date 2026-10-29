@@ -1,0 +1,232 @@
+#!/usr/bin/env python3
+"""
+provider_failures.py — structured failure records for provider fallback chains.
+
+The generation scripts try providers in order (e.g. Vertex AI -> WaveSpeed ->
+HiggsField). Before this module, every rung that couldn't run collapsed its
+reason into a bare `return None`, so a fully-failed chain could only say
+"All providers failed" — the user had no way to tell a missing API key from a
+retired model id from a content-policy rejection, and each of those has a
+different fix.
+
+The contract now: a provider function NEVER fails silently. Every abandoned
+attempt is recorded with who was tried, at which stage it stopped, a
+machine-readable reason, and a human-readable detail. The chain's terminal
+FAILED payload carries the full attempt list plus a per-reason next step, so
+the error message is itself the diagnosis.
+
+Stages (where in the attempt it stopped):
+    credentials       — no key/auth material available
+    dependencies      — required SDK/package not importable
+    model-resolution  — no current model id could be resolved for the kind
+    request           — the provider call itself errored (network/HTTP/SDK)
+    response          — provider answered but the answer was unusable
+    content-policy    — provider refused the content (e.g. flagged prompt)
+
+Reasons are kebab-case and stable — tests and docs may pin them.
+"""
+
+from __future__ import annotations
+
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))  # scripts/ holds _common.py
+import _common  # noqa: E402
+
+
+def download_https(url, dest):
+    """Download a provider-returned URL to `dest`. https only: `urlretrieve` also opens file:// and
+    ftp:// URLs, and the URL is data the provider (or whoever answers for it) controls."""
+    from urllib.parse import urlparse
+    import urllib.request
+    scheme = urlparse(str(url)).scheme.lower()
+    if scheme != "https":
+        raise ValueError(f"refusing to download a non-https URL (scheme {scheme!r})")
+    urllib.request.urlretrieve(str(url), str(dest))
+
+# What the user should do about each failure reason. Surfaced verbatim in the
+# terminal payload — keep these actionable and product-neutral.
+NEXT_STEPS = {
+    "no-credentials": "Run /socialforge:setup to add credentials for this provider, or skip it.",
+    "dependency-missing": "Install the named package (see detail) and retry.",
+    "unresolved-model": "Update the model registry with: " + _common.script_command("refresh_models.py") + " , then retry.",
+    "request-error": "Transient or configuration error — check the detail; retry may succeed.",
+    "bad-response": "The provider answered without a usable asset — retry, or try another provider.",
+    "content-rejected": "The provider refused this prompt — rephrase it; no retry will succeed unchanged.",
+    "timeout": "The provider did not finish in time — retry, or try a faster model.",
+    "bad-input": "A required input was missing or unusable (see detail) — supply it and retry.",
+    "unavailable-backend": "This provider cannot serve the request on the account that is set up (see detail) — set up the backend it needs with /socialforge:setup, or use another provider.",
+}
+
+
+def record(attempts, provider, stage, reason, detail=""):
+    """Append one failure record. `attempts` may be None (caller opted out) —
+    then this is a no-op, so provider functions can be called standalone."""
+    if attempts is None:
+        return
+    attempts.append({
+        "provider": provider,
+        "stage": stage,
+        "reason": reason,
+        "detail": str(detail)[:300],
+    })
+
+
+def failure_payload(attempts, context=""):
+    """Terminal FAILED payload for a chain where every provider was exhausted.
+
+    Never returns a bare message: the attempt list IS the error. Each distinct
+    reason contributes its next step, deduplicated, in attempt order.
+    """
+    attempts = attempts or []
+    tried = []
+    for a in attempts:
+        if a["provider"] not in tried:
+            tried.append(a["provider"])
+    next_steps = []
+    for a in attempts:
+        step = NEXT_STEPS.get(a["reason"])
+        if step and step not in next_steps:
+            next_steps.append(step)
+    summary = "; ".join(
+        f"{a['provider']}: {a['reason']} ({a['stage']})" for a in attempts
+    ) or "no providers were attempted"
+    error = f"All providers failed — {summary}"
+    if context:
+        error = f"{context}: {error}"
+    payload = {
+        "status": "FAILED",
+        "error": error,
+        "attempts": attempts,
+        "providers_tried": tried,
+        "next_steps": next_steps,
+        "action_required": True,
+    }
+    persist(payload)
+    return payload
+
+
+def parse_quoted(value, allowed):
+    """`--quoted-providers kling,veo` -> ["kling", "veo"]; None when the flag was not given.
+
+    The list is the providers the user was shown a price for and said "go" to. A typo raises ValueError
+    (naming the choices) so it can neither widen nor silently narrow what the user approved."""
+    if value is None:
+        return None
+    names = []
+    for raw in str(value).split(","):
+        name = raw.strip().lower()
+        if not name:
+            continue
+        if name not in allowed:
+            raise ValueError(f"unknown provider {raw.strip()!r} in --quoted-providers (choose from {', '.join(allowed)})")
+        if name not in names:
+            names.append(name)
+    if not names:
+        raise ValueError("--quoted-providers is empty: name the providers the user was quoted")
+    return names
+
+
+def requote_payload(attempts, quoted, withheld, context=""):
+    """Terminal payload when a fallback exists but the approved quote does not cover it.
+
+    A fallback provider has its own price. Running it because the first one failed would spend money the user
+    was never shown, so the chain stops here, says what it did not do, and says what to re-quote. Nothing was
+    spent on a withheld provider."""
+    attempts = attempts or []
+    tried = []
+    for a in attempts:
+        if a["provider"] not in tried:
+            tried.append(a["provider"])
+    summary = "; ".join(f"{a['provider']}: {a['reason']} ({a['stage']})" for a in attempts) or "nothing was attempted"
+    error = (f"{context}: " if context else "") + (
+        f"stopped before spending on {', '.join(withheld)}: the approved quote covers {', '.join(quoted)} only ({summary})")
+    steps = [f"Nothing was spent on {', '.join(withheld)}. Quote it with price_book.py, show the user the new line and total, "
+             f"and re-run with --quoted-providers {','.join(list(quoted) + list(withheld))} only after a new explicit go."]
+    for a in attempts:
+        step = NEXT_STEPS.get(a["reason"])
+        if step and step not in steps:
+            steps.append(step)
+    return {
+        "status": "NEEDS_REQUOTE",
+        "error": error,
+        "attempts": attempts,
+        "providers_tried": tried,
+        "quoted_providers": list(quoted),
+        "withheld_providers": list(withheld),
+        "next_steps": steps,
+        "action_required": True,
+    }
+
+
+# An attempt with one of these reasons never started: no credentials, or a backend that cannot run the model. Nothing
+# was spent on it, so it is "skipped", not "tried and failed".
+SKIPPED_REASONS = ("no-credentials", "unavailable-backend")
+
+
+def fallback_fields(attempts, used):
+    """The result fields for something made by a later provider than the first one tried, derived from what was recorded.
+
+    `fallback_from` names the providers that were TRIED AND FAILED (a request error, a bad response, a missing package),
+    as the attempts name them ("gemini-aistudio" on an API-key setup, "gemini-vertex" on Vertex AI), never a guess.
+    A rung that could not start (no credentials, or Veo without Vertex) is listed apart, in `skipped_unavailable`.
+    """
+    tried = list(dict.fromkeys(a["provider"] for a in attempts if a["reason"] not in SKIPPED_REASONS))
+    skipped = [p for p in dict.fromkeys(a["provider"] for a in attempts if a["reason"] in SKIPPED_REASONS) if p not in tried]
+    fields = {
+        "fallback_from": ", ".join(tried),
+        "earlier_attempts": attempts,
+        "provider_notice": fallback_notice(attempts, used),
+    }
+    if skipped:
+        fields["skipped_unavailable"] = skipped
+    return fields
+
+
+def fallback_notice(attempts, used):
+    """One sentence for the user when the result came from a later provider than the first one tried, else None."""
+    if not attempts:
+        return None
+    first = attempts[0]
+    return (f"{first['provider']} did not make this ({first['reason']}: {first['detail'][:140] or 'no detail'}); "
+            f"{used} did, and {used} was in the approved quote. Tell the user which provider ran and why.")
+
+
+def _failure_log_path():
+    """Where durable failure records live.
+
+    Reads CLAUDE_PLUGIN_DATA, falling back to CLAUDE_PLUGIN_DATA_DIR because two
+    scripts in this plugin historically read the second name — a split that sent
+    price lookups to a different workspace than the one costs were written to.
+    Accept both here rather than lose a record to an env-var spelling.
+    """
+    import os
+    from pathlib import Path
+    base = os.environ.get("CLAUDE_PLUGIN_DATA") or os.environ.get("CLAUDE_PLUGIN_DATA_DIR") or os.environ.get("PLUGIN_DATA")
+    root = Path(base) if base else Path.home() / "socialforge-workspace"
+    return root / "socialforge" / "shared" / "failure-log.jsonl"
+
+
+def persist(payload) -> None:
+    """Write the failure record to disk.
+
+    This module produced an excellent structured record and then handed it to
+    the caller to print. Once stdout scrolled away the record was gone, so the
+    plugin's "nothing fails silently" promise held only for whoever was watching
+    the terminal at the time. A record nobody can read afterwards is not a record.
+
+    Best-effort by design: a logging failure must never mask the original
+    provider failure, which is the thing the caller actually needs to see.
+    """
+    import json
+    from datetime import datetime, timezone
+    try:
+        path = _failure_log_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        entry = dict(payload)
+        entry["logged_at"] = datetime.now(timezone.utc).isoformat()
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(entry) + "\n")
+    except Exception:  # noqa: BLE001 - see docstring
+        pass

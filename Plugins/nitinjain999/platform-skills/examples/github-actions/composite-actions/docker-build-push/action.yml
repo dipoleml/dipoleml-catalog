@@ -1,0 +1,184 @@
+name: 'Docker Build and Push'
+description: 'Build a multi-platform Docker image and push to GHCR using OIDC. No long-lived credentials required.'
+author: 'Platform Team'
+
+inputs:
+  image_name:
+    description: 'Image name (e.g. my-service). Published as ghcr.io/OWNER/IMAGE_NAME.'
+    required: true
+  image_tag:
+    description: 'Image tag. Defaults to the full commit SHA.'
+    required: false
+    default: ${{ github.sha }}
+  platforms:
+    description: 'Comma-separated target platforms (e.g. linux/amd64,linux/arm64).'
+    required: false
+    default: 'linux/amd64'
+  context:
+    description: 'Docker build context path.'
+    required: false
+    default: '.'
+  dockerfile:
+    description: 'Path to the Dockerfile relative to the build context.'
+    required: false
+    default: 'Dockerfile'
+  build_args:
+    description: 'Newline-separated build arguments (KEY=VALUE). Do not pass secrets here — use --secret instead.'
+    required: false
+    default: ''
+  push:
+    description: 'Push the image to the registry after a successful build.'
+    required: false
+    default: 'true'
+  registry:
+    description: 'Container registry host.'
+    required: false
+    default: 'ghcr.io'
+
+outputs:
+  image_uri:
+    description: 'Full image URI including tag (e.g. ghcr.io/org/my-service:abc1234).'
+    value: ${{ steps.compute_uri.outputs.uri }}
+  image_digest:
+    description: 'SHA256 digest of the published image.'
+    value: ${{ steps.push.outputs.digest }}
+  image_tag:
+    description: 'Short 7-character SHA tag applied to the image.'
+    value: ${{ steps.compute_tag.outputs.tag }}
+
+runs:
+  using: 'composite'
+  steps:
+    # ── 1. Validate inputs ────────────────────────────────────────────────────
+    - name: Validate inputs
+      shell: bash
+      env:
+        IMAGE_NAME: ${{ inputs.image_name }}
+        PLATFORMS: ${{ inputs.platforms }}
+      run: |
+        echo "::group::Input validation"
+        ERRORS=()
+
+        [[ -z "$IMAGE_NAME" ]] && ERRORS+=("image_name is required")
+
+        # image_name must be lowercase, alphanumeric, hyphens and slashes only
+        if [[ -n "$IMAGE_NAME" ]] && ! echo "$IMAGE_NAME" | grep -qE '^[a-z0-9][a-z0-9/_-]*$'; then
+          ERRORS+=("image_name must be lowercase alphanumeric with hyphens/slashes (got: $IMAGE_NAME)")
+        fi
+
+        if [[ ${#ERRORS[@]} -gt 0 ]]; then
+          for err in "${ERRORS[@]}"; do
+            echo "::error::$err"
+          done
+          exit 1
+        fi
+
+        echo "::notice::image_name=$IMAGE_NAME platforms=$PLATFORMS"
+        echo "::endgroup::"
+
+    # ── 2. Compute short tag ──────────────────────────────────────────────────
+    - name: Compute short tag
+      id: compute_tag
+      shell: bash
+      env:
+        FULL_TAG: ${{ inputs.image_tag }}
+      run: |
+        SHORT="${FULL_TAG:0:7}"
+        echo "tag=$SHORT" >> "$GITHUB_OUTPUT"
+
+    # ── 3. Compute full image URI ─────────────────────────────────────────────
+    - name: Compute image URI
+      id: compute_uri
+      shell: bash
+      env:
+        REGISTRY: ${{ inputs.registry }}
+        IMAGE_NAME: ${{ inputs.image_name }}
+        # github.repository_owner is lowercased automatically by GitHub
+        OWNER: ${{ github.repository_owner }}
+        IMAGE_TAG: ${{ steps.compute_tag.outputs.tag }}
+      run: |
+        URI="${REGISTRY}/${OWNER}/${IMAGE_NAME}:${IMAGE_TAG}"
+        # Publish as a step output only. Writing to GITHUB_ENV would let a newline
+        # in the tag inject arbitrary variables into every later step's
+        # environment (LD_PRELOAD, NODE_OPTIONS), which is remote code execution.
+        # Consumers read steps.compute_uri.outputs.uri instead.
+        echo "uri=$URI" >> "$GITHUB_OUTPUT"
+
+    # ── 4. Set up buildx ─────────────────────────────────────────────────────
+    - name: Set up QEMU
+      uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1  # v4.4.0
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069  # v4.4.1
+
+    # ── 5. Authenticate to registry (OIDC — no static credentials) ───────────
+    - name: Log in to registry
+      uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f  # v4.6.0
+      with:
+        registry: ${{ inputs.registry }}
+        username: ${{ github.actor }}
+        password: ${{ github.token }}    # GITHUB_TOKEN — ephemeral, no secrets required
+
+    # ── 6. Extract metadata ───────────────────────────────────────────────────
+    - name: Extract image metadata
+      id: meta
+      uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302  # v6.2.0
+      with:
+        images: ${{ inputs.registry }}/${{ github.repository_owner }}/${{ inputs.image_name }}
+        tags: |
+          type=sha,prefix=,suffix=,format=short
+          type=raw,value=latest,enable={{is_default_branch}}
+          type=ref,event=tag
+
+    # ── 7. Build and push ─────────────────────────────────────────────────────
+    - name: Build and push image
+      id: push
+      uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc  # v7.4.0
+      with:
+        context: ${{ inputs.context }}
+        file: ${{ inputs.dockerfile }}
+        platforms: ${{ inputs.platforms }}
+        push: ${{ inputs.push }}
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        build-args: ${{ inputs.build_args }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+        provenance: true      # SLSA provenance attestation
+        sbom: true            # SBOM attestation
+
+    # ── 8. Job summary ────────────────────────────────────────────────────────
+    - name: Write job summary
+      if: always()
+      shell: bash
+      # One env: block per step. A second one silently overwrites the first,
+      # and every ${{ }} used by the script belongs here rather than inline —
+      # expressions are substituted before bash parses the line.
+      env:
+        PUSH_ENABLED: ${{ inputs.push }}
+        DIGEST: ${{ steps.push.outputs.digest }}
+        IMAGE_URI: ${{ steps.compute_uri.outputs.uri }}
+        IMAGE_TAG: ${{ steps.compute_tag.outputs.tag }}
+        PLATFORMS: ${{ inputs.platforms }}
+        ACTOR: ${{ github.actor }}
+        WORKFLOW_NAME: ${{ github.workflow }}
+      run: |
+        echo "::group::Job summary"
+        {
+          echo "## Docker Build and Push"
+          echo ""
+          echo "| Field | Value |"
+          echo "|---|---|"
+          echo "| Image URI | \`${IMAGE_URI}\` |"
+          echo "| Tag | \`${IMAGE_TAG}\` |"
+          echo "| Platforms | \`${PLATFORMS}\` |"
+          echo "| Digest | \`${DIGEST:-n/a}\` |"
+          echo "| Pushed | ${PUSH_ENABLED} |"
+          echo "| Actor | ${ACTOR} |"
+          echo "| Workflow | ${WORKFLOW_NAME} |"
+        } >> "$GITHUB_STEP_SUMMARY"
+        echo "::endgroup::"
+
+branding:
+  icon: 'box'
+  color: 'blue'

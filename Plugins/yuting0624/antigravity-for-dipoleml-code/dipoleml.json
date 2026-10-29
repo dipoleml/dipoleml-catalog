@@ -1,0 +1,130 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.yuting0624.antigravity-for-dipoleml-code",
+  "type": "plugin",
+  "name": "Antigravity for DipoleML",
+  "slug": "antigravity-for-dipoleml-code",
+  "vendor": "yuting0624",
+  "description": "DipoleML plugin: run the Antigravity CLI (Gemini) as a collaborating sub-agent with intelligent model routing across the SDLC. Community project; not affiliated with Google/Anthropic.",
+  "version": "0.30.2",
+  "homepage": "https://github.com/yuting0624/antigravity-for-claude-code",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agy-cli",
+    "antigravity-cli",
+    "claude-code-plugin",
+    "delegate",
+    "gemini",
+    "gemini-cli",
+    "orchestration",
+    "plugin-for-agy",
+    "subagent-delegation"
+  ],
+  "tags": [
+    "agy-cli",
+    "antigravity-cli",
+    "claude-code",
+    "claude-code-plugin",
+    "delegate",
+    "gemini",
+    "gemini-cli",
+    "orchestration",
+    "plugin-for-agy",
+    "subagent-delegation"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "unity",
+    "brandName": "unity",
+    "source": "https://cdn.simpleicons.org/unity",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:15:30Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "yuting0624/antigravity-for-claude-code",
+    "url": "https://github.com/yuting0624/antigravity-for-claude-code",
+    "commit": "c5fda28feb3876eb446537c7dfa1885aeaec4fc1",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 440,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:48:42Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Antigravity for Claude Code | Claude Code plugin: run the Antigravity CLI (Gemini) as a collaborating sub-agent with intelligent model routing across the SDLC. Community project; not affiliated with Google/Anthropic.",
+        "after": "Antigravity for DipoleML | DipoleML plugin: run the Antigravity CLI (Gemini) as a collaborating sub-agent with intelligent model routing across the SDLC. Community project; not affiliated with Google/Anthropic.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Run the Antigravity CLI (Gemini) as a collaborating AI inside Claude Code, with intelligent model routing across the SDLC. Claude conducts — requirements, architecture, the hard 20%, verification, review — and routes deterministic, high-volume work (scaffolding, tests, first-pass review, migrations, web/Vertex AI Search) to Antigravity. Hybrid agentic engineering; lower token cost as a financial lever.",
+        "after": "Run the Antigravity CLI (Gemini) as a collaborating AI inside DipoleML, with intelligent model routing across the SDLC. DipoleML conducts — requirements, architecture, the hard 20%, verification, review — and routes deterministic, high-volume work (scaffolding, tests, first-pass review, migrations, web/Vertex AI Search) to Antigravity. Hybrid agentic engineering; lower token cost as a financial lever.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "antigravity-for-claude-code",
+        "after": "antigravity-for-dipoleml-code",
+        "reason": "provider token neutralized in slug/id"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [
+      "GEMINI_API_KEY"
+    ],
+    "credentials": [
+      "GEMINI_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

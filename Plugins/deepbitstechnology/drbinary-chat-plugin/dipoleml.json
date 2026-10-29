@@ -1,0 +1,113 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.deepbitstechnology.drbinary-chat-plugin",
+  "type": "plugin",
+  "name": "Drbinary Chat Plugin",
+  "slug": "drbinary-chat-plugin",
+  "vendor": "deepbitstechnology",
+  "description": "This project  equips DipoleML with advanced binary analysis capabilities for tasks such as incident response, malware investigation, and vulnerability assessment",
+  "version": "1.1.0",
+  "homepage": "https://github.com/DeepBitsTechnology/claude-plugins",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "binary-analysis",
+    "claude-code-plugin",
+    "cybersecurity-tools",
+    "incident-response",
+    "malware-analysis",
+    "vulnerability-assessment"
+  ],
+  "tags": [
+    "binary-analysis",
+    "claude-code-plugin",
+    "cybersecurity-tools",
+    "incident-response",
+    "malware-analysis",
+    "vulnerability-assessment"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "deepbitstechnology",
+    "brandName": "deepbitstechnology",
+    "source": "https://github.com/DeepBitsTechnology.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:12:48Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "DeepBitsTechnology/claude-plugins",
+    "url": "https://github.com/DeepBitsTechnology/claude-plugins",
+    "commit": "e076b9d730b039a9b6dba15c23f788cae40df8cd",
+    "path": "drbinary-chat-plugin",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 49,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:28:24Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Drbinary Chat Plugin | This project  equips Claude Code with advanced binary analysis capabilities for tasks such as incident response, malware investigation, and vulnerability assessment",
+        "after": "Drbinary Chat Plugin | This project  equips DipoleML with advanced binary analysis capabilities for tasks such as incident response, malware investigation, and vulnerability assessment",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-http",
+      "url": "https://mcp.deepbits.com/mcp",
+      "transport": "http",
+      "command": "drbinary"
+    },
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

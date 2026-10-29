@@ -1,0 +1,179 @@
+{
+  "schema": 1,
+  "freeze_id": "sha256:f1ecf932261ceac604978952c42cdb8ec14032b795bffd1848fae90e9572ded5",
+  "frozen_at": "2026-07-31T19:31:50.819Z",
+  "method_digest": "sha256:45b0030bdf99f77f771a769cb702b6e34a374b470832c0f1df2a78d4e09b4102",
+  "scenario_set_digest": "sha256:84f1c2a285a9a89df0132abfcec3999a24a3e64ee8508c6ebfbeee1e14b2c003",
+  "source_digests": {
+    "benchmarks/roma-operation-control/METHOD.md": "sha256:45b0030bdf99f77f771a769cb702b6e34a374b470832c0f1df2a78d4e09b4102",
+    "benchmarks/roma-operation-control/scenarios.json": "sha256:8bcbfad24935843887eb04f61b364c6b50eb6c23342094119b9451ebb4ccaee1",
+    "core/operation-control/contracts.js": "sha256:d91adea8e5f5649dd38712e0fe244a0beb7dbe6e221e308ee975fd152f2fb5be",
+    "core/operation-control/policy.js": "sha256:106862a986169420ac35f6520ebb08288ac81da42e011f20fae6e38d06bd88f2",
+    "core/operation-control/receipt.js": "sha256:3ef5cfce5e17d22f5dbd68ff69cadf9138e95fa6b952c6ac26b29f4e7dc5aa66",
+    "scripts/operation-control-proof.js": "sha256:d53ba538559fbbb4abfa59dc822ae65c2f7565ba7618f69b939374e319ccd8ea",
+    "scripts/optimizer-runtime-adapter.js": "sha256:4bcc2471a6d224e23b6a939c2ed55dcc9070aed71fe11b90529efbf8bd10679e",
+    "scripts/roma-operation-bridge.py": "sha256:4f29e7c9e57c8ea89988f8228659e783fd629ccaa9bca72f8ce2b332d606a3dc",
+    "scripts/test-operation-control.js": "sha256:0e6c6edf7548e5eadd746004d9dd320d150b22ab0e54dc5bf0d3fd72514cf8c4"
+  },
+  "policies": [
+    "frontier-only",
+    "prompt-router",
+    "always-open-local",
+    "citadel-whole-operation"
+  ],
+  "repetitions": 1,
+  "seed": "citadel-roma-diagnostic-v1-2026-07-31",
+  "cells": [
+    {
+      "scenario_id": "arithmetic-control",
+      "policy_id": "frontier-only",
+      "order": 0
+    },
+    {
+      "scenario_id": "arithmetic-control",
+      "policy_id": "prompt-router",
+      "order": 1
+    },
+    {
+      "scenario_id": "arithmetic-control",
+      "policy_id": "always-open-local",
+      "order": 2
+    },
+    {
+      "scenario_id": "arithmetic-control",
+      "policy_id": "citadel-whole-operation",
+      "order": 3
+    },
+    {
+      "scenario_id": "parallel-checksum",
+      "policy_id": "citadel-whole-operation",
+      "order": 0
+    },
+    {
+      "scenario_id": "parallel-checksum",
+      "policy_id": "prompt-router",
+      "order": 1
+    },
+    {
+      "scenario_id": "parallel-checksum",
+      "policy_id": "always-open-local",
+      "order": 2
+    },
+    {
+      "scenario_id": "parallel-checksum",
+      "policy_id": "frontier-only",
+      "order": 3
+    },
+    {
+      "scenario_id": "weighted-graph",
+      "policy_id": "always-open-local",
+      "order": 0
+    },
+    {
+      "scenario_id": "weighted-graph",
+      "policy_id": "citadel-whole-operation",
+      "order": 1
+    },
+    {
+      "scenario_id": "weighted-graph",
+      "policy_id": "frontier-only",
+      "order": 2
+    },
+    {
+      "scenario_id": "weighted-graph",
+      "policy_id": "prompt-router",
+      "order": 3
+    },
+    {
+      "scenario_id": "constraint-elimination",
+      "policy_id": "citadel-whole-operation",
+      "order": 0
+    },
+    {
+      "scenario_id": "constraint-elimination",
+      "policy_id": "frontier-only",
+      "order": 1
+    },
+    {
+      "scenario_id": "constraint-elimination",
+      "policy_id": "always-open-local",
+      "order": 2
+    },
+    {
+      "scenario_id": "constraint-elimination",
+      "policy_id": "prompt-router",
+      "order": 3
+    },
+    {
+      "scenario_id": "critical-path",
+      "policy_id": "prompt-router",
+      "order": 0
+    },
+    {
+      "scenario_id": "critical-path",
+      "policy_id": "citadel-whole-operation",
+      "order": 1
+    },
+    {
+      "scenario_id": "critical-path",
+      "policy_id": "frontier-only",
+      "order": 2
+    },
+    {
+      "scenario_id": "critical-path",
+      "policy_id": "always-open-local",
+      "order": 3
+    },
+    {
+      "scenario_id": "adversarial-ledger",
+      "policy_id": "prompt-router",
+      "order": 0
+    },
+    {
+      "scenario_id": "adversarial-ledger",
+      "policy_id": "citadel-whole-operation",
+      "order": 1
+    },
+    {
+      "scenario_id": "adversarial-ledger",
+      "policy_id": "always-open-local",
+      "order": 2
+    },
+    {
+      "scenario_id": "adversarial-ledger",
+      "policy_id": "frontier-only",
+      "order": 3
+    }
+  ],
+  "roma": {
+    "upstream_repo": "https://github.com/sentient-agi/ROMA",
+    "upstream_commit": "a6e3bb4f9e0694375fa627fa4b8bf8cae50592a6",
+    "adapter_digest": "sha256:4f29e7c9e57c8ea89988f8228659e783fd629ccaa9bca72f8ce2b332d606a3dc"
+  },
+  "models": {
+    "cheap": {
+      "provider": "ollama",
+      "model": "qwen2.5-coder:3b",
+      "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+      "endpoint": "http://127.0.0.1:11434"
+    },
+    "strong": {
+      "provider": "ollama",
+      "model": "qwen2.5-coder:7b",
+      "model_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+      "endpoint": "http://127.0.0.1:11434"
+    }
+  },
+  "frontier": {
+    "runtime": "codex-cli-subscription",
+    "model": "gpt-5.6-sol",
+    "per_request_cost_status": "unknown"
+  },
+  "success_gate": {
+    "primary_metric": "independently_verified_completion_rate",
+    "zero_false_passes_required": true,
+    "citadel_must_not_underperform_always_open_local": true,
+    "strong_whole_operation_avoidance_required": 1
+  },
+  "attestation_public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAqxlGqffNAYUDYNkyJPQYbf6POeGTo9Qbgvb39XDskGo=\n-----END PUBLIC KEY-----\n"
+}

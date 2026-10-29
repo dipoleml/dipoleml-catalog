@@ -1,0 +1,16 @@
+{
+  "name": "odin-product",
+  "displayName": "Odin Product",
+  "version": "2.1.5",
+  "description": "ODIN workflows for product strategy, market signals, and developer adoption.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Outlinedriven"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/OutlineDriven/odin-claude-plugin",
+  "repository": "https://github.com/OutlineDriven/odin-claude-plugin",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

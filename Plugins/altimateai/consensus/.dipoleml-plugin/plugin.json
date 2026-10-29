@@ -1,0 +1,16 @@
+{
+  "name": "consensus",
+  "displayName": "Consensus",
+  "version": "1.8.0",
+  "description": "Configurable multi-model code review, plan review, and general review with consensus convergence for DipoleML",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Altimateai"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/AltimateAI/claude-consensus",
+  "repository": "https://github.com/AltimateAI/claude-consensus",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,35 @@
+{
+  "schema": 1,
+  "kind": "citadel_optimizer_post_matrix_zero_model_forensic",
+  "observed_at": "2026-07-31T07:11:16.580Z",
+  "repository": "https://github.com/ai/nanoid.git",
+  "pinned_ref": "1a1fee4610061c63e2429eb5c22a35e3634c1d03",
+  "affected_scenarios": [
+    "nanoid-size-consistency",
+    "nanoid-parallel-runtime-audit",
+    "nanoid-safety-random-boundary"
+  ],
+  "environment": {
+    "platform": "win32",
+    "node_version": "22.17.1",
+    "pnpm_version": "9.12.1"
+  },
+  "setup_command": [
+    "corepack",
+    "pnpm",
+    "install",
+    "--frozen-lockfile"
+  ],
+  "exit_code": 1,
+  "observed_error": "ERROR packages field missing or empty",
+  "workspace_file": {
+    "path": "pnpm-workspace.yaml",
+    "digest": "sha256:2f2097b3b8dc43904a1862a3fca21b2f275229d93192e05264c03a3dfb2d3a92",
+    "content": "allowBuilds:\n  simple-git-hooks: true\nminimumReleaseAgeExclude:\n  - nope-id\n",
+    "packages_field_present": false
+  },
+  "model_calls": 0,
+  "classification": "SETUP_COMPATIBILITY_FAILURE",
+  "interpretation": "The frozen setup command fails before policy routing or model execution. The 36 affected matrix cells remain unknown and cannot be interpreted as model failures or savings.",
+  "scope_note": "This is a post-matrix zero-model reproduction. It documents but does not modify or reclassify the signed frozen matrix."
+}

@@ -1,0 +1,76 @@
+{
+  "schema": 1,
+  "evidence_kind": "actual-run",
+  "scenario_set_id": "optimizer-scenarios-sha256:602e496906f3a293203750602234ba88a55a86b9e4f54f32239264098dcebe5b",
+  "metric_set_id": "optimizer-metrics-sha256:bedffbda2b18d725610b0f294a8273ef908237fd957bf9e51a5af4885b123e4f",
+  "scenario_id": "p-limit-context-cancel",
+  "category": "context_reset",
+  "holdout": false,
+  "policy_id": "always-frontier",
+  "repetition": 2,
+  "decision_id": "sha256:8006513b62be0ccf74ab5e14503d2a8ecefcf14aee6d1187bdaaeadb7933b014",
+  "selected_profile_id": "claude-frontier",
+  "observed_profile_id": "claude-frontier",
+  "requested_model": "claude-opus-5",
+  "observed_model": "claude-opus-5",
+  "model_proof_status": "passed",
+  "started_at": "2026-07-31T00:38:05.347Z",
+  "duration_ms": 536021,
+  "outcome": "failed",
+  "verified": false,
+  "attempts": 1,
+  "human_interventions": 0,
+  "topology": "sequential-recovery",
+  "cost": {
+    "status": "known",
+    "amount_usd": 1.755578,
+    "provenance": "tool_reported",
+    "source": "citadel_optimizer_runner",
+    "source_ref": "summed_attempts:1",
+    "pricing_snapshot_digest": null,
+    "components": [
+      {
+        "kind": "model",
+        "amount_usd": 1.7555778000000002,
+        "source": "attempt_1:claude total_cost_usd"
+      }
+    ]
+  },
+  "artifact_paths": [
+    "index.js",
+    "index.d.ts",
+    "test.js",
+    "readme.md"
+  ],
+  "verification_receipts": [
+    {
+      "attempt": 1,
+      "profile_id": "claude-frontier",
+      "status": "failed",
+      "exit_code": 1,
+      "timed_out": false,
+      "output_digest": "sha256:e9f65d6ea0b1253db8c3d63a6105457446cdff4207ad4b9249e6e3004c5a461a",
+      "output_excerpt": "[stdout]\n\n> p-limit@7.3.1 test\n> xo && ava && tsd\n\n\n[stderr]\n",
+      "output_truncated": false,
+      "patch_exit_code": 0,
+      "patch_digest": "sha256:efab00b8300c1f6a224266f344ac5228ad2d50f2bfe55ac681deebfbef2d6c7b",
+      "patch_excerpt": "nction} from './index.js';\n \n const limit = pLimit(1);\n const limitWithRejectOnClear = pLimit({concurrency: 1, rejectOnClear: true});\n+const limitWithSignal = pLimit({concurrency: 1, signal: new AbortController().signal});\n \n const input = [\n \tlimit(async () => 'foo'),\n@@ -20,6 +21,7 @@ expectType<number>(limit.pendingCount);\n \n expectType<void>(limit.clearQueue());\n expectType<void>(limitWithRejectOnClear.clearQueue());\n+expectType<Promise<string>>(limitWithSignal(async () => 'foo'));\n \n // LimitFunction should require a Promise-returning function\n const lf = limitFunction(async (_a: string) => 'ok', {concurrency: 1});\n@@ -27,6 +29,8 @@ expectType<Promise<string>>(lf('input'));\n \n expectError(limitFunction((_a: string) => 'x', {concurrency: 1}));\n expectError(pLimit({concurrency: 1, rejectOnClear: 'nope'}));\n+expectError(pLimit({concurrency: 1, signal: 'nope'}));\n+expectError(limitFunction(async (_a: string) => 'ok', {concurrency: 1, signal: 'nope'}));\n \n // LimitFunction.map accepts iterables\n expectType<Promise<string[]>>(limit.map(new Set(['a', 'b', 'c']), async x => x + x));\ndiff --git a/readme.md b/readme.md\nindex 0e019f4..2509487 100644\n--- a/readme.md\n+++ b/readme.md\n@@ -57,6 +57,27 @@ import pLimit from 'p-limit';\n const limit = pLimit({concurrency: 1});\n ```\n \n+#### signal\n+\n+Type: `AbortSignal`\n+\n+Cancel queued tasks when the signal is aborted.\n+\n+Queued tasks are rejected with the signal's reason, and any later call is rejected immediately instead of being queued.\n+\n+Note: This does not cancel tasks that are already running.\n+\n+```js\n+import pLimit from 'p-limit';\n+\n+const controller = new AbortController();\n+const limit = pLimit({concurrency: 2, signal: controller.signal});\n+\n+const promises = urls.map(url => limit(() => fetch(url)));\n+\n+controller.abort();\n+```\n+\n ### limit(fn, ...args)\n \n Returns the promise returned by calling `fn(...args)`.\n@@ -101,6 +122,8 @@ This might be useful if you want to tear down the queue at the end of your progr\n \n Note: This does not cancel promises that are already running.\n \n+To cancel from elsewhere in your app, pass a `signal` instead.\n+\n When `rejectOnClear` is enabled, pending promises are rejected with an `AbortError`.\n This is recommended if you await the returned promises, for example with `Promise.all`, so pending tasks do not remain unresolved after `clearQueue()`.\n \n@@ -154,6 +177,16 @@ Default: `false`\n Reject pending promises with an `AbortError` when `clearQueue()` is called.\n This is recommended if you await the returned promises, for example with `Promise.all`, so pending tasks do not remain unresolved after `clearQueue()`.\n \n+#### signal\n+\n+Type: `AbortSignal`\n+\n+Cancel queued calls when the signal is aborted.\n+\n+Queued calls are rejected with the signal's reason, and any later call is rejected immediately instead of being queued.\n+\n+Note: This does not cancel calls that are already running.\n+\n ## Recipes\n \n See [recipes.md](recipes.md) for common use cases and patterns.\ndiff --git a/recipes.md b/recipes.md\nindex efe53cd..4c722ca 100644\n--- a/recipes.md\n+++ b/recipes.md\n@@ -113,6 +113,29 @@ for (const signal of ['SIGTERM', 'SIGINT']) {\n const results = await Promise.allSettled(promises);\n ```\n \n+## Cancel queued work with an `AbortSignal`\n+\n+Pass a `signal` to reject queued tasks from anywhere in your app, for example when the user navigates away. Tasks that are already running still settle normally:\n+\n+```js\n+import pLimit from 'p-limit';\n+\n+const controller = new AbortController();\n+const limit = pLimit({concurrency: 5, signal: controller.signal});\n+\n+const urls = getUrls(); // Assume this returns a large list of URLs\n+\n+const results = await Promise.allSettled(urls.map(url => limit(async () => {\n+\tconst response = await fetch(url, {signal: controller.signal});\n+\treturn response.json();\n+})));\n+\n+// Elsewhere, for example on route change:\n+controller.abort();\n+```\n+\n+Forwarding the same signal to `fetch` also aborts the in-flight requests, which `p-limit` cannot do on its own.\n+\n ## Dynamic concurrency\n \n Adjust concurrency at runtime, for example, in response to rate limiting:\ndiff --git a/test.js b/test.js\nindex e303a46..1af9f4e 100644\n--- a/test.js\n+++ b/test.js\n@@ -1,4 +1,3 @@\n-import process from 'node:process';\n import {AsyncLocalStorage} from 'node:async_hooks';\n import {setTimeout as delay} from 'node:timers/promises';\n import test from 'ava';\n@@ -193,10 +192,17 @@ test('clearQueue', async t => {\n \tt.is(limit.pendingCount, 0);\n });\n \n-// Node.js 20 has a bug where DOMException is not properly handled by AVA's `throwsAsync`.\n-const testClearQueueRejects = process.versions.node.startsWith('20.') ? test.skip : test;\n+// An `AbortError` is a `DOMException`, which AVA's `throwsAsync` refuses because it is not a\n+// native error, so capture the rejection reason and assert on it directly instead.\n+const rejectionReason = async promise => {\n+\ttry {\n+\t\tawait promise;\n+\t} catch (error) {\n+\t\treturn error;\n+\t}\n+};\n \n-testClearQueueRejects('clearQueue rejects pending promises when enabled', async t => {\n+test('clearQueue rejects pending promises when enabled', async t => {\n \tconst limit = pLimit({concurrency: 1, rejectOnClear: true});\n \n \tconst runningPromise = limit(() => delay(100));\n@@ -210,8 +216,93 @@ testClearQueueRejects('clearQueue rejects pending promises when enabled', async\n \tt.is(limit.pendingCount, 0);\n \n \tawait runningPromise;\n-\tawait t.throwsAsync(pendingPromiseOne, {name: 'AbortError'});\n-\tawait t.throwsAsync(pendingPromiseTwo, {name: 'AbortError'});\n+\n+\tconst reasons = await Promise.all([pendingPromiseOne, pendingPromiseTwo].map(promise => rejectionReason(promise)));\n+\n+\tt.deepEqual(reasons.map(reason => reason?.name), ['AbortError', 'AbortError']);\n+});\n+\n+test('signal rejects queued tasks but lets running ones finish', async t => {\n+\tconst controller = new AbortController();\n+\tconst limit = pLimit({concurrency: 1, signal: controller.signal});\n+\n+\tconst runningPromise = limit(async () => {\n+\t\tawait delay(100);\n+\t\treturn 'done';\n+\t});\n+\tconst queuedPromiseOne = limit(() => delay(10));\n+\tconst queuedPromiseTwo = limit(() => delay(10));\n+\n+\tawait Promise.resolve();\n+\tt.is(limit.activeCount, 1);\n+\tt.is(limit.pendingCount, 2);\n+\n+\tcontroller.abort();\n+\tt.is(limit.pendingCount, 0);\n+\n+\tt.is(await runningPromise, 'done');\n+\n+\tconst reasons = await Promise.all([queuedPromiseOne, queuedPromiseTwo].map(promise => rejectionReason(promise)));\n+\n+\tt.deepEqual(reasons.map(reason => reason?.name), ['AbortError', 'AbortError']);\n+});\n+\n+test('signal rejects queued tasks with the abort reason', async t => {\n+\tconst controller = new AbortController();\n+\tconst error = new Error('🦄');\n+\tconst limit = pLimit({concurrency: 1, signal: controller.signal});\n+\n+\tlimit(() => delay(50));\n+\tconst queuedPromise = limit(() => delay(10));\n+\n+\tawait Promise.resolve();\n+\tcontroller.abort(error);\n+\n+\tt.is(await rejectionReason(queuedPromise), error);\n+});\n+\n+test('signal rejects tasks added after the abort', async t => {\n+\tconst controller = new AbortController();\n+\tconst limit = pLimit({concurrency: 5, signal: controller.signal});\n+\tlet ran = false;\n+\n+\tcontroller.abort();\n+\n+\tconst reason = await rejectionReason(limit(() => {\n+\t\tran = true;\n+\t}));\n+\n+\tt.is(reason?.name, 'AbortError');\n+\tt.false(ran);\n+\tt.is(limit.activeCount, 0);\n+\tt.is(limit.pendingCount, 0);\n+});\n+\n+test('signal that is already aborted rejects immediately', async t => {\n+\tconst limit = pLimit({concurrency: 1, signal: AbortSignal.abort()});\n+\n+\tconst reason = await rejectionReason(limit(() => delay(10)));\n+\n+\tt.is(reason?.name, 'AbortError');\n+});\n+\n+test('signal does not affect tasks that already completed', async t => {\n+\tconst controller = new AbortController();\n+\tconst limit = pLimit({concurrency: 2, signal: controller.signal});\n+\n+\tt.deepEqual(await limit.map([1, 2, 3], input => input * 2), [2, 4, 6]);\n+\n+\tcontroller.abort();\n+});\n+\n+test('throws on invalid signal argument', t => {\n+\tt.throws(() => {\n+\t\tpLimit({concurrency: 1, signal: 'nope'});\n+\t}, {instanceOf: TypeError});\n+\n+\tt.throws(() => {\n+\t\tpLimit({concurrency: 1, signal: new AbortController()});\n+\t}, {instanceOf: TypeError});\n });\n \n test('map', async t => {\n",
+      "patch_truncated": true,
+      "changed_paths": [
+        "index.d.ts",
+        "index.js",
+        "index.test-d.ts",
+        "readme.md",
+        "recipes.md",
+        "test.js"
+      ]
+    }
+  ],
+  "receipt_status": "verified",
+  "adversarial_result": null,
+  "failure_code": "VERIFICATION_FAILED",
+  "attestation": {
+    "algorithm": "ed25519",
+    "signature_base64": "iHNA2ZhQDab3oETA2sB2oc9EvUgZTXF8ggMWRcOVPgcx5tKQvK9PrWHB/l9lBai5M/aOMIQwPvj6s/F6YVH7Cw=="
+  }
+}

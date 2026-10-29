@@ -1,0 +1,332 @@
+package main
+
+import (
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+)
+
+// ---- classifyError ---------------------------------------------------------
+
+func TestClassifyError(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"authentication failed", "auth_error"},
+		{"invalid token supplied", "auth_error"},
+		{"401 Unauthorized", "auth_error"},
+		{"403 Forbidden", "auth_error"},
+		{"validation failed: bad shape", "validation_error"},
+		{"node is invalid", "validation_error"},
+		{"lint reported issues", "validation_error"},
+		{"resource not found", "not_found"},
+		{"got 404 from server", "not_found"},
+		{"api returned error", "api_error"},
+		{"http request failed", "api_error"},
+		{"fetch error", "api_error"},
+		{"something else entirely", "unknown"},
+		{"", "unknown"},
+	}
+	for _, c := range cases {
+		got := classifyError(c.in)
+		if got != c.want {
+			t.Errorf("classifyError(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestClassifyError_CaseInsensitive(t *testing.T) {
+	if got := classifyError("AUTHENTICATION FAILED"); got != "auth_error" {
+		t.Errorf("expected auth_error for upper-case input, got %q", got)
+	}
+}
+
+// ---- hostnameOnly ----------------------------------------------------------
+
+func TestHostnameOnly(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"https://api.corezoid.com/v2", "api.corezoid.com"},
+		{"http://example.com:8080/path?x=1", "example.com"},
+		{"api.corezoid.com", "api.corezoid.com"},
+		{"api.corezoid.com/path", "api.corezoid.com"},
+		{"", ""},
+	}
+	for _, c := range cases {
+		got := hostnameOnly(c.in)
+		if got != c.want {
+			t.Errorf("hostnameOnly(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestHostnameOnly_InvalidURL(t *testing.T) {
+	// Pass a URL that fails url.Parse — strings with control characters.
+	got := hostnameOnly("https://exa mple.com")
+	if got != "" {
+		t.Errorf("expected empty string for malformed URL, got %q", got)
+	}
+}
+
+// ---- generateUUIDv4 --------------------------------------------------------
+
+var reUUIDv4 = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
+
+func TestGenerateUUIDv4_Format(t *testing.T) {
+	id := generateUUIDv4()
+	if len(id) != 36 {
+		t.Fatalf("expected 36-char UUID, got %d: %q", len(id), id)
+	}
+	if !reUUIDv4.MatchString(id) {
+		t.Errorf("UUID %q does not match v4 pattern", id)
+	}
+}
+
+func TestGenerateUUIDv4_Unique(t *testing.T) {
+	ids := make(map[string]struct{}, 50)
+	for i := 0; i < 50; i++ {
+		id := generateUUIDv4()
+		if _, dup := ids[id]; dup {
+			t.Fatalf("duplicate UUID generated: %s", id)
+		}
+		ids[id] = struct{}{}
+	}
+}
+
+// ---- loadOrCreateInstallationID --------------------------------------------
+
+// Replace HOME with a temp dir so the test does not touch the real
+// ~/.corezoid/installation_id file.
+func withTempHome(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	orig := os.Getenv("HOME")
+	t.Setenv("HOME", dir)
+	t.Cleanup(func() { _ = os.Setenv("HOME", orig) })
+	return dir
+}
+
+func TestLoadOrCreateInstallationID_CreatesFile(t *testing.T) {
+	home := withTempHome(t)
+
+	id := loadOrCreateInstallationID()
+	if !reUUIDv4.MatchString(id) {
+		t.Fatalf("generated ID %q is not a valid UUID v4", id)
+	}
+
+	// File should have been persisted.
+	path := filepath.Join(home, ".corezoid", "installation_id")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("expected installation_id file to be created: %v", err)
+	}
+	if strings.TrimSpace(string(data)) != id {
+		t.Errorf("file content %q does not match returned id %q", strings.TrimSpace(string(data)), id)
+	}
+}
+
+func TestLoadOrCreateInstallationID_ReadsExisting(t *testing.T) {
+	home := withTempHome(t)
+
+	dir := filepath.Join(home, ".corezoid")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	existing := "11111111-2222-4333-8444-555555555555"
+	if err := os.WriteFile(filepath.Join(dir, "installation_id"), []byte(existing+"\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	id := loadOrCreateInstallationID()
+	if id != existing {
+		t.Errorf("expected to read existing id %q, got %q", existing, id)
+	}
+}
+
+func TestLoadOrCreateInstallationID_RegeneratesOnInvalidLength(t *testing.T) {
+	home := withTempHome(t)
+
+	dir := filepath.Join(home, ".corezoid")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	// Length != 36 — should be discarded and a new ID generated.
+	if err := os.WriteFile(filepath.Join(dir, "installation_id"), []byte("too-short\n"), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	id := loadOrCreateInstallationID()
+	if id == "too-short" {
+		t.Error("expected invalid id to be discarded")
+	}
+	if !reUUIDv4.MatchString(id) {
+		t.Errorf("expected fresh UUID v4, got %q", id)
+	}
+}
+
+// ---- emitAnalyticsEvent ----------------------------------------------------
+
+func TestEmitAnalyticsEvent_DisabledIsNoOp(t *testing.T) {
+	// When analytics are disabled, emitAnalyticsEvent must not panic even if
+	// analyticsCh is nil.
+	prev := analyticsEnabled.Load()
+	analyticsEnabled.Store(false)
+	t.Cleanup(func() { analyticsEnabled.Store(prev) })
+
+	emitAnalyticsEvent(AnalyticsEvent{Tool: "test"})
+}
+
+func TestEmitAnalyticsEvent_FullChannelDoesNotBlock(t *testing.T) {
+	prevEnabled := analyticsEnabled.Load()
+	prevCh := analyticsCh
+	t.Cleanup(func() {
+		analyticsEnabled.Store(prevEnabled)
+		analyticsCh = prevCh
+	})
+
+	analyticsCh = make(chan AnalyticsEvent, 1)
+	analyticsEnabled.Store(true)
+	analyticsCh <- AnalyticsEvent{Tool: "filler"} // fill the buffer
+
+	// Second emit should drop silently rather than block. If the function
+	// blocks, the goroutine never closes `done` and the timeout below fires.
+	done := make(chan struct{})
+	go func() {
+		emitAnalyticsEvent(AnalyticsEvent{Tool: "dropped"})
+		close(done)
+	}()
+	select {
+	case <-done:
+		// pass
+	case <-time.After(time.Second):
+		t.Fatal("emitAnalyticsEvent blocked on a full channel")
+	}
+}
+
+// ---- stopAnalytics ----------------------------------------------------------
+
+func TestStopAnalytics_DisabledIsNoOp(t *testing.T) {
+	prev := analyticsEnabled.Load()
+	analyticsEnabled.Store(false)
+	// stopAnalyticsOnce is process-global; reset it so this test's call isn't
+	// silently absorbed by (or doesn't silently absorb) another test's.
+	stopAnalyticsOnce = sync.Once{}
+	t.Cleanup(func() { analyticsEnabled.Store(prev) })
+
+	done := make(chan struct{})
+	go func() {
+		stopAnalytics()
+		close(done)
+	}()
+	select {
+	case <-done:
+		// pass
+	case <-time.After(time.Second):
+		t.Fatal("stopAnalytics blocked when analytics is disabled")
+	}
+}
+
+// TestStopAnalytics_FlushesPendingEvent starts a real sender goroutine against
+// a local test server to verify stopAnalytics drains a queued event and sends
+// it synchronously, instead of leaving it stranded when the process exits.
+func TestStopAnalytics_FlushesPendingEvent(t *testing.T) {
+	prevEnabled := analyticsEnabled.Load()
+	prevCh := analyticsCh
+	prevFlushCh := analyticsFlushCh
+	prevEndpoint := analyticsEndpoint
+	t.Cleanup(func() {
+		analyticsEnabled.Store(prevEnabled)
+		analyticsCh = prevCh
+		analyticsFlushCh = prevFlushCh
+		analyticsEndpoint = prevEndpoint
+	})
+
+	received := make(chan []byte, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		received <- body
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	analyticsEndpoint = srv.URL
+	analyticsCh = make(chan AnalyticsEvent, 10)
+	analyticsFlushCh = make(chan chan struct{})
+	analyticsEnabled.Store(true)
+	// stopAnalyticsOnce is process-global; reset it so an earlier test's call
+	// doesn't cause this one to silently skip its work.
+	stopAnalyticsOnce = sync.Once{}
+	// runAnalyticsSender returns once it services the flush request below, so
+	// no goroutine leaks past this test.
+	go runAnalyticsSender()
+
+	analyticsCh <- AnalyticsEvent{Tool: "test-tool", InstallationID: "abc", Ts: "2024-01-01T00:00:00Z"}
+
+	stopAnalytics()
+
+	select {
+	case body := <-received:
+		if !strings.Contains(string(body), "test-tool") {
+			t.Errorf("expected flushed batch to contain the queued event, got: %s", body)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("stopAnalytics did not flush the pending event before returning")
+	}
+}
+
+// TestStopAnalytics_SecondCallReturnsImmediately guards against the
+// regression flagged in review: main.go calls stopAnalytics() from up to
+// three places (a deferred call, the SIGINT/SIGTERM handler, and the
+// HTTP-server-error path), and the sender goroutine exits after its first
+// flush. Without the sync.Once guard, a second call finds no receiver on
+// analyticsFlushCh and blocks out its full 1s timeout for nothing — on the
+// HTTP-error path, stacked with the SIGTERM handler racing in, that was up
+// to 2s of pure, avoidable hang.
+func TestStopAnalytics_SecondCallReturnsImmediately(t *testing.T) {
+	prevEnabled := analyticsEnabled.Load()
+	prevCh := analyticsCh
+	prevFlushCh := analyticsFlushCh
+	prevEndpoint := analyticsEndpoint
+	t.Cleanup(func() {
+		analyticsEnabled.Store(prevEnabled)
+		analyticsCh = prevCh
+		analyticsFlushCh = prevFlushCh
+		analyticsEndpoint = prevEndpoint
+	})
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer srv.Close()
+
+	analyticsEndpoint = srv.URL
+	analyticsCh = make(chan AnalyticsEvent, 10)
+	analyticsFlushCh = make(chan chan struct{})
+	analyticsEnabled.Store(true)
+	stopAnalyticsOnce = sync.Once{}
+	go runAnalyticsSender()
+
+	stopAnalytics() // first call: real flush, sender goroutine returns afterward
+
+	done := make(chan struct{})
+	go func() {
+		stopAnalytics() // second call: must be a no-op, not a 1s blocked send
+		close(done)
+	}()
+	select {
+	case <-done:
+		// pass
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("second stopAnalytics call blocked instead of returning immediately")
+	}
+}

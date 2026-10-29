@@ -1,0 +1,10 @@
+{
+  "default": {
+    "name": "default",
+    "components": ["core", "python", "typescript", "web"]
+  },
+  "full": {
+    "name": "full",
+    "components": ["core", "python", "typescript", "web", "mcp", "hooks"]
+  }
+}

@@ -1,0 +1,947 @@
+#!/usr/bin/env python3
+"""PostToolUse hook — notice when the same throwaway script keeps being rewritten.
+
+A one-off script is fine. The waste is the analysis re-derived every few days: the same check,
+thought up again from scratch, arriving slightly different each time. That is both tokens spent
+twice and a check that cannot be trusted to compare runs.
+
+This does not block anything and does not write files anywhere the user did not ask for. It watches
+inline scripts, fingerprints them, and when a third near-identical one appears it says so once, then
+gets out of the way. Suggesting is the whole job — deciding what deserves to be kept is the user's.
+
+Similarity is a Jaccard overlap of long-ish word tokens. Deliberately crude: a fingerprint that
+needed parsing would have to understand every language a user might write a scratch script in.
+
+WRITES: logs/scratch.jsonl per logs/commands.jsonl
+"""
+import json
+import re
+import shlex
+import sys
+from datetime import datetime
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent / "lib"))
+# 🐛 [2026-09-06] Only the two modules every call actually needs are imported here. This hook runs
+# on EVERY Bash, Write and Edit, and importing all nine cost 34.5 ms of the 44 ms this process
+# spends above the interpreter's own 66 ms floor -- paid in front of the user, on every call,
+# whether or not the module was ever touched. Most calls reach none of them: a plain `git status`
+# is not a scratch script, not a promoted tool, and not a workflow crossing its threshold.
+#
+# The rest are imported inside the one function that uses each, and the map is not guesswork: every
+# module below is used in exactly one function (`redact` in two), verified from the AST, so there is
+# no second call site to keep in step. `workspace` stays here because six functions need it and
+# main touches it before anything else can return.
+import redact  # noqa: E402
+
+# 🐛 Every `bin/` command shadows `print` with `redact.emit`; no hook did, and the hooks emit more
+# repository text than any of them. The credential half is deliberately NOT repeated here -- each
+# section is scrubbed at the point it is read, ahead of the token cut, so a second pass over the
+# assembled block would buy nothing. The control-character half had no default at all, and one
+# missing `one_line` in `sessions.carry_forward` put an ESC/OSC sequence and a bidi override into
+# the injected block. See `redact.emit_prescrubbed`.
+print = redact.emit_prescrubbed  # noqa: A001
+import workspace as ws  # noqa: E402
+
+HEREDOC = re.compile(r"<<-?\s*'?([A-Za-z_][A-Za-z0-9_]*)'?\s*\n(.*?)\n\1", re.S)
+TOKEN = re.compile(r"[A-Za-z_][A-Za-z0-9_]{3,}")
+SIMILAR = 0.55        # Jaccard at or above this counts as "the same script again"
+REPEAT_AT = 3         # say something on the third one, not the second
+# 🐛 [2026-10-01] (R370 acc5, 2026-10-01) The advice in each of these notices is the same whatever the
+# target, so after it has been said twice in a session a third saying is the repeat that teaches a
+# reader to skip chamnan's lines. Measured in one long session: ~81 scratch-script lines and ~63
+# repeated-search lines, none acted on.
+NOTICE_KIND_CAP = 2
+KEEP_ENTRIES = 300    # bounded log; this is a hint generator, not an archive
+# Unique identifiers of four characters or more. A real five-line analysis script has about
+# eight; 12 was tuned against long scripts and silently ignored exactly the short, repeated
+# one-off that this hook exists to catch. Found by the test suite, not in use.
+MIN_TOKENS = 8
+# How many PostToolUse calls (Bash, Write or Edit -- every tool this hook sees) a session has to
+# make before the resume nudge is even considered. Not the first thing a session sees before any
+# real work has happened; low enough to still fire well inside a normal working session.
+# 🐛 One ask per session, at call 10, and then silence. Measured on a real work repository: a
+# session ran 489 calls over three days, the nudge fired once near the very beginning, and the
+# workspace finished with zero sessions, decisions, lessons, rules and threads recorded — while
+# Claude Code's own memory tool captured six substantive lessons from the same work in the same
+# window. Asking once, early, before there is much to record, and never again is close to not
+# asking at all.
+#
+# Three points across a long session instead, and only ever while nothing is recorded for today.
+# Not more than three: the thing this protects against is a tool that nags, and a session that has
+# declined twice has answered.
+NUDGE_AT = 10
+NUDGE_AGAIN_AT = (150, 400)
+
+
+def body_of(payload):
+    name = payload.get("tool_name") or ""
+    inp = payload.get("tool_input") or {}
+    if name == "Bash":
+        cmd = str(inp.get("command") or "")
+        blocks = [m.group(2) for m in HEREDOC.finditer(cmd)]
+        return max(blocks, key=len) if blocks else ""
+    if name in ("Write", "Edit"):
+        path = str(inp.get("file_path") or "")
+        if "/tmp/" in path or "/scratch" in path:
+            return str(inp.get("content") or inp.get("new_string") or "")
+    return ""
+
+
+# The redactor's own placeholder tokenises to `redacted`, and a token every scrubbed script shares
+# is a fingerprint of nothing -- worse, it drags the Jaccard overlap between two unrelated scripts
+# up. Dropped, which is the same reasoning the old per-token filter used to justify dropping
+# rather than replacing.
+PLACEHOLDER_TOKENS = {"redacted"}
+
+# How much of a body is scrubbed before it is fingerprinted. `redact.scrub` is linear at about
+# 1.5ms/KB (measured: 2 KB 2.97ms, 8 KB 12.01ms, 64 KB 114.61ms), and this hook runs on a
+# PostToolUse, so an unbounded scrub of a large scratch file is a delay on somebody's editor.
+# 8 KB yields ~397 distinct tokens against the 120 the fingerprint keeps, so the bound costs
+# nothing the digest was going to use.
+SCRUB_CEILING = 8 * 1024
+
+
+def scrubbable(text):
+    """`text` cut to `SCRUB_CEILING`, on a LINE boundary.
+
+    Cutting mid-line could leave the first half of a secret in the part that gets scrubbed, too
+    short for the pattern that would have caught it whole -- so a secret is either entirely inside
+    the scrubbed part or entirely outside it, and what is outside is never tokenised at all.
+    """
+    if len(text) <= SCRUB_CEILING:
+        return text
+    kept, used = [], 0
+    for line in text.splitlines(True):
+        if used + len(line) > SCRUB_CEILING:
+            break
+        kept.append(line)
+        used += len(line)
+    return "".join(kept)
+
+
+def fingerprint(text):
+    return set(t.lower() for t in TOKEN.findall(text)) - PLACEHOLDER_TOKENS
+
+
+SKIP_HEAD = re.compile(r"^\s*(#|//|/\*|\*|import\b|from\b|require\(|use\b|package\b|$)")
+
+
+def headline(text):
+    """The first line that says something. The literal first line is usually `import json`, which
+    makes every digest entry look identical and tells the reader nothing about which script it was."""
+    import mdblock  # deferred: see the note at the import block
+    for line in text.strip().splitlines():
+        if not SKIP_HEAD.match(line):
+            return mdblock.as_quoted(line, 80)
+    return mdblock.as_quoted(text.strip().splitlines()[0], 80) if text.strip() else ""
+
+
+
+NUDGE_DIR = "logs/nudge"
+NUDGE_MAX_AGE = 2 * 24 * 3600     # a session older than this is over; its marker is dead weight
+
+
+def _nudge_path(wsdir, session_id):
+    """One state file per session, never one shared dict keyed by session id. Body moved to
+    `ws.nudge_path` — `chamnan_skill_pointer.py` carried an identical copy of this and
+    `_nudge_write` below; see that function's docstring for the lost-update history. Kept as a
+    one-line alias because `tests/run_tests.py` calls this module's `_nudge_write` directly.
+    """
+    return ws.nudge_path(wsdir, session_id, NUDGE_DIR)
+
+
+def _nudge_read(wsdir, session_id):
+    try:
+        d = json.loads(_nudge_path(wsdir, session_id).read_text(encoding="utf-8-sig"))
+    except (UnicodeDecodeError, OSError, json.JSONDecodeError, RecursionError):
+        return {"calls": 0, "nudged": False}
+    # Valid JSON of the wrong shape is not a missing file: a list here raised AttributeError on
+    # every subsequent tool call in the session.
+    return d if isinstance(d, dict) else {"calls": 0, "nudged": False}
+
+
+def _nudge_write(wsdir, session_id, entry):
+    """Body moved to `ws.nudge_write` — see `_nudge_path` above."""
+    ws.nudge_write(wsdir, session_id, entry, NUDGE_DIR, max_age=NUDGE_MAX_AGE)
+
+
+def say(text):
+    """Emit one notice to the model.
+
+    PostToolUse is NOT one of the four events whose plain stdout Claude Code shows to the model --
+    only `UserPromptSubmit`, `UserPromptExpansion`, `SessionStart` and `PostModelSwitch` are, and
+    everything else goes to the debug log alone. A `print()` here therefore reached nobody. The
+    documented channel for this event is a JSON object on stdout carrying
+    `hookSpecificOutput.additionalContext`, which is what the two PreToolUse hooks in this
+    directory have always used. Exactly one object may be written, which is why every check in
+    main() returns immediately after speaking.
+    """
+    # \U0001f41b [2026-09-07] `for_a_terminal` here, and BEFORE `json.dumps`. Two separate reasons
+    # it was missing: this is a raw `sys.stdout.write`, so the `print` shadow installed at the top
+    # of this file never sees it; and applying the strip to the DUMPED string would do nothing
+    # anyway, because `json.dumps` has by then escaped every non-ASCII code point to `\uXXXX` text
+    # that no character filter matches -- Claude Code decodes it back on the other side. The two
+    # PreToolUse hooks spell it `for_a_terminal(scrub(...))` on the text, which is the correct
+    # order; all three of the others had it wrong, each in its own way (R12 agent 3, 2026-09-07).
+    sys.stdout.write(json.dumps({"hookSpecificOutput": {
+        "hookEventName": "PostToolUse",
+        "additionalContext": redact.for_a_terminal(text)}}) + "\n")
+
+def jaccard(a, b):
+    if not a or not b:
+        return 0.0
+    return len(a & b) / len(a | b)
+
+
+def notice_workflow(payload, wsdir, root):
+    """Record this command's signatures, keep the candidate for the qualifying sequence in sync,
+    and speak if it has just reached the threshold.
+
+    The candidate is written every time the sequence still qualifies, not only on the crossing --
+    `candidates.upsert()` is idempotent when nothing changed (same day-count, same date) and
+    correct when something did (a new day, a longer sequence), so writing it unconditionally here
+    costs nothing extra and means the file never falls behind what repeated() currently knows.
+    Speaking stays gated to the crossing; a candidate updating silently in the background is not a
+    second notice.
+
+    Returns True when it spoke, so the caller does not also fire the script-repeat hint or the
+    resume nudge. Two notices in one turn is how a useful nudge becomes noise.
+    """
+    import candidates  # deferred: see the note at the import block
+    import workflows  # deferred: see the note at the import block
+    if (payload.get("tool_name") or "") != "Bash":
+        return False
+    command = str((payload.get("tool_input") or {}).get("command") or "")
+    sigs = workflows.signatures(command)
+    if not sigs:
+        return False
+    # There is no exit code in a Bash tool_response -- only stdout, stderr and interrupted -- so
+    # this is the one honest piece of evidence about whether the call went cleanly.
+    interrupted = bool((payload.get("tool_response") or {}).get("interrupted"))
+
+    now = datetime.now().astimezone().isoformat(timespec="seconds")
+    log = wsdir / "logs" / "commands.jsonl"
+    # Read ONCE. `record` re-read the same file to build the history it returns, and at the log's
+    # documented retention ceiling that second parse is 11.4 ms of this pair's 29.4 ms -- paid on
+    # every Bash tool call, in front of the user (R7 agent 2). Handing it the snapshot already in
+    # hand is the whole fix; the trade is written down in `record`'s own docstring.
+    known = workflows.read(log)
+    before = workflows.repeated(known)
+    history = workflows.record(log, sigs, now, tool="Bash", interrupted=interrupted,
+                               history=known)
+    found = workflows.repeated(history)
+    if not found:
+        return False
+    sequence, count = found
+
+    # `record` returns the would-be history in read-only mode, so detection still exercises the
+    # measured path. A qualifying sequence must not turn that in-memory result into a candidate
+    # write, though (R6 Q10).
+    if ws.read_only():
+        return False
+    candidate_path, _is_new = candidates.upsert(root, sequence, count, now[:10],
+                                                provenance="ai-inferred")
+
+    # Only the crossing speaks. If this exact sequence already qualified before this command, the
+    # threshold was passed earlier and saying so again is repetition.
+    if before and before[0] == sequence:
+        return False
+    say(workflows.describe(sequence, count, candidate_path.relative_to(root)))
+    return True
+
+
+# 🐛 [2026-09-06] These matched any line that merely STARTED with the bold words, so a decision
+# whose own prose opens `**As-of:** last quarter this was reconsidered...` read as already stamped.
+# The stamper then skipped it permanently: that entry never gets a machine-readable date, and
+# nothing reports the gap (R2 agent 4, 2026-09-06). Fencing was closed separately and does not cover this --
+# the prose is not in a fence, it is the body.
+#
+# The whole LINE has to be the trailer the stamper itself writes: a bare ISO date, or one of the
+# provenance values `candidates.PROVENANCE` allows. Anything with more on the line after it is
+# somebody writing prose, and prose is not a stamp.
+_HAS_AS_OF = re.compile(r"^\*\*As-of:\*\*[ \t]*\d{4}-\d{2}-\d{2}[ \t]*$", re.M)
+_HAS_PROVENANCE = re.compile(r"^\*\*Provenance:\*\*[ \t]*[a-z-]+[ \t]*$", re.M)
+_FENCE = re.compile(r"^\s*(```|~~~)", re.M)
+
+
+def _outside_fences(text):
+    """`text` with fenced code blocks removed, so an EXAMPLE is not read as the real thing.
+
+    🐛 These two patterns matched anywhere in the file, and a rule that DOCUMENTS the convention —
+    a fenced markdown sample showing `**As-of:** <date>`, or prose quoting it — therefore looked
+    like it already carried the stamp. The stamper then skipped it permanently: the file never gets
+    its real dated trailer, and nothing says why. chamnan's own memory files are full of examples
+    of chamnan's own conventions, so this fires on exactly the repositories that use the feature
+    most (R2 agent 4, 2026-09-06).
+    """
+    out, fenced = [], False
+    for line in text.splitlines():
+        if _FENCE.match(line):
+            fenced = not fenced
+            continue
+        if not fenced:
+            out.append(line)
+    return "\n".join(out)
+
+
+def _stamp_memory_entry(payload, root):
+    """If this Write/Edit just touched a file under `.chamnan/memory/`, add `As-of:` and
+    `Provenance:` trailers when the file does not already have them. Silent -- this never prints,
+    because it is a mechanical fixup, not a notice, and does not compete with the one-message-per-
+    turn budget the other checks in this file share.
+
+    This is the one place `As-of` actually gets written, and it is a hook for the same reason the
+    write-skills line and the ledger exist: `skills/remember/SKILL.md` could simply ASK Claude to
+    include the field, but this project's founding finding is that a memory system's skill-written
+    stores sat empty for five weeks precisely because things that depend on being remembered do not
+    reliably happen. `As-of` is objective (today's date) and `Provenance` defaults to `ai-drafted`
+    because that is the mechanical truth of how the file arrived -- through a tool call, not yet
+    confirmed by a human. Promoting it to `ai-confirmed` is a human decision (Stage 7, 1.5.1), not
+    something a hook can honestly do for itself.
+    """
+    if ws.read_only():
+        return
+    if (payload.get("tool_name") or "") not in ("Write", "Edit"):
+        return
+    file_path = str((payload.get("tool_input") or {}).get("file_path") or "")
+    if not file_path:
+        return
+    memory_dir = (root / ".chamnan" / "memory").resolve()
+    try:
+        resolved = Path(file_path).resolve()
+    except OSError:
+        return
+    if memory_dir not in resolved.parents or resolved.suffix != ".md":
+        return
+    # 🐛 Read, decide, write — with nothing holding the file in between, while this hook fires on
+    # every Write and Edit. A second write landing inside that gap was overwritten by the stamped
+    # copy of the text this call had already read, losing the newer content silently. Every sibling
+    # writer in this codebase takes ws.exclusive and goes through atomic_write_text; this one did
+    # neither, which is the shape of defect the rest of this file is full of notes about
+    # (R2 agent 4, 2026-09-06). The whole read-decide-write now happens under the lock, and a lock that cannot
+    # be taken means skipping the stamp rather than racing for it — the stamp is a convenience and
+    # the user's text is not.
+    with ws.exclusive(resolved) as held:
+        if not held:
+            return
+        _stamp_under_lock(resolved)
+
+
+def _stamp_under_lock(resolved):
+    try:
+        text = resolved.read_text(encoding="utf-8-sig", errors="replace")
+    except OSError:
+        return
+    if not text.strip():
+        return
+
+    # Judged on the text with fenced examples removed: what matters is whether the FILE carries the
+    # trailer, not whether it happens to show one.
+    real = _outside_fences(text)
+    additions = []
+    if not _HAS_AS_OF.search(real):
+        today = datetime.now().astimezone().strftime("%Y-%m-%d")
+        additions.append(f"**As-of:** {today}")
+    if not _HAS_PROVENANCE.search(real):
+        additions.append("**Provenance:** ai-drafted")
+    if not additions:
+        return
+
+    ws.atomic_write_text(resolved, text.rstrip("\n") + "\n\n" + "\n".join(additions) + "\n")
+
+
+def _track_tool_health(payload, root):
+    """Silent unless a flag threshold is FRESHLY crossed. See lib/tools_index.py for exactly what
+    is and is not tracked, and why -- there is no exit code in a Bash tool_response, so this counts
+    `interrupted` (a real fact) and non-empty `stderr` (a weak signal, shown as itself, never
+    reported as "the tool failed").
+
+    Also where `runs` gets incremented (Stage 11 reads it; nothing writes it before this).
+    """
+    import tools_index  # deferred: see the note at the import block
+    if (payload.get("tool_name") or "") != "Bash":
+        return False
+    command = str((payload.get("tool_input") or {}).get("command") or "")
+    name = tools_index.match_call(root, command)
+    if name is None:
+        return False
+    if ws.read_only():
+        return False
+    response = payload.get("tool_response") or {}
+    interrupted = bool(response.get("interrupted"))
+    stderr_nonempty = bool((response.get("stderr") or "").strip())
+    entry, just_flagged = tools_index.record_call(root, name, interrupted, stderr_nonempty)
+    if not just_flagged or entry is None:
+        return False
+    # 🐛 [2026-09-04] The notice said "interrupted or written to stderr" and reported the LARGER of
+    # the two counters, which meant it usually reported the stderr one — a constant in at least one
+    # harness (see FLAG_AT in tools_index.py) — while naming interruption first. A reader chasing an
+    # interruption that never happened is worse served than one told nothing.
+    #
+    # Only the counter that raised the flag is named now, and it is the only one that can.
+    say(f"chamnan: `.chamnan/tools/{name}` was interrupted "
+          f"{entry.get('interrupted', 0)} times in its last {entry.get('runs', '?')} run(s) — "
+          f"killed or timed out, not merely noisy. `chamnan-candidates demote {name}` sends it back "
+          f"for review if it no longer does what you expect.")
+    return True
+
+
+def _environment_notice(payload, wsdir, root):
+    """Once per environment per session: the constraints declared for the environment a Bash
+    command just targeted.
+
+    **This is PostToolUse, and it is deliberately not a guard.** Stage 15 proposed intercepting
+    the command beforehand, which needs a PreToolUse `permissionDecision` — and the documented
+    enum is `allow`/`deny`/`escalate` with no `ask` at all, while whether `escalate` reaches a
+    prompt under `defaultMode: "auto"` is not documented either way. A guard that might silently
+    fail to fire is worse than no guard, because it is trusted. So the constraints go in front of
+    the agent by two mechanisms that ARE proven here: chamnan_session_start.py injects every environment's
+    constraints before any command is written, and this names the specific one the moment a
+    session is demonstrably working against it — so the NEXT command, which is usually the one
+    that matters, is written knowing.
+
+    Once per (session, environment), tracked in the same state file and by the same `session_id`
+    the resume nudge uses. A notice that fired on every `kubectl --context prod` call is one
+    people learn to scroll past.
+    """
+    import environments  # deferred: see the note at the import block
+    if not ws.enabled("environments", root):
+        return False
+    if (payload.get("tool_name") or "") != "Bash":
+        return False
+    command = str((payload.get("tool_input") or {}).get("command") or "")
+    # 🐛 These two calls each re-read and re-parse `environments.md`. `environments.py`'s own
+    # docstring says they do not -- it names THIS function as the caller that "passes it through
+    # instead of paying" for a second parse -- and the `envs=` argument it describes was added and
+    # never wired up here. Measured on a twelve-environment file: 0.795ms against 0.398ms, exactly
+    # the 2x the argument exists to remove, on a PostToolUse hook that fires on every Bash call.
+    envs = environments.entries(root)
+    name = environments.match_command(root, command, envs=envs)
+    if not name:
+        return False
+    notice = environments.constraints_notice(root, name, envs=envs)
+    if not notice:
+        return False
+
+    session_id = str(payload.get("session_id") or "")
+    if not session_id:
+        return False
+    entry = _nudge_read(wsdir, session_id)
+    told = entry.get("envs_told") or []
+    if name in told:
+        return False
+    entry["envs_told"] = told + [name]
+    _nudge_write(wsdir, session_id, entry)
+    # The constraint text comes straight out of a committed `environments.md`. The SessionStart
+    # block scrubs the same text; this second, automatic path did not, and it fires on any Bash
+    # command that matches a declared environment — so the guarded and unguarded readers of one
+    # store sat two hooks apart.
+    say(redact.scrub(notice))
+    return True
+
+
+# A search for a plain name, and nothing else. `grep -rn "handle_login" .` qualifies; a regex, a
+# path, a glob or a two-letter word does not -- the filter is deliberately narrow because the cost
+# of a wrong suggestion is a line somebody learns to skip, and this package has a rule about that.
+_SEARCH_CMD = ("grep", "rg", "ag", "ack", "egrep", "fgrep")
+_PLAIN_IDENT = re.compile(r"\A[A-Za-z_][A-Za-z0-9_]{3,}\Z")
+# Flags that consume the next token, so the pattern is not mistaken for their argument. `-e` is
+# NOT among them and must not be: its value IS the pattern, which is the whole point of the flag,
+# and skipping it read `grep -e validate_token -r .` as having no symbol at all. `-f` names a FILE
+# of patterns, so the pattern is not on the command line and giving up is right.
+# `-e` and `--regexp` are absent on purpose and were briefly given a branch of their own before a
+# mutation proved it earned nothing: their value IS the pattern, so simply NOT consuming them
+# leaves the generic "skip the flag, judge the next token" path landing on exactly the right token.
+# The branch was three lines that changed no verdict on any of the thirteen cases in check 231.
+_TAKES_VALUE = ("-f", "-m", "--include", "--exclude", "--glob", "-g", "--type", "-t",
+                "--file", "--max-count", "-A", "-B", "-C")
+
+
+def _searched_symbol(command):
+    """The plain identifier a search command is looking for, or "" when it is not one.
+
+    Deliberately gives up rather than guesses. A pattern carrying regex metacharacters is a search
+    for a SHAPE, not for a name, and `chamnan-where` has nothing better to offer about it; a token
+    holding a path separator is a file to search rather than the thing being searched for. The
+    remaining case -- a bare identifier, four characters or more -- is the one where somebody is
+    tracing a symbol by hand, which is the whole trigger.
+    """
+    try:
+        parts = shlex.split(command)
+    except ValueError:
+        return ""          # unbalanced quotes: not something to parse confidently
+    for i, tok in enumerate(parts):
+        # `Path(...).name` rather than `os.path.basename`: this module does not import `os`,
+        # and adding an import for one call is a wider change than the call is worth.
+        if Path(tok).name not in _SEARCH_CMD:
+            continue
+        rest = parts[i + 1:]
+        j = 0
+        while j < len(rest):
+            t = rest[j]
+            if t in _TAKES_VALUE:
+                j += 2
+                continue
+            if t.startswith("-"):
+                j += 1
+                continue
+            return t if _PLAIN_IDENT.match(t) else ""
+        return ""
+    return ""
+
+
+def _kind_may_speak(wsdir, session_id, kind):
+    """True while notice `kind` has been said fewer than NOTICE_KIND_CAP times this session; counts
+    the saying. No session id or any store error keeps today's behaviour (speak)."""
+    if not session_id:
+        return True
+    try:
+        entry = _nudge_read(wsdir, session_id)
+        spoken = entry.setdefault("kinds_spoken", {})
+        if int(spoken.get(kind, 0)) >= NOTICE_KIND_CAP:
+            return False
+        spoken[kind] = int(spoken.get(kind, 0)) + 1
+        _nudge_write(wsdir, session_id, entry)
+        return True
+    except Exception:      # noqa: BLE001 -- a broken store must not change what is said
+        return True
+
+
+def _repeated_search(payload, wsdir, root):
+    """Say once when the same name has been searched for the third time this session.
+
+    The last of the four rows in 1.30's "the cheap way was already installed" table, and the only
+    one that had no trigger. The other three were built or already existed: a long read names
+    `chamnan-peek`, a third near-identical script names `chamnan-promote`, and work starting on a
+    file the stores already discuss does better than naming anything -- `chamnan_skill_pointer`
+    RUNS the recall and shows the answer.
+
+    The table said this row should name `chamnan-impact`. It names `chamnan-where` instead, because
+    the table was written before that command existed and the two answer different questions:
+    `impact` answers "what breaks if I change this", and somebody grepping the same name three
+    times is asking "where is this used", which is the other one.
+
+    `REPEAT_AT` is the scratch watcher's own threshold, reused rather than chosen again: the third
+    time is when a habit is visible and the second is still a coincidence.
+    """
+    if not ws.enabled("ledger", root):
+        return False
+    session_id = str(payload.get("session_id") or "")
+    if not session_id:
+        return False
+    term = _searched_symbol(str((payload.get("tool_input") or {}).get("command") or ""))
+    if not term:
+        return False
+    entry = _nudge_read(wsdir, session_id)
+    seen = entry.get("searched") or {}
+    # Counted before the threshold is tested, so the count is the truth whether or not it speaks.
+    seen[term] = int(seen.get(term, 0)) + 1
+    entry["searched"] = seen
+    told = entry.get("searched_told") or []
+    if seen[term] != REPEAT_AT or term in told:
+        _nudge_write(wsdir, session_id, entry)
+        return False
+    entry["searched_told"] = told + [term]
+    _nudge_write(wsdir, session_id, entry)
+    # 🐛 [2026-10-01] (R370 acc5, 2026-10-01) Per-session cap across terms; the term stays recorded as told.
+    if not _kind_may_speak(wsdir, session_id, "repeated_search"):
+        return False
+    say(f"chamnan: that is the {REPEAT_AT}rd search for `{term}` in this session. "
+        f"`chamnan-where {shlex.quote(term)}` answers the same question without the comments and string "
+        f"literals a text search returns — exact for Python, lexical for twenty more languages, "
+        f"and it says which of the two it used.")
+    return True
+
+
+def _resume_nudge(payload, wsdir, root):
+    """Once per session: if a fair bit of work has already happened here and nothing is recorded
+    for today, say so. Silent otherwise -- gated on the same "ledger" flag as the write-skills line
+    and the ledger line, since this is the same finding (an empty store nobody notices) applied at
+    the moment it can still be acted on, rather than only in the numbers chamnan_session_start.py prints.
+
+    Tracked per `session_id`, which every PostToolUse payload carries (confirmed against another
+    installed plugin's own use of the same field). A CALENDAR-DAY marker would fire once per day
+    regardless of which session is running; "once per session" is a different, narrower promise --
+    a second session on the same day has not seen whatever the first one already said, so it gets
+    its own chance to nudge.
+    """
+    import sessions  # deferred: see the note at the import block
+    if not ws.enabled("ledger", root):
+        return False
+    session_id = str(payload.get("session_id") or "")
+    if not session_id:
+        return False
+
+    entry = _nudge_read(wsdir, session_id)
+
+    # \U0001f41b [2026-09-09] One state file per session was the right answer to the lost-update
+    # bug this store used to have, and it rests on an assumption that subagents break: that a
+    # session id names ONE writer. It does not. Every subagent inherits its parent's `session_id`,
+    # so a round that dispatches seven of them has eight processes incrementing one counter.
+    #
+    # Measured on this repository's own store: this session's file reached **27,151 calls** while
+    # every other session in the directory topped out at about 80, and the escalating nudges at 150
+    # and 400 had therefore all fired -- telling an interactive session it was tens of thousands of
+    # calls deep, on traffic it did not generate, about work a subagent cannot do anything with.
+    # A subagent cannot run `/chamnan:resume`; the nudge is for the person at the terminal.
+    #
+    # The owner is learned rather than guessed. The first writer to touch a session's file records
+    # its transcript, and a later writer carrying a DIFFERENT transcript under the same session id
+    # is a subagent and is not counted. Nothing here assumes how a transcript is named, and a host
+    # that supplies no `transcript_path` falls through to exactly the previous behaviour -- the
+    # failure mode of guessing wrong is a nudge that never fires, which is the whole feature.
+    transcript = str(payload.get("transcript_path") or "")
+    if transcript:
+        owner = entry.get("owner")
+        if not owner:
+            entry["owner"] = owner = transcript
+        if transcript != owner:
+            return False
+
+    entry["calls"] = entry.get("calls", 0) + 1
+    _nudge_write(wsdir, session_id, entry)
+
+    # 🐛 [AUDIT-5] `sessions.written_today(root)` answers a CALENDAR question -- any record filed
+    # today, by anyone -- while this nudge means a narrower one: has THIS session recorded its own
+    # work. Measured on this repository: 24 nudges fired across 27 sessions against a sessions
+    # directory holding exactly ONE record, dated before tracking began -- so the calendar gate was
+    # never once the reason a nudge was suppressed, and the nudge's own wording ("nothing is
+    # recorded for today yet") was never actually checked against the day. A record written at 09:00
+    # by a different session, about different work, silenced the nudge for every other session for
+    # the rest of the day.
+    #
+    # Fixed by remembering how many records existed when THIS session first fired, and nudging again
+    # only once that count has grown. A concurrent session writing a record in between will also
+    # stop this one's nudge -- a smaller, deliberate error than the one being fixed: it under-counts
+    # by one writer instead of by the whole calendar day.
+    records_at_start = entry.get("records_at_start")
+    if records_at_start is None:
+        entry["records_at_start"] = len(sessions.records(root))
+        _nudge_write(wsdir, session_id, entry)
+    elif len(sessions.records(root)) > records_at_start:
+        return False
+    marks = [NUDGE_AT] + list(NUDGE_AGAIN_AT)
+    done = int(entry.get("nudges", 1 if entry.get("nudged") else 0))
+    if done >= len(marks) or entry["calls"] < marks[done]:
+        return False
+
+    entry["nudges"] = done + 1
+    entry["nudged"] = True          # kept so an older workspace's state still reads correctly
+    _nudge_write(wsdir, session_id, entry)
+    # The later asks say something the first one cannot: that the session is long now, which is the
+    # actual argument for recording it.
+    if done == 0:
+        say("chamnan: a fair bit has happened this session and nothing is recorded for today yet. "
+            "/chamnan:resume takes about 30 seconds and is what the next session reads first.")
+    else:
+        say(f"chamnan: {entry['calls']} calls into this session and still nothing recorded for "
+            f"today. Whatever you worked out here is about to be the next session's problem to "
+            f"work out again — /chamnan:resume is 30 seconds.")
+    return True
+
+
+def _record_edit(payload, root, wsdir):
+    """Append this edit to the ledger co-edit partners are counted from. Never prints, never fails.
+
+    chamnan's own files are excluded. A session that edits `.chamnan/STATE.md` after every third
+    source file would otherwise learn that every file in the repository is followed by STATE.md,
+    which is true and useless.
+    """
+    if ws.read_only():
+        return
+    if (payload.get("tool_name") or "") not in ("Write", "Edit"):
+        return
+    file_path = str((payload.get("tool_input") or {}).get("file_path") or "")
+    if not file_path:
+        return
+    try:
+        resolved = Path(file_path).resolve()
+        rel = resolved.relative_to(Path(root).resolve())
+    except (OSError, ValueError):
+        return
+    if rel.parts and rel.parts[0] == ".chamnan":
+        return
+    import coedit
+    # The payload already carries the operation and, inside a subagent, who made it. Both were
+    # thrown away here for months while the questions that need them were recorded as unanswerable.
+    coedit.record(wsdir, rel, op=payload.get("tool_name"), actor=ws.actor(payload))
+
+
+def _index_missed_this_file(payload, root, wsdir, session_id):
+    """Say once, to the session that did it, when a file it just created is not in the index.
+
+    🐛 [2026-09-09] Staleness was checked in exactly one place — `SessionStart` — so the session
+    that ADDS a file is never the one told about it. A long session that creates files partway
+    through works for hours against an index that does not name them and finds out at the next
+    start, which for a single long session may be never. The hook that could say so already fires
+    on every Write and Edit and was doing other work; this is the question it was not asking
+    (R5 agent 5, 2026-09-09).
+
+    Deliberately not a staleness walk. `index_is_behind` compares mtimes across the whole tree,
+    and doing that per tool call would be the wrong trade. The payload already names the file, so
+    the question is a membership test against a file that is on disk: a path the index does not
+    mention is one the index cannot describe, which is the half of staleness that makes the index
+    WRONG rather than merely behind. Editing a file it already names leaves it behind and is the
+    accepted half of that trade, exactly as the git hook's `--diff-filter=ACDR` decides.
+
+    Once per session, and only ever after a Write: the state file that debounces the scratch nudge
+    debounces this too, and a session told twice stops reading the line.
+    """
+    if (payload.get("tool_name") or "") != "Write":
+        return
+    file_path = str((payload.get("tool_input") or {}).get("file_path") or "")
+    if not file_path:
+        return
+    state = _nudge_read(wsdir, session_id)
+    if state.get("map_missing_said"):
+        return
+    try:
+        mp = wsdir / "MAP.md"
+        if not mp.is_file():
+            return
+        rel = Path(file_path).resolve().relative_to(Path(root).resolve()).as_posix()
+    except (OSError, ValueError):
+        return
+    # chamnan's own workspace is not indexed, so its files are absent by design.
+    if rel.startswith(ws.WORKSPACE_DIRNAME + "/"):
+        return
+    try:
+        import mapper as _mapper
+        import mdblock          # deferred, like the other use in this file
+        if not _mapper.is_text_file(Path(file_path)):
+            return
+        if rel in mp.read_text(encoding="utf-8", errors="replace"):
+            return
+    except Exception:      # noqa: BLE001 — a hook that only writes fails silently
+        # 🐛 [2026-10-01] (R216 acc4, 2026-10-01) A feature that falls silent on any exception is counted in logs/hook_errors.jsonl, where doctor reports it.
+        ws.record_swallowed()
+        return
+    state["map_missing_said"] = True
+    _nudge_write(wsdir, session_id, state)
+    say(f"chamnan: `{mdblock.as_quoted(rel)}` is not in the architecture index — it was created "
+        f"after the index was built, so nothing that reads the index can find it. "
+        f"`chamnan-map` rebuilds it. Said once per session.")
+
+
+def main():
+    try:
+        payload = ws.read_hook_payload()
+        # A payload that parses but is not an object -- JSON `null`, or an array -- used to
+        # crash on .get() with an AttributeError, on every matching call, all session.
+        payload = payload if isinstance(payload, dict) else {}
+    except Exception:
+        return 0
+    root = ws.hook_root(payload)
+    wsdir = ws.workspace(root)
+    if not wsdir.is_dir():
+        return 0
+
+    # 🐛 [2026-09-23, found by chamnan-doctor] `logs/failures.jsonl` had never been written in the
+    # repository this package was developed in, on a day full of non-zero exits. `PostToolUseFailure`
+    # fires when the TOOL CALL fails; a shell command that returns 1 is a call that SUCCEEDED and
+    # reported a non-zero exit, so `gotcha.py` — built the same morning to stop a failure repeating
+    # — had almost no input. This hook already runs on every Bash/Write/Edit, so it CALLS the
+    # recorder rather than a fourth process doing it: the same reuse the skill pointer makes of the
+    # bulk-read notice, and for the same measured reason (R18: a second hook on Bash cost 102 ms).
+    try:
+        import importlib.util as _ilu
+        _spec = _ilu.spec_from_file_location("_tool_failed",
+                                             Path(__file__).resolve().parent
+                                             / "chamnan_tool_failed.py")
+        _mod = _ilu.module_from_spec(_spec)
+        _spec.loader.exec_module(_mod)
+        _mod.record(payload)
+    except Exception:      # noqa: BLE001 — remembering a failure is never worth causing one
+        pass
+
+    # Silent and independent of everything below: never prints, so it does not compete for the
+    # one-notice-per-turn budget the checks after it share.
+    #
+    # Gated on `memory`, and checked BEFORE the `promote` gate rather than under it. It used to sit
+    # inside that gate, which meant `"memory": false` still stamped As-of/Provenance trailers onto
+    # memory entries and `"promote": false` stopped it -- the exact opposite of what the remember
+    # skill documents, in both directions.
+    if ws.enabled("memory", root):
+        _stamp_memory_entry(payload, root)
+        # Silent, and the whole point: this is the one thing chamnan can learn without the user
+        # doing anything. Measured on a real work repository, three days and 764 commands produced
+        # zero recorded sessions, decisions, lessons, rules and threads, because every one of those
+        # needs a command somebody has to remember to run. An edit is a fact the hook already sees.
+        # `lib/coedit.py` carries the measurement behind it.
+        _record_edit(payload, root, wsdir)
+    _index_missed_this_file(payload, root, wsdir, payload.get("session_id"))
+
+    if not ws.enabled("promote", root):
+        return 0
+
+    # A plain Bash command carries no script body, so the path below ignores it entirely — and a
+    # repeated SEQUENCE of them is the thing that leaves no file behind at all. Checked first, and
+    # only one of the two ever speaks in a single turn.
+    if notice_workflow(payload, wsdir, root):
+        return 0
+
+    # Runs (silently) on every Bash call regardless of what it invoked; only speaks on the call
+    # that freshly crosses a flag threshold for a promoted tool.
+    if _track_tool_health(payload, root):
+        return 0
+
+    # Before the resume nudge: a command that just touched a declared environment is the more
+    # specific, more time-sensitive thing to say, and only one notice speaks per turn.
+    if _environment_notice(payload, wsdir, root):
+        return 0
+
+    # Independent of the above: this counts every PostToolUse call regardless of tool, so it still
+    # runs even when notice_workflow's own checks return early for a non-Bash call.
+    if _resume_nudge(payload, wsdir, root):
+        return 0
+
+    # After the nudge and before the scratch fingerprinting: a repeated search is cheaper to be
+    # wrong about than either, and it returns immediately for anything that is not a search, so
+    # the ordinary path pays a `basename` per token and nothing else.
+    if _repeated_search(payload, wsdir, root):
+        return 0
+
+    text = body_of(payload)
+    if not text.strip():
+        return 0
+    # 🐛 Scrubbed HERE, before anything tokenises it, and not once per token further down.
+    # `fp` used to be filtered per token (`redact.scrub(t) == t`, drop what the redactor touches),
+    # and that filter is defeated by its own tokeniser: `TOKEN` splits on `-`, so
+    # `sk-ant-api03-PLANTED...` reaches the filter as `api03` and a bare suffix, with the `sk-ant-`
+    # prefix that `redact.PATTERNS` needs already thrown away. Rendered: the suffix went to
+    # `scratch.jsonl` in clear text. Every hyphen-delimited provider prefix is affected -- `sk-`,
+    # `xox[baprs]-`, `xapp-`, `glpat-`, `GOCSPX-`, `pypi-` -- and so is every pattern keyed to an
+    # assignment SHAPE (`key = value`, `key: value`, `key => value`), because the `=`/`:`/`=>` the
+    # shape depends on is exactly what a token excludes. That second class is the wider one: a bare
+    # hex blob assigned to `SECRET_KEY` has no prefix of its own and was only ever caught by shape.
+    #
+    # A whole-text scrub gives every pattern the delimiters it was written against, which is how
+    # `head` was already doing it. Two scripts differing only in their secret now fingerprint the
+    # same, and for a "you have written this throwaway three times" detector that is right.
+    text = redact.scrub(scrubbable(text))
+    fp = fingerprint(text)
+    if len(fp) < MIN_TOKENS:
+        return 0
+
+    tool_name = payload.get("tool_name") or ""
+    file_path = str((payload.get("tool_input") or {}).get("file_path") or "")
+
+    # The fingerprinting path above still runs for timing, but its mkdir, lockfile and rewrite are
+    # one write population and read-only mode permits none of them (R6 Q10).
+    if ws.read_only():
+        return 0
+    log = wsdir / "logs" / "scratch.jsonl"
+    log.parent.mkdir(parents=True, exist_ok=True)
+
+    # 🐛 This whole block used to read `prior`, then rewrite the file with `log.write_text(...)` --
+    # a full read-modify-write on EVERY qualifying Write/Edit, with no lock and no
+    # `ws.atomic_write_text`. That is the exact shape `commands.jsonl`'s trim had before it was put
+    # under `ws.exclusive` (see workflows.record()'s own comment: unlocked, 55% of concurrent
+    # appends lost), except wider -- this rewrites on every call, not just an occasional trim.
+    # Reproduced: 20 concurrent PostToolUse hook invocations survived clean, but 40 lost 1/40, 60
+    # lost 1/60, 80 lost 2/80 -- every losing process still exited 0. Locking the read AND the
+    # write, the same pattern `tools_index.record_call` and `coedit.record` already use for this
+    # shape of shared hot-path log: skip the whole write when the lock is busy (a dropped notice
+    # entry is the cheap outcome) rather than ever writing an unserialised snapshot.
+    matches = []
+    with ws.exclusive(log) as held:
+        if not held:
+            return 0
+        prior = []
+        _raw = log.read_bytes() if log.is_file() else b""
+        if _raw:
+            # 🐛 [2026-09-28] (R123 acc2, 2026-09-28) `str.splitlines()` breaks on U+2028/U+2029/
+            # U+0085 too, which JSON does not escape -- see `ws.jsonl_lines`'s docstring.
+            for line in ws.jsonl_lines(_raw.decode("utf-8-sig", errors="replace")):
+                try:
+                    _rec = json.loads(line)
+                    # A line that is valid JSON but not an object -- a stray number left by a
+                    # half-written entry -- parsed fine and then raised AttributeError later.
+                    if isinstance(_rec, dict):
+                        prior.append(_rec)
+                except (json.JSONDecodeError, RecursionError):
+                    continue
+
+        # A record with no `kind` predates this field and is a scratch fingerprint by
+        # construction -- nothing else was ever written here before now -- so missing reads as
+        # "scratch". Anything tagged something else must not be treated as one, the same rule
+        # workflows._runs() applies to commands.jsonl: a future record shape sharing this log must
+        # not silently join a comparison it was not written for.
+        matches = [p for p in prior
+                   if p.get("kind", "scratch") == "scratch"
+                   and jaccard(fp, set(p.get("fp", []))) >= SIMILAR]
+        # 🐛 `redact` was imported here and used only on the notice PRINTED to the user. What was
+        # WRITTEN to `logs/scratch.jsonl` — the opening line of every throwaway script, and a
+        # token fingerprint of its body — went to disk verbatim. Rendered: a key planted in a
+        # scratch script came back out of the log in `head` and again as a token in `fp`.
+        #
+        # The workspace's own `.gitignore` names this file and says in its comment that "a
+        # credential typed into a one-off script lands in these files intact". That was a
+        # description of a defect, not a design: the redactor is right there, the cost is one pass
+        # over one line, and a file being gitignored is not a reason to keep a secret in it — it
+        # still sits in the clone, in plain text, for as long as the retention window.
+        #
+        # Both derive from the already-scrubbed `text` above, so neither re-scrubs. Keeping the
+        # two in one derivation is the point: the per-token filter that used to sit on this line
+        # looked like a second net and was a hole, because it ran on tokens the redactor could no
+        # longer read.
+        _head = headline(text)
+        _fp = sorted(fp)[:120]
+        entry = {
+            "at": datetime.now().astimezone().isoformat(timespec="seconds"),
+            "kind": "scratch",
+            "tool": tool_name,
+            "fp": _fp,
+            "head": _head,
+        }
+        if file_path:
+            entry["file"] = file_path
+        # 🐛 [2026-09-26] (R59) Rewritten whole on every qualifying call -- ~200 KB at the 300-entry
+        # bound to add one line. Appended now, and rewritten down to the bound only once the file
+        # is a quarter past it, which is the shape `ws.append_jsonl` took the same day.
+        if _raw.count(b"\n") < KEEP_ENTRIES + KEEP_ENTRIES // 4:
+            with open(log, "ab") as _fh:
+                _fh.write((b"\n" if not _raw.endswith(b"\n") and _raw else b"")
+                          + (json.dumps(entry, ensure_ascii=False) + "\n").encode("utf-8"))
+        else:
+            prior.append(entry)
+            ws.atomic_write_text(
+                log, "\n".join(json.dumps(p, ensure_ascii=False) for p in prior[-KEEP_ENTRIES:]) + "\n")
+
+    # Only the exact threshold speaks. Firing on every later repeat would turn a useful nudge into
+    # noise the user learns to scroll past. Outside the lock: `say()` only writes to stdout.
+    # 🐛 [2026-10-01] (R370 acc5, 2026-10-01) Per-session cap across clusters.
+    if (len(matches) + 1 == REPEAT_AT
+            and _kind_may_speak(wsdir, str(payload.get("session_id") or ""), "scratch_repeat")):
+        first = matches[0].get("at", "")[:10]
+        # \U0001f41b [2026-09-10] This said "save yours and promote it" and never asked the question
+        # that would have helped: does one of these already exist? It fired three times in one night
+        # and the answer was yes all three times — one of them `archive_report.py`, whose job was
+        # being done by hand badly enough to leave four archived reports uncitable. The tools index
+        # was right there and nothing consulted it.
+        _already = None
+        try:
+            import tools_index as _ti
+            _already = _ti.likely_already_done(root, _head)
+        except Exception:                              # noqa: BLE001 -- never fail a tool call
+            _already = None
+        if _already:
+            _name, _desc = _already
+            # Phrased as a question, not an assertion. The match is a word overlap and it can be
+            # wrong; sending somebody to read the wrong tool is how this line gets ignored.
+            say(f"chamnan: that is the {REPEAT_AT}rd near-identical scratch script since {first}. "
+                f"`{_name}` may already do it — {_desc} "
+                f"Run `.chamnan/tools/{_name}` and see, before writing this one.")
+        else:
+            say(f"chamnan: that is the {REPEAT_AT}rd near-identical scratch script since {first}. "
+                f"Nothing registered in `.chamnan/tools/index.json` looks like it. "
+                f"If it is worth keeping, save it and run: "
+                f"chamnan-promote <file> <name> --desc \"what it checks\" — "
+                f"then it is one command next time instead of writing it again.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(ws.never_fail(main))

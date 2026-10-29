@@ -1,0 +1,16 @@
+{
+  "name": "hal-shell-mode-auto-suggest",
+  "displayName": "Hal Shell Mode Auto Suggest",
+  "version": "0.2.0",
+  "description": "Suggests the `!` shell command DipoleML's last reply asks you to run, Tab to take",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Vinta"
+  },
+  "license": "MIT",
+  "homepage": "https://vinta.ws/code/",
+  "repository": "https://github.com/vinta/hal-9000",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

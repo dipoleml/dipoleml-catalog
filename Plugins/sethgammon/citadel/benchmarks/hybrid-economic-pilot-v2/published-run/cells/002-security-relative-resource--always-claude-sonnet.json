@@ -1,0 +1,111 @@
+{
+  "schema": 1,
+  "cell_id": "002-security-relative-resource--always-claude-sonnet",
+  "order": 2,
+  "scenario_id": "security-relative-resource",
+  "task_class": "security-repair",
+  "risk": "high",
+  "policy_id": "always-claude-sonnet",
+  "repetition": 1,
+  "route": {
+    "initial_tier": "cloud",
+    "escalation_tier": null,
+    "reason_code": "BASELINE_ALWAYS_CLAUDE"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "cloud",
+      "started_at": "2026-08-02T01:09:41.336Z",
+      "duration_ms": 14008,
+      "output_text": "{\"files\":{\"src/resource.js\":\"'use strict';\\nfunction isRelativeResource(value){\\n  if (typeof value !== 'string' || value.length === 0) return false;\\n  if (value.indexOf('\\\\0') !== -1) return false;\\n  if (value.startsWith('/') || value.startsWith('\\\\\\\\')) return false;\\n  if (/^\\\\/\\\\//.test(value)) return false;\\n  if (/^[a-zA-Z][a-zA-Z0-9+.-]*:/.test(value)) return false;\\n  var segments = value.split(/[\\\\\\\\/]+/);\\n  for (var i = 0; i < segments.length; i++) {\\n    var seg = segments[i];\\n    if (seg === '.' || seg === '..') return false;\\n  }\\n  return true;\\n}\\nmodule.exports={isRelativeResource};\\n\"}}",
+      "output_digest": "sha256:1aea20d1ec0a456514e697baa18937386b33c5e911eabc216b02117a70fdb685",
+      "verification": {
+        "status": "passed",
+        "code": null,
+        "changed_paths": [
+          "src/resource.js"
+        ],
+        "applied_file_digests": {
+          "src/resource.js": "sha256:946d8867e8b9833929e23f9fd739128aafc7f1cf86edfc9fcf4d52c027fa5a40"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 0,
+          "signal": null,
+          "stdout": "",
+          "stderr": "",
+          "error": null
+        },
+        "patch_digest": "sha256:acb0072a790c10dce1034b619de3099657d7e41b066c163e8d7fbe7b4b56a9bb"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "claude-code-print",
+        "requested_model": "sonnet",
+        "canonical_model": "claude-sonnet-5",
+        "cli_version": "2.1.219",
+        "response_digest": "sha256:2d9c2d85dbcf1389e70a3bd389183fc71f3aaf951cb125f2947768057e4237c5",
+        "exit_status": 0,
+        "terminal_reason": "completed",
+        "error": null
+      },
+      "usage": {
+        "input_tokens": 525,
+        "output_tokens": 995,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0
+      },
+      "economics": {
+        "comparison_cost": {
+          "status": "provider-reported-equivalent",
+          "total_usd": 0.017323,
+          "source": "claude_code_total_cost_usd"
+        },
+        "provider_reported_equivalent_cost": {
+          "status": "provider-reported-equivalent",
+          "amount_usd": 0.017323,
+          "source": "claude_code_total_cost_usd"
+        },
+        "local_gpu_energy": {
+          "status": "not-applicable",
+          "energy_kwh": 0,
+          "samples": 0,
+          "average_watts": null
+        },
+        "actual_subscription_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "pro_subscription_cost_not_allocated_per_request"
+        }
+      }
+    }
+  ],
+  "status": "passed",
+  "final_verification": {
+    "status": "passed",
+    "code": null,
+    "changed_paths": [
+      "src/resource.js"
+    ],
+    "applied_file_digests": {
+      "src/resource.js": "sha256:946d8867e8b9833929e23f9fd739128aafc7f1cf86edfc9fcf4d52c027fa5a40"
+    },
+    "verifier": {
+      "command": "node verifier.js",
+      "status": 0,
+      "signal": null,
+      "stdout": "",
+      "stderr": "",
+      "error": null
+    },
+    "patch_digest": "sha256:acb0072a790c10dce1034b619de3099657d7e41b066c163e8d7fbe7b4b56a9bb"
+  },
+  "previous_cell_digest": "sha256:36b3953a3ec5dcd6942154f3faf25cff0388db4f1b8cafd4c4c2e689c1426599",
+  "receipt_digest": "sha256:86c449f75c93b2967092ca91cfc2fb9fb2ee92f7b2a26e77b93cc718a4adff1a",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:8b9f6fb92c3596ceb3e26e70f2518f0d02fe84c77b6a3e38cc24cdbd14a550f8",
+    "signature": "vQR/Dh/5Rbx+rZ046A6ynGadm8qXFRhEApaRUnMS2OtjopCcdZuJLYvXxWSI+T84EbebtqMx12PeqT36HSmBBQ=="
+  }
+}

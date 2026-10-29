@@ -1,0 +1,122 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.abinauv.business-consulting",
+  "type": "plugin",
+  "name": "Business Consulting",
+  "slug": "business-consulting",
+  "vendor": "abinauv",
+  "description": "Business consulting plugin for DipoleML — 16 skills, 24 commands, 5 industry overlays. Market research, competitive analysis, financial modeling, strategy frameworks, pricing, M&A, digital transformation, risk, talent, and more.",
+  "version": "1.0.0",
+  "homepage": "https://github.com/abinauv/business-consulting",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "benchmarking",
+    "business-consulting",
+    "claude-code-plugin",
+    "claude-cowork",
+    "claude-plugin",
+    "competitive-analysis",
+    "consulting-frameworks",
+    "customer-insights",
+    "digital-transformation"
+  ],
+  "tags": [
+    "benchmarking",
+    "business-consulting",
+    "claude-code-plugin",
+    "claude-cowork",
+    "claude-plugin",
+    "competitive-analysis",
+    "consulting-frameworks",
+    "customer-insights",
+    "digital-transformation",
+    "innovation-strategy",
+    "management-consulting",
+    "market-research",
+    "pricing-strategy",
+    "risk-management",
+    "saas-metrics",
+    "strategy-consulting",
+    "swot-analysis",
+    "talent-strategy"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "abinauv",
+    "brandName": "abinauv",
+    "source": "https://github.com/abinauv.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:56Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "abinauv/business-consulting",
+    "url": "https://github.com/abinauv/business-consulting",
+    "commit": "8808ffb170bd4f8d8fadcc7e107cc9d124837570",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 33,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:50:07Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Business Consulting | Business consulting plugin for Claude — 16 skills, 24 commands, 5 industry overlays. Market research, competitive analysis, financial modeling, strategy frameworks, pricing, M&A, digital transformation, risk, talent, and more.",
+        "after": "Business Consulting | Business consulting plugin for DipoleML — 16 skills, 24 commands, 5 industry overlays. Market research, competitive analysis, financial modeling, strategy frameworks, pricing, M&A, digital transformation, risk, talent, and more.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

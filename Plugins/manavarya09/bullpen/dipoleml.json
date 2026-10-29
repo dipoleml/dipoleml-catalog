@@ -1,0 +1,130 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.manavarya09.bullpen",
+  "type": "plugin",
+  "name": "Bullpen",
+  "slug": "bullpen",
+  "vendor": "manavarya09",
+  "description": "My AI engineering team for DipoleML — 64 named specialists I actually use every day. Atlas leads, Rune designs, Forge codes backend, Bastion guards security, Sage tells me to drink water. Deep agent prompts (anti-patterns + 2025 defaults + handoffs + checklists), per-role memory, ASCII activation cards. MIT.",
+  "version": "1.0.0",
+  "homepage": "https://github.com/Manavarya09/bullpen",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agent-framework",
+    "ai-coding-assistant",
+    "ai-orchestration",
+    "ai-pair-programming",
+    "ai-team",
+    "anthropic",
+    "claude-ai",
+    "claude-plugin",
+    "developer-tools"
+  ],
+  "tags": [
+    "agent-framework",
+    "ai-agents",
+    "ai-coding-assistant",
+    "ai-orchestration",
+    "ai-pair-programming",
+    "ai-team",
+    "anthropic",
+    "claude-ai",
+    "claude-code",
+    "claude-plugin",
+    "developer-tools",
+    "llm-agents",
+    "mcp",
+    "multi-agent-systems",
+    "open-source",
+    "pinecone",
+    "productivity-tools",
+    "rag",
+    "self-learning-agents",
+    "typescript"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "manavarya09",
+    "brandName": "manavarya09",
+    "source": "https://github.com/Manavarya09.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:13:58Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "Manavarya09/bullpen",
+    "url": "https://github.com/Manavarya09/bullpen",
+    "commit": "5ef309e3769106cfd60fa6cc36ab0d9307d1b23f",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 11,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:07:06Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Bullpen | My AI engineering team for Claude Code — 64 named specialists I actually use every day. Atlas leads, Rune designs, Forge codes backend, Bastion guards security, Sage tells me to drink water. Deep agent prompts (anti-patterns + 2025 defaults + handoffs + checklists), per-role memory, ASCII activation cards. MIT.",
+        "after": "Bullpen | My AI engineering team for DipoleML — 64 named specialists I actually use every day. Atlas leads, Rune designs, Forge codes backend, Bastion guards security, Sage tells me to drink water. Deep agent prompts (anti-patterns + 2025 defaults + handoffs + checklists), per-role memory, ASCII activation cards. MIT.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "My AI engineering team for Claude Code — 64 named specialists I actually use every day.",
+        "after": "My AI engineering team for DipoleML — 64 named specialists I actually use every day.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

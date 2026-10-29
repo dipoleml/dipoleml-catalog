@@ -1,0 +1,16 @@
+{
+  "name": "cache-tax-2",
+  "displayName": "Cache Tax",
+  "version": "2.3.1",
+  "description": "A DipoleML mod that keeps the one-hour prompt cache warm during breaks and stops a cold send once with its estimated rewrite cost. Warming uses model requests and costs tokens. Requires DipoleML 2.1.287+.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Karanb192"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/karanb192/cache-tax",
+  "repository": "https://github.com/karanb192/cache-tax",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

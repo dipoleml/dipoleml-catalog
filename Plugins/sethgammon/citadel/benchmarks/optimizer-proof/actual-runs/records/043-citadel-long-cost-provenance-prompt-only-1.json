@@ -1,0 +1,76 @@
+{
+  "schema": 1,
+  "evidence_kind": "actual-run",
+  "scenario_set_id": "optimizer-scenarios-sha256:602e496906f3a293203750602234ba88a55a86b9e4f54f32239264098dcebe5b",
+  "metric_set_id": "optimizer-metrics-sha256:bedffbda2b18d725610b0f294a8273ef908237fd957bf9e51a5af4885b123e4f",
+  "scenario_id": "citadel-long-cost-provenance",
+  "category": "long_task",
+  "holdout": false,
+  "policy_id": "prompt-only",
+  "repetition": 1,
+  "decision_id": "sha256:835f7250ccc35755a8d6e64864296174def5e1289f80def5ac3705808a6fe40a",
+  "selected_profile_id": "claude-workhorse",
+  "observed_profile_id": "claude-workhorse",
+  "requested_model": "claude-sonnet-5",
+  "observed_model": "claude-sonnet-5",
+  "model_proof_status": "passed",
+  "started_at": "2026-07-30T23:12:28.052Z",
+  "duration_ms": 839325,
+  "outcome": "passed",
+  "verified": true,
+  "attempts": 1,
+  "human_interventions": 0,
+  "topology": "single",
+  "cost": {
+    "status": "known",
+    "amount_usd": 5.394199,
+    "provenance": "tool_reported",
+    "source": "citadel_optimizer_runner",
+    "source_ref": "summed_attempts:1",
+    "pricing_snapshot_digest": null,
+    "components": [
+      {
+        "kind": "model",
+        "amount_usd": 5.3941993,
+        "source": "attempt_1:claude total_cost_usd"
+      }
+    ]
+  },
+  "artifact_paths": [
+    "core/forks/runtime.js",
+    "core/forks/executor-profiles.js",
+    "scripts/test-operation-fork-executors.js"
+  ],
+  "verification_receipts": [
+    {
+      "attempt": 1,
+      "profile_id": "claude-workhorse",
+      "status": "passed",
+      "exit_code": 0,
+      "timed_out": false,
+      "output_digest": "sha256:0676e1fef8b2b217ca748f6431dd436838a5a380516c810d6d34829cd3f3cb53",
+      "output_excerpt": "[stdout]\nOperation Fork executors passed: schema 2 bindings, same-runtime isolation, honest model proof, tamper rejection, legacy compatibility, and shell-free Windows launch.\n\n[stderr]\n",
+      "output_truncated": false,
+      "patch_exit_code": 0,
+      "patch_digest": "sha256:71de357574bb57e86b67bb805e4bfa75c00fa6399c8821b1da933f7617481d81",
+      "patch_excerpt": "\n+ * \"unavailable\" -- never zero, never guessed from the requested profile.\n+ */\n+function costStatusFor(cost) {\n+  if (!cost) return 'unavailable';\n+  return cost.source.startsWith('derived-') ? 'derived' : 'reported';\n+}\n+\n function missionControlExecutorState(input) {\n   const profile = assertValidExecutorProfile(input.profile);\n   const model = evaluateModelProof(profile, input.observation);\n@@ -449,7 +463,7 @@ function missionControlExecutorState(input) {\n     receipt_status: receipt.status,\n     receipt_reason_code: receipt.reason_code,\n     cost,\n-    cost_status: cost ? 'known' : 'unknown',\n+    cost_status: costStatusFor(cost),\n     duration_ms: duration,\n     duration_status: duration === null ? 'unknown' : 'known',\n     tokens,\n@@ -492,6 +506,7 @@ module.exports = Object.freeze({\n   CLAUDE_ALLOWED_TOOLS,\n   CLAUDE_PERMISSION_MODES,\n   CODEX_SANDBOXES,\n+  COST_STATUSES,\n   DEFAULT_PERMISSION_MODE,\n   DEFAULT_SANDBOX,\n   EXECUTOR_RUNTIMES,\ndiff --git a/core/forks/runtime.js b/core/forks/runtime.js\nindex 899a893..6390dbe 100644\n--- a/core/forks/runtime.js\n+++ b/core/forks/runtime.js\n@@ -14,6 +14,22 @@ const CODEX_THREAD_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4\n const CODEX_SESSION_SCAN_LIMIT = 20000;\n const CODEX_SESSION_READ_LIMIT = 2 * 1024 * 1024;\n \n+// Citadel-owned blended USD-per-million-token rates, used only to derive a cost\n+// estimate when a runtime's own output has no direct cost figure (Codex today;\n+// Claude if a future response omits total_cost_usd). Looked up strictly by the\n+// trusted observed model, never the requested one. An unlisted model has no\n+// derivation and stays unavailable rather than guess. Update as public pricing\n+// changes; this never reaches out to a network price feed.\n+const DERIVED_COST_RATE_PER_MILLION_TOKENS = Object.freeze({\n+  'claude-opus-4-6': 15,\n+  'claude-sonnet-4-6': 6,\n+  'claude-sonnet-4-5': 6,\n+  'claude-haiku-4-5': 3,\n+  'gpt-5-codex': 3,\n+  'gpt-4.1': 4,\n+});\n+const DERIVED_COST_SOURCE = 'derived-token-rate';\n+\n function runtimeInvocation(runtime) {\n   if (runtime === 'claude') return { command: 'claude', args: ['--print', '--output-format', 'json', '--permission-mode', 'acceptEdits', '--allowedTools', CLAUDE_ALLOWED_TOOLS] };\n   if (runtime === 'codex') return { command: 'codex', args: ['exec', '--json', '--sandbox', 'workspace-write', '-'] };\n@@ -53,6 +69,13 @@ function positiveNumber(value) {\n   return Number.isFinite(value) && value >= 0 ? value : null;\n }\n \n+function derivedCost(model, tokens) {\n+  if (typeof model !== 'string' || !model || tokens === null) return null;\n+  const rate = DERIVED_COST_RATE_PER_MILLION_TOKENS[model];\n+  if (rate === undefined) return null;\n+  return { amount: Math.round((tokens / 1_000_000) * rate * 1e6) / 1e6, unit: 'usd', source: DERIVED_COST_SOURCE };\n+}\n+\n function claudeObservation(stdout) {\n   let payload;\n   try { payload = JSON.parse(stdout); } catch (_error) { return null; }\n@@ -193,7 +216,8 @@ function observeRuntime(runtime, agent, options = {}) {\n   const parsed = runtime === 'claude' ? claudeObservation(agent.stdout || '')\n     : runtime === 'codex' ? codexObservation(agent.stdout || '', options) : null;\n   if (!parsed) return null;\n-  return { ...parsed, trusted: true };\n+  const cost = parsed.cost !== null ? parsed.cost : derivedCost(parsed.model, parsed.tokens);\n+  return { ...parsed, cost, trusted: true };\n }\n \n function instructionFor(fork, objective) {\n@@ -338,6 +362,8 @@ function loadVerifier(workflowPath) {\n }\n \n module.exports = Object.freeze({\n+  DERIVED_COST_RATE_PER_MILLION_TOKENS,\n+  DERIVED_COST_SOURCE,\n   generateSigningKey,\n   findCodexSessionFile,\n   instructionFor,\ndiff --git a/docs/EXECUTOR_PROFILES.md b/docs/EXECUTOR_PROFILES.md\nindex cff353e..9fe77f3 100644\n--- a/docs/EXECUTOR_PROFILES.md\n+++ b/docs/EXECUTOR_PROFILES.md\n@@ -216,9 +216,15 @@ can pass. A mismatch is `failed`. Missing, untrusted, or unparsable telemetry is\n `default` and model proof as `unknown` unless the adapter produces trusted\n observed identity.\n \n-Missing cost, duration, token, or model telemetry also remains `unknown`.\n-Mission Control must not infer observations from requested values or convert\n-missing data to zero.\n+Missing duration, token, or model telemetry also remains `unknown`. Mission\n+Control must not infer observations from requested values or convert missing\n+data to zero.\n+\n+Cost is distinct: it reports `reported` (the runtime stated an amount\n+directly), `derived` (Citadel computed an estimate from a trusted observed\n+token count and a per-model rate table it owns), or `unavailable` (neither).\n+A derived amount is keyed to the observed model only and always carries a\n+`derived-*` cost source so it is never mistaken for a runtime-reported figure.\n \n Claude model identity comes from the CLI JSON result. Codex exec stdout provides\n the thread ID and token usage but may omit the resolved model. In that case the\ndiff --git a/docs/OPERATION_FORK.md b/docs/OPERATION_FORK.md\nindex 5a66752..3631e47 100644\n--- a/docs/OPERATION_FORK.md\n+++ b/docs/OPERATION_FORK.md\n@@ -213,6 +213,15 @@ lookup is bounded and fails closed. Anything missing, untrusted, or unparsable\n stays `unknown`. It is never inferred from the requested profile and never\n converted to zero.\n \n+Cost telemetry carries one of three states. `reported` is a figure the runtime\n+stated directly (Claude's `total_cost_usd`). `derived` is a figure Citadel\n+computed from a trusted observed token count and a bounded per-model rate table\n+it owns, keyed strictly to the observed model, never the requested one --\n+Codex, which never states a cost, gets one this way when its observed model has\n+a listed rate. `unavailable` is neither: no trusted tokens, or a model with no\n+listed rate. A derived figure is always distinguishable from a reported one by\n+its cost source and is never presented as if the runtime had stated it.\n+\n ## Non-goals\n \n Operation Fork is not:\ndiff --git a/scripts/test-all.js b/scripts/test-all.js\nindex 7e9b9c2..f777be4 100644\n--- a/scripts/test-all.js\n+++ b/scripts/test-all.js\n@@ -116,6 +116,7 @@ const UNLOCK_TESTS = Object.freeze([\n   ['Executor profiles', 'test-executor-profiles.js'],\n   ['Operation Fork executors', 'test-operation-fork-executors.js'],\n   ['Operation Fork proof report', 'test-operation-fork-proof.js'],\n+  ['Operation Fork cost telemetry', 'test-operation-fork-cost.js'],\n   ['Workflow compiler', 'test-workflow-compiler.js'],\n   ['Pack platform', 'test-packs.js'],\n   ['Signed Pack registry', 'test-pack-registry.js'],\ndiff --git a/scripts/test-executor-profiles.js b/scripts/test-executor-profiles.js\nindex 3178834..3525819 100644\n--- a/scripts/test-executor-profiles.js\n+++ b/scripts/test-executor-profiles.js\n@@ -176,7 +176,7 @@ assert.equal(missionUnknown.observed_model, null);\n assert.equal(missionUnknown.model_status, 'unknown');\n assert.equal(missionUnknown.receipt_status, 'unknown');\n assert.equal(missionUnknown.cost, null);\n-assert.equal(missionUnknown.cost_status, 'unknown');\n+assert.equal(missionUnknown.cost_status, 'unavailable');\n \n const replay = profiles.publicExecutorReplay({ profile: local, observation: null, wrapper });\n const serialized = JSON.stringify(replay);\ndiff --git a/scripts/test-operation-fork-executors.js b/scripts/test-operation-fork-executors.js\nindex 4adcc63..abe8ca9 100644\n--- a/scripts/test-operation-fork-executors.js\n+++ b/scripts/test-operation-fork-executors.js\n@@ -161,7 +161,8 @@ assert.equal(byId.get('branch-claude-sonnet').receipt_status, 'verified');\n assert.equal(byId.get('branch-claude-sonnet').cost.amount, 0.42);\n assert.equal(byId.get('branch-codex-hosted').model_status, 'failed');\n assert.equal(byId.get('branch-codex-hosted').cost, null);\n-assert.equal(byId.get('branch-codex-hosted').cost_status, 'unknown');\n+assert.equal(byId.get('branch-codex-hosted').cost_status, 'unavailable');\n+assert.equal(byId.get('branch-claude-sonnet').cost_status, 'reported');\n assert.equal(byId.get('branch-codex-local-qwen').model_status, 'unknown');\n assert.equal(byId.get('branch-codex-local-qwen').observed_model, null);\n assert.equal(byId.get('branch-codex-local-qwen').requested_model, 'qwen3-coder:30b');\n",
+      "patch_truncated": true,
+      "changed_paths": [
+        "core/forks/executor-profiles.js",
+        "core/forks/runtime.js",
+        "docs/EXECUTOR_PROFILES.md",
+        "docs/OPERATION_FORK.md",
+        "scripts/test-all.js",
+        "scripts/test-executor-profiles.js",
+        "scripts/test-operation-fork-executors.js"
+      ]
+    }
+  ],
+  "receipt_status": "verified",
+  "adversarial_result": null,
+  "failure_code": null,
+  "attestation": {
+    "algorithm": "ed25519",
+    "signature_base64": "zXiWGFykSXbFUaYz117HTTXUK4l/twbyuYUdQ9DG0WDgoDSQf/raZRXTVf1uVVb1DXCrL30Qpu1Lj63X9i17BA=="
+  }
+}

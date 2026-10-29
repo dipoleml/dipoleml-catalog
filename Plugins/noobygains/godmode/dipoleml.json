@@ -1,0 +1,131 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.noobygains.godmode",
+  "type": "plugin",
+  "name": "Godmode",
+  "slug": "godmode",
+  "vendor": "noobygains",
+  "description": "Engineering discipline for AI coding agents: question the request, verify against current docs, plan, build test-first on the cheapest capable model, review with a second model family, prove it before saying done. One repo for DipoleML, Codex, Antigravity, Cursor, Gemini CLI and OpenCode.",
+  "version": "2.1.2",
+  "homepage": "https://github.com/NoobyGains/godmode",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agent-skills",
+    "agentic-coding",
+    "antigravity",
+    "claude-code-plugin",
+    "code-review",
+    "codex",
+    "coding-agents",
+    "cursor",
+    "developer-tools"
+  ],
+  "tags": [
+    "agent-skills",
+    "agentic-coding",
+    "ai-agents",
+    "antigravity",
+    "claude-code",
+    "claude-code-plugin",
+    "code-review",
+    "codex",
+    "coding-agents",
+    "cursor",
+    "developer-tools",
+    "gemini-cli",
+    "llm",
+    "opencode",
+    "skills",
+    "tdd"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "noobygains",
+    "brandName": "noobygains",
+    "source": "https://github.com/NoobyGains.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:14:16Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "NoobyGains/godmode",
+    "url": "https://github.com/NoobyGains/godmode",
+    "commit": "ef8dbf444dc7c854a77139d333471ee343181458",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 115,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:03:52Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude,cursor",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".cursor-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/cursor/.cursor-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Godmode | Engineering discipline for AI coding agents: question the request, verify against current docs, plan, build test-first on the cheapest capable model, review with a second model family, prove it before saying done. One repo for Claude Code, Codex, Antigravity, Cursor, Gemini CLI and OpenCode.",
+        "after": "Godmode | Engineering discipline for AI coding agents: question the request, verify against current docs, plan, build test-first on the cheapest capable model, review with a second model family, prove it before saying done. One repo for DipoleML, Codex, Antigravity, Cursor, Gemini CLI and OpenCode.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=20"
+    ],
+    "packages": [
+      "godmode"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude",
+      "cursor"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

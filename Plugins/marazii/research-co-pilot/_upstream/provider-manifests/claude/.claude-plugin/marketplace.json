@@ -1,0 +1,34 @@
+{
+  "name": "research-co-pilot-marketplace",
+  "owner": {
+    "name": "Maya Arazi"
+  },
+  "metadata": {
+    "description": "Maya Arazi's research co-pilot plugins for Claude Code. Currently hosts research-co-pilot — a comprehensive research lifecycle co-pilot covering literature review, methodology, ethics review, data analysis, qualitative coding, brainstorming, citations, survey design, manuscript drafting, grant writing, replication design, talk building, and peer review."
+  },
+  "plugins": [
+    {
+      "name": "research-co-pilot",
+      "source": "./",
+      "description": "Comprehensive research co-pilot — literature review, methodology, ethics review, data analysis, qualitative coding, brainstorming, manuscript drafting, replication design, grant writing, talk building, citations, survey design, and peer review.",
+      "version": "0.11.4",
+      "category": "research",
+      "keywords": [
+        "research",
+        "academic",
+        "literature-review",
+        "methodology",
+        "ethics-review",
+        "statistics",
+        "qualitative",
+        "thematic-analysis",
+        "manuscript-drafting",
+        "replication",
+        "grant-writing",
+        "peer-review",
+        "citations",
+        "survey-design"
+      ]
+    }
+  ]
+}

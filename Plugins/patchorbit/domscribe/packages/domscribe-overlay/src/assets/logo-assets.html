@@ -1,0 +1,1631 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Domscribe Logo Assets</title>
+    <style>
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+      body {
+        font-family:
+          'Inter',
+          -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          Roboto,
+          sans-serif;
+        background: #0a0a0b;
+        color: #fafafa;
+        padding: 48px;
+        line-height: 1.5;
+      }
+      h1 {
+        color: #06b6d4;
+        margin-bottom: 8px;
+        font-size: 32px;
+      }
+      .subtitle {
+        color: #71717a;
+        margin-bottom: 48px;
+      }
+      h2 {
+        font-size: 14px;
+        color: #52525b;
+        text-transform: uppercase;
+        letter-spacing: 0.1em;
+        margin: 56px 0 24px 0;
+        padding-bottom: 8px;
+        border-bottom: 1px solid #27272a;
+      }
+      h2:first-of-type {
+        margin-top: 0;
+      }
+      p.note {
+        font-size: 13px;
+        color: #71717a;
+        margin-bottom: 24px;
+      }
+
+      /* ========================================
+       WORDMARK SPEC - Use this for all wordmarks
+       ======================================== */
+      /*
+       SPACING RULE: Gap between logo and wordmark = 50% of wordmark font-size
+       This creates consistent visual rhythm across all lockup sizes:
+       - 48px wordmark → 24px gap (hero)
+       - 32px wordmark → 16px gap (lockups)
+       - 28px wordmark → 14px gap (comparison)
+       - 24px wordmark → 12px gap (usage)
+    */
+      .wordmark {
+        font-family:
+          'Inter',
+          -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          Roboto,
+          sans-serif;
+        font-weight: 600;
+        letter-spacing: -0.02em;
+        text-transform: lowercase;
+      }
+      .wordmark.dark {
+        color: #fafafa;
+      }
+      .wordmark.light {
+        color: #18181b;
+      }
+      .wordmark.brand {
+        color: #0a0a0b;
+      }
+
+      .hero {
+        display: flex;
+        align-items: center;
+        gap: 24px;
+        padding: 64px;
+        background: linear-gradient(135deg, #18181b 0%, #0f0f10 100%);
+        border-radius: 20px;
+        margin-bottom: 32px;
+        border: 1px solid #27272a;
+      }
+      .hero .wordmark {
+        font-size: 48px;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+        gap: 24px;
+      }
+      .grid.small {
+        grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      }
+
+      .card {
+        background: #18181b;
+        border-radius: 12px;
+        padding: 24px;
+        border: 1px solid #27272a;
+        text-align: center;
+      }
+      .card svg {
+        margin-bottom: 12px;
+      }
+      .card-label {
+        font-size: 12px;
+        color: #a1a1aa;
+        margin-top: 8px;
+      }
+      .card-sublabel {
+        font-size: 10px;
+        color: #52525b;
+      }
+
+      .sizes-row {
+        display: flex;
+        align-items: end;
+        gap: 20px;
+        flex-wrap: wrap;
+        padding: 32px;
+        background: #18181b;
+        border-radius: 12px;
+      }
+      .size-item {
+        text-align: center;
+      }
+      .size-item span {
+        display: block;
+        font-size: 10px;
+        color: #52525b;
+        margin-top: 8px;
+      }
+
+      .lockups {
+        display: flex;
+        flex-direction: column;
+        gap: 24px;
+      }
+      .lockup-row {
+        display: flex;
+        align-items: center;
+        gap: 16px; /* 50% of 32px wordmark */
+        padding: 24px 32px;
+        background: #18181b;
+        border-radius: 12px;
+      }
+      .lockup-row.light {
+        background: #fafafa;
+      }
+      .lockup-row.brand {
+        background: #06b6d4;
+      }
+      .lockup-row .wordmark {
+        font-size: 32px;
+      }
+      .lockup-label {
+        margin-left: auto;
+        font-size: 11px;
+        color: #52525b;
+      }
+      .lockup-row.light .lockup-label {
+        color: #a1a1aa;
+      }
+      .lockup-row.brand .lockup-label {
+        color: rgba(0, 0, 0, 0.5);
+      }
+
+      .comparison {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 24px;
+        margin-bottom: 32px;
+      }
+      .comparison-card {
+        background: #18181b;
+        border-radius: 12px;
+        padding: 32px;
+        text-align: center;
+        border: 1px solid #27272a;
+      }
+      .comparison-card h3 {
+        font-size: 14px;
+        color: #06b6d4;
+        margin-bottom: 24px;
+        font-weight: 500;
+      }
+      .comparison-card .lockup {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 14px; /* 50% of 28px wordmark */
+        margin-bottom: 16px;
+      }
+      .comparison-card .lockup .wordmark {
+        font-size: 28px;
+      }
+      .comparison-card .desc {
+        font-size: 12px;
+        color: #71717a;
+      }
+
+      .app-icons {
+        display: flex;
+        gap: 32px;
+        flex-wrap: wrap;
+        align-items: end;
+      }
+      .app-icon-item {
+        text-align: center;
+      }
+      .app-icon-item span {
+        display: block;
+        font-size: 11px;
+        color: #52525b;
+        margin-top: 12px;
+      }
+
+      .favicon-row {
+        display: flex;
+        gap: 24px;
+        align-items: center;
+        padding: 24px;
+        background: #18181b;
+        border-radius: 12px;
+        flex-wrap: wrap;
+      }
+      .favicon-item {
+        text-align: center;
+      }
+      .favicon-item span {
+        display: block;
+        font-size: 10px;
+        color: #52525b;
+        margin-top: 8px;
+      }
+
+      .code-block {
+        background: #18181b;
+        border-radius: 12px;
+        padding: 24px;
+        margin-top: 16px;
+        overflow-x: auto;
+      }
+      .code-block pre {
+        color: #a1a1aa;
+        font-size: 12px;
+        font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace;
+        white-space: pre-wrap;
+      }
+      .code-block .comment {
+        color: #52525b;
+      }
+      .code-block .prop {
+        color: #06b6d4;
+      }
+      .code-block .value {
+        color: #a5f3fc;
+      }
+
+      .spec-table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-top: 16px;
+      }
+      .spec-table th,
+      .spec-table td {
+        text-align: left;
+        padding: 12px 16px;
+        border-bottom: 1px solid #27272a;
+      }
+      .spec-table th {
+        font-size: 11px;
+        color: #52525b;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        font-weight: 500;
+      }
+      .spec-table td {
+        font-size: 14px;
+        color: #fafafa;
+      }
+      .spec-table td code {
+        background: #27272a;
+        padding: 2px 8px;
+        border-radius: 4px;
+        font-family: 'SF Mono', Monaco, monospace;
+        font-size: 12px;
+        color: #06b6d4;
+      }
+
+      .usage-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 24px;
+      }
+      @media (max-width: 800px) {
+        .usage-grid {
+          grid-template-columns: 1fr;
+        }
+        .comparison {
+          grid-template-columns: 1fr;
+        }
+      }
+      .usage-card {
+        border-radius: 12px;
+        padding: 48px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 12px; /* 50% of 24px wordmark */
+      }
+      .usage-card.dark {
+        background: #0a0a0b;
+        border: 1px solid #27272a;
+      }
+      .usage-card.light {
+        background: #fafafa;
+      }
+      .usage-card.brand {
+        background: #06b6d4;
+      }
+      .usage-card.gradient {
+        background: linear-gradient(
+          135deg,
+          #0891b2 0%,
+          #06b6d4 50%,
+          #22d3ee 100%
+        );
+      }
+      .usage-card .wordmark {
+        font-size: 24px;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Domscribe Logo Assets</h1>
+    <p class="subtitle">
+      Complete brand identity system - Filled D with cutout cursor
+    </p>
+
+    <!-- ============================================ -->
+    <!-- HERO / PRIMARY LOGO -->
+    <!-- ============================================ -->
+    <div class="hero">
+      <!-- Filled D with cutout cursor/sparkles -->
+      <svg width="120" height="120" viewBox="0 0 64 64" fill="none">
+        <defs>
+          <mask id="cursorMask">
+            <rect width="64" height="64" fill="white" />
+            <g transform="translate(12, 10) scale(1.6)">
+              <path d="M15 15l-2 5L9 9l11 4-5 2z" fill="black" />
+              <path
+                d="M15 15l5 5"
+                stroke="black"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+              <path
+                d="M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"
+                stroke="black"
+                stroke-width="2"
+                stroke-linecap="round"
+              />
+            </g>
+          </mask>
+        </defs>
+        <path
+          d="M6 4H36C54 4 62 18 62 32C62 46 54 60 36 60H6V4Z"
+          fill="#06b6d4"
+          mask="url(#cursorMask)"
+        />
+      </svg>
+      <span class="wordmark dark">domscribe</span>
+    </div>
+
+    <!-- ============================================ -->
+    <h2>Outline vs Filled Comparison</h2>
+    <!-- ============================================ -->
+    <p class="note">
+      Filled version recommended for small sizes (app icons, favicons). Outline
+      available for specific use cases.
+    </p>
+
+    <div class="comparison">
+      <div class="comparison-card">
+        <h3>Filled (Primary)</h3>
+        <div class="lockup">
+          <svg width="56" height="56" viewBox="0 0 64 64" fill="none">
+            <defs>
+              <mask id="cursorMaskSmall">
+                <rect width="64" height="64" fill="white" />
+                <g transform="translate(12, 10) scale(1.6)">
+                  <path d="M15 15l-2 5L9 9l11 4-5 2z" fill="black" />
+                  <path
+                    d="M15 15l5 5"
+                    stroke="black"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                  />
+                  <path
+                    d="M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"
+                    stroke="black"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                  />
+                </g>
+              </mask>
+            </defs>
+            <path
+              d="M6 4H36C54 4 62 18 62 32C62 46 54 60 36 60H6V4Z"
+              fill="#06b6d4"
+              mask="url(#cursorMaskSmall)"
+            />
+          </svg>
+          <span class="wordmark dark">domscribe</span>
+        </div>
+        <p class="desc">
+          Solid presence, better at small sizes, distinctive cutout effect
+        </p>
+      </div>
+
+      <div class="comparison-card">
+        <h3>Outline (Alternate)</h3>
+        <div class="lockup">
+          <svg width="56" height="56" viewBox="0 0 64 64" fill="none">
+            <path
+              d="M10 6H34C52 6 58 20 58 32C58 44 52 58 34 58H10V6Z"
+              stroke="#06b6d4"
+              stroke-width="2.5"
+              fill="none"
+              stroke-linejoin="round"
+            />
+            <g transform="translate(14, 12) scale(1.5)">
+              <path d="M15 15l-2 5L9 9l11 4-5 2z" fill="#06b6d4" />
+              <path
+                d="M15 15l5 5"
+                stroke="#06b6d4"
+                stroke-width="1.5"
+                stroke-linecap="round"
+              />
+              <path
+                d="M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"
+                stroke="#06b6d4"
+                stroke-width="1.5"
+                stroke-linecap="round"
+              />
+            </g>
+          </svg>
+          <span class="wordmark dark">domscribe</span>
+        </div>
+        <p class="desc">Lighter feel, works well at large sizes</p>
+      </div>
+    </div>
+
+    <!-- ============================================ -->
+    <h2>1. Wordmark Specification</h2>
+    <!-- ============================================ -->
+    <p class="note">
+      The wordmark is rendered as styled text, not SVG. Use these specs for
+      implementation.
+    </p>
+
+    <table class="spec-table">
+      <tr>
+        <th>Property</th>
+        <th>Value</th>
+      </tr>
+      <tr>
+        <td>Font Family</td>
+        <td><code>'Inter', system-ui, sans-serif</code></td>
+      </tr>
+      <tr>
+        <td>Font Weight</td>
+        <td><code>600</code> (semi-bold)</td>
+      </tr>
+      <tr>
+        <td>Letter Spacing</td>
+        <td><code>-0.02em</code></td>
+      </tr>
+      <tr>
+        <td>Text Transform</td>
+        <td><code>lowercase</code></td>
+      </tr>
+      <tr>
+        <td>Color (Dark BG)</td>
+        <td><code>#fafafa</code></td>
+      </tr>
+      <tr>
+        <td>Color (Light BG)</td>
+        <td><code>#18181b</code></td>
+      </tr>
+      <tr>
+        <td>Color (Brand BG)</td>
+        <td><code>#0a0a0b</code></td>
+      </tr>
+    </table>
+
+    <div class="code-block">
+      <pre><span class="comment">/* CSS Wordmark Spec */</span>
+<span class="prop">.wordmark</span> {
+  <span class="prop">font-family</span>: <span class="value">'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif</span>;
+  <span class="prop">font-weight</span>: <span class="value">600</span>;
+  <span class="prop">letter-spacing</span>: <span class="value">-0.02em</span>;
+  <span class="prop">text-transform</span>: <span class="value">lowercase</span>;
+}
+
+<span class="comment">/* Usage */</span>
+&lt;span class="wordmark"&gt;domscribe&lt;/span&gt;</pre>
+    </div>
+
+    <!-- ============================================ -->
+    <h2>2. Logomark - Size Scaling</h2>
+    <!-- ============================================ -->
+    <p class="note">
+      Simplified (cursor only) at ≤24px for clarity. Full detail with sparkles
+      at 32px+.
+    </p>
+
+    <div class="sizes-row">
+      <!-- 16px - simplified, larger cursor -->
+      <div class="size-item">
+        <svg width="16" height="16" viewBox="0 0 64 64" fill="none">
+          <defs>
+            <mask id="mask16">
+              <rect width="64" height="64" fill="white" />
+              <g transform="translate(-6, -6) scale(2.8)">
+                <path d="M15 15l-2 5L9 9l11 4-5 2z" fill="black" />
+              </g>
+            </mask>
+          </defs>
+          <path
+            d="M4 2H38C56 2 64 16 64 32C64 48 56 62 38 62H4V2Z"
+            fill="#06b6d4"
+            mask="url(#mask16)"
+          />
+        </svg>
+        <span>16px</span>
+      </div>
+      <!-- 24px - simplified, cursor only -->
+      <div class="size-item">
+        <svg width="24" height="24" viewBox="0 0 64 64" fill="none">
+          <defs>
+            <mask id="mask24">
+              <rect width="64" height="64" fill="white" />
+              <g transform="translate(-6, -6) scale(2.8)">
+                <path d="M15 15l-2 5L9 9l11 4-5 2z" fill="black" />
+              </g>
+            </mask>
+          </defs>
+          <path
+            d="M4 2H38C56 2 64 16 64 32C64 48 56 62 38 62H4V2Z"
+            fill="#06b6d4"
+            mask="url(#mask24)"
+          />
+        </svg>
+        <span>24px</span>
+      </div>
+      <div class="size-item">
+        <svg width="32" height="32" viewBox="0 0 64 64" fill="none">
+          <defs>
+            <mask id="mask32">
+              <rect width="64" height="64" fill="white" />
+              <g transform="translate(12, 10) scale(1.6)">
+                <path d="M15 15l-2 5L9 9l11 4-5 2z" fill="black" />
+                <path
+                  d="M15 15l5 5"
+                  stroke="black"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+                <path
+                  d="M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"
+                  stroke="black"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </g>
+            </mask>
+          </defs>
+          <path
+            d="M6 4H36C54 4 62 18 62 32C62 46 54 60 36 60H6V4Z"
+            fill="#06b6d4"
+            mask="url(#mask32)"
+          />
+        </svg>
+        <span>32px</span>
+      </div>
+      <div class="size-item">
+        <svg width="48" height="48" viewBox="0 0 64 64" fill="none">
+          <defs>
+            <mask id="mask48">
+              <rect width="64" height="64" fill="white" />
+              <g transform="translate(12, 10) scale(1.6)">
+                <path d="M15 15l-2 5L9 9l11 4-5 2z" fill="black" />
+                <path
+                  d="M15 15l5 5"
+                  stroke="black"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+                <path
+                  d="M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"
+                  stroke="black"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </g>
+            </mask>
+          </defs>
+          <path
+            d="M6 4H36C54 4 62 18 62 32C62 46 54 60 36 60H6V4Z"
+            fill="#06b6d4"
+            mask="url(#mask48)"
+          />
+        </svg>
+        <span>48px</span>
+      </div>
+      <div class="size-item">
+        <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+          <defs>
+            <mask id="mask64">
+              <rect width="64" height="64" fill="white" />
+              <g transform="translate(12, 10) scale(1.6)">
+                <path d="M15 15l-2 5L9 9l11 4-5 2z" fill="black" />
+                <path
+                  d="M15 15l5 5"
+                  stroke="black"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+                <path
+                  d="M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"
+                  stroke="black"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </g>
+            </mask>
+          </defs>
+          <path
+            d="M6 4H36C54 4 62 18 62 32C62 46 54 60 36 60H6V4Z"
+            fill="#06b6d4"
+            mask="url(#mask64)"
+          />
+        </svg>
+        <span>64px</span>
+      </div>
+      <div class="size-item">
+        <svg width="96" height="96" viewBox="0 0 64 64" fill="none">
+          <defs>
+            <mask id="mask96">
+              <rect width="64" height="64" fill="white" />
+              <g transform="translate(12, 10) scale(1.6)">
+                <path d="M15 15l-2 5L9 9l11 4-5 2z" fill="black" />
+                <path
+                  d="M15 15l5 5"
+                  stroke="black"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+                <path
+                  d="M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"
+                  stroke="black"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </g>
+            </mask>
+          </defs>
+          <path
+            d="M6 4H36C54 4 62 18 62 32C62 46 54 60 36 60H6V4Z"
+            fill="#06b6d4"
+            mask="url(#mask96)"
+          />
+        </svg>
+        <span>96px</span>
+      </div>
+      <div class="size-item">
+        <svg width="128" height="128" viewBox="0 0 64 64" fill="none">
+          <defs>
+            <mask id="mask128">
+              <rect width="64" height="64" fill="white" />
+              <g transform="translate(12, 10) scale(1.6)">
+                <path d="M15 15l-2 5L9 9l11 4-5 2z" fill="black" />
+                <path
+                  d="M15 15l5 5"
+                  stroke="black"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+                <path
+                  d="M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"
+                  stroke="black"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </g>
+            </mask>
+          </defs>
+          <path
+            d="M6 4H36C54 4 62 18 62 32C62 46 54 60 36 60H6V4Z"
+            fill="#06b6d4"
+            mask="url(#mask128)"
+          />
+        </svg>
+        <span>128px</span>
+      </div>
+    </div>
+
+    <!-- ============================================ -->
+    <h2>3. Color Variations</h2>
+    <!-- ============================================ -->
+    <p class="note">
+      The logomark fill color changes based on background. The cutout always
+      shows through to the background.
+    </p>
+
+    <div class="grid">
+      <!-- Primary on dark -->
+      <div class="card">
+        <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+          <defs>
+            <mask id="maskColorDark">
+              <rect width="64" height="64" fill="white" />
+              <g transform="translate(12, 10) scale(1.6)">
+                <path d="M15 15l-2 5L9 9l11 4-5 2z" fill="black" />
+                <path
+                  d="M15 15l5 5"
+                  stroke="black"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+                <path
+                  d="M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"
+                  stroke="black"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </g>
+            </mask>
+          </defs>
+          <path
+            d="M6 4H36C54 4 62 18 62 32C62 46 54 60 36 60H6V4Z"
+            fill="#06b6d4"
+            mask="url(#maskColorDark)"
+          />
+        </svg>
+        <div class="card-label">Primary (Dark BG)</div>
+        <div class="card-sublabel">#06b6d4</div>
+      </div>
+
+      <!-- Primary on light -->
+      <div class="card" style="background: #fafafa">
+        <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+          <defs>
+            <mask id="maskColorLight">
+              <rect width="64" height="64" fill="white" />
+              <g transform="translate(12, 10) scale(1.6)">
+                <path d="M15 15l-2 5L9 9l11 4-5 2z" fill="black" />
+                <path
+                  d="M15 15l5 5"
+                  stroke="black"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+                <path
+                  d="M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"
+                  stroke="black"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </g>
+            </mask>
+          </defs>
+          <path
+            d="M6 4H36C54 4 62 18 62 32C62 46 54 60 36 60H6V4Z"
+            fill="#0891b2"
+            mask="url(#maskColorLight)"
+          />
+        </svg>
+        <div class="card-label" style="color: #71717a">Primary (Light BG)</div>
+        <div class="card-sublabel" style="color: #a1a1aa">#0891b2</div>
+      </div>
+
+      <!-- Mono white -->
+      <div class="card">
+        <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+          <defs>
+            <mask id="maskMonoWhite">
+              <rect width="64" height="64" fill="white" />
+              <g transform="translate(12, 10) scale(1.6)">
+                <path d="M15 15l-2 5L9 9l11 4-5 2z" fill="black" />
+                <path
+                  d="M15 15l5 5"
+                  stroke="black"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+                <path
+                  d="M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"
+                  stroke="black"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </g>
+            </mask>
+          </defs>
+          <path
+            d="M6 4H36C54 4 62 18 62 32C62 46 54 60 36 60H6V4Z"
+            fill="#fafafa"
+            mask="url(#maskMonoWhite)"
+          />
+        </svg>
+        <div class="card-label">Mono White</div>
+        <div class="card-sublabel">#fafafa</div>
+      </div>
+
+      <!-- Mono dark -->
+      <div class="card" style="background: #fafafa">
+        <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+          <defs>
+            <mask id="maskMonoDark">
+              <rect width="64" height="64" fill="white" />
+              <g transform="translate(12, 10) scale(1.6)">
+                <path d="M15 15l-2 5L9 9l11 4-5 2z" fill="black" />
+                <path
+                  d="M15 15l5 5"
+                  stroke="black"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+                <path
+                  d="M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"
+                  stroke="black"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </g>
+            </mask>
+          </defs>
+          <path
+            d="M6 4H36C54 4 62 18 62 32C62 46 54 60 36 60H6V4Z"
+            fill="#18181b"
+            mask="url(#maskMonoDark)"
+          />
+        </svg>
+        <div class="card-label" style="color: #71717a">Mono Dark</div>
+        <div class="card-sublabel" style="color: #a1a1aa">#18181b</div>
+      </div>
+
+      <!-- On brand -->
+      <div class="card" style="background: #06b6d4">
+        <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+          <defs>
+            <mask id="maskBrand">
+              <rect width="64" height="64" fill="white" />
+              <g transform="translate(12, 10) scale(1.6)">
+                <path d="M15 15l-2 5L9 9l11 4-5 2z" fill="black" />
+                <path
+                  d="M15 15l5 5"
+                  stroke="black"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+                <path
+                  d="M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"
+                  stroke="black"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </g>
+            </mask>
+          </defs>
+          <path
+            d="M6 4H36C54 4 62 18 62 32C62 46 54 60 36 60H6V4Z"
+            fill="#0a0a0b"
+            mask="url(#maskBrand)"
+          />
+        </svg>
+        <div class="card-label" style="color: #0a0a0b">On Brand</div>
+        <div class="card-sublabel" style="color: rgba(0, 0, 0, 0.5)">
+          #0a0a0b
+        </div>
+      </div>
+
+      <!-- On gradient -->
+      <div
+        class="card"
+        style="background: linear-gradient(135deg, #0891b2 0%, #22d3ee 100%)"
+      >
+        <svg width="64" height="64" viewBox="0 0 64 64" fill="none">
+          <defs>
+            <mask id="maskGrad">
+              <rect width="64" height="64" fill="white" />
+              <g transform="translate(12, 10) scale(1.6)">
+                <path d="M15 15l-2 5L9 9l11 4-5 2z" fill="black" />
+                <path
+                  d="M15 15l5 5"
+                  stroke="black"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+                <path
+                  d="M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"
+                  stroke="black"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </g>
+            </mask>
+          </defs>
+          <path
+            d="M6 4H36C54 4 62 18 62 32C62 46 54 60 36 60H6V4Z"
+            fill="#fafafa"
+            mask="url(#maskGrad)"
+          />
+        </svg>
+        <div class="card-label" style="color: #fafafa">On Gradient</div>
+        <div class="card-sublabel" style="color: rgba(255, 255, 255, 0.7)">
+          #fafafa
+        </div>
+      </div>
+    </div>
+
+    <!-- ============================================ -->
+    <h2>4. Horizontal Lockups</h2>
+    <!-- ============================================ -->
+    <p class="note">
+      Logo + wordmark. Note the lowercase "domscribe" avoids the double-D issue.
+    </p>
+
+    <div class="lockups">
+      <div class="lockup-row">
+        <svg width="44" height="44" viewBox="0 0 64 64" fill="none">
+          <defs>
+            <mask id="maskLockupDark">
+              <rect width="64" height="64" fill="white" />
+              <g transform="translate(12, 10) scale(1.6)">
+                <path d="M15 15l-2 5L9 9l11 4-5 2z" fill="black" />
+                <path
+                  d="M15 15l5 5"
+                  stroke="black"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+                <path
+                  d="M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"
+                  stroke="black"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </g>
+            </mask>
+          </defs>
+          <path
+            d="M6 4H36C54 4 62 18 62 32C62 46 54 60 36 60H6V4Z"
+            fill="#06b6d4"
+            mask="url(#maskLockupDark)"
+          />
+        </svg>
+        <span class="wordmark dark">domscribe</span>
+        <span class="lockup-label">Dark background</span>
+      </div>
+
+      <div class="lockup-row light">
+        <svg width="44" height="44" viewBox="0 0 64 64" fill="none">
+          <defs>
+            <mask id="maskLockupLight">
+              <rect width="64" height="64" fill="white" />
+              <g transform="translate(12, 10) scale(1.6)">
+                <path d="M15 15l-2 5L9 9l11 4-5 2z" fill="black" />
+                <path
+                  d="M15 15l5 5"
+                  stroke="black"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+                <path
+                  d="M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"
+                  stroke="black"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </g>
+            </mask>
+          </defs>
+          <path
+            d="M6 4H36C54 4 62 18 62 32C62 46 54 60 36 60H6V4Z"
+            fill="#0891b2"
+            mask="url(#maskLockupLight)"
+          />
+        </svg>
+        <span class="wordmark light">domscribe</span>
+        <span class="lockup-label">Light background</span>
+      </div>
+
+      <div class="lockup-row brand">
+        <svg width="44" height="44" viewBox="0 0 64 64" fill="none">
+          <defs>
+            <mask id="maskLockupBrand">
+              <rect width="64" height="64" fill="white" />
+              <g transform="translate(12, 10) scale(1.6)">
+                <path d="M15 15l-2 5L9 9l11 4-5 2z" fill="black" />
+                <path
+                  d="M15 15l5 5"
+                  stroke="black"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+                <path
+                  d="M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"
+                  stroke="black"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </g>
+            </mask>
+          </defs>
+          <path
+            d="M6 4H36C54 4 62 18 62 32C62 46 54 60 36 60H6V4Z"
+            fill="#0a0a0b"
+            mask="url(#maskLockupBrand)"
+          />
+        </svg>
+        <span class="wordmark brand">domscribe</span>
+        <span class="lockup-label">Brand background</span>
+      </div>
+    </div>
+
+    <!-- ============================================ -->
+    <h2>5. App Icons</h2>
+    <!-- ============================================ -->
+    <p class="note">
+      For desktop apps, browser extensions, and mobile. Filled logo works well
+      in contained shapes.
+    </p>
+
+    <div class="app-icons">
+      <!-- iOS / macOS rounded square - cyan -->
+      <div class="app-icon-item">
+        <svg width="80" height="80" viewBox="0 0 80 80" fill="none">
+          <rect width="80" height="80" rx="18" fill="#06b6d4" />
+          <g transform="translate(12, 12)">
+            <svg viewBox="0 0 64 64" width="56" height="56" fill="none">
+              <defs>
+                <mask id="maskAppCyan">
+                  <rect width="64" height="64" fill="white" />
+                  <g transform="translate(12, 10) scale(1.6)">
+                    <path d="M15 15l-2 5L9 9l11 4-5 2z" fill="black" />
+                    <path
+                      d="M15 15l5 5"
+                      stroke="black"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                    />
+                    <path
+                      d="M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"
+                      stroke="black"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                    />
+                  </g>
+                </mask>
+              </defs>
+              <path
+                d="M6 4H36C54 4 62 18 62 32C62 46 54 60 36 60H6V4Z"
+                fill="#0a0a0b"
+                mask="url(#maskAppCyan)"
+              />
+            </svg>
+          </g>
+        </svg>
+        <span>iOS / macOS</span>
+      </div>
+
+      <!-- iOS dark -->
+      <div class="app-icon-item">
+        <svg width="80" height="80" viewBox="0 0 80 80" fill="none">
+          <rect width="80" height="80" rx="18" fill="#18181b" />
+          <g transform="translate(12, 12)">
+            <svg viewBox="0 0 64 64" width="56" height="56" fill="none">
+              <defs>
+                <mask id="maskAppDark">
+                  <rect width="64" height="64" fill="white" />
+                  <g transform="translate(12, 10) scale(1.6)">
+                    <path d="M15 15l-2 5L9 9l11 4-5 2z" fill="black" />
+                    <path
+                      d="M15 15l5 5"
+                      stroke="black"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                    />
+                    <path
+                      d="M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"
+                      stroke="black"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                    />
+                  </g>
+                </mask>
+              </defs>
+              <path
+                d="M6 4H36C54 4 62 18 62 32C62 46 54 60 36 60H6V4Z"
+                fill="#06b6d4"
+                mask="url(#maskAppDark)"
+              />
+            </svg>
+          </g>
+        </svg>
+        <span>iOS Dark</span>
+      </div>
+
+      <!-- Android circle -->
+      <div class="app-icon-item">
+        <svg width="80" height="80" viewBox="0 0 80 80" fill="none">
+          <circle cx="40" cy="40" r="40" fill="#06b6d4" />
+          <g transform="translate(12, 12)">
+            <svg viewBox="0 0 64 64" width="56" height="56" fill="none">
+              <defs>
+                <mask id="maskAndroid">
+                  <rect width="64" height="64" fill="white" />
+                  <g transform="translate(12, 10) scale(1.6)">
+                    <path d="M15 15l-2 5L9 9l11 4-5 2z" fill="black" />
+                    <path
+                      d="M15 15l5 5"
+                      stroke="black"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                    />
+                    <path
+                      d="M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"
+                      stroke="black"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                    />
+                  </g>
+                </mask>
+              </defs>
+              <path
+                d="M6 4H36C54 4 62 18 62 32C62 46 54 60 36 60H6V4Z"
+                fill="#0a0a0b"
+                mask="url(#maskAndroid)"
+              />
+            </svg>
+          </g>
+        </svg>
+        <span>Android</span>
+      </div>
+
+      <!-- Windows -->
+      <div class="app-icon-item">
+        <svg width="80" height="80" viewBox="0 0 80 80" fill="none">
+          <rect width="80" height="80" rx="8" fill="#18181b" stroke="#27272a" />
+          <g transform="translate(12, 12)">
+            <svg viewBox="0 0 64 64" width="56" height="56" fill="none">
+              <defs>
+                <mask id="maskWin">
+                  <rect width="64" height="64" fill="white" />
+                  <g transform="translate(12, 10) scale(1.6)">
+                    <path d="M15 15l-2 5L9 9l11 4-5 2z" fill="black" />
+                    <path
+                      d="M15 15l5 5"
+                      stroke="black"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                    />
+                    <path
+                      d="M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"
+                      stroke="black"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                    />
+                  </g>
+                </mask>
+              </defs>
+              <path
+                d="M6 4H36C54 4 62 18 62 32C62 46 54 60 36 60H6V4Z"
+                fill="#06b6d4"
+                mask="url(#maskWin)"
+              />
+            </svg>
+          </g>
+        </svg>
+        <span>Windows / Linux</span>
+      </div>
+
+      <!-- Browser extension -->
+      <div class="app-icon-item">
+        <svg width="48" height="48" viewBox="0 0 48 48" fill="none">
+          <rect width="48" height="48" rx="8" fill="#06b6d4" />
+          <g transform="translate(6, 6)">
+            <svg viewBox="0 0 64 64" width="36" height="36" fill="none">
+              <defs>
+                <mask id="maskExt">
+                  <rect width="64" height="64" fill="white" />
+                  <g transform="translate(10, 8) scale(1.7)">
+                    <path d="M15 15l-2 5L9 9l11 4-5 2z" fill="black" />
+                    <path
+                      d="M15 15l5 5"
+                      stroke="black"
+                      stroke-width="2.5"
+                      stroke-linecap="round"
+                    />
+                    <path
+                      d="M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"
+                      stroke="black"
+                      stroke-width="2.5"
+                      stroke-linecap="round"
+                    />
+                  </g>
+                </mask>
+              </defs>
+              <path
+                d="M4 2H38C56 2 64 16 64 32C64 48 56 62 38 62H4V2Z"
+                fill="#0a0a0b"
+                mask="url(#maskExt)"
+              />
+            </svg>
+          </g>
+        </svg>
+        <span>Extension (48px)</span>
+      </div>
+    </div>
+
+    <!-- ============================================ -->
+    <h2>6. Favicon</h2>
+    <!-- ============================================ -->
+    <p class="note">
+      Simplified (cursor only) at ≤24px for clarity. Full detail with sparkles
+      at 32px+.
+    </p>
+
+    <div class="favicon-row">
+      <!-- 16px simplified - cursor only, no sparkles, larger cursor -->
+      <div class="favicon-item">
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 64 64"
+          fill="none"
+          style="background: #18181b; border-radius: 4px"
+        >
+          <defs>
+            <mask id="maskFav16">
+              <rect width="64" height="64" fill="white" />
+              <g transform="translate(-6, -6) scale(2.8)">
+                <path d="M15 15l-2 5L9 9l11 4-5 2z" fill="black" />
+              </g>
+            </mask>
+          </defs>
+          <path
+            d="M4 2H38C56 2 64 16 64 32C64 48 56 62 38 62H4V2Z"
+            fill="#06b6d4"
+            mask="url(#maskFav16)"
+          />
+        </svg>
+        <span>16px (simplified)</span>
+      </div>
+
+      <!-- 24px simplified - cursor only -->
+      <div class="favicon-item">
+        <svg
+          width="24"
+          height="24"
+          viewBox="0 0 64 64"
+          fill="none"
+          style="background: #18181b; border-radius: 5px"
+        >
+          <defs>
+            <mask id="maskFav24">
+              <rect width="64" height="64" fill="white" />
+              <g transform="translate(-6, -6) scale(2.8)">
+                <path d="M15 15l-2 5L9 9l11 4-5 2z" fill="black" />
+              </g>
+            </mask>
+          </defs>
+          <path
+            d="M4 2H38C56 2 64 16 64 32C64 48 56 62 38 62H4V2Z"
+            fill="#06b6d4"
+            mask="url(#maskFav24)"
+          />
+        </svg>
+        <span>24px (simplified)</span>
+      </div>
+
+      <!-- 32px -->
+      <div class="favicon-item">
+        <svg
+          width="32"
+          height="32"
+          viewBox="0 0 64 64"
+          fill="none"
+          style="background: #18181b; border-radius: 6px"
+        >
+          <defs>
+            <mask id="maskFav32">
+              <rect width="64" height="64" fill="white" />
+              <g transform="translate(12, 10) scale(1.6)">
+                <path d="M15 15l-2 5L9 9l11 4-5 2z" fill="black" />
+                <path
+                  d="M15 15l5 5"
+                  stroke="black"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+                <path
+                  d="M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"
+                  stroke="black"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </g>
+            </mask>
+          </defs>
+          <path
+            d="M6 4H36C54 4 62 18 62 32C62 46 54 60 36 60H6V4Z"
+            fill="#06b6d4"
+            mask="url(#maskFav32)"
+          />
+        </svg>
+        <span>32px</span>
+      </div>
+
+      <!-- 48px -->
+      <div class="favicon-item">
+        <svg
+          width="48"
+          height="48"
+          viewBox="0 0 64 64"
+          fill="none"
+          style="background: #18181b; border-radius: 8px"
+        >
+          <defs>
+            <mask id="maskFav48">
+              <rect width="64" height="64" fill="white" />
+              <g transform="translate(12, 10) scale(1.6)">
+                <path d="M15 15l-2 5L9 9l11 4-5 2z" fill="black" />
+                <path
+                  d="M15 15l5 5"
+                  stroke="black"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+                <path
+                  d="M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"
+                  stroke="black"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </g>
+            </mask>
+          </defs>
+          <path
+            d="M6 4H36C54 4 62 18 62 32C62 46 54 60 36 60H6V4Z"
+            fill="#06b6d4"
+            mask="url(#maskFav48)"
+          />
+        </svg>
+        <span>48px</span>
+      </div>
+
+      <!-- Apple touch icon 180px -->
+      <div class="favicon-item">
+        <svg width="64" height="64" viewBox="0 0 80 80" fill="none">
+          <rect width="80" height="80" rx="18" fill="#06b6d4" />
+          <g transform="translate(12, 12)">
+            <svg viewBox="0 0 64 64" width="56" height="56" fill="none">
+              <defs>
+                <mask id="maskApple">
+                  <rect width="64" height="64" fill="white" />
+                  <g transform="translate(12, 10) scale(1.6)">
+                    <path d="M15 15l-2 5L9 9l11 4-5 2z" fill="black" />
+                    <path
+                      d="M15 15l5 5"
+                      stroke="black"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                    />
+                    <path
+                      d="M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"
+                      stroke="black"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                    />
+                  </g>
+                </mask>
+              </defs>
+              <path
+                d="M6 4H36C54 4 62 18 62 32C62 46 54 60 36 60H6V4Z"
+                fill="#0a0a0b"
+                mask="url(#maskApple)"
+              />
+            </svg>
+          </g>
+        </svg>
+        <span>Apple Touch (180px)</span>
+      </div>
+    </div>
+
+    <!-- ============================================ -->
+    <h2>7. Usage Examples</h2>
+    <!-- ============================================ -->
+
+    <div class="usage-grid">
+      <div class="usage-card dark">
+        <svg width="32" height="32" viewBox="0 0 64 64" fill="none">
+          <defs>
+            <mask id="maskUseDark">
+              <rect width="64" height="64" fill="white" />
+              <g transform="translate(12, 10) scale(1.6)">
+                <path d="M15 15l-2 5L9 9l11 4-5 2z" fill="black" />
+                <path
+                  d="M15 15l5 5"
+                  stroke="black"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+                <path
+                  d="M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"
+                  stroke="black"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </g>
+            </mask>
+          </defs>
+          <path
+            d="M6 4H36C54 4 62 18 62 32C62 46 54 60 36 60H6V4Z"
+            fill="#06b6d4"
+            mask="url(#maskUseDark)"
+          />
+        </svg>
+        <span class="wordmark dark">domscribe</span>
+      </div>
+
+      <div class="usage-card light">
+        <svg width="32" height="32" viewBox="0 0 64 64" fill="none">
+          <defs>
+            <mask id="maskUseLight">
+              <rect width="64" height="64" fill="white" />
+              <g transform="translate(12, 10) scale(1.6)">
+                <path d="M15 15l-2 5L9 9l11 4-5 2z" fill="black" />
+                <path
+                  d="M15 15l5 5"
+                  stroke="black"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+                <path
+                  d="M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"
+                  stroke="black"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </g>
+            </mask>
+          </defs>
+          <path
+            d="M6 4H36C54 4 62 18 62 32C62 46 54 60 36 60H6V4Z"
+            fill="#0891b2"
+            mask="url(#maskUseLight)"
+          />
+        </svg>
+        <span class="wordmark light">domscribe</span>
+      </div>
+
+      <div class="usage-card brand">
+        <svg width="32" height="32" viewBox="0 0 64 64" fill="none">
+          <defs>
+            <mask id="maskUseBrand">
+              <rect width="64" height="64" fill="white" />
+              <g transform="translate(12, 10) scale(1.6)">
+                <path d="M15 15l-2 5L9 9l11 4-5 2z" fill="black" />
+                <path
+                  d="M15 15l5 5"
+                  stroke="black"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+                <path
+                  d="M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"
+                  stroke="black"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </g>
+            </mask>
+          </defs>
+          <path
+            d="M6 4H36C54 4 62 18 62 32C62 46 54 60 36 60H6V4Z"
+            fill="#0a0a0b"
+            mask="url(#maskUseBrand)"
+          />
+        </svg>
+        <span class="wordmark brand">domscribe</span>
+      </div>
+
+      <div class="usage-card gradient">
+        <svg width="32" height="32" viewBox="0 0 64 64" fill="none">
+          <defs>
+            <mask id="maskUseGrad">
+              <rect width="64" height="64" fill="white" />
+              <g transform="translate(12, 10) scale(1.6)">
+                <path d="M15 15l-2 5L9 9l11 4-5 2z" fill="black" />
+                <path
+                  d="M15 15l5 5"
+                  stroke="black"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+                <path
+                  d="M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"
+                  stroke="black"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                />
+              </g>
+            </mask>
+          </defs>
+          <path
+            d="M6 4H36C54 4 62 18 62 32C62 46 54 60 36 60H6V4Z"
+            fill="#0a0a0b"
+            mask="url(#maskUseGrad)"
+          />
+        </svg>
+        <span class="wordmark brand">domscribe</span>
+      </div>
+    </div>
+
+    <!-- ============================================ -->
+    <h2>8. SVG Code Export</h2>
+    <!-- ============================================ -->
+    <p class="note">
+      Copy these for implementation. Uses SVG mask for the cutout effect.
+    </p>
+
+    <div class="code-block">
+      <pre><span class="comment">&lt;!-- Primary Logomark (Filled with cutout) --&gt;</span>
+&lt;svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg"&gt;
+  &lt;defs&gt;
+    &lt;mask id="cursorMask"&gt;
+      &lt;rect width="64" height="64" fill="white"/&gt;
+      &lt;g transform="translate(12, 10) scale(1.6)"&gt;
+        &lt;path d="M15 15l-2 5L9 9l11 4-5 2z" fill="black"/&gt;
+        &lt;path d="M15 15l5 5" stroke="black" stroke-width="2" stroke-linecap="round"/&gt;
+        &lt;path d="M7.188 2.239l.777 2.897M5.136 7.965l-2.898-.777M13.95 4.05l-2.122 2.122m-5.657 5.656l-2.12 2.122"
+              stroke="black" stroke-width="2" stroke-linecap="round"/&gt;
+      &lt;/g&gt;
+    &lt;/mask&gt;
+  &lt;/defs&gt;
+  &lt;path d="M6 4H36C54 4 62 18 62 32C62 46 54 60 36 60H6V4Z"
+        fill="#06b6d4" mask="url(#cursorMask)"/&gt;
+&lt;/svg&gt;</pre>
+    </div>
+
+    <div class="code-block">
+      <pre><span class="comment">&lt;!-- Favicon (16px, simplified - cursor only) --&gt;</span>
+&lt;svg viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg"&gt;
+  &lt;defs&gt;
+    &lt;mask id="cursorMaskSimple"&gt;
+      &lt;rect width="64" height="64" fill="white"/&gt;
+      &lt;g transform="translate(14, 12) scale(1.6)"&gt;
+        &lt;path d="M15 15l-2 5L9 9l11 4-5 2z" fill="black"/&gt;
+      &lt;/g&gt;
+    &lt;/mask&gt;
+  &lt;/defs&gt;
+  &lt;path d="M4 2H38C56 2 64 16 64 32C64 48 56 62 38 62H4V2Z"
+        fill="#06b6d4" mask="url(#cursorMaskSimple)"/&gt;
+&lt;/svg&gt;</pre>
+    </div>
+
+    <!-- ============================================ -->
+    <h2>9. Brand Colors</h2>
+    <!-- ============================================ -->
+
+    <div class="grid small">
+      <div class="card" style="background: #06b6d4">
+        <div style="height: 40px"></div>
+        <div class="card-label" style="color: #0a0a0b">Primary Cyan</div>
+        <div class="card-sublabel" style="color: rgba(0, 0, 0, 0.5)">
+          #06b6d4
+        </div>
+      </div>
+      <div class="card" style="background: #0891b2">
+        <div style="height: 40px"></div>
+        <div class="card-label" style="color: #fafafa">Cyan 600</div>
+        <div class="card-sublabel" style="color: rgba(255, 255, 255, 0.6)">
+          #0891b2
+        </div>
+      </div>
+      <div class="card" style="background: #22d3ee">
+        <div style="height: 40px"></div>
+        <div class="card-label" style="color: #0a0a0b">Cyan 400</div>
+        <div class="card-sublabel" style="color: rgba(0, 0, 0, 0.5)">
+          #22d3ee
+        </div>
+      </div>
+      <div class="card" style="background: #0a0a0b">
+        <div style="height: 40px"></div>
+        <div class="card-label">Neutral 950</div>
+        <div class="card-sublabel">#0a0a0b</div>
+      </div>
+      <div class="card" style="background: #18181b">
+        <div style="height: 40px"></div>
+        <div class="card-label">Neutral 900</div>
+        <div class="card-sublabel">#18181b</div>
+      </div>
+      <div class="card" style="background: #fafafa">
+        <div style="height: 40px"></div>
+        <div class="card-label" style="color: #18181b">Neutral 50</div>
+        <div class="card-sublabel" style="color: #71717a">#fafafa</div>
+      </div>
+    </div>
+  </body>
+</html>

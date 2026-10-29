@@ -1,0 +1,469 @@
+package validate
+
+import (
+	"errors"
+	"fmt"
+	"sort"
+	"strings"
+	"text/tabwriter"
+
+	"github.com/mertcikla/tld/v2/internal/cmdutil"
+	"github.com/mertcikla/tld/v2/internal/codeindex/linkcheck"
+	mappingcheck "github.com/mertcikla/tld/v2/internal/codeindex/mappingcheck"
+	"github.com/mertcikla/tld/v2/internal/term"
+	archwarnings "github.com/mertcikla/tld/v2/internal/warnings"
+	"github.com/mertcikla/tld/v2/internal/workspace"
+	"github.com/spf13/cobra"
+)
+
+var allWarningCodes = func() map[string]bool {
+	codes := make(map[string]bool)
+	for _, r := range archwarnings.Rules() {
+		codes[r.Code] = true
+	}
+	return codes
+}()
+
+var levelNames = map[int]string{1: "Minimal", 2: "Standard", 3: "Strict"}
+
+func normalizeRuleCode(code string) string {
+	return strings.ToUpper(strings.TrimSpace(code))
+}
+
+// ensureCacheInSync aborts validation when the workspace YAML has drifted from
+// the state last written to the target, so symbol and freshness checks never run
+// against a stale cache. A missing lock file or an unrecorded hash is treated as
+// unverifiable, keeping hand-authored workspaces usable.
+func ensureCacheInSync(dir string) error { return cmdutil.EnsureCacheInSync(dir) }
+
+func knownRuleCodes() []string {
+	codes := make([]string, 0, len(allWarningCodes))
+	for code := range allWarningCodes {
+		codes = append(codes, code)
+	}
+	sort.Strings(codes)
+	return codes
+}
+
+func withoutRuleCode(codes []string, code string) []string {
+	if len(codes) == 0 {
+		return codes
+	}
+	filtered := make([]string, 0, len(codes))
+	for _, c := range codes {
+		if normalizeRuleCode(c) != code {
+			filtered = append(filtered, c)
+		}
+	}
+	return filtered
+}
+
+func NewValidateCmd(wdir *string) *cobra.Command {
+	var strictness int
+	var verbose bool
+	var strict bool
+	var dataDir string
+
+	c := &cobra.Command{
+		Use:   "validate [rule-code]",
+		Short: "Validate workspace structure, source links, and architectural warnings",
+		Long: `Validate workspace structure and source symbols, and report architectural warnings.
+Reads workspace YAML by default. Use --source live to validate the target, or
+--source cache to check YAML explicitly. An explicit --target or --data-dir selects
+live reads automatically, just like list and render. Without a workspace, checks
+the database; workspace-local repository configuration is used when available.
+Counts include the root view; owned_views excludes it. Empty checks are reported.
+Use --strict to fail on architectural warnings as well as structural errors.
+Validation checks model consistency; it does not prove architectural completeness.
+
+When called without arguments, validates the entire workspace and shows a summary
+of architectural warnings grouped by rule code.
+
+When called with a rule code (e.g. ARC002), shows only that rule's violations
+in full detail with individual element and connector information. The requested
+rule runs regardless of the configured strictness level or exclude list.`,
+		Args: cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if cmd.Flags().Changed("strictness") && (strictness < 1 || strictness > 3) {
+				return fmt.Errorf("--strictness must be 1, 2, or 3")
+			}
+			// --yaml must not turn a missing workspace into a successful empty check.
+			if yamlFlag := cmd.Flags().Lookup("yaml"); yamlFlag != nil && yamlFlag.Value.String() == "true" && !workspace.IsWorkspaceDir(workspace.ResolveDir(*wdir)) {
+				return cmdutil.WithCode(errors.New("no initialized workspace to validate"), "workspace_required", "Run 'tld init <project-dir>' to create <project-dir>/.tld, or omit --yaml to validate the target database.")
+			}
+			sess, err := cmdutil.OpenSession(cmd, *wdir, "", dataDir)
+			if err != nil {
+				return err
+			}
+			defer func() { _ = sess.Close() }()
+			source, err := cmdutil.ReadSource(cmd, sess.HasWorkspace())
+			if err != nil {
+				return err
+			}
+			ws, err := sess.LoadWorkspace()
+			if err != nil {
+				return err
+			}
+			if source == "cache" {
+				if err := ensureCacheInSync(ws.Dir); err != nil {
+					return err
+				}
+			}
+			repoCtx := cmdutil.DetectRepoScope(cmdutil.GetWorkingDir(), *wdir)
+			rules := ws.IgnoreRulesForRepository(repoCtx.Name)
+
+			// Identify codeindex-materialized elements live against the local
+			// database so ARC205 scores only user-authored diagrams, and load
+			// the indexed file inventory so ARC206 can measure link coverage.
+			// The workspace exclude rules keep excluded files out of that
+			// denominator.
+			var scoreOpts []archwarnings.Option
+			if resolvedDir, dirErr := workspace.ResolveDataDir(&ws.Config, dataDir); dirErr == nil {
+				if classify := mappingcheck.Classifier(cmd.Context(), resolvedDir); classify != nil {
+					scoreOpts = append(scoreOpts, archwarnings.WithCodeindexElementClassifier(classify))
+				}
+				if targets, ok := linkcheck.Index(cmd.Context(), resolvedDir); ok {
+					scoreOpts = append(scoreOpts, archwarnings.WithLinkTargets(targets), archwarnings.WithIgnoreRules(rules))
+				}
+			}
+
+			if strictness > 0 {
+				ws.Config.Validation.Level = strictness
+			}
+
+			if len(args) == 1 {
+				code := normalizeRuleCode(args[0])
+				if !allWarningCodes[code] {
+					return fmt.Errorf("unknown rule code %q; known codes: %s", code, strings.Join(knownRuleCodes(), ", "))
+				}
+				// A directly requested rule runs regardless of the configured
+				// strictness level or exclude list.
+				ws.Config.Validation.IncludeRules = append(ws.Config.Validation.IncludeRules, code)
+				ws.Config.Validation.ExcludeRules = withoutRuleCode(ws.Config.Validation.ExcludeRules, code)
+			}
+
+			errs := ws.Validate()
+			if len(errs) > 0 {
+				if cmdutil.WantsJSONFromCmd(cmd) {
+					messages := make([]string, len(errs))
+					for i, e := range errs {
+						messages[i] = e.Error()
+					}
+					return cmdutil.WriteCommandError(cmd.OutOrStdout(), cmdutil.CompactFromCmd(cmd), "validate", cmdutil.WithHint(errors.New(strings.Join(messages, "; ")), "Fix the listed fields, then run 'tld validate' again."))
+				}
+				term.Fail(cmd.ErrOrStderr(), "Validation errors:")
+				for _, e := range errs {
+					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "    - %s\n", e)
+				}
+				return fmt.Errorf("%d validation error(s)", len(errs))
+			}
+
+			broken := cmdutil.CheckSymbols(cmd.Context(), ws, repoCtx, rules)
+			if len(broken) > 0 {
+				if cmdutil.WantsJSONFromCmd(cmd) {
+					return cmdutil.WriteCommandError(cmd.OutOrStdout(), cmdutil.CompactFromCmd(cmd), "validate", cmdutil.WithHint(errors.New(strings.Join(broken, "; ")), "Update the source links with 'tld link', then run 'tld validate' again."))
+				}
+				term.Fail(cmd.ErrOrStderr(), "Symbol verification errors:")
+				for _, msg := range broken {
+					_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "    - %s\n", msg)
+				}
+				return fmt.Errorf("%d symbol verification error(s)", len(broken))
+			}
+
+			warnings := archwarnings.Analyze(ws, scoreOpts...)
+			if len(args) == 1 {
+				filtered := warnings[:0]
+				for _, warning := range warnings {
+					if warning.RuleCode == normalizeRuleCode(args[0]) {
+						filtered = append(filtered, warning)
+					}
+				}
+				warnings = filtered
+			}
+			var strictErr error
+			if strict && len(warnings) > 0 {
+				strictErr = cmdutil.WithHint(fmt.Errorf("%d architectural warning group(s)", len(warnings)), "Run 'tld validate --verbose' and address the listed warnings; keep intentional exceptions explicit in workspace validation settings.")
+			}
+			if cmdutil.WantsJSONFromCmd(cmd) {
+				groups := make([]map[string]any, 0, len(warnings))
+				for _, w := range warnings {
+					groups = append(groups, map[string]any{"code": w.RuleCode, "name": w.RuleName, "violations": w.Violations, "hint": w.Mediation, "score": w.Score})
+				}
+				extra := map[string]any{"rules": groups, "source": source, "workspace": ws.Dir, "empty": len(ws.Elements) == 0 && len(ws.Connectors) == 0}
+				if len(ws.Elements) == 0 && len(ws.Connectors) == 0 {
+					extra["message"] = "No elements or connectors were checked. Confirm the workspace and target with 'tld context'."
+				}
+				if len(args) == 1 && normalizeRuleCode(args[0]) == "ARC205" {
+					extra["grounding"] = archwarnings.Grounding(ws, scoreOpts...)
+				}
+				if len(args) == 1 && normalizeRuleCode(args[0]) == "ARC206" {
+					extra["coverage"] = archwarnings.LinkCoverage(ws, scoreOpts...)
+				}
+				return cmdutil.WriteResult(cmd.OutOrStdout(), cmdutil.CompactFromCmd(cmd), cmdutil.JSONOutput{Command: "validate", Status: "ok", Summary: map[string]int{"elements": len(ws.Elements), "views": cmdutil.CountViews(ws) + 1, "owned_views": cmdutil.CountViews(ws), "connectors": len(ws.Connectors), "warning_groups": len(warnings)}, Extra: extra}, strictErr)
+			}
+
+			if len(args) == 1 {
+				code := normalizeRuleCode(args[0])
+				switch code {
+				case "ARC205":
+					if err := printGrounding(cmd, ws, scoreOpts...); err != nil {
+						return err
+					}
+				case "ARC206":
+					if err := printLinkCoverage(cmd, ws, scoreOpts...); err != nil {
+						return err
+					}
+				default:
+					if err := printRuleViolations(cmd, args[0], warnings); err != nil {
+						return err
+					}
+				}
+				return strictErr
+			}
+
+			if len(ws.Elements) > 0 || len(ws.Connectors) > 0 {
+				viewCount := cmdutil.CountViews(ws) + 1
+				term.Successf(cmd.OutOrStdout(), "Workspace valid: %d elements, %d views, %d connectors",
+					len(ws.Elements), viewCount, len(ws.Connectors))
+			} else {
+				term.Warnf(cmd.OutOrStdout(), "nothing to validate in %s source; no elements or connectors were checked", source)
+			}
+
+			if len(warnings) > 0 {
+				printWarningSummary(cmd, ws, warnings, verbose)
+			}
+
+			return strictErr
+		},
+	}
+
+	c.Flags().IntVar(&strictness, "strictness", 0, "override validation strictness level [1-3]")
+	c.Flags().BoolVarP(&verbose, "verbose", "v", false, "show full architectural warnings output")
+	c.Flags().BoolVar(&strict, "strict", false, "exit non-zero on architectural warnings")
+	c.Flags().StringVar(&dataDir, "data-dir", "", "data directory for the local database used to identify codeindex elements")
+	cmdutil.AddReadSourceFlag(c)
+	c.AddCommand(newRulesCmd())
+	return c
+}
+
+func newRulesCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "rules",
+		Short: "List architectural validation rules grouped by strictness level",
+		Long: `List every architectural validation rule, grouped by the strictness level at
+which it becomes active, along with its description.
+
+Rules are enabled based on validation.level in .tld.yaml (1 = Minimal,
+2 = Standard, 3 = Strict). Use 'tld validate <code>' to inspect a rule's
+violations in the current workspace.`,
+		Args: cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if cmdutil.WantsJSONFromCmd(cmd) {
+				return cmdutil.WriteJSON(cmd.OutOrStdout(), cmdutil.CompactFromCmd(cmd), cmdutil.JSONOutput{Command: "validate rules", Status: "ok", Extra: map[string]any{"rules": archwarnings.Rules()}})
+			}
+			printRules(cmd)
+			return nil
+		},
+	}
+}
+
+func printRules(cmd *cobra.Command) {
+	out := cmd.OutOrStdout()
+	rules := archwarnings.Rules()
+
+	levels := make([]int, 0, len(levelNames))
+	seen := make(map[int]bool)
+	for _, r := range rules {
+		if !seen[r.Level] {
+			seen[r.Level] = true
+			levels = append(levels, r.Level)
+		}
+	}
+	sort.Ints(levels)
+
+	_, _ = fmt.Fprintln(out, "Architectural Validation Rules")
+	_, _ = fmt.Fprintln(out)
+
+	for _, level := range levels {
+		name := levelNames[level]
+		if name == "" {
+			name = "Custom"
+		}
+		_, _ = fmt.Fprintf(out, "Level %d (%s)\n\n", level, name)
+		tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+		_, _ = fmt.Fprintln(tw, "CODE\tRULE\tDESCRIPTION")
+		for _, r := range rules {
+			if r.Level == level {
+				_, _ = fmt.Fprintf(tw, "%s\t%s\t%s\n", r.Code, r.Name, r.Description)
+			}
+		}
+		_ = tw.Flush()
+		_, _ = fmt.Fprintln(out)
+	}
+
+	_, _ = fmt.Fprintln(out, "Use 'tld validate <code>' to see detailed violations for a rule.")
+}
+
+func printWarningSummary(cmd *cobra.Command, ws *workspace.Workspace, warnings []archwarnings.WarningGroup, verbose bool) {
+	level := ws.Config.Validation.Level
+	if level == 0 {
+		level = workspace.DefaultValidationLevel
+	}
+	out := cmd.OutOrStdout()
+	_, _ = fmt.Fprintf(out, "\nArchitectural Warnings (Level %d: %s)\n\n", level, levelNames[level])
+	_, _ = fmt.Fprintln(out, "Issues found in workspace that may affect the visibility and usability of your diagrams. Consider applying the suggested mediations to improve your diagrams.")
+	_, _ = fmt.Fprintln(out)
+
+	if verbose {
+		for _, wg := range warnings {
+			_, _ = fmt.Fprintf(out, "[%s] %s\n", wg.RuleCode, wg.RuleName)
+			_, _ = fmt.Fprintf(out, "  %s\n", wg.Mediation)
+			if wg.Score != nil {
+				for _, reason := range wg.Score.Reasoning {
+					_, _ = fmt.Fprintf(out, "  %s\n", reason)
+				}
+			}
+			for _, v := range wg.Violations {
+				_, _ = fmt.Fprintf(out, "    - %s\n", v)
+			}
+			_, _ = fmt.Fprintln(out)
+		}
+	} else {
+		tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+		_, _ = fmt.Fprintln(tw, "CODE\tRULE\tVIOLATIONS")
+		for _, wg := range warnings {
+			_, _ = fmt.Fprintf(tw, "%s\t%s\t%d\n", wg.RuleCode, wg.RuleName, len(wg.Violations))
+		}
+		_ = tw.Flush()
+		_, _ = fmt.Fprintln(out)
+
+		tw = tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+		_, _ = fmt.Fprintln(tw, "CODE\tMEDIATION")
+		for _, wg := range warnings {
+			_, _ = fmt.Fprintf(tw, "%s\t%s\n", wg.RuleCode, wg.Mediation)
+		}
+		_ = tw.Flush()
+		_, _ = fmt.Fprintln(out)
+	}
+
+	_, _ = fmt.Fprintln(out, "To suppress specific rule codes, use .tld.yaml: validation.exclude_rules: [ARC002]")
+}
+
+func printGrounding(cmd *cobra.Command, ws *workspace.Workspace, opts ...archwarnings.Option) error {
+	out := cmd.OutOrStdout()
+	report := archwarnings.Grounding(ws, opts...)
+
+	_, _ = fmt.Fprintln(out, "[ARC205] Low Grounding")
+	_, _ = fmt.Fprintln(out, "Description: View has too few source-linked elements")
+	_, _ = fmt.Fprintf(out, "Workspace source grounding: %d/10\n\n", report.Value)
+	_, _ = fmt.Fprintf(out, "Linkable elements: %d\n", report.Eligible)
+	_, _ = fmt.Fprintf(out, "Source-linked:     %d\n", report.Grounded)
+	if report.External > 0 {
+		_, _ = fmt.Fprintf(out, "Exempt (external links): %d\n", report.External)
+	}
+	if report.Ignored > 0 {
+		_, _ = fmt.Fprintf(out, "Exempt (ignored): %d\n", report.Ignored)
+	}
+	_, _ = fmt.Fprintln(out)
+
+	_, _ = fmt.Fprintln(out, "Reasoning:")
+	for _, reason := range report.Reasoning {
+		_, _ = fmt.Fprintf(out, "  - %s\n", reason)
+	}
+
+	hasViews := false
+	for _, view := range report.Views {
+		if view.Eligible > 0 {
+			hasViews = true
+			break
+		}
+	}
+	if hasViews {
+		_, _ = fmt.Fprintln(out, "\nPer-view scores:")
+		tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+		_, _ = fmt.Fprintln(tw, "  VIEW\tSCORE\tLINKED\tUNGROUNDED")
+		for _, view := range report.Views {
+			if view.Eligible == 0 {
+				continue
+			}
+			_, _ = fmt.Fprintf(tw, "  %s\t%d/10\t%d/%d\t%s\n", view.ViewRef, view.Value, view.Grounded, view.Eligible, strings.Join(view.Ungrounded, ", "))
+		}
+		_ = tw.Flush()
+	}
+
+	_, _ = fmt.Fprintln(out, "\nHow to improve:")
+	if rule, ok := archwarnings.RuleByCode("ARC205"); ok {
+		_, _ = fmt.Fprintf(out, "  %s\n", rule.Mediation)
+	}
+	return nil
+}
+
+// printLinkCoverage renders the ARC206 report: how much of each indexed
+// repository's directories the workspace's source-linked elements cover, and
+// which directories are still unlinked.
+func printLinkCoverage(cmd *cobra.Command, ws *workspace.Workspace, opts ...archwarnings.Option) error {
+	out := cmd.OutOrStdout()
+	report := archwarnings.LinkCoverage(ws, opts...)
+	threshold := archwarnings.LinkCoverageThreshold(ws)
+
+	_, _ = fmt.Fprintln(out, "[ARC206] Low Link Coverage")
+	_, _ = fmt.Fprintln(out, "Description: Linked elements do not cover the indexed code directories")
+	if report.Eligible == 0 {
+		_, _ = fmt.Fprintln(out)
+		_, _ = fmt.Fprintln(out, "No indexed repository is linked into; link coverage does not apply.")
+		_, _ = fmt.Fprintln(out, "ARC206 needs the local codeindex database (`tld index`) and at least one source-linked element.")
+		return nil
+	}
+	percent := report.Grounded * 100 / report.Eligible
+	_, _ = fmt.Fprintf(out, "Workspace link coverage: %d%% (%d/%d directories, threshold %d%%)\n\n", percent, report.Grounded, report.Eligible, threshold)
+
+	_, _ = fmt.Fprintln(out, "Reasoning:")
+	for _, reason := range report.Reasoning {
+		_, _ = fmt.Fprintf(out, "  - %s\n", reason)
+	}
+
+	_, _ = fmt.Fprintln(out, "\nPer-repository coverage:")
+	tw := tabwriter.NewWriter(out, 0, 0, 2, ' ', 0)
+	_, _ = fmt.Fprintln(tw, "  REPOSITORY\tCOVERAGE\tLINKED\tEXCLUDED\tUNLINKED DIRECTORIES")
+	for _, repo := range report.Repos {
+		if repo.Total == 0 {
+			continue
+		}
+		_, _ = fmt.Fprintf(tw, "  %s\t%d%%\t%d/%d\t%d\t%s\n", repo.Name, repo.Percent, repo.Covered, repo.Total, repo.Excluded, strings.Join(repo.Unlinked, ", "))
+	}
+	_ = tw.Flush()
+
+	_, _ = fmt.Fprintln(out, "\nHow to improve:")
+	if rule, ok := archwarnings.RuleByCode("ARC206"); ok {
+		_, _ = fmt.Fprintf(out, "  %s\n", rule.Mediation)
+	}
+	return nil
+}
+
+func printRuleViolations(cmd *cobra.Command, code string, warnings []archwarnings.WarningGroup) error {
+	code = normalizeRuleCode(code)
+
+	if !allWarningCodes[code] {
+		return fmt.Errorf("unknown rule code %q; known codes: %s", code, strings.Join(knownRuleCodes(), ", "))
+	}
+
+	for _, wg := range warnings {
+		if wg.RuleCode == code {
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "[%s] %s\n", wg.RuleCode, wg.RuleName)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Description: %s\n", wg.Description)
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "Violations: %d\n\n", len(wg.Violations))
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "How to fix:\n")
+			_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  %s\n", wg.Mediation)
+			if len(wg.Violations) > 0 {
+				_, _ = fmt.Fprintf(cmd.OutOrStdout(), "\nViolating elements:\n")
+				for _, v := range wg.Violations {
+					_, _ = fmt.Fprintf(cmd.OutOrStdout(), "  * %s\n", v)
+				}
+			}
+			return nil
+		}
+	}
+
+	_, _ = fmt.Fprintf(cmd.OutOrStdout(), "No violations found for %s.\n", code)
+	return nil
+}

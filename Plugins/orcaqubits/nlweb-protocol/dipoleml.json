@@ -1,0 +1,118 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.orcaqubits.nlweb-protocol",
+  "type": "plugin",
+  "name": "Nlweb Protocol",
+  "slug": "nlweb-protocol",
+  "vendor": "orcaqubits",
+  "description": "Skills & plugins for agentic commerce : UCP, ACP, AP2, A2A, WebMCP, Magento 2, BigCommerce, WooCommerce",
+  "version": "1.0.0",
+  "homepage": "https://github.com/OrcaQubits/agentic-commerce-skills-plugins",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "a2a",
+    "acp",
+    "agentic-commerce",
+    "ai-commerce",
+    "ap2",
+    "bigcommerce",
+    "claude-code-plugin",
+    "claude-plugin",
+    "codex-cli-plugin"
+  ],
+  "tags": [
+    "a2a",
+    "acp",
+    "agentic-commerce",
+    "ai-commerce",
+    "ap2",
+    "bigcommerce",
+    "claude-code",
+    "claude-code-plugin",
+    "claude-plugin",
+    "codex-cli-plugin",
+    "cursor-plugin",
+    "gemini-cli-extension",
+    "magento",
+    "mcp",
+    "openclaw-plugin",
+    "shopify",
+    "stripe-mpp",
+    "ucp",
+    "webmcp",
+    "woocommerce"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "orcaqubits",
+    "brandName": "orcaqubits",
+    "source": "https://github.com/OrcaQubits.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:14:20Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "OrcaQubits/agentic-commerce-skills-plugins",
+    "url": "https://github.com/OrcaQubits/agentic-commerce-skills-plugins",
+    "commit": "30cd25c74c8aa7dc49b3ec4847d463f6104439f6",
+    "path": "dist/cursor/nlweb-protocol",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 40,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:28:26Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "cursor",
+    "changes": [
+      {
+        "file": ".cursor-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/cursor/.cursor-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "cursor"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

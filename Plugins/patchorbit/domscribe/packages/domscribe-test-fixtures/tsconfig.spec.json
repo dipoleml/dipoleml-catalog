@@ -1,0 +1,36 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["vitest/globals", "vitest/importMeta", "vite/client", "vitest"],
+    "tsBuildInfoFile": "../../dist/packages/domscribe-test-fixtures/tsconfig.spec.tsbuildinfo",
+    "lib": [
+      "es2024",
+      "ESNext.Array",
+      "ESNext.Collection",
+      "ESNext.Iterator",
+      "ESNext.Promise"
+    ],
+    "target": "es2024",
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+    "emitDeclarationOnly": true
+  },
+  "include": [
+    "vite.config.ts",
+    "vite.config.mts",
+    "vitest.config.ts",
+    "vitest.config.mts",
+    "src/**/*.ts",
+    "src/**/*.js",
+    "shared/**/*.ts",
+    "integration/**/*.ts",
+    "plugin/**/*.ts",
+    "generator/**/*.ts"
+  ],
+  "exclude": [
+    "fixtures/**/*.ts",
+    "fixtures/**/*.js",
+    "fixtures/**/*.tsx",
+    "fixtures/**/*.jsx"
+  ]
+}

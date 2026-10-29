@@ -1,0 +1,389 @@
+#!/usr/bin/env bash
+# ops-accounts — multi-provider account status / switch / refresh / reauth router.
+# Prefers Node CLI (scripts/ops-accounts/cli.mjs) when present; else thin shell fallback.
+# Claude rotate/setup, Grok seats/proxy, Codex when present. No secrets printed.
+set -euo pipefail
+
+resolve_root() {
+  if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" && -d "${CLAUDE_PLUGIN_ROOT}" ]]; then
+    printf '%s' "${CLAUDE_PLUGIN_ROOT}"
+    return
+  fi
+  local here
+  here="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  if [[ -f "$here/scripts/ops-accounts/cli.mjs" ]]; then
+    printf '%s' "$here"
+    return
+  fi
+  local c
+  c="$(printf '%s\n' "$HOME/.claude/plugins/cache/ops-marketplace/ops"/*/ | sort -V | tail -1)"
+  if [[ -d "$c" ]]; then
+    printf '%s' "${c%/}"
+    return
+  fi
+  printf '%s' "$here"
+}
+
+ROOT="$(resolve_root)"
+export CLAUDE_PLUGIN_ROOT="$ROOT"
+CLI="$ROOT/scripts/ops-accounts/cli.mjs"
+
+# Shell-owned commands (dual-backend + gateway + seats). Node CLI only covers
+# multi-provider status/reauth/switch/refresh — do not exec it for these.
+cmd="${1:-status}"
+# crs/crs-tick are retired; they stay listed so the shell case can print the
+# migration message instead of the Node CLI reporting an unknown command.
+SHELL_CMDS="util setup seats gateway grok-proxy crs crs-tick help -h --help"
+if [[ -f "$CLI" ]]; then
+  case " $SHELL_CMDS " in
+    *" $cmd "*) ;;
+    *)
+      # status|list|reauth|switch|refresh|providers → Node when present
+      exec node "$CLI" "$@"
+      ;;
+  esac
+fi
+
+# --- shell path (dual-backend + gateway + seats + util) ---
+shift || true
+have() { command -v "$1" >/dev/null 2>&1; }
+
+plugin_root() {
+  if [[ -n "${CLAUDE_PLUGIN_ROOT:-}" && -d "$CLAUDE_PLUGIN_ROOT" ]]; then
+    printf '%s' "$CLAUDE_PLUGIN_ROOT"
+    return
+  fi
+  local c
+  c="$(printf '%s\n' "$HOME/.claude/plugins/cache/ops-marketplace/ops"/*/ | sort -V | tail -1)"
+  [[ -d "$c" ]] && printf '%s' "${c%/}"
+}
+
+ROOT="$(plugin_root)"
+ROT="${ROOT}/scripts/account-rotation"
+GROK_PROXY_URL="${GROK_PROXY_URL:-}"
+
+print_claude() {
+  echo "=== Claude ==="
+  if [[ -f "$ROT/rotate.mjs" ]]; then
+    node "$ROT/rotate.mjs" --status 2>/dev/null | head -50 || echo "(rotate.mjs --status failed)"
+  else
+    echo "plugin rotate.mjs not found (ROOT=$ROOT)"
+  fi
+}
+print_grok() {
+  echo "=== Grok (SuperGrok OAuth seats + proxy) ==="
+  if have grok-rotate; then
+    grok-rotate status 2>/dev/null || true
+  else
+    echo "grok-rotate not on PATH"
+  fi
+  if [[ -n "$GROK_PROXY_URL" ]] && curl -fsS -m 2 "${GROK_PROXY_URL%/}/accounts" >/tmp/ops-accounts-grok-proxy.json 2>/dev/null; then
+    python3 - <<'PY'
+import json
+from pathlib import Path
+d=json.loads(Path("/tmp/ops-accounts-grok-proxy.json").read_text())
+print("proxy load_balance:", d.get("load_balance"))
+print("proxy last_used:", d.get("current") or d.get("last_used"))
+print("proxy request_counts:", d.get("request_counts"))
+ex=d.get("exhausted_seconds_remaining") or {}
+if ex:
+  print("proxy exhausted_seconds:", {k:int(v) for k,v in ex.items()})
+PY
+  else
+    echo "grok-cli-auth-proxy not configured or unreachable (set GROK_PROXY_URL)"
+  fi
+}
+# --- CLIProxyAPI backend (optional local multi-provider proxy) ---
+# Convention: single static binary + config dir; override via env if relocated.
+CLIPROXY_HOME="${CLIPROXYAPI_HOME:-${XDG_CONFIG_HOME:-$HOME/.config}/cliproxyapi}"
+CLIPROXY_BASE_URL="${CLIPROXYAPI_BASE_URL:-}"
+CLIPROXY_AUTHDIR="${CLIPROXYAPI_AUTH_DIR:-$CLIPROXY_HOME/auths}"
+
+cliproxy_alive() {
+  [[ -n "$CLIPROXY_BASE_URL" ]] || return 1
+  curl -fsS -m 2 -o /dev/null "${CLIPROXY_BASE_URL%/}/v1/models" 2>/dev/null \
+    || curl -fsS -m 2 -o /dev/null "${CLIPROXY_BASE_URL%/}/health" 2>/dev/null
+}
+
+# count auth files for a provider prefix (no secrets printed)
+cliproxy_count() {
+  local prefix="$1"
+  local count=0 file
+  for file in "$CLIPROXY_AUTHDIR/${prefix}"-*.json; do
+    [[ -e "$file" ]] && count=$((count + 1))
+  done
+  printf '%s\n' "$count"
+}
+
+print_cliproxy() {
+  if [[ ! -d "$CLIPROXY_HOME" && ! -d "$CLIPROXY_AUTHDIR" ]]; then
+    echo "cliproxyapi: not installed (set CLIPROXYAPI_HOME or CLIPROXYAPI_AUTH_DIR)"
+    return 1
+  fi
+  if cliproxy_alive; then
+    echo "cliproxyapi: reachable at configured endpoint"
+  else
+    echo "cliproxyapi: endpoint not configured or unreachable (set CLIPROXYAPI_BASE_URL)"
+    return 1
+  fi
+  return 0
+}
+
+print_codex() {
+  echo "=== Codex / OpenAI ==="
+  if print_cliproxy; then
+    echo "accounts (auth-dir): $(cliproxy_count codex)"
+  fi
+  have codex-rotate && codex-rotate status 2>/dev/null | head -30 || echo "codex-rotate optional"
+}
+
+print_gemini() {
+  echo "=== Gemini / Antigravity ==="
+  if print_cliproxy; then
+    # Gemini seats are stored as antigravity-*.json (and/or gemini-*.json)
+    echo "accounts (auth-dir): $(( $(cliproxy_count antigravity) + $(cliproxy_count gemini) ))"
+  fi
+}
+
+print_factory() {
+  echo "=== Factory ==="
+  echo "(adapter planned — see docs/ops/OPS-ACCOUNTS-VISION.md)"
+}
+
+print_cursor() {
+  echo "=== Cursor ==="
+  echo "(adapter planned — see docs/ops/OPS-ACCOUNTS-VISION.md)"
+}
+
+case "$cmd" in
+  status|list|"")
+    print_claude; echo
+    print_grok; echo
+    print_codex; echo
+    print_gemini; echo
+    print_factory; echo
+    print_cursor
+    ;;
+  util)
+    provider="${1:-all}"
+    case "$provider" in
+      claude)
+        [[ -f "$ROT/rotate.mjs" ]] && node "$ROT/rotate.mjs" --utilization 2>/dev/null | head -60
+        ;;
+      codex|gemini|grok-x|xai|kimi)
+        # CLIProxyAPI util: per-provider account inventory + last-refresh mtimes (no secrets)
+        p="$provider"; [[ "$p" == "xai" || "$p" == "grok-x" ]] && p="xai"
+        echo "--- cliproxy util: $p ---"
+        prefixes=("$p")
+        [[ "$p" == "gemini" ]] && prefixes+=("antigravity")
+        files=()
+        for prefix in "${prefixes[@]}"; do
+          for file in "$CLIPROXY_AUTHDIR/${prefix}"-*.json; do
+            [[ -e "$file" ]] && files+=("$file")
+          done
+        done
+        if [[ ${#files[@]} -gt 0 ]]; then
+          python3 - "${files[@]}" <<'PY'
+from datetime import datetime
+from pathlib import Path
+import sys
+
+for path in sorted((Path(raw) for raw in sys.argv[1:]), key=lambda item: item.stat().st_mtime, reverse=True):
+    stamp = datetime.fromtimestamp(path.stat().st_mtime).astimezone().isoformat(timespec="seconds")
+    print(stamp, path)
+PY
+        else
+          echo "no matching $p auth files in $CLIPROXY_AUTHDIR"
+        fi
+        ;;
+      grok)
+        [[ -n "$GROK_PROXY_URL" ]] && curl -fsS -m 3 "${GROK_PROXY_URL%/}/accounts" 2>/dev/null | python3 -c 'import json,sys;d=json.load(sys.stdin);print(json.dumps({k:d.get(k) for k in ("request_counts","exhausted_seconds_remaining","load_balance","current")}, indent=2))' || echo "proxy util unavailable (set GROK_PROXY_URL)"
+        ;;
+      all|"")
+        echo "--- Claude util ---"
+        if [[ -f "$ROT/rotate.mjs" ]]; then
+          node "$ROT/rotate.mjs" --utilization 2>/dev/null | head -40 || true
+        fi
+        echo "--- Grok proxy ---"
+        if [[ -n "$GROK_PROXY_URL" ]]; then
+          curl -fsS -m 3 "${GROK_PROXY_URL%/}/accounts" 2>/dev/null | python3 -c 'import json,sys;d=json.load(sys.stdin);print("counts",d.get("request_counts"));print("exhausted",d.get("exhausted_seconds_remaining"))' || true
+        fi
+        ;;
+      *)
+        echo "usage: ops-accounts util [all|claude|grok|codex|gemini|xai|kimi]"; exit 2 ;;
+    esac
+    ;;
+  switch|rotate-now)
+    provider="${1:-}"
+    if [[ "$cmd" == "rotate-now" ]]; then
+      provider="claude"
+    fi
+    case "$provider" in
+      grok|xai)
+        have grok-rotate || { echo "grok-rotate missing"; exit 1; }
+        grok-rotate switch
+        grok-rotate status
+        ;;
+      claude|"")
+        if [[ -x "$ROT/force-rotate.sh" ]]; then
+          bash "$ROT/force-rotate.sh" "${2:-}"
+        elif [[ -f "$ROT/rotate.mjs" ]]; then
+          node "$ROT/rotate.mjs" --rotate ${2:+--to "$2"}
+        else
+          echo "Claude rotate scripts missing under $ROT"; exit 1
+        fi
+        ;;
+      *)
+        echo "usage: ops-accounts switch grok|claude [email]"; exit 2 ;;
+    esac
+    ;;
+  refresh)
+    provider="${1:-all}"
+    case "$provider" in
+      grok)
+        if have host-token-keepalive; then host-token-keepalive --force --grok-only
+        elif have grok-rotate; then grok-rotate refresh
+        else echo "no grok refresh tool"; exit 1
+        fi
+        ;;
+      claude)
+        if have host-token-keepalive; then host-token-keepalive --force --claude-only || true; fi
+        if [[ -f "$ROT/rotate.mjs" ]]; then node "$ROT/rotate.mjs" --refresh 2>/dev/null || true; fi
+        ;;
+      all|"")
+        if have host-token-keepalive; then host-token-keepalive --force || true; fi
+        ;;
+      *)
+        echo "usage: ops-accounts refresh [all|claude|grok]"; exit 2 ;;
+    esac
+    ;;
+  reauth)
+    provider="${1:-}"; email="${2:-}"
+    case "$provider" in
+      grok|xai)
+        [[ -n "$email" ]] || { echo "usage: ops-accounts reauth grok <email>"; exit 2; }
+        export DISPLAY="${DISPLAY:-${CLAUDE_DESKTOP_DISPLAY:-:1}}"
+        EGRESS="$ROT/grok-reauth-egress.sh"
+        if [[ -x "$EGRESS" ]]; then
+          # shellcheck disable=SC1090
+          source "$EGRESS" || true
+        fi
+        if have grok-oauth-reauth; then
+          grok-oauth-reauth --email "$email"
+        else
+          echo "grok-oauth-reauth not on PATH (port into plugin next)"
+          exit 1
+        fi
+        ;;
+      claude)
+        [[ -n "$email" ]] || { echo "usage: ops-accounts reauth claude <email>"; exit 2; }
+        echo "Claude direct browser/magic-link reauthentication is disabled. Use staged-enrollment.mjs with separate stage and activate approvals." >&2
+        exit 2
+        ;;
+      *)
+        echo "usage: ops-accounts reauth grok|claude <email>"; exit 2 ;;
+    esac
+    ;;
+  setup)
+    provider="${1:-claude}"
+    echo "Interactive setup: invoke skill ops-accounts / ops-rotate-setup for provider=$provider"
+    echo "Claude wizard detail: skills/ops-rotate-setup/SKILL.md"
+    echo "Quick reauth Claude: ops-accounts reauth claude <email>"
+    echo "Quick reauth Grok:   ops-accounts reauth grok <email>"
+    ;;
+  crs|crs-tick)
+    echo "The relay backend has been removed. Multi-account rotation and OAuth seat" >&2
+    echo "management run through CLIProxyAPI: use 'ops-accounts util' or /ops:ops-fleet." >&2
+    exit 2
+    ;;
+  seats)
+    sub="${1:-status}"
+    if [[ "$sub" == "tick" || "$sub" == "policy-tick" ]]; then
+      shift || true
+      node "$ROT/seat-policy-tick.mjs" "$@"
+      exit $?
+    fi
+    if [[ -f "$ROT/seat-state.mjs" ]]; then
+      node "$ROT/seat-state.mjs" "$sub" "${@:2}"
+    else
+      echo "seat-state.mjs missing"; exit 1
+    fi
+    ;;
+
+  grok-proxy)
+    sub="${1:-status}"
+    case "$sub" in
+      status|accounts|"")
+        if [[ -n "$GROK_PROXY_URL" ]] && curl -fsS -m 2 "${GROK_PROXY_URL%/}/accounts" 2>/dev/null; then
+          echo
+        else
+          echo "grok-cli-auth-proxy not configured or unreachable (set GROK_PROXY_URL)"
+          exit 1
+        fi
+        ;;
+      *)
+        echo "usage: ops-accounts grok-proxy status"; exit 2 ;;
+    esac
+    ;;
+
+  gateway)
+    sub="${1:-status}"
+    GW="${ROT}/ops-accounts-gateway.mjs"
+    GW_PORT="${OPS_ACCOUNTS_GATEWAY_PORT:-3005}"
+    GW_HOST="${OPS_ACCOUNTS_GATEWAY_HOST:-127.0.0.1}"
+    case "$sub" in
+      status)
+        if curl -fsS -m 2 "http://${GW_HOST}:${GW_PORT}/health" 2>/dev/null; then
+          echo
+        else
+          echo "ops-accounts-gateway not listening on ${GW_HOST}:${GW_PORT}"
+          echo "start: ops-accounts gateway start"
+          [[ -f "$GW" ]] && echo "plugin binary: $GW" || echo "plugin gateway missing"
+          exit 1
+        fi
+        ;;
+      start)
+        if [[ ! -f "$GW" ]]; then
+          echo "missing $GW"; exit 1
+        fi
+        if curl -fsS -m 1 "http://${GW_HOST}:${GW_PORT}/health" >/dev/null 2>&1; then
+          echo "already listening on ${GW_HOST}:${GW_PORT}"
+          exit 0
+        fi
+        nohup node "$GW" >>"${TMPDIR:-/tmp}/ops-accounts-gateway.log" 2>&1 &
+        echo "started pid=$! log=${TMPDIR:-/tmp}/ops-accounts-gateway.log url=http://${GW_HOST}:${GW_PORT}"
+        echo "set OPS_ACCOUNTS_GATEWAY_URL=http://${GW_HOST}:${GW_PORT} for clients"
+        ;;
+      path)
+        echo "$GW"
+        ;;
+      self-test)
+        node "$GW" --self-test
+        ;;
+      config)
+        node "$GW" --print-config
+        ;;
+      *)
+        echo "usage: ops-accounts gateway status|start|path|self-test|config"; exit 2
+        ;;
+    esac
+    ;;
+
+  -h|--help|help)
+    cat <<H
+ops-accounts — multi-provider seats (canonical; /ops:rotate is alias)
+
+  status | list
+  util [all|claude|grok|codex|gemini|xai|kimi]
+  switch claude|grok   |  rotate-now
+  refresh [all|claude|grok]
+  reauth claude <email> | reauth grok <email>
+  setup [claude|grok]
+  seats [status|list|set|toggle|import-claude-config|tick]
+  gateway status|start|path|self-test|config
+  grok-proxy status   # endpoint configured by GROK_PROXY_URL
+H
+    ;;
+  *)
+    echo "unknown command: $cmd (try help)"; exit 2 ;;
+esac

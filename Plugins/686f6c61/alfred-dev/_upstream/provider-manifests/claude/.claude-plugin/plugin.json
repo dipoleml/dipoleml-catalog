@@ -1,0 +1,33 @@
+{
+  "name": "alfred-dev",
+  "displayName": "Alfred Dev",
+  "description": "Plugin de ingeniería de software: 8 agentes de núcleo, Selina si hay frontend y Lucius bajo demanda. Memoria persistente por proyecto, quality gates y flujos desde la idea hasta la entrega.",
+  "version": "0.7.0",
+  "author": {
+    "name": "686f6c61"
+  },
+  "homepage": "https://alfred-dev.com",
+  "repository": "https://github.com/686f6c61/alfred-dev",
+  "license": "MIT",
+  "keywords": ["sdlc", "agents", "security", "tdd", "devops", "qa", "product", "spanish"],
+  "commands": [
+    "./commands/alfred.md",
+    "./commands/ajustes.md",
+    "./commands/audit.md",
+    "./commands/discuss.md",
+    "./commands/feature.md",
+    "./commands/fix.md",
+    "./commands/lucius.md",
+    "./commands/map-codebase.md",
+    "./commands/memory-ui.md",
+    "./commands/pause.md",
+    "./commands/progress.md",
+    "./commands/quick.md",
+    "./commands/retomar.md",
+    "./commands/ship.md",
+    "./commands/spike.md",
+    "./commands/sync-github.md",
+    "./commands/uat.md",
+    "./commands/update.md"
+  ]
+}

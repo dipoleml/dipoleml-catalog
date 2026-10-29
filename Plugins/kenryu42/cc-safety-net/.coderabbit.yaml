@@ -1,0 +1,6 @@
+# Keep the settings chosen in the CodeRabbit UI; without this the file replaces them.
+inheritance: true
+reviews:
+  auto_review:
+    # Stacked PRs target their parent branch, not main.
+    base_branches: [".*"]

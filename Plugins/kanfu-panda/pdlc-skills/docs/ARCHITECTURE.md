@@ -1,0 +1,159 @@
+<!-- artifact_type: surface -->
+<!-- PDLC-TRACE -->
+<!-- 功能名称: 架构总览 -->
+<!-- 阶段: design -->
+<!-- 创建时间: 2026-06-03T00:00:00Z -->
+
+# Architecture
+
+System overview for pdlc-skills. This is a **surface artifact** — edited in place by `/pdlc-arch`, history via `git log docs/ARCHITECTURE.md`. It is also the canonical worked example of the surface pattern this plugin introduced in v1.1.
+
+## 1. What this repo is
+
+pdlc-skills is a **Claude Code plugin** plus a **single-plugin marketplace**. It ships a set of slash-command skills that encode a staged software development lifecycle, where each stage enforces hard contracts (artifacts persisted to disk, a per-feature state machine, tests-before-code, mandatory self-audit, single-shot auto-repair).
+
+Two manifests express the dual nature:
+
+- `.claude-plugin/plugin.json` — the plugin definition (name, version, metadata).
+- `.claude-plugin/marketplace.json` — the marketplace wrapper so the repo can be added as a source directly.
+
+## 2. Skill model
+
+Every skill is a directory under `skills/<name>/` containing one `SKILL.md`. The frontmatter is a contract:
+
+```yaml
+name: <matches dir>
+layer: 1 | 2 | 3
+stage: <pipeline stage>
+artifact_type: surface | ledger   # optional, default ledger (v1.1+)
+produces: [<output globs>]
+requires: []
+next_step: <next skill | null>
+terminal_state: <state | null>
+```
+
+Three layers (38 skills total: 3 / 11 / 24):
+
+- **Layer 1 — entry points (3)** (`pdlc-feature`, `pdlc-fix`, `pdlc-status`): one-sentence-driven whole-flow drivers plus the read-only status view.
+- **Layer 2 — core pipeline (11)** (`pdlc-prd`, `pdlc-design`, `pdlc-tdd`, `pdlc-implement`, `pdlc-review`, `pdlc-ship`, ...): the staged lifecycle, feature-scoped, state-machine-driven.
+- **Layer 3 — specialized tools (24)** (`pdlc-arch`, `pdlc-standard`, `pdlc-relate`, `pdlc-bootstrap`, `pdlc-adopt`, `pdlc-test-setup`, `pdlc-quality`, the loop tooling `pdlc-loop-next` / `pdlc-loop-run`, the config command `pdlc-settings`, ...): focused tools, not always feature-scoped.
+
+## 3. Shared prompt fragments
+
+Reusable instruction blocks are authored once under `references/templates/prompts/` and referenced from skill bodies as `<!-- @include templates/prompts/X.md -->`; `adapters/sync_skills.py` inlines them into each skill at build time. This keeps cross-cutting contracts single-sourced:
+
+- `iron-law.md` — the six non-negotiable gates (the sixth, *state-must-advance*, added in v1.2).
+- `iron-law-tool.md` — the three gates that apply to commands which don't write stage state (Layer 3 tools, `pdlc-task`, `pdlc-retro`): files on disk, self-check, one repair pass. The full six would demand history entries and stage advances these commands can't make.
+- `pdlc-trace.md` — the document traceability header.
+- `state-update.md` — the per-feature state machine schema + update flow (incl. the v1.2 `last_phase_result`).
+- `state-read.md` — the reader-side contract for `pdlc-status` / `pdlc-retro` / `pdlc-relate`: run the deterministic contract check (`bin/pdlc-state-lint.sh`, shipped inside each reading skill as `scripts/pdlc-state-lint.sh`; read-only, three-state exit code) before computing anything, surface every deviation at the **top** of the output, and judge "terminal" solely by `current_stage` ending in `_done` — never by `terminal_state`, which is a skill-frontmatter *target*, not a state fact.
+- `self-audit.md` / `loop-prevention.md` / `handoff.md` — the four-phase skeleton.
+- `feature-id.md` / `defect-id.md` — ID allocation.
+- `output-language.md` — output language rules.
+- `relations.md` — the v1.1 relation-chain definition (six types, five expression sites, validation rules).
+- `check-commands.md` — three-state exit-code semantics for the `test-commands.yml` checks: `0` = pass, non-zero = fail, **`127`/not-found = cannot tell** (omit the key rather than record `false`). Recording "couldn't run" as "failed" is a misleading fabrication — it sends people to debug code when the real problem is a stale config. An unrunnable command therefore doubles as a free staleness signal; loosening the gate always requires human confirmation.
+- `test-location.md` — layout-agnostic test discovery: defer to the project's own `test-commands.yml`, then conventions, then filename scan. The red-light guard must distinguish *no tests* from *tests not where I expected* — the latter would wrongly block ordinary layouts.
+- `noninteractive.md` — the v1.2 `--autonomous` contract (auto-advance procedural confirmations, block on judgement calls, destructive actions always human).
+- `layout-detect.md` — detect the project's real layout (monorepo workspaces, existing service / app directories, single-app frameworks) before creating or scanning directories; the `backend/services/` style paths in skill bodies are only the empty-project default.
+- `artifact-lookup.md` — how a guard finds its upstream documents: the state machine's `history[].produced` first, then a filename / trace-header search; several hits → ask (or block under `--autonomous`) instead of picking one.
+
+(17 fragments total.) Inlining happens at build time, not at runtime: when a skill fires, the model gets the skill's own folder and body — not the frontmatter, not `references/` — so a runtime "go read the fragment" convention was followed only some of the time. The same sync step copies the templates and scripts a body references into the skill's `assets/` / `scripts/`, and writes each state-writing skill's `stage` / `next_step` into a `pdlc:meta` block. Every skill folder is thereby self-contained, as the Agent Skills open standard expects.
+
+## 4. Target-project contract
+
+When applied to a target project, PDLC skills produce and maintain a fixed layout:
+
+```
+docs/
+├── ARCHITECTURE.md              # surface · whole-system overview (pdlc-arch)
+├── GLOSSARY.md                  # surface · project vocabulary (manual, no dedicated skill in v1.1)
+├── 00_standards/                # surface · team conventions (pdlc-standard)
+│   ├── _index.md
+│   ├── test-commands.yml        # surface · single source of objective check commands (v1.2)
+│   └── <category>/<name>.md + _changelog.md
+├── 01_requirements/prd/         # ledger · per-feature PRDs
+├── 02_design/architecture/      # ledger · per-feature arch decisions (F-xxx-arch.md)
+├── 06_tasks/                    # ledger · task breakdowns
+├── 07_reviews/                  # ledger · review reports
+└── .pdlc-state/
+    ├── <feature-id>.json        # per-feature state machine + relations block
+    ├── _relations.json          # auto · reverse index of all relations
+    └── _graph.md                # auto · mermaid relation graph
+```
+
+## 5. Ledger vs surface (v1.1)
+
+The defining v1.1 distinction:
+
+- **Ledger artifacts** record events. They accumulate (one file per occurrence), are never edited in place, and are superseded rather than overwritten. PRDs, designs, and per-feature arch decisions are ledgers — you want the full chain.
+- **Surface artifacts** record state. There is exactly one canonical file, edited in place, with history in git. Architecture overview, glossary, and team standards are surfaces — multiple dated copies are noise, not signal.
+
+`/pdlc-arch` (surface) and `docs/02_design/architecture/F-xxx-arch.md` (ledger) are the canonical demonstration: a feature's arch decision is an event (ledger); the resulting system shape is a state (surface, derived).
+
+## 6. Relation subsystem (v1.1)
+
+Features form a typed graph (six relation types: `extends`, `depends_on`, `supersedes`, `resolves`, `conflicts_with`, `relates_to`). Relations are expressed redundantly at five sites (doc header, state block, reverse index, global graph, PRD §6.1) and reconciled by `/pdlc-relate rebuild`. The killer query is `/pdlc-relate impact <fid>` — the blast radius of changing a feature, split into direct / transitive / historical impact.
+
+## 7. Autonomous loop subsystem (v1.2)
+
+PDLC ships the three things loop engineering needs most — a precise spec (PRD/design), a real check (TDD tests), and a machine-readable state machine — so a loop can drive it unattended without burning quota:
+
+- **Objective checks, not self-report.** Each stage writes a top-level `last_phase_result` whose `checks` (`tests_pass` / `coverage_pass` / `lint_clean`) come from **real command exit codes** (commands sourced from `00_standards/test-commands.yml`), never from model self-audit. This is the single field an outer loop reads to decide continue / stop / hand back.
+- **`--autonomous` contract** (`noninteractive.md`): procedural confirmations auto-advance and are logged to `history[].auto_decisions[]`; genuine judgement calls write `blocked_reason` and stop; **destructive actions always stay human** (`--autonomous` has no effect on them). `run_mode` mirrors the flag into the state machine.
+- **Convergence engine** `pdlc-loop-run`: auto-advances `tdd → implement → review` until the feature is reviewed and awaiting release (`next_step: pdlc-ship`) or blocked, with a built-in iteration cap, fail-stop, and stuck-stop. Loop docs call that stopping point "`review_done`"; it is **not** a `current_stage` value — `_done` means released and only `pdlc-ship` / `pdlc-deploy` write it. **It never auto-ships** (`ship`/`deploy` are always human-gated).
+- **Multi-feature driver** `bin/pdlc-loop.sh` (v1.7): runs the same convergence for several features from outside the model, one fresh process per step (`claude -p` or `codex exec`). `--parallel N` gives each feature its own git worktree, `relations.depends_on` orders them, and a run record under `<git common dir>/pdlc-loop/` feeds `--status` / `/pdlc-status --loop`. `--next <ID>` prints the next step only — the single implementation of the next-step mapping, which `/pdlc-loop-next` and `/pdlc-loop-run` call instead of recomputing it. After every step it stops if `ok=true` contradicts a `false` check. It never commits, merges, or ships.
+- **Loop helper** `pdlc-loop-next`: read-only, prints the next mechanical-convergence command from a strict whitelist for user-written bash loops.
+
+Design: `docs/decisions/0001-loop-engineering-integration.md`, `docs/decisions/0006-multi-feature-loop-driver.md`.
+
+## 8. Statusline segment (v1.4)
+
+An optional, **off-by-default** one-line PDLC status for the Claude Code statusline:
+
+- `bin/pdlc-statusline.sh` — self-contained shell segment (not a Claude skill, since the statusline runs a shell command). Reads the session JSON from stdin, scans `<cwd>/docs/.pdlc-state/`, prints one line (feature · progress bar · next step · run icon · checks · elapsed; `blocked` rendered most-prominent). Empty outside PDLC projects; degrades silently without `jq`; bash 3.2 compatible.
+- `bin/pdlc-checks.sh` — runs the project's `docs/00_standards/test-commands.yml` and prints the `last_phase_result.checks` JSON: exit `0` → `true`, non-zero → `false`, `126` / `127` / empty / unfilled placeholder → `null` (cannot judge — usually a stale yml). `--only` picks the items a stage needs; `--red` is the TDD red-light check (`red_verified`, opposite direction). Stages paste its stdout verbatim instead of hand-writing the key names, types and three-state mapping. No jq; bash 3.2 compatible.
+- `bin/pdlc-state-lint.sh` — deterministic, read-only contract check for `docs/.pdlc-state/*.json`, run by the three state readers before they compute anything, and by every state-writing stage right after it writes (fixing its own feature's findings on the spot). Prints one `file<TAB>code<TAB>detail` line per deviation (21 codes, documented in `state-read.md`); exit `0` clean / `1` deviations / `2` cannot check. Its embedded stage-name and code lists are asserted against `state-read.md` and the skills by `tests/frontmatter-check.sh`; bash 3.2 compatible.
+- `pdlc-settings` (Layer 3, interactive) wires it up: a stable-path symlink `~/.claude/pdlc-statusline` (upgrade-safe) **appended** idempotently to the single `statusLine.command` (never overwrites an existing HUD). Editing global `~/.claude/settings.json` is backup+diff+confirm-gated and degrades gracefully to "here's the line, paste it" when the security layer blocks the write.
+
+Design: `docs/decisions/0002-statusline-pdlc-status.md`.
+
+## 9. Quality gates
+
+Two tiers, both run locally (no CI by default).
+
+**Structural — free, deterministic, run anytime:**
+
+- `tests/frontmatter-check.sh` — required frontmatter fields, layer values, `@include` resolvability, `name == dir`, `next_step` resolves, manifest version sync.
+- `tests/install-smoke.sh` — skill / template / fragment counts, manifest fields, key invariants.
+- `tests/statusline-check.sh` — `pdlc-statusline.sh` render scenarios (interactive / autonomous / blocked / terminal / multi-feature pick / non-PDLC empty).
+- `tests/skills-selfcontained-check.sh` — every skill folder self-contained: fragments inlined and identical to their source, `assets/` / `scripts/` copies byte-identical with no strays, `stage` / `next_step` present in state writers' bodies, `$ARGUMENTS` at most once on its own line, no reference to a fragment the skill doesn't include.
+- `tests/state-lint-check.sh` — `pdlc-state-lint.sh` findings per deviation class, no false positives on conforming files, index/config files skipped, three-state exit codes, and a byte-level read-only check.
+- `tests/adapter-agent-skills-check.sh` — the Agent Skills projection conforms to the standard (names, description length, allowed top-level fields, string-only `metadata`, no leftover `@include` / `$ARGUMENTS` / Claude-only blocks) and `install.sh --target agents` installs to the right places; also runs the official `agentskills` validator when it is installed.
+- `tests/adapter-codex-check.sh` / `tests/adapter-codex-loop-run-check.sh` — the Codex entry point and its loop mapping / guardrails.
+- `tests/checks-check.sh` — `bin/pdlc-checks.sh`: exit code → `true` / `false` / `null`, state-machine key names (not the yml's), `--only`, `--red` for the TDD red light, and "can't run" (no yml) exits 2 with no JSON.
+- `tests/loop-driver-check.sh` — `bin/pdlc-loop.sh` with stubbed `claude` / `codex`: scheduling, `depends_on`, worktrees, guardrails, run record, `--status`, `--next`, and the `ok` / `checks` contradiction stop.
+- `tests/evals-runner-check.sh` / `tests/evals-scenario-check.sh` — the eval driver and scenario verdicts, with the model stubbed (no spend).
+
+**Behavioural (v1.5.3, `evals/`) — does a contract actually hold when a skill really runs:**
+
+The tier criterion is **who executes the contract**. Contracts executed by deterministic code (bash driver, jq mapping, exit codes) can be tested with a stub — those stay in `tests/`. Contracts executed by *the model following SKILL.md prose* cannot: stubbing the model stubs out the object under test. Those are **A-live** and need a real model:
+
+- `evals/fixtures/honest-checks/` — `unit` always fails / `lint` always passes, so the only honest state-machine write is `{tests_pass:false, lint_clean:true}`. The pair is un-fabricable and, by construction, un-fixable (a correct implementation still leaves one contradictory assertion red).
+- `evals/fixtures/red-light-gate/` — no tests present ⇒ `pdlc-implement` must abort and leave `current_stage` untouched.
+
+`evals/run.sh --check` validates fixtures offline (free); a real run costs model turns and is **advisory, not a hard release gate** — failures are classified as *env-flake* (retried, not counted) vs *contract-break* (immediately red). Since pdlc's main mechanism is prose-following, most behavioural contracts land on the A-live side. Design and cost ledger: `evals/EVALS.md`, `docs/decisions/0005-testing-and-quality-capability.md`.
+
+## 10. Platform-neutral core (multi-platform)
+
+The PDLC methodology, state-machine contract, doc layout, and objective-check discipline are **tool-agnostic** — nothing in them requires Claude Code. `docs/pdlc-methodology.md` distills this **Tier 1 core** as a self-contained, platform-neutral spec so any AI coding agent (Codex, Cursor, Windsurf, Copilot, Cline, …) can drive PDLC via natural language, with the same `docs/.pdlc-state/` shared across tools.
+
+Claude Code has the **richest integration** (Tier 2 — this whole document): it loads `skills/` directly as a plugin. Every other tool gets **one build-time projection that follows the Agent Skills open standard** (agentskills.io), instead of a transpiler per platform:
+
+- `adapters/build_agent_skills.py` projects `skills/` into `dist/agent-skills/skills/` — 36 skills, all passing the official `skills-ref` validator. Frontmatter keeps only standard fields (`name`, `description`, `license`, string-valued `metadata`); fragments are inlined, `adapter:claude-only` blocks stripped, the `$ARGUMENTS` line rewritten in natural language, and a note explains that `/pdlc-<name>` means the skill of that name. The denylist skips 2 Claude-only skills (statusline config, the Task-based loop engine).
+- `install.sh --target agents` installs it to `~/.agents/skills/` (read by Copilot, Gemini CLI, OpenCode, Amp, Goose), `--project DIR` to `DIR/.agents/skills/`, `--dest DIR` anywhere (Cursor, Windsurf, Kiro, Roo each use their own directory). `--target codex` installs the same projection to `~/.codex/skills/`.
+- `skills/` itself stays non-conformant on purpose: the standard rejects `argument-hint`, and dropping it would degrade Claude Code.
+
+Loading is not the same as trustworthy state. A tool must pass the **state-integrity gate** (`evals/` `honest-checks`) before we recommend it for autonomous loops: Codex has passed; Copilot CLI loads and triggers every skill but failed 3/3 rounds on its default model; the rest have not been run.
+
+Design: `docs/decisions/0007-agent-skills-standard.md` (revises the per-platform transpilers of `docs/decisions/0003-multi-platform-adapters.md`).
+

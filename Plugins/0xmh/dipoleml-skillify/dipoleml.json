@@ -1,0 +1,128 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.0xmh.dipoleml-skillify",
+  "type": "plugin",
+  "name": "DipoleML Skillify",
+  "slug": "dipoleml-skillify",
+  "vendor": "0xmh",
+  "description": "Open-source DipoleML plugin porting the internal /skillify skill: turn a finished session's repeatable workflow into a reusable SKILL.md you can rerun with a slash command.",
+  "version": "1.0.0",
+  "homepage": "https://github.com/0xMH/claude-skillify",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agentic",
+    "anthropic",
+    "automation",
+    "claude-ai",
+    "claude-code-plugin",
+    "claude-plugin",
+    "claude-skills",
+    "developer-tools",
+    "productivity"
+  ],
+  "tags": [
+    "agent",
+    "agentic",
+    "ai",
+    "anthropic",
+    "automation",
+    "claude",
+    "claude-ai",
+    "claude-code",
+    "claude-code-plugin",
+    "claude-plugin",
+    "claude-skills",
+    "developer-tools",
+    "llm",
+    "productivity",
+    "skillify",
+    "skills",
+    "slash-commands",
+    "workflow-automation"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "0xmh",
+    "brandName": "0xmh",
+    "source": "https://github.com/0xMH.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:52Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "0xMH/claude-skillify",
+    "url": "https://github.com/0xMH/claude-skillify",
+    "commit": "e19c742658c24f22714a782d354d893cc5ac9230",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 47,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:49:43Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Claude Skillify | Open-source Claude Code plugin porting the internal /skillify skill: turn a finished session's repeatable workflow into a reusable SKILL.md you can rerun with a slash command.",
+        "after": "DipoleML Skillify | Open-source DipoleML plugin porting the internal /skillify skill: turn a finished session's repeatable workflow into a reusable SKILL.md you can rerun with a slash command.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "claude-skillify",
+        "after": "dipoleml-skillify",
+        "reason": "provider token neutralized in slug/id"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

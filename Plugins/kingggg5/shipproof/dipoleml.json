@@ -1,0 +1,123 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.kingggg5.shipproof",
+  "type": "plugin",
+  "name": "Shipproof",
+  "slug": "shipproof",
+  "vendor": "kingggg5",
+  "description": "Evidence-first Codex, DipoleML plugin for bugs, security, and 10k-to-1M-user scale readiness.",
+  "version": "0.12.0",
+  "homepage": "https://github.com/kingggg5/shipproof",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "ai-code",
+    "application-security",
+    "devsecops",
+    "github-actions",
+    "production-readiness",
+    "sarif",
+    "static-analysis"
+  ],
+  "tags": [
+    "ai-code",
+    "application-security",
+    "devsecops",
+    "github-actions",
+    "mcp",
+    "production-readiness",
+    "sarif",
+    "static-analysis"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "kingggg5",
+    "brandName": "kingggg5",
+    "source": "https://github.com/kingggg5.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:13:43Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "kingggg5/shipproof",
+    "url": "https://github.com/kingggg5/shipproof",
+    "commit": "09adda62066122dd8f3614592bf6a505fde6e6a1",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 19,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:50:44Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Shipproof | Evidence-first Codex, Claude plugin for bugs, security, and 10k-to-1M-user scale readiness.",
+        "after": "Shipproof | Evidence-first Codex, DipoleML plugin for bugs, security, and 10k-to-1M-user scale readiness.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=20",
+      "python3"
+    ],
+    "packages": [
+      "@kingggg5/shipproof"
+    ],
+    "env": [
+      "SUPPORT"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

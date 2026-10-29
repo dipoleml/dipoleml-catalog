@@ -1,0 +1,2335 @@
+"""Maintain orchestration, in two layers.
+
+The lower layer is the run functions: they take an :class:`~..engine.DexEngine`,
+load the baseline and the project, drive the drift engine, and return a record
+from :mod:`.results`. The upper layer is the ``cmd_*`` shims: argparse in,
+envelope out.
+
+Only this layer reaches the store; the detectors in ``drift.py`` stay pure
+comparisons so they are testable without a warehouse. Detection commands save
+their findings as a drift report so the stateless ``reconcile`` has one to read.
+
+**The project is read through its tier, never through a format's module.** The
+four detection commands ask ``MaintainProject`` for the two snapshot layers, which
+is what lets a format that is not a dbt project be a drift baseline. They share
+``_read_layers`` for that, so there is one definition of what counts as reading a
+project and one place that decides which failures degrade and which refuse.
+
+``reconcile`` is the exception, and deliberately so. It does not want a layer, it
+wants the project's file surface: the two mechanical write paths look up
+``models/staging/stg_<table>.*`` in it, and the plan store records the directory
+the edits were pinned against. Neither is expressible in tier 2, and widening tier
+2 to carry them would put a bag of file paths and file contents on the contract,
+which a format with no files could not produce. A tier no non-dbt format can reach
+is a tier that format does not have, so ``reconcile`` asks the *write* tier
+instead and degrades to proposal-only when a format declines it.
+"""
+
+from __future__ import annotations
+
+import argparse
+from datetime import UTC, datetime
+from typing import TYPE_CHECKING, cast
+
+from pydantic import ValidationError
+
+from .. import command_args
+from .. import envelope as env
+from ..adapters.base import name_list
+from ..config import pii_override_paths
+from ..engine_version import state_version_warning
+from ..errors import (
+    DexError,
+    PrerequisiteError,
+    ProjectError,
+    RepoRootRequiredError,
+    RequestError,
+)
+from ..guards import dialect as dialect_guard
+from ..guards.dialect import DialectDependencyError
+from ..results import ConfirmationRequest, to_envelope
+from ..storage import Document, FilesystemStore, MaintainStore, Store, readable_cache
+from . import declared_facts as facts_mod
+from . import drift as drift_mod
+from . import snapshot as snapshot_mod
+from . import verify as verify_mod
+from .results import (
+    DriftResult,
+    LayerFingerprint,
+    ReconcileResult,
+    SnapshotResult,
+    VerifyResult,
+)
+
+if TYPE_CHECKING:
+    from ..adapters.project import ExploreProject, MaintainProject
+    from ..dbt_project import ProjectDefinitions
+    from ..engine import DexEngine
+    from .snapshot import SemanticLayer, TransformLayer
+
+
+def _maintain_store(engine: DexEngine) -> MaintainStore:
+    return cast(MaintainStore, engine.store)
+
+
+_SNAPSHOT_HINT = (
+    "re-run `maintain snapshot` after each known-good build so drift is measured "
+    "against a state someone vouched for"
+)
+
+#: Prepended when the baseline really is a file in the user's repo. Advice about
+#: git only means something there, and telling a host whose baseline is a row to
+#: commit a path would name a file it does not have.
+_REVIEWABLE_SNAPSHOT_HINT = "commit .dex/snapshot.json like a lockfile, and "
+
+_NO_SNAPSHOT_ERROR = (
+    "no drift baseline yet; run `maintain snapshot` first (ideally right after "
+    "a known-good build)"
+)
+
+
+def _read_project(engine: DexEngine) -> tuple[ExploreProject | None, str | None]:
+    """The constructed project format, or why there is none.
+
+    The counterpart to :func:`_read_layers` for the commands that want the
+    format itself: its tier-1 declarations, or the instance to ask about the
+    write tier. Same shape and same reason, so there is one place deciding which
+    project failures degrade rather than one per call site.
+
+    ``definitions()`` never raises by contract, but the format holding it still
+    has to be built, and construction refuses coordinates it cannot honor: the
+    shipped dbt format has no project to read without a repo root. A host
+    pointed at a warehouse and a baseline with no repository is an ordinary
+    state, and nothing here needs a project to answer at all, so a format that
+    cannot be built costs the declarations and the write tier and nothing else.
+
+    Call it once per command and reuse the instance. A project is deliberately
+    not held across commands, because a previous command may have rewritten it,
+    but the expensive part is memoized inside the instance, so building it twice
+    in one command loads it twice.
+    """
+
+    try:
+        return engine.project_format(), None
+    except (ProjectError, RepoRootRequiredError, ValidationError) as exc:
+        return None, str(exc)
+
+
+def _read_layers(
+    engine: DexEngine, *, semantic: bool = True
+) -> tuple[TransformLayer | None, SemanticLayer | None, str | None]:
+    """The current project's snapshot layers, or why there are none.
+
+    Returns ``(transform, semantic, reason)``. ``reason`` describes why the
+    layer ``semantic`` actually asked for is unavailable (the transform half
+    when ``semantic=False``, otherwise the semantic half), which is what each
+    command's warning names and what ``check`` gates its semantic axis on. It
+    is ``None`` whenever that layer is present, even if the *other* one is
+    not: the two are read independently, so a repository whose
+    semantic vendor answers on its own is not blocked by a transformation
+    project neither it nor that vendor needs.
+
+    ``semantic=False`` skips the second layer rather than reading and discarding
+    it. `maintain schema` needs only the transform half, and on the dbt format
+    each accessor runs its own YAML pass over the model tree.
+
+    Three states degrade to a reason and are not errors: no project, an
+    unreadable one, and a format narrower than tier 2. Two do not, and are
+    deliberately left to propagate. A format that could not be *built* is a
+    wiring mistake in a committed file, so every command will hit it and hiding
+    it behind a warning would bury the only thing worth fixing. And a repo root
+    that was never supplied is caught here rather than left to propagate only
+    because a host exploring with no repository at all is an ordinary state, the
+    same reason ``definitions()`` may not raise.
+    """
+
+    project: MaintainProject | None = None
+    transform: TransformLayer | None = None
+    transform_reason: str | None = None
+    try:
+        project = engine.maintain_project()
+        if project is None:
+            transform_reason = engine.project_tier_note()
+        else:
+            transform = project.transform_layer()
+    except (ProjectError, RepoRootRequiredError, ValidationError) as exc:
+        transform_reason = str(exc)
+
+    if not semantic:
+        return transform, None, transform_reason
+
+    current: SemanticLayer | None = None
+    semantic_reason: str | None = None
+    try:
+        current = _semantic_layer(engine, project)
+    except (ProjectError, RepoRootRequiredError, ValidationError) as exc:
+        semantic_reason = str(exc)
+
+    # `semantic_reason` names why the semantic-vendor substitute came
+    # back empty; when there was none to try, `transform_reason` is the only
+    # explanation on hand (the same project answered, or failed to build,
+    # for both), and a caller must still see *some* reason rather than a
+    # blank one that reads as success.
+    reason = (semantic_reason or transform_reason) if current is None else None
+    return transform, current, reason
+
+
+def _semantic_layer(
+    engine: DexEngine, project: MaintainProject | None
+) -> SemanticLayer | None:
+    """The semantic-axis snapshot, from whichever source answers it.
+
+    Usually ``project`` itself: the semantic vendor defaults to dbt, the same
+    format ``transform_layer()`` just came from. A repository that configures a
+    different semantic vendor beside it (``semantic.vendor: ossie``) gets that
+    source's own fingerprint instead, through the identical seam
+    ``_semantic_catalog`` reads on the explore side, rather than a second,
+    vendor-specific snapshot section: a table lookup against
+    ``SEMANTIC_SOURCE_FACTORIES``, not a name check on which vendor is
+    configured.
+
+    Read independently of ``project``, which may be ``None`` or may have failed
+    to build its own transform layer: a repository with no dbt project at all and
+    ``semantic.vendor: ossie`` still gets a semantic baseline, even though the
+    transform half has nothing to answer with.
+
+    The capability is asked for rather than the type: a source that can produce a
+    fingerprint satisfies ``SemanticSnapshotSource``, and one that answers only a
+    read catalog declines here and is reported as absent by the caller. Asking
+    for a *project* tier instead would be asking a semantic source to claim a
+    model graph it does not own, and would silently drop the baseline for the
+    vendors that correctly refuse to.
+    """
+
+    from ..config import SEMANTIC_SOURCE_FACTORIES
+    from ..semantic_source import SemanticSnapshotSource
+
+    vendor = (getattr(engine.config.semantic, "vendor", None) or "dbt").lower()
+    if vendor in SEMANTIC_SOURCE_FACTORIES:
+        source = engine.semantic_catalog_source()
+        if isinstance(source, SemanticSnapshotSource):
+            return source.semantic_layer()
+        # Declined, and the configured vendor is still the one semantic layer:
+        # falling through to the project would fingerprint the MetricFlow layer
+        # the vendor replaced, and report its drift as this one's.
+        return None
+    if project is None:
+        return None
+    return project.semantic_layer()
+
+
+def _vendor_semantic_layer(engine: DexEngine) -> SemanticLayer | None:
+    """The configured semantic vendor's own fingerprint, for the grain axis.
+
+    Only where the vendor is its own semantic source: a dbt layer's keys reach
+    the grain axis through the project's declarations, and its fingerprint
+    captures neither keys nor join arity, so reading it here would cost a pass
+    over the model tree for nothing. Never raises: the grain axis runs on its
+    measured half without a semantic layer, as it always has.
+    """
+
+    from ..config import SEMANTIC_SOURCE_FACTORIES
+
+    vendor = (getattr(engine.config.semantic, "vendor", None) or "dbt").lower()
+    if vendor not in SEMANTIC_SOURCE_FACTORIES or engine.repo_root is None:
+        return None
+    try:
+        return _semantic_layer(engine, None)
+    except (DexError, ValidationError, OSError, ValueError):
+        return None
+
+
+def _semantic_schema_source(engine: DexEngine):
+    """The configured semantic source, where it holds its declarations to the
+    warehouse schema itself (``SemanticSchemaSource``), else ``None``.
+
+    Also returns why it could not be built, because a source the vendor names
+    and the environment cannot build is a gap in the schema axis that has to be
+    said rather than left to read as "nothing declared drifted".
+    """
+
+    from ..config import SEMANTIC_SOURCE_FACTORIES
+    from ..semantic_source import SemanticSchemaSource
+
+    vendor = (getattr(engine.config.semantic, "vendor", None) or "dbt").lower()
+    if vendor not in SEMANTIC_SOURCE_FACTORIES or engine.repo_root is None:
+        return None, None
+    try:
+        source = engine.semantic_catalog_source()
+    except (DexError, ValidationError) as exc:
+        return None, (
+            f"the {vendor} semantic layer's declarations were not compared to "
+            f"the warehouse schema: {exc}"
+        )
+    return (source if isinstance(source, SemanticSchemaSource) else None), None
+
+
+def _declared_schema_drift(
+    engine: DexEngine,
+    current: list,
+    snap: snapshot_mod.Snapshot,
+    scope: set[str] | None,
+) -> tuple[list[drift_mod.DriftFinding], list[str]]:
+    """Schema-axis findings a semantic vendor computes for its own declarations.
+
+    Free: the vendor reads the metadata the axis already captured and opens
+    nothing of its own. Scoped like the warehouse half, by identifier.
+    """
+
+    source, why_not = _semantic_schema_source(engine)
+    if source is None:
+        return [], [why_not] if why_not else []
+    findings, notes = source.declared_schema_drift(current, snap.warehouse.datasets)
+    if scope is not None:
+        findings = [f for f in findings if f.identifier in scope]
+    return findings, notes
+
+
+def _composed_definitions(
+    engine: DexEngine, project: ExploreProject | None
+) -> ProjectDefinitions | None:
+    """Declared keys and joins, with a differing semantic vendor's own keys
+    folded in additively.
+
+    Takes the project the caller already read rather than resolving one of its
+    own: the format is built once per command, and a repo-less host has no
+    project to build, so ``None`` in is ``None`` out and the grain survey runs
+    on its measured half alone.
+
+    Grain verification (`maintain grain`/`maintain check`) reads declared
+    composite keys off ``ProjectDefinitions.declared_composite_keys``, which
+    the project's own ``definitions()`` alone never carries for a semantic
+    vendor that is not the project: it is never the transformation project that
+    method resolves, which is the same fact the explore-side grain channel works
+    around in `explore.commands._fold_semantic_layer_keys`. Mirrored here rather
+    than imported from there, the way `_semantic_layer` above is its own
+    implementation beside `explore.commands._semantic_catalog`: each module
+    composes through the same neutral `SemanticLayer.declared_keys()` seam
+    rather than one reaching into the other's private helper.
+
+    Additive and silent on every declinable condition, matching
+    ``declared_keys()``'s own contract: a format with nothing to add (dbt,
+    whose keys already reach here through this same call) returns empty and
+    changes nothing.
+    """
+
+    if project is None:
+        return None
+    defs = project.definitions()
+    if engine.repo_root is None:
+        return defs
+    try:
+        from ..explore.semantic import resolve_semantic_layer
+
+        layer = resolve_semantic_layer(engine, local=True)
+        keys, composite_keys = layer.declared_keys()
+    except (DexError, ValueError, OSError):
+        return defs
+    if not keys and not composite_keys:
+        return defs
+    return defs.model_copy(
+        update={
+            "present": True,
+            "declared_keys": [*defs.declared_keys, *keys],
+            "declared_composite_keys": [*defs.declared_composite_keys, *composite_keys],
+        }
+    )
+
+
+class NoBaselineError(PrerequisiteError):
+    """A detector was asked to measure drift with nothing to measure against.
+
+    Named for the state rather than for a missing file: on the filesystem
+    backend the baseline is `.dex/snapshot.json`, elsewhere it is a row, and the
+    fix is the same either way.
+    """
+
+
+class BaselineUnreadableError(PrerequisiteError):
+    """A baseline exists and this engine cannot read it.
+
+    Distinct from :class:`NoBaselineError` on purpose. Both remediate the same
+    way, so the status is the same, but "you never took a baseline" and "the
+    baseline you have is unreadable" are different facts about the deployment,
+    and only one of them suggests something went wrong. A host that wants to
+    page on the second and not the first can now tell them apart without
+    matching on prose.
+
+    Two states reach this one class, and :attr:`schema_version` is how a caller
+    separates *them* without matching on prose either. It carries the stored
+    version when the document parsed and this engine does not read that version,
+    and is ``None`` when the document did not parse at all. Worth separating,
+    because they are different operational events: a version this engine does
+    not know usually means the deployment rolled forward or back, while a
+    document that will not parse is an integrity problem. One class rather than
+    two because the remediation is identical, and a host that does not care
+    should not have to catch two names to stay correct.
+    """
+
+    def __init__(self, message: str, *, schema_version: int | None = None) -> None:
+        super().__init__(message)
+        #: The stored schema version when the baseline parsed and this engine
+        #: does not read that version; ``None`` when it failed to parse at all.
+        self.schema_version = schema_version
+
+
+#: Appended wherever the remedy is a fresh baseline. `maintain snapshot` is free
+#: on every connector and cannot really fail, which makes "just re-snapshot"
+#: sound costless. The cost is not in dollars: a replacement pins *current* state
+#: as known-good, so whatever drifted between the last readable baseline and now
+#: is absorbed and never reported again, on any axis. An operator deciding
+#: whether to investigate before replacing needs that said before they run it.
+_REPLACEMENT_ABSORBS_DRIFT = (
+    "note that a replacement pins current state as known-good, so anything that "
+    "drifted since the last readable baseline will not be reported"
+)
+
+
+def _require_baseline(store: MaintainStore) -> snapshot_mod.Snapshot:
+    """The stored baseline, or a refusal that names the command producing one.
+
+    Every drift axis went through the same three lines, and two of the three
+    states they could reach were wrong.
+
+    **A corrupt baseline reported as a bad request.** ``load_snapshot`` raises,
+    and pydantic's ``ValidationError`` subclasses ``ValueError``, so it fell to
+    the CLI catch-all and was classified as a *request* error. That tells an
+    operator they typed something wrong when the fix is `maintain snapshot`, and
+    it is exactly the retry-versus-stop distinction ``PrerequisiteError`` exists
+    to carry.
+
+    **An incompatible baseline was not detected at all.** ``schema_version`` was
+    stamped on every write and read by nothing, so a document from a future or
+    unknown schema was handed to the detectors as though it were current. The
+    failure that produces is the bad kind: not an error, but a drift report
+    measured against a shape the engine misunderstood.
+
+    **What the version check does not reach**, stated here because the guarantee
+    is narrower than "an incompatible baseline is refused" sounds. The check runs
+    on a *parsed* :class:`~.snapshot.Snapshot`, because the store hands back a
+    model and the raw document is not the engine's to see (``storage/base.py``).
+    So a future version whose shape this model still validates is named exactly,
+    and a future version whose shape it rejects arrives as a parse failure
+    instead: same refusal, same remediation, but the message cannot say which
+    version it came from. Both messages therefore name the possibility. Reading
+    the version off the document before validating it would take a contract
+    change on ``Store``, which is a wider change than this one.
+    """
+
+    try:
+        snap = store.load_snapshot()
+    except ValueError as exc:
+        # ValueError rather than pydantic's ValidationError, which it subclasses.
+        # `references/storage.md` requires a backend to raise on a document it
+        # cannot parse, and has never named the exception; the store contract is
+        # public, and a backend deserializing its own rows raises whatever `json`
+        # or its driver raises. Catching only pydantic's error would leave every
+        # third-party backend reproducing the exact defect this function fixes,
+        # which is the kind of gap that looks fixed from inside this repo.
+        detail = (
+            f"{exc.error_count()} validation error(s)"
+            if isinstance(exc, ValidationError)
+            else str(exc)
+        )
+        raise BaselineUnreadableError(
+            f"the stored drift baseline could not be read ({detail}). It is "
+            "either corrupt or written by a newer dex whose shape this engine "
+            "does not know. Re-run `maintain snapshot` to replace it, or move to "
+            "the dex that wrote it if that is what happened; "
+            f"{_REPLACEMENT_ABSORBS_DRIFT}"
+        ) from exc
+
+    if snap is None:
+        raise NoBaselineError(_NO_SNAPSHOT_ERROR)
+
+    if snap.schema_version not in snapshot_mod.SUPPORTED_SNAPSHOT_SCHEMA_VERSIONS:
+        supported = ", ".join(
+            str(v) for v in sorted(snapshot_mod.SUPPORTED_SNAPSHOT_SCHEMA_VERSIONS)
+        )
+        # Older and newer are opposite situations with opposite first moves, and
+        # one sentence covering both sends half of them the wrong way. dex tells
+        # operators to commit `.dex/snapshot.json` like a lockfile, so a baseline
+        # newer than the engine reading it is usually a colleague on a newer dex
+        # rather than a broken file, and "re-run `maintain snapshot`" resolves it
+        # by overwriting *their* baseline with one they can no longer read.
+        remedy = (
+            "upgrade dex to a version that reads it, or re-run `maintain "
+            "snapshot` to replace it at this engine's version, which makes it "
+            "unreadable to the newer dex that wrote it: prefer upgrading when "
+            "the baseline is committed and shared"
+            if snap.schema_version
+            > max(snapshot_mod.SUPPORTED_SNAPSHOT_SCHEMA_VERSIONS)
+            else "re-run `maintain snapshot` to take a fresh one"
+        )
+        raise BaselineUnreadableError(
+            f"the stored drift baseline is schema version {snap.schema_version}, "
+            f"and this engine reads {supported}: {remedy}; "
+            f"{_REPLACEMENT_ABSORBS_DRIFT}",
+            schema_version=snap.schema_version,
+        )
+
+    return snap
+
+
+def _stored_drift(store: MaintainStore) -> drift_mod.DriftReport | None:
+    """The stored drift report, treating one that will not parse as absent.
+
+    The opposite policy from :func:`_require_baseline`, and the reason is the one
+    already written down beside ``DRIFT_SCHEMA_VERSION`` in :mod:`.drift`: the
+    baseline is *vouched for* and nothing else reproduces it, while a drift
+    report is *derived* and `maintain check` regenerates it from the baseline on
+    demand. So a document this engine cannot read has a cheap correct answer here
+    that the baseline does not have, and that note pre-committed to this one:
+    "treat it as absent and rebuild, rather than refuse".
+
+    Both callers already have an absent path, so this widens a handled state
+    rather than adding one. ``_record_axes`` discards a report measured against a
+    different baseline wholesale, which is the same "throw it away and remeasure"
+    it now does for an unparseable one; ``reconcile`` raises
+    :class:`NoBaselineError` naming `maintain check`, which is the correct remedy
+    for a report that cannot be read as much as for one that was never written.
+
+    ⚠️ Deliberately silent about *which* of the two happened, unlike the cache and
+    the baseline. Rebuilding is free and automatic here, so an operator has
+    nothing to decide and a warning would be noise on a path that self-heals.
+    """
+
+    try:
+        return store.load_drift()
+    except ValueError:
+        # Same convention as `_require_baseline` and `readable_cache`: a backend
+        # signals "this document will not parse" with a ValueError, whatever its
+        # own deserializer raises. Swallowed rather than classified because the
+        # remedy runs itself on the very next line of both callers.
+        return None
+
+
+def snapshot(engine: DexEngine, *, project_only: bool = False) -> SnapshotResult:
+    """Capture the known-good baseline every drift axis is measured against.
+
+    Prefers the exploration cache, which carries the grain and cardinality
+    signals metadata alone cannot see; falls back to a metadata-only capture
+    (free on every connector, so no handshake) and says so, because a
+    metadata-only baseline silently disarms two of the four axes.
+    """
+
+    store = _maintain_store(engine)
+    config = engine.config
+    warnings: list[str] = []
+
+    if project_only:
+        previous = _require_baseline(store)
+        # Copy the old warehouse block as a unit.  Project-only mode must not
+        # consult a cache (which may be newer) or a connector: the old evidence
+        # and the timestamp that tells a future check how old it is travel
+        # together.
+        warehouse = previous.warehouse.model_copy(deep=True)
+        connector = previous.connector
+        warehouse_from = previous.warehouse_from
+        cache_updated_at = previous.cache_updated_at
+        warnings.append(
+            "warehouse baseline was carried forward without re-measuring it; no "
+            "warehouse connection was opened and zero warehouse bytes were billed"
+        )
+    else:
+        cache = readable_cache(store)
+        requested = engine.connector or config.connector
+        usable = cache is not None and bool(cache.datasets)
+        if (
+            usable
+            and cache is not None
+            and cache.provenance.connector not in (None, requested)
+        ):
+            warnings.append(
+                "the exploration cache was mapped on "
+                f"'{cache.provenance.connector}' but "
+                f"the active connector is '{requested}'; capturing a fresh "
+                "metadata-only baseline instead"
+            )
+            usable = False
+
+        if usable and cache is not None:
+            warehouse = snapshot_mod.warehouse_from_cache(cache)
+            connector = cache.provenance.connector or requested
+            warehouse_from = "cache"
+            cache_updated_at = cache.provenance.updated_at
+        else:
+            # No cache to pin: capture directly. Metadata is free on every
+            # connector, so this path needs no confirm handshake.
+            adapter = engine._adapter("maintain snapshot")
+            warehouse = snapshot_mod.warehouse_from_metadata(adapter)
+            connector = adapter.name
+            warehouse_from = "metadata"
+            cache_updated_at = None
+            if cache is None or not cache.datasets:
+                warnings.append(
+                    "no exploration cache to pin, so this baseline is metadata-only "
+                    "(schema and volume axes); run `explore map` and re-snapshot "
+                    "to give the grain and cardinality axes a baseline"
+                )
+
+    transform_layer, semantic_layer, no_project = _read_layers(engine)
+    if no_project is not None:
+        warnings.append(
+            f"no project fingerprinted ({no_project}); the semantic axis and "
+            "reconcile need one"
+        )
+
+    now = datetime.now(UTC)
+    snap = snapshot_mod.Snapshot(
+        created_at=now.isoformat(),
+        connector=connector,
+        warehouse=warehouse,
+        warehouse_from=warehouse_from,
+        cache_updated_at=cache_updated_at,
+        transform_layer=transform_layer,
+        semantic_layer=semantic_layer,
+    )
+    # Said at the moment of pinning, not only at detection: this is the command a
+    # host wires to "accept current state", and a thin or aging cache makes that
+    # accept partial in a way nothing else surfaces. Both checks read the
+    # baseline just built, so they describe what was actually written.
+    warnings.extend(_column_detail_warnings(snap))
+    warnings.extend(
+        _cache_age_warnings(snap, config.profile_freshness_hours, now),
+    )
+    warnings.extend(_layer_notes(transform_layer, semantic_layer))
+    locator = store.save_snapshot(snap)
+
+    return SnapshotResult(
+        snapshot=snap,
+        snapshot_path=locator,
+        warehouse_from=warehouse_from,
+        dataset_count=len(warehouse.datasets),
+        relationship_count=len(warehouse.relationships),
+        grain_baseline_count=sum(1 for d in warehouse.datasets if d.candidate_keys),
+        column_detail_count=len(warehouse.datasets)
+        - len(warehouse.without_column_detail()),
+        cache_updated_at=cache_updated_at,
+        warehouse_carried_forward=project_only,
+        transform_layer=(
+            LayerFingerprint(
+                file_count=len(transform_layer.files),
+                model_count=len(transform_layer.models),
+                source_count=len(transform_layer.sources),
+                declared_model_count=(
+                    len(transform_layer.declarations)
+                    if transform_layer.declarations is not None
+                    else None
+                ),
+            )
+            if transform_layer is not None
+            else None
+        ),
+        semantic_layer=(
+            LayerFingerprint(
+                semantic_model_count=len(semantic_layer.semantic_models),
+                metric_count=len(semantic_layer.metrics),
+            )
+            if semantic_layer is not None
+            else None
+        ),
+        warnings=warnings,
+    )
+
+
+def cmd_snapshot(args: argparse.Namespace, engine: DexEngine) -> env.Envelope:
+    project_only = getattr(args, "project_only", False)
+    if project_only:
+        warehouse_options = {
+            "--connector": getattr(args, "connector", None),
+            "--path": getattr(args, "path", None),
+            "--scope": getattr(args, "scope", None),
+            "--project": getattr(args, "project", None),
+            "--dataset": getattr(args, "dataset", None),
+        }
+        supplied = [name for name, value in warehouse_options.items() if value]
+        if supplied:
+            raise RequestError(
+                "`maintain snapshot --project-only` cannot be combined with "
+                "warehouse target options: " + ", ".join(supplied)
+            )
+    # Which advice is true depends on where the baseline landed, so the hint is
+    # built from the store rather than fixed. The shipped filesystem backend is
+    # the only one dex knows puts a reviewable file in the repo; a backend it
+    # does not ship gets the half that holds everywhere, which is better than
+    # confidently naming a file that does not exist. `snapshot_path` carries the
+    # real location either way.
+    reviewable = isinstance(engine.store, FilesystemStore)
+    hint = (_REVIEWABLE_SNAPSHOT_HINT if reviewable else "") + _SNAPSHOT_HINT
+    return to_envelope(
+        snapshot(engine, project_only=project_only), hints={"hint": hint}
+    )
+
+
+def schema_drift(engine: DexEngine, objects: list[str] | None = None) -> DriftResult:
+    """Source columns and tables added, dropped, retyped, or renamed.
+
+    Unlike ``volume_drift``, this loads the live project (degrading quietly,
+    never raising, when none is available) so ``orphan_relation`` can compare
+    the baseline's project fingerprint against the current one; that need is
+    schema-only, so this has its own body instead of going through
+    ``_detect_free_axis``.
+    """
+
+    store = _maintain_store(engine)
+    snap = _require_baseline(store)
+
+    warnings: list[str] = []
+    current_transform, _, no_project = _read_layers(engine, semantic=False)
+    if no_project is not None:
+        warnings.append(
+            f"orphan-relation classification skipped (no project: {no_project})"
+        )
+
+    adapter = engine._adapter("maintain schema")
+    current = snapshot_mod.warehouse_from_metadata(adapter).datasets
+    cost = command_args.preflight_cost(adapter)
+    connector = adapter.name
+
+    scope_names = list(objects or [])
+    scope = _resolve_scope(scope_names, current, snap)
+    findings = drift_mod.schema_drift(current, snap, scope, current_transform)
+    declared, declared_notes = _declared_schema_drift(engine, current, snap, scope)
+    findings.extend(declared)
+    warnings.extend(declared_notes)
+    # A dataset only one side covers is a block of table_added or table_dropped
+    # findings that says nothing about the warehouse moving (#543): named here,
+    # beside the findings it accounts for, so the report carries both.
+    warnings.extend(drift_mod.scope_mismatch_warnings(current, snap, scope))
+    warnings.extend(
+        drift_mod.built_relation_warnings(current, snap, scope, current_transform)
+    )
+    # Not scoped by `objects`: a model's identifier is its project name, not a
+    # warehouse identifier, and `scope` above is resolved against the latter.
+    findings.extend(drift_mod.transform_drift(current_transform, snap))
+    drift_mod.annotate_impacts(findings, snap)
+    ranked = drift_mod.rank_findings(findings)
+
+    by_axis = _record_axes(store, snap, connector, {"schema": (ranked, scope_names)})
+    result = _drift_result(
+        by_axis,
+        snap,
+        store,
+        warnings=warnings
+        + _column_detail_warnings(snap)
+        + _baseline_warnings(store, snap, engine.config.profile_freshness_hours)
+        + _layer_notes(snap.transform_layer, current_transform),
+    )
+    result.cost = cost
+    return result
+
+
+def volume_drift(engine: DexEngine, objects: list[str] | None = None) -> DriftResult:
+    """A row count that collapsed, a table that emptied, a load that half-failed."""
+
+    return _detect_free_axis(
+        engine,
+        "volume",
+        drift_mod.volume_drift,
+        objects,
+        noter=drift_mod.uncomparable_volume,
+    )
+
+
+def cmd_schema(args: argparse.Namespace, engine: DexEngine) -> env.Envelope:
+    return _drift_envelope(schema_drift(engine, getattr(args, "objects", None)))
+
+
+def cmd_volume(args: argparse.Namespace, engine: DexEngine) -> env.Envelope:
+    return _drift_envelope(volume_drift(engine, getattr(args, "objects", None)))
+
+
+def grain_drift(engine: DexEngine, objects: list[str] | None = None) -> DriftResult:
+    """A key that lost uniqueness, a changed row-per-entity cardinality, fanout.
+
+    This axis scans (exact distinct counts, overlap probes), so on a billed
+    connector it goes through the confirm handshake with a dry-run estimate of
+    exactly the statements it would run. Free connectors run immediately.
+    """
+
+    store = _maintain_store(engine)
+    snap = _require_baseline(store)
+    scope_names = list(objects or [])
+
+    adapter = engine._adapter("maintain grain")
+    connector = adapter.name
+    # Guarded rather than passed straight through: `list_objects` is a metadata
+    # round trip, and an unscoped run has no use for it.
+    scope = (
+        _resolve_scope(scope_names, adapter.list_objects(), snap)
+        if scope_names
+        else None
+    )
+    project, _ = _read_project(engine)
+    composed_definitions = _composed_definitions(engine, project)
+    plan = drift_mod.grain_plan(
+        adapter,
+        snap,
+        scope,
+        composed_definitions,
+        semantic=_vendor_semantic_layer(engine),
+    )
+    # One statement per table where the adapter can take it (#275), surveyed
+    # once so the handshake prices exactly what the run below executes.
+    batched = drift_mod.batched_probes(adapter, plan)
+    if plan.scans():
+        estimate, per_table = drift_mod.grain_estimate(adapter, plan, batched)
+        command_args.billed_handshake(
+            "maintain grain", adapter, estimate, per_table=per_table
+        )
+    findings = drift_mod.grain_drift(
+        adapter,
+        plan,
+        timeout_seconds=engine.config.query.timeout_seconds,
+        min_rows=engine.config.maintain.grain_min_rows,
+        probes=drift_mod.run_batched_probes(adapter, batched),
+    )
+    noted = (
+        {dataset.identifier for dataset, _keys, _rows in plan.key_checks}
+        | {
+            dataset.identifier
+            for dataset, _combos, _rows in plan.composite_checks
+            + plan.declared_composite_checks
+        }
+        | {check.identifier for check in plan.join_cardinality_checks or []}
+    )
+    notes_by_identifier = _adapter_notes_by_identifier(adapter, sorted(noted))
+    _qualify_uniqueness_findings(findings, notes_by_identifier)
+    notes = _flatten_adapter_notes(notes_by_identifier)
+
+    drift_mod.annotate_impacts(findings, snap)
+    ranked = drift_mod.rank_findings(findings)
+    by_axis = _record_axes(store, snap, connector, {"grain": (ranked, scope_names)})
+    result = _drift_result(
+        by_axis,
+        snap,
+        store,
+        warnings=_grain_baseline_warnings(snap)
+        + _column_detail_warnings(snap)
+        + _baseline_warnings(store, snap, engine.config.profile_freshness_hours)
+        + plan.notes
+        + notes,
+    )
+    return command_args.stamp_spend(result, adapter)
+
+
+def cmd_grain(args: argparse.Namespace, engine: DexEngine) -> env.Envelope:
+    return _drift_envelope(grain_drift(engine, getattr(args, "objects", None)))
+
+
+def _combined_scan_handshake(adapter, join_cost, facts_cost=None):
+    """Three handshakes, ``(row_ask, join_ask, facts_ask)``, sharing one cached
+    decision for the paid scans `maintain verify` can run: row population's
+    row counts, join contract's overlap probe (#228), and the declared-fact
+    checks (#496).
+
+    ``VerifyResult.pending_offer`` holds exactly one offer. Without this,
+    whichever axis asked last would silently discard the others' price the
+    moment more than one is deferred on a metered connector: the caller would
+    see one offer that named only one axis's cost, understating what
+    confirming would actually spend.
+
+    One closure per axis, not one shared between all callers: each axis calls
+    its handshake as ``ask(estimate, count)`` -- the same shape, but meaning a
+    different axis's numbers each time. One shared closure receiving every
+    call has no way to tell which axis is on the line; trusting a later call's
+    own arguments as "the other axis's real numbers" while *also* pricing that
+    axis again double-counted it (#228's own review).
+
+    `verify()` calls the axes in this order: row population, join contract,
+    declared facts. Whichever asks first prices every axis after it lazily
+    (``join_cost``, ``facts_cost``: zero-argument callables) and caches the
+    combined decision, which every later ask reads rather than asking again.
+    An axis before it never asked at all, which only happens when it had
+    nothing to scan -- a real, legitimate zero contribution, not a number this
+    needs to compute a second time.
+    """
+
+    order = ("row_population", "join_contract", "declared_facts")
+    keys = {
+        "row_population": "(row counts)",
+        "join_contract": "(join overlap probes)",
+        "declared_facts": "(declared facts)",
+    }
+    lazy = {
+        "join_contract": join_cost,
+        "declared_facts": facts_cost if facts_cost is not None else (lambda: (0.0, 0)),
+    }
+    cache: dict[str, object] = {}
+
+    def _resolve(numbers: dict[str, tuple[float, int]]):
+        if "offer" in cache:
+            return cache["offer"]
+        wanted = [axis for axis in order if numbers.get(axis, (0.0, 0))[1]]
+        if not wanted:
+            cache["offer"] = None
+            return None
+        per_table = {keys[axis]: numbers[axis][0] for axis in wanted}
+        row_count = numbers.get("row_population", (0.0, 0))[1]
+        join_count = numbers.get("join_contract", (0.0, 0))[1]
+        facts_count = numbers.get("declared_facts", (0.0, 0))[1]
+        bought = f"{row_count} row count(s) and {join_count} join overlap probe(s)"
+        judged = "row loss, fanout, and a broken or sparse join"
+        if facts_count:
+            bought = (
+                f"{row_count} row count(s), {join_count} join overlap probe(s) "
+                f"and {facts_count} declared-fact check(s)"
+            )
+            judged = (
+                "row loss, fanout, a broken or sparse join, and a contradicted "
+                "declaration"
+            )
+        offer = command_args.confirmation_request(
+            "maintain verify",
+            adapter,
+            sum(numbers[axis][0] for axis in wanted),
+            per_table=per_table,
+            axes=wanted,
+            notes=[
+                "the build-status, no-relation, column-contract and grain "
+                f"findings in this envelope are final; the estimate buys {bought}, "
+                f"which is what {judged} are judged from"
+            ],
+        )
+        cache["offer"] = offer
+        return offer
+
+    def asker(axis: str):
+        def ask(estimate: float, count: int):
+            if "offer" in cache:
+                return cache["offer"]
+            numbers = {axis: (estimate, count)}
+            for later in order[order.index(axis) + 1 :]:
+                numbers[later] = lazy[later]()
+            return _resolve(numbers)
+
+        return ask
+
+    return asker("row_population"), asker("join_contract"), asker("declared_facts")
+
+
+def verify(engine: DexEngine, objects: list[str] | None = None) -> VerifyResult:
+    """Is the project correct right now, with no baseline required (#224).
+
+    Six finding classes. Build-status gaps (#225) read the compiled manifest
+    and the last run's ``run_results.json`` (failed nodes, nodes skipped by a
+    failed parent), plus models the project declares that have no relation in
+    the warehouse. Column contract (#230) compares a built relation's actual
+    columns against what its schema.yml declares, both directions, plus a type
+    check where a type is declared. Row population (#226) reads each model's
+    compiled SQL for the relation it is built from and compares the two row
+    counts, reporting a model that lost rows with nothing in its SQL to
+    account for it, or one that fanned out on a join. Grain (#229) checks that
+    a model's intended grain -- the grain its declaration states, a declared
+    unique test, a semantic model's declared primary entity, or (absent all of
+    them) a free naming guess -- still holds one row per key in the built
+    relation. Join contract (#228) reads every equality join a model's compiled
+    SQL writes and measures the real value overlap on each, reporting a join
+    whose keys find almost nothing on the other side, or fewer but still
+    materially many. Declared facts (#496) hold each declaration's unit,
+    additivity and population to the built relation
+    (:mod:`~.declared_facts`).
+
+    Free wherever the answer is free, which is most of it: the manifest read
+    touches no connection, the relation check, the column contract, and grain
+    all read cheap object metadata or bounded distinct counts, and on a
+    connector with no cost gate the row counts are made exact because doing
+    so bills nothing. The row counts a warehouse keeps no metadata for, and
+    the join contract's own overlap probe, are the two things that cost
+    anything, and both are offered rather than taken, combined into one
+    priced ask when both need one (see `_combined_scan_handshake`): the
+    envelope returns its free findings as the complete answer they are, with
+    the scan priced beside them, exactly as `maintain check` and `maintain
+    semantic` do.
+
+    A dbt project that does not compile is reported first and suppresses every
+    other check here, since a finding computed from a manifest a broken
+    project could not have produced honestly is not a finding at all
+    (#172's inertness requirement, #225's third acceptance bullet). Other
+    project formats still serve the checks whose inputs are part of the project
+    seam: missing relations and grain. Checks that specifically read dbt's
+    ``target/`` artifacts are suppressed by name rather than preventing those
+    portable checks from running.
+    """
+
+    from pathlib import Path
+
+    project, project_reason = _read_project(engine)
+    if project is None:
+        reason = project_reason or "no readable project format found"
+        return VerifyResult(
+            suppressed={
+                "build_status": reason,
+                "no_relation": reason,
+                "row_population": reason,
+                "column_contract": reason,
+                "grain": reason,
+                "join_contract": reason,
+                **dict.fromkeys(facts_mod.CLASSES, reason),
+                "compile": reason,
+            },
+            warnings=[f"maintain verify could not read the project format: {reason}"],
+        )
+
+    definitions = project.definitions()
+    suppressed: dict[str, str] = {}
+    findings: list = []
+    notes: list[str] = []
+    warnings = list(definitions.notes)
+    project_dir: Path | None = None
+    artifact_reason: str | None = None
+    if project.name == "dbt":
+        try:
+            project_dir = Path(engine.project_dir())
+        except (ProjectError, RepoRootRequiredError) as exc:
+            artifact_reason = f"dbt target/ artifacts are unavailable: {exc}"
+    else:
+        artifact_reason = (
+            f"the '{project.name}' project format does not provide dbt target/ "
+            "artifacts"
+        )
+
+    if artifact_reason is not None:
+        for finding_class in (
+            "compile",
+            "build_status",
+            "row_population",
+            "column_contract",
+            "join_contract",
+            *facts_mod.CLASSES,
+        ):
+            suppressed[finding_class] = artifact_reason
+        warnings.append(
+            "maintain verify ran no-relation and grain through the project "
+            f"format seam; dbt target-dependent checks were suppressed: "
+            f"{artifact_reason}"
+        )
+    if project_dir is not None:
+        compile_finding, compile_notes = verify_mod.compile_check(project_dir)
+        if compile_finding is not None:
+            findings.append(compile_finding)
+            reason = "the project does not compile"
+            result = VerifyResult(
+                findings=drift_mod.rank_findings(findings),
+                suppressed={
+                    "build_status": reason,
+                    "no_relation": reason,
+                    "row_population": reason,
+                    "column_contract": reason,
+                    "grain": reason,
+                    "join_contract": reason,
+                    **dict.fromkeys(facts_mod.CLASSES, reason),
+                },
+                warnings=[
+                    "build-status, no-relation, row-population, column-contract, "
+                    "grain and join-contract findings suppressed: the project "
+                    "does not compile, so its manifest cannot be trusted"
+                ],
+            )
+            return result
+
+        warnings.extend(compile_notes)
+        build_findings, build_notes = verify_mod.build_status_findings(project_dir)
+        findings.extend(build_findings)
+        warnings.extend(build_notes)
+        if build_notes:
+            suppressed["build_status"] = build_notes[0]
+
+    wanted = (
+        {
+            name.strip().lower()
+            for raw in objects
+            for name in raw.split(",")
+            if name.strip()
+        }
+        if objects
+        else None
+    )
+    cost = None
+    adapter = None
+    offer = None
+    if not definitions.present:
+        reason = "the project format returned no readable project declarations"
+        suppressed["no_relation"] = reason
+        suppressed["grain"] = reason
+        if project_dir is not None:
+            suppressed["row_population"] = reason
+            suppressed["column_contract"] = reason
+            suppressed["join_contract"] = reason
+            suppressed.update(dict.fromkeys(facts_mod.CLASSES, reason))
+    else:
+        model_relations = dict(definitions.model_relations)
+        if wanted:
+            # A bare model name selects every version of it, the way dbt's own
+            # `--select dim_customers` does; `dim_customers.v2` selects one.
+            # Model names cannot contain a dot, so a label's first segment is
+            # the name it was versioned from.
+            wanted |= {
+                label.lower()
+                for label in model_relations
+                if label.split(".", 1)[0].lower() in wanted
+            }
+        try:
+            adapter = engine._adapter("maintain verify")
+        except DexError as exc:
+            suppressed["no_relation"] = f"warehouse unreachable: {exc}"
+            suppressed["grain"] = f"warehouse unreachable: {exc}"
+            if project_dir is not None:
+                suppressed["row_population"] = f"warehouse unreachable: {exc}"
+                suppressed["column_contract"] = f"warehouse unreachable: {exc}"
+                suppressed["join_contract"] = f"warehouse unreachable: {exc}"
+                suppressed.update(
+                    dict.fromkeys(facts_mod.CLASSES, f"warehouse unreachable: {exc}")
+                )
+        else:
+            cost = command_args.preflight_cost(adapter)
+            live = adapter.list_objects()
+            already = {f.identifier for f in findings if f.identifier}
+            findings.extend(
+                verify_mod.missing_relation_findings(
+                    model_relations, [o.identifier for o in live], already
+                )
+            )
+            # A declared grain is counted with the other declared facts, in the
+            # one priced statement per relation; the grain axis keeps every
+            # other source, and the models no compiled manifest could carry.
+            facts_plan, facts_plan_notes = (
+                facts_mod.plan(project_dir, scope=wanted)
+                if project_dir is not None
+                else ([], [])
+            )
+            grain_findings, grain_warnings, grain_reason = _grain_contract(
+                adapter,
+                definitions,
+                model_relations,
+                live,
+                scope=wanted,
+                counted_elsewhere={m.model for m in facts_plan if m.grain},
+            )
+            findings.extend(grain_findings)
+            warnings.extend(grain_warnings)
+            if grain_reason is not None:
+                suppressed["grain"] = grain_reason
+
+            if project_dir is not None:
+                column_findings, column_warnings, column_reason = _column_contract(
+                    project_dir, adapter, model_relations, live, scope=wanted
+                )
+                findings.extend(column_findings)
+                warnings.extend(column_warnings)
+                if column_reason is not None:
+                    suppressed["column_contract"] = column_reason
+
+                prepared = facts_mod.prepare(
+                    adapter,
+                    facts_plan,
+                    [o.identifier for o in live],
+                    check_grain=True,
+                    tested_grain=True,
+                )
+                row_ask, join_ask, facts_ask = _combined_scan_handshake(
+                    adapter,
+                    lambda: verify_mod.join_contract_cost(
+                        project_dir,
+                        adapter,
+                        model_relations,
+                        [o.identifier for o in live],
+                        scope=wanted,
+                    ),
+                    lambda: facts_mod.cost(adapter, prepared),
+                )
+                row_findings, row_warnings, row_notes, row_reason, offer = (
+                    _row_population(
+                        engine,
+                        adapter,
+                        project_dir,
+                        live,
+                        scope=wanted,
+                        handshake=row_ask,
+                    )
+                )
+                findings.extend(row_findings)
+                notes.extend(row_notes)
+                warnings.extend(row_warnings)
+                if row_reason is not None:
+                    suppressed["row_population"] = row_reason
+                join_findings, join_warnings, join_reason, join_offer = _join_contract(
+                    engine,
+                    project_dir,
+                    adapter,
+                    model_relations,
+                    live,
+                    scope=wanted,
+                    handshake=join_ask,
+                )
+                findings.extend(join_findings)
+                warnings.extend(join_warnings)
+                if join_reason is not None:
+                    suppressed["join_contract"] = join_reason
+                facts = facts_mod.findings(
+                    adapter,
+                    prepared,
+                    timeout_seconds=engine.config.query.timeout_seconds,
+                    handshake=facts_ask,
+                    pii_overrides=pii_override_paths(engine.config.pii_overrides),
+                    min_rows=engine.config.maintain.grain_min_rows,
+                )
+                findings.extend(facts.findings)
+                warnings.extend(facts_plan_notes + facts.notes)
+                # No manifest is the more specific reason than "nothing declared".
+                for finding_class, reason in facts.suppressed.items():
+                    suppressed[finding_class] = (
+                        facts_plan_notes[0] if facts_plan_notes else reason
+                    )
+                # Every axis asks through the same shared cache, so a non-None
+                # offer from any names them all; take whichever answered.
+                offer = offer or join_offer or facts.offer
+
+    if wanted:
+        findings = [f for f in findings if (f.identifier or "").lower() in wanted]
+
+    result = VerifyResult(
+        findings=drift_mod.rank_findings(findings),
+        suppressed=suppressed,
+        notes=notes,
+        warnings=warnings,
+    )
+    if cost is not None:
+        result.cost = cost
+    if offer is not None:
+        # The free half is complete and real, so it returns as the answer it
+        # is, with the counts offered on top rather than gating it.
+        result.pending_offer = offer
+        return result
+    return result if adapter is None else command_args.stamp_spend(result, adapter)
+
+
+def _column_contract(project_dir, adapter, model_relations, live, *, scope=None):
+    """The column-contract half of `maintain verify`, end to end (#230).
+
+    No cost decision in it at all, unlike row population beside it: both
+    sides are metadata (the compiled manifest's own declared columns, and
+    ``adapter.table_metadata``'s schema lookup), so there is nothing to
+    price and nothing to offer. Returns ``(findings, notes, suppressed_reason)``.
+
+    ``scope`` is the same lowered object-name set `verify()` filters its
+    findings down to afterward. Passed through here too so a scoped call
+    considers only the requested models in the first place: the metadata
+    lookup a model outside the scope would cost, and the summary notes
+    naming models the caller never asked about, both go away rather than
+    running and then being discarded by that later filter.
+    """
+
+    declared_by_model, undeclared, plan_notes = verify_mod.column_contract_plan(
+        project_dir, scope=scope
+    )
+    if not declared_by_model and not undeclared:
+        reason = (
+            plan_notes[0]
+            if plan_notes
+            else "no model in the project declares columns in schema.yml"
+        )
+        return [], plan_notes, reason
+
+    findings, finding_notes = verify_mod.column_contract_findings(
+        adapter,
+        declared_by_model,
+        model_relations,
+        [o.identifier for o in live],
+        undeclared,
+    )
+    return findings, plan_notes + finding_notes, None
+
+
+def _grain_contract(
+    adapter,
+    definitions,
+    model_relations,
+    live,
+    *,
+    scope=None,
+    counted_elsewhere: set[str] | None = None,
+):
+    """The grain half of `maintain verify`, end to end (#229).
+
+    No cost decision of its own, unlike row population beside it: a declared
+    grain's exact check and the naming heuristic's escalation are both
+    bounded-and-deliberate by the adapter's own contract (see
+    ``verify.py``'s module docstring), not a scan this command doses out with
+    a handshake the way row population's ``COUNT(*)`` is. Always attempts
+    every selected model, declared or not, so there is no "nothing to check"
+    reason to report the way column contract has for a project with no
+    ``columns:`` blocks at all -- a model's grain is either declared,
+    guessable by name, or reported unknown, and all three are `grain_
+    findings`'s own job to sort out.
+
+    ``counted_elsewhere`` names the models whose declared grain the declared-
+    fact statement counts (#496). The declaration still ranks first in
+    :func:`~.verify.grain_plan`, so those models take no other source here and
+    are left out entirely, rather than falling through to the naming guess.
+    """
+
+    counted_elsewhere = counted_elsewhere or set()
+    scoped_models = {
+        name
+        for name in model_relations
+        if (scope is None or name.lower() in scope) and name not in counted_elsewhere
+    }
+    declared = {
+        model: candidates
+        for model, candidates in verify_mod.grain_plan(definitions, scope=scope).items()
+        if model not in counted_elsewhere
+    }
+    findings, notes = verify_mod.grain_findings(
+        adapter,
+        declared,
+        model_relations,
+        [o.identifier for o in live],
+        scoped_models,
+    )
+    return findings, notes, None
+
+
+def _join_contract(
+    engine: DexEngine,
+    project_dir,
+    adapter,
+    model_relations,
+    live,
+    *,
+    scope=None,
+    handshake=None,
+):
+    """The join-contract half of `maintain verify`, end to end (#228).
+
+    Has a cost decision, unlike column contract or grain beside it: the
+    overlap probe is a real warehouse scan, priced and offered the same way
+    row population's row counts are, not bounded-and-deliberate by an
+    adapter contract the way grain's distinct counts are. ``handshake`` is
+    how `verify()` folds this axis's price into the one combined ask it
+    makes together with row population, so a metered connector sees one
+    priced offer naming both rather than the second one silently discarding
+    the first in ``VerifyResult.pending_offer``.
+    """
+
+    candidates, plan_notes = verify_mod.join_contract_plan(
+        project_dir, adapter.dialect, scope=scope
+    )
+    findings, finding_notes, offer = verify_mod.join_contract_findings(
+        adapter,
+        candidates,
+        model_relations,
+        [o.identifier for o in live],
+        timeout_seconds=engine.config.query.timeout_seconds,
+        handshake=handshake,
+    )
+    return findings, plan_notes + finding_notes, None, offer
+
+
+def _row_population(
+    engine: DexEngine,
+    adapter,
+    project_dir,
+    live,
+    *,
+    scope: set[str] | None = None,
+    handshake=None,
+):
+    """The row-loss and fanout half of `maintain verify`, end to end.
+
+    Split out because it is the only part of the command with a cost decision
+    in it, and because its inert cases are its own: an install with no dialect
+    engine, a project never compiled, a model whose driving parent cannot be
+    identified. Returns ``(findings, warnings, notes, suppressed_reason, offer)``.
+
+    ``handshake`` is passed straight through to :func:`~..maintain.verify.
+    relation_counts`; the default (``None``) is that function's own
+    standalone ask, unchanged from before #228. A caller pricing more than
+    this one axis (see `verify()`'s combined handshake with join contract)
+    supplies its own instead.
+    """
+
+    try:
+        dialect_guard.ensure_available()
+    except DialectDependencyError as exc:
+        return [], [], [], str(exc), None
+
+    checks, plan_notes, informational = verify_mod.row_population_plan(
+        project_dir, adapter.dialect, scope=scope
+    )
+    warning_notes = [note for note in plan_notes if note not in informational]
+    if not checks:
+        # The plan's own first note is the reason where it has one (no compiled
+        # manifest, every model skipped): it is more specific than anything this
+        # layer could say, and it is already phrased for a reader.
+        reason = (
+            plan_notes[0]
+            if plan_notes
+            else "no compiled model could be lined up against a driving parent"
+        )
+        return [], warning_notes, informational, reason, None
+
+    wanted = sorted({relation for check in checks for relation in check.relations})
+    measured = verify_mod.relation_counts(
+        adapter,
+        wanted,
+        live,
+        timeout_seconds=engine.config.query.timeout_seconds,
+        handshake=handshake,
+    )
+    findings, finding_notes = verify_mod.row_population_findings(
+        checks,
+        measured.counts,
+        measured.counted,
+        measured.absent,
+        measured.deferred,
+    )
+    warnings = warning_notes + measured.notes + finding_notes
+    return findings, warnings, informational, None, measured.offer
+
+
+def cmd_verify(args: argparse.Namespace, engine: DexEngine) -> env.Envelope:
+    return to_envelope(verify(engine, getattr(args, "objects", None)))
+
+
+def semantic_drift(engine: DexEngine, objects: list[str] | None = None) -> DriftResult:
+    """Definitions that no longer match: dangling references, new categoricals.
+
+    Two-phase on billed connectors: definition and reference checks are free and
+    run immediately; the dimension-cardinality scan is offered on top. An
+    unconfirmed call is a complete answer for the free half, not a pending
+    charge, so it returns ``ok`` carrying those findings and an offer for the
+    scan rather than throwing away work that cost nothing but is real.
+    """
+
+    store = _maintain_store(engine)
+    snap = _require_baseline(store)
+    current_transform, current_semantic, no_project = _read_layers(engine)
+    if no_project is not None:
+        raise ProjectError(f"the semantic axis needs a project: {no_project}")
+
+    warnings: list[str] = []
+    if snap.semantic_layer is None:
+        warnings.append(
+            "the baseline has no semantic fingerprint, so every definition "
+            "reads as new; re-run `maintain snapshot` to fix the baseline"
+        )
+    # Extended here rather than at the two returns so the confirmation path
+    # carries them too: the free findings it returns are bounded by whatever the
+    # format could not supply, exactly as the settled ones are.
+    warnings.extend(_layer_notes(snap.semantic_layer, current_semantic))
+    scope_names = list(objects or [])
+
+    adapter = engine._adapter("maintain semantic")
+    connector = adapter.name
+    current_datasets = snapshot_mod.warehouse_from_metadata(adapter).datasets
+    free_findings = _semantic_scope(
+        drift_mod.semantic_free_drift(
+            current_transform, current_semantic, current_datasets, snap
+        ),
+        scope_names,
+    )
+    declared, declaration_status, declaration_warnings = _declaration_drift(
+        current_transform, current_semantic, snap, scope_names
+    )
+    free_findings.extend(declared)
+    warnings.extend(declaration_warnings)
+    checks = drift_mod.cardinality_plan(
+        current_semantic, snap, _semantic_names(scope_names) if scope_names else None
+    )
+    offer: ConfirmationRequest | None = None
+    billed_findings: list[drift_mod.DriftFinding] = []
+    if checks:
+        estimate, per_table = drift_mod.cardinality_estimate(adapter, checks)
+        offer = command_args.confirmation_request(
+            "maintain semantic",
+            adapter,
+            estimate,
+            per_table=per_table,
+            axes=["semantic_cardinality"],
+            notes=[
+                "the definition and reference findings in this envelope are "
+                "final; the estimate buys the dimension-cardinality scan on top "
+                "of them"
+            ],
+        )
+    if offer is None:
+        billed_findings = _semantic_scope(
+            drift_mod.cardinality_drift(adapter, checks, current_semantic),
+            scope_names,
+        )
+
+    ranked = drift_mod.rank_findings(free_findings + billed_findings)
+    by_axis = _record_axes(store, snap, connector, {"semantic": (ranked, scope_names)})
+    # Identical warnings either way. Every reason this baseline may not describe
+    # the warehouse bounds the free findings exactly as it bounds the settled
+    # ones, and the unconfirmed call is the one a session makes first, so it is
+    # the last place that caveat should go missing.
+    warnings = warnings + _baseline_warnings(
+        store, snap, engine.config.profile_freshness_hours
+    )
+    if offer is not None:
+        # The free half is complete and real, so it returns as the answer it is,
+        # with the scanning half offered on top rather than gating it.
+        result = _drift_result(by_axis, snap, store, warnings=warnings)
+        result.declaration_drift = declaration_status
+        result.pending_offer = offer
+        return result
+    result = _drift_result(by_axis, snap, store, warnings=warnings)
+    result.declaration_drift = declaration_status
+    return command_args.stamp_spend(result, adapter)
+
+
+def cmd_semantic(args: argparse.Namespace, engine: DexEngine) -> env.Envelope:
+    return _drift_envelope(semantic_drift(engine, getattr(args, "objects", None)))
+
+
+def check(engine: DexEngine, objects: list[str] | None = None) -> DriftResult:
+    """The everyday sweep across every axis.
+
+    Two-phase by construction: the free axes (schema, volume, semantic
+    references) always run and their findings always return; the scanning axes
+    (grain, cardinality) run immediately on free connectors and behind one
+    combined estimate on billed ones. An unconfirmed call on a billed connector
+    is therefore a complete answer for three axes rather than a pending charge,
+    and says so: ``ok``, with ``axes_run`` naming what finished and ``offer``
+    naming what the estimate would add.
+
+    ``objects`` narrows every axis exactly like the focused detectors do:
+    schema/volume/grain resolve it against known identifiers (raising if a
+    name matches nothing), while the semantic axis matches names against
+    definitions too (a metric, dimension, or measure name, not only a table).
+    Unscoped, the paid grain/cardinality estimate covers everything the
+    baseline knows about; a narrowed run prices and bills only the scoped
+    subset, not just the reported findings.
+    """
+
+    store = _maintain_store(engine)
+    snap = _require_baseline(store)
+    config = engine.config
+    scope_names = list(objects or [])
+
+    warnings = _grain_baseline_warnings(snap) + _column_detail_warnings(snap)
+    current_transform, current_semantic, no_project = _read_layers(engine)
+    project_available = no_project is None
+    if no_project is not None:
+        warnings.append(f"semantic axis skipped (no project: {no_project})")
+    # All four layers: `check` sweeps every axis, so both the baseline's limits
+    # and the current read's bound what it reports. Added before the two returns
+    # so the confirmation path carries them as well.
+    warnings.extend(
+        _layer_notes(
+            snap.transform_layer,
+            snap.semantic_layer,
+            current_transform,
+            current_semantic,
+        )
+    )
+
+    adapter = engine._adapter("maintain check")
+    connector = adapter.name
+    current_datasets = snapshot_mod.warehouse_from_metadata(adapter).datasets
+    scope = _resolve_scope(scope_names, current_datasets, snap) if scope_names else None
+    names = _semantic_names(scope_names) if scope_names else None
+
+    schema_findings = drift_mod.schema_drift(
+        current_datasets, snap, scope, current_transform
+    )
+    declared, declared_notes = _declared_schema_drift(
+        engine, current_datasets, snap, scope
+    )
+    schema_findings.extend(declared)
+    warnings.extend(declared_notes)
+    # Same as in schema_drift() (#543): a dataset only one side covers is named
+    # beside the block of findings it accounts for.
+    warnings.extend(drift_mod.scope_mismatch_warnings(current_datasets, snap, scope))
+    warnings.extend(
+        drift_mod.built_relation_warnings(
+            current_datasets, snap, scope, current_transform
+        )
+    )
+    # Not scoped by `objects`, same reason as in schema_drift(): a model's
+    # identifier is its project name, not a warehouse identifier.
+    schema_findings.extend(drift_mod.transform_drift(current_transform, snap))
+    volume_findings = drift_mod.volume_drift(current_datasets, snap, scope)
+    warnings.extend(drift_mod.uncomparable_volume(current_datasets, snap, scope))
+    semantic_findings = (
+        _semantic_scope(
+            drift_mod.semantic_free_drift(
+                current_transform, current_semantic, current_datasets, snap
+            ),
+            scope_names,
+        )
+        if project_available
+        else []
+    )
+    if project_available:
+        declared, declaration_status, declaration_warnings = _declaration_drift(
+            current_transform, current_semantic, snap, scope_names
+        )
+        semantic_findings.extend(declared)
+        warnings.extend(declaration_warnings)
+    else:
+        declaration_status = {
+            "checked": False,
+            "reason": f"the semantic axis was skipped (no project: {no_project})",
+        }
+
+    # Rebuilt rather than carried over from `_read_layers`: that one asks for the
+    # baseline tier, and a format narrower than it still declares a grain worth
+    # re-verifying here.
+    project, _ = _read_project(engine)
+    composed_definitions = _composed_definitions(engine, project)
+    plan = drift_mod.grain_plan(
+        adapter, snap, scope, composed_definitions, semantic=current_semantic
+    )
+    # Added before both returns, so a declared grain the survey could not reach
+    # is reported whether the scans run or stop at the handshake.
+    warnings.extend(plan.notes)
+    checks = drift_mod.cardinality_plan(current_semantic, snap, names)
+    scans_needed = plan.scans() or bool(checks)
+    # The grain probes and the dimension-cardinality counts share each table's
+    # one statement where the adapter can take it (#275), so they share one map
+    # for the estimate and the run alike.
+    batched = drift_mod.batched_probes(adapter, plan, checks)
+    offer: ConfirmationRequest | None = None
+    if scans_needed and command_args.cost_gate(adapter) is not None:
+        grain_total, grain_per = drift_mod.grain_estimate(adapter, plan, batched)
+        card_total, card_per = drift_mod.cardinality_estimate(adapter, checks, batched)
+        per_table = dict(grain_per)
+        for identifier, estimate in card_per.items():
+            per_table[identifier] = per_table.get(identifier, 0.0) + estimate
+        # Only the axes with work planned, so the offer names what the estimate
+        # actually buys rather than the pair it usually covers.
+        grain_planned = plan.scans()
+        offered_axes = [
+            axis
+            for axis, planned in (
+                ("grain", grain_planned),
+                ("semantic_cardinality", bool(checks)),
+            )
+            if planned
+        ]
+        offer = command_args.confirmation_request(
+            "maintain check",
+            adapter,
+            grain_total + card_total,
+            per_table=per_table,
+            axes=offered_axes,
+            notes=[
+                "the schema, volume, and semantic reference findings in this "
+                "envelope are final; the estimate buys the grain and "
+                "dimension-cardinality scans on top of them"
+            ],
+        )
+
+    # Identical warnings on both paths: what bounds the settled answer bounds the
+    # free one too, and the unconfirmed call is the one a session opens with.
+    warnings = warnings + _baseline_warnings(
+        store, snap, engine.config.profile_freshness_hours
+    )
+
+    if offer is not None:
+        drift_mod.annotate_impacts(schema_findings + volume_findings, snap)
+        by_axis = {
+            "schema": drift_mod.rank_findings(schema_findings),
+            "volume": drift_mod.rank_findings(volume_findings),
+        }
+        if project_available:
+            by_axis["semantic"] = drift_mod.rank_findings(semantic_findings)
+        axis_results = _record_axes(
+            store, snap, connector, {a: (f, scope_names) for a, f in by_axis.items()}
+        )
+        result = _drift_result(axis_results, snap, store, warnings=warnings)
+        result.declaration_drift = declaration_status
+        result.pending_offer = offer
+        return result
+
+    probes = drift_mod.run_batched_probes(adapter, batched)
+    grain_findings = drift_mod.grain_drift(
+        adapter,
+        plan,
+        timeout_seconds=config.query.timeout_seconds,
+        min_rows=config.maintain.grain_min_rows,
+        probes=probes,
+    )
+    semantic_findings = semantic_findings + _semantic_scope(
+        drift_mod.cardinality_drift(adapter, checks, current_semantic, probes),
+        scope_names,
+    )
+
+    drift_mod.annotate_impacts(schema_findings + volume_findings + grain_findings, snap)
+    by_axis = {
+        "schema": drift_mod.rank_findings(schema_findings),
+        "volume": drift_mod.rank_findings(volume_findings),
+        "grain": drift_mod.rank_findings(grain_findings),
+    }
+    if project_available:
+        by_axis["semantic"] = drift_mod.rank_findings(semantic_findings)
+    axis_results = _record_axes(
+        store, snap, connector, {a: (f, scope_names) for a, f in by_axis.items()}
+    )
+    result = _drift_result(axis_results, snap, store, warnings=warnings)
+    result.declaration_drift = declaration_status
+    return command_args.stamp_spend(result, adapter)
+
+
+def cmd_check(args: argparse.Namespace, engine: DexEngine) -> env.Envelope:
+    return _drift_envelope(check(engine, getattr(args, "objects", None)))
+
+
+def reconcile(engine: DexEngine, drift_class: str | None = None) -> ReconcileResult:
+    """Propose the edits that reconcile detected drift.
+
+    Reads the last drift report, never re-scans, and writes nothing to the
+    project: applying is ``transform apply <plan-id>``, so the human-edit
+    conflict handshake is inherited unchanged.
+
+    **Whether a mechanical edit may be proposed at all is the project's to
+    declare.** A format that cannot receive an edit, because its source of truth
+    is the code that generated it and writing into the reduction would edit an
+    artifact regenerated on the next run, declines the write tier, and every
+    finding here comes back advisory. That used to be true by accident: both
+    mechanical paths key on the ``models/staging/stg_<table>.*`` scaffold
+    convention and fail closed, so a generated tree was safe as long as its
+    directories happened not to use that vocabulary. Asking the tier makes it
+    safe because the format said so. The convention checks stay as a second line;
+    the declaration replaces the coincidence, not the check that made the
+    coincidence survivable.
+    """
+
+    from ..adapters.project import EditableProject, PlacingProject, placement_gap
+    from ..transform import plans as plans_mod
+    from . import reconcile as reconcile_mod
+
+    store = _maintain_store(engine)
+    snap = _require_baseline(store)
+    report = _stored_drift(store)
+    if report is None:
+        raise NoBaselineError(
+            "no drift report yet; run `maintain check` (or a focused detector) "
+            "first so reconcile has detected drift to propose fixes for"
+        )
+
+    warnings: list[str] = []
+    if report.snapshot_created_at != snap.created_at:
+        warnings.append(
+            "the drift report was computed against an older snapshot; re-run "
+            "`maintain check` before reconciling so the proposals match the "
+            "current baseline"
+        )
+
+    findings = drift_mod.rank_findings(
+        [
+            finding
+            for axis, result in report.axes.items()
+            if drift_class is None or axis == drift_class
+            for finding in result.findings
+        ]
+    )
+    if not findings:
+        return ReconcileResult(warnings=warnings)
+
+    # One construction for the whole command, reused for the write tier and the
+    # declarations below. Three separate reads is three loads of the same
+    # project, and only the first of them was guarded against a format that
+    # cannot be built at all.
+    project, no_project = _read_project(engine)
+    editable = project if isinstance(project, EditableProject) else None
+    view = None
+    if no_project is not None:
+        # Its own sentence rather than the write-tier one below: a format that
+        # could not be built declined nothing, and telling someone their format
+        # refuses edits sends them to implement a tier they already have.
+        warnings.append(
+            "no project format could be built, so every proposal below is "
+            f"advisory and no plan is stored: {no_project}. Reconcile what these "
+            "findings describe wherever your models are actually defined"
+        )
+    elif editable is None:
+        named = getattr(project, "name", "this")
+        warnings.append(
+            f"the '{named}' project format does not implement the write tier, so "
+            "every proposal below is advisory and no plan is stored: dex will not "
+            "author an edit into a project the format says cannot receive one. "
+            "Reconcile what these findings describe wherever your models are "
+            "actually defined"
+        )
+    elif not isinstance(editable, PlacingProject):
+        # A format holding some of `PlacingProject` and not the rest gets told
+        # which member is missing, because the general message below would send
+        # it to the ones it already wrote. That is the difference between the
+        # gap being reported here and it surfacing as `AttributeError` from
+        # inside the reconcile the tier check already let through.
+        warnings.append(
+            placement_gap(editable)
+            or (
+                f"the '{editable.name}' project format implements the write tier, "
+                "but does not say where a proposed edit lands, so reconcile has no "
+                "path to plan an edit against and every proposal below is "
+                "advisory. A format reaches this path by implementing "
+                "`PlacingProject`: `load` returns the view an edit is pinned "
+                "against, `edit_path` answers where an edit of a given kind goes "
+                "and may decline a kind by answering None, and `editing_surface` "
+                "declares the region those paths must stay inside"
+            )
+        )
+    else:
+        try:
+            view = editable.load()
+        except (ProjectError, ValueError) as exc:
+            raise ProjectError(f"reconcile edits a project: {exc}") from exc
+
+    # Hoisted rather than inlined into the call: this load can now refuse, and a
+    # refusal raised from inside an argument list reads as though `build` did it.
+    cache = readable_cache(store)
+
+    # What the project declares, which is a different question from what its
+    # files contain. `view` carries the bytes an edit is pinned against; this
+    # carries the grain, and an edit that contradicts a declared grain is one no
+    # format is obliged to keep. Tier 1, so the read cannot raise; `None` is the
+    # answer when there was no format to read it from. Composed with a
+    # differing semantic vendor's own keys, so a proposal for a column
+    # Ossie already covers via a declared composite is not suggested as if
+    # nothing declared it.
+    definitions = _composed_definitions(engine, project)
+    # A semantic vendor answers for the schema findings it produced itself,
+    # because only it knows how to take a column out of its own document and
+    # what else goes with it. Everything else takes the project's route.
+    semantic_source, _ = _semantic_schema_source(engine)
+    semantic_findings = [
+        f
+        for f in findings
+        if semantic_source is not None and semantic_source.handles_finding(f)
+    ]
+    findings = [f for f in findings if f not in semantic_findings]
+    proposals, edits, build_warnings = reconcile_mod.build(
+        findings,
+        snap,
+        cache,
+        view,
+        pii_overrides=pii_override_paths(engine.config.pii_overrides),
+        placement=editable if isinstance(editable, PlacingProject) else None,
+        definitions=definitions,
+    )
+    warnings.extend(build_warnings)
+    # Reconcile was the one project-reading command that dropped these, and the
+    # declarations channel is one no command read at all: a format that says it
+    # could not supply something says it here too, where an edit is at stake.
+    warnings.extend(
+        _layer_notes(definitions, snap.transform_layer, snap.semantic_layer)
+    )
+
+    result = ReconcileResult(proposals=proposals, warnings=warnings)
+    # A plan is pinned to the directory its edits were planned against, so there is
+    # no plan without a project to pin to. `build` returns no edits without one,
+    # which is the same statement from the other side.
+    if edits and view is not None:
+        # Only the plan store needs the repo root, so asking for it here keeps the
+        # advisory-only path reachable for an engine that has none.
+        repo_root = engine.require_repo_root("storing a reconcile plan")
+        intent = (
+            f"maintain reconcile {drift_class}" if drift_class else "maintain reconcile"
+        )
+        plan, diffs, plan_warnings = plans_mod.plan(
+            intent,
+            edits,
+            project_dir=view.root,
+            repo_root=repo_root,
+            store=cast(Store, store),
+            # The format that placed these edits also validates them. Passing it
+            # is what keeps the two halves of the check on the same project: the
+            # surface each path must land in, and the file each edit is pinned
+            # against. dbt reaches the identical checks through this argument as
+            # it did without it, and reuses the view it already loaded.
+            project_format=editable,
+        )
+        result.diffs = diffs
+        result.warnings.extend(plan_warnings)
+        result.plan_id = plan.plan_id
+    if semantic_findings:
+        _reconcile_semantic(
+            engine, semantic_source, semantic_findings, drift_class, result
+        )
+    return result
+
+
+def _reconcile_semantic(
+    engine: DexEngine,
+    source,
+    findings: list[drift_mod.DriftFinding],
+    drift_class: str | None,
+    result: ReconcileResult,
+) -> None:
+    """The vendor's own proposals, its edits planned through its authoring route.
+
+    A plan of its own beside the project's, because the two land in different
+    trees and validate by different rules: a native semantic plan is validated
+    by the vendor's own model before it is stored, exactly as one authored with
+    `semantic <vendor> update` would be. A set the vendor refuses stores
+    nothing, and every proposal behind it becomes the advisory it then is.
+    """
+
+    from ..transform import native_semantic
+
+    try:
+        proposals, edits, warnings = source.schema_reconcile(findings)
+    except (DexError, OSError, ValueError) as exc:
+        result.warnings.append(
+            f"the semantic layer's own schema findings were not reconciled: {exc}"
+        )
+        return
+    result.warnings.extend(warnings)
+    if edits:
+        vendor = native_semantic.configured_vendor(engine)
+        intent = (
+            f"maintain reconcile {drift_class}" if drift_class else "maintain reconcile"
+        )
+        try:
+            planned = native_semantic.semantic_native(
+                engine, vendor, intent, edits, mode="update"
+            )
+        except (DexError, ValueError) as exc:
+            result.warnings.append(
+                f"the {vendor} edits reconcile proposed were refused by the "
+                f"layer's own validation, so no semantic plan is stored: {exc}"
+            )
+            for proposal in proposals:
+                if proposal.kind == "mechanical":
+                    proposal.kind = "advisory"
+                    proposal.paths = []
+        else:
+            result.diffs = [*result.diffs, *planned.diffs]
+            result.warnings.extend([*planned.warnings, *planned.notes])
+            result.semantic_plan_id = planned.plan_id
+    result.proposals = _mechanical_first([*result.proposals, *proposals])
+
+
+def _mechanical_first(proposals):
+    """Mechanical first, so what has a diff behind it reads before what does not."""
+
+    return sorted(proposals, key=lambda p: p.kind != "mechanical")
+
+
+def cmd_reconcile(args: argparse.Namespace, engine: DexEngine) -> env.Envelope:
+    drift_class = getattr(args, "drift_class", None)
+    try:
+        result = reconcile(engine, drift_class)
+    except (NoBaselineError, BaselineUnreadableError, ProjectError) as exc:
+        return env.error_for(exc)
+    if not result.proposals:
+        scope = f" for the '{drift_class}' axis" if drift_class else ""
+        return to_envelope(result, hints={"hint": f"no drift{scope} to reconcile"})
+    plan_ids = [p for p in (result.plan_id, result.semantic_plan_id) if p]
+    if plan_ids:
+        applies = " and ".join(f"`transform apply {p}`" for p in plan_ids)
+        hint = (
+            f"review the diffs, then apply with {applies} "
+            "(human edits since detection surface as a conflict, never a silent "
+            "overwrite)"
+        )
+    else:
+        hint = (
+            "every proposal is advisory (a decision for you); nothing to apply, "
+            "act on the actions above"
+        )
+    return to_envelope(result, hints={"hint": hint})
+
+
+def _detect_free_axis(
+    engine: DexEngine, axis: str, detector, objects: list[str] | None, noter=None
+) -> DriftResult:
+    """One metadata-only detector: free on every connector, so no handshake.
+    The cost stamp still reflects the connector's paradigm for the caller.
+
+    ``noter`` reports what the detector could not examine, over the same inputs.
+    An axis that silently declines to check an object is indistinguishable from
+    one that checked and found nothing, and the two mean opposite things.
+    """
+
+    store = _maintain_store(engine)
+    snap = _require_baseline(store)
+
+    adapter = engine._adapter(f"maintain {axis}")
+    current = snapshot_mod.warehouse_from_metadata(adapter).datasets
+    cost = command_args.preflight_cost(adapter)
+    connector = adapter.name
+
+    scope_names = list(objects or [])
+    scope = _resolve_scope(scope_names, current, snap)
+    findings = detector(current, snap, scope)
+    drift_mod.annotate_impacts(findings, snap)
+    ranked = drift_mod.rank_findings(findings)
+
+    by_axis = _record_axes(store, snap, connector, {axis: (ranked, scope_names)})
+    result = _drift_result(
+        by_axis,
+        snap,
+        store,
+        warnings=_baseline_warnings(store, snap, engine.config.profile_freshness_hours)
+        + (noter(current, snap, scope) if noter is not None else []),
+    )
+    result.cost = cost
+    return result
+
+
+def _drift_envelope(result: DriftResult) -> env.Envelope:
+    """The one CLI-shaped extra a drift result earns: what to run next, and only
+    when there is something to run it for."""
+
+    hints = (
+        {
+            "hint": "run `maintain reconcile [<class>]` for proposed fixes as "
+            "reviewable diffs"
+        }
+        if result.findings
+        else None
+    )
+    return to_envelope(result, hints=hints)
+
+
+# --- shared plumbing -----------------------------------------------------------
+
+
+def _resolve_scope(
+    scope_names: list[str],
+    current: list,
+    snap: snapshot_mod.Snapshot,
+) -> set[str] | None:
+    if not scope_names:
+        return None
+    identifiers = {d.identifier for d in current} | {
+        d.identifier for d in snap.warehouse.datasets
+    }
+    return drift_mod.resolve_scope(scope_names, identifiers)
+
+
+def _record_axes(
+    store: MaintainStore,
+    snap: snapshot_mod.Snapshot,
+    connector: str | None,
+    results: dict[str, tuple[list[drift_mod.DriftFinding], list[str]]],
+) -> dict[str, drift_mod.AxisResult]:
+    """Merge this run's axes into the stored drift report. Axes merge across runs so
+    a focused detector refreshes only itself, but never across baselines:
+    findings measured against an older snapshot are dropped wholesale."""
+
+    report = _stored_drift(store)
+    if report is None or report.snapshot_created_at != snap.created_at:
+        report = drift_mod.DriftReport()
+    report.connector = connector
+    report.snapshot_created_at = snap.created_at
+    run_at = datetime.now(UTC).isoformat()
+    current: dict[str, drift_mod.AxisResult] = {}
+    for axis, (findings, scope_names) in results.items():
+        current[axis] = drift_mod.AxisResult(
+            run_at=run_at, scope=scope_names or None, findings=findings
+        )
+        report.axes[axis] = current[axis]
+    store.save_drift(report)
+    return current
+
+
+def _drift_result(
+    by_axis: dict[str, drift_mod.AxisResult],
+    snap: snapshot_mod.Snapshot,
+    store: MaintainStore,
+    *,
+    warnings: list[str],
+) -> DriftResult:
+    return DriftResult(
+        findings=drift_mod.rank_findings(
+            [finding for result in by_axis.values() for finding in result.findings]
+        ),
+        by_axis=by_axis,
+        snapshot_created_at=snap.created_at,
+        warehouse_from=snap.warehouse_from,
+        drift_path=store.locator(Document.DRIFT),
+        warnings=warnings,
+    )
+
+
+def _grain_baseline_warnings(snap: snapshot_mod.Snapshot) -> list[str]:
+    if snap.warehouse_from != "metadata":
+        return []
+    return [
+        "the baseline is metadata-only, so the grain and cardinality axes have "
+        "nothing to diff against; run `explore map` and re-run `maintain "
+        "snapshot` to give them a baseline"
+    ]
+
+
+def _column_detail_warnings(snap: snapshot_mod.Snapshot) -> list[str]:
+    """What the schema axis could not compare, and how to make it able to.
+
+    The axis reports nothing for an object the baseline holds no columns for,
+    which is right (unknown is not empty) and would otherwise be indistinguishable
+    from a clean bill. Naming the count is what keeps the silence honest.
+    """
+
+    thin = snap.warehouse.without_column_detail()
+    if not thin:
+        return []
+    return [
+        f"{len(thin)} of {len(snap.warehouse.datasets)} baseline object(s) were "
+        "pinned without column detail, so the schema axis compared no columns "
+        f"for them and the grain axis has no keys to probe: {name_list(thin)}. "
+        "Run `explore map --full` and re-run `maintain snapshot` to cover them"
+    ]
+
+
+def _cache_age_warnings(
+    snap: snapshot_mod.Snapshot, freshness_hours: float, now: datetime
+) -> list[str]:
+    """Whether the baseline's warehouse side still describes the warehouse.
+
+    Deliberately not a write-time comparison. Comparing the cache's timestamp to
+    the baseline's goes quiet the moment a re-pin makes the baseline the newer
+    file, which is the wrong moment to go quiet: the contents are still that
+    same old cache, and the caller has just been told their accept succeeded.
+    This reads the age of the contents instead (``cache_updated_at``, recorded
+    at pin time), so re-pinning cannot silence it.
+
+    ``profile_freshness_hours`` is the threshold rather than a new setting of its
+    own: it already defines how old a cached profile may be before `explore`
+    re-scans it, and a baseline pinned from profiles `explore` would refuse to
+    reuse is the same judgement applied one layer up.
+    """
+
+    if snap.warehouse_from != "cache" or not snap.cache_updated_at:
+        return []
+    try:
+        captured = datetime.fromisoformat(snap.cache_updated_at)
+    except ValueError:
+        return []
+    if captured.tzinfo is None:
+        captured = captured.replace(tzinfo=UTC)
+    age_hours = (now - captured).total_seconds() / 3600
+    if age_hours <= freshness_hours:
+        return []
+    return [
+        "this baseline's warehouse side was pinned from an exploration cache "
+        f"captured {age_hours:.0f}h ago ({snap.cache_updated_at}), beyond the "
+        f"{freshness_hours:g}h freshness window; anything created or changed in "
+        "the warehouse since then is not in it and will report as drift. Run "
+        "`explore map` first, then `maintain snapshot`, to pin current state"
+    ]
+
+
+def _layer_notes(*layers: object) -> list[str]:
+    """What the project format said it could not supply, from every layer read.
+
+    Both sides are collected, baseline and freshly read, because the two payload
+    sites read different ones: ``dangling_source`` compares against the
+    baseline's declared sources, while ``definition_changed`` reads the current
+    project. Surfacing one side would leave the other axis's limits unexplained.
+    In practice both come from the same format and say the same thing, so the
+    common case deduplicates to one line.
+
+    Anything carrying ``notes`` is accepted, not only the two snapshot layers.
+    ``ProjectDefinitions`` carries them on the declarations channel, which is
+    where a format explains an ambiguous or unreadable project, and reconcile
+    reads that one because a declaration it could not see is the difference
+    between declining an edit and proposing a wrong one.
+    """
+
+    seen: list[str] = []
+    for layer in layers:
+        for note in getattr(layer, "notes", None) or []:
+            if note not in seen:
+                seen.append(note)
+    return seen
+
+
+def _adapter_notes(adapter, identifiers: list[str]) -> list[str]:
+    """Surface the adapter's per-table notes (e.g. a skipped distinct-count
+    escalation on a tight budget) so a silent skip never reads as a clean bill."""
+
+    return _flatten_adapter_notes(_adapter_notes_by_identifier(adapter, identifiers))
+
+
+def _adapter_notes_by_identifier(
+    adapter, identifiers: list[str]
+) -> dict[str, list[str]]:
+    """Collect adapter notes by table so command payloads can attach qualifying
+    facts to the findings they qualify, not only to envelope warnings."""
+
+    hook = getattr(adapter, "table_notes", None)
+    if hook is None:
+        return {}
+    notes: dict[str, list[str]] = {}
+    for identifier in identifiers:
+        table_notes = list(hook(identifier) or [])
+        if table_notes:
+            notes[identifier] = table_notes
+    return notes
+
+
+def _flatten_adapter_notes(notes: dict[str, list[str]]) -> list[str]:
+    return [
+        f"{identifier}: {note}"
+        for identifier, table_notes in notes.items()
+        for note in table_notes
+    ]
+
+
+def _qualify_uniqueness_findings(
+    findings: list[drift_mod.DriftFinding], notes_by_identifier: dict[str, list[str]]
+) -> None:
+    for finding in findings:
+        if (
+            finding.code != "key_lost_uniqueness"
+            or finding.identifier not in notes_by_identifier
+        ):
+            continue
+        merge_notes = [
+            note
+            for note in notes_by_identifier[finding.identifier]
+            if _final_note(note)
+        ]
+        if not merge_notes:
+            continue
+        finding.severity = "medium"
+        finding.data["table_notes"] = merge_notes
+        finding.detail = (
+            f"{finding.detail}; this count is over stored parts before "
+            "ClickHouse FINAL, so the adapter note qualifies whether this is "
+            "merge timing or modeled-grain drift"
+        )
+
+
+def _final_note(note: str) -> bool:
+    return "FINAL" in note and "MergeTree" in note
+
+
+def _declaration_drift(
+    current_transform: TransformLayer | None,
+    current_semantic: SemanticLayer | None,
+    snap: snapshot_mod.Snapshot,
+    scope_names: list[str],
+) -> tuple[list[drift_mod.DriftFinding], dict[str, object], list[str]]:
+    """The declaration focus of the semantic axis (#497): its findings, whether
+    it ran, and the warning that says so when it did not.
+
+    Free on every connector: both sides are read from the repository and the
+    snapshot. The status rides the envelope as ``data.declaration_drift``
+    whether or not it ran, because an empty ``findings`` from a baseline that
+    never recorded declarations is not a clean bill, and a caller must be able
+    to tell the two apart without parsing a warning. The warning is left out
+    where there is no transformation project on either side, since there is
+    nothing there that could have been declared.
+    """
+
+    checked, reason = drift_mod.declaration_drift_status(current_transform, snap)
+    baseline = snap.transform_layer
+    status: dict[str, object] = {"checked": checked}
+    if checked:
+        if baseline is None or current_transform is None:
+            return [], status, []
+        status["baseline_declared_models"] = len(baseline.declarations or {})
+        status["declared_models"] = len(current_transform.declarations or {})
+        findings = _semantic_scope(
+            drift_mod.declaration_drift(current_transform, snap, current_semantic),
+            scope_names,
+        )
+        return findings, status, []
+    status["reason"] = reason
+    if baseline is None and current_transform is None:
+        return [], status, []
+    return [], status, [f"declaration drift was not checked: {reason}"]
+
+
+def _semantic_names(scope_names: list[str]) -> set[str]:
+    """Split/lower repeatable, comma-joinable scope arguments into name tokens.
+
+    Shared by ``_semantic_scope`` (filters reported findings) and
+    ``cardinality_plan``'s ``scope`` (filters *before* the paid scan runs), so
+    a name that narrows the report also narrows the bill.
+    """
+
+    return {
+        part.strip().lower()
+        for raw in scope_names
+        for part in raw.split(",")
+        if part.strip()
+    }
+
+
+def _semantic_scope(
+    findings: list[drift_mod.DriftFinding], scope_names: list[str]
+) -> list[drift_mod.DriftFinding]:
+    """Scope semantic findings by definition name or by the physical object.
+
+    Semantic findings hang off definitions rather than only warehouse objects,
+    so scope names match either: a semantic model, metric, dimension, or
+    measure name, or the referenced table/column.
+    """
+
+    if not scope_names:
+        return findings
+    names = _semantic_names(scope_names)
+
+    def in_scope(finding: drift_mod.DriftFinding) -> bool:
+        candidates = {
+            finding.column,
+            finding.identifier,
+            finding.identifier.rsplit(".", 1)[-1] if finding.identifier else None,
+        }
+        candidates.update(
+            value for value in finding.data.values() if isinstance(value, str)
+        )
+        return any(c is not None and c.lower() in names for c in candidates)
+
+    return [finding for finding in findings if in_scope(finding)]
+
+
+def _baseline_warnings(
+    store: MaintainStore, snap: snapshot_mod.Snapshot, freshness_hours: float
+) -> list[str]:
+    """Every reason this baseline may not describe the warehouse, in one place.
+
+    A present baseline is not a valid one, and the ways it can be invalid are
+    axis-independent: it can be superseded by a newer cache, or pinned from a
+    cache that was already old. Both belong wherever a baseline is read, so this
+    is called by every detector rather than reimplemented per axis. What a thin
+    baseline cannot compare is axis-specific and stays in
+    :func:`_column_detail_warnings`.
+    """
+
+    warnings: list[str] = []
+    cache = readable_cache(store)
+    if (
+        cache is not None
+        and cache.provenance.updated_at
+        and cache.provenance.updated_at > snap.created_at
+    ):
+        # Names both commands on purpose. `maintain snapshot` alone re-pins
+        # whatever the cache already holds, so on a warehouse past `explore
+        # map`'s rank cutoff the cheap path and the correct path diverge: it
+        # would pin the same partial coverage and leave the schema axis unable
+        # to compare most objects. The advice has to point at the one that ends
+        # with a baseline worth measuring against.
+        warnings.append(
+            "the exploration cache is newer than the drift baseline; if the current "
+            "state is known-good, re-run `explore map` (or `explore map --full` to "
+            "cover objects past the rank cutoff) and then `maintain snapshot`, so "
+            "drift is not measured against a stale baseline"
+        )
+    warnings.extend(
+        _cache_age_warnings(snap, freshness_hours, datetime.now(UTC)),
+    )
+    # A baseline pinned by another release was measured by that release's
+    # profiler and fingerprinted by its project reader, so some of what this run
+    # reports as drift may be the engine changing rather than the warehouse
+    # (#731). Not a refusal: the baseline still parses, and the operator decides
+    # whether the current state is the one to re-pin.
+    version_warning = state_version_warning(
+        "the drift baseline",
+        snap.tool_version,
+        "drift reported against it may reflect the engine change as well as the "
+        "warehouse; re-run `maintain snapshot` once the current state is known-good",
+    )
+    if version_warning:
+        warnings.append(version_warning)
+    return warnings

@@ -1,0 +1,28 @@
+{
+  "name": "ai-psychiatry",
+  "version": "0.7.0",
+  "description": "Semantic executive control for loopholes, underthinking, overthinking, evidence, recursion, context, memory, and reliable delivery.",
+  "author": {
+    "name": "Ihab Khaled"
+  },
+  "homepage": "https://github.com/ihabkhaled/AI-Psychiatry",
+  "repository": "https://github.com/ihabkhaled/AI-Psychiatry",
+  "keywords": [
+    "ai-agents",
+    "coding-agents",
+    "executive-function",
+    "context-management",
+    "anti-overthinking",
+    "agent-skills",
+    "attention-control",
+    "hallucination-control",
+    "recursive-tasks",
+    "semantic-compliance",
+    "underthinking",
+    "anti-gaming",
+    "relentless-execution",
+    "autonomous-execution",
+    "all-the-medicine",
+    "direct-communication"
+  ]
+}

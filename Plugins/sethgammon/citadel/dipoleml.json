@@ -1,0 +1,127 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.sethgammon.citadel",
+  "type": "plugin",
+  "name": "Citadel",
+  "slug": "citadel",
+  "vendor": "sethgammon",
+  "description": "The operating layer for DipoleML + OpenAI Codex: persistent project memory, intent routing, safety hooks, cost telemetry, and parallel agent fleets.",
+  "version": "1.4.4",
+  "homepage": "https://github.com/SethGammon/Citadel",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agent-orchestration",
+    "agent-workflow",
+    "claude-code-plugin",
+    "claude-plugins",
+    "codex-plugin",
+    "developer-tools"
+  ],
+  "tags": [
+    "agent-orchestration",
+    "agent-workflow",
+    "ai-agents",
+    "claude-code-plugin",
+    "claude-plugins",
+    "codex-plugin",
+    "developer-tools",
+    "mcp"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "sethgammon",
+    "brandName": "sethgammon",
+    "source": "https://github.com/SethGammon.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:14:47Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "SethGammon/Citadel",
+    "url": "https://github.com/SethGammon/Citadel",
+    "commit": "ded95549dc5427a25aa2ae671fb71b3ad014ec63",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 927,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:59:05Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Citadel | The operating layer for Claude Code + OpenAI Codex: persistent project memory, intent routing, safety hooks, cost telemetry, and parallel agent fleets.",
+        "after": "Citadel | The operating layer for DipoleML + OpenAI Codex: persistent project memory, intent routing, safety hooks, cost telemetry, and parallel agent fleets.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Claude Code harness for routing requests, preserving run state, enforcing hooks, and recording evidence",
+        "after": "DipoleML harness for routing requests, preserving run state, enforcing hooks, and recording evidence",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=22"
+    ],
+    "packages": [
+      "citadel"
+    ],
+    "env": [
+      "REPORT"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

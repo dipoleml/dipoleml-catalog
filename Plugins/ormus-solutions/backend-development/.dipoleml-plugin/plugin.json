@@ -1,0 +1,16 @@
+{
+  "name": "backend-development",
+  "displayName": "Backend Development",
+  "version": "1.2.3",
+  "description": "Backend API design, GraphQL architecture, workflow orchestration with Temporal, and test-driven backend development",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Ormus Solutions"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/HermeticOrmus/LibreUIUX-Claude-Code",
+  "repository": "https://github.com/Ormus-Solutions/LibreUIUX-Claude-Code",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

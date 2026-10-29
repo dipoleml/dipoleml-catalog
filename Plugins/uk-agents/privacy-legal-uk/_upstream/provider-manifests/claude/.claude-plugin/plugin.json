@@ -1,0 +1,15 @@
+{
+  "name": "privacy-legal-uk",
+  "version": "1.0.0",
+  "description": "UK data-protection workflows under UK GDPR and DPA 2018: DPIA generation, DPA review (Art.28 processor obligations), DSAR response within the 1-month statutory deadline, lawful-basis triage with Children's Code checks, PECR and NIS coverage, and ICO-focused regulatory gap analysis. Configured to your practice profile and regulatory footprint.",
+  "author": {
+    "name": "uk-agents"
+  },
+  "homepage": "https://bouch.dev/products/uk-legal-plugins/privacy-legal-uk",
+  "repository": "https://github.com/uk-agents/uk-legal-plugins",
+  "license": "MIT",
+  "displayName": "Privacy Legal UK",
+  "category": "legal",
+  "keywords": ["uk-law", "legal", "uk-gdpr", "dpa-2018", "dpia", "dsar", "pecr", "ico", "data-protection"],
+  "tags": ["privacy", "data-protection", "uk-law", "legal"]
+}

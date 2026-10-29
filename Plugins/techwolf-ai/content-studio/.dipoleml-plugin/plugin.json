@@ -1,0 +1,16 @@
+{
+  "name": "content-studio",
+  "displayName": "Content Studio",
+  "version": "1.1.1",
+  "description": "Content studio for managing thought leadership content with a visual editor, DipoleML skills, and utility scripts.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Techwolf Ai"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/techwolf-ai/ai-first-toolkit",
+  "repository": "https://github.com/techwolf-ai/ai-first-toolkit",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

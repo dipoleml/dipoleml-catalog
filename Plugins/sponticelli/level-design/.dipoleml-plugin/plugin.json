@@ -1,0 +1,26 @@
+{
+  "name": "level-design",
+  "displayName": "Level Design",
+  "version": "1.2.0",
+  "description": "Level design - spatial design, pacing, encounters, and environmental storytelling",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Sponticelli"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/sponticelli/gamedev-claude-plugins",
+  "repository": "https://github.com/sponticelli/gamedev-claude-plugins",
+  "skills": [],
+  "commands": [
+    "./commands/level-brief.md",
+    "./commands/layout-wireframe.md",
+    "./commands/pacing-curve.md",
+    "./commands/encounter-spec.md"
+  ],
+  "agents": [
+    "./agents/level-architect.md",
+    "./agents/spatial-designer.md",
+    "./agents/encounter-designer.md",
+    "./agents/environment-storyteller.md"
+  ]
+}

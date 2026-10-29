@@ -1,0 +1,16 @@
+{
+  "name": "hivemind",
+  "displayName": "Hivemind",
+  "version": "0.7.165",
+  "description": "Cloud-backed persistent memory powered by Deeplake — read, write, and share memory across DipoleML sessions and agents",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Activeloopai"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://deeplake.ai",
+  "repository": "https://github.com/activeloopai/hivemind",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

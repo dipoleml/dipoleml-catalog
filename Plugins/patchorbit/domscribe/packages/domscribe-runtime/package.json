@@ -1,0 +1,24 @@
+{
+  "name": "@domscribe/runtime",
+  "version": "0.7.0",
+  "description": "Browser-side runtime context capture for Domscribe",
+  "type": "module",
+  "main": "src/index.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@domscribe/core": "workspace:*"
+  },
+  "devDependencies": {
+    "happy-dom": "^21.0.4"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/patchorbit/domscribe.git",
+    "directory": "packages/domscribe-runtime"
+  }
+}

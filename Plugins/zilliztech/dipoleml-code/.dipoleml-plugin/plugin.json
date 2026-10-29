@@ -1,0 +1,16 @@
+{
+  "name": "dipoleml-code",
+  "displayName": "DipoleML",
+  "version": "0.4.22",
+  "description": "Automatic semantic memory for DipoleML — remembers what you worked on across sessions",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Zilliztech"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/zilliztech/memsearch",
+  "repository": "https://github.com/zilliztech/memsearch",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

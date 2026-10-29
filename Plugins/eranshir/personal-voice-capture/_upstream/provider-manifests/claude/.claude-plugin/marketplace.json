@@ -1,0 +1,23 @@
+{
+  "name": "personal-voice-capture",
+  "description": "Marketplace for the Personal Voice Capture plugin.",
+  "owner": {
+    "name": "Eran Shir"
+  },
+  "plugins": [
+    {
+      "name": "personal-voice-capture",
+      "source": ".",
+      "description": "Learn a person's writing voice from their own samples and edits, then compile it into a reusable voice skill.",
+      "license": "MIT",
+      "category": "productivity",
+      "keywords": [
+        "voice",
+        "writing-style",
+        "personalization",
+        "skill-generator",
+        "calibration"
+      ]
+    }
+  ]
+}

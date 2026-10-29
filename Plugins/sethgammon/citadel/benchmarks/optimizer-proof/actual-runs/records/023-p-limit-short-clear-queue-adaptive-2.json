@@ -1,0 +1,90 @@
+{
+  "schema": 1,
+  "evidence_kind": "actual-run",
+  "scenario_set_id": "optimizer-scenarios-sha256:602e496906f3a293203750602234ba88a55a86b9e4f54f32239264098dcebe5b",
+  "metric_set_id": "optimizer-metrics-sha256:bedffbda2b18d725610b0f294a8273ef908237fd957bf9e51a5af4885b123e4f",
+  "scenario_id": "p-limit-short-clear-queue",
+  "category": "short_control",
+  "holdout": true,
+  "policy_id": "adaptive",
+  "repetition": 2,
+  "decision_id": "sha256:ac03c08bf246374d8c438cfb38df651063309b52ffa5205f195688604a58b354",
+  "selected_profile_id": "claude-frontier",
+  "observed_profile_id": "claude-frontier",
+  "requested_model": "claude-opus-5",
+  "observed_model": "claude-opus-5",
+  "model_proof_status": "passed",
+  "started_at": "2026-07-30T22:02:17.561Z",
+  "duration_ms": 407168,
+  "outcome": "failed",
+  "verified": false,
+  "attempts": 2,
+  "human_interventions": 0,
+  "topology": "single",
+  "cost": {
+    "status": "known",
+    "amount_usd": 1.184461,
+    "provenance": "tool_reported",
+    "source": "citadel_optimizer_runner",
+    "source_ref": "summed_attempts:2",
+    "pricing_snapshot_digest": null,
+    "components": [
+      {
+        "kind": "model",
+        "amount_usd": 0.568243,
+        "source": "attempt_1:claude total_cost_usd"
+      },
+      {
+        "kind": "model",
+        "amount_usd": 0.6162175000000001,
+        "source": "attempt_2:claude total_cost_usd"
+      }
+    ]
+  },
+  "artifact_paths": [
+    "test.js"
+  ],
+  "verification_receipts": [
+    {
+      "attempt": 1,
+      "profile_id": "claude-workhorse",
+      "status": "failed",
+      "exit_code": 1,
+      "timed_out": false,
+      "output_digest": "sha256:e9f65d6ea0b1253db8c3d63a6105457446cdff4207ad4b9249e6e3004c5a461a",
+      "output_excerpt": "[stdout]\n\n> p-limit@7.3.1 test\n> xo && ava && tsd\n\n\n[stderr]\n",
+      "output_truncated": false,
+      "patch_exit_code": 0,
+      "patch_digest": "sha256:550c8631c864ca559a8eb2bcfe4c3da372bf3837c96869bc484e7d6104f0164c",
+      "patch_excerpt": "diff --git a/test.js b/test.js\nindex e303a46..18e5ba3 100644\n--- a/test.js\n+++ b/test.js\n@@ -193,6 +193,37 @@ test('clearQueue', async t => {\n \tt.is(limit.pendingCount, 0);\n });\n \n+test('clearQueue with default options leaves the active promise untouched and clears every queued function', async t => {\n+\tconst limit = pLimit(1);\n+\n+\tlet queuedRan = false;\n+\n+\tconst activePromise = limit(() => delay(100).then(() => 'active-result'));\n+\tconst queuedPromise = limit(() => {\n+\t\tqueuedRan = true;\n+\t\treturn 'should-not-run';\n+\t});\n+\n+\tawait Promise.resolve();\n+\tt.is(limit.activeCount, 1);\n+\tt.is(limit.pendingCount, 1);\n+\n+\tlimit.clearQueue();\n+\n+\t// The active promise is untouched: still running, not rejected or removed.\n+\tt.is(limit.activeCount, 1);\n+\tt.is(limit.pendingCount, 0);\n+\n+\tt.is(await activePromise, 'active-result');\n+\n+\t// The queued function was cleared and never invoked.\n+\tt.false(queuedRan);\n+\n+\t// With default options (rejectOnClear: false), the queued promise never settles.\n+\tconst raceResult = await Promise.race([queuedPromise, delay(50).then(() => 'timed-out')]);\n+\tt.is(raceResult, 'timed-out');\n+});\n+\n // Node.js 20 has a bug where DOMException is not properly handled by AVA's `throwsAsync`.\n const testClearQueueRejects = process.versions.node.startsWith('20.') ? test.skip : test;\n \n",
+      "patch_truncated": false,
+      "changed_paths": [
+        "test.js"
+      ]
+    },
+    {
+      "attempt": 2,
+      "profile_id": "claude-frontier",
+      "status": "failed",
+      "exit_code": 1,
+      "timed_out": false,
+      "output_digest": "sha256:e9f65d6ea0b1253db8c3d63a6105457446cdff4207ad4b9249e6e3004c5a461a",
+      "output_excerpt": "[stdout]\n\n> p-limit@7.3.1 test\n> xo && ava && tsd\n\n\n[stderr]\n",
+      "output_truncated": false,
+      "patch_exit_code": 0,
+      "patch_digest": "sha256:63c89a7d26bc2c703136e0c6deeec9e6b7fa230841d265f7feebb9c715cbe094",
+      "patch_excerpt": "diff --git a/test.js b/test.js\nindex e303a46..b044730 100644\n--- a/test.js\n+++ b/test.js\n@@ -193,6 +193,37 @@ test('clearQueue', async t => {\n \tt.is(limit.pendingCount, 0);\n });\n \n+test('clearQueue with default options leaves the active promise untouched and clears every queued function', async t => {\n+\tconst limit = pLimit(1);\n+\n+\tlet queuedRan = false;\n+\n+\tconst activePromise = limit(() => delay(100, 'active-result'));\n+\tconst queuedPromise = limit(() => {\n+\t\tqueuedRan = true;\n+\t\treturn 'should-not-run';\n+\t});\n+\n+\tawait Promise.resolve();\n+\tt.is(limit.activeCount, 1);\n+\tt.is(limit.pendingCount, 1);\n+\n+\tlimit.clearQueue();\n+\n+\t// The active promise is untouched: still running, not rejected or removed.\n+\tt.is(limit.activeCount, 1);\n+\tt.is(limit.pendingCount, 0);\n+\n+\tt.is(await activePromise, 'active-result');\n+\n+\t// The queued function was cleared and never invoked.\n+\tt.false(queuedRan);\n+\n+\t// With default options (rejectOnClear: false), the queued promise never settles.\n+\tconst raceResult = await Promise.race([queuedPromise, delay(50, 'timed-out')]);\n+\tt.is(raceResult, 'timed-out');\n+});\n+\n // Node.js 20 has a bug where DOMException is not properly handled by AVA's `throwsAsync`.\n const testClearQueueRejects = process.versions.node.startsWith('20.') ? test.skip : test;\n \n",
+      "patch_truncated": false,
+      "changed_paths": [
+        "test.js"
+      ]
+    }
+  ],
+  "receipt_status": "verified",
+  "adversarial_result": null,
+  "failure_code": "VERIFICATION_FAILED",
+  "attestation": {
+    "algorithm": "ed25519",
+    "signature_base64": "LTJhUisN8ehGawomI9SI9tS5BABiM2n2ElZt8R8vLliF3qJzUqkjhdLALHfsYSB54j645h8W9WtZ9uj5CVWgAw=="
+  }
+}

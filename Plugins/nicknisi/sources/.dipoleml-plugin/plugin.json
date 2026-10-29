@@ -1,0 +1,16 @@
+{
+  "name": "sources",
+  "displayName": "Sources",
+  "version": "0.2.0",
+  "description": "Read and extract from external sources - tweets, Reddit threads, and YouTube videos - via proxies and caption APIs that direct fetching can't reach.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Nicknisi"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/nicknisi/claude-plugins",
+  "repository": "https://github.com/nicknisi/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

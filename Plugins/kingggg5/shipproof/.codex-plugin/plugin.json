@@ -1,0 +1,22 @@
+{
+  "name": "shipproof",
+  "version": "0.12.0",
+  "description": "Evidence-first engineering and production audits for secure, efficient, scalable systems.",
+  "author": {
+    "name": "Jesadakorn Pipitakun"
+  },
+  "homepage": "https://github.com/kingggg5/shipproof",
+  "repository": "https://github.com/kingggg5/shipproof",
+  "license": "MIT",
+  "keywords": ["security", "performance", "code-review", "systems", "production-readiness", "sarif"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "ShipProof",
+    "shortDescription": "Build and audit secure, efficient systems.",
+    "longDescription": "Guide production implementation and run local-first, evidence-backed audits across full-stack applications, databases, AI agents, supply chains, kernels, browser engines, parsers, protocols, operations, and 10k-to-1M-user capacity assumptions.",
+    "developerName": "Jesadakorn Pipitakun",
+    "category": "Developer Tools",
+    "capabilities": ["Read", "Write"],
+    "defaultPrompt": "Use $engineer-production-systems to implement this change securely with measured CPU, RAM, latency, and scale evidence, then use $audit-production-readiness before release."
+  }
+}

@@ -1,0 +1,119 @@
+{
+  "schema": 1,
+  "cell_id": "008-weighted-path--always-strong-local--r2",
+  "order": 8,
+  "scenario_id": "weighted-path",
+  "policy_id": "always-strong-local",
+  "repetition": 2,
+  "route": {
+    "initial_tier": "strong",
+    "escalation_tier": null,
+    "features": {
+      "word_count": 60,
+      "constraint_count": 3,
+      "reasoning_count": 5,
+      "structure_count": 0,
+      "difficulty_score": 0.32125
+    },
+    "reason_code": "BASELINE_ALWAYS_STRONG"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "strong",
+      "started_at": "2026-08-01T03:04:27.381Z",
+      "duration_ms": 7363,
+      "output_text": "{\n  \"answer\": 9\n}",
+      "output_digest": "sha256:59a795de2aa4eb9f6ca3a184328fc90b3ebc2bdad6ab1704444881e01139224b",
+      "answer": 9,
+      "verification": {
+        "status": "failed",
+        "verifier_id": "exact-answer-v1",
+        "answer_digest": "sha256:19581e27de7ced00ff1ce50b2047e7a567c76b1cbaebabe5ef03f7c3017bb5b7",
+        "failure_code": "ANSWER_DIGEST_MISMATCH"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "ollama-chat",
+        "requested_model": "qwen2.5-coder:7b",
+        "observed_model": "qwen2.5-coder:7b",
+        "model_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+        "done_reason": "stop",
+        "response_digest": "sha256:e29c9a3de094424fbd86cc82533b67fac793349c61c93fd9eecb1501db0c41e0",
+        "error": null
+      },
+      "usage": {
+        "prompt_tokens": 146,
+        "completion_tokens": 10,
+        "total_tokens": 156,
+        "provider_total_duration_ns": 7359274200
+      },
+      "economics": {
+        "provider_invoice": {
+          "status": "known",
+          "amount_usd": 0,
+          "source": "self_hosted_ollama_no_per_request_invoice"
+        },
+        "gpu_energy": {
+          "status": "measured",
+          "energy_kwh": 0.000122518,
+          "samples": 15,
+          "average_watts": 59.902667
+        },
+        "comparison_cost": {
+          "status": "derived-comparison",
+          "total_usd": 0.000044956,
+          "components": [
+            {
+              "kind": "gpu_electricity",
+              "status": "derived-comparison",
+              "amount_usd": 0.000024504,
+              "energy_kwh": 0.000122518,
+              "rate_usd_per_kwh": 0.2,
+              "source": "nvidia_smi_energy_times_frozen_scenario_rate"
+            },
+            {
+              "kind": "gpu_amortization",
+              "status": "derived-comparison",
+              "amount_usd": 0.000020453,
+              "residual_value_usd": 100,
+              "useful_compute_hours": 10000,
+              "source": "duration_times_frozen_residual_value_scenario"
+            },
+            {
+              "kind": "provider_invoice",
+              "status": "known",
+              "amount_usd": 0,
+              "source": "self_hosted_ollama_no_per_request_invoice"
+            },
+            {
+              "kind": "cpu_memory_storage_display_energy",
+              "status": "unknown",
+              "amount_usd": null,
+              "source": "not_measured"
+            }
+          ]
+        },
+        "actual_end_to_end_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "whole_system_energy_and_actual_utility_rate_not_observed"
+        }
+      }
+    }
+  ],
+  "status": "failed",
+  "final_verification": {
+    "status": "failed",
+    "verifier_id": "exact-answer-v1",
+    "answer_digest": "sha256:19581e27de7ced00ff1ce50b2047e7a567c76b1cbaebabe5ef03f7c3017bb5b7",
+    "failure_code": "ANSWER_DIGEST_MISMATCH"
+  },
+  "previous_cell_digest": "sha256:b7ca3fef98b090dbb2a3f96ce8dbd2f2fdf0b3c4fedffa71e2244396c8e7efca",
+  "receipt_digest": "sha256:aed0f28bff6707eeba002fd0b14b3a7b67ab5fcdd12cb3987f5abcad737ec8df",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:cf05c4434e9e909ed88913cfdc17d452e92d1e4745091372ed1bb26b7dd94c82",
+    "signature": "fsqTP3OYBF3EtdvGJYtE0Yu//1ZF7NT4PYQOPGpZ0Q+FV+6QFWpfKkpTRffryAtir5NPHGHSHi8T4RrN2nHyBQ=="
+  }
+}

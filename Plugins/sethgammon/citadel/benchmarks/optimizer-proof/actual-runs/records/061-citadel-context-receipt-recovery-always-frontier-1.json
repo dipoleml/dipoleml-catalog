@@ -1,0 +1,71 @@
+{
+  "schema": 1,
+  "evidence_kind": "actual-run",
+  "scenario_set_id": "optimizer-scenarios-sha256:602e496906f3a293203750602234ba88a55a86b9e4f54f32239264098dcebe5b",
+  "metric_set_id": "optimizer-metrics-sha256:bedffbda2b18d725610b0f294a8273ef908237fd957bf9e51a5af4885b123e4f",
+  "scenario_id": "citadel-context-receipt-recovery",
+  "category": "context_reset",
+  "holdout": false,
+  "policy_id": "always-frontier",
+  "repetition": 1,
+  "decision_id": "sha256:e780e35809080a6f4f99aec8bd39640ef34053fb2f37f0af9992fdec51bd1bf2",
+  "selected_profile_id": "claude-frontier",
+  "observed_profile_id": "claude-frontier",
+  "requested_model": "claude-opus-5",
+  "observed_model": "claude-opus-5",
+  "model_proof_status": "passed",
+  "started_at": "2026-07-31T01:56:11.965Z",
+  "duration_ms": 1209726,
+  "outcome": "failed",
+  "verified": false,
+  "attempts": 1,
+  "human_interventions": 0,
+  "topology": "sequential-recovery",
+  "cost": {
+    "status": "known",
+    "amount_usd": 4.870629,
+    "provenance": "tool_reported",
+    "source": "citadel_optimizer_runner",
+    "source_ref": "summed_attempts:1",
+    "pricing_snapshot_digest": null,
+    "components": [
+      {
+        "kind": "model",
+        "amount_usd": 4.870629299999999,
+        "source": "attempt_1:claude total_cost_usd"
+      }
+    ]
+  },
+  "artifact_paths": [],
+  "verification_receipts": [
+    {
+      "attempt": 1,
+      "profile_id": "claude-frontier",
+      "status": "passed",
+      "exit_code": 0,
+      "timed_out": false,
+      "output_digest": "sha256:0676e1fef8b2b217ca748f6431dd436838a5a380516c810d6d34829cd3f3cb53",
+      "output_excerpt": "[stdout]\nOperation Fork executors passed: schema 2 bindings, same-runtime isolation, honest model proof, tamper rejection, legacy compatibility, and shell-free Windows launch.\n\n[stderr]\n",
+      "output_truncated": false,
+      "patch_exit_code": 0,
+      "patch_digest": "sha256:08756ba913370e364ce43763e5701071f438639cd5c92b8bbacaee2d7e63f632",
+      "patch_excerpt": "\n     check('http: fork proof projection is bounded', projectedProof\n       && JSON.stringify(Object.keys(projectedProof).sort()) === JSON.stringify(['digest', 'summary'])\n       && !Object.hasOwn(projectedProof, 'replay'));\n+    // Only branch-claude carries durable evidence, so the projection must count it\n+    // alone and still refuse a winner while the other branch stays unverified.\n     check('http: fork proof projection keeps exact denominators', projectedProof.summary.branch_count === 2\n-      && projectedProof.summary.verified_receipt_count === 0\n+      && projectedProof.summary.verified_receipt_count === 1\n+      && projectedProof.summary.comparable_count === 1\n+      && projectedProof.summary.comparison_outcome === 'insufficient-evidence'\n+      && projectedProof.summary.recommendation === null\n       && Object.hasOwn(projectedProof.summary.model_proof_counts, 'unknown'));\n \n     const handoffs = await fetch(`${base}/api/handoffs`).then((r) => r.json());\ndiff --git a/scripts/test-operation-fork-security.js b/scripts/test-operation-fork-security.js\nindex 47c798d..95f19b9 100644\n--- a/scripts/test-operation-fork-security.js\n+++ b/scripts/test-operation-fork-security.js\n@@ -8,6 +8,7 @@ const os = require('os');\n const path = require('path');\n const forks = require('../core/forks');\n const operations = require('../core/operations');\n+const { createForkWithDurableEvidence } = require('./fork-evidence-fixture');\n \n const NOW = '2026-07-13T15:00:00.000Z';\n const BASE = 'a'.repeat(40);\n@@ -73,8 +74,7 @@ for (const forbidden of ['Security fixture', 'branch_ref', 'worktree_ref', BASE,\n }\n \n const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'citadel-fork-security-'));\n-let landingFork = readyFork('fork-landing-safe');\n-forks.createForkRecord(sandbox, landingFork);\n+let landingFork = createForkWithDurableEvidence(sandbox, readyFork('fork-landing-safe'), 'branch-claude');\n const token = forks.landingConfirmation(landingFork, BASE);\n let mergeCalls = 0;\n const provider = {\n@@ -96,8 +96,7 @@ const repeated = forks.applyLanding({ projectRoot: sandbox, forkId: landingFork.\n assert.equal(repeated.status, 'landed');\n assert.equal(mergeCalls, 1, 'idempotent replay must not repeat merge');\n \n-let ambiguous = readyFork('fork-landing-ambiguous');\n-forks.createForkRecord(sandbox, ambiguous);\n+let ambiguous = createForkWithDurableEvidence(sandbox, readyFork('fork-landing-ambiguous'), 'branch-claude');\n const ambiguousToken = forks.landingConfirmation(ambiguous, BASE);\n let prepared = forks.prepareLanding(ambiguous, { expectedRevision: ambiguous.revision,\n   targetRevision: BASE, confirmation: ambiguousToken, idempotencyKey: 'landing-ambiguous-001',\ndiff --git a/scripts/test-operation-fork.js b/scripts/test-operation-fork.js\nindex 9c367c7..4855afc 100644\n--- a/scripts/test-operation-fork.js\n+++ b/scripts/test-operation-fork.js\n@@ -119,9 +119,76 @@ assert.equal(resumed.fork.branches.find((branch) => branch.runtime === 'claude')\n assert.equal(resumed.fork.branches.find((branch) => branch.runtime === 'claude').failure_code, 'RUNTIME_EFFECT_AMBIGUOUS');\n assert.deepEqual(calls, ['codex'], 'ambiguous Claude effect must not run again');\n \n-for (const branch of [...result.fork.branches, ...recovery.branches]) {\n-  const target = provider.resolve(project, worktrees, branch.run_id.includes('recovery') ? 'fork-recovery' : 'fork-auth-race', branch.branch_id);\n+// Recovery reloads the durable receipt instead of trusting the recorded\n+// `receipt_verified` flag. An interrupted run can leave a receipt on disk that no\n+// longer matches the branch it is filed under, so selection must reject it even on\n+// a schema 1 fork, where nothing but this verdict stands in front of landing.\n+let staleNow = 0;\n+const staleFork = forks.startFork({\n+  projectRoot: project,\n+  forkId: 'fork-stale-receipt',\n+  title: 'Stale receipt proof',\n+  objective: 'Prove recovery refuses a receipt that no longer matches its branch',\n+  workflow,\n+  baseRevision,\n+  worktreeRoot: worktrees,\n+  worktreeProvider: provider,\n+  runBranch: fakeRun,\n+  createdAt: '2026-07-13T14:00:00.000Z',\n+  now: () => `2026-07-13T14:00:${String(staleNow++).padStart(2, '0')}.000Z`,\n+}).fork;\n+assert.equal(staleFork.schema_version, 1, 'this guard must cover legacy schema 1 forks');\n+assert(staleFork.branches.every((branch) => branch.evidence_summary.receipt_verified));\n+\n+const receiptsDir = path.join(project, '.planning/operation-forks/fork-stale-receipt/receipts');\n+const claudeReceipt = path.join(receiptsDir, 'branch-claude.json');\n+const healthyReceipt = fs.readFileSync(claudeReceipt, 'utf8');\n+// The sibling receipt is validly signed by the same fork key; it is simply bound to\n+// another branch. This is mismatch, not corruption, so it cannot be caught by shape.\n+fs.writeFileSync(claudeReceipt, fs.readFileSync(path.join(receiptsDir, 'branch-codex.json'), 'utf8'));\n+\n+const tampered = forks.loadFork(project, 'fork-stale-receipt');\n+const tamperedBranch = tampered.branches.find((branch) => branch.branch_id === 'branch-claude');\n+const staleEvidence = forks.verifyBranchEvidence(project, tampered, tamperedBranch);\n+assert.equal(staleEvidence.verification.status, 'invalid');\n+assert.equal(staleEvidence.verification.reason_code, 'EXECUTION_RECEIPT_DIGEST_MISMATCH');\n+assert.equal(tamperedBranch.evidence_summary.receipt_verified, true,\n+  'the recorded flag still claims verified, which is exactly what must not be trusted');\n+assert.throws(() => forks.applySelection({\n+  projectRoot: project, forkId: 'fork-stale-receipt', branchId: 'branch-claude',\n+  expectedRevision: tampered.revision, actorId: 'actor-test',\n+  idempotencyKey: 'idem-stale-1', reason: 'stale receipt',\n+  now: () => '2026-07-13T14:30:00.000Z',\n+}), (error) => error.code === 'FORK_RECEIPT_UNVERIFIED', 'a mismatched receipt must not be selectable');\n+assert.equal(forks.loadFork(project, 'fork-stale-receipt').selection, null,\n+  'a rejected selection must leave no durable trace');\n+// The comparison surface must agree, so no operator or view is offered a winner that\n+// rests on a receipt the fork can no longer verify.\n+const staleComparison = forks.compareFork(tampered, { evidence: forks.forkEvidence(project, tampered) });\n+const staleEntry = staleComparison.branches.find((branch) => branch.branch_id === 'branch-claude');\n+assert.equal(staleEntry.comparable, false);\n+assert(staleEntry.reasons.includes('fork-receipt-unverified'), 'the stale receipt must be named as the reason');\n+assert.notEqual(staleComparison.recommendation, 'branch-claude');\n+\n+// Restoring the correct receipt is the only change, so acceptance proves the guard\n+// keys on the receipt and not on some other difference between the two branches.\n+fs.writeFileSync(claudeReceipt, healthyReceipt);\n+const repaired = forks.loadFork(project, 'fork-stale-receipt');\n+assert.equal(forks.verifyBranchEvidence(project, repaired,\n+  repaired.branches.find((branch) => branch.branch_id === 'branch-claude')).verification.status, 'verified');\n+const staleSelected = forks.applySelection({\n+  projectRoot: project, forkId: 'fork-stale-receipt', branchId: 'branch-claude',\n+  expectedRevision: repaired.revision, actorId: 'actor-test',\n+  idempotencyKey: 'idem-stale-2', reason: 'restored receipt',\n+  now: () => '2026-07-13T14:31:00.000Z',\n+});\n+assert.equal(staleSelected.selection.branch_id, 'branch-claude');\n+\n+for (const branch of [...result.fork.branches, ...recovery.branches, ...staleFork.branches]) {\n+  const forkId = branch.run_id.includes('stale-receipt') ? 'fork-stale-receipt'\n+    : (branch.run_id.includes('recovery') ? 'fork-recovery' : 'fork-auth-race');\n+  const target = provider.resolve(project, worktrees, forkId, branch.branch_id);\n   if (fs.existsSync(target)) git(project, ['worktree', 'remove', '--force', target]);\n }\n fs.rmSync(sandbox, { recursive: true, force: true });\n-process.stdout.write('Operation Fork execution passed: shared contract parity, isolated worktrees, signed receipts, and ambiguity-safe recovery.\\n');\n+process.stdout.write('Operation Fork execution passed: shared contract parity, isolated worktrees, signed receipts, ambiguity-safe recovery, and stale-receipt refusal.\\n');\n",
+      "patch_truncated": true,
+      "changed_paths": [
+        "core/forks/compare.js",
+        "core/forks/lifecycle.js",
+        "docs/OPERATION_FORK.md",
+        "scripts/test-dashboard-web.js",
+        "scripts/test-operation-fork-security.js",
+        "scripts/test-operation-fork.js"
+      ]
+    }
+  ],
+  "receipt_status": "verified",
+  "adversarial_result": "unknown",
+  "failure_code": "EXPECTED_ARTIFACTS_NOT_CHANGED",
+  "attestation": {
+    "algorithm": "ed25519",
+    "signature_base64": "r7+t5amRNioNCARrtECLs6Is9qNGAxJ/9Ak8Wh1RRDu6hshj2r9LMYC0LN/D8YdNEspixnGpIwxbhX6YZyLyBQ=="
+  }
+}

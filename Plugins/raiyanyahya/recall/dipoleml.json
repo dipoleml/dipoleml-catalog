@@ -1,0 +1,135 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.raiyanyahya.recall",
+  "type": "plugin",
+  "name": "Recall",
+  "slug": "recall",
+  "vendor": "raiyanyahya",
+  "description": "Stop wasting tokens and re-explaining your project every session. Recall gives DipoleML , Opencode durable memory — entirely offline.",
+  "version": "0.4.0",
+  "homepage": "https://github.com/raiyanyahya/recall",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "anthropic",
+    "claude-code-plugin",
+    "claude-plugin",
+    "context",
+    "developer-tools",
+    "local-first",
+    "memory",
+    "offline",
+    "opencode"
+  ],
+  "tags": [
+    "ai",
+    "ai-agents",
+    "anthropic",
+    "claude",
+    "claude-code",
+    "claude-code-plugin",
+    "claude-plugin",
+    "context",
+    "developer-tools",
+    "llm",
+    "local-first",
+    "memory",
+    "offline",
+    "opencode",
+    "privacy",
+    "productivity",
+    "python",
+    "summarization",
+    "textrank"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "raiyanyahya",
+    "brandName": "raiyanyahya",
+    "source": "https://github.com/raiyanyahya.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:14:32Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "raiyanyahya/recall",
+    "url": "https://github.com/raiyanyahya/recall",
+    "commit": "e65cb1e406fea99bee4931e7597715c47b3d2272",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 764,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:59:30Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Recall | Stop wasting tokens and re-explaining your project every session. Recall gives Claude Code , Opencode durable memory — entirely offline.",
+        "after": "Recall | Stop wasting tokens and re-explaining your project every session. Recall gives DipoleML , Opencode durable memory — entirely offline.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Durable, fully-local project memory for Claude Code. Logs every session to .recall/history.md and condenses it into .recall/context.md with a local Python summarizer (TF-IDF + TextRank) — no API key, no external model, nothing leaves your machine. New sessions resume from the saved context.",
+        "after": "Durable, fully-local project memory for DipoleML. Logs every session to .recall/history.md and condenses it into .recall/context.md with a local Python summarizer (TF-IDF + TextRank) — no API key, no external model, nothing leaves your machine. New sessions resume from the saved context.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [],
+    "env": [
+      "ANTHROPIC_API_KEY"
+    ],
+    "credentials": [
+      "ANTHROPIC_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

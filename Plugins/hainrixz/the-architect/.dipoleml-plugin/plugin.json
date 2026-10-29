@@ -1,0 +1,16 @@
+{
+  "name": "the-architect",
+  "displayName": "The Architect",
+  "version": "2.6.0",
+  "description": "EN: Senior software design consultant. Interviews you about what you want to build, designs the complete architecture, and generates a self-contained blueprint another DipoleML instance can build from autonomously — with acceptance criteria and a verify command on every step. Works on new projects and existing codebases. ES: Consultor senior de diseño de software. Te entrevista sobre lo que quieres construir, diseña la arquitectura completa, y genera un blueprint autocontenido desde el cual otra instancia de DipoleML puede construir de forma autónoma.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Hainrixz"
+  },
+  "license": "MIT",
+  "homepage": "https://tododeia.com",
+  "repository": "https://github.com/Hainrixz/the-architect",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

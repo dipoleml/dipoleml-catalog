@@ -1,0 +1,22 @@
+{
+  "name": "allanops",
+  "owner": {
+    "name": "AllanOps",
+    "url": "https://github.com/AllanOps"
+  },
+  "description": "AllanOps' Claude Code plugins — starting with clean-backend: the operational backend habits an AI assistant misses on its own.",
+  "plugins": [
+    {
+      "name": "clean-backend",
+      "source": "./",
+      "description": "The backend habits an AI assistant misses on its own — API versioning, feature flags, circuit breakers, and four more. Measured, not asserted.",
+      "category": "engineering",
+      "keywords": [
+        "backend",
+        "reliability",
+        "production",
+        "best-practices"
+      ]
+    }
+  ]
+}

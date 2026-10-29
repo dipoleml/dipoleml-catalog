@@ -1,0 +1,148 @@
+mod backend;
+mod backend_pool;
+mod config;
+mod doctor;
+mod proxy;
+
+pub use typemux_cc::{error, framing, message};
+mod state;
+mod text_edit;
+mod venv;
+
+use backend::BackendKind;
+use clap::{CommandFactory, FromArgMatches, Parser};
+use proxy::LspProxy;
+use std::path::PathBuf;
+use tracing_appender::rolling::{RollingFileAppender, Rotation};
+use tracing_subscriber::{fmt, prelude::*, EnvFilter};
+
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Optional path to log file (default: stderr only)
+    /// Can also be set via `TYPEMUX_CC_LOG_FILE` environment variable
+    #[arg(long, env = "TYPEMUX_CC_LOG_FILE")]
+    log_file: Option<PathBuf>,
+
+    /// Maximum number of concurrent backend processes (default: 8, minimum: 1)
+    /// Can also be set via `TYPEMUX_CC_MAX_BACKENDS` environment variable
+    #[arg(long, env = "TYPEMUX_CC_MAX_BACKENDS", default_value = "8", value_parser = clap::value_parser!(u64).range(1..))]
+    max_backends: u64,
+
+    /// Backend TTL in seconds (default: 1800 = 30 minutes). Set to 0 to disable TTL eviction.
+    /// Can also be set via `TYPEMUX_CC_BACKEND_TTL` environment variable
+    #[arg(long, env = "TYPEMUX_CC_BACKEND_TTL", default_value = "1800")]
+    backend_ttl: u64,
+
+    /// LSP backend to use: pyright, ty, or pyrefly
+    /// Can also be set via `TYPEMUX_CC_BACKEND` environment variable
+    #[arg(
+        long,
+        env = "TYPEMUX_CC_BACKEND",
+        default_value = "pyright",
+        value_enum
+    )]
+    backend: BackendKind,
+
+    /// Run self-diagnosis and print configuration/environment info
+    #[arg(long)]
+    doctor: bool,
+
+    /// Output doctor report as JSON (requires --doctor)
+    #[arg(long, requires = "doctor")]
+    json: bool,
+}
+
+#[tokio::main]
+async fn main() -> anyhow::Result<()> {
+    // Load config file BEFORE clap parsing so env vars are available for clap's `env = "..."`
+    let config_report = config::load_config_file();
+
+    let matches = Args::command().get_matches();
+    let args = Args::from_arg_matches(&matches)?;
+
+    if args.doctor {
+        doctor::run_doctor(&args.backend, args.json, &matches, &config_report).await;
+        return Ok(());
+    }
+
+    // Fail loudly on unparseable timeout/interval env vars before starting
+    // anything else (see `validate_env_config` doc comment).
+    if let Err(msg) = backend_pool::validate_env_config() {
+        anyhow::bail!(msg);
+    }
+
+    // Initialize logging (default: stderr, --log-file adds file output)
+    if let Some(log_path) = &args.log_file {
+        // File output specified: stderr + file
+        let file_appender = RollingFileAppender::new(
+            Rotation::NEVER,
+            log_path
+                .parent()
+                .unwrap_or_else(|| std::path::Path::new(".")),
+            log_path
+                .file_name()
+                .unwrap_or_else(|| std::ffi::OsStr::new("typemux-cc.log")),
+        );
+
+        tracing_subscriber::registry()
+            .with(
+                fmt::layer()
+                    .with_writer(std::io::stderr)
+                    .with_ansi(false)
+                    .with_target(true)
+                    .with_thread_ids(true),
+            )
+            .with(
+                fmt::layer()
+                    .with_writer(file_appender)
+                    .with_ansi(false)
+                    .with_target(true)
+                    .with_thread_ids(true),
+            )
+            .with(
+                EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| EnvFilter::new("typemux_cc=debug")),
+            )
+            .init();
+
+        tracing::info!(
+            log_file = %log_path.display(),
+            backend = args.backend.display_name(),
+            "Starting LSP proxy (logging to stderr and file)"
+        );
+    } else {
+        // Default: stderr only
+        tracing_subscriber::registry()
+            .with(
+                fmt::layer()
+                    .with_writer(std::io::stderr)
+                    .with_ansi(false)
+                    .with_target(true)
+                    .with_thread_ids(true),
+            )
+            .with(
+                EnvFilter::try_from_default_env()
+                    .unwrap_or_else(|_| EnvFilter::new("typemux_cc=debug")),
+            )
+            .init();
+
+        tracing::info!(
+            backend = args.backend.display_name(),
+            "Starting LSP proxy (logging to stderr only)"
+        );
+    }
+
+    // Convert TTL: 0 means disabled (None), otherwise Some(Duration)
+    let backend_ttl = if args.backend_ttl == 0 {
+        None
+    } else {
+        Some(std::time::Duration::from_secs(args.backend_ttl))
+    };
+
+    // Start proxy
+    let mut proxy = LspProxy::new(args.backend, args.max_backends as usize, backend_ttl);
+    proxy.run().await?;
+
+    Ok(())
+}

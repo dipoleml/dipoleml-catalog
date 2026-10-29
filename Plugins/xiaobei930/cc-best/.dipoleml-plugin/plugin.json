@@ -1,0 +1,29 @@
+{
+  "name": "cc-best",
+  "displayName": "CC Best",
+  "version": "0.11.0",
+  "description": "Production-ready DipoleML configuration with role-based workflows (PM→Lead→Designer→Dev→QA), safety hooks, 44 commands, 19 skills, 8 agents, 43 rules, 30 hook scripts across 20 events, auto-learning pipeline, hook profiles, and multi-language coding standards",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Xiaobei930"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/xiaobei930/cc-best",
+  "repository": "https://github.com/xiaobei930/cc-best",
+  "skills": [
+    "./skills/"
+  ],
+  "commands": [
+    "./commands/"
+  ],
+  "agents": [
+    "./agents/architect.md",
+    "./agents/build-error-resolver.md",
+    "./agents/code-reviewer.md",
+    "./agents/code-simplifier.md",
+    "./agents/planner.md",
+    "./agents/requirement-validator.md",
+    "./agents/security-reviewer.md",
+    "./agents/tdd-guide.md"
+  ]
+}

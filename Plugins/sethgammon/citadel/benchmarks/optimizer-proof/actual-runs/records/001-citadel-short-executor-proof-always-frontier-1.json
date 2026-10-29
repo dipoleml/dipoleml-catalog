@@ -1,0 +1,68 @@
+{
+  "schema": 1,
+  "evidence_kind": "actual-run",
+  "scenario_set_id": "optimizer-scenarios-sha256:602e496906f3a293203750602234ba88a55a86b9e4f54f32239264098dcebe5b",
+  "metric_set_id": "optimizer-metrics-sha256:bedffbda2b18d725610b0f294a8273ef908237fd957bf9e51a5af4885b123e4f",
+  "scenario_id": "citadel-short-executor-proof",
+  "category": "short_control",
+  "holdout": true,
+  "policy_id": "always-frontier",
+  "repetition": 1,
+  "decision_id": "sha256:cdea674c7c53af57f274599b59a8152ae15bf784d7a5b3fc574f486798345924",
+  "selected_profile_id": "claude-frontier",
+  "observed_profile_id": "claude-frontier",
+  "requested_model": "claude-opus-5",
+  "observed_model": "claude-opus-5",
+  "model_proof_status": "passed",
+  "started_at": "2026-07-30T20:57:38.994Z",
+  "duration_ms": 298076,
+  "outcome": "passed",
+  "verified": true,
+  "attempts": 1,
+  "human_interventions": 0,
+  "topology": "single",
+  "cost": {
+    "status": "known",
+    "amount_usd": 0.655518,
+    "provenance": "tool_reported",
+    "source": "citadel_optimizer_runner",
+    "source_ref": "summed_attempts:1",
+    "pricing_snapshot_digest": null,
+    "components": [
+      {
+        "kind": "model",
+        "amount_usd": 0.6555178999999999,
+        "source": "attempt_1:claude total_cost_usd"
+      }
+    ]
+  },
+  "artifact_paths": [
+    "scripts/test-executor-profiles.js"
+  ],
+  "verification_receipts": [
+    {
+      "attempt": 1,
+      "profile_id": "claude-frontier",
+      "status": "passed",
+      "exit_code": 0,
+      "timed_out": false,
+      "output_digest": "sha256:cfbcb5eb561d7757d10e054de15d8c886ab07285c428bc508c3dfec194eea343",
+      "output_excerpt": "[stdout]\nExecutor profiles passed: strict profiles, canonical digests, literal invocations, bound receipts, and honest model proof.\n\n[stderr]\n",
+      "output_truncated": false,
+      "patch_exit_code": 0,
+      "patch_digest": "sha256:895bfba1f7663f6aecc4df5674942a91858f089691386cef785008c4cb895c1b",
+      "patch_excerpt": "diff --git a/scripts/test-executor-profiles.js b/scripts/test-executor-profiles.js\nindex 3178834..ae5b8f6 100644\n--- a/scripts/test-executor-profiles.js\n+++ b/scripts/test-executor-profiles.js\n@@ -185,4 +185,31 @@ for (const forbidden of ['signature', 'private', 'raw_output', 'env', 'command',\n }\n assert.equal(replay.model_status, 'unknown');\n \n+// Telemetry that arrives trusted but carries no model is still a missing observation.\n+// It must stay unknown at every layer -- including for a profile that pins no model,\n+// where a recorded observation would otherwise be reported as passed.\n+const unpinned = { ...copy(codex), model: null };\n+for (const observation of [{}, { model: null }, { model: '' }]) {\n+  const telemetry = { ...observation, trusted: true, duration_ms: 1200, tokens: 4096, cost: { amount: 0.25, unit: 'usd', source: 'adapter' } };\n+  for (const profile of [local, unpinned]) {\n+    assert.deepEqual(profiles.evaluateModelProof(profile, telemetry), {\n+      requested_model: profile.model === null ? 'default' : profile.model,\n+      observed_model: null,\n+      status: 'unknown',\n+      reason_code: 'MODEL_OBSERVATION_MISSING',\n+    });\n+    const state = profiles.missionControlExecutorState({ profile, observation: telemetry, wrapper: null });\n+    assert.equal(state.observed_model, null);\n+    assert.equal(state.model_status, 'unknown');\n+    assert.equal(state.model_reason_code, 'MODEL_OBSERVATION_MISSING');\n+    // The rest of the trusted telemetry still lands, so the unknown is about the model alone.\n+    assert.equal(state.duration_status, 'known');\n+    assert.equal(state.tokens_status, 'known');\n+    const unknownReplay = profiles.publicExecutorReplay({ profile, observation: telemetry, wrapper: null });\n+    assert.equal(unknownReplay.observed_model, null);\n+    assert.equal(unknownReplay.model_status, 'unknown');\n+    assert.equal(unknownReplay.model_reason_code, 'MODEL_OBSERVATION_MISSING');\n+  }\n+}\n+\n process.stdout.write('Executor profiles passed: strict profiles, canonical digests, literal invocations, bound receipts, and honest model proof.\\n');\n",
+      "patch_truncated": false,
+      "changed_paths": [
+        "scripts/test-executor-profiles.js"
+      ]
+    }
+  ],
+  "receipt_status": "verified",
+  "adversarial_result": null,
+  "failure_code": null,
+  "attestation": {
+    "algorithm": "ed25519",
+    "signature_base64": "MqqIgBKU5ma3rsFMCR3OceZ0+1s/FYKosvgoPsbvcHO9DFej7vi5KojKs91NAtV5xlHbwbwlAZeW34YDs9IJDw=="
+  }
+}

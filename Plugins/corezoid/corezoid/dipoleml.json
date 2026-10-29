@@ -1,0 +1,123 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.corezoid.corezoid",
+  "type": "plugin",
+  "name": "Corezoid",
+  "slug": "corezoid",
+  "vendor": "corezoid",
+  "description": "Corezoid AI plugin marketplace for DipoleML and Codex: product knowledge, workflow skills, schemas, templates, playbooks, samples, and MCP references for building Corezoid processes.",
+  "version": "3.11.0",
+  "homepage": "https://github.com/corezoid/corezoid-ai-plugin",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "ai-plugin",
+    "api-orchestration",
+    "claude-plugin",
+    "codex",
+    "codex-plugin",
+    "corezoid",
+    "developer-tools",
+    "process-engine",
+    "workflow-automation"
+  ],
+  "tags": [
+    "ai-plugin",
+    "api-orchestration",
+    "claude-code",
+    "claude-plugin",
+    "codex",
+    "codex-plugin",
+    "corezoid",
+    "developer-tools",
+    "mcp",
+    "process-engine",
+    "workflow-automation"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "corezoid",
+    "brandName": "corezoid",
+    "source": "https://github.com/corezoid.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:12:35Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "corezoid/corezoid-ai-plugin",
+    "url": "https://github.com/corezoid/corezoid-ai-plugin",
+    "commit": "beb950919c339cd79f0dae09177d22a6736c9c19",
+    "path": "plugins/corezoid",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 74,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:28:13Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Corezoid | Corezoid AI plugin marketplace for Claude Code and Codex: product knowledge, workflow skills, schemas, templates, playbooks, samples, and MCP references for building Corezoid processes.",
+        "after": "Corezoid | Corezoid AI plugin marketplace for DipoleML and Codex: product knowledge, workflow skills, schemas, templates, playbooks, samples, and MCP references for building Corezoid processes.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "sh",
+      "args": [
+        "-c",
+        "WORK_DIR=\"$PWD\"; PLUGIN_ROOT=\"$DIPOLEML_PLUGIN_ROOT\"; if [ -n \"$PLUGIN_ROOT\" ] && [ ! -f \"$PLUGIN_ROOT/mcp-server/run.sh\" ]; then PLUGIN_ROOT=\"\"; fi; CODEX_CACHE_ROOT=\"\"; if [ -n \"$CODEX_HOME\" ]; then CODEX_CACHE_ROOT=\"$CODEX_HOME\"; elif [ -n \"$HOME\" ]; then CODEX_CACHE_ROOT=\"$HOME/.codex\"; fi; if [ -z \"$PLUGIN_ROOT\" ] && [ -n \"$CODEX_CACHE_ROOT\" ]; then OLD_IFS=$IFS; IFS=$(printf '\\n.'); IFS=${IFS%.}; for dir in $(ls -td \"$CODEX_CACHE_ROOT\"/plugins/cache/corezoid/corezoid/* 2>/dev/null); do IFS=$OLD_IFS; if [ -f \"$dir/mcp-server/run.sh\" ]; then PLUGIN_ROOT=\"$dir\"; break; fi; done; IFS=$OLD_IFS; fi; if [ -z \"$PLUGIN_ROOT\" ] && [ -f \"$PWD/mcp-server/run.sh\" ]; then PLUGIN_ROOT=\"$PWD\"; fi; if [ -z \"$PLUGIN_ROOT\" ] && [ -f \"$PWD/plugins/corezoid/mcp-server/run.sh\" ]; then PLUGIN_ROOT=\"$PWD/plugins/corezoid\"; fi; if [ -z \"$PLUGIN_ROOT\" ]; then echo \"ERROR: cannot locate Corezoid plugin root; set DIPOLEML_PLUGIN_ROOT or install corezoid@corezoid via Codex\" >&2; exit 1; fi; export COREZOID_WORK_DIR=\"$WORK_DIR\"; exec sh \"$PLUGIN_ROOT/mcp-server/run.sh\""
+      ]
+    },
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative. Upstream plugin scripts may reference CLAUDE_PLUGIN_ROOT; the DipoleML loader must set it as an alias for DIPOLEML_PLUGIN_ROOT.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "brainstorm",
+  "displayName": "Brainstorm",
+  "version": "2.2.2",
+  "description": "Collaborative design dialogue - idea to approaches to design to plan",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Umputun"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/umputun/cc-thingz",
+  "repository": "https://github.com/umputun/cc-thingz",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

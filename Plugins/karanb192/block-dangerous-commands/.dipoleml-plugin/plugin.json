@@ -1,0 +1,16 @@
+{
+  "name": "block-dangerous-commands",
+  "displayName": "Block Dangerous Commands",
+  "version": "1.0.0",
+  "description": "A PreToolUse guard for Bash that blocks dangerous shell commands before they execute: rm targeting home/root/system dirs, dd to disk devices, mkfs, fork bombs, curl|sh, force push to main, git reset --hard, chmod 777, docker volume rm, and more. Three safety levels (critical/high/strict, picked via HOOK_SAFETY_LEVEL) control how much is blocked, and per-level ask mode (HOOK_ASK_*) turns a hard deny into a prompt you approve or reject. Every block is logged with the pattern id and reason.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Karanb192"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/karanb192/claude-code-hooks",
+  "repository": "https://github.com/karanb192/claude-code-hooks",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

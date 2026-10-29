@@ -1,0 +1,16 @@
+{
+  "name": "ironscales",
+  "displayName": "Ironscales",
+  "version": "0.1.11",
+  "description": "DipoleML plugins for IRONSCALES - AI-powered anti-phishing, incident triage, email classification, and crowdsourced threat intelligence",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Wyre Ai"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/wyre-technology/msp-claude-plugins",
+  "repository": "https://github.com/WYRE-AI/msp-claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

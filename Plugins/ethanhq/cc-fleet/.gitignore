@@ -1,0 +1,54 @@
+# Binaries / build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/bin/
+/dist/
+/build/
+# npm package: the platform binary fetched by postinstall (never committed)
+/npm/bin/cc-fleet
+# A stray root-level binary (e.g. a local release-archive extraction)
+/cc-fleet
+
+# Test binaries & coverage
+*.test
+*.out
+coverage.*
+*.coverprofile
+profile.cov
+
+# Go workspace files
+go.work
+go.work.sum
+
+# Local secrets — cc-fleet writes these at runtime; never commit
+/secrets/
+*.key
+*.keys.json
+*.rotation
+.env
+.env.local
+
+# Test / scratch state
+/tmp/
+/scratch/
+*.log
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Other ecosystems' caches (if present)
+node_modules/
+__pycache__/
+*.pyc
+
+# Claude Code local state — settings + the repo-local skill install copy that
+# `make skill-sync` writes (the canonical skill is tracked at /skills/).
+/.claude/

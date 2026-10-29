@@ -1,0 +1,16 @@
+{
+  "name": "foundationdb-skills",
+  "displayName": "Foundationdb Skills",
+  "version": "0.0.0",
+  "description": "C#/.NET Binding for FoundationDB Client API",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Snowbanksdk"
+  },
+  "license": "BSD-3-Clause",
+  "homepage": "https://github.com/SnowBankSDK/foundationdb-dotnet-client",
+  "repository": "https://github.com/SnowBankSDK/foundationdb-dotnet-client",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

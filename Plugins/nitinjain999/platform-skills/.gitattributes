@@ -1,0 +1,3 @@
+.github/workflows/*.lock.yml linguist-generated=true
+# scripts/build-plugin.sh output: collapsed in diffs, rebuilt in release PRs
+plugins/platform-skills/** linguist-generated=true

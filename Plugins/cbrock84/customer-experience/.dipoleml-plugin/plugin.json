@@ -1,0 +1,16 @@
+{
+  "name": "customer-experience",
+  "displayName": "Customer Experience",
+  "version": "1.0.0",
+  "description": "Support operations, escalation management, voice of customer, and self-service. Owns what the customer experiences after the sale.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Cbrock84"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/cbrock84/headcount",
+  "repository": "https://github.com/cbrock84/headcount",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,137 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.techygarg.lattice",
+  "type": "plugin",
+  "name": "Lattice",
+  "slug": "lattice",
+  "vendor": "techygarg",
+  "description": "Install engineering discipline into any AI coding assistant. Composable skills for design, implementation, review, and team standards. Better process, not just better prompts.",
+  "version": "2.2.0",
+  "homepage": "https://github.com/techygarg/lattice",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agent-framework",
+    "agent-skills",
+    "agentic",
+    "agentic-ai",
+    "claude-code-plugin",
+    "claude-skills",
+    "clean-architecture",
+    "codex",
+    "codex-plugin"
+  ],
+  "tags": [
+    "agent",
+    "agent-framework",
+    "agent-skills",
+    "agentic",
+    "agentic-ai",
+    "claude-code-plugin",
+    "claude-skills",
+    "clean-architecture",
+    "codex",
+    "codex-plugin",
+    "codex-skills",
+    "context-engineering",
+    "cursor-plugin",
+    "ddd",
+    "engineering-enablement",
+    "gork",
+    "kimi",
+    "kimi-code",
+    "lattice",
+    "sdlc-workflow"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "techygarg",
+    "brandName": "techygarg",
+    "source": "https://github.com/techygarg.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:15:05Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "techygarg/lattice",
+    "url": "https://github.com/techygarg/lattice",
+    "commit": "a772470df20aebdbfd9fa32c435901a876a750f0",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 208,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:02:10Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude,cursor",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".cursor-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/cursor/.cursor-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude",
+      "cursor"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

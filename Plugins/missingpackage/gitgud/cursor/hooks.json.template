@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "hooks": {
+    "beforeSubmitPrompt": [
+      {
+        "command": "node ~/.gitgud-cursor/cursor/gitgud-hook.js"
+      }
+    ]
+  }
+}

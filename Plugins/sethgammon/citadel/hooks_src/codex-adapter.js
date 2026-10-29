@@ -1,0 +1,532 @@
+#!/usr/bin/env node
+
+'use strict';
+
+process.env.CITADEL_RUNTIME = 'codex';
+
+const { spawnSync } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+const { normalizeCodexHookInput } = require('../runtimes/codex/adapters/hook-input');
+const { toLegacyHookPayload } = require('../core/hooks/hook-context');
+
+const SECURITY_HOOKS = new Set(['protect-files', 'external-action-gate']);
+
+const FALLBACK_SKILL_NAMES = new Set([
+  'archon', 'autopilot', 'daemon', 'dashboard', 'design', 'do', 'evolve',
+  'experiment', 'fleet', 'houseclean', 'improve', 'learn', 'marshal',
+  'organize', 'postmortem', 'pr-watch', 'prd', 'qa', 'refactor', 'research',
+  'review', 'scaffold', 'schedule', 'session-handoff', 'setup',
+  'systematic-debugging', 'telemetry', 'test-gen', 'triage', 'unharness',
+  'verify', 'watch', 'wiki', 'workspace',
+]);
+
+let codexSkillNames = null;
+
+function getCodexSkillNames() {
+  if (codexSkillNames) return codexSkillNames;
+  try {
+    const names = fs.readdirSync(path.join(__dirname, '..', 'skills'), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name);
+    codexSkillNames = names.length > 0 ? new Set(names) : FALLBACK_SKILL_NAMES;
+  } catch {
+    codexSkillNames = FALLBACK_SKILL_NAMES;
+  }
+  return codexSkillNames;
+}
+
+// Codex invokes plugin skills as `$plugin.skill`, not `/skill`. Hooks emit
+// Claude-style `/cmd` hints in their text output; rewrite only tokens that
+// match a real Citadel skill name so paths like /usr/bin pass through.
+function translateSlashCommands(text) {
+  if (typeof text !== 'string' || !text.includes('/')) return text;
+  const names = getCodexSkillNames();
+  // Require a complete command token. A dot or colon only ends a hint at
+  // whitespace/end-of-text, so filenames and path suffixes stay intact.
+  return text.replace(/(^|[\s"'`(\[])\/([a-z][a-z0-9-]*)(?=$|[\s"'`)\],;!?]|[.:](?=$|\s))/g, (match, prefix, name) => {
+    return names.has(name) ? `${prefix}$citadel.${name}` : match;
+  });
+}
+
+// Translate only human-readable envelope fields, never control values or
+// updatedInput (which may contain executable commands and filesystem paths).
+function translateEnvelopeText(output, stdout) {
+  let changed = false;
+  function translateFields(object, fields) {
+    if (!object) return;
+    for (const field of fields) {
+      if (typeof object[field] !== 'string') continue;
+      const translated = translateSlashCommands(object[field]);
+      if (translated !== object[field]) {
+        object[field] = translated;
+        changed = true;
+      }
+    }
+  }
+  translateFields(output, ['systemMessage', 'stopReason', 'reason']);
+  translateFields(output.hookSpecificOutput, ['additionalContext', 'permissionDecisionReason']);
+  return changed ? JSON.stringify(output) : stdout;
+}
+
+function isSecurityHook(hookName) {
+  return SECURITY_HOOKS.has(hookName);
+}
+
+function failureResult(hookName, reason, error = null) {
+  const blocks = isSecurityHook(hookName);
+  const detail = error?.message ? `: ${error.message}` : '';
+  return {
+    status: blocks ? 2 : 0,
+    stdout: '',
+    stderr: `[codex-adapter] ${hookName || 'unknown hook'} ${reason}${detail}\n`,
+    nativeEventName: null,
+  };
+}
+
+function parseApplyPatchOperations(command) {
+  if (typeof command !== 'string' || !command.trim()) {
+    throw new TypeError('apply_patch tool_input.command must be a non-empty string');
+  }
+  if (!/^\*\*\* Begin Patch\s*$/m.test(command) || !/^\*\*\* End Patch\s*$/m.test(command)) {
+    throw new TypeError('apply_patch command is missing patch boundaries');
+  }
+
+  const operations = [];
+  const seen = new Set();
+  for (const line of command.split(/\r?\n/)) {
+    const fileMatch = /^\*\*\* (Add|Update|Delete) File:\s*(.+?)\s*$/.exec(line);
+    const moveMatch = /^\*\*\* Move to:\s*(.+?)\s*$/.exec(line);
+    const match = fileMatch || moveMatch;
+    if (!match) continue;
+    let target = (fileMatch ? fileMatch[2] : moveMatch[1]).trim();
+    if ((target.startsWith('"') && target.endsWith('"'))
+      || (target.startsWith("'") && target.endsWith("'"))) {
+      target = target.slice(1, -1);
+    }
+    if (!target) throw new TypeError('apply_patch contains an empty target path');
+    const toolName = fileMatch?.[1] === 'Add' || moveMatch ? 'Write' : 'Edit';
+    const signature = `${toolName}\0${target}`;
+    if (!seen.has(signature)) {
+      seen.add(signature);
+      operations.push({ filePath: target, toolName });
+    }
+  }
+
+  if (operations.length === 0) {
+    throw new TypeError('apply_patch command contains no target paths');
+  }
+  return operations;
+}
+
+function extractApplyPatchTargets(command) {
+  const targets = [];
+  const seen = new Set();
+  for (const operation of parseApplyPatchOperations(command)) {
+    if (seen.has(operation.filePath)) continue;
+    seen.add(operation.filePath);
+    targets.push(operation.filePath);
+  }
+  return targets;
+}
+
+function validateSecurityEnvelope(hookName, payload, envelope) {
+  if (payload.hook_event_name !== 'PreToolUse') {
+    throw new TypeError('security hooks require hook_event_name PreToolUse');
+  }
+  if (typeof payload.cwd !== 'string' || !payload.cwd.trim()) {
+    throw new TypeError('security hooks require a non-empty cwd');
+  }
+  if (typeof payload.tool_name !== 'string' || !payload.tool_name.trim()) {
+    throw new TypeError('security hooks require a non-empty tool_name');
+  }
+  if (!payload.tool_input || typeof payload.tool_input !== 'object' || Array.isArray(payload.tool_input)) {
+    throw new TypeError('security hooks require tool_input object');
+  }
+
+  if (hookName === 'external-action-gate') {
+    if (envelope.tool_name !== 'Bash' || typeof envelope.tool_input.command !== 'string'
+      || !envelope.tool_input.command.trim()) {
+      throw new TypeError('external-action-gate requires Bash tool_input.command');
+    }
+    return;
+  }
+
+  if (hookName === 'protect-files') {
+    if (envelope.tool_name === 'apply_patch') {
+      if (typeof envelope.tool_input.command !== 'string' || !envelope.tool_input.command.trim()) {
+        throw new TypeError('protect-files apply_patch requires tool_input.command');
+      }
+      return;
+    }
+    if (!['Edit', 'Write', 'Read'].includes(envelope.tool_name)) {
+      throw new TypeError('protect-files requires apply_patch, Edit, Write, or Read');
+    }
+    const filePath = envelope.tool_input.file_path || envelope.tool_input.path;
+    if (typeof filePath !== 'string' || !filePath.trim()) {
+      throw new TypeError('protect-files requires a target path');
+    }
+  }
+}
+
+function projectLegacyPayloads(envelope, hookName) {
+  const legacy = {
+    ...(envelope.raw || {}),
+    ...toLegacyHookPayload(envelope),
+  };
+  if (envelope.tool_name !== 'apply_patch') {
+    return [legacy];
+  }
+
+  const projectRoot = typeof envelope.cwd === 'string' && envelope.cwd.trim()
+    ? path.resolve(envelope.cwd)
+    : path.resolve(process.env.CLAUDE_PROJECT_DIR || process.cwd());
+
+  return parseApplyPatchOperations(envelope.tool_input?.command).map(({ filePath, toolName }) => {
+    const projectedPath = path.isAbsolute(filePath)
+      ? path.normalize(filePath)
+      : path.resolve(projectRoot, filePath);
+    return {
+      ...legacy,
+      tool_name: toolName,
+      tool_input: {
+        ...legacy.tool_input,
+        file_path: projectedPath,
+      },
+    };
+  });
+}
+
+function dispatchHook(hookName, input, options = {}) {
+  if (!hookName) return failureResult(hookName, 'name is missing');
+
+  const hooksDir = options.hooksDir || __dirname;
+  const hookPath = path.join(hooksDir, `${hookName}.js`);
+  if (!fs.existsSync(hookPath)) return failureResult(hookName, 'implementation is missing');
+
+  let payload;
+  try {
+    payload = input ? JSON.parse(input) : {};
+  } catch (error) {
+    return failureResult(hookName, 'input parse failed', error);
+  }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return failureResult(hookName, 'input must be a JSON object');
+  }
+
+  let envelope;
+  let legacyPayloads;
+  try {
+    envelope = normalizeCodexHookInput(payload);
+    if (isSecurityHook(hookName)) validateSecurityEnvelope(hookName, payload, envelope);
+    legacyPayloads = projectLegacyPayloads(envelope, hookName);
+  } catch (error) {
+    return failureResult(hookName, 'input projection failed', error);
+  }
+
+  const projectRoot = typeof envelope.cwd === 'string' && envelope.cwd.trim()
+    ? path.resolve(envelope.cwd)
+    : path.resolve(process.env.CLAUDE_PROJECT_DIR || process.cwd());
+  if (isSecurityHook(hookName) && !fs.existsSync(projectRoot)) {
+    return failureResult(hookName, 'project root does not exist');
+  }
+  const run = options.spawnSync || spawnSync;
+  let stdout = '';
+  let stderr = '';
+  for (const legacyPayload of legacyPayloads) {
+    let result;
+    try {
+      result = run(process.execPath, [hookPath], {
+        cwd: fs.existsSync(projectRoot) ? projectRoot : path.resolve(__dirname, '..'),
+        env: {
+          ...process.env,
+          CITADEL_RUNTIME: 'codex',
+          CLAUDE_PROJECT_DIR: projectRoot,
+        },
+        input: JSON.stringify(legacyPayload),
+        encoding: 'utf8',
+      });
+    } catch (error) {
+      const failure = failureResult(hookName, 'spawn failed', error);
+      return {
+        ...failure,
+        stdout,
+        stderr: stderr + failure.stderr,
+        nativeEventName: envelope.native_event_name,
+      };
+    }
+
+    if (result.error || typeof result.status !== 'number') {
+      const failure = failureResult(hookName, 'spawn failed', result.error);
+      return {
+        ...failure,
+        stdout: stdout + (result.stdout || ''),
+        stderr: stderr + (result.stderr || '') + failure.stderr,
+        nativeEventName: envelope.native_event_name,
+      };
+    }
+
+    stdout += result.stdout || '';
+    stderr += result.stderr || '';
+    if (result.status !== 0) {
+      const abnormalSecurityExit = isSecurityHook(hookName) && result.status !== 2;
+      return {
+        status: abnormalSecurityExit ? 2 : result.status,
+        stdout,
+        stderr: abnormalSecurityExit
+          ? `${stderr}[codex-adapter] ${hookName} exited abnormally with status ${result.status}; blocking.\n`
+          : stderr,
+        nativeEventName: envelope.native_event_name,
+      };
+    }
+  }
+
+  return {
+    status: 0,
+    stdout,
+    stderr,
+    nativeEventName: envelope.native_event_name,
+  };
+}
+
+function isValidCodexStopOutput(output) {
+  if (!output || typeof output !== 'object' || Array.isArray(output)) return false;
+  const allowedKeys = new Set([
+    'continue',
+    'decision',
+    'reason',
+    'stopReason',
+    'suppressOutput',
+    'systemMessage',
+  ]);
+  if (Object.keys(output).some((key) => !allowedKeys.has(key))) return false;
+  if (output.continue !== undefined && typeof output.continue !== 'boolean') return false;
+  if (output.suppressOutput !== undefined && typeof output.suppressOutput !== 'boolean') return false;
+  if (output.stopReason !== undefined && typeof output.stopReason !== 'string') return false;
+  if (output.systemMessage !== undefined && typeof output.systemMessage !== 'string') return false;
+  if (output.decision !== undefined) {
+    return output.decision === 'block'
+      && typeof output.reason === 'string'
+      && output.reason.trim().length > 0;
+  }
+  return output.reason === undefined;
+}
+
+function isValidCodexContextOutput(output, eventName) {
+  if (!output || typeof output !== 'object' || Array.isArray(output)) return false;
+  const allowedKeys = new Set([
+    'continue',
+    'stopReason',
+    'suppressOutput',
+    'systemMessage',
+    'hookSpecificOutput',
+  ]);
+  if (Object.keys(output).some((key) => !allowedKeys.has(key))) return false;
+  const specific = output.hookSpecificOutput;
+  if (!specific || typeof specific !== 'object' || Array.isArray(specific)) return false;
+  if (specific.hookEventName !== eventName) return false;
+  return typeof specific.additionalContext === 'string';
+}
+
+function isValidCodexPreToolUseOutput(output) {
+  if (!output || typeof output !== 'object' || Array.isArray(output)) return false;
+  const allowedKeys = new Set([
+    'continue',
+    'stopReason',
+    'suppressOutput',
+    'systemMessage',
+    'hookSpecificOutput',
+  ]);
+  if (Object.keys(output).some((key) => !allowedKeys.has(key))) return false;
+  if (output.continue !== undefined && typeof output.continue !== 'boolean') return false;
+  if (output.stopReason !== undefined && typeof output.stopReason !== 'string') return false;
+  if (output.suppressOutput !== undefined && typeof output.suppressOutput !== 'boolean') return false;
+  if (output.systemMessage !== undefined && typeof output.systemMessage !== 'string') return false;
+
+  const specific = output.hookSpecificOutput;
+  if (!specific || typeof specific !== 'object' || Array.isArray(specific)) return false;
+  if (specific.hookEventName !== 'PreToolUse') return false;
+  const allowedSpecificKeys = new Set([
+    'hookEventName',
+    'additionalContext',
+    'permissionDecision',
+    'permissionDecisionReason',
+    'updatedInput',
+  ]);
+  if (Object.keys(specific).some((key) => !allowedSpecificKeys.has(key))) return false;
+  if (specific.additionalContext !== undefined
+    && typeof specific.additionalContext !== 'string') return false;
+  if (specific.permissionDecisionReason !== undefined
+    && typeof specific.permissionDecisionReason !== 'string') return false;
+  if (specific.updatedInput !== undefined
+    && (!specific.updatedInput || typeof specific.updatedInput !== 'object'
+      || Array.isArray(specific.updatedInput))) return false;
+
+  const hasContext = typeof specific.additionalContext === 'string';
+  const hasPermissionDecision = ['allow', 'deny', 'ask'].includes(specific.permissionDecision);
+  if (specific.permissionDecision !== undefined && !hasPermissionDecision) return false;
+  return hasContext || hasPermissionDecision;
+}
+
+function isValidCodexPreToolUseLegacyBlock(output) {
+  return output && typeof output === 'object' && !Array.isArray(output)
+    && Object.keys(output).every((key) => ['decision', 'reason', 'systemMessage'].includes(key))
+    && output.decision === 'block'
+    && typeof output.reason === 'string'
+    && output.reason.trim().length > 0
+    && (output.systemMessage === undefined || typeof output.systemMessage === 'string');
+}
+
+function projectCodexContextOutput(stdout, eventName) {
+  if (stdout.trim().length === 0) return '';
+
+  let parsed;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    parsed = null;
+  }
+
+  const isValid = eventName === 'PreToolUse'
+    ? (isValidCodexPreToolUseOutput(parsed)
+      || isValidCodexPreToolUseLegacyBlock(parsed))
+    : isValidCodexContextOutput(parsed, eventName);
+  if (isValid) return translateEnvelopeText(parsed, stdout);
+
+  const context = parsed
+    && typeof parsed === 'object'
+    && !Array.isArray(parsed)
+    && typeof parsed.message === 'string'
+    ? parsed.message
+    : stdout.trim();
+
+  return JSON.stringify({
+    hookSpecificOutput: {
+      hookEventName: eventName,
+      additionalContext: translateSlashCommands(context),
+    },
+  });
+}
+
+function isValidCodexUniversalOutput(output) {
+  if (!output || typeof output !== 'object' || Array.isArray(output)) return false;
+  const allowedKeys = new Set(['continue', 'stopReason', 'suppressOutput', 'systemMessage']);
+  if (Object.keys(output).some((key) => !allowedKeys.has(key))) return false;
+  if ('continue' in output && typeof output.continue !== 'boolean') return false;
+  if ('stopReason' in output && output.stopReason !== null && typeof output.stopReason !== 'string') return false;
+  if ('suppressOutput' in output && typeof output.suppressOutput !== 'boolean') return false;
+  if ('systemMessage' in output && output.systemMessage !== null && typeof output.systemMessage !== 'string') return false;
+  return true;
+}
+
+function projectCodexPostCompactOutput(stdout) {
+  if (stdout.trim().length === 0) return '';
+
+  let parsed;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    parsed = null;
+  }
+
+  if (isValidCodexUniversalOutput(parsed)) return translateEnvelopeText(parsed, stdout);
+
+  const message = parsed
+    && typeof parsed === 'object'
+    && !Array.isArray(parsed)
+    && typeof parsed.message === 'string'
+    ? parsed.message
+    : stdout.trim();
+
+  return JSON.stringify({ systemMessage: translateSlashCommands(message) });
+}
+
+function projectCodexOutput(result) {
+  const stdout = result.stdout || '';
+  const stderr = result.stderr || '';
+  if (['SessionStart', 'PreToolUse', 'PostToolUse'].includes(result.nativeEventName)) {
+    return { stdout: projectCodexContextOutput(stdout, result.nativeEventName), stderr };
+  }
+  if (result.nativeEventName === 'PostCompact') {
+    return { stdout: projectCodexPostCompactOutput(stdout), stderr };
+  }
+  if (result.nativeEventName !== 'Stop' || stdout.trim().length === 0) {
+    return { stdout, stderr };
+  }
+
+  let parsed;
+  try {
+    parsed = JSON.parse(stdout);
+  } catch {
+    // Codex requires Stop stdout to be empty or a JSON decision. Preserve
+    // human-readable observer text on stderr instead of emitting invalid data.
+    return { stdout: '', stderr: stdout + stderr };
+  }
+
+  const stopContext = parsed?.hookSpecificOutput?.hookEventName === 'Stop'
+    ? parsed.hookSpecificOutput.additionalContext
+    : null;
+  if (typeof stopContext === 'string' && stopContext.trim()) {
+    return {
+      stdout: JSON.stringify({ systemMessage: translateSlashCommands(stopContext) }),
+      stderr,
+    };
+  }
+
+  // `{ decision: "block", reason }` is valid Codex Stop output and must retain
+  // its blocking semantics. Unknown or malformed JSON is moved to stderr so a
+  // Claude-only envelope cannot silently masquerade as a valid Codex decision.
+  if (isValidCodexStopOutput(parsed)) return { stdout: translateEnvelopeText(parsed, stdout), stderr };
+  return { stdout: '', stderr: stdout + stderr };
+}
+
+function writeResult(result) {
+  const projected = projectCodexOutput(result);
+  if (projected.stdout) process.stdout.write(projected.stdout);
+  if (projected.stderr) process.stderr.write(projected.stderr);
+}
+
+function main(hookName = process.argv[2], options = {}) {
+  let input = '';
+  process.stdin.setEncoding('utf8');
+  process.stdin.on('data', (chunk) => { input += chunk; });
+  process.stdin.on('end', () => {
+    const result = dispatchHook(hookName, input);
+    // PowerShell turns native exit 2 into exit 1. Use Codex's equivalent JSON
+    // denial for Windows plugin launches so a block cannot become a warning.
+    // Direct CLI launches retain their existing exit-code contract.
+    if (options.structuredSecurityBlocks && isSecurityHook(hookName) && result.status !== 0) {
+      process.stdout.write(JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'deny',
+          permissionDecisionReason: (result.stderr || result.stdout || 'Citadel security hook blocked this operation.').trim(),
+        },
+      }));
+      return;
+    }
+    writeResult(result);
+    process.exit(result.status);
+  });
+}
+
+if (require.main === module) main();
+
+module.exports = Object.freeze({
+  main,
+  SECURITY_HOOKS,
+  dispatchHook,
+  extractApplyPatchTargets,
+  isValidCodexStopOutput,
+  isSecurityHook,
+  isValidCodexContextOutput,
+  isValidCodexPreToolUseOutput,
+  isValidCodexUniversalOutput,
+  parseApplyPatchOperations,
+  projectLegacyPayloads,
+  projectCodexOutput,
+  projectCodexContextOutput,
+  projectCodexPostCompactOutput,
+  translateSlashCommands,
+  validateSecurityEnvelope,
+});

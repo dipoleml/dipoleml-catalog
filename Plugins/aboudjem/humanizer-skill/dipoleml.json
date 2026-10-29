@@ -1,0 +1,127 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.aboudjem.humanizer-skill",
+  "type": "plugin",
+  "name": "Humanizer Skill",
+  "slug": "humanizer-skill",
+  "vendor": "aboudjem",
+  "description": "Free, open-source AI writing humanizer and detector. 55 patterns, 5 voices, a 0-100 AI-tell score, and nothing leaves your machine.",
+  "version": "0.7.1",
+  "homepage": "https://github.com/Aboudjem/humanizer-skill",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agent-skills",
+    "ai-detection",
+    "ai-humanizer",
+    "ai-writing",
+    "anti-ai-detection",
+    "awesome-claude-code",
+    "burstiness",
+    "claude-code-plugin",
+    "claude-code-skill"
+  ],
+  "tags": [
+    "agent-skills",
+    "ai-detection",
+    "ai-humanizer",
+    "ai-writing",
+    "anti-ai-detection",
+    "awesome-claude-code",
+    "burstiness",
+    "claude",
+    "claude-code",
+    "claude-code-plugin",
+    "claude-code-skill",
+    "claude-skill",
+    "content-optimization",
+    "humanizer",
+    "nlp",
+    "openclaw-skill",
+    "perplexity",
+    "skills-sh",
+    "text-rewriting",
+    "writing-tools"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "aboudjem",
+    "brandName": "aboudjem",
+    "source": "https://github.com/Aboudjem.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:56Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "Aboudjem/humanizer-skill",
+    "url": "https://github.com/Aboudjem/humanizer-skill",
+    "commit": "a58df065367550b6ce40ff3f648335018d8e0589",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 292,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:01:18Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude,cursor",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".cursor-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/cursor/.cursor-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [
+      "IMPORTANT"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude",
+      "cursor"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

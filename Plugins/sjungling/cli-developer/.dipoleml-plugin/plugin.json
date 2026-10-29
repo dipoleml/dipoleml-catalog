@@ -1,0 +1,16 @@
+{
+  "name": "cli-developer",
+  "displayName": "CLI Developer",
+  "version": "2.1.0",
+  "description": "Expert CLI/TUI design consultant for command structure, visual design, accessibility, and UX patterns",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Sjungling"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/sjungling/sjungling-claude-plugins",
+  "repository": "https://github.com/sjungling/sjungling-claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

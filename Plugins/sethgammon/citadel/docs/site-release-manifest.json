@@ -1,0 +1,207 @@
+{
+  "schema": 1,
+  "kind": "citadel-site-release-manifest",
+  "files": [
+    {
+      "path": "404.html",
+      "bytes": 1078,
+      "digest": "sha256:31b2f1c98da9bb12ba3e41c65b62b913570edb5086574cd2621d967941561252"
+    },
+    {
+      "path": "EVIDENCE_MANIFEST.md",
+      "bytes": 5271,
+      "digest": "sha256:3f076817596712a157b718b867536b0e14fa1fa13b22185159d6ff73b9de1e6e"
+    },
+    {
+      "path": "assets/application/01-product-entry.png",
+      "bytes": 478651,
+      "digest": "sha256:36a1f5513fab57f3b94cb37ce477d8809d827b8150bd926f603c5e4e86914cf4"
+    },
+    {
+      "path": "assets/application/02-evidence-hero.png",
+      "bytes": 451672,
+      "digest": "sha256:54b822904e364b22ecbee5909361ad477e9391f416a37d7879fa3ed0d4c6bd1c"
+    },
+    {
+      "path": "assets/application/03-policy-comparison.png",
+      "bytes": 464748,
+      "digest": "sha256:53d86bb71a51e19b5109c5c9002fed5f123085c1b8b0d731d31efc82954f5980"
+    },
+    {
+      "path": "assets/application/citadel-live-verification-demo.mp4",
+      "bytes": 240688,
+      "digest": "sha256:c2289d0d4ecb493905fdc094e3ad7d98979628c66de1d4bebceee9c51b9c5892"
+    },
+    {
+      "path": "assets/application/citadel-sentient-walkthrough.mp4",
+      "bytes": 4269708,
+      "digest": "sha256:f117dde28f97734cadb51af7cd0b01b1f85d9eba762490d6a14ad83cdde3155d"
+    },
+    {
+      "path": "assets/application/citadel-sentient-walkthrough.vtt",
+      "bytes": 3011,
+      "digest": "sha256:c0dff4ea9a6517d343d3c2438e54aa4b58a6ef2c9bbd8230c0d414994b452638"
+    },
+    {
+      "path": "assets/application/live-verification-output.json",
+      "bytes": 4035,
+      "digest": "sha256:e296a8411e234ac6dcf18f76dbb6a620a1be040b3d521453b986d05299bf4f99"
+    },
+    {
+      "path": "assets/application/walkthrough-narration.txt",
+      "bytes": 2135,
+      "digest": "sha256:38c6cbbb659baf4fc2fcc0466b88a4bed10891117d2d77b42f511c8dc5cb1e03"
+    },
+    {
+      "path": "assets/citadel-social-preview.png",
+      "bytes": 63374,
+      "digest": "sha256:e4c9a307ececf2bb5de902940495b11324902d5c582176e2a7da81caa1f4c4e8"
+    },
+    {
+      "path": "assets/citadel-social-preview.svg",
+      "bytes": 3902,
+      "digest": "sha256:22a9ee6a9cb72215b7f9cd9ec5211b2092c9f6c7749403aa85ee6c0fa7e3944d"
+    },
+    {
+      "path": "evidence-manifest.json",
+      "bytes": 17203,
+      "digest": "sha256:3e3fc8468b46b63be19aaaaffabe1ac111faacf777488b0b51a357d0a1e51367"
+    },
+    {
+      "path": "evidence.html",
+      "bytes": 30060,
+      "digest": "sha256:46796e7a6b8dbb7dfa2ec41d07fbc9834173e704cccffb5483133a1f3cac6d03"
+    },
+    {
+      "path": "grants/APPLICANT_AND_ADOPTION.md",
+      "bytes": 4410,
+      "digest": "sha256:a02ef04e3e43e6170e4424b1dddff7bb5952540c8987feddd57042d48d40db84"
+    },
+    {
+      "path": "grants/APPLICATION_CHECKLIST.md",
+      "bytes": 4706,
+      "digest": "sha256:e97628a986ad72fbc6bff2b494e147e350197b8b3dd15577a41abbae56400693"
+    },
+    {
+      "path": "grants/APPLICATION_MEDIA.md",
+      "bytes": 2555,
+      "digest": "sha256:78173a1408fbf20b1704c698de550d962bb3b10bee31f6e6a55aac7176a482cd"
+    },
+    {
+      "path": "grants/CLAIM_EVIDENCE_MATRIX.md",
+      "bytes": 3947,
+      "digest": "sha256:d81cddae9fe12296768461dbe9fb68ea0622e7677eb35233d2b5c7492970584c"
+    },
+    {
+      "path": "grants/DEMO_SCRIPT.md",
+      "bytes": 2396,
+      "digest": "sha256:3b35dbf279a197ba82f75429e4bfd17fd71eca7362e5764fc15e6b5174f30c2f"
+    },
+    {
+      "path": "grants/EVALUATOR_START_HERE.md",
+      "bytes": 4081,
+      "digest": "sha256:43dfe6ed251b834b8a81ed77efde013922f1cffd36b5bd5f6d8e40fd86697e50"
+    },
+    {
+      "path": "grants/GITHUB_DELIVERY_EVIDENCE.md",
+      "bytes": 3069,
+      "digest": "sha256:356c5913fb78821bee37337df6be75169e92401d49a1f372a7be43b285728878"
+    },
+    {
+      "path": "grants/MILESTONES_AND_BUDGET.md",
+      "bytes": 8810,
+      "digest": "sha256:c7f4a938218262d858eba7f3aa5c4807e1eb9dae19ca67601941e67035564928"
+    },
+    {
+      "path": "grants/PUBLIC_GOODS_AND_GOVERNANCE.md",
+      "bytes": 3540,
+      "digest": "sha256:2d70c5b599d6ec8fc3719fcb71325336dd080ba6cd6f8da15b54282dd29d6f99"
+    },
+    {
+      "path": "grants/REVIEWER_OBJECTIONS.md",
+      "bytes": 6478,
+      "digest": "sha256:d85cc7b91206afd30751147a5349f01efae17a4e54c652c9dfcf182c7c15d743"
+    },
+    {
+      "path": "grants/RISK_REGISTER.md",
+      "bytes": 4445,
+      "digest": "sha256:1b31687bccb0b28caacb9ea5ed8278b9fe6679ee5d38cbdcfda0ebec964ccae7"
+    },
+    {
+      "path": "grants/SENTIENT_BELIEFS.md",
+      "bytes": 2004,
+      "digest": "sha256:428cbcf1e0fe3fdd2098f42dd82b5b6892eb6549db80d63ce11f97d1b143a906"
+    },
+    {
+      "path": "grants/SENTIENT_OPTIMIZER_APPLICATION_DRAFT.md",
+      "bytes": 32670,
+      "digest": "sha256:1b70440b0e08720cb6f48e2e38f4620c7b03b9dc428466802a0a6213b9c629cc"
+    },
+    {
+      "path": "grants/SUBMISSION_READINESS.md",
+      "bytes": 9774,
+      "digest": "sha256:c10354c648e745a9285e189b238d7f9eea4030ee44cc291061062b6322e21fa3"
+    },
+    {
+      "path": "grants/TECHNICAL_COMPARISON.md",
+      "bytes": 4136,
+      "digest": "sha256:970a8a43f94695b2a722412f28f58ae6c7d86bd0f96da427880a2c0f0358d3f9"
+    },
+    {
+      "path": "grants/TYPEFORM_ANSWER_PACK.md",
+      "bytes": 9162,
+      "digest": "sha256:c0efa3a4ea5bb25b732ad533094bef67dd1e4217b38c88690e8473fc2ffbe53c"
+    },
+    {
+      "path": "index.html",
+      "bytes": 207112,
+      "digest": "sha256:108fe60f2b66f3ead2ab74c7c4a641ec0cd7af5ac75ff87f4a99a7710a7eeeec"
+    },
+    {
+      "path": "operation-control.html",
+      "bytes": 26473,
+      "digest": "sha256:dd16b178123c8ba738663a657699395a890b44d3b8f22a7f16dc85df895dd782"
+    },
+    {
+      "path": "optimizer.html",
+      "bytes": 33914,
+      "digest": "sha256:2c63cd1f477e967e6686734a673eed51ebee6cc7e63b27ea377599b926603b8b"
+    },
+    {
+      "path": "research.html",
+      "bytes": 19274,
+      "digest": "sha256:a7413d7bb98ec76d07b1f5cd7e838e910955d9440f2f9f01f5f78215b0c007e7"
+    },
+    {
+      "path": "robots.txt",
+      "bytes": 82,
+      "digest": "sha256:a71725fec90580ea15eeb2f4b0dd3276c0579f725a5bb1c420ab0a747565adf3"
+    },
+    {
+      "path": "site-system.css",
+      "bytes": 39099,
+      "digest": "sha256:2f7baebf44ac5fdb843b70192a50707cbd35aeba2d37f20d4d6aaf0665aa5a84"
+    },
+    {
+      "path": "site-system.js",
+      "bytes": 2400,
+      "digest": "sha256:6a682b2d105cf7d086b10bed63ad24a4405ad2f93c187402dc7cafc368b631bc"
+    },
+    {
+      "path": "site.webmanifest",
+      "bytes": 242,
+      "digest": "sha256:a793978fb167c89c2c58ce39c4a36f58bb63f9bf775613ef35701fb1c6993229"
+    },
+    {
+      "path": "sitemap.xml",
+      "bytes": 704,
+      "digest": "sha256:906188a24cca31f5f9c27fcc8083e8f595a9469514f304ffc6405a0a1e376e5a"
+    },
+    {
+      "path": "walkthrough.html",
+      "bytes": 11562,
+      "digest": "sha256:4ade6149f757c62ab3c60a0cce5c72214093bf3f3b214c553c5c44bb48e16495"
+    }
+  ],
+  "source_digest": "sha256:f8a209996fcd219770c58fccfda5776e243292d69f0f52b0b21e4ba687261a40"
+}

@@ -1,0 +1,129 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.avinash-jetwani.pane",
+  "type": "plugin",
+  "name": "Pane",
+  "slug": "pane",
+  "vendor": "avinash-jetwani",
+  "description": "jevmem saves the decisions, rules and failed approaches from your DipoleML chats to JEVMEM.md in your repo, and brings the relevant ones back next session.",
+  "version": "0.7.6",
+  "homepage": "https://github.com/Avinash-jetwani/jevmem",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agent-memory",
+    "ai-memory",
+    "claude-code-hooks",
+    "claude-code-plugin",
+    "claude-code-plugins",
+    "claude-code-plugins-marketplace",
+    "claude-plugin",
+    "codex",
+    "coding-agents"
+  ],
+  "tags": [
+    "agent-memory",
+    "ai-memory",
+    "claude",
+    "claude-code",
+    "claude-code-hooks",
+    "claude-code-plugin",
+    "claude-code-plugins",
+    "claude-code-plugins-marketplace",
+    "claude-plugin",
+    "codex",
+    "coding-agents",
+    "cursor",
+    "developer-tools",
+    "guardrails",
+    "jev",
+    "mcp",
+    "mcp-server",
+    "project-memory",
+    "typesafe"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "avinash-jetwani",
+    "brandName": "avinash-jetwani",
+    "source": "https://github.com/Avinash-jetwani.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:12:16Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "Avinash-jetwani/jevmem",
+    "url": "https://github.com/Avinash-jetwani/jevmem",
+    "commit": "981c6f312b65a0dd563d32bb3a469badbdc76c56",
+    "path": "pane",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 133,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:03:15Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Pane | jevmem saves the decisions, rules and failed approaches from your Claude Code chats to JEVMEM.md in your repo, and brings the relevant ones back next session.",
+        "after": "Pane | jevmem saves the decisions, rules and failed approaches from your DipoleML chats to JEVMEM.md in your repo, and brings the relevant ones back next session.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "A side pane for Claude Code beside your chat: what jevmem recalled for this prompt, what its guard decided, and what the last turn saved, with why, wrong and forget buttons. Reads three local files in .jevmem/ and runs the jevmem command; sends nothing anywhere. Needs the jevmem CLI and a project that is turned on.",
+        "after": "A side pane for DipoleML beside your chat: what jevmem recalled for this prompt, what its guard decided, and what the last turn saved, with why, wrong and forget buttons. Reads three local files in .jevmem/ and runs the jevmem command; sends nothing anywhere. Needs the jevmem CLI and a project that is turned on.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

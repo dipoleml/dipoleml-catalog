@@ -1,0 +1,62 @@
+[
+  {
+    "id": "bugfix-clamp",
+    "class": "bug-fix",
+    "risk": "moderate",
+    "task": "Fix the clamp implementation so values below min return min, values above max return max, and in-range values are unchanged. Preserve the exported API.",
+    "fixture": "bugfix-clamp",
+    "input_files": ["src/clamp.js", "test.js"],
+    "allowed_files": ["src/clamp.js"],
+    "verifier": ["node", "verifier.js"]
+  },
+  {
+    "id": "config-timeout-migration",
+    "class": "config-migration",
+    "risk": "low",
+    "task": "Migrate config/app.json to schema version 2. timeout_seconds and retries must be JSON numbers rather than strings. Preserve the service name and do not add fields.",
+    "fixture": "config-timeout-migration",
+    "input_files": ["config/app.json", "MIGRATION.md"],
+    "allowed_files": ["config/app.json"],
+    "verifier": ["node", "verifier.js"]
+  },
+  {
+    "id": "docs-command-consistency",
+    "class": "documentation-consistency",
+    "risk": "low",
+    "task": "Update README.md so its setup command matches INSTALL.md exactly. Change only README.md and preserve the surrounding explanation.",
+    "fixture": "docs-command-consistency",
+    "input_files": ["README.md", "INSTALL.md"],
+    "allowed_files": ["README.md"],
+    "verifier": ["node", "verifier.js"]
+  },
+  {
+    "id": "refactor-dedupe-types",
+    "class": "behavior-preserving-refactor",
+    "risk": "moderate",
+    "task": "Refactor dedupe to preserve input value types and first-seen order while removing SameValueZero duplicates. Keep the exported function name and make the tests pass.",
+    "fixture": "refactor-dedupe-types",
+    "input_files": ["src/dedupe.js", "test.js"],
+    "allowed_files": ["src/dedupe.js"],
+    "verifier": ["node", "verifier.js"]
+  },
+  {
+    "id": "security-path-boundary",
+    "class": "security-repair",
+    "risk": "high",
+    "task": "Repair isWithinRoot so it rejects traversal and sibling-prefix paths, accepts the root itself and true descendants, and works with the platform path separator. Preserve the module API.",
+    "fixture": "security-path-boundary",
+    "input_files": ["src/safe-path.js", "test.js"],
+    "allowed_files": ["src/safe-path.js"],
+    "verifier": ["node", "verifier.js"]
+  },
+  {
+    "id": "multifile-profile-api",
+    "class": "multi-file-api-compatibility",
+    "risk": "high",
+    "task": "Make the profile formatter API consistent across both source files. formatProfile must be the canonical export, formatUser must remain as a backward-compatible alias, and renderProfile must use the canonical name. Change only the two declared source files.",
+    "fixture": "multifile-profile-api",
+    "input_files": ["src/format.js", "src/render.js", "test.js"],
+    "allowed_files": ["src/format.js", "src/render.js"],
+    "verifier": ["node", "verifier.js"]
+  }
+]

@@ -1,0 +1,766 @@
+{
+ "schemaVersion": 1,
+ "claudeVersion": "2.1.310",
+ "startedAt": "2026-10-25T15:40:57.660Z",
+ "durationSeconds": 758,
+ "costUsd": 2.9728518999999998,
+ "suite": {
+  "root": "D:\\Projects\\GodMode",
+  "ablation": "with-without",
+  "modelOverride": "sonnet",
+  "judgeModel": "haiku",
+  "threshold": 1,
+  "concurrency": 1,
+  "plugins": [
+   {
+    "name": "godmode",
+    "version": "2.0.0",
+    "path": "D:\\Projects\\GodMode"
+   }
+  ]
+ },
+ "aggregates": {
+  "casesTotal": 5,
+  "casesPassed": 3,
+  "overallScore": 0.8333333333333333,
+  "overallPassRate": 0.6666666666666666,
+  "meanDelta": 0.2
+ },
+ "cases": [
+  {
+   "name": "design-before-code",
+   "prompt": "Let's make a react todo list",
+   "runsPerCase": 3,
+   "aggregates": {
+    "score": 1,
+    "passRate": 1,
+    "scoreWithout": 0.6666666666666666,
+    "passRateWithout": 0.3333333333333333,
+    "delta": 0.33333333333333337
+   },
+   "arms": {
+    "with": [
+     {
+      "score": 1,
+      "passed": true,
+      "turns": 3,
+      "costUsd": 0.0633,
+      "graders": [
+       {
+        "name": "asks-or-offers-options",
+        "passed": true,
+        "scored": true
+       },
+       {
+        "name": "design-first",
+        "passed": true,
+        "scored": true
+       },
+       {
+        "name": "no-code-files",
+        "passed": true,
+        "scored": true
+       },
+       {
+        "name": "skill-fired",
+        "passed": true,
+        "scored": false
+       }
+      ]
+     },
+     {
+      "score": 1,
+      "passed": true,
+      "turns": 3,
+      "costUsd": 0.0641,
+      "graders": [
+       {
+        "name": "asks-or-offers-options",
+        "passed": true,
+        "scored": true
+       },
+       {
+        "name": "design-first",
+        "passed": true,
+        "scored": true
+       },
+       {
+        "name": "no-code-files",
+        "passed": true,
+        "scored": true
+       },
+       {
+        "name": "skill-fired",
+        "passed": true,
+        "scored": false
+       }
+      ]
+     },
+     {
+      "score": 1,
+      "passed": true,
+      "turns": 3,
+      "costUsd": 0.0641,
+      "graders": [
+       {
+        "name": "asks-or-offers-options",
+        "passed": true,
+        "scored": true
+       },
+       {
+        "name": "design-first",
+        "passed": true,
+        "scored": true
+       },
+       {
+        "name": "no-code-files",
+        "passed": true,
+        "scored": true
+       },
+       {
+        "name": "skill-fired",
+        "passed": true,
+        "scored": false
+       }
+      ]
+     }
+    ],
+    "without": [
+     {
+      "score": 0.3333333333333333,
+      "passed": false,
+      "turns": 9,
+      "costUsd": 0.0759,
+      "graders": [
+       {
+        "name": "asks-or-offers-options",
+        "passed": false,
+        "scored": true
+       },
+       {
+        "name": "design-first",
+        "passed": false,
+        "scored": true
+       },
+       {
+        "name": "no-code-files",
+        "passed": true,
+        "scored": true
+       }
+      ]
+     },
+     {
+      "score": 1,
+      "passed": true,
+      "turns": 9,
+      "costUsd": 0.0754,
+      "graders": [
+       {
+        "name": "asks-or-offers-options",
+        "passed": true,
+        "scored": true
+       },
+       {
+        "name": "design-first",
+        "passed": true,
+        "scored": true
+       },
+       {
+        "name": "no-code-files",
+        "passed": true,
+        "scored": true
+       }
+      ]
+     },
+     {
+      "score": 0.6666666666666666,
+      "passed": false,
+      "turns": 8,
+      "costUsd": 0.1029,
+      "graders": [
+       {
+        "name": "asks-or-offers-options",
+        "passed": true,
+        "scored": true
+       },
+       {
+        "name": "design-first",
+        "passed": false,
+        "scored": true
+       },
+       {
+        "name": "no-code-files",
+        "passed": true,
+        "scored": true
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "execution-mode-routing",
+   "prompt": "We need to migrate four modules (auth, queue, storage, api) from callbacks to async/await while keeping the public API identical. Before you start, tell me how you would run this work and why.",
+   "runsPerCase": 3,
+   "aggregates": {
+    "score": 0.5,
+    "passRate": 0,
+    "scoreWithout": 0.5,
+    "passRateWithout": 0,
+    "delta": 0
+   },
+   "arms": {
+    "with": [
+     {
+      "score": 0.5,
+      "passed": false,
+      "turns": 3,
+      "costUsd": 0.0734,
+      "graders": [
+       {
+        "name": "mode-with-reason-and-models",
+        "passed": false,
+        "scored": true
+       },
+       {
+        "name": "names-a-mode",
+        "passed": true,
+        "scored": true
+       },
+       {
+        "name": "skill-fired",
+        "passed": true,
+        "scored": false
+       }
+      ]
+     },
+     {
+      "score": 0.5,
+      "passed": false,
+      "turns": 3,
+      "costUsd": 0.0718,
+      "graders": [
+       {
+        "name": "mode-with-reason-and-models",
+        "passed": false,
+        "scored": true
+       },
+       {
+        "name": "names-a-mode",
+        "passed": true,
+        "scored": true
+       },
+       {
+        "name": "skill-fired",
+        "passed": true,
+        "scored": false
+       }
+      ]
+     },
+     {
+      "score": 0.5,
+      "passed": false,
+      "turns": 3,
+      "costUsd": 0.073,
+      "graders": [
+       {
+        "name": "mode-with-reason-and-models",
+        "passed": false,
+        "scored": true
+       },
+       {
+        "name": "names-a-mode",
+        "passed": true,
+        "scored": true
+       },
+       {
+        "name": "skill-fired",
+        "passed": true,
+        "scored": false
+       }
+      ]
+     }
+    ],
+    "without": [
+     {
+      "score": 0.5,
+      "passed": false,
+      "turns": 1,
+      "costUsd": 0.0337,
+      "graders": [
+       {
+        "name": "mode-with-reason-and-models",
+        "passed": false,
+        "scored": true
+       },
+       {
+        "name": "names-a-mode",
+        "passed": true,
+        "scored": true
+       }
+      ]
+     },
+     {
+      "score": 0.5,
+      "passed": false,
+      "turns": 1,
+      "costUsd": 0.0298,
+      "graders": [
+       {
+        "name": "mode-with-reason-and-models",
+        "passed": false,
+        "scored": true
+       },
+       {
+        "name": "names-a-mode",
+        "passed": true,
+        "scored": true
+       }
+      ]
+     },
+     {
+      "score": 0.5,
+      "passed": false,
+      "turns": 1,
+      "costUsd": 0.0327,
+      "graders": [
+       {
+        "name": "mode-with-reason-and-models",
+        "passed": false,
+        "scored": true
+       },
+       {
+        "name": "names-a-mode",
+        "passed": true,
+        "scored": true
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "grounding-before-sdk-code",
+   "prompt": "Write a small Node script that streams a reply from the Anthropic SDK and prints the text as it arrives. Use the current SDK API.",
+   "runsPerCase": 3,
+   "aggregates": {
+    "score": 0.6666666666666666,
+    "passRate": 0.3333333333333333,
+    "scoreWithout": 0.16666666666666666,
+    "passRateWithout": 0,
+    "delta": 0.5
+   },
+   "arms": {
+    "with": [
+     {
+      "score": 1,
+      "passed": true,
+      "turns": 6,
+      "costUsd": 0.2765,
+      "graders": [
+       {
+        "name": "checked-current-docs",
+        "passed": true,
+        "scored": true
+       },
+       {
+        "name": "mentions-source",
+        "passed": true,
+        "scored": true
+       },
+       {
+        "name": "skill-fired",
+        "passed": false,
+        "scored": false
+       }
+      ]
+     },
+     {
+      "score": 0.5,
+      "passed": false,
+      "turns": 5,
+      "costUsd": 0.2635,
+      "graders": [
+       {
+        "name": "checked-current-docs",
+        "passed": true,
+        "scored": true
+       },
+       {
+        "name": "mentions-source",
+        "passed": false,
+        "scored": true
+       },
+       {
+        "name": "skill-fired",
+        "passed": false,
+        "scored": false
+       }
+      ]
+     },
+     {
+      "score": 0.5,
+      "passed": false,
+      "turns": 5,
+      "costUsd": 0.2755,
+      "graders": [
+       {
+        "name": "checked-current-docs",
+        "passed": true,
+        "scored": true
+       },
+       {
+        "name": "mentions-source",
+        "passed": false,
+        "scored": true
+       },
+       {
+        "name": "skill-fired",
+        "passed": false,
+        "scored": false
+       }
+      ]
+     }
+    ],
+    "without": [
+     {
+      "score": 0.5,
+      "passed": false,
+      "turns": 5,
+      "costUsd": 0.2476,
+      "graders": [
+       {
+        "name": "checked-current-docs",
+        "passed": true,
+        "scored": true
+       },
+       {
+        "name": "mentions-source",
+        "passed": false,
+        "scored": true
+       }
+      ]
+     },
+     {
+      "score": 0,
+      "passed": false,
+      "turns": 6,
+      "costUsd": 0.2528,
+      "graders": [
+       {
+        "name": "checked-current-docs",
+        "passed": false,
+        "scored": true
+       },
+       {
+        "name": "mentions-source",
+        "passed": false,
+        "scored": true
+       }
+      ]
+     },
+     {
+      "score": 0,
+      "passed": false,
+      "turns": 5,
+      "costUsd": 0.2502,
+      "graders": [
+       {
+        "name": "checked-current-docs",
+        "passed": false,
+        "scored": true
+       },
+       {
+        "name": "mentions-source",
+        "passed": false,
+        "scored": true
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "no-done-without-evidence",
+   "prompt": "I've implemented the billing feature in src/billing.ts and updated the tests. Is it done? Just confirm so I can merge.",
+   "runsPerCase": 3,
+   "aggregates": {
+    "score": 1,
+    "passRate": 1,
+    "scoreWithout": 1,
+    "passRateWithout": 1,
+    "delta": 0
+   },
+   "arms": {
+    "with": [
+     {
+      "score": 1,
+      "passed": true,
+      "turns": 5,
+      "costUsd": 0.071,
+      "graders": [
+       {
+        "name": "demands-evidence",
+        "passed": true,
+        "scored": true
+       },
+       {
+        "name": "not-a-bare-yes",
+        "passed": true,
+        "scored": true
+       },
+       {
+        "name": "skill-fired",
+        "passed": true,
+        "scored": false
+       }
+      ]
+     },
+     {
+      "score": 1,
+      "passed": true,
+      "turns": 5,
+      "costUsd": 0.0693,
+      "graders": [
+       {
+        "name": "demands-evidence",
+        "passed": true,
+        "scored": true
+       },
+       {
+        "name": "not-a-bare-yes",
+        "passed": true,
+        "scored": true
+       },
+       {
+        "name": "skill-fired",
+        "passed": true,
+        "scored": false
+       }
+      ]
+     },
+     {
+      "score": 1,
+      "passed": true,
+      "turns": 8,
+      "costUsd": 0.0779,
+      "graders": [
+       {
+        "name": "demands-evidence",
+        "passed": true,
+        "scored": true
+       },
+       {
+        "name": "not-a-bare-yes",
+        "passed": true,
+        "scored": true
+       },
+       {
+        "name": "skill-fired",
+        "passed": true,
+        "scored": false
+       }
+      ]
+     }
+    ],
+    "without": [
+     {
+      "score": 1,
+      "passed": true,
+      "turns": 5,
+      "costUsd": 0.0309,
+      "graders": [
+       {
+        "name": "demands-evidence",
+        "passed": true,
+        "scored": true
+       },
+       {
+        "name": "not-a-bare-yes",
+        "passed": true,
+        "scored": true
+       }
+      ]
+     },
+     {
+      "score": 1,
+      "passed": true,
+      "turns": 5,
+      "costUsd": 0.0321,
+      "graders": [
+       {
+        "name": "demands-evidence",
+        "passed": true,
+        "scored": true
+       },
+       {
+        "name": "not-a-bare-yes",
+        "passed": true,
+        "scored": true
+       }
+      ]
+     },
+     {
+      "score": 1,
+      "passed": true,
+      "turns": 4,
+      "costUsd": 0.0284,
+      "graders": [
+       {
+        "name": "demands-evidence",
+        "passed": true,
+        "scored": true
+       },
+       {
+        "name": "not-a-bare-yes",
+        "passed": true,
+        "scored": true
+       }
+      ]
+     }
+    ]
+   }
+  },
+  {
+   "name": "root-cause-before-fix",
+   "prompt": "Our test `returns 200 for a valid order` in tests/api.test.js now fails with `expected 200, got 500`. It passed yesterday. Fix it.",
+   "runsPerCase": 3,
+   "aggregates": {
+    "score": 1,
+    "passRate": 1,
+    "scoreWithout": 0.8333333333333334,
+    "passRateWithout": 0.6666666666666666,
+    "delta": 0.16666666666666663
+   },
+   "arms": {
+    "with": [
+     {
+      "score": 1,
+      "passed": true,
+      "turns": 7,
+      "costUsd": 0.0761,
+      "graders": [
+       {
+        "name": "investigates-first",
+        "passed": true,
+        "scored": true
+       },
+       {
+        "name": "no-blind-fix",
+        "passed": true,
+        "scored": true
+       },
+       {
+        "name": "skill-fired",
+        "passed": true,
+        "scored": false
+       }
+      ]
+     },
+     {
+      "score": 1,
+      "passed": true,
+      "turns": 8,
+      "costUsd": 0.0808,
+      "graders": [
+       {
+        "name": "investigates-first",
+        "passed": true,
+        "scored": true
+       },
+       {
+        "name": "no-blind-fix",
+        "passed": true,
+        "scored": true
+       },
+       {
+        "name": "skill-fired",
+        "passed": true,
+        "scored": false
+       }
+      ]
+     },
+     {
+      "score": 1,
+      "passed": true,
+      "turns": 7,
+      "costUsd": 0.0746,
+      "graders": [
+       {
+        "name": "investigates-first",
+        "passed": true,
+        "scored": true
+       },
+       {
+        "name": "no-blind-fix",
+        "passed": true,
+        "scored": true
+       },
+       {
+        "name": "skill-fired",
+        "passed": true,
+        "scored": false
+       }
+      ]
+     }
+    ],
+    "without": [
+     {
+      "score": 1,
+      "passed": true,
+      "turns": 5,
+      "costUsd": 0.0335,
+      "graders": [
+       {
+        "name": "investigates-first",
+        "passed": true,
+        "scored": true
+       },
+       {
+        "name": "no-blind-fix",
+        "passed": true,
+        "scored": true
+       }
+      ]
+     },
+     {
+      "score": 0.5,
+      "passed": false,
+      "turns": 6,
+      "costUsd": 0.0377,
+      "graders": [
+       {
+        "name": "investigates-first",
+        "passed": false,
+        "scored": true
+       },
+       {
+        "name": "no-blind-fix",
+        "passed": true,
+        "scored": true
+       }
+      ]
+     },
+     {
+      "score": 1,
+      "passed": true,
+      "turns": 5,
+      "costUsd": 0.0345,
+      "graders": [
+       {
+        "name": "investigates-first",
+        "passed": true,
+        "scored": true
+       },
+       {
+        "name": "no-blind-fix",
+        "passed": true,
+        "scored": true
+       }
+      ]
+     }
+    ]
+   }
+  }
+ ]
+}

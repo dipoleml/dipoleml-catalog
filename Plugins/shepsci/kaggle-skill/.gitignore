@@ -1,0 +1,45 @@
+# Credentials - CRITICAL
+.env
+*.env
+.env.*
+!.env.example
+kaggle.json
+.kaggle/
+**/kaggle.json
+**/access_token
+**/credentials.json
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Runtime artifacts
+badge-progress.json
+badge-tmp/
+daily_streak.sh
+comp-report-*.md
+data/
+downloads/
+*.csv
+!skills/kaggle/modules/badges/scripts/templates/submission_titanic.csv
+*.zip
+*.tar.gz
+
+# Eval runs (generated)
+evals/results/
+
+# Test reports (generated)
+tests/test-*-report-*.md
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+.ipynb_checkpoints/
+.claude/settings.local.json
+
+# Local records the skill's commands write where they are run
+.kaggle-skill/

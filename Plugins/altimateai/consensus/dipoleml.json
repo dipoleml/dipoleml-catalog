@@ -1,0 +1,114 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.altimateai.consensus",
+  "type": "plugin",
+  "name": "Consensus",
+  "slug": "consensus",
+  "vendor": "altimateai",
+  "description": "Multi-model consensus code review and plan review plugin for DipoleML",
+  "version": "1.8.0",
+  "homepage": "https://github.com/AltimateAI/claude-consensus",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "claude-plugin",
+    "code-review",
+    "consensus",
+    "developer-tools",
+    "multi-model"
+  ],
+  "tags": [
+    "ai",
+    "claude-code",
+    "claude-plugin",
+    "code-review",
+    "consensus",
+    "developer-tools",
+    "llm",
+    "multi-model"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "altimateai",
+    "brandName": "altimateai",
+    "source": "https://github.com/AltimateAI.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:12:10Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "AltimateAI/claude-consensus",
+    "url": "https://github.com/AltimateAI/claude-consensus",
+    "commit": "455f9d1dfc4e42adc63f71f8d4c435ddc935e71d",
+    "path": "plugins/consensus",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 33,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:50:06Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Consensus | Multi-model consensus code review and plan review plugin for Claude Code",
+        "after": "Consensus | Multi-model consensus code review and plan review plugin for DipoleML",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Configurable multi-model code review, plan review, and general review with consensus convergence for Claude Code",
+        "after": "Configurable multi-model code review, plan review, and general review with consensus convergence for DipoleML",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

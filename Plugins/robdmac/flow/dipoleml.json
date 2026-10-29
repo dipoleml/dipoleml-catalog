@@ -1,0 +1,116 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.robdmac.flow",
+  "type": "plugin",
+  "name": "Flow",
+  "slug": "flow",
+  "vendor": "robdmac",
+  "description": "Ambient terminal scenes that move with your coding agent's work, for DipoleML, Pi and OpenCode",
+  "version": "0.9.0",
+  "homepage": "https://github.com/robdmac/flow",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "best-claude-plugins",
+    "best-opencode-plugins",
+    "claude-plugin",
+    "developer-tools",
+    "opencode-plugin",
+    "opencode-v2",
+    "pi-extension"
+  ],
+  "tags": [
+    "best-claude-plugins",
+    "best-opencode-plugins",
+    "claude-code",
+    "claude-plugin",
+    "developer-tools",
+    "opencode-plugin",
+    "opencode-v2",
+    "pi-extension"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "robdmac",
+    "brandName": "robdmac",
+    "source": "https://github.com/robdmac.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:14:38Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "robdmac/flow",
+    "url": "https://github.com/robdmac/flow",
+    "commit": "461dea310403ef79d33fa8d6046287f6c454e598",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 14,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:06:49Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Flow | Ambient terminal scenes that move with your coding agent's work, for Claude Code, Pi and OpenCode",
+        "after": "Flow | Ambient terminal scenes that move with your coding agent's work, for DipoleML, Pi and OpenCode",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "flow"
+    ],
+    "env": [
+      "ANTHROPIC_BASE_URL"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

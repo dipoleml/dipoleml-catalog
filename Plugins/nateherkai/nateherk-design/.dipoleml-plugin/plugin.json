@@ -1,0 +1,16 @@
+{
+  "name": "nateherk-design",
+  "displayName": "Nateherk Design",
+  "version": "0.3.1",
+  "description": "Design and build skills from Nate Herk. Ships scroll-craft: premium scroll-driven interactive landing pages, built on a full design floor (typography, spacing, colour, depth, motion, accessibility) rather than on an animation library.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Nateherkai"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/nateherkai/scroll-craft",
+  "repository": "https://github.com/nateherkai/scroll-craft",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

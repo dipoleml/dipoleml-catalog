@@ -1,0 +1,16 @@
+{
+  "name": "security-analyst",
+  "displayName": "Security Analyst",
+  "version": "1.0.0",
+  "description": "Security specialist for vulnerability assessment, threat modeling, and secure code review. Use for security audits, penetration testing guidance, and implementing security best practices.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "A Ariff"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/a-ariff/ariff-claude-plugins",
+  "repository": "https://github.com/a-ariff/ariff-claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

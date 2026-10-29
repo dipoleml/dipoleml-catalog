@@ -1,0 +1,16 @@
+{
+  "name": "linear",
+  "displayName": "Linear",
+  "version": "0.0.0",
+  "description": "Linear issue tracking integration. Create issues, manage projects, update statuses, search across workspaces, and streamline your software development workflow with Linear's modern issue tracker.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Anthropic"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/anthropics/claude-plugins-official",
+  "repository": "https://github.com/anthropics/claude-plugins-official",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

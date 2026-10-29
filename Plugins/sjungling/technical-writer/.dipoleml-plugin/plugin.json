@@ -1,0 +1,16 @@
+{
+  "name": "technical-writer",
+  "displayName": "Technical Writer",
+  "version": "2.12.1",
+  "description": "Technical documentation specialist for README files, API docs, user guides, specifications, and release notes with Obsidian vault management",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Sjungling"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/sjungling/sjungling-claude-plugins",
+  "repository": "https://github.com/sjungling/sjungling-claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

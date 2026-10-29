@@ -1,0 +1,20 @@
+{
+  "name": "customer-relations-suite",
+  "displayName": "Customer Relations Suite",
+  "version": "1.2.0",
+  "description": "专业化套件：customer-relations；一次安装获得端到端能力（3个代理）",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Lifangda"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/lifangda/claude-plugins",
+  "repository": "https://github.com/lifangda/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": [
+    "agents/customer-relations/customer-success-manager.md",
+    "agents/customer-relations/feedback-synthesizer.md",
+    "agents/customer-relations/support-responder.md"
+  ]
+}

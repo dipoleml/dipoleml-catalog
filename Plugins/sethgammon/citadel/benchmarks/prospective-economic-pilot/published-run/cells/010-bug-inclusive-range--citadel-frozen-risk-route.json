@@ -1,0 +1,202 @@
+{
+  "schema": 1,
+  "cell_id": "010-bug-inclusive-range--citadel-frozen-risk-route",
+  "order": 10,
+  "scenario_id": "bug-inclusive-range",
+  "task_class": "bug-fix",
+  "risk": "moderate",
+  "policy_id": "citadel-frozen-risk-route",
+  "repetition": 1,
+  "route": {
+    "initial_tier": "cheap",
+    "escalation_tier": "strong",
+    "reason_code": "FROZEN_BOUNDED_CHEAP_THEN_VERIFY"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "cheap",
+      "started_at": "2026-08-02T00:35:49.580Z",
+      "duration_ms": 7179,
+      "output_text": "{\n  \"files\": {\n    \"src/range.js\": \"'use strict';\\nfunction isWithinRange(value, minimum, maximum) {\\n  return value >= minimum && value <= maximum;\\n}\\nmodule.exports = { isWithinRange };\"\n  }\n}",
+      "output_digest": "sha256:7ece86eeaa6ad8742b19536cdfd796742a6396d8868eea91751d21e6a55d8c78",
+      "verification": {
+        "status": "failed",
+        "code": "REPOSITORY_VERIFIER_FAILED",
+        "changed_paths": [
+          "src/range.js"
+        ],
+        "applied_file_digests": {
+          "src/range.js": "sha256:43212b054b1d66a507058850676018d935c776152b35a691916c1742e00e077a"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 1,
+          "signal": null,
+          "stdout": "",
+          "stderr": "node:assert:95\r\n  throw new AssertionError(obj);\r\n  ^\r\n\r\nAssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\r\n\r\ntrue !== false\r\n\r\n    at Object.<anonymous> (<ISOLATED_WORKSPACE>\\verifier.js:9:8)\r\n    at Module._compile (node:internal/modules/cjs/loader:1730:14)\r\n    at Object..js (node:internal/modules/cjs/loader:1895:10)\r\n    at Module.load (node:internal/modules/cjs/loader:1465:32)\r\n    at Function._load (node:internal/modules/cjs/loader:1282:12)\r\n    at TracingChannel.traceSync (node:diagnostics_channel:322:14)\r\n    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)\r\n    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:171:5)\r\n    at node:internal/main/run_main_module:36:49 {\r\n  generatedMessage: true,\r\n  code: 'ERR_ASSERTION',\r\n  actual: true,\r\n  expected: false,\r\n  operator: 'strictEqual'\r\n}\r\n\r\nNode.js v22.17.1\r\n",
+          "error": null
+        },
+        "patch_digest": "sha256:22c0633015a849996d6449a3c79c0214000943edf7a24635badd83e448ca7119"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "ollama-chat",
+        "requested_model": "qwen2.5-coder:3b",
+        "observed_model": "qwen2.5-coder:3b",
+        "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+        "done_reason": "stop",
+        "response_digest": "sha256:675f37280ad6851b597649ba7956569a0a787656b67b4c68eb6559ca784bf1c5",
+        "error": null
+      },
+      "usage": {
+        "prompt_tokens": 208,
+        "completion_tokens": 57,
+        "total_tokens": 265,
+        "provider_total_duration_ns": 7177200500
+      },
+      "economics": {
+        "provider_invoice": {
+          "status": "known",
+          "amount_usd": 0,
+          "source": "self_hosted_ollama_no_per_request_invoice"
+        },
+        "gpu_energy": {
+          "status": "measured",
+          "energy_kwh": 0.000127652,
+          "samples": 14,
+          "average_watts": 64.012857
+        },
+        "comparison_cost": {
+          "status": "derived-comparison",
+          "total_usd": 0.000045472,
+          "components": [
+            {
+              "kind": "gpu_electricity",
+              "status": "derived-comparison",
+              "amount_usd": 0.00002553,
+              "source": "average_gpu_power_times_request_wall_duration_times_frozen_rate"
+            },
+            {
+              "kind": "gpu_amortization",
+              "status": "derived-comparison",
+              "amount_usd": 0.000019942,
+              "source": "request_wall_duration_times_frozen_residual_value"
+            }
+          ]
+        },
+        "actual_end_to_end_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "whole_system_energy_setup_and_observed_utility_rate_not_measured"
+        }
+      }
+    },
+    {
+      "attempt": 2,
+      "tier": "strong",
+      "started_at": "2026-08-02T00:35:56.998Z",
+      "duration_ms": 9233,
+      "output_text": "{\n  \"files\": {\n    \"src/range.js\": \"'use strict';\\nfunction isWithinRange(value, minimum, maximum) {\\n  return value >= minimum && value <= maximum;\\n}\\nmodule.exports = { isWithinRange };\"\n  }\n}",
+      "output_digest": "sha256:7ece86eeaa6ad8742b19536cdfd796742a6396d8868eea91751d21e6a55d8c78",
+      "verification": {
+        "status": "failed",
+        "code": "REPOSITORY_VERIFIER_FAILED",
+        "changed_paths": [
+          "src/range.js"
+        ],
+        "applied_file_digests": {
+          "src/range.js": "sha256:43212b054b1d66a507058850676018d935c776152b35a691916c1742e00e077a"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 1,
+          "signal": null,
+          "stdout": "",
+          "stderr": "node:assert:95\r\n  throw new AssertionError(obj);\r\n  ^\r\n\r\nAssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\r\n\r\ntrue !== false\r\n\r\n    at Object.<anonymous> (<ISOLATED_WORKSPACE>\\verifier.js:9:8)\r\n    at Module._compile (node:internal/modules/cjs/loader:1730:14)\r\n    at Object..js (node:internal/modules/cjs/loader:1895:10)\r\n    at Module.load (node:internal/modules/cjs/loader:1465:32)\r\n    at Function._load (node:internal/modules/cjs/loader:1282:12)\r\n    at TracingChannel.traceSync (node:diagnostics_channel:322:14)\r\n    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)\r\n    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:171:5)\r\n    at node:internal/main/run_main_module:36:49 {\r\n  generatedMessage: true,\r\n  code: 'ERR_ASSERTION',\r\n  actual: true,\r\n  expected: false,\r\n  operator: 'strictEqual'\r\n}\r\n\r\nNode.js v22.17.1\r\n",
+          "error": null
+        },
+        "patch_digest": "sha256:22c0633015a849996d6449a3c79c0214000943edf7a24635badd83e448ca7119"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "ollama-chat",
+        "requested_model": "qwen2.5-coder:7b",
+        "observed_model": "qwen2.5-coder:7b",
+        "model_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+        "done_reason": "stop",
+        "response_digest": "sha256:afb5a76b410d301105a2a1355cef19ed10393e826f5f4352aec9b18522b2c10b",
+        "error": null
+      },
+      "usage": {
+        "prompt_tokens": 208,
+        "completion_tokens": 57,
+        "total_tokens": 265,
+        "provider_total_duration_ns": 9231072100
+      },
+      "economics": {
+        "provider_invoice": {
+          "status": "known",
+          "amount_usd": 0,
+          "source": "self_hosted_ollama_no_per_request_invoice"
+        },
+        "gpu_energy": {
+          "status": "measured",
+          "energy_kwh": 0.0001914,
+          "samples": 18,
+          "average_watts": 74.627778
+        },
+        "comparison_cost": {
+          "status": "derived-comparison",
+          "total_usd": 0.000063927,
+          "components": [
+            {
+              "kind": "gpu_electricity",
+              "status": "derived-comparison",
+              "amount_usd": 0.00003828,
+              "source": "average_gpu_power_times_request_wall_duration_times_frozen_rate"
+            },
+            {
+              "kind": "gpu_amortization",
+              "status": "derived-comparison",
+              "amount_usd": 0.000025647,
+              "source": "request_wall_duration_times_frozen_residual_value"
+            }
+          ]
+        },
+        "actual_end_to_end_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "whole_system_energy_setup_and_observed_utility_rate_not_measured"
+        }
+      }
+    }
+  ],
+  "status": "failed",
+  "final_verification": {
+    "status": "failed",
+    "code": "REPOSITORY_VERIFIER_FAILED",
+    "changed_paths": [
+      "src/range.js"
+    ],
+    "applied_file_digests": {
+      "src/range.js": "sha256:43212b054b1d66a507058850676018d935c776152b35a691916c1742e00e077a"
+    },
+    "verifier": {
+      "command": "node verifier.js",
+      "status": 1,
+      "signal": null,
+      "stdout": "",
+      "stderr": "node:assert:95\r\n  throw new AssertionError(obj);\r\n  ^\r\n\r\nAssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\r\n\r\ntrue !== false\r\n\r\n    at Object.<anonymous> (<ISOLATED_WORKSPACE>\\verifier.js:9:8)\r\n    at Module._compile (node:internal/modules/cjs/loader:1730:14)\r\n    at Object..js (node:internal/modules/cjs/loader:1895:10)\r\n    at Module.load (node:internal/modules/cjs/loader:1465:32)\r\n    at Function._load (node:internal/modules/cjs/loader:1282:12)\r\n    at TracingChannel.traceSync (node:diagnostics_channel:322:14)\r\n    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)\r\n    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:171:5)\r\n    at node:internal/main/run_main_module:36:49 {\r\n  generatedMessage: true,\r\n  code: 'ERR_ASSERTION',\r\n  actual: true,\r\n  expected: false,\r\n  operator: 'strictEqual'\r\n}\r\n\r\nNode.js v22.17.1\r\n",
+      "error": null
+    },
+    "patch_digest": "sha256:22c0633015a849996d6449a3c79c0214000943edf7a24635badd83e448ca7119"
+  },
+  "previous_cell_digest": "sha256:2219321782b98c9bbb7b830dc48f20221ea4141a06392403ba4d7051b7f57fa7",
+  "receipt_digest": "sha256:11259153d5312c3c91812d7157b73231654114c7dd802ce5272fbf8db71c33ab",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:ad1a9a738a7dce4f3570a04e62130694d998060bf22fc94c835681caf6102256",
+    "signature": "BsGp9Rl+fep255UoKaytHZw9r0y4rmYMp+TCw82Spxq7bC6TMrbOywh1Amg7Iuhs87gM2d4Byys76woyDE3kBA=="
+  }
+}

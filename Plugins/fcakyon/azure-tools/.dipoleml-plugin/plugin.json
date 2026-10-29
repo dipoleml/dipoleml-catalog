@@ -1,0 +1,16 @@
+{
+  "name": "azure-tools",
+  "displayName": "Azure Tools",
+  "version": "2.0.4",
+  "description": "Query and manage Azure resources through the Azure MCP server and Azure CLI login.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Fcakyon"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/fcakyon/claude-codex-settings",
+  "repository": "https://github.com/fcakyon/claude-codex-settings",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

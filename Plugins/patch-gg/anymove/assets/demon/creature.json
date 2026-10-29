@@ -1,0 +1,21 @@
+{
+  "name": "demon",
+  "noun": "fire demon",
+  "prep": {"length_m": 3.6, "rotz_deg": -73, "axis": "z"},
+  "layout": {"W_FRONT": 640, "W_SIDE": 640, "M_PER_PX": 0.0085, "GROUND_V": 640},
+  "paint": {
+    "AL": {"color": "#F53CD1", "bones": ["upperarm_L", "forearm_L", "hand_L"]},
+    "AR": {"color": "#2F6BFF", "bones": ["upperarm_R", "forearm_R", "hand_R"]},
+    "LL": {"color": "#FFD21F", "bones": ["thigh_L", "shin_L", "foot_L", "toe_L"]},
+    "LR": {"color": "#19D3E0", "bones": ["thigh_R", "shin_R", "foot_R", "toe_R"]},
+    "WL": {"color": "#FF7A1A", "bones": ["wing_arm_L", "wing_fore_L", "finger1_L", "finger2_L", "finger3_L"]},
+    "WR": {"color": "#2BD94A", "bones": ["wing_arm_R", "wing_fore_R", "finger1_R", "finger2_R", "finger3_R"]}
+  },
+  "feet": ["ball_L", "ball_R", "handtip_L", "handtip_R"],
+  "describe": "a towering fire demon of charred black obsidian rock with glowing orange lava cracks, curved horns, a long tail",
+  "colour_code": "left arm pink, right arm blue, left leg yellow, right leg cyan, left wing orange, right wing green",
+  "count": "Exactly two arms, two legs, two wings, one tail, one head. No flames, no smoke, no weapon.",
+  "flank": "side",
+  "limbs": "limbs",
+  "camera": {"cam": "-6.4,-7.1,1.8", "target": "0,-0.1,2.1", "lens": 32}
+}

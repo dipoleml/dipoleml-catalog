@@ -1,0 +1,16 @@
+.DS_Store
+*.swp
+*.swo
+# Marketing drafts — source of truth lives in Notion ("DAE — Marketing & Launch")
+linkedin-*.html
+twitter-*.md
+social-preview.jpg
+social-preview.png
+
+# Python build artifacts
+__pycache__/
+*.pyc
+
+# Local working artifacts — superpowers brainstorming/plan docs (not part of the kit)
+docs/superpowers/
+prototypes/

@@ -1,0 +1,265 @@
+# Changelog
+
+## [1.10.1](https://github.com/laurigates/claude-plugins/compare/kubernetes-plugin-v1.10.0...kubernetes-plugin-v1.10.1) (2026-10-22)
+
+
+### Bug Fixes
+
+* **agents:** deliver the report before maxTurns cuts an agent off ([#3158](https://github.com/laurigates/claude-plugins/issues/3158)) ([8dfa0a7](https://github.com/laurigates/claude-plugins/commit/8dfa0a7528bc08825bd4367984e884259cac49d6)), closes [#3152](https://github.com/laurigates/claude-plugins/issues/3152)
+
+## [1.10.0](https://github.com/laurigates/claude-plugins/compare/kubernetes-plugin-v1.9.6...kubernetes-plugin-v1.10.0) (2026-10-18)
+
+
+### Features
+
+* **documentation-plugin:** add public-export-sanitization; fold generic lessons into seven skills ([#2810](https://github.com/laurigates/claude-plugins/issues/2810)) ([b82ba11](https://github.com/laurigates/claude-plugins/commit/b82ba11afcb46a9055e6d83ca9a0d3da110d2068))
+
+
+### Bug Fixes
+
+* **ci:** restore four scheduled-audit signals that were reporting nothing, or nonsense ([#2576](https://github.com/laurigates/claude-plugins/issues/2576)) ([de4337c](https://github.com/laurigates/claude-plugins/commit/de4337c7776ba7531cbe923fe016df78ef9b7e8c))
+* **hooks-plugin,kubernetes-plugin:** decide allow-side hooks on parsed command nodes ([#2880](https://github.com/laurigates/claude-plugins/issues/2880)) ([ae46358](https://github.com/laurigates/claude-plugins/commit/ae46358514b48ef7444dc3ff23e3f7ef0aac71d5))
+* **hooks-plugin:** hook timeouts are seconds, not milliseconds ([#3088](https://github.com/laurigates/claude-plugins/issues/3088)) ([64d7fab](https://github.com/laurigates/claude-plugins/commit/64d7fab1ee5205e3f3fb0bedcd234b60e06527ae))
+* **kubernetes-plugin:** fire inject-kubectl-dry-run after global flags and skip apply subcommands ([#3049](https://github.com/laurigates/claude-plugins/issues/3049)) ([e1cb00f](https://github.com/laurigates/claude-plugins/commit/e1cb00fee8a5e80de5bb6a4f2feb516987219433)), closes [#2888](https://github.com/laurigates/claude-plugins/issues/2888)
+* **kubernetes-plugin:** stop the kubectl dry-run injector approving commands it cannot vouch for ([#2983](https://github.com/laurigates/claude-plugins/issues/2983)) ([49ed0ba](https://github.com/laurigates/claude-plugins/commit/49ed0baabe6915d6898b9585cbebef4591198098))
+* **plugins:** quote CLAUDE_PLUGIN_ROOT in hook commands; apply 2.1.279-2.1.283 changelog review ([#2854](https://github.com/laurigates/claude-plugins/issues/2854)) ([3e15bf9](https://github.com/laurigates/claude-plugins/commit/3e15bf961986c0f475785fbac9b777d4f6ec4995))
+* **scripts:** sweep printf|echo "$var" | grep -q from every pipefail suite and widen lint Check 6 ([#2996](https://github.com/laurigates/claude-plugins/issues/2996)) ([32f124d](https://github.com/laurigates/claude-plugins/commit/32f124d41f428967305ef6beb564fd8ebc1f3279))
+
+## [1.9.6](https://github.com/laurigates/claude-plugins/compare/kubernetes-plugin-v1.9.5...kubernetes-plugin-v1.9.6) (2026-10-18)
+
+
+### Bug Fixes
+
+* **hooks-plugin:** hook timeouts are seconds, not milliseconds ([#3088](https://github.com/laurigates/claude-plugins/issues/3088)) ([64d7fab](https://github.com/laurigates/claude-plugins/commit/64d7fab1ee5205e3f3fb0bedcd234b60e06527ae))
+
+## [1.9.5](https://github.com/laurigates/claude-plugins/compare/kubernetes-plugin-v1.9.4...kubernetes-plugin-v1.9.5) (2026-10-13)
+
+
+### Bug Fixes
+
+* **kubernetes-plugin:** fire inject-kubectl-dry-run after global flags and skip apply subcommands ([#3049](https://github.com/laurigates/claude-plugins/issues/3049)) ([e1cb00f](https://github.com/laurigates/claude-plugins/commit/e1cb00fee8a5e80de5bb6a4f2feb516987219433)), closes [#2888](https://github.com/laurigates/claude-plugins/issues/2888)
+
+## [1.9.4](https://github.com/laurigates/claude-plugins/compare/kubernetes-plugin-v1.9.3...kubernetes-plugin-v1.9.4) (2026-10-10)
+
+
+### Bug Fixes
+
+* **kubernetes-plugin:** stop the kubectl dry-run injector approving commands it cannot vouch for ([#2983](https://github.com/laurigates/claude-plugins/issues/2983)) ([49ed0ba](https://github.com/laurigates/claude-plugins/commit/49ed0baabe6915d6898b9585cbebef4591198098))
+
+## [1.9.3](https://github.com/laurigates/claude-plugins/compare/kubernetes-plugin-v1.9.2...kubernetes-plugin-v1.9.3) (2026-10-10)
+
+
+### Bug Fixes
+
+* **scripts:** sweep printf|echo "$var" | grep -q from every pipefail suite and widen lint Check 6 ([#2996](https://github.com/laurigates/claude-plugins/issues/2996)) ([32f124d](https://github.com/laurigates/claude-plugins/commit/32f124d41f428967305ef6beb564fd8ebc1f3279))
+
+## [1.9.2](https://github.com/laurigates/claude-plugins/compare/kubernetes-plugin-v1.9.1...kubernetes-plugin-v1.9.2) (2026-10-02)
+
+
+### Bug Fixes
+
+* **hooks-plugin,kubernetes-plugin:** decide allow-side hooks on parsed command nodes ([#2880](https://github.com/laurigates/claude-plugins/issues/2880)) ([ae46358](https://github.com/laurigates/claude-plugins/commit/ae46358514b48ef7444dc3ff23e3f7ef0aac71d5))
+
+## [1.9.1](https://github.com/laurigates/claude-plugins/compare/kubernetes-plugin-v1.9.0...kubernetes-plugin-v1.9.1) (2026-09-28)
+
+
+### Bug Fixes
+
+* **plugins:** quote CLAUDE_PLUGIN_ROOT in hook commands; apply 2.1.279-2.1.283 changelog review ([#2854](https://github.com/laurigates/claude-plugins/issues/2854)) ([3e15bf9](https://github.com/laurigates/claude-plugins/commit/3e15bf961986c0f475785fbac9b777d4f6ec4995))
+
+## [1.9.0](https://github.com/laurigates/claude-plugins/compare/kubernetes-plugin-v1.8.1...kubernetes-plugin-v1.9.0) (2026-09-24)
+
+
+### Features
+
+* **documentation-plugin:** add public-export-sanitization; fold generic lessons into seven skills ([#2810](https://github.com/laurigates/claude-plugins/issues/2810)) ([b82ba11](https://github.com/laurigates/claude-plugins/commit/b82ba11afcb46a9055e6d83ca9a0d3da110d2068))
+
+## [1.8.1](https://github.com/laurigates/claude-plugins/compare/kubernetes-plugin-v1.8.0...kubernetes-plugin-v1.8.1) (2026-09-03)
+
+
+### Bug Fixes
+
+* **ci:** restore four scheduled-audit signals that were reporting nothing, or nonsense ([#2576](https://github.com/laurigates/claude-plugins/issues/2576)) ([de4337c](https://github.com/laurigates/claude-plugins/commit/de4337c7776ba7531cbe923fe016df78ef9b7e8c))
+
+## [1.8.0](https://github.com/laurigates/claude-plugins/compare/kubernetes-plugin-v1.7.9...kubernetes-plugin-v1.8.0) (2026-07-01)
+
+
+### Features
+
+* **kubernetes-plugin:** guard skaffold cluster writes in validate-kubectl-context hook ([#1894](https://github.com/laurigates/claude-plugins/issues/1894)) ([e0e3fbb](https://github.com/laurigates/claude-plugins/commit/e0e3fbbbbacd771a59f77f51a8354537361d27c4))
+
+## [1.7.9](https://github.com/laurigates/claude-plugins/compare/kubernetes-plugin-v1.7.8...kubernetes-plugin-v1.7.9) (2026-06-18)
+
+
+### Bug Fixes
+
+* **hooks-plugin:** stop bash-antipatterns blocking git chains quoted in gh bodies ([#1693](https://github.com/laurigates/claude-plugins/issues/1693)) ([96ed6b0](https://github.com/laurigates/claude-plugins/commit/96ed6b0d440e63cda0be47b8ca8e0880b3381590))
+
+
+### Code Refactoring
+
+* enforce always-Opus for all plugin agents ([#1691](https://github.com/laurigates/claude-plugins/issues/1691)) ([529397d](https://github.com/laurigates/claude-plugins/commit/529397da8aa6207b86ed96c083b55a1cdfacc641))
+
+## [1.7.8](https://github.com/laurigates/claude-plugins/compare/kubernetes-plugin-v1.7.7...kubernetes-plugin-v1.7.8) (2026-06-12)
+
+
+### Bug Fixes
+
+* **kubernetes-plugin:** anchor kubectl/helm hook on command position ([#1583](https://github.com/laurigates/claude-plugins/issues/1583)) ([3770104](https://github.com/laurigates/claude-plugins/commit/3770104d345f7985eee55a5b9fb0ee8cc67ca557))
+
+## [1.7.7](https://github.com/laurigates/claude-plugins/compare/kubernetes-plugin-v1.7.6...kubernetes-plugin-v1.7.7) (2026-05-27)
+
+
+### Bug Fixes
+
+* **kubernetes-plugin:** strip quoted strings before kubectl/helm detection ([#1433](https://github.com/laurigates/claude-plugins/issues/1433)) ([fb6dfae](https://github.com/laurigates/claude-plugins/commit/fb6dfaed0bdd3d1844fefeb1098f042ae4d9bb36)), closes [#1430](https://github.com/laurigates/claude-plugins/issues/1430)
+
+## [1.7.6](https://github.com/laurigates/claude-plugins/compare/kubernetes-plugin-v1.7.5...kubernetes-plugin-v1.7.6) (2026-05-25)
+
+
+### Bug Fixes
+
+* **kubernetes-plugin:** allow chart-only helm subcommands without --kube-context ([#1409](https://github.com/laurigates/claude-plugins/issues/1409)) ([78ab1ae](https://github.com/laurigates/claude-plugins/commit/78ab1aecfba308fec9ae962f49eb27b553dcb554))
+
+## [1.7.5](https://github.com/laurigates/claude-plugins/compare/kubernetes-plugin-v1.7.4...kubernetes-plugin-v1.7.5) (2026-05-14)
+
+
+### Code Refactoring
+
+* **kubernetes-plugin:** tighten skill descriptions for listing budget ([ee2cdca](https://github.com/laurigates/claude-plugins/commit/ee2cdcab90b49a7e695a4d9b6efe46bafd28c98a))
+
+## [1.7.4](https://github.com/laurigates/claude-plugins/compare/kubernetes-plugin-v1.7.3...kubernetes-plugin-v1.7.4) (2026-05-09)
+
+
+### Documentation
+
+* trim oversized SKILL.md descriptions across 41 plugins ([#1265](https://github.com/laurigates/claude-plugins/issues/1265)) ([e13d9f4](https://github.com/laurigates/claude-plugins/commit/e13d9f46a010559082c6d5eb61b0cb891843bf97))
+
+## [1.7.3](https://github.com/laurigates/claude-plugins/compare/kubernetes-plugin-v1.7.2...kubernetes-plugin-v1.7.3) (2026-05-07)
+
+
+### Bug Fixes
+
+* **agents:** bake tool-selection rules into agent definitions ([#1262](https://github.com/laurigates/claude-plugins/issues/1262)) ([a9b128a](https://github.com/laurigates/claude-plugins/commit/a9b128af9238f2c20cc3c4efb92ec86c06a39752))
+
+## [1.7.2](https://github.com/laurigates/claude-plugins/compare/kubernetes-plugin-v1.7.1...kubernetes-plugin-v1.7.2) (2026-04-25)
+
+
+### Documentation
+
+* **kubernetes-plugin:** standardise When to Use tables ([#1164](https://github.com/laurigates/claude-plugins/issues/1164)) ([5190cb6](https://github.com/laurigates/claude-plugins/commit/5190cb64cb7327922ea1cf6af4d610ea9b68f45d)), closes [#1156](https://github.com/laurigates/claude-plugins/issues/1156)
+
+## [1.7.1](https://github.com/laurigates/claude-plugins/compare/kubernetes-plugin-v1.7.0...kubernetes-plugin-v1.7.1) (2026-04-08)
+
+
+### Bug Fixes
+
+* **blueprint-plugin:** remove model field from skills and fix invocation syntax ([#1007](https://github.com/laurigates/claude-plugins/issues/1007)) ([42e1e5b](https://github.com/laurigates/claude-plugins/commit/42e1e5b6c73d43e5de4b27cdee16e316de44d4c0))
+
+## [1.7.0](https://github.com/laurigates/claude-plugins/compare/kubernetes-plugin-v1.6.0...kubernetes-plugin-v1.7.0) (2026-03-09)
+
+
+### Features
+
+* **rules:** update rules for Claude Code 2.1.63-2.1.71 changes ([#917](https://github.com/laurigates/claude-plugins/issues/917)) ([20341e8](https://github.com/laurigates/claude-plugins/commit/20341e871fe7e91eb79d51aa02ad7bc9003a93e1))
+
+## [1.6.0](https://github.com/laurigates/claude-plugins/compare/kubernetes-plugin-v1.5.0...kubernetes-plugin-v1.6.0) (2026-03-05)
+
+
+### Features
+
+* standardize shell script conventions and add linting ([#892](https://github.com/laurigates/claude-plugins/issues/892)) ([0eba700](https://github.com/laurigates/claude-plugins/commit/0eba7009728418bdef6355bd91fc9ee50c6982a8))
+
+## [1.5.0](https://github.com/laurigates/claude-plugins/compare/kubernetes-plugin-v1.4.1...kubernetes-plugin-v1.5.0) (2026-02-27)
+
+
+### Features
+
+* add safety hooks for Terraform, Kubernetes, Git, and Blueprint plugins ([#835](https://github.com/laurigates/claude-plugins/issues/835)) ([d4d86a0](https://github.com/laurigates/claude-plugins/commit/d4d86a03b96d99642f341effb8f3999df5246c8b))
+* **blueprint-plugin:** add PreCompact hook for derivation workflow context ([d4d86a0](https://github.com/laurigates/claude-plugins/commit/d4d86a03b96d99642f341effb8f3999df5246c8b))
+* **kubernetes-plugin:** add kubectl dry-run injection hook ([d4d86a0](https://github.com/laurigates/claude-plugins/commit/d4d86a03b96d99642f341effb8f3999df5246c8b))
+* **terraform-plugin:** add terraform apply gate hook ([d4d86a0](https://github.com/laurigates/claude-plugins/commit/d4d86a03b96d99642f341effb8f3999df5246c8b))
+
+## [1.4.1](https://github.com/laurigates/claude-plugins/compare/kubernetes-plugin-v1.4.0...kubernetes-plugin-v1.4.1) (2026-02-27)
+
+
+### Bug Fixes
+
+* heredoc false positives in kubectl/helm context validation ([#836](https://github.com/laurigates/claude-plugins/issues/836)) ([ebd9569](https://github.com/laurigates/claude-plugins/commit/ebd9569d8794c67b67f033a0b5de804c8cde927c))
+* **kubernetes-plugin:** strip heredoc bodies before kubectl/helm context check ([ebd9569](https://github.com/laurigates/claude-plugins/commit/ebd9569d8794c67b67f033a0b5de804c8cde927c))
+
+## [1.4.0](https://github.com/laurigates/claude-plugins/compare/kubernetes-plugin-v1.3.0...kubernetes-plugin-v1.4.0) (2026-02-27)
+
+
+### Features
+
+* add metadata fields to skill definitions across all plugins ([#828](https://github.com/laurigates/claude-plugins/issues/828)) ([59b3d1f](https://github.com/laurigates/claude-plugins/commit/59b3d1fadd8fd888f95ced8b071fb66cf6f9c825))
+* add skill invocation control via user-invocable and disable-model-invocation frontmatter ([59b3d1f](https://github.com/laurigates/claude-plugins/commit/59b3d1fadd8fd888f95ced8b071fb66cf6f9c825))
+
+## [1.3.0](https://github.com/laurigates/claude-plugins/compare/kubernetes-plugin-v1.2.2...kubernetes-plugin-v1.3.0) (2026-02-18)
+
+
+### Features
+
+* introduce three-tier model palette (opus/sonnet/haiku) ([#709](https://github.com/laurigates/claude-plugins/issues/709)) ([2c1e9cc](https://github.com/laurigates/claude-plugins/commit/2c1e9ccff5d48c2b426beac5b3b38cd4576c79a0))
+
+## [1.2.2](https://github.com/laurigates/claude-plugins/compare/kubernetes-plugin-v1.2.1...kubernetes-plugin-v1.2.2) (2026-02-14)
+
+
+### Code Refactoring
+
+* extract detailed content to REFERENCE.md files ([#605](https://github.com/laurigates/claude-plugins/issues/605)) ([7efbd83](https://github.com/laurigates/claude-plugins/commit/7efbd83b9a2b1ef67be702206396ba6d8102684d))
+
+## [1.2.1](https://github.com/laurigates/claude-plugins/compare/kubernetes-plugin-v1.2.0...kubernetes-plugin-v1.2.1) (2026-02-06)
+
+
+### Bug Fixes
+
+* **frontmatter:** resolve 83 validation errors across 75 files ([#434](https://github.com/laurigates/claude-plugins/issues/434)) ([5beb75e](https://github.com/laurigates/claude-plugins/commit/5beb75ed4b2cb0431d060bd7102903495c03c6c5))
+
+## [1.2.0](https://github.com/laurigates/claude-plugins/compare/kubernetes-plugin-v1.1.2...kubernetes-plugin-v1.2.0) (2026-02-05)
+
+
+### Features
+
+* add agentic optimizations and improve output formats ([3a7414c](https://github.com/laurigates/claude-plugins/commit/3a7414c82bbf1e2f6c507fdf16c6a2c57346b0fb))
+
+
+### Code Refactoring
+
+* move plugin root scripts to scripts/ subdirectory ([d7344f8](https://github.com/laurigates/claude-plugins/commit/d7344f8f567ee5640aba182049f7aada5e8f4134))
+
+## [1.1.3](https://github.com/laurigates/claude-plugins/compare/kubernetes-plugin-v1.1.2...kubernetes-plugin-v1.1.3) (2026-02-05)
+
+
+### Code Refactoring
+
+* move plugin root scripts to scripts/ subdirectory ([d7344f8](https://github.com/laurigates/claude-plugins/commit/d7344f8f567ee5640aba182049f7aada5e8f4134))
+
+## [1.1.2](https://github.com/laurigates/claude-plugins/compare/kubernetes-plugin-v1.1.1...kubernetes-plugin-v1.1.2) (2026-02-03)
+
+
+### Bug Fixes
+
+* **agent-patterns-plugin:** block git writes for parallel agents to prevent conflicts ([#299](https://github.com/laurigates/claude-plugins/issues/299)) ([a2c2ce0](https://github.com/laurigates/claude-plugins/commit/a2c2ce07d67ead9b30470b398777be355672281b))
+
+## [1.1.2](https://github.com/laurigates/claude-plugins/compare/kubernetes-plugin-v1.1.1...kubernetes-plugin-v1.1.2) (2026-02-02)
+
+
+### Bug Fixes
+
+* **agent-patterns-plugin:** block git writes for parallel agents to prevent conflicts ([#299](https://github.com/laurigates/claude-plugins/issues/299)) ([a2c2ce0](https://github.com/laurigates/claude-plugins/commit/a2c2ce07d67ead9b30470b398777be355672281b))
+
+## [1.1.1](https://github.com/laurigates/claude-plugins/compare/kubernetes-plugin-v1.1.0...kubernetes-plugin-v1.1.1) (2026-02-01)
+
+
+### Bug Fixes
+
+* enforce granular Bash permissions across all plugins ([#267](https://github.com/laurigates/claude-plugins/issues/267)) ([afeb507](https://github.com/laurigates/claude-plugins/commit/afeb50754838c2923807c8f2a248b3798fd4281c))
+
+## [1.1.0](https://github.com/laurigates/claude-plugins/compare/kubernetes-plugin-v1.0.0...kubernetes-plugin-v1.1.0) (2026-01-23)
+
+
+### Features
+
+* add model specification to all skills and commands ([#131](https://github.com/laurigates/claude-plugins/issues/131)) ([81f2961](https://github.com/laurigates/claude-plugins/commit/81f296155b50864b8b1687b9eb18a9c2cbb08791))

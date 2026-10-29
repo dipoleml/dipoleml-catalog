@@ -1,0 +1,5 @@
+{
+  "name": "ai-adoption",
+  "version": "2.1.0",
+  "description": "Two skills for analyzing your Claude history. token-doctor diagnoses where your spend goes, including sub-agent fan-out and model mix. task-profile mines sessions into a role-level task map with friction signals, tokens per task, and skill proposals. (session-search moved to the session-tools plugin.)"
+}

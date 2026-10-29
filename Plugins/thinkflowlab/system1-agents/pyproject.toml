@@ -1,0 +1,106 @@
+[project]
+name = "system1-agents"
+version = "0.1.0"
+description = "System 1 decision models (TypeSafe Jev, Laya, Cua-S1) in the model slot of openJiuwen agents, with browser, tool and rail agents and evals against a chat model on the same agent."
+readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE", "THIRD_PARTY_LICENSES.md"]
+authors = [{ name = "ThinkFlowLab" }]
+requires-python = ">=3.11"
+dependencies = [
+    # Tag on the jiuwen-jev branch of the ThinkFlowLab fork; CONTRIBUTING.md § The openjiuwen pin lists what it adds over upstream develop.
+    "openjiuwen @ git+https://github.com/ThinkFlowLab/agent-core@jj-0.1.0",
+    # Imported directly; openjiuwen (and mcp, for anyio) already depends on each, so they add nothing to the install.
+    "httpx>=0.28",
+    "python-dotenv>=1.0",
+    # MCP Python SDK 1.x: openjiuwen 0.1.18 needs fastmcp, whose 3.x line requires mcp<2 (fastmcp 4.x needs mcp>=2).
+    # Lift the bound with the 2.x port; docs/architecture.md § MCP SDK 2.x lists the call sites and the unblock condition.
+    "mcp>=1.26,<2",
+    "anyio>=4",
+    "pillow>=10",
+]
+
+[project.urls]
+Homepage = "https://github.com/ThinkFlowLab/system1-agents"
+Repository = "https://github.com/ThinkFlowLab/system1-agents"
+Issues = "https://github.com/ThinkFlowLab/system1-agents/issues"
+
+[project.scripts]
+s1a = "s1a.entry:s1a"
+s1a-mcp = "s1a.entry:s1a_mcp"
+
+[project.optional-dependencies]
+blackjack = ["rlcard>=1.2"]
+alfworld = ["alfworld>=0.4", "textworld>=1.7"]  # plus ALFWORLD_DATA and Python 3.11; see evals/README.md
+# evals/replay/thor_replay.py: the AI2-THOR scene behind an ALFWorld trial. ai2thor 2.1.0 is the 2019 Unity build the games
+# were generated in (x86_64 on macOS, Rosetta on Apple silicon; downloaded on first run). werkzeug 2.0.3 is alfworld's own
+# pin for that build's server; numpy and opencv float with the base install.
+alfworld-visual = [
+    "system1-agents[alfworld]",
+    "ai2thor==2.1.0",
+    "opencv-python-headless>=4.10",
+    "werkzeug==2.0.3",
+    "torch>=2",
+    "torchvision>=0.15",
+]
+report = ["pillow>=10", "playwright>=1.45"]  # evals.replay: pages, GIFs; never imported by a runner
+laya = ["laya>=0.3.9"]  # the in-process decision model behind --model laya; pulls torch and transformers
+cua = [  # Cua-S1 Nano behind --model cua; pinned to the Cua PR that ships the checkpoints (trycua/cua#4023), pulls torch
+    "cua-s1 @ git+https://github.com/trycua/cua.git@aea61b6eb97e2d8c0f6f71eb804e5769fe910af4#subdirectory=libs/cua-s1/python",
+    "huggingface-hub>=0.24",
+]
+omnijev = [  # OmniJev behind --model omnijev; the model code itself is a clone named by OMNIJEV_REPO (not a package)
+    "torch>=2.4",
+    "torchvision>=0.15",  # transformers' Qwen3-VL video processor imports it; OmniJev's requirements.txt omits it
+    "transformers>=5.0",
+    "peft>=0.15",
+    "accelerate",
+    "safetensors",
+    "pillow",
+    "huggingface-hub>=0.24",
+]
+cua-four-b = ["system1-agents[cua]", "transformers>=5.10.1,<6", "peft>=0.21,<1", "torchvision>=0.15", "pillow>=10"]
+dev = ["pytest>=8", "pytest-asyncio>=0.24", "ruff>=0.6", "ty>=0.0.83", "jsonschema>=4.18", "pyyaml>=6", "referencing>=0.30"]  # the last three check tests/data/served_laya against docs/api
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true  # the openjiuwen git pin above
+
+[tool.hatch.build.targets.wheel]
+packages = ["s1a"]
+
+[tool.hatch.build.targets.sdist]
+only-include = ["s1a", "README.md", "LICENSE", "NOTICE", "THIRD_PARTY_LICENSES.md"]
+
+[tool.pytest.ini_options]
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = ["--ignore=tests/system"]  # tests/system launches a browser through @playwright/mcp (Node)
+
+[tool.ty.src]
+include = ["s1a"]
+
+[[tool.ty.overrides]]
+# The game agents and the in-process decision models import their extras; the core install has none of them.
+include = [
+    "s1a/agents/alfworld.py",
+    "s1a/agents/blackjack.py",
+    "s1a/decision_models/cua.py",
+    "s1a/decision_models/cua_four_b.py",
+    "s1a/decision_models/laya.py",
+    "s1a/decision_models/omnijev.py",
+]
+
+[tool.ty.overrides.rules]
+unresolved-import = "ignore"
+
+[tool.ruff]
+line-length = 120
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F"]  # the rule set the code was written against; ruff 0.16 enables many more by default

@@ -1,0 +1,31 @@
+{
+  "name": "anidoodle",
+  "version": "0.9.6",
+  "description": "Code-drawn stills, drawing timelapses, films, explainers and interactive web animations in 32 styles, with scores composed in code.",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "anidoodle",
+    "shortDescription": "Hand-drawn art, written as code.",
+    "longDescription": "Illustrations, drawing timelapses, films of any length, explainers, infographics and interactive web animations in 32 hand-made styles, with original scores composed as data and played by an engine written in code. Match a style from your image, recreate a photo in any style, keep a character consistent, or learn how a drawing is built. Every render is deterministic, with no generated assets.",
+    "developerName": "Alex Greenshpun",
+    "category": "Creativity",
+    "capabilities": [
+      "Interactive",
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://github.com/alexgreensh/anidoodle",
+    "privacyPolicyURL": "https://github.com/alexgreensh/anidoodle/blob/main/PRIVACY.md",
+    "termsOfServiceURL": "https://github.com/alexgreensh/anidoodle/blob/main/LICENSE",
+    "defaultPrompt": [
+      "Show me the anidoodle styles and help me pick one for my landing page hero.",
+      "Draw a colored-pencil illustration of a fox in the snow, and a video of it being drawn.",
+      "Make a 60-second vertical explainer about how bees find flowers, with a score.",
+      "Recreate this photo as a Japanese woodblock print.",
+      "Teach me how to draw a cat sitting, step by step."
+    ],
+    "brandColor": "#C2410C",
+    "logo": "./assets/icon.png",
+    "composerIcon": "./assets/icon.png"
+  }
+}

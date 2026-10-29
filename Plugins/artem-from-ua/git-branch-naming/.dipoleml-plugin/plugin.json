@@ -1,0 +1,20 @@
+{
+  "name": "git-branch-naming",
+  "displayName": "Git Branch Naming",
+  "version": "0.3.8",
+  "description": "Git branch naming convention enforcement: validates names, warns on content mismatch before push",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Artem From Ua"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/artem-from-ua/claude-plugins",
+  "repository": "https://github.com/artem-from-ua/claude-plugins",
+  "skills": [
+    "./skills/"
+  ],
+  "commands": [
+    "./commands/"
+  ],
+  "agents": []
+}

@@ -1,0 +1,14 @@
+{
+  "name": "video-captions",
+  "displayName": "Video Captions",
+  "version": "1.4.0",
+  "description": "Transcribe a video's speech locally and burn accurately-timed captions into it. Default look is minimal; describe any style in plain words, or use the built-in pill preset for editorial lowercase captions on a rounded plate. Offline, cross-platform, no API key.",
+  "author": {
+    "name": "katareayush",
+    "email": "katareayush2005@gmail.com"
+  },
+  "keywords": ["video", "captions", "subtitles", "transcription", "whisper", "ffmpeg"],
+  "homepage": "https://video-captions.katareayush.com",
+  "repository": "https://github.com/katareayush/video-captions",
+  "license": "MIT"
+}

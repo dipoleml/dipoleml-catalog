@@ -1,0 +1,84 @@
+version: 2
+
+project_name: cc-fleet
+
+builds:
+  - id: cc-fleet
+    main: ./cmd/cc-fleet
+    binary: cc-fleet
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -buildvcs=false
+    ldflags:
+      - -s -w -X github.com/ethanhq/cc-fleet/internal/version.Version={{ .Version }}
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - id: cc-fleet
+    ids:
+      - cc-fleet
+    name_template: "cc-fleet-{{ .Os }}-{{ .Arch }}"
+    formats:
+      - tar.gz
+    # Windows ships a .zip (goreleaser auto-appends .exe to the binary);
+    # `formats` plural needs goreleaser >=2.6, which the release workflow's
+    # pinned goreleaser v2.16.0 satisfies.
+    format_overrides:
+      - goos: windows
+        formats:
+          - zip
+    # Extract into a cc-fleet-<os>-<arch>/ dir rather than dumping into cwd, so
+    # a manual `tar xzf` then `cd … && ./install.sh` is clean.
+    wrap_in_directory: true
+    # The copy-binary installer (release/install.sh) reads skills/<lane>/SKILL.md
+    # and skills/cc-fleet-shared/ from next to itself, so the binary, skills tree,
+    # and installer must sit together at the archive root (same layout as the
+    # Makefile release-archive staging).
+    files:
+      - src: skills/subagent/SKILL.md
+        dst: skills/subagent/SKILL.md
+      - src: skills/team/SKILL.md
+        dst: skills/team/SKILL.md
+      - src: skills/workflow/SKILL.md
+        dst: skills/workflow/SKILL.md
+      - src: skills/cc-fleet-shared/*.md
+        dst: skills/cc-fleet-shared
+      - src: release/install.sh
+        dst: install.sh
+      - src: release/install.ps1
+        dst: install.ps1
+      - src: release/README.md
+        dst: README.md
+
+checksum:
+  name_template: checksums.txt
+
+# Sign checksums.txt with the project's Ed25519 release key (CCF_RELEASE_SIGNING_KEY,
+# a base64 seed). The detached base64 signature is published as checksums.txt.sig and
+# verified by `cc-fleet update` against the public key embedded in the binary. The
+# signer is the repo's own tools/sign-checksums (stdlib Ed25519 — no gpg/cosign).
+signs:
+  - id: checksums
+    artifacts: checksum
+    cmd: go
+    args: ["run", "./tools/sign-checksums", "${artifact}", "${signature}"]
+    signature: "${artifact}.sig"
+
+release:
+  github:
+    owner: ethanhq
+    name: cc-fleet
+  # Publish as a draft; the release workflow undrafts it only after confirming
+  # checksums.txt.sig is attached, so no unsigned release is ever public.
+  draft: true
+  prerelease: auto
+
+changelog:
+  use: github

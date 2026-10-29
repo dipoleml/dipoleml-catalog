@@ -1,0 +1,902 @@
+#!/usr/bin/env bash
+# ops-memory-extractor.sh — Extracts user preferences, contact profiles, and behavioral
+# patterns from WhatsApp + email history and writes structured memory files.
+#
+# Scheduled every 30 min by the ops-daemon cron service. ops-daemon's
+# trigger_smart_memory_extraction can additionally pull a run forward when new
+# high-value messages arrive; it is an "earlier", not a second schedule.
+# Concurrent runs are prevented by the lock below, which every entry point --
+# cron, smart trigger, manual -- goes through.
+set -euo pipefail
+
+# ── Portable shell helpers ────────────────────────────────────────────────────
+_date_days_ago() {
+  # Portable: echoes "N days ago" in the given format (default YYYY-MM-DD)
+  local days=$1 fmt=${2:-+%Y-%m-%d}
+  if date -d "$days days ago" "$fmt" >/dev/null 2>&1; then
+    date -d "$days days ago" "$fmt"   # GNU coreutils (Linux, Windows/Git Bash)
+  else
+    date -v-"${days}"d "$fmt"         # BSD (macOS)
+  fi
+}
+
+# ── Config ────────────────────────────────────────────────────────────────────
+DATA_ROOT="${OPS_DATA_DIR:-${HOME}/.claude/plugins/data/ops-ops-marketplace}"
+MEMORIES_DIR="${DATA_ROOT}/memories"
+HEALTH_FILE="${MEMORIES_DIR}/.health"
+# Lock lives under cache/, NOT under memories/: everything in memories/ is real
+# user data and the auto_compress pruner globs that directory.
+LOCK_DIR="${DATA_ROOT}/cache/ops-memory-extractor.lock"
+LOCK_PID_FILE="${LOCK_DIR}/pid"
+LOCK_HELD=0
+TMP_RAW="${TMPDIR:-/tmp}/ops-memory-raw-$$.json"
+TMP_PROMPT="${TMPDIR:-/tmp}/ops-memory-prompt-$$.txt"
+TMP_RESPONSE="${TMPDIR:-/tmp}/ops-memory-response-$$.json"
+TMP_GOG_ERR="${TMPDIR:-/tmp}/ops-memory-gog-$$.err"
+TMP_STREAM_ERR="${TMPDIR:-/tmp}/ops-memory-stream-$$.err"
+MAX_TOTAL_BYTES=51200   # 50KB ceiling across all memory files
+MAX_FILE_BYTES=5120     # 5KB per file before auto-compression
+LOG_PREFIX="[ops-memory-extractor]"
+
+# ── Helpers ───────────────────────────────────────────────────────────────────
+log()  { echo "${LOG_PREFIX} $*" >&2; }
+die()  { log "FATAL: $*"; write_health "error" "$*"; exit 1; }
+ts()   { date -u +"%Y-%m-%dT%H:%M:%SZ"; }
+
+write_health() {
+  local status="$1" msg="${2:-}"
+  mkdir -p "${MEMORIES_DIR}"
+  cat > "${HEALTH_FILE}" <<EOF
+{
+  "status": "${status}",
+  "message": "${msg}",
+  "last_run": "$(ts)",
+  "memories_dir": "${MEMORIES_DIR}"
+}
+EOF
+}
+
+cleanup() {
+  rm -f "${TMP_RAW}" "${TMP_PROMPT}" "${TMP_RESPONSE}" "${TMP_GOG_ERR}" "${TMP_STREAM_ERR}"
+  # Only the process that actually took the lock may drop it. A run that exits
+  # because the lock was already held must never delete the holder's lock.
+  if [[ "${LOCK_HELD}" == "1" ]]; then
+    rm -rf "${LOCK_DIR}"
+    LOCK_HELD=0
+  fi
+}
+trap cleanup EXIT
+
+# ── Mutual exclusion ──────────────────────────────────────────────────────────
+# The lock lives HERE, in the extractor, rather than in the callers, because
+# there are two independent trigger paths (the 30-minute ops-daemon cron entry
+# and trigger_smart_memory_extraction) plus manual runs. A guard in one caller
+# cannot see the others: on 2026-08-24 the smart trigger started a run at
+# 18:00:23 and cron started a second at 18:00:54. Duplicate concurrent runs are
+# pure waste -- two copies build the same ~62KB prompt, pay for the same
+# completion, and race each other to write the same files.
+#
+# Note this lock is NOT what fixed the HTTP 504s. Those were measured to occur
+# just as reliably with a single run and no contention; see the streaming
+# comment in call_claude for the actual cause. The lock is still correct: the
+# proxy serialises requests, so overlapping runs inflate each other's latency
+# (measured 15s solo -> 28s with one other in flight) and push a marginal run
+# over the edge.
+#
+# `flock` is not present on macOS, so this is a mkdir-based lock: mkdir is
+# atomic on every filesystem that matters and needs no extra binary. The PID of
+# the holder is recorded inside so a lock left behind by a killed run can be
+# identified and broken instead of blocking every future run forever.
+_SELF_NAME="$(basename "${BASH_SOURCE[0]}")"
+
+_lock_owner_alive() {
+  # Alive AND still running THIS script. Checking the command as well as
+  # liveness matters because PIDs get recycled: a bare `kill -0` on a recycled
+  # PID would make a stale lock look permanently held.
+  #
+  # The name is taken from $0 rather than hardcoded. A hardcoded
+  # "ops-memory-extractor" match silently fails the moment the script is run
+  # through a renamed copy or a symlink -- the holder's own liveness check
+  # stops recognising it, every caller decides the lock is stale, and the
+  # mutual exclusion quietly evaporates while still looking correct in the log.
+  #
+  # `ps -ww` because the default output is truncated to terminal width and the
+  # script path -- the part being matched -- sits at the END of the command
+  # line, so truncation would drop exactly what we test for.
+  local pid="$1"
+  [[ -n "${pid}" ]] || return 1
+  kill -0 "${pid}" 2>/dev/null || return 1
+  ps -ww -p "${pid}" -o command= 2>/dev/null | grep -qF "${_SELF_NAME}"
+}
+
+acquire_lock() {
+  mkdir -p "$(dirname "${LOCK_DIR}")"
+
+  if mkdir "${LOCK_DIR}" 2>/dev/null; then
+    echo "$$" > "${LOCK_PID_FILE}"
+    LOCK_HELD=1
+    return 0
+  fi
+
+  local owner
+  owner=$(cat "${LOCK_PID_FILE}" 2>/dev/null || true)
+
+  # The holder creates the directory and writes its PID as two steps, so a
+  # racing process can observe the directory with the PID file not yet written.
+  # Give it a moment before concluding the lock is stale.
+  if [[ -z "${owner}" ]]; then
+    sleep 1
+    owner=$(cat "${LOCK_PID_FILE}" 2>/dev/null || true)
+  fi
+
+  if _lock_owner_alive "${owner}"; then
+    return 1
+  fi
+
+  log "Breaking stale lock at ${LOCK_DIR} (recorded pid=${owner:-none} is not running)"
+  rm -rf "${LOCK_DIR}"
+  if mkdir "${LOCK_DIR}" 2>/dev/null; then
+    echo "$$" > "${LOCK_PID_FILE}"
+    LOCK_HELD=1
+    return 0
+  fi
+  # Someone else won the race to re-create it; treat as held.
+  return 1
+}
+
+# ── Resolve auth (Claude Code OAuth preferred, API key fallback) ──────────────
+# Preference order:
+#   0. Local proxy (CLIProxyAPI) — ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN,
+#      taken from the environment, or read out of ~/.claude/settings.json's
+#      `env` block when the scheduler did not export them. Both are required.
+#   1. Claude Code OAuth token from macOS Keychain — uses your Claude Max/Pro
+#      subscription (no per-token API billing). Works out of the box if you're
+#      signed into Claude Code on this machine. Skipped if the token is expired
+#      or within 60 s of expiry.
+#   2. ANTHROPIC_API_KEY env var
+#   3. macOS Keychain service "ANTHROPIC_API_KEY", account "ops-daemon"
+#   4. Doppler — via OPS_DOPPLER_PROJECT + OPS_DOPPLER_CONFIG, or ambient scope
+#
+# Why OAuth-first:
+#   Subscription users shouldn't pay API-metered rates for daemon-scheduled
+#   background work. There is also a known behavioural gotcha with Claude Code
+#   itself: if ANTHROPIC_API_KEY is exported globally (shell profile, ~/.env,
+#   etc.) Claude Code preferentially bills that key instead of honouring the
+#   OAuth subscription. Keeping the API key only in keychain (unexported) and
+#   preferring OAuth here sidesteps both problems.
+#
+# Globals set by this function (consumed by call_claude):
+#   OPS_AUTH_HEADER         - full HTTP header value, e.g.
+#                             "Authorization: Bearer sk-ant-oat01-..." (OAuth)
+#                             "x-api-key: sk-ant-api03-..." (API key)
+#   OPS_AUTH_MODE           - "oauth" or "apikey"
+#   OPS_AUTH_EXTRA_HEADERS  - bash array of additional curl -H args
+#                             (OAuth needs `anthropic-beta: oauth-2025-04-20`)
+#
+# To seed the API-key fallback in keychain:
+#   security add-generic-password -U -s ANTHROPIC_API_KEY -a ops-daemon -w sk-ant-...
+resolve_auth() {
+  OPS_AUTH_HEADER=""
+  OPS_AUTH_MODE=""
+  OPS_AUTH_EXTRA_HEADERS=()
+  OPS_BASE_URL="${OPS_BASE_URL:-}"
+
+  # ─ Local proxy first ─ when the caller configured one explicitly (CLIProxyAPI).
+  # Both variables are required: a bearer token with no base URL would be sent to
+  # api.anthropic.com, which rejects it.
+  local _proxy_base="${ANTHROPIC_BASE_URL:-}"
+  local _proxy_tok="${ANTHROPIC_AUTH_TOKEN:-}"
+
+  # Claude Code injects settings.json's `env` block into its own sessions, so a
+  # proxy configured only there is visible to anything running INSIDE a Claude
+  # session and invisible to this script, which cron and launchd start with a
+  # bare environment. That asymmetry is nasty to debug: run the script by hand
+  # and it authenticates, leave it to the scheduler and it dies with "No auth
+  # available" every 30 minutes. Read the file directly when the vars are unset.
+  if [[ -z "${_proxy_tok}" || -z "${_proxy_base}" ]]; then
+    local _settings="${HOME}/.claude/settings.json"
+    if [[ -r "${_settings}" ]] && command -v python3 &>/dev/null; then
+      local _from_settings
+      _from_settings=$(python3 - "${_settings}" <<'PYEOF' 2>/dev/null || true
+import json, sys
+try:
+    env = (json.load(open(sys.argv[1])) or {}).get("env") or {}
+except Exception:
+    sys.exit(0)
+base = (env.get("ANTHROPIC_BASE_URL") or "").strip()
+tok = (env.get("ANTHROPIC_AUTH_TOKEN") or "").strip()
+if base and tok:
+    # Tab-separated: neither value may contain one.
+    print(base + "\t" + tok)
+PYEOF
+      )
+      if [[ -n "${_from_settings}" ]]; then
+        _proxy_base="${_from_settings%%$'\t'*}"
+        _proxy_tok="${_from_settings#*$'\t'}"
+        log "Auth: proxy config read from ${_settings} (not in environment)"
+      fi
+    fi
+  fi
+
+  if [[ -n "${_proxy_tok}" && -n "${_proxy_base}" ]]; then
+    OPS_BASE_URL="${_proxy_base}"
+    OPS_AUTH_HEADER="Authorization: Bearer ${_proxy_tok}"
+    OPS_AUTH_MODE="proxy"
+    OPS_AUTH_EXTRA_HEADERS=()
+    log "Auth: local proxy (${_proxy_base})"
+    return 0
+  fi
+
+  # ─ Try Claude Code OAuth first ─
+  # Linux: the OAuth blob lives in ~/.claude/.credentials.json (no macOS Keychain).
+  local creds_file="${HOME}/.claude/.credentials.json"
+  if [[ -r "${creds_file}" ]]; then
+    local ftoken
+    ftoken=$(python3 -c "
+import json, sys, time
+try:
+    d = json.load(open('${creds_file}'))
+    o = d.get('claudeAiOauth') or {}
+    tok = o.get('accessToken') or ''
+    exp = o.get('expiresAt') or 0
+    if tok and exp > int(time.time() * 1000) + 60000:
+        print(tok)
+except Exception:
+    pass
+" 2>/dev/null || true)
+    if [[ -n "${ftoken}" ]]; then
+      OPS_AUTH_HEADER="Authorization: Bearer ${ftoken}"
+      OPS_AUTH_MODE="oauth"
+      OPS_AUTH_EXTRA_HEADERS=(-H "anthropic-beta: oauth-2025-04-20")
+      log "Auth: Claude Code OAuth (~/.claude/.credentials.json — subscription, no per-token billing)"
+      return 0
+    fi
+  fi
+
+  if command -v security &>/dev/null; then
+    local blob token _kc_acct
+    # Scope to the current user's account first: the keychain can hold multiple
+    # "Claude Code-credentials" items (e.g. an mcpOAuth-only blob under another
+    # account), and an unscoped lookup returns whichever matches first — which
+    # may lack claudeAiOauth even when a valid token exists under $USER.
+    # ${USER:-}, not $USER: cron and launchd start this script with a bare
+    # environment where USER is unset, and `set -u` turns that into an
+    # "unbound variable" abort before any auth fallback is reached -- an
+    # obscure crash in place of a useful error. id -un is the reliable source.
+    token=""
+    local _kc_user="${USER:-}"
+    [[ -z "${_kc_user}" ]] && _kc_user=$(id -un 2>/dev/null || true)
+    for _kc_acct in "${_kc_user}" ""; do
+      if [[ -n "${_kc_acct}" ]]; then
+        blob=$(security find-generic-password -s "Claude Code-credentials" -a "${_kc_acct}" -w 2>/dev/null || true)
+      else
+        blob=$(security find-generic-password -s "Claude Code-credentials" -w 2>/dev/null || true)
+      fi
+      [[ -z "${blob}" ]] && continue
+      token=$(printf '%s' "${blob}" | python3 -c "
+import json, sys, time
+try:
+    d = json.loads(sys.stdin.read())
+    o = d.get('claudeAiOauth') or {}
+    tok = o.get('accessToken') or ''
+    exp = o.get('expiresAt') or 0
+    # Require >= 60 s of remaining life to avoid mid-call expiry
+    if tok and exp > int(time.time() * 1000) + 60000:
+        print(tok)
+except Exception:
+    pass
+" 2>/dev/null || true)
+      [[ -n "${token}" ]] && break
+    done
+    if [[ -n "${token}" ]]; then
+      OPS_AUTH_HEADER="Authorization: Bearer ${token}"
+      OPS_AUTH_MODE="oauth"
+      OPS_AUTH_EXTRA_HEADERS=(-H "anthropic-beta: oauth-2025-04-20")
+      log "Auth: Claude Code OAuth (subscription — no per-token billing)"
+      return 0
+    fi
+  fi
+
+  # ─ Fallback: API key via env / keychain / doppler ─
+  local key=""
+  if [[ -n "${ANTHROPIC_API_KEY:-}" ]]; then
+    key="${ANTHROPIC_API_KEY}"
+  elif command -v security &>/dev/null; then
+    key=$(security find-generic-password -s "ANTHROPIC_API_KEY" -a ops-daemon -w 2>/dev/null || true)
+  fi
+  if [[ -z "${key}" ]] && command -v doppler &>/dev/null; then
+    local proj="${OPS_DOPPLER_PROJECT:-}" cfg="${OPS_DOPPLER_CONFIG:-}"
+    if [[ -n "${proj}" && -n "${cfg}" ]]; then
+      key=$(doppler secrets get ANTHROPIC_API_KEY --plain --project "${proj}" --config "${cfg}" 2>/dev/null || true)
+    else
+      key=$(doppler secrets get ANTHROPIC_API_KEY --plain 2>/dev/null || true)
+    fi
+  fi
+
+  if [[ -n "${key}" ]]; then
+    OPS_AUTH_HEADER="x-api-key: ${key}"
+    OPS_AUTH_MODE="apikey"
+    log "Auth: ANTHROPIC_API_KEY (API-metered billing)"
+    return 0
+  fi
+
+  die "No auth available; tried local proxy (env + ~/.claude/settings.json env block), Claude Code OAuth (keychain), \$ANTHROPIC_API_KEY, keychain ANTHROPIC_API_KEY, and doppler"
+}
+
+# Back-compat alias so older callers / forks still work
+resolve_api_key() { resolve_auth; }
+
+# ── Collect raw data ──────────────────────────────────────────────────────────
+# Resolve the mailbox gog should read. gog only picks an account implicitly when
+# exactly one token is stored; there are ~20 here, so it always needs --account.
+# The configured default is an OAuth account whose token lives in gog's file
+# keyring, and that keyring cannot be unlocked without a TTY or
+# GOG_KEYRING_PASSWORD -- so the default resolves by hand and fails under
+# launchd, the same environment asymmetry resolve_auth() deals with above.
+# Service-account tokens carry no such requirement and work headlessly.
+resolve_gog_account() {
+  local _acct="${GOG_ACCOUNT:-}"
+  if [[ -n "${_acct}" ]]; then
+    printf '%s' "${_acct}"
+    return 0
+  fi
+
+  # Then this plugin's own preferences. Deliberately NOT settings.json's `env`
+  # block: Claude Code injects that into every session, so a GOG_ACCOUNT there
+  # would silently redirect interactive gog calls too. Keep the daemon's mailbox
+  # choice scoped to the daemon.
+  local _prefs="${HOME}/.claude/plugins/data/ops-ops-marketplace/preferences.json"
+  if [[ -r "${_prefs}" ]] && command -v python3 &>/dev/null; then
+    _acct=$(python3 - "${_prefs}" <<'PYEOF' 2>/dev/null || true
+import json, sys
+try:
+    prefs = json.load(open(sys.argv[1])) or {}
+except Exception:
+    sys.exit(0)
+print((prefs.get("gog_account") or "").strip())
+PYEOF
+    )
+    if [[ -n "${_acct}" ]]; then
+      printf '%s' "${_acct}"
+      return 0
+    fi
+  fi
+
+  return 1
+}
+
+collect_data() {
+  local wa_data="" email_data=""
+  local yesterday
+  yesterday=$(TZ=UTC _date_days_ago 1 "+%Y-%m-%d")
+
+  # WhatsApp via Baileys bridge messages.db
+  local bridge_db="${WHATSAPP_BRIDGE_DB:-$HOME/.local/share/whatsapp-mcp/whatsapp-bridge/store/messages.db}"
+  if [[ -f "$bridge_db" ]]; then
+    local health_status=""
+    if lsof -i :8080 2>/dev/null | grep -q LISTEN; then
+      health_status="connected"
+    fi
+    if echo "${health_status}" | grep -qi "connected\|ok\|healthy" 2>/dev/null; then
+      log "Collecting WhatsApp messages..."
+      wa_data=$(sqlite3 "$bridge_db" "SELECT json_group_array(json_object('chat_jid',chat_jid,'sender',sender,'content',content,'timestamp',timestamp,'is_from_me',is_from_me)) FROM (SELECT chat_jid, sender, content, timestamp, is_from_me FROM messages WHERE timestamp >= '${yesterday}' ORDER BY timestamp DESC LIMIT 200);" 2>/dev/null || true)
+      if [[ -z "${wa_data}" ]]; then
+        log "bridge db returned no data (skipping)"
+      fi
+    else
+      log "whatsapp-bridge not running (skipping WhatsApp)"
+    fi
+  else
+    log "bridge db not found (skipping WhatsApp)"
+  fi
+
+  # Email via gog
+  if command -v gog &>/dev/null; then
+    local gog_acct=""
+    gog_acct=$(resolve_gog_account || true)
+    local -a gog_args=(gmail search -j --results-only --no-input --max 20 "newer_than:1d")
+    [[ -n "${gog_acct}" ]] && gog_args+=(--account "${gog_acct}")
+    log "Collecting recent emails${gog_acct:+ for ${gog_acct}}..."
+    email_data=$(gog "${gog_args[@]}" 2>"${TMP_GOG_ERR}" || true)
+    # An empty array is a successful search with no hits; treat it as no data.
+    if [[ -z "${email_data}" || "${email_data}" == "[]" ]]; then
+      email_data=""
+      # Never swallow gog's stderr. This call used 2>/dev/null, so
+      # "missing --account" was logged as "gog returned no data" and read as
+      # "quiet inbox" for weeks while the daemon extracted nothing at all.
+      local _gog_err=""
+      [[ -s "${TMP_GOG_ERR}" ]] && _gog_err=$(tr '\n' ' ' < "${TMP_GOG_ERR}" | cut -c1-300)
+      log "gog returned no data${_gog_err:+ -- ${_gog_err}} (skipping)"
+    fi
+  else
+    log "gog not available (skipping email)"
+  fi
+
+  if [[ -z "${wa_data}" && -z "${email_data}" ]]; then
+    log "No data sources available — nothing to extract"
+    write_health "skipped" "no data sources"
+    exit 0
+  fi
+
+  # Write combined raw payload
+  cat > "${TMP_RAW}" <<EOF
+{
+  "whatsapp_messages": ${wa_data:-null},
+  "emails": ${email_data:-null},
+  "collected_at": "$(ts)"
+}
+EOF
+}
+
+# ── Read existing memory for context ─────────────────────────────────────────
+read_existing_memory() {
+  # Bound what goes into the prompt. This whole block is sent to Haiku on every
+  # run, and the store here had grown to ~424KB across 675 files -- roughly 106K
+  # tokens per request, enough that the proxy answered HTTP 504 and the run died
+  # in call_claude. auto_compress, which is what would bring the store back
+  # down, only runs *after* that call, so an oversized store kept itself
+  # oversized. Cap the context instead of the files: nothing on disk is touched,
+  # the newest memories are preferred, and the run completes.
+  local budget="${MAX_CONTEXT_BYTES:-${MAX_TOTAL_BYTES}}"
+  local out="" used=0 skipped=0 f fsize
+  while IFS= read -r f; do
+    [[ -f "$f" ]] || continue
+    fsize=$(wc -c < "$f" 2>/dev/null || echo 0)
+    if (( used + fsize > budget )); then
+      skipped=$((skipped + 1))
+      continue
+    fi
+    used=$((used + fsize))
+    out+="### $(basename "$f")\n"
+    out+=$(cat "$f")
+    out+="\n\n"
+  done < <(ls -t "${MEMORIES_DIR}"/contact_*.md "${MEMORIES_DIR}"/preferences.md \
+                 "${MEMORIES_DIR}"/topics_active.md "${MEMORIES_DIR}"/donts.md 2>/dev/null)
+  if (( skipped > 0 )); then
+    log "Memory context capped at ${budget} bytes (${used} used); ${skipped} older file(s) left out of this run's prompt -- nothing deleted"
+  fi
+  printf '%s' "${out}"
+}
+
+# ── Build extraction prompt ────────────────────────────────────────────────────
+build_prompt() {
+  local raw_data existing_memory
+  raw_data=$(cat "${TMP_RAW}")
+  existing_memory=$(read_existing_memory)
+
+  cat > "${TMP_PROMPT}" <<'PROMPT_EOF'
+You are a memory extraction assistant. Analyze the provided chat/email data and extract structured information.
+
+Return a JSON object with exactly these keys:
+- "contacts": array of contact objects
+- "preferences": object with user behavior patterns
+- "topics_active": array of ongoing conversation topics
+- "donts": array of things to avoid
+
+Each contact object:
+{
+  "name": string,
+  "email": string or null,
+  "phone": string or null,
+  "company": string or null,
+  "role": string or null,
+  "relationship": "professional|personal|family|vendor|client",
+  "communication_style": string (1-2 sentences),
+  "language_preference": string (e.g. "English", "Hindi", "English + Hindi"),
+  "channel_preference": "whatsapp|email|both|unknown",
+  "recent_context": string (1-3 bullet points as plain text, newline-separated),
+  "confidence": float 0.0-1.0
+}
+
+Preferences object:
+{
+  "response_style": string,
+  "tone": string,
+  "topics_of_interest": array of strings,
+  "scheduling_patterns": string or null,
+  "language": string,
+  "notes": array of strings
+}
+
+Topics active array items:
+{
+  "topic": string,
+  "contacts_involved": array of names,
+  "summary": string,
+  "pending_action": string or null,
+  "deadline": string or null (ISO date)
+}
+
+Donts array items: plain strings describing things to avoid.
+
+Rules:
+- Only include contacts with at least 2 signals of identity
+- Merge with existing memory (do not duplicate, update stale info)
+- Confidence reflects how certain the extraction is (0.8+ = clear signal)
+- Keep responses concise — no padding
+- If no meaningful data to extract for a key, return empty array/object
+
+PROMPT_EOF
+
+  # Append existing memory context and raw data as separate user turn content
+  printf '\nEXISTING MEMORY (merge with this, do not duplicate):\n%s\n\nRAW DATA TO ANALYZE:\n%s\n' \
+    "${existing_memory}" "${raw_data}" >> "${TMP_PROMPT}"
+}
+
+# ── Call Claude Haiku ─────────────────────────────────────────────────────────
+call_claude() {
+  local system_prompt user_content
+  system_prompt="You are a memory extraction assistant. Return only valid JSON, no markdown fences, no explanation."
+  # Escape for JSON embedding
+  user_content=$(cat "${TMP_PROMPT}" | python3 -c "
+import sys, json
+data = sys.stdin.read()
+print(json.dumps(data))
+" 2>/dev/null || python3 -c "
+import sys, json
+data = sys.stdin.read()
+print(json.dumps(data))
+")
+
+  # "stream": true is load-bearing, not a style choice.
+  #
+  # This call goes through the local CLIProxyAPI/Caddy data plane, which sets
+  # `response_header_timeout 30s` to bound time-to-first-token and detect dead
+  # routes. On a NON-streaming request the upstream sends no response headers
+  # until the entire completion has been generated, so that 30s ceases to be a
+  # TTFT bound and becomes a hard ceiling on total generation time.
+  #
+  # This prompt is ~62KB and its completion measures 37-44s of generation, so it
+  # blew through the header timeout on essentially every run. Measured
+  # 2026-08-24 with the identical captured prompt: non-streaming returns HTTP
+  # 504 at exactly 30.0s, repeatably, WITH NO OTHER EXTRACTOR RUNNING; streaming
+  # returns HTTP 200 in 37-44s. Every one of the 32 gateway 504s in the proxy
+  # log that day has duration 30.0s, and 17 of them had no concurrent run at
+  # all -- so this, not trigger overlap, was the cause of the failures.
+  #
+  # Streaming makes headers and the first SSE event arrive immediately, so the
+  # header timeout is satisfied and the remaining tokens stream in under the
+  # much larger read timeout. Do not "simplify" this back to a plain JSON
+  # response without also raising response_header_timeout in the Caddyfile.
+  #
+  # max_tokens is 8192, up from 4096. The extraction JSON for the current store
+  # measures ~4200 output tokens, so 4096 truncated it mid-object and the result
+  # failed to parse -- silently, because write_memory_files treats a JSON parse
+  # error as a warning and still reports the run healthy. 4096 was adequate when
+  # the store was smaller; it is the store's growth that crossed the boundary.
+  # Measured: max_tokens 4096 -> stop_reason "max_tokens", invalid JSON;
+  # max_tokens 8192 -> stop_reason "end_turn" at 4187 tokens, valid JSON.
+  # The raw Messages API needs a model id; there is no session default to
+  # inherit here, so the operator must name one. Never pin it in this file.
+  [[ -n "${OPS_MEMORY_EXTRACTOR_MODEL:-}" ]] || die "OPS_MEMORY_EXTRACTOR_MODEL is unset; set it to the model id the extractor may call"
+  local payload
+  payload=$(cat <<EOF
+{
+  "model": "${OPS_MEMORY_EXTRACTOR_MODEL}",
+  "max_tokens": 8192,
+  "stream": true,
+  "system": $(printf '%s' "${system_prompt}" | python3 -c "import sys, json; print(json.dumps(sys.stdin.read()))"),
+  "messages": [
+    {"role": "user", "content": ${user_content}}
+  ]
+}
+EOF
+)
+
+  log "Calling Claude (${OPS_MEMORY_EXTRACTOR_MODEL}) for extraction (auth: ${OPS_AUTH_MODE:-unknown}, streaming)..."
+  local http_status
+  # --max-time bounds a stream that stalls mid-flight. The proxy's own read
+  # timeout is 900s, which is far too long to leave a scheduled job hanging;
+  # 300s is well clear of the 37-44s a healthy run takes.
+  http_status=$(curl -s -o "${TMP_RESPONSE}" -w "%{http_code}" \
+    --no-buffer --max-time 300 \
+    "${OPS_BASE_URL:-https://api.anthropic.com}/v1/messages" \
+    -H "content-type: application/json" \
+    -H "${OPS_AUTH_HEADER}" \
+    -H "anthropic-version: 2023-06-01" \
+    -H "accept: text/event-stream" \
+    "${OPS_AUTH_EXTRA_HEADERS[@]}" \
+    -d "${payload}" 2>/dev/null)
+
+  if [[ "${http_status}" != "200" ]]; then
+    local err
+    err=$(head -c 400 "${TMP_RESPONSE}" 2>/dev/null || echo "unknown error")
+    die "Claude API returned HTTP ${http_status}: ${err}"
+  fi
+
+  # Reassemble the SSE stream into the assistant's text.
+  local text
+  if ! text=$(python3 - "${TMP_RESPONSE}" 2>"${TMP_STREAM_ERR}" <<'PYEOF'
+import sys, json
+
+parts, err, stop_reason = [], None, None
+with open(sys.argv[1], encoding="utf-8", errors="replace") as fh:
+    for line in fh:
+        line = line.strip()
+        if not line.startswith("data:"):
+            continue
+        blob = line[5:].strip()
+        if not blob or blob == "[DONE]":
+            continue
+        try:
+            ev = json.loads(blob)
+        except Exception:
+            continue
+        etype = ev.get("type")
+        if etype == "content_block_delta":
+            delta = ev.get("delta") or {}
+            if delta.get("type") == "text_delta":
+                parts.append(delta.get("text", ""))
+        elif etype == "message_delta":
+            stop_reason = (ev.get("delta") or {}).get("stop_reason") or stop_reason
+        elif etype == "error":
+            e = ev.get("error") or {}
+            err = "{}: {}".format(e.get("type", "error"), e.get("message", ""))
+
+if err:
+    sys.stderr.write(err)
+    sys.exit(1)
+
+text = "".join(parts).strip()
+if not text:
+    # An empty stream is a real failure, not an empty extraction: report it so
+    # the caller does not record a healthy "no new memories" run.
+    sys.stderr.write("stream contained no text content (stop_reason={})".format(stop_reason))
+    sys.exit(1)
+
+# max_tokens truncation yields invalid JSON downstream; surface it clearly.
+if stop_reason == "max_tokens":
+    sys.stderr.write("response truncated at max_tokens")
+    sys.exit(1)
+
+print(text)
+PYEOF
+  ); then
+    die "Claude streaming response unusable: $(head -c 300 "${TMP_STREAM_ERR}" 2>/dev/null)"
+  fi
+
+  printf '%s\n' "${text}"
+}
+
+# ── Write memory files ────────────────────────────────────────────────────────
+write_memory_files() {
+  local extraction="$1"
+  local now
+  now=$(ts)
+
+  mkdir -p "${MEMORIES_DIR}"
+
+  python3 - <<'PYEOF' "${MEMORIES_DIR}" "${now}" "${extraction}"
+import sys, json, os, re
+from pathlib import Path
+
+memories_dir = sys.argv[1]
+now = sys.argv[2]
+raw = sys.argv[3]
+
+# Strip markdown fences if model added them
+raw = re.sub(r'^```(?:json)?\s*', '', raw.strip())
+raw = re.sub(r'\s*```$', '', raw.strip())
+
+try:
+    data = json.loads(raw)
+except json.JSONDecodeError as e:
+    print(f"[ops-memory-extractor] WARN: Failed to parse extraction JSON: {e}", file=sys.stderr)
+    sys.exit(0)
+
+def read_existing(path):
+    if Path(path).exists():
+        return Path(path).read_text(encoding="utf-8")
+    return ""
+
+def slugify(name):
+    return re.sub(r'[^a-z0-9]+', '_', name.lower()).strip('_')
+
+def build_frontmatter(fields):
+    lines = ["---"]
+    for k, v in fields.items():
+        if v is not None:
+            lines.append(f"{k}: {v}")
+    lines.append("---")
+    return "\n".join(lines)
+
+def write_if_changed(path, content):
+    existing = read_existing(path)
+    if existing == content:
+        return
+    Path(path).write_text(content, encoding="utf-8")
+    print(f"[ops-memory-extractor] wrote {path}", file=sys.stderr)
+
+# ── Contacts ──────────────────────────────────────────────────────────────────
+for contact in data.get("contacts", []):
+    name = contact.get("name", "unknown")
+    slug = slugify(name)
+    path = os.path.join(memories_dir, f"contact_{slug}.md")
+
+    fm = build_frontmatter({
+        "type": "contact",
+        "name": name,
+        "email": contact.get("email"),
+        "phone": contact.get("phone"),
+        "company": contact.get("company"),
+        "role": contact.get("role"),
+        "last_updated": now,
+        "confidence": contact.get("confidence", 0.7),
+    })
+
+    rel = contact.get("relationship", "unknown")
+    style = contact.get("communication_style", "")
+    lang = contact.get("language_preference", "")
+    channel = contact.get("channel_preference", "unknown")
+    ctx_raw = contact.get("recent_context", "")
+    ctx_lines = [f"- {l.lstrip('- ').strip()}" for l in ctx_raw.split("\n") if l.strip()]
+    ctx_block = "\n".join(ctx_lines) if ctx_lines else "- No recent context"
+
+    body = f"""
+## Relationship
+- {rel.capitalize()} contact
+- {style}
+
+## Communication Style
+- {style}
+- Prefers {channel}
+- {lang}
+
+## Recent Context
+{ctx_block}
+""".lstrip()
+
+    write_if_changed(path, f"{fm}\n\n{body}")
+
+# ── Preferences ───────────────────────────────────────────────────────────────
+prefs = data.get("preferences", {})
+if prefs:
+    path = os.path.join(memories_dir, "preferences.md")
+    fm = build_frontmatter({
+        "type": "preferences",
+        "last_updated": now,
+    })
+    topics = "\n".join(f"- {t}" for t in prefs.get("topics_of_interest", []))
+    notes = "\n".join(f"- {n}" for n in prefs.get("notes", []))
+
+    body = f"""## Response Style
+- {prefs.get("response_style", "Unknown")}
+- Tone: {prefs.get("tone", "Unknown")}
+- Language: {prefs.get("language", "English")}
+
+## Topics of Interest
+{topics or "- None identified"}
+
+## Scheduling
+- {prefs.get("scheduling_patterns") or "No patterns identified"}
+
+## Notes
+{notes or "- None"}
+""".lstrip()
+
+    write_if_changed(path, f"{fm}\n\n{body}")
+
+# ── Active Topics ─────────────────────────────────────────────────────────────
+topics = data.get("topics_active", [])
+if topics:
+    path = os.path.join(memories_dir, "topics_active.md")
+    fm = build_frontmatter({"type": "topics", "last_updated": now})
+    blocks = []
+    for t in topics:
+        contacts_str = ", ".join(t.get("contacts_involved", []))
+        block = f"### {t.get('topic', 'Unnamed')}\n"
+        block += f"- **Contacts**: {contacts_str or 'unknown'}\n"
+        block += f"- **Summary**: {t.get('summary', '')}\n"
+        if t.get("pending_action"):
+            block += f"- **Action**: {t['pending_action']}\n"
+        if t.get("deadline"):
+            block += f"- **Deadline**: {t['deadline']}\n"
+        blocks.append(block)
+    body = "\n".join(blocks)
+    write_if_changed(path, f"{fm}\n\n{body}")
+
+# ── Donts ─────────────────────────────────────────────────────────────────────
+donts = data.get("donts", [])
+if donts:
+    path = os.path.join(memories_dir, "donts.md")
+    fm = build_frontmatter({"type": "donts", "last_updated": now})
+    lines = "\n".join(f"- {d}" for d in donts)
+    write_if_changed(path, f"{fm}\n\n## Things to Avoid\n{lines}\n")
+
+print("[ops-memory-extractor] memory files updated", file=sys.stderr)
+PYEOF
+}
+
+# ── Auto-compress oversized files ─────────────────────────────────────────────
+auto_compress() {
+  local total_bytes=0
+  for f in "${MEMORIES_DIR}"/*.md; do
+    [[ -f "$f" ]] || continue
+    local fsize
+    fsize=$(wc -c < "$f" 2>/dev/null || echo 0)
+    total_bytes=$((total_bytes + fsize))
+  done
+
+  log "Total memory size: ${total_bytes} bytes"
+
+  # Per-file compression: truncate overgrown files to most recent sections
+  for f in "${MEMORIES_DIR}"/*.md; do
+    [[ -f "$f" ]] || continue
+    local fsize
+    fsize=$(wc -c < "$f" 2>/dev/null || echo 0)
+    if [[ "${fsize}" -gt "${MAX_FILE_BYTES}" ]]; then
+      log "Compressing ${f} (${fsize} bytes > ${MAX_FILE_BYTES})"
+      python3 - <<'PYEOF' "${f}"
+import sys
+from pathlib import Path
+path = Path(sys.argv[1])
+text = path.read_text(encoding="utf-8")
+
+# Keep frontmatter + last 3KB of body
+parts = text.split("---", 2)
+if len(parts) >= 3:
+    frontmatter = "---" + parts[1] + "---"
+    body = parts[2]
+    # Keep last 3000 chars of body
+    if len(body) > 3000:
+        body = "\n\n[...older content trimmed...]\n\n" + body[-3000:]
+    path.write_text(frontmatter + body, encoding="utf-8")
+    print(f"[ops-memory-extractor] compressed {path}", file=sys.stderr)
+PYEOF
+    fi
+  done
+
+  # Global ceiling: if still over 50KB, remove oldest contact files
+  if [[ "${total_bytes}" -gt "${MAX_TOTAL_BYTES}" ]]; then
+    log "WARN: Total memory exceeds ${MAX_TOTAL_BYTES} bytes — pruning oldest contacts"
+    # Sort contact files by modification time (oldest first) and remove until under limit
+    for f in $(ls -tr "${MEMORIES_DIR}"/contact_*.md 2>/dev/null); do
+      [[ -f "$f" ]] || continue
+      total_bytes=$(du -sb "${MEMORIES_DIR}"/*.md 2>/dev/null | awk '{s+=$1} END{print s}' || echo 0)
+      if [[ "${total_bytes}" -le "${MAX_TOTAL_BYTES}" ]]; then
+        break
+      fi
+      log "Removing oldest contact file: ${f}"
+      rm -f "${f}"
+    done
+  fi
+}
+
+# ── Main ──────────────────────────────────────────────────────────────────────
+main() {
+  # Take the lock before announcing a run, so a skipped attempt does not look
+  # like a started one in the log. A held lock is the normal, expected outcome
+  # of two triggers lining up -- it is not an error, so exit 0 and leave the
+  # health file alone (overwriting it would mask the real last run's status).
+  if ! acquire_lock; then
+    local holder
+    holder=$(cat "${LOCK_PID_FILE}" 2>/dev/null || echo "unknown")
+    log "Another extraction is already running (pid=${holder}) — skipping this run"
+    exit 0
+  fi
+
+  log "Starting memory extraction run at $(ts)"
+  mkdir -p "${MEMORIES_DIR}"
+
+  resolve_auth
+  collect_data
+
+  build_prompt
+
+  local extraction
+  extraction=$(call_claude)
+
+  if [[ -z "${extraction}" || "${extraction}" == "{}" ]]; then
+    log "No extraction results from Claude — skipping write"
+    write_health "ok" "no new memories extracted"
+    exit 0
+  fi
+
+  write_memory_files "${extraction}"
+  auto_compress
+
+  write_health "ok" "extraction complete"
+  log "Memory extraction complete at $(ts)"
+}
+
+main "$@"

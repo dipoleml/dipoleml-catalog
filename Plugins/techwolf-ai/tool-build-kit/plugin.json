@@ -1,0 +1,5 @@
+{
+  "name": "tool-build-kit",
+  "version": "1.7.0",
+  "description": "Build an MCP server and bundle your tools into a shareable plugin, end to end. Two skills: build-mcp scaffolds one server; build-plugin packages skills, hooks, agents, and MCP servers into an installable plugin and ships it via a marketplace. Both branch on audience (personal, org, public)."
+}

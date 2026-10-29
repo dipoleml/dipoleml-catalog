@@ -1,0 +1,16 @@
+{
+  "name": "agy-staff",
+  "displayName": "Agy Staff",
+  "version": "0.7.4",
+  "description": "Delegate work to Google's Antigravity CLI (agy) with fast Gemini access - five personas: staffer (general), researcher, reviewer (code and plans), implementer, ask.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Keli Wen"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/keli-wen/agy-staff",
+  "repository": "https://github.com/keli-wen/agy-staff",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

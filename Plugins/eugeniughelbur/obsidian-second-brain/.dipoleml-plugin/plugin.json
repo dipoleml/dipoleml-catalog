@@ -1,0 +1,16 @@
+{
+  "name": "obsidian-second-brain",
+  "displayName": "Obsidian Second Brain",
+  "version": "0.20.0",
+  "description": "Stop re-explaining your notes to DipoleML. Turns your Obsidian vault into memory DipoleML can actually search, and keeps it true: new sources rewrite existing pages, contradictions reconcile, and stale facts get flagged. AI note-taking and PKM for DipoleML.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Eugeniughelbur"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/eugeniughelbur/obsidian-second-brain",
+  "repository": "https://github.com/eugeniughelbur/obsidian-second-brain",
+  "skills": [],
+  "commands": "./commands/",
+  "agents": []
+}

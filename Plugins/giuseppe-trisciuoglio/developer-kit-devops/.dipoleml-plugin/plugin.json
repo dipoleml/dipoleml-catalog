@@ -1,0 +1,19 @@
+{
+  "name": "developer-kit-devops",
+  "displayName": "Developer Kit Devops",
+  "version": "4.0.1",
+  "description": "DevOps and containerization expertise",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Giuseppe Trisciuoglio"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/giuseppe-trisciuoglio/developer-kit",
+  "repository": "https://github.com/giuseppe-trisciuoglio/developer-kit",
+  "skills": [],
+  "commands": [],
+  "agents": [
+    "./agents/github-actions-pipeline-expert.md",
+    "./agents/general-docker-expert.md"
+  ]
+}

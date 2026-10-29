@@ -1,0 +1,47 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+.pytest_cache/
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*~
+
+# Playwright MCP scratch (browser snapshots / console logs from inventory scraping)
+.playwright-mcp/
+
+# Local working notes
+.firecrawl/
+scratch/
+*.local.md
+*.local.txt
+
+# Real purchase DATA belongs in a PRIVATE companion Git repository.
+# These ignores are advisory only; tools/check_repository.py rejects physical DATA here.
+# Do not write user-generated trackers/PDFs/prep files inside this public worktree.
+*.pdf
+dealer_pdfs/
+car_buying_*/
+*_negotiation_prep.md
+*_dossier.html
+*_dossier.pdf
+dealer_outreach_tracker.md
+manual_followup_queue.md
+
+# Public source never contains local credential/configuration values.
+*.env
+.env
+.env.*
+!*.env.template
+!*.env.example

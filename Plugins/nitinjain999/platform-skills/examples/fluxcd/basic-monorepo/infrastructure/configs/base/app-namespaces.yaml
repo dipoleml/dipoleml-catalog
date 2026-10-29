@@ -1,0 +1,11 @@
+---
+# App namespaces are created by the platform layer, not by app teams: onboarding
+# an app is a platform-team review. Gateway access is not a label here; each
+# HTTPS listener in gateway.yaml names the one namespace that owns its hostname.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: my-app
+  labels:
+    name: my-app
+    toolkit.fluxcd.io/tenant: app-team

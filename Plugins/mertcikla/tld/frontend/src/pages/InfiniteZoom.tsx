@@ -1,0 +1,207 @@
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import type { ReactNode, Ref, RefObject } from 'react'
+import { useLocation, useNavigate, useParams } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
+import { flowApi } from '../flows/api'
+import { FlowPanel } from '../flows/FlowPanel'
+import type { FlowFocus } from '../flows/model'
+import { Box, Center, Spinner, useDisclosure } from '@chakra-ui/react'
+import { ZUICanvas, type ZUICameraFrame, type ZUICanvasHandle } from '../components/ZUI'
+import { useCrossBranchContextSettings } from '../crossBranch/settings'
+import { ExploreEmptyState, ExploreToolbar } from './explore/ExploreComponents'
+import { useExploreData, type ExploreDataState } from './explore/useExploreData'
+import { useExploreTags } from './explore/useExploreTags'
+import { parseNumericId } from '../utils/ids'
+import FlowSnapshotPage from './FlowSnapshot'
+import { FLOW_SNAPSHOT_TOKEN } from '../flows/sharing'
+
+interface Props {
+  breadcrumbBoundaryRef?: RefObject<HTMLDivElement>
+  sharedToken?: string
+  shareSlot?: ReactNode
+  dataState?: ExploreDataState
+  initialOffViewConnectorsEnabled?: boolean
+}
+
+export interface InfiniteZoomHandle {
+  focusDiagram(viewId: number): boolean
+  focusElement(viewId: number, elementId: number): boolean
+  setCameraFrame(frame: ZUICameraFrame): boolean
+}
+
+function ExplorePage({ sharedToken, shareSlot, dataState, initialOffViewConnectorsEnabled, breadcrumbBoundaryRef }: Props, ref?: Ref<InfiniteZoomHandle>) {
+  const navigate = useNavigate()
+  const location = useLocation()
+  const zuiRef = useRef<ZUICanvasHandle>(null)
+  const [canvasReady, setCanvasReady] = useState(false)
+  const [flowsOpen, setFlowsOpen] = useState(false)
+  const [flowFocus, setFlowFocus] = useState<FlowFocus | null>(null)
+  const { isOpen: isTagsOpen, onClose: onTagsClose, onToggle: onTagsToggle } = useDisclosure()
+  const [isCrossBranchControlsOpen, setIsCrossBranchControlsOpen] = useState(false)
+  const localDataState = useExploreData(sharedToken, !dataState)
+  const { data, loading, error, hasPlacements, reload } = dataState ?? localDataState
+  const tags = useExploreTags(data, sharedToken)
+  const flowsQuery = useQuery({ queryKey: ['flows', 0], queryFn: () => flowApi.list(), enabled: !sharedToken && !loading && !!data, retry: false })
+  const hasFlows = !!flowsQuery.data?.length
+  const flowDisabledHint = flowsQuery.isPending
+    ? 'Loading flows…'
+    : flowsQuery.isError
+      ? 'Could not load flows. Refresh the page to try again.'
+      : !hasFlows ? 'No flows yet. Create a flow in the diagram editor.' : undefined
+  const flowDiagrams = useMemo(() => Object.fromEntries(Object.entries(data?.views ?? {}).map(([id, view]) => [id, { elements: view.placements, connectors: view.connectors }])), [data?.views])
+  useEffect(() => {
+    if (sharedToken || (flowsQuery.isSuccess && !hasFlows)) setFlowsOpen(false)
+  }, [sharedToken, flowsQuery.isSuccess, hasFlows])
+  const crossBranchSurface = sharedToken ? 'zui-shared' : 'zui'
+  const {
+    settings: crossBranchSettings,
+    setEnabled: setCrossBranchEnabled,
+    setConnectorBudget: setCrossBranchConnectorBudget,
+    setConnectorPriority: setCrossBranchConnectorPriority,
+  } = useCrossBranchContextSettings(crossBranchSurface)
+
+  useEffect(() => {
+    if (initialOffViewConnectorsEnabled !== undefined) {
+      setCrossBranchEnabled(initialOffViewConnectorsEnabled)
+    }
+  }, [initialOffViewConnectorsEnabled, setCrossBranchEnabled])
+
+  const cameraProfile = useMemo(() => new URLSearchParams(location.search).get('profile'), [location.search])
+  const detailViewId = useMemo(() => parseNumericId(new URLSearchParams(location.search).get('detailView')), [location.search])
+  const overviewViewId = useMemo(() => parseNumericId(new URLSearchParams(location.search).get('overviewView')), [location.search])
+  const isDetailToOverviewProfile = sharedToken && cameraProfile === 'detail-to-overview'
+  const initialCameraFrame = useMemo<ZUICameraFrame | undefined>(() => {
+    return isDetailToOverviewProfile
+      ? { profile: 'detail-to-overview', progress: 0, detailViewId: detailViewId ?? undefined, overviewViewId: overviewViewId ?? undefined }
+      : undefined
+  }, [detailViewId, isDetailToOverviewProfile, overviewViewId])
+
+  useImperativeHandle(ref, () => ({
+    focusDiagram(viewId: number) {
+      return zuiRef.current?.focusDiagram(viewId) ?? false
+    },
+    focusElement(viewId: number, elementId: number) {
+      return zuiRef.current?.focusElement(viewId, elementId) ?? false
+    },
+    setCameraFrame(frame: ZUICameraFrame) {
+      return zuiRef.current?.setCameraFrame(frame) ?? false
+    },
+  }), [])
+
+  useEffect(() => {
+    if (!sharedToken) return
+
+    const handleMessage = (event: MessageEvent) => {
+      const payload = event.data as { type?: unknown; progress?: unknown; profile?: unknown } | null
+      if (!payload || payload.type !== 'tldiagram-zui-camera') return
+      if (payload.profile !== 'detail-to-overview') return
+
+      const progress = Number(payload.progress)
+      if (!Number.isFinite(progress)) return
+
+      zuiRef.current?.setCameraFrame({ profile: 'detail-to-overview', progress, detailViewId: detailViewId ?? undefined, overviewViewId: overviewViewId ?? undefined })
+    }
+
+    window.addEventListener('message', handleMessage)
+    return () => window.removeEventListener('message', handleMessage)
+  }, [detailViewId, overviewViewId, sharedToken])
+
+  const noDiagrams = !data || (data.tree ?? []).length === 0
+  const goToEditor = useCallback(() => {
+    const root = (data?.tree ?? []).find((node) => node.parent_view_id === null) ?? data?.tree?.[0]
+    navigate(root ? `/views/${root.id}` : '/views?view=edit')
+  }, [data, navigate])
+  if (!loading && (error || noDiagrams || !hasPlacements)) {
+    return (
+      <ExploreEmptyState
+        noDiagrams={noDiagrams}
+        sharedToken={sharedToken}
+        error={error}
+        onRetry={reload}
+        onGoToViews={goToEditor}
+      />
+    )
+  }
+
+  const showContent = !loading && !!data && canvasReady
+
+  return (
+    <Box position="relative" w="full" h="full" overflow="hidden">
+      {(!loading && data && !canvasReady) || loading ? (
+        <Center
+          position="absolute"
+          top={0} left={0} right={0} bottom={0}
+          zIndex={100}
+          bg="var(--bg-primary)"
+        >
+          <Spinner size="xl" color="var(--accent)" />
+        </Center>
+      ) : null}
+
+      {data && (
+        <>
+          <ZUICanvas
+            flowFocus={!sharedToken && flowsOpen ? flowFocus : null}
+            breadcrumbBoundaryRef={breadcrumbBoundaryRef}
+            ref={zuiRef}
+            data={data}
+            onReady={() => setCanvasReady(true)}
+            initialCameraFrame={initialCameraFrame}
+            highlightedTags={tags.highlightedTags}
+            highlightColor={tags.highlightColor}
+            hiddenTags={tags.hiddenTags}
+            selectedTags={tags.selectedTags}
+            tagColors={tags.tagColors}
+            groupLayers={tags.layers}
+            crossBranchSettings={crossBranchSettings}
+            hoverLocked={isTagsOpen || isCrossBranchControlsOpen}
+          />
+
+          <ExploreToolbar
+            showContent={showContent}
+            shareSlot={shareSlot}
+            crossBranchSettings={crossBranchSettings}
+            onCrossBranchEnabledChange={setCrossBranchEnabled}
+            onCrossBranchBudgetChange={setCrossBranchConnectorBudget}
+            onCrossBranchPriorityChange={setCrossBranchConnectorPriority}
+            onCrossBranchOpenChange={setIsCrossBranchControlsOpen}
+            allTags={tags.allTags}
+            tagColors={tags.tagColors}
+            layers={tags.layers}
+            layerElementCounts={tags.layerElementCounts}
+            tagCounts={tags.tagCounts}
+            tagElementCounts={tags.tagElementCounts}
+            tagConnectorCounts={tags.tagConnectorCounts}
+            layerConnectorCounts={tags.layerConnectorCounts}
+            hiddenTags={tags.hiddenTags}
+            selectedTags={tags.selectedTags}
+            onToggleTagSelection={tags.toggleTagSelection}
+            onResetTagFilters={tags.resetFilters}
+            isTagsOpen={isTagsOpen}
+            onTagsClose={onTagsClose}
+            onTagsToggle={onTagsToggle}
+            setHighlightedTags={tags.setHighlightedTags}
+            setHighlightColor={tags.setHighlightColor}
+            toggleLayerVisibility={tags.toggleLayerVisibility}
+            toggleTagVisibility={tags.toggleTagVisibility}
+            onFitView={() => zuiRef.current?.fitView()}
+            flowsOpen={flowsOpen}
+            flowsDisabledHint={flowDisabledHint}
+            onFlowsOpenChange={!sharedToken ? setFlowsOpen : undefined}
+          />
+          {!sharedToken && <FlowPanel open={flowsOpen} diagrams={flowDiagrams} onFocus={setFlowFocus} onClose={() => setFlowsOpen(false)} />}
+        </>
+      )}
+    </Box>
+  )
+}
+
+const InfiniteZoom = forwardRef<InfiniteZoomHandle, Props>(ExplorePage)
+export default InfiniteZoom
+
+export const SharedInfiniteZoom = forwardRef<InfiniteZoomHandle, Props>((props, ref) => {
+  const { token } = useParams()
+  const effectiveToken = props.sharedToken ?? token
+  if (effectiveToken === FLOW_SNAPSHOT_TOKEN) return <FlowSnapshotPage />
+  return <InfiniteZoom {...props} ref={ref} sharedToken={effectiveToken} />
+})

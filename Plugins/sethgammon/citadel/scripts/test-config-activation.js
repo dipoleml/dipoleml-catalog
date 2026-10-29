@@ -1,0 +1,546 @@
+#!/usr/bin/env node
+'use strict';
+
+const assert = require('assert');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { execFileSync, spawnSync } = require('child_process');
+const config = require('../core/config');
+const { activeShell, buildConfigInvocation, renderConfigCommand, shellQuote } = require('../core/utils/config-command');
+const codexRuntime = require('../runtimes/codex/runtime');
+const claudeRuntime = require('../runtimes/claude-code/runtime');
+const identity = require('../core/config/identity');
+const { ensureProjectDelegate } = require('../core/runtime/install-contract');
+
+let passed = 0;
+
+function test(name, fn) {
+  fn();
+  passed++;
+  process.stdout.write(`  PASS ${name}\n`);
+}
+
+function tempProject() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'citadel-config-activation-'));
+}
+
+function writeHarness(root, value) {
+  const directory = path.join(root, '.claude');
+  fs.mkdirSync(directory, { recursive: true });
+  const file = path.join(directory, 'harness.json');
+  const bytes = typeof value === 'string'
+    ? value
+    : `${JSON.stringify(value, null, 2)}\n`;
+  fs.writeFileSync(file, bytes, 'utf8');
+  return file;
+}
+
+function harness(bundles = ['core'], onDemand = 'prompt', allowDegradedRuntime = false) {
+  const value = config.createDefaultConfig();
+  value.activation = {
+    bundles: config.dependencyClosure(bundles),
+    onDemand,
+    allowDegradedRuntime,
+  };
+  return value;
+}
+
+const fullRuntime = Object.freeze({
+  id: 'full-test-runtime',
+  capabilities: Object.freeze({
+    workspace: { support: 'full', notes: '' },
+    agents: { support: 'full', notes: '' },
+    worktrees: { support: 'full', notes: '' },
+    approvals: { support: 'full', notes: '' },
+    history: { support: 'full', notes: '' },
+    surfaces: { support: 'full', notes: '' },
+  }),
+  degradations: [],
+});
+
+function reconcile(root, value, options = {}) {
+  writeHarness(root, value);
+  return config.reconcileEffectiveConfig(root, {
+    runtime: fullRuntime,
+    reconciledAt: '2026-07-30T18:00:00.000Z',
+    ...options,
+  });
+}
+
+function assertBoundCommand(command, root, subcommand) {
+  assert(command.includes(path.resolve(root)), 'command must name the intended project root');
+  assert(command.includes(` ${subcommand} --project-root `), 'subcommand must precede --project-root');
+  assert(!command.includes('node .citadel/scripts/citadel-config.js'));
+}
+
+test('reconciliation atomically writes a current derived receipt', () => {
+  const root = tempProject();
+  const result = reconcile(root, harness(['core', 'persistence']));
+  const receiptPath = path.join(root, '.citadel', 'effective-config', 'full-test-runtime.json');
+  assert.equal(result.usable, true);
+  assert.equal(result.receiptPath, receiptPath);
+  assert.equal(result.receipt.receiptKind, config.EFFECTIVE_RECEIPT_KIND);
+  assert.equal(result.receipt.sourceDigest, config.readConfigFile(root).sourceDigest);
+  assert.deepEqual(config.validateEffectiveReceipt(result.receipt).errors, []);
+  assert.equal(
+    fs.readdirSync(path.dirname(receiptPath)).some((name) => name.endsWith('.tmp')),
+    false,
+  );
+  writeHarness(root, harness(['core']));
+  const replaced = config.reconcileEffectiveConfig(root, {
+    runtime: fullRuntime,
+    reconciledAt: '2026-07-30T18:01:00.000Z',
+  });
+  assert.equal(replaced.usable, true);
+  assert.deepEqual(replaced.receipt.bundles.requested, ['core']);
+  assert.equal(
+    fs.readdirSync(path.dirname(receiptPath)).some((name) => name.endsWith('.tmp')),
+    false,
+  );
+});
+
+test('stale effective receipts are rejected and preflight fails closed', () => {
+  const root = tempProject();
+  reconcile(root, harness(['core']));
+  writeHarness(root, harness(['core', 'persistence']));
+  const read = config.readEffectiveConfig(root, { runtime: fullRuntime });
+  assert.equal(read.usable, false);
+  assert.equal(read.status, 'stale');
+  assert.equal(read.reasonCode, config.EFFECTIVE_RECEIPT_REASONS.STALE);
+  const decision = config.preflightSkill(read, 'fleet');
+  assert.equal(decision.status, 'blocked');
+  assert.equal(decision.reasonCode, config.EFFECTIVE_RECEIPT_REASONS.STALE);
+  assert.equal(decision.plan.action, 'reconcile-effective-config');
+  assert.equal(decision.plan.requiresExplicitApply, true);
+  assertBoundCommand(decision.plan.applyCommand, root, 'reconcile');
+  assert(decision.plan.applyCommand.includes('--apply --runtime full-test-runtime --json'));
+});
+
+test('malformed and future effective receipts are rejected distinctly', () => {
+  const root = tempProject();
+  reconcile(root, harness(['core']));
+  const receiptPath = config.effectiveConfigPath(root, { runtime: fullRuntime });
+  fs.writeFileSync(receiptPath, '{bad json', 'utf8');
+  const malformed = config.readEffectiveConfig(root, { runtime: fullRuntime });
+  assert.equal(malformed.status, 'malformed');
+  assert.equal(malformed.reasonCode, config.EFFECTIVE_RECEIPT_REASONS.MALFORMED);
+
+  fs.writeFileSync(receiptPath, JSON.stringify({ contractVersion: 2 }), 'utf8');
+  const future = config.readEffectiveConfig(root, { runtime: fullRuntime });
+  assert.equal(future.status, 'future');
+  assert.equal(future.reasonCode, config.EFFECTIVE_RECEIPT_REASONS.FUTURE);
+  assert.equal(config.preflightHook(future, 'protect-files').status, 'blocked');
+});
+
+test('tampered receipt bodies fail digest validation', () => {
+  const root = tempProject();
+  const current = reconcile(root, harness(['core']));
+  const raw = JSON.parse(fs.readFileSync(current.receiptPath, 'utf8'));
+  raw.activation.onDemand = 'deny';
+  fs.writeFileSync(current.receiptPath, JSON.stringify(raw), 'utf8');
+  const read = config.readEffectiveConfig(root, { runtime: fullRuntime });
+  assert.equal(read.status, 'malformed');
+  assert(read.errors.some((error) => error.includes('receiptDigest')));
+});
+
+test('future and malformed source configs reconcile only a fail-closed receipt', () => {
+  const futureRoot = tempProject();
+  const future = reconcile(futureRoot, {
+    schemaVersion: 99,
+    activation: { bundles: ['core', 'persistence'] },
+  });
+  assert.equal(future.usable, true);
+  assert.equal(future.receipt.authority.valid, false);
+  assert.deepEqual(future.receipt.bundles.effective, ['core']);
+  const safety = config.preflightHook(future, 'protect-files');
+  assert.equal(safety.status, 'enabled');
+  assert.equal(safety.reasonCode, config.ACTIVATION_REASON_CODES.CORE_SAFETY_FAIL_CLOSED);
+  assert.equal(config.preflightSkill(future, 'review').status, 'blocked');
+
+  const malformedRoot = tempProject();
+  writeHarness(malformedRoot, '{ "schemaVersion":');
+  const malformed = config.reconcileEffectiveConfig(malformedRoot, {
+    runtime: fullRuntime,
+    reconciledAt: '2026-07-30T18:00:00.000Z',
+  });
+  assert.equal(malformed.receipt.authority.valid, false);
+  assert.equal(malformed.receipt.configKind, 'invalid');
+  assert.match(malformed.receipt.sourceDigest, /^sha256:[a-f0-9]{64}$/);
+});
+
+test('skill, route, and hook ownership resolve from one catalog', () => {
+  assert.equal(config.bundleForSkill('/fleet'), 'parallel');
+  assert.equal(config.bundleForSkill('cost'), 'persistence');
+  assert.equal(config.bundleForRoute('deploy-steward'), 'delivery');
+  assert.equal(config.bundleForTarget('route', 'deploy-steward'), 'delivery');
+  assert.equal(config.bundleForHook('protect-files.js'), 'core');
+  assert.equal(config.bundleForHook('subagent-start'), 'parallel');
+  assert.equal(config.bundleForSkill('not-a-skill'), null);
+});
+
+test('central ownership covers every packaged skill and current hook mapping', () => {
+  const skillRoot = path.join(__dirname, '..', 'skills');
+  const packagedSkills = fs.readdirSync(skillRoot)
+    .filter((name) => fs.existsSync(path.join(skillRoot, name, 'SKILL.md')))
+    .sort();
+  assert.deepEqual(Object.keys(config.SKILL_BUNDLE_OWNERSHIP).sort(), packagedSkills);
+
+  const hookMap = JSON.parse(fs.readFileSync(
+    path.join(__dirname, '..', 'hooks', 'bundle-map.json'),
+    'utf8',
+  ));
+  assert.deepEqual(config.HOOK_BUNDLE_OWNERSHIP, hookMap.hooks);
+});
+
+test('enabled targets and disabled prompt plans have exact outcomes', () => {
+  const root = tempProject();
+  const current = reconcile(root, harness(['core']));
+  const enabled = config.preflightSkill(current, 'review');
+  assert.equal(enabled.status, 'enabled');
+  assert.equal(enabled.reasonCode, config.ACTIVATION_REASON_CODES.ENABLED);
+
+  const disabled = config.preflightRoute(current, 'fleet');
+  assert.equal(disabled.status, 'disabled');
+  assert.equal(disabled.reasonCode, config.ACTIVATION_REASON_CODES.PROMPT_REQUIRED);
+  assert.deepEqual(disabled.plan.addedBundles, ['persistence', 'parallel']);
+  assert.equal(disabled.plan.requiresExplicitApply, true);
+  assert.equal(disabled.plan.mutatesConfig, false);
+  assert(disabled.plan.resources.some((entry) => entry.bundleId === 'parallel'));
+});
+
+test('deny and auto-safe return plans without mutating harness config', () => {
+  const deniedRoot = tempProject();
+  const denied = reconcile(deniedRoot, harness(['core'], 'deny'));
+  const deniedDecision = config.preflightSkill(denied, 'cost');
+  assert.equal(deniedDecision.status, 'disabled');
+  assert.equal(deniedDecision.reasonCode, config.ACTIVATION_REASON_CODES.DENIED);
+
+  const safeRoot = tempProject();
+  const file = writeHarness(safeRoot, harness(['core'], 'auto-safe'));
+  const safe = config.reconcileEffectiveConfig(safeRoot, {
+    runtime: fullRuntime,
+    reconciledAt: '2026-07-30T18:00:00.000Z',
+  });
+  const before = fs.readFileSync(file, 'utf8');
+  const safeDecision = config.preflightSkill(safe, 'cost');
+  assert.equal(safeDecision.status, 'disabled');
+  assert.equal(
+    safeDecision.reasonCode,
+    config.ACTIVATION_REASON_CODES.AUTO_SAFE_PLAN_REQUIRED,
+  );
+  assert.equal(safeDecision.plan.autoSafeEligible, true);
+  assert.equal(fs.readFileSync(file, 'utf8'), before);
+
+  const unsafeDecision = config.preflightSkill(safe, 'fleet');
+  assert.equal(unsafeDecision.status, 'blocked');
+  assert.equal(
+    unsafeDecision.reasonCode,
+    config.ACTIVATION_REASON_CODES.AUTO_SAFE_NOT_ELIGIBLE,
+  );
+  assert.equal(unsafeDecision.plan.autoSafeEligible, false);
+  assert.equal(fs.readFileSync(file, 'utf8'), before);
+});
+
+test('runtime negotiation distinguishes degraded and unavailable activation', () => {
+  const degradedRoot = tempProject();
+  const degraded = reconcile(
+    degradedRoot,
+    harness(['parallel'], 'prompt', true),
+    { runtime: codexRuntime },
+  );
+  const degradedDecision = config.preflightSkill(degraded, 'fleet');
+  assert.equal(degradedDecision.status, 'degraded');
+  assert.equal(degradedDecision.reasonCode, config.ACTIVATION_REASON_CODES.DEGRADED);
+  assert(degradedDecision.degradation.adapter);
+
+  const unavailableRoot = tempProject();
+  const unavailable = reconcile(
+    unavailableRoot,
+    harness(['parallel'], 'prompt', false),
+    { runtime: codexRuntime },
+  );
+  const unavailableDecision = config.preflightSkill(unavailable, 'fleet');
+  assert.equal(unavailableDecision.status, 'unavailable');
+  assert.equal(unavailableDecision.reasonCode, config.ACTIVATION_REASON_CODES.UNAVAILABLE);
+  assert.equal(
+    unavailableDecision.causeReasonCode,
+    'DEGRADED_RUNTIME_REQUIRES_OPT_IN',
+  );
+  assert.equal(unavailableDecision.plan.degradedRuntimeOptInRequired, true);
+  assert.equal(unavailableDecision.plan.prospective.unavailable.length, 0);
+  assert(unavailableDecision.plan.prospective.degraded.some((entry) => (
+    entry.id === 'parallel'
+    && entry.adapter === 'citadel-managed-worktrees-and-approvals'
+  )));
+  assertBoundCommand(unavailableDecision.plan.previewCommand, unavailableRoot, 'enable');
+  assertBoundCommand(unavailableDecision.plan.applyCommand, unavailableRoot, 'enable');
+  assert(unavailableDecision.plan.previewCommand.includes('parallel --runtime codex --allow-degraded-runtime --json'));
+  assert(unavailableDecision.plan.applyCommand.includes('parallel --runtime codex --allow-degraded-runtime --apply --json'));
+});
+
+test('repository policy overrides use a deterministic custom display identity', () => {
+  const value = harness(['core', 'persistence']);
+  value.policy = {
+    operating: {
+      maxParallelAgents: 2,
+      allowAutoWorktreeIntegration: false,
+    },
+  };
+  const first = config.resolveConfig(value, { runtime: fullRuntime });
+  const second = config.resolveConfig(value, { runtime: fullRuntime });
+  assert.match(first.profile.id, /^custom:sha256:[a-f0-9]{64}$/);
+  assert.notEqual(first.profile.id, 'standard');
+  assert.equal(first.profile.source, 'repository-policy');
+  assert.equal(first.profile.base.id, 'standard');
+  assert.equal(first.profile.id, second.profile.id);
+
+  const builtIn = config.resolveConfig(harness(['core']), { runtime: fullRuntime });
+  assert.equal(builtIn.profile.id, 'standard');
+  assert.equal(builtIn.profile.base, null);
+});
+
+test('effective receipts bind runtime and installation identities without machine paths', () => {
+  const root = tempProject();
+  const installationRoot = tempProject();
+  fs.writeFileSync(
+    path.join(installationRoot, 'package.json'),
+    JSON.stringify({ name: 'fixture', version: '1.0.0' }),
+  );
+  const current = reconcile(root, harness(['core']), {
+    runtime: codexRuntime,
+    installationRoot,
+  });
+  assert.match(current.receipt.installationGeneration.id, /^sha256:[a-f0-9]{64}$/);
+  assert.match(current.receipt.installationGeneration.sourceDigest, /^sha256:[a-f0-9]{64}$/);
+  assert.match(current.receipt.runtime.contractDigest, /^sha256:[a-f0-9]{64}$/);
+  const serialized = JSON.stringify(current.receipt);
+  assert.equal(serialized.includes(root), false);
+  assert.equal(serialized.includes(installationRoot), false);
+
+  const previousRuntime = process.env.CITADEL_RUNTIME;
+  process.env.CITADEL_RUNTIME = 'claude-code';
+  let switchedByEnv;
+  try {
+    switchedByEnv = config.readEffectiveConfig(root, { installationRoot });
+  } finally {
+    if (previousRuntime === undefined) delete process.env.CITADEL_RUNTIME;
+    else process.env.CITADEL_RUNTIME = previousRuntime;
+  }
+  // A codex receipt never answers for claude-code: that runtime has none yet.
+  assert.equal(switchedByEnv.reasonCode, config.EFFECTIVE_RECEIPT_REASONS.MISSING);
+  assert.match(switchedByEnv.errors[0], /not been reconciled for runtime claude-code/);
+  assertBoundCommand(switchedByEnv.repairCommand, root, 'reconcile');
+  assert(switchedByEnv.repairCommand.includes('--apply --runtime claude-code --json'));
+
+  // A receipt placed under the wrong runtime's path is still rejected.
+  const claudePath = config.effectiveConfigPath(root, { runtime: claudeRuntime });
+  fs.mkdirSync(path.dirname(claudePath), { recursive: true });
+  fs.copyFileSync(current.receiptPath, claudePath);
+  const switched = config.readEffectiveConfig(root, {
+    runtime: claudeRuntime,
+    installationRoot,
+  });
+  fs.unlinkSync(claudePath);
+  assert.equal(switched.reasonCode, config.EFFECTIVE_RECEIPT_REASONS.STALE);
+  assert.match(switched.errors[0], /runtime codex does not match active runtime claude-code/);
+  assertBoundCommand(switched.repairCommand, root, 'reconcile');
+  assert(switched.repairCommand.includes('--apply --runtime claude-code --json'));
+
+  for (const relative of [
+    'core/config/validate.js',
+    'core/config/profiles.js',
+    'core/config/migrate.js',
+    'core/config/bundle-catalog.js',
+  ]) {
+    assert.equal(identity.INSTALLATION_SOURCE_FILES.includes(relative), true);
+  }
+  const trackedSource = path.join(installationRoot, 'core', 'config', 'validate.js');
+  fs.mkdirSync(path.dirname(trackedSource), { recursive: true });
+  fs.writeFileSync(trackedSource, 'module.exports = {};\n', 'utf8');
+  const changedSource = config.readEffectiveConfig(root, {
+    runtime: codexRuntime,
+    installationRoot,
+  });
+  assert.equal(changedSource.reasonCode, config.EFFECTIVE_RECEIPT_REASONS.STALE);
+  assert.match(changedSource.errors[0], /installationGeneration/);
+  assert.equal(
+    identity.installationGeneration({ installationRoot }).id
+      === current.receipt.installationGeneration.id,
+    false,
+  );
+
+  fs.writeFileSync(
+    path.join(installationRoot, 'package.json'),
+    JSON.stringify({ name: 'fixture', version: '2.0.0' }),
+  );
+  const changedInstallation = config.readEffectiveConfig(root, {
+    runtime: codexRuntime,
+    installationRoot,
+  });
+  assert.equal(changedInstallation.reasonCode, config.EFFECTIVE_RECEIPT_REASONS.STALE);
+  assert.match(changedInstallation.errors[0], /installationGeneration/);
+  assert.equal(
+    identity.installationGeneration({ installationRoot }).id
+      === current.receipt.installationGeneration.id,
+    false,
+  );
+});
+
+test('runtimes sharing a repository keep independent current receipts', () => {
+  const root = tempProject();
+  const value = harness(['core']);
+  writeHarness(root, value);
+  const options = { reconciledAt: '2026-07-30T18:00:00.000Z' };
+  const claude = config.reconcileEffectiveConfig(root, { ...options, runtime: claudeRuntime });
+  const codex = config.reconcileEffectiveConfig(root, { ...options, runtime: codexRuntime });
+  assert.notEqual(claude.receiptPath, codex.receiptPath);
+  for (const [runtime, id] of [[claudeRuntime, 'claude-code'], [codexRuntime, 'codex']]) {
+    const read = config.readEffectiveConfig(root, { runtime });
+    assert.equal(read.status, 'current', `${id} receipt must stay current`);
+    assert.equal(read.receipt.runtime.id, id);
+  }
+
+  // SessionEnd bumps trust counters for the active runtime only.
+  value.trust = { ...(value.trust || {}), sessionsCompleted: 7, campaignsCompleted: 1 };
+  writeHarness(root, value);
+  config.reconcileEffectiveConfig(root, { ...options, runtime: claudeRuntime });
+  assert.equal(config.readEffectiveConfig(root, { runtime: codexRuntime }).status, 'current');
+
+  // A real configuration change still invalidates every runtime.
+  writeHarness(root, { ...value, activation: { ...value.activation, onDemand: 'deny' } });
+  for (const runtime of [claudeRuntime, codexRuntime]) {
+    assert.equal(config.readEffectiveConfig(root, { runtime }).status, 'stale');
+  }
+  value.trust.override = 'trusted';
+  writeHarness(root, value);
+  assert.equal(config.readEffectiveConfig(root, { runtime: codexRuntime }).status, 'stale');
+});
+
+test('legacy shared receipts migrate only to their own runtime', () => {
+  const root = tempProject();
+  writeHarness(root, harness(['core']));
+  const legacyPath = path.join(root, '.citadel', 'effective-config.json');
+  const written = config.reconcileEffectiveConfig(root, {
+    runtime: codexRuntime,
+    reconciledAt: '2026-07-30T18:00:00.000Z',
+  });
+  fs.renameSync(written.receiptPath, legacyPath);
+
+  const legacy = config.readEffectiveConfig(root, { runtime: codexRuntime });
+  assert.equal(legacy.status, 'current');
+  assert.equal(legacy.receiptPath, legacyPath);
+
+  const other = config.readEffectiveConfig(root, { runtime: claudeRuntime });
+  assert.equal(other.status, 'missing');
+  assert.equal(other.reasonCode, config.EFFECTIVE_RECEIPT_REASONS.MISSING);
+  assert.equal(config.loadActivationContext(root, { runtime: claudeRuntime }).usable, true);
+
+  config.reconcileEffectiveConfig(root, { runtime: claudeRuntime });
+  assert.equal(fs.existsSync(legacyPath), true, 'another runtime must not remove the codex legacy receipt');
+  const migrated = config.reconcileEffectiveConfig(root, { runtime: codexRuntime });
+  assert.notEqual(migrated.receiptPath, legacyPath);
+  assert.equal(fs.existsSync(legacyPath), false, 'the owning runtime retires its legacy receipt');
+  assert.equal(config.readEffectiveConfig(root, { runtime: claudeRuntime }).status, 'current');
+});
+
+test('generated config invocations bind the target project outside its cwd', () => {
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'citadel 303 '));
+  const root = path.join(parent, 'project with spaces');
+  const elsewhere = path.join(parent, 'unrelated cwd');
+  fs.mkdirSync(root, { recursive: true });
+  fs.mkdirSync(elsewhere, { recursive: true });
+  writeHarness(root, harness(['core']));
+
+  for (const installed of [false, true]) {
+    if (installed) ensureProjectDelegate(root, path.join(__dirname, '..'), 'citadel-config.js');
+    const invocation = buildConfigInvocation({
+      projectRoot: root,
+      subcommand: 'show',
+      args: ['--runtime', 'codex', '--json'],
+    });
+    const output = execFileSync(invocation.command, invocation.args, {
+      cwd: elsewhere,
+      encoding: 'utf8',
+      env: { ...process.env, CITADEL_RUNTIME: 'codex' },
+    });
+    const shown = JSON.parse(output);
+    assert.equal(shown.sourceDigest, config.readConfigFile(root).sourceDigest);
+    assert.equal(fs.existsSync(path.join(elsewhere, '.citadel')), false);
+  }
+});
+
+test('repair commands run the installation that checks the receipt', () => {
+  const root = tempProject();
+  writeHarness(root, harness(['core']));
+  const checkingScript = path.join(__dirname, 'citadel-config.js');
+  const delegate = path.join(root, '.citadel', 'scripts', 'citadel-config.js');
+
+  // The project delegate points at a different Citadel installation.
+  const other = tempProject();
+  fs.writeFileSync(path.join(other, 'package.json'), JSON.stringify({ name: 'citadel', version: '0.0.1' }));
+  ensureProjectDelegate(root, other, 'citadel-config.js');
+  const foreign = config.readEffectiveConfig(root, { runtime: claudeRuntime });
+  assert.equal(foreign.status, 'missing');
+  assert(foreign.repairCommand.includes(checkingScript), foreign.repairCommand);
+  assert.equal(foreign.repairCommand.includes(delegate), false);
+  execFileSync(
+    process.execPath,
+    buildConfigInvocation({
+      projectRoot: root,
+      subcommand: 'reconcile',
+      args: ['--apply', '--runtime', 'claude-code', '--json'],
+    }).args,
+    { encoding: 'utf8' },
+  );
+  assert.equal(config.readEffectiveConfig(root, { runtime: claudeRuntime }).status, 'current');
+
+  // A delegate that reaches the checking installation stays project-relative.
+  fs.rmSync(path.join(root, '.citadel', 'scripts'), { recursive: true, force: true });
+  fs.rmSync(path.join(root, '.citadel', 'plugin-root.txt'), { force: true });
+  ensureProjectDelegate(root, path.join(__dirname, '..'), 'citadel-config.js');
+  const local = config.readEffectiveConfig(root, { runtime: codexRuntime });
+  assert(local.repairCommand.includes(delegate), local.repairCommand);
+});
+
+test('displayed config commands execute in supported shells', () => {
+  assert.equal(activeShell('win32', { MSYSTEM: 'MINGW64' }), 'powershell');
+  assert.equal(activeShell('win32', { MSYSTEM: 'MINGW64', SHELL: '/usr/bin/bash', TERM: 'xterm-256color' }), 'posix');
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), 'citadel 303 shell '));
+  const root = path.join(parent, "project O'Brien & config");
+  const elsewhere = path.join(parent, 'unrelated cwd');
+  fs.mkdirSync(root, { recursive: true });
+  fs.mkdirSync(elsewhere, { recursive: true });
+  writeHarness(root, harness(['core']));
+
+  const cases = process.platform === 'win32'
+    ? [
+      { dialect: 'powershell', executable: 'powershell.exe', args: (command) => ['-NoProfile', '-Command', command] },
+      { dialect: 'posix', executable: 'C:\\Program Files\\Git\\bin\\bash.exe', args: (command) => ['-lc', command] },
+    ]
+    : [{ dialect: 'posix', executable: '/bin/sh', args: (command) => ['-c', command] }];
+
+  for (const shell of cases) {
+    assert(fs.existsSync(shell.executable) || shell.executable === 'powershell.exe', `${shell.dialect} shell is required`);
+    const command = renderConfigCommand({
+      projectRoot: root,
+      installationRoot: path.join(__dirname, '..'),
+      subcommand: 'show',
+      args: ['--runtime', 'codex', '--json'],
+      shell: shell.dialect,
+    });
+    const result = spawnSync(shell.executable, shell.args(command), {
+      cwd: elsewhere,
+      encoding: 'utf8',
+      env: { ...process.env, CITADEL_RUNTIME: 'codex' },
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout);
+    assert.equal(JSON.parse(result.stdout).sourceDigest, config.readConfigFile(root).sourceDigest);
+    assert.equal(fs.existsSync(path.join(elsewhere, '.citadel')), false);
+  }
+
+  assert.equal(shellQuote('<runtime>', 'powershell'), "'<runtime>'");
+  assert.equal(shellQuote('<runtime>', 'posix'), "'<runtime>'");
+});
+
+process.stdout.write(`\nConfig activation tests passed: ${passed}\n`);

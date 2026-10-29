@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "terraform-plugin",
+  "version": "1.7.11",
+  "description": "Terraform and Terraform Cloud - infrastructure as code",
+  "author": {
+    "name": "Lauri Gates"
+  },
+  "license": "MIT",
+  "keywords": [
+    "terraform",
+    "infrastructure",
+    "iac",
+    "tfc"
+  ],
+  "hooks": "./hooks.json"
+}

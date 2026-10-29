@@ -1,0 +1,16 @@
+{
+  "name": "fix-github-issue",
+  "displayName": "Fix GitHub Issue",
+  "version": "1.0.0",
+  "description": "Analyzes and fixes GitHub issues using a structured approach with GitHub CLI for issue details, implementing necessary code changes, running tests, and creating proper commit messages.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Lifangda"
+  },
+  "license": "MIT",
+  "homepage": "https://claudecodecommands.directory/commands/fix-github-issue",
+  "repository": "https://github.com/lifangda/claude-plugins",
+  "skills": [],
+  "commands": "./commands/",
+  "agents": []
+}

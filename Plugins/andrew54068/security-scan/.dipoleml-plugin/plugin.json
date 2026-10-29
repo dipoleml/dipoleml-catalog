@@ -1,0 +1,16 @@
+{
+  "name": "security-scan",
+  "displayName": "Security Scan",
+  "version": "1.0.0",
+  "description": "Comprehensive 6-agent parallel security scanner for DipoleML. Detects malicious code, credential leaks, data exfiltration, supply chain risks, and prompt injection attacks.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Andrew54068"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/andrew54068/claude-plugins",
+  "repository": "https://github.com/andrew54068/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

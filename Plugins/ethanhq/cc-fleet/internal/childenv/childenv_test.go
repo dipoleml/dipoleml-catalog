@@ -1,0 +1,204 @@
+package childenv
+
+import (
+	"strings"
+	"testing"
+)
+
+// TestClean_StripsTheLoadBearingVars: the env strip removes the lead's creds and
+// the nested-CC/teams markers, keeps everything else (incl. a malformed no-'='
+// line), and never re-injects a dropped marker.
+func TestClean_StripsTheLoadBearingVars(t *testing.T) {
+	in := []string{
+		"ANTHROPIC_API_KEY=sk-leak",
+		"ANTHROPIC_AUTH_TOKEN=tok-leak",
+		"CLAUDECODE=1",
+		"CLAUDE_CODE_ENTRYPOINT=cli",
+		"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1",
+		"PATH=/usr/bin",
+		"HOME=/root",
+		"NO_EQUALS_LINE",
+	}
+	out := Clean(in)
+
+	for _, banned := range []string{
+		"ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN",
+		"CLAUDECODE", "CLAUDE_CODE_ENTRYPOINT", "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS",
+	} {
+		for _, kv := range out {
+			if strings.HasPrefix(kv, banned+"=") {
+				t.Fatalf("Clean leaked %q: %q", banned, kv)
+			}
+		}
+	}
+	// Defense in depth: no dropped marker or secret value survives anywhere.
+	joined := strings.Join(out, "\n")
+	for _, marker := range []string{"CLAUDECODE", "CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS", "sk-leak", "tok-leak"} {
+		if strings.Contains(joined, marker) {
+			t.Fatalf("Clean output still contains %q: %q", marker, joined)
+		}
+	}
+	if !containsLine(out, "PATH=/usr/bin") || !containsLine(out, "HOME=/root") {
+		t.Fatalf("Clean dropped a keeper var: %v", out)
+	}
+	if !containsLine(out, "NO_EQUALS_LINE") {
+		t.Fatalf("Clean dropped the malformed line: %v", out)
+	}
+}
+
+// TestClean_StripsBaseURL: an inherited routing override could silently send
+// any child — provider or native — to a foreign backend; it never survives.
+func TestClean_StripsBaseURL(t *testing.T) {
+	out := Clean([]string{"ANTHROPIC_BASE_URL=http://evil.example", "PATH=/usr/bin"})
+	if strings.Contains(strings.Join(out, "\n"), "ANTHROPIC_BASE_URL") {
+		t.Fatalf("Clean leaked ANTHROPIC_BASE_URL: %v", out)
+	}
+	if !containsLine(out, "PATH=/usr/bin") {
+		t.Fatalf("Clean dropped a keeper var: %v", out)
+	}
+}
+
+// TestClean_StripsModelEnvKeys: a model/effort var exported in the launching
+// shell must not reach the child — the provider profile is the sole authority, so
+// every ModelEnvKeys entry is stripped while unrelated vars survive.
+func TestClean_StripsModelEnvKeys(t *testing.T) {
+	var in []string
+	for _, k := range ModelEnvKeys {
+		in = append(in, k+"=leaked")
+	}
+	in = append(in, "PATH=/usr/bin")
+	out := Clean(in)
+	for _, k := range ModelEnvKeys {
+		for _, kv := range out {
+			if strings.HasPrefix(kv, k+"=") {
+				t.Fatalf("Clean leaked model env %q: %q", k, kv)
+			}
+		}
+	}
+	if !containsLine(out, "PATH=/usr/bin") {
+		t.Fatalf("Clean dropped an unrelated var: %v", out)
+	}
+}
+
+// TestUpperKeys_FoldsToCanonical: the windows matcher's table folds case so a
+// mixed-case env name resolves to its canonical upper-case dropList entry, while
+// a non-dropList name (even one whose upper form differs) never gains an entry.
+// Runs on every platform — it exercises the matcher logic without the windows tag.
+func TestUpperKeys_FoldsToCanonical(t *testing.T) {
+	tbl := upperKeys(dropList)
+	for canonical := range dropList {
+		for _, variant := range []string{
+			strings.ToUpper(canonical),
+			strings.ToLower(canonical),
+		} {
+			if !tbl[strings.ToUpper(variant)] {
+				t.Fatalf("upperKeys missed %q (canonical %q)", variant, canonical)
+			}
+		}
+	}
+	if tbl[strings.ToUpper("PATH")] || tbl[strings.ToUpper("HOME")] {
+		t.Fatalf("upperKeys gained a keeper var: %v", tbl)
+	}
+}
+
+// TestCleanDropsCustomHeaders: the lead's custom headers would ride every request
+// to the provider, so Clean drops them like the credential keys.
+func TestCleanDropsCustomHeaders(t *testing.T) {
+	out := Clean([]string{"ANTHROPIC_CUSTOM_HEADERS=x-leak: LEAK-HDR", "PATH=/usr/bin"})
+	if strings.Contains(strings.Join(out, "\n"), "ANTHROPIC_CUSTOM_HEADERS") {
+		t.Fatalf("Clean leaked ANTHROPIC_CUSTOM_HEADERS: %v", out)
+	}
+	if !containsLine(out, "PATH=/usr/bin") {
+		t.Fatalf("Clean dropped a keeper var: %v", out)
+	}
+}
+
+// TestCleanKeepsOAuthTokenAndUseFlags: the reserved native `claude` leaf keeps
+// working for OAuth-token-env and Bedrock/Vertex users, so Clean leaves the OAuth
+// token and every cloud-backend switch alone (the provider child is covered by
+// the profile's blanks instead).
+func TestCleanKeepsOAuthTokenAndUseFlags(t *testing.T) {
+	keep := append([]string{"CLAUDE_CODE_OAUTH_TOKEN=oauth-keep"}, secUseFlags("1")...)
+	out := Clean(keep)
+	for _, kv := range keep {
+		if !containsLine(out, kv) {
+			t.Errorf("Clean dropped %q: %v", kv, out)
+		}
+	}
+}
+
+// TestCleanForTeammate: every TeammateScrubKeys entry, every ModelEnvKeys entry
+// and every cloud-backend prefix is dropped; the two agent-teams markers and
+// unrelated vars survive in order, and nothing is injected.
+func TestCleanForTeammate(t *testing.T) {
+	var in []string
+	for _, k := range TeammateScrubKeys {
+		in = append(in, k+"=LEAK-"+k)
+	}
+	for _, k := range ModelEnvKeys {
+		in = append(in, k+"=LEAK-"+k)
+	}
+	in = append(in,
+		"ANTHROPIC_BEDROCK_BASE_URL=http://127.0.0.1:1/LEAK",
+		"ANTHROPIC_VERTEX_PROJECT_ID=LEAK-vertex",
+		"ANTHROPIC_AWS_REGION=LEAK-aws",
+		"ANTHROPIC_GOOGLE_CLOUD_PROJECT=LEAK-gcp",
+	)
+	keep := []string{
+		"CLAUDECODE=1",
+		"CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS=1",
+		"PATH=/usr/bin",
+		"NO_EQUALS_LINE",
+		"ANTHROPIC_BEDROCK=not-a-prefix-match",
+	}
+	// Keepers on both sides of the dropped block so order is checked across drops.
+	mixed := append([]string{keep[0]}, in...)
+	mixed = append(mixed, keep[1:]...)
+
+	out := CleanForTeammate(mixed)
+
+	if len(out) != len(keep) {
+		t.Fatalf("CleanForTeammate = %v, want exactly %v", out, keep)
+	}
+	for i := range keep {
+		if out[i] != keep[i] {
+			t.Fatalf("CleanForTeammate[%d] = %q, want %q (full %v)", i, out[i], keep[i], out)
+		}
+	}
+	if joined := strings.Join(out, "\n"); strings.Contains(joined, "LEAK") {
+		t.Fatalf("CleanForTeammate output still carries a scrubbed value: %q", joined)
+	}
+}
+
+// secUseFlags renders the seven CLAUDE_CODE_USE_* switches set to val.
+func secUseFlags(val string) []string {
+	var out []string
+	for _, k := range []string{
+		"CLAUDE_CODE_USE_BEDROCK", "CLAUDE_CODE_USE_VERTEX", "CLAUDE_CODE_USE_FOUNDRY",
+		"CLAUDE_CODE_USE_ANTHROPIC_AWS", "CLAUDE_CODE_USE_ANTHROPIC_GOOGLE_CLOUD",
+		"CLAUDE_CODE_USE_MANTLE", "CLAUDE_CODE_USE_GATEWAY",
+	} {
+		out = append(out, k+"="+val)
+	}
+	return out
+}
+
+func containsLine(env []string, want string) bool {
+	for _, kv := range env {
+		if kv == want {
+			return true
+		}
+	}
+	return false
+}
+
+// WithWorkerEnv appends every WorkerEnv switch once, in place of any value environ
+// already carries, and leaves the rest (a no-'=' line included) as it was.
+func TestWithWorkerEnv(t *testing.T) {
+	in := []string{"PATH=/usr/bin", "CLAUDE_CODE_DISABLE_WORKFLOWS=0", "NO_EQUALS_LINE", "CLAUDE_CODE_DISABLE_WORKFLOWS_X=keep"}
+	want := []string{"PATH=/usr/bin", "NO_EQUALS_LINE", "CLAUDE_CODE_DISABLE_WORKFLOWS_X=keep",
+		"CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1", "CLAUDE_CODE_GB_DISK_CACHE_WHEN_TELEMETRY_OFF=1", "CLAUDE_CODE_DISABLE_WORKFLOWS=1"}
+	if got := WithWorkerEnv(in); strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("WithWorkerEnv = %q, want %q", got, want)
+	}
+}

@@ -1,0 +1,21 @@
+{
+  "name": "gitgud-marketplace",
+  "owner": {
+    "name": "Cristiano Mazzella",
+    "email": "cristiano.mazzella@gmail.com"
+  },
+  "metadata": {
+    "description": "GitGud - Keep your coding skills sharp while using AI",
+    "version": "1.1.0"
+  },
+  "plugins": [
+    {
+      "name": "gitgud",
+      "version": "1.1.0",
+      "description": "Keep your coding skills sharp! Periodic manual coding challenges with gamification (streaks, achievements, skip system)",
+      "keywords": ["learning", "practice", "skills", "gamification", "hooks", "skill atrophy", "training", "challenges", "gitgud"],
+      "license": "MIT",
+      "source": "./"
+    }
+  ]
+}

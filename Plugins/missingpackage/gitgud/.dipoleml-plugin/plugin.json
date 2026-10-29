@@ -1,0 +1,16 @@
+{
+  "name": "gitgud",
+  "displayName": "Gitgud",
+  "version": "1.1.0",
+  "description": "Keep your coding skills sharp! Periodic manual coding challenges with gamification (streaks, achievements, skip system)",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Missingpackage"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/MissingPackage/gitgud",
+  "repository": "https://github.com/MissingPackage/gitgud",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

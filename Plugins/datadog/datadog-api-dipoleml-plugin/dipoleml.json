@@ -1,0 +1,122 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.datadog.datadog-api-dipoleml-plugin",
+  "type": "plugin",
+  "name": "Datadog API DipoleML Plugin",
+  "slug": "datadog-api-dipoleml-plugin",
+  "vendor": "datadog",
+  "description": "A DipoleML Plugin for using Datadog APIs directly.",
+  "version": "1.17.0",
+  "homepage": "https://github.com/DataDog/datadog-api-claude-plugin",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "datadog",
+    "brandName": "datadog",
+    "source": "https://cdn.simpleicons.org/datadog",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:12:45Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "DataDog/datadog-api-claude-plugin",
+    "url": "https://github.com/DataDog/datadog-api-claude-plugin",
+    "commit": "366ed89a09c3857cede5bbb53327fdc74c752766",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 42,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:49:59Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Datadog API Claude Plugin | A Claude Plugin for using Datadog APIs directly.",
+        "after": "Datadog API DipoleML Plugin | A DipoleML Plugin for using Datadog APIs directly.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "A Claude plugin to use Datadog directly through its APIs with code generation support",
+        "after": "A DipoleML plugin to use Datadog directly through its APIs with code generation support",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "datadog-api-claude-plugin",
+        "after": "datadog-api-dipoleml-plugin",
+        "reason": "provider token neutralized in slug/id"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "datadog-api-claude-plugin"
+    ],
+    "env": [
+      "DD_API_KEY",
+      "DD_APP_KEY"
+    ],
+    "credentials": [
+      "DD_API_KEY",
+      "DD_APP_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

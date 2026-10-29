@@ -1,0 +1,248 @@
+{
+  "schema": 1,
+  "freeze_id": "sha256:364ea819b1a769f07a04702c47b928c2ba0b2c77e04412615350f272ddbcb237",
+  "frozen_at": "2026-08-02T00:32:01.572Z",
+  "method_digest": "sha256:ef15b6ebf047bd4edc6b01349f96501f385543dc18e46034d513891bbac511fb",
+  "scenario_set_digest": "sha256:5a34a28c5baf4f88d47fa6cd1b78b29cd7bf9869148443c56ecef85fb77fb21e",
+  "source_digests": {
+    "benchmarks/prospective-economic-pilot/METHOD.md": "sha256:ef15b6ebf047bd4edc6b01349f96501f385543dc18e46034d513891bbac511fb",
+    "benchmarks/prospective-economic-pilot/fixtures/api-formatter-alias/src/format.js": "sha256:fdfc099698f92f3462a1c8576880eb6e47c8813c7e0c75fa8b6b283bef77ce96",
+    "benchmarks/prospective-economic-pilot/fixtures/api-formatter-alias/test.js": "sha256:28d486252da7eae66d0e1cf8ff058aff6944af23684ac31566ce8c522539ba15",
+    "benchmarks/prospective-economic-pilot/fixtures/api-formatter-alias/verifier.js": "sha256:3f71c7d7ec61705e33cbb7b19d0c1dbd926e2e377fbd1752addaace5acac8b07",
+    "benchmarks/prospective-economic-pilot/fixtures/bug-inclusive-range/src/range.js": "sha256:8b2221d7f77421ed4d822e8e7ec6368bfde5b64f690196b75e326a209a7e9814",
+    "benchmarks/prospective-economic-pilot/fixtures/bug-inclusive-range/test.js": "sha256:7cc1aa2ca0e362667110213044265ce12a23af46e77c85494dab94a1cde1f4ed",
+    "benchmarks/prospective-economic-pilot/fixtures/bug-inclusive-range/verifier.js": "sha256:e7af53473839ff31547e9bdcffe1aa9c44a4e38629fa470192c96397336bbc4e",
+    "benchmarks/prospective-economic-pilot/fixtures/bug-nullish-timeout/src/timeout.js": "sha256:55a70542e270292ea096a20a3c030555d2657991c30c9701708cc53113d7c2ba",
+    "benchmarks/prospective-economic-pilot/fixtures/bug-nullish-timeout/test.js": "sha256:bd9e68ae3fcdaf3165232609a712ad7c4f9db1900c2412f153ba39f28e680a2c",
+    "benchmarks/prospective-economic-pilot/fixtures/bug-nullish-timeout/verifier.js": "sha256:09a1364fa9cbf0953232afcf6078b402540b7559bdeb366732e8cb631bb7803b",
+    "benchmarks/prospective-economic-pilot/fixtures/bug-status-normalization/src/status.js": "sha256:e64b25e3befc3f13ca89f19a4bb766e464bf954dcc21916a8d0ee58aa62e8ca4",
+    "benchmarks/prospective-economic-pilot/fixtures/bug-status-normalization/test.js": "sha256:7a14dc8b58ccaee90755f3872967347c89151589be24a01730888e07635b4ac3",
+    "benchmarks/prospective-economic-pilot/fixtures/bug-status-normalization/verifier.js": "sha256:2876e7b8dd304ef1ee86b466e9760398f0dc1594457fb8f0045667aa91ef7e9b",
+    "benchmarks/prospective-economic-pilot/fixtures/config-retry-numbers/MIGRATION.md": "sha256:35cb049b1b6564586dca977e40d71340c75f50645c52d9d83fa9c007ecfc5a91",
+    "benchmarks/prospective-economic-pilot/fixtures/config-retry-numbers/config/settings.json": "sha256:317a659cb9aa319d9c5b46d3373d60a5047484028513603a2aa90904fd868a65",
+    "benchmarks/prospective-economic-pilot/fixtures/config-retry-numbers/verifier.js": "sha256:09b080f14eef153e92646c005e3ca72ae94c3901c5ccff2969b25c73c6401424",
+    "benchmarks/prospective-economic-pilot/fixtures/docs-trace-flag/INSTALL.md": "sha256:4c2cd26b99c4b3642d61d97ec6b6f0176d20cd40bf5c0bb55ed10b2eae2c5f43",
+    "benchmarks/prospective-economic-pilot/fixtures/docs-trace-flag/README.md": "sha256:955983d67b70381f2e2d02ee93d35f59691cc6140797348c7cd848bc77c8a5d9",
+    "benchmarks/prospective-economic-pilot/fixtures/docs-trace-flag/verifier.js": "sha256:26e21b9bee7d2942f36106c804ad8b74d13444bd4cb664ad6afb26092df17c1b",
+    "benchmarks/prospective-economic-pilot/fixtures/docs-verify-command/QUICKSTART.md": "sha256:b4750f714fd49a5490257de6007909e1492cd929c8f44b9e8bdddb40ff0b7466",
+    "benchmarks/prospective-economic-pilot/fixtures/docs-verify-command/REFERENCE.md": "sha256:43f81c269bba69bff9b1cf004fbeb61e5d1454d1c99d85617f214cf84b524011",
+    "benchmarks/prospective-economic-pilot/fixtures/docs-verify-command/verifier.js": "sha256:74db117da08fdb0fa99ea1d0c773c6c5f784c933112e4ccc2622a41cfd9353ab",
+    "benchmarks/prospective-economic-pilot/fixtures/package-health-script/OPERATIONS.md": "sha256:52d8ac39930f9533bd9d3792a6cd328ca433c0ae12667781c109425367f74250",
+    "benchmarks/prospective-economic-pilot/fixtures/package-health-script/package.json": "sha256:74cb5e162de03d963aef9b710955e2ee0e1275e7c6346996dce7f9b40f09e41a",
+    "benchmarks/prospective-economic-pilot/fixtures/package-health-script/verifier.js": "sha256:b71a4fd39b22bfc62f963a59a95f62ab3dcbac63026b2a89dcc8f38347aa7ba3",
+    "benchmarks/prospective-economic-pilot/fixtures/parser-port-boundary/src/port.js": "sha256:a8b5af3f82568bc867b53e530847d508eaddd1f96865abe8e4f721bc00514dd9",
+    "benchmarks/prospective-economic-pilot/fixtures/parser-port-boundary/test.js": "sha256:3a28f6e4688c74bb9ba8bce67649322671ca6bffcf3e266743fec8f420a12ec2",
+    "benchmarks/prospective-economic-pilot/fixtures/parser-port-boundary/verifier.js": "sha256:0c7883f3da420f72e91b2ac649c1e6f720a666e755088a87d0fd1d4ee36e534e",
+    "benchmarks/prospective-economic-pilot/fixtures/refactor-first-unique/src/unique.js": "sha256:1ddbbbe61ffdb85814be8a6301754935ee99ba7e6a06b58156a1e53182dcc5a9",
+    "benchmarks/prospective-economic-pilot/fixtures/refactor-first-unique/test.js": "sha256:c4b118cc9447a689fd4472f423e247f2715e64a21a8bf3c526b572ee173ea315",
+    "benchmarks/prospective-economic-pilot/fixtures/refactor-first-unique/verifier.js": "sha256:823f769cbbff1999c4e2238e0959a38226f857ab61a9501df2ecfd1be3a5212e",
+    "benchmarks/prospective-economic-pilot/fixtures/security-header-crlf/src/header.js": "sha256:2a1358a590fb40a4b6dca94d7e7480f43a0a452cec7538971397355397e0c723",
+    "benchmarks/prospective-economic-pilot/fixtures/security-header-crlf/test.js": "sha256:5c86414c1d3c69bbf1598a9b573e01e3b512a05e4fbb45d90d6f158e06c22b75",
+    "benchmarks/prospective-economic-pilot/fixtures/security-header-crlf/verifier.js": "sha256:f76af3cc11ed4ba81135c301e3387285346f29ba8bfe1f618638615aa3011fbb",
+    "benchmarks/prospective-economic-pilot/fixtures/security-local-redirect/src/redirect.js": "sha256:b6ecdf25cb4d86c3e6c104cd883b23019a6b815da4d6556b7cc111fc70f90b7f",
+    "benchmarks/prospective-economic-pilot/fixtures/security-local-redirect/test.js": "sha256:714057a9e40dba41e52e34e8b3427844f3152c6d7fec2b1de103df0f1c45a6f5",
+    "benchmarks/prospective-economic-pilot/fixtures/security-local-redirect/verifier.js": "sha256:9d66f59a4b9303058edfee92a228a35f2767730703fb4fea7f3cab5be3a6c79d",
+    "benchmarks/prospective-economic-pilot/scenarios.json": "sha256:08874fcdfbef1e28c9ed26216a1f4cfb257e0318f7578e79468543d34d961a70",
+    "core/application-readiness/prospective-economic-operation.js": "sha256:5afc68a3f5e59ce0e0d780047a8af4fd393467e39ad8778b5c19a14b30b22744",
+    "core/operation-control/contracts.js": "sha256:d91adea8e5f5649dd38712e0fe244a0beb7dbe6e221e308ee975fd152f2fb5be",
+    "core/operation-control/receipt.js": "sha256:3ef5cfce5e17d22f5dbd68ff69cadf9138e95fa6b952c6ac26b29f4e7dc5aa66",
+    "scripts/prospective-economic-pilot.js": "sha256:fb731e1159a25616e92ac859252545d9ab2fee29fd824a6e92412dcd9924859c",
+    "scripts/test-prospective-economic-pilot.js": "sha256:29e0a0604eaf6780dbb53caa1a0b5e6665fabeb278114e437db112ce1873090f"
+  },
+  "seed": "citadel-prospective-economic-pilot-v1-2026-08-02",
+  "repetitions": 1,
+  "policies": [
+    "always-strong-local",
+    "citadel-frozen-risk-route"
+  ],
+  "models": {
+    "cheap": {
+      "provider": "ollama",
+      "model": "qwen2.5-coder:3b",
+      "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+      "parameter_size": "3.1B",
+      "quantization": "Q4_K_M"
+    },
+    "strong": {
+      "provider": "ollama",
+      "model": "qwen2.5-coder:7b",
+      "model_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+      "parameter_size": "7.6B",
+      "quantization": "Q4_K_M"
+    }
+  },
+  "routing_contract": {
+    "high_risk": "strong",
+    "low_or_moderate_risk": "cheap_then_strong_on_model_external_verifier_failure"
+  },
+  "selection_contract": {
+    "status": "author_selected",
+    "prior_model_execution_on_these_scenarios": false,
+    "external_selector": false
+  },
+  "economics": {
+    "electricity_usd_per_kwh": 0.2,
+    "gpu_residual_value_usd": 100,
+    "gpu_useful_compute_hours": 10000,
+    "setup_and_download_costs_included": false,
+    "whole_system_energy_status": "unknown"
+  },
+  "gates": {
+    "baseline_absolute_verified_rate": 0.8,
+    "baseline_risk_stratum_verified_rate": 0.7,
+    "quality_floor_relative_to_strong": 0.95,
+    "minimum_gpu_energy_reduction": 0.3,
+    "minimum_modeled_cost_reduction": 0.3,
+    "zero_path_violations_required": true,
+    "zero_false_passes_required": true,
+    "zero_integrity_failures_required": true
+  },
+  "schedule": [
+    {
+      "order": 0,
+      "scenario_id": "parser-port-boundary",
+      "policy_id": "citadel-frozen-risk-route",
+      "repetition": 1
+    },
+    {
+      "order": 1,
+      "scenario_id": "security-local-redirect",
+      "policy_id": "citadel-frozen-risk-route",
+      "repetition": 1
+    },
+    {
+      "order": 2,
+      "scenario_id": "bug-nullish-timeout",
+      "policy_id": "always-strong-local",
+      "repetition": 1
+    },
+    {
+      "order": 3,
+      "scenario_id": "package-health-script",
+      "policy_id": "citadel-frozen-risk-route",
+      "repetition": 1
+    },
+    {
+      "order": 4,
+      "scenario_id": "refactor-first-unique",
+      "policy_id": "always-strong-local",
+      "repetition": 1
+    },
+    {
+      "order": 5,
+      "scenario_id": "security-header-crlf",
+      "policy_id": "citadel-frozen-risk-route",
+      "repetition": 1
+    },
+    {
+      "order": 6,
+      "scenario_id": "security-header-crlf",
+      "policy_id": "always-strong-local",
+      "repetition": 1
+    },
+    {
+      "order": 7,
+      "scenario_id": "config-retry-numbers",
+      "policy_id": "always-strong-local",
+      "repetition": 1
+    },
+    {
+      "order": 8,
+      "scenario_id": "bug-inclusive-range",
+      "policy_id": "always-strong-local",
+      "repetition": 1
+    },
+    {
+      "order": 9,
+      "scenario_id": "parser-port-boundary",
+      "policy_id": "always-strong-local",
+      "repetition": 1
+    },
+    {
+      "order": 10,
+      "scenario_id": "bug-inclusive-range",
+      "policy_id": "citadel-frozen-risk-route",
+      "repetition": 1
+    },
+    {
+      "order": 11,
+      "scenario_id": "docs-trace-flag",
+      "policy_id": "always-strong-local",
+      "repetition": 1
+    },
+    {
+      "order": 12,
+      "scenario_id": "docs-verify-command",
+      "policy_id": "always-strong-local",
+      "repetition": 1
+    },
+    {
+      "order": 13,
+      "scenario_id": "api-formatter-alias",
+      "policy_id": "citadel-frozen-risk-route",
+      "repetition": 1
+    },
+    {
+      "order": 14,
+      "scenario_id": "docs-trace-flag",
+      "policy_id": "citadel-frozen-risk-route",
+      "repetition": 1
+    },
+    {
+      "order": 15,
+      "scenario_id": "bug-nullish-timeout",
+      "policy_id": "citadel-frozen-risk-route",
+      "repetition": 1
+    },
+    {
+      "order": 16,
+      "scenario_id": "bug-status-normalization",
+      "policy_id": "always-strong-local",
+      "repetition": 1
+    },
+    {
+      "order": 17,
+      "scenario_id": "api-formatter-alias",
+      "policy_id": "always-strong-local",
+      "repetition": 1
+    },
+    {
+      "order": 18,
+      "scenario_id": "bug-status-normalization",
+      "policy_id": "citadel-frozen-risk-route",
+      "repetition": 1
+    },
+    {
+      "order": 19,
+      "scenario_id": "config-retry-numbers",
+      "policy_id": "citadel-frozen-risk-route",
+      "repetition": 1
+    },
+    {
+      "order": 20,
+      "scenario_id": "package-health-script",
+      "policy_id": "always-strong-local",
+      "repetition": 1
+    },
+    {
+      "order": 21,
+      "scenario_id": "refactor-first-unique",
+      "policy_id": "citadel-frozen-risk-route",
+      "repetition": 1
+    },
+    {
+      "order": 22,
+      "scenario_id": "docs-verify-command",
+      "policy_id": "citadel-frozen-risk-route",
+      "repetition": 1
+    },
+    {
+      "order": 23,
+      "scenario_id": "security-local-redirect",
+      "policy_id": "always-strong-local",
+      "repetition": 1
+    }
+  ],
+  "ollama_endpoint": "http://127.0.0.1:11434",
+  "attestation_public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAr6kCnly56MP5hkWAbl6K+NVLE1r/IePIDXFooq2LNbM=\n-----END PUBLIC KEY-----\n"
+}

@@ -1,0 +1,123 @@
+{
+  "schema": 1,
+  "cell_id": "002-bug-nullish-timeout--always-strong-local",
+  "order": 2,
+  "scenario_id": "bug-nullish-timeout",
+  "task_class": "bug-fix",
+  "risk": "moderate",
+  "policy_id": "always-strong-local",
+  "repetition": 1,
+  "route": {
+    "initial_tier": "strong",
+    "escalation_tier": null,
+    "reason_code": "BASELINE_ALWAYS_STRONG"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "strong",
+      "started_at": "2026-08-02T00:34:25.917Z",
+      "duration_ms": 10629,
+      "output_text": "{\n  \"files\": {\n    \"src/timeout.js\": \"function effectiveTimeout(value) {\\n  return value === null || value === undefined ? 30 : value;\\n}\\nmodule.exports = { effectiveTimeout };\"\n  }\n}",
+      "output_digest": "sha256:82bf0b740a669f49083b91e86399ce4f1472b4f4d58cd7a556019e42ef1e544b",
+      "verification": {
+        "status": "passed",
+        "code": null,
+        "changed_paths": [
+          "src/timeout.js"
+        ],
+        "applied_file_digests": {
+          "src/timeout.js": "sha256:03a51d7fc43df3392b5359b2fc6a297fcd09210d0d56bb6b49eeffcef13a8d96"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 0,
+          "signal": null,
+          "stdout": "",
+          "stderr": "",
+          "error": null
+        },
+        "patch_digest": "sha256:b5430c5ab29ee6e4b7c6e2fb5e0782e3a2ff1d52729f261caf2b2806beaf1ba4"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "ollama-chat",
+        "requested_model": "qwen2.5-coder:7b",
+        "observed_model": "qwen2.5-coder:7b",
+        "model_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+        "done_reason": "stop",
+        "response_digest": "sha256:d812ad04da2ff7f05df2156ee1cea452ecda2ecd892449665ce11a3710267b60",
+        "error": null
+      },
+      "usage": {
+        "prompt_tokens": 192,
+        "completion_tokens": 52,
+        "total_tokens": 244,
+        "provider_total_duration_ns": 10624047400
+      },
+      "economics": {
+        "provider_invoice": {
+          "status": "known",
+          "amount_usd": 0,
+          "source": "self_hosted_ollama_no_per_request_invoice"
+        },
+        "gpu_energy": {
+          "status": "measured",
+          "energy_kwh": 0.000204203,
+          "samples": 21,
+          "average_watts": 69.162857
+        },
+        "comparison_cost": {
+          "status": "derived-comparison",
+          "total_usd": 0.000070366,
+          "components": [
+            {
+              "kind": "gpu_electricity",
+              "status": "derived-comparison",
+              "amount_usd": 0.000040841,
+              "source": "average_gpu_power_times_request_wall_duration_times_frozen_rate"
+            },
+            {
+              "kind": "gpu_amortization",
+              "status": "derived-comparison",
+              "amount_usd": 0.000029525,
+              "source": "request_wall_duration_times_frozen_residual_value"
+            }
+          ]
+        },
+        "actual_end_to_end_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "whole_system_energy_setup_and_observed_utility_rate_not_measured"
+        }
+      }
+    }
+  ],
+  "status": "passed",
+  "final_verification": {
+    "status": "passed",
+    "code": null,
+    "changed_paths": [
+      "src/timeout.js"
+    ],
+    "applied_file_digests": {
+      "src/timeout.js": "sha256:03a51d7fc43df3392b5359b2fc6a297fcd09210d0d56bb6b49eeffcef13a8d96"
+    },
+    "verifier": {
+      "command": "node verifier.js",
+      "status": 0,
+      "signal": null,
+      "stdout": "",
+      "stderr": "",
+      "error": null
+    },
+    "patch_digest": "sha256:b5430c5ab29ee6e4b7c6e2fb5e0782e3a2ff1d52729f261caf2b2806beaf1ba4"
+  },
+  "previous_cell_digest": "sha256:39716b93aa39e3ac973fdd25e6deb84090f73910880e619eb022b0506be0decb",
+  "receipt_digest": "sha256:cd386bb3b81ebfc183efa14b8f85a84360a23aa3b79b0ea9ea0e3f293e150735",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:b1c4e27995e045d38dc7bb1c641d5f62f9eefddf837d20d62da2eae5f62352c1",
+    "signature": "NSkDXUvlwXgZ69oKQi+Kpwbmje7wgB5sgJnmE8ZzWZSxwubwALwW2tigNrse5htHY050+mYRrCr52VERAEhPBA=="
+  }
+}

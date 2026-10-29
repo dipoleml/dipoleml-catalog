@@ -1,0 +1,106 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.mcpads.create-retro-game-kr-patch",
+  "type": "plugin",
+  "name": "Create Retro Game Kr Patch",
+  "slug": "create-retro-game-kr-patch",
+  "vendor": "mcpads",
+  "description": "레트로 게임 한글 패치 제작 전 파이프라인 에이전트 스킬 · Agent skill for end-to-end Korean (Hangul) fan-translation patches for retro games",
+  "version": "3.4.0",
+  "homepage": "https://github.com/mcpads/create-retro-game-kr-patch",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agent-skills",
+    "claude-code-plugin",
+    "claude-skill",
+    "codex-skill",
+    "fan-translation",
+    "korean-translation",
+    "retro-games",
+    "rom-hacking"
+  ],
+  "tags": [
+    "agent-skills",
+    "claude-code",
+    "claude-code-plugin",
+    "claude-skill",
+    "codex-skill",
+    "fan-translation",
+    "korean-translation",
+    "retro-games",
+    "rom-hacking"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "mcpads",
+    "brandName": "mcpads",
+    "source": "https://github.com/mcpads.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:14:00Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "mcpads/create-retro-game-kr-patch",
+    "url": "https://github.com/mcpads/create-retro-game-kr-patch",
+    "commit": "4b360ab36399aea0c7dbd4ea1b5a0acec075726f",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 95,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:04:48Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

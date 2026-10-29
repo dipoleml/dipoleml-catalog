@@ -1,0 +1,16 @@
+{
+  "name": "vibe-ship",
+  "displayName": "Vibe Ship",
+  "version": "2.0.0",
+  "description": "Dockerize and deploy any app: detects the stack (Node, Next.js, Python, Django, FastAPI, Go, Rust, Java/Spring, .NET, Rails, Laravel, Phoenix, static, monorepos), writes hardened Dockerfiles, Compose, GitHub Actions/GitLab CI, Kubernetes and Fly/Render/Railway/Cloud Run/AWS/VPS configs, then verifies them with a 93-rule auditor and real docker builds.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Sudais Khalid"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/sudais-khalid/vibe-ship",
+  "repository": "https://github.com/sudais-khalid/vibe-ship",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

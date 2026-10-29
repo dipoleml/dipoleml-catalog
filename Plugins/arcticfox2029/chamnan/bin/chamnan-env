@@ -1,0 +1,245 @@
+#!/usr/bin/env python3
+"""chamnan-env — the constraints nobody writes down and everybody re-learns.
+
+  chamnan-env                              list declared environments and their constraints
+  chamnan-env --list  (or -l)              the same list, when a flag reads better in a script
+  chamnan-env show <name>                  one environment in full
+  chamnan-env set <name> [options]         declare or update one environment
+  chamnan-env check                        which entries nobody has confirmed lately
+
+Options for `set`:
+
+  --platform "Kubernetes 1.28 on RKE2"     what it runs on
+  --versions "postgres 16, redis 7.2"      declared versions — what aging compares against
+  --constraint "RWO storage only"          repeatable; one line per constraint
+  --checked 2026-08-27                     defaults to today
+
+`set` REPLACES an environment of the same name rather than appending a second one — this file
+describes how things ARE, and two `## production` headings would leave a reader no way to tell
+which is current.
+
+**Nothing here contacts an environment.** No cluster is reached, no version is detected. Every
+fact in this file was typed by somebody who knew it, which is why `Checked:` matters: it is the
+only honest signal of how much to trust a line, and `chamnan-env check` is what surfaces the
+entries that have gone cold. `chamnan-age` refuses to report against a stale environment rather
+than issue an all-clear from a source nobody has confirmed.
+"""
+import sys
+from datetime import datetime
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent / "lib"))
+import environments as env  # noqa: E402
+import mdblock  # noqa: E402
+import workspace as ws  # noqa: E402
+import redact  # noqa: E402
+
+# Everything this command prints comes out of committed files, and none of it used to go through
+# the redactor while the SessionStart hook scrubbed the same stores. Shadowing `print` here rather
+# than wrapping each call site: a per-call rule is one every future print has to remember, and the
+# misses are silent. See redact.emit.
+print = redact.emit  # noqa: A001
+
+
+def cmd_list(root):
+    found = env.entries(root)
+    if not found:
+        print("chamnan: no environments declared — "
+              "`chamnan-env set production --platform \"...\"` starts one")
+        return 0
+    print(f"{len(found)} environment(s)\n")
+    for e in found:
+        # 🐛 Assembled here and printed below, so wrapping the print() reached neither value —
+        # the same assign-then-render shape Invariant 8 was rewritten for. Sanitised at the source.
+        head = f"  {mdblock.as_quoted(e['name'], 60)}"
+        if e["platform"]:
+            head += f" — {mdblock.as_quoted(e['platform'], 60)}"
+        print(head)
+        if e["versions"]:
+            print("    versions: " + ", ".join(
+                f"{mdblock.as_quoted(k, 40)} {mdblock.as_quoted(v, 40)}"
+                for k, v in sorted(e["versions"].items())))
+        for c in e["constraints"]:
+            print(f"    · {mdblock.as_quoted(c, 80)}")
+        print(f"    checked {mdblock.as_quoted(e['checked'] or 'never', 40)}")
+    return 0
+
+
+def cmd_show(root, name):
+    for e in env.entries(root):
+        if mdblock.canonical_title(e["name"]) == mdblock.canonical_title(name):
+            print(env.render_entry(
+                e["name"], e["platform"],
+                ", ".join(f"{k} {v}" for k, v in sorted(e["versions"].items())),
+                e["constraints"], e["checked"]).rstrip())
+            return 0
+    print(f"chamnan: no environment named {name!r} — run `chamnan-env` to list them",
+          file=sys.stderr)
+    return 1
+
+
+def cmd_set(root, name, platform, versions, constraints, checked):
+    """`set` replaces the whole entry, and a field not named on THIS invocation used to be replaced
+    with nothing. So `chamnan-env set production --checked 2026-09-01` -- the exact command
+    `chamnan-env check` tells you to run when an environment goes cold -- erased the platform, the
+    versions and every constraint, which are the parts nobody else can reconstruct. Anything not
+    given is carried forward from what is already recorded; `--platform ""` still clears it, so
+    there is a way to say "this really is empty now"."""
+    if ws.refuse_to_write():
+        return 1
+    prior = next((e for e in env.entries(root)
+                  if mdblock.canonical_title(e["name"])
+                  == mdblock.canonical_title(name)), None)
+    if prior:
+        if platform is None:
+            platform = prior["platform"]
+        if versions is None:
+            versions = prior["versions_raw"]
+        if constraints is None:
+            constraints = prior["constraints"]
+    platform, versions = platform or "", versions or ""
+    constraints = constraints or []
+    entry = env.render_entry(name, platform, versions, constraints, checked)
+    path, replaced = env.upsert(root, name, entry)
+    verb = "updated" if replaced else "declared"
+    print(f"chamnan: {verb} {mdblock.as_quoted(name, 60)} — "
+          f"{mdblock.as_quoted(path.relative_to(root).as_posix(), 100)}")
+    if not constraints:
+        print("  no constraints recorded. The constraints are the part nobody else can "
+              "reconstruct — `--constraint \"...\"` is worth the minute.")
+    return 0
+
+
+def cmd_check(root):
+    found = env.entries(root)
+    if not found:
+        print("chamnan: no environments declared — nothing to check")
+        return 0
+    stale = env.stale_environments(root)
+    if not stale:
+        print(f"chamnan: all {len(found)} environment(s) confirmed within the last "
+              f"{env.STALE_AFTER_DAYS} days")
+        return 0
+    print(f"{len(stale)} of {len(found)} environment(s) have gone cold\n")
+    for name, days in stale:
+        when = "never confirmed" if days is None else f"last confirmed {days} days ago"
+        print(f"  {mdblock.as_quoted(name, 60)} — {mdblock.as_quoted(when, 40)}")
+    print(f"\n  Re-confirm with `chamnan-env set <name> --checked {_today()}` (and correct "
+          f"anything that changed).")
+    print("  Until then `chamnan-age` will not report against these — an unconfirmed entry is "
+          "evidence nobody looked, not evidence nothing changed.")
+    return 0
+
+
+def _today():
+    return datetime.now().astimezone().strftime("%Y-%m-%d")
+
+
+# 🐛 [2026-09-08] Three of ten commands refused an unknown flag and seven ignored it, running
+# their default action with nothing on screen -- so a typo did something other than what was asked
+# and said nothing. `ws.unknown_flags` existed the whole time; the seven could not use it because
+# it read every VALUE as a flag, which is why it grew `takes_value`/`takes_rest` first. The set,
+# not the member this round happened to be pointed at (R7 agent 4, 2026-09-08).
+KNOWN_FLAGS = ('--checked', '--constraint', '--platform', '--versions', '--list', '-l')
+TAKES_VALUE = ('--checked', '--constraint', '--platform', '--versions')
+TAKES_REST = ()
+
+
+def main(argv):
+    # \U0001f41b [2026-09-07] FIRST, before `find_root`. This block already carried the sentence
+    # "including one that would otherwise refuse the arguments beside it", and in this command it
+    # sat BELOW two such refusals -- the no-workspace exit and the config-disabled exit -- so
+    # `--version` printed the refusal instead of the version in exactly the two cases the comment
+    # names. Six of nine commands placed it first and three did not: the same rule applied to some
+    # members of a set and forgotten in the identical ones beside it (R12 agent 2, 2026-09-07).
+    #
+    # Before help, and before anything is parsed: "which build is this" must be
+    # answerable from any command, including one that would otherwise refuse the
+    # arguments beside it. See workspace.wants_version.
+    if ws.wants_version(argv):
+        print(ws.version_line())
+        return 0
+    root = ws.find_root()
+    if not ws.workspace(root).is_dir():
+        # 🐛 [2026-09-06] A dead end in six of ten commands. `chamnan-context` was given the way
+        # out on 2026-09-05 and its siblings were not, and `chamnan-impact` carried BOTH — this
+        # sentence, and the actionable one 46 lines below it for a near-identical condition — so
+        # which of the two a user got depended on whether `.chamnan/` happened to exist yet, an
+        # ordering accident rather than anything they controlled. No test ran any of the six
+        # against a directory that genuinely has no workspace (R15 agent 3, 2026-09-06).
+        print(f"chamnan: no .chamnan/ workspace at {root}. Run `chamnan-map` there first — it "
+              f"creates the workspace and builds the index. (Inside Claude Code, "
+              f"`/chamnan:bootstrap` does that and records a baseline.)", file=sys.stderr)
+        return 1
+    if not ws.enabled("environments", root):
+        print("chamnan: environments is disabled in .chamnan/config.json")
+        return 0
+
+    if not argv or argv[0] in ("list", "-l", "--list"):
+        return cmd_list(root)
+    if ws.wants_help(argv):
+        print(__doc__.strip())
+        return 0
+
+    _bad = ws.unknown_flags(argv, KNOWN_FLAGS, TAKES_VALUE, TAKES_REST)
+    if _bad:
+        print(f"chamnan-env: unknown flag {_bad[0]} — try --help", file=sys.stderr)
+        return 2
+
+    cmd, *rest = argv
+    if cmd == "check":
+        return cmd_check(root)
+    if cmd == "show":
+        if not rest:
+            print("chamnan: show needs an environment name", file=sys.stderr)
+            return 2
+        return cmd_show(root, rest[0])
+    if cmd != "set":
+        print(f"chamnan: unknown command {cmd!r} — list, show <name>, set <name>, check",
+              file=sys.stderr)
+        return 2
+    if not rest:
+        print("chamnan: set needs an environment name — chamnan-env set production [options]",
+              file=sys.stderr)
+        return 2
+
+    name, *opts = rest
+    # None means "not named on this command line", which is distinct from "named as empty".
+    platform = versions = None
+    checked = _today()
+    constraints = None
+    i = 0
+    while i < len(opts):
+        flag = opts[i]
+        value = opts[i + 1] if i + 1 < len(opts) else None
+        if value is None or value.startswith("--"):
+            print(f"chamnan: {flag} needs a value", file=sys.stderr)
+            return 2
+        if flag == "--platform":
+            platform = value
+        elif flag == "--versions":
+            versions = value
+        elif flag == "--constraint":
+            constraints = (constraints or []) + [value]
+        elif flag == "--checked":
+            checked = value
+        else:
+            print(f"chamnan: unknown option {flag!r} — --platform, --versions, --constraint, "
+                  f"--checked", file=sys.stderr)
+            return 2
+        i += 2
+    return cmd_set(root, name, platform, versions, constraints, checked)
+
+
+if __name__ == "__main__":
+    # 🐛 [2026-09-06] A write the user asked for by name now RAISES rather than being discarded --
+    # see `workspace.write_or_raise`. Caught here rather than at each command, so the message is
+    # the same one everywhere and a command added later is covered without knowing this exists.
+    # What it replaces: `chamnan-timeline new` on a read-only directory printed "declared", named
+    # the file, printed the follow-up command to add to it, and exited 0, with nothing on disk.
+    try:
+        sys.exit(main(sys.argv[1:]))
+    except OSError as _err:
+        print(f"chamnan: {_err} — nothing was written", file=sys.stderr)
+        sys.exit(1)

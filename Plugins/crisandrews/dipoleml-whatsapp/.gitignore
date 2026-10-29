@@ -1,0 +1,17 @@
+node_modules/
+.claude/
+.whatsapp/
+*.log
+.DS_Store
+.env
+.env.local
+.env.*.local
+*.swp
+*.swo
+*.bak
+
+# Dev-local Claude Code project conventions — not part of the public plugin
+CLAUDE.md
+
+# Dev-local test files — kept locally for verification, not shipped in the public plugin
+*.test.ts

@@ -1,0 +1,21 @@
+{
+  "name": "claude-whatsapp-channel",
+  "version": "1.21.1",
+  "author": "Juan Cristobal Andrews",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node bootstrap.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@whiskeysockets/baileys": "github:WhiskeySockets/Baileys",
+    "@hapi/boom": "^9.1.3",
+    "pino": "^9.6.0",
+    "qrcode": "^1.5.4",
+    "tsx": "^4.19.0",
+    "@huggingface/transformers": "^4.0.0",
+    "ogg-opus-decoder": "*",
+    "better-sqlite3": "^12.9.0"
+  }
+}

@@ -1,0 +1,49 @@
+# Example configuration file for AI Doc Gen
+
+# Analyzer configuration options
+analyzer:
+  # Analysis exclusions - set to true to exclude specific analyses
+  exclude_code_structure: false
+  exclude_data_flow: false
+  exclude_dependencies: false
+  exclude_request_flow: false
+  exclude_api_analysis: false
+  # Worker pool configuration
+  max_workers: 0  # Maximum concurrent analyzer agents (0=auto-detect CPU count)
+
+# Generator configuration options
+generate:
+  # README generation configuration
+  readme:
+    # README section exclusions - set to true to exclude sections from the README
+    exclude_project_overview: false
+    exclude_table_of_contents: false
+    exclude_architecture: false
+    exclude_c4_model: false
+    exclude_repository_structure: false
+    exclude_dependencies_and_integration: false
+    exclude_api_documentation: false
+    exclude_development_notes: false
+    exclude_known_issues_and_limitations: false
+    exclude_additional_documentation: false
+    use_existing_readme: false
+
+  # AI Rules generation configuration (CLAUDE.md, AGENTS.md, .cursor/rules/)
+  ai_rules:
+    # Skip existing files - set to true to avoid overwriting existing files
+    skip_existing_claude_md: false
+    skip_existing_agents_md: false
+    skip_existing_cursor_rules: false
+
+    # Content customization
+    detail_level: "standard"  # Options: minimal, standard, comprehensive
+    max_claude_lines: 500     # Maximum lines for CLAUDE.md
+    max_agents_lines: 150     # Maximum lines for AGENTS.md (strict limit)
+
+# Cronjob analyzer configuration options
+cronjob:
+  analyze:
+    # Maximum days since last commit to consider a project
+    max_days_since_last_commit: 30
+    # Path to clone projects for cronjob execution
+    working_path: "/tmp/cronjob/projects"

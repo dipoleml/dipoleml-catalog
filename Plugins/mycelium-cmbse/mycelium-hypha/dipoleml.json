@@ -1,0 +1,107 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.mycelium-cmbse.mycelium-hypha",
+  "type": "plugin",
+  "name": "Mycelium Hypha",
+  "slug": "mycelium-hypha",
+  "vendor": "mycelium-cmbse",
+  "description": "Hypha is the AI agent of the Mycelium ecosystem, a connecting filament between engineers and the SysML v2 specification. Packaged as a DipoleML plugin with skills and subagents for metamodel lookup, spec citation, and SysML v2 validation.",
+  "version": "2.2.0",
+  "homepage": "https://github.com/mycelium-cmbse/mycelium-hypha",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "mbse",
+    "modeltopia",
+    "sysmlv2"
+  ],
+  "tags": [
+    "mbse",
+    "modeltopia",
+    "sysmlv2"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "mycelium-cmbse",
+    "brandName": "mycelium-cmbse",
+    "source": "https://github.com/mycelium-cmbse.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:14:10Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "mycelium-cmbse/mycelium-hypha",
+    "url": "https://github.com/mycelium-cmbse/mycelium-hypha",
+    "commit": "4c647e120a1285177fb1c2caa4ba673bc0264187",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 11,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:51:36Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Mycelium Hypha | Hypha is the AI agent of the Mycelium ecosystem, a connecting filament between engineers and the SysML v2 specification. Packaged as a Claude plugin with skills and subagents for metamodel lookup, spec citation, and SysML v2 validation.",
+        "after": "Mycelium Hypha | Hypha is the AI agent of the Mycelium ecosystem, a connecting filament between engineers and the SysML v2 specification. Packaged as a DipoleML plugin with skills and subagents for metamodel lookup, spec citation, and SysML v2 validation.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

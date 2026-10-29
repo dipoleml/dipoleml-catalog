@@ -1,0 +1,122 @@
+{
+  "schema": 2,
+  "cell_id": "015-config-timeout-migration--citadel-risk-profile-local--r2",
+  "order": 15,
+  "scenario_id": "config-timeout-migration",
+  "task_class": "config-migration",
+  "policy_id": "citadel-risk-profile-local",
+  "repetition": 2,
+  "route": {
+    "initial_tier": "cheap",
+    "escalation_tier": "strong",
+    "reason_code": "RISK_BOUNDED_CHEAP_THEN_VERIFY"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "cheap",
+      "started_at": "2026-08-01T05:22:34.004Z",
+      "duration_ms": 5524,
+      "output_text": "{\n  \"files\": {\n    \"config/app.json\": \"{\\\"schema_version\\\":2,\\\"service\\\":\\\"worker\\\",\\\"timeout_seconds\\\":30,\\\"retries\\\":2}\"\n  }\n}",
+      "output_digest": "sha256:43a8ea8697c5435eb81cd00b90c41dacdc6f7745dbf9d28e0b57dd6c93b4ab5b",
+      "verification": {
+        "status": "passed",
+        "code": null,
+        "changed_paths": [
+          "config/app.json"
+        ],
+        "applied_file_digests": {
+          "config/app.json": "sha256:45cad31334aaa2a71c3f2fa4d7d7eaf1158ffc5db8bf8c83d0d01c63193ab46e"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 0,
+          "signal": null,
+          "stdout": "config migration verifier passed\n",
+          "stderr": "",
+          "error": null
+        },
+        "patch_digest": "sha256:1d5feae81c29a8b5e2c42a13258760ede8143b8c4de61c22ff875648ec16d641"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "ollama-chat",
+        "requested_model": "qwen2.5-coder:3b",
+        "observed_model": "qwen2.5-coder:3b",
+        "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+        "done_reason": "stop",
+        "response_digest": "sha256:129f95184f786ea3b02b009be8ebd90b14cf5ffa7ad74281f44bfb213744eb2d",
+        "error": null
+      },
+      "usage": {
+        "prompt_tokens": 188,
+        "completion_tokens": 37,
+        "total_tokens": 225,
+        "provider_total_duration_ns": 5521421700
+      },
+      "economics": {
+        "provider_invoice": {
+          "status": "known",
+          "amount_usd": 0,
+          "source": "self_hosted_ollama_no_per_request_invoice"
+        },
+        "gpu_energy": {
+          "status": "measured",
+          "energy_kwh": 0.000091551,
+          "samples": 11,
+          "average_watts": 59.663636
+        },
+        "comparison_cost": {
+          "status": "derived-comparison",
+          "total_usd": 0.000033655,
+          "components": [
+            {
+              "kind": "gpu_electricity",
+              "status": "derived-comparison",
+              "amount_usd": 0.00001831,
+              "source": "average_gpu_power_times_request_wall_duration_times_frozen_rate"
+            },
+            {
+              "kind": "gpu_amortization",
+              "status": "derived-comparison",
+              "amount_usd": 0.000015344,
+              "source": "request_wall_duration_times_frozen_residual_value"
+            }
+          ]
+        },
+        "actual_end_to_end_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "whole_system_energy_setup_and_observed_utility_rate_not_measured"
+        }
+      }
+    }
+  ],
+  "status": "passed",
+  "final_verification": {
+    "status": "passed",
+    "code": null,
+    "changed_paths": [
+      "config/app.json"
+    ],
+    "applied_file_digests": {
+      "config/app.json": "sha256:45cad31334aaa2a71c3f2fa4d7d7eaf1158ffc5db8bf8c83d0d01c63193ab46e"
+    },
+    "verifier": {
+      "command": "node verifier.js",
+      "status": 0,
+      "signal": null,
+      "stdout": "config migration verifier passed\n",
+      "stderr": "",
+      "error": null
+    },
+    "patch_digest": "sha256:1d5feae81c29a8b5e2c42a13258760ede8143b8c4de61c22ff875648ec16d641"
+  },
+  "previous_cell_digest": "sha256:c7ea624a78f43c8b3e57d767e03886f38a7f4793684bc65a05f36ecc234c06e2",
+  "receipt_digest": "sha256:f7b8268413fd9333c45717601a7045feec19d87bc90d845ab92744afaa4cb067",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:a6238954282cce17eff033e7936df2963a766d74f4574611498edc91946c3634",
+    "signature": "JAnKs4O/S63tHWOCKqnTQnGt56Y+FCY//hjhWwQleacz/PBeMe4d+oakl94vbDUwSj5FPwTX5J3EjgEVho6JAg=="
+  }
+}

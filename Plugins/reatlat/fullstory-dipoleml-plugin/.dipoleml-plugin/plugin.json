@@ -1,0 +1,16 @@
+{
+  "name": "fullstory-dipoleml-plugin",
+  "displayName": "Fullstory DipoleML Plugin",
+  "version": "1.1.0",
+  "description": "Unofficial — Fullstory behavioral analytics, session replays, and customer experience insights by reatlat.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Reatlat"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/reatlat/fullstory-claude-plugin",
+  "repository": "https://github.com/reatlat/fullstory-claude-plugin",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

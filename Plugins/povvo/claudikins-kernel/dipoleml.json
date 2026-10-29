@@ -1,0 +1,109 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.povvo.claudikins-kernel",
+  "type": "plugin",
+  "name": "Claudikins Kernel",
+  "slug": "claudikins-kernel",
+  "vendor": "povvo",
+  "description": "SRE thinking applied to DipoleML, based on Boris Cherny's Q&A. It enforces a strict 4-stage pipeline with gates between each step. You literally cannot skip verification. You cannot ship without approval.",
+  "version": "1.2.0",
+  "homepage": "https://github.com/povvo/claudikins-kernel",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agent-skills",
+    "claude-ai",
+    "claude-code-plugin",
+    "claude-skills",
+    "claudecode",
+    "sre"
+  ],
+  "tags": [
+    "agent-skills",
+    "claude",
+    "claude-ai",
+    "claude-code",
+    "claude-code-plugin",
+    "claude-skills",
+    "claudecode",
+    "sre"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "povvo",
+    "brandName": "povvo",
+    "source": "https://github.com/povvo.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:14:28Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "povvo/claudikins-kernel",
+    "url": "https://github.com/povvo/claudikins-kernel",
+    "commit": "8b626a45e9e8ee14360fd53baa4c73a18972d46e",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 127,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:03:33Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Claudikins Kernel | SRE thinking applied to Claude Code, based on Boris Cherny's Q&A. It enforces a strict 4-stage pipeline with gates between each step. You literally cannot skip verification. You cannot ship without approval.",
+        "after": "Claudikins Kernel | SRE thinking applied to DipoleML, based on Boris Cherny's Q&A. It enforces a strict 4-stage pipeline with gates between each step. You literally cannot skip verification. You cannot ship without approval.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,141 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.openqodex.openqodex",
+  "type": "plugin",
+  "name": "Openqodex",
+  "slug": "openqodex",
+  "vendor": "openqodex",
+  "description": "Open source AI code review for coding agents. A separate reviewer checks every change your agent writes before you push, in DipoleML, Codex, Cursor and Cline. No account or key of its own.",
+  "version": "0.16.0",
+  "homepage": "https://github.com/openqodex/openqodex",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agent-skills",
+    "ai-code-review",
+    "claude-code-plugin",
+    "claude-skills",
+    "cline",
+    "code-quality",
+    "code-review",
+    "codex",
+    "coding-agents"
+  ],
+  "tags": [
+    "agent-skills",
+    "ai-agents",
+    "ai-code-review",
+    "claude-code",
+    "claude-code-plugin",
+    "claude-skills",
+    "cline",
+    "code-quality",
+    "code-review",
+    "codex",
+    "coding-agents",
+    "cursor",
+    "github-actions",
+    "linter",
+    "pre-commit",
+    "sast",
+    "secret-scanning",
+    "security",
+    "security-tools",
+    "static-analysis"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "openqodex",
+    "brandName": "openqodex",
+    "source": "https://github.com/openqodex.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:14:19Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "openqodex/openqodex",
+    "url": "https://github.com/openqodex/openqodex",
+    "commit": "6d879d65de94ab201bddd9ccad76e1d1bcff70ca",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 1026,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:59:03Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude,cursor",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".cursor-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/cursor/.cursor-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Openqodex | Open source AI code review for coding agents. A separate reviewer checks every change your agent writes before you push, in Claude Code, Codex, Cursor and Cline. No account or key of its own.",
+        "after": "Openqodex | Open source AI code review for coding agents. A separate reviewer checks every change your agent writes before you push, in DipoleML, Codex, Cursor and Cline. No account or key of its own.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Code review before you push, from Cursor. One command runs scanners (Semgrep, Gitleaks, OSV-Scanner and more) on the lines you changed for security issues, secrets, vulnerable dependencies and lint errors, then starts a separate Claude Code or Codex reviewer that checks every scanner finding. Cursor is not the reviewer: without Claude Code or Codex installed, Cursor's agent reviews the change itself from the brief OpenQodex prints. No other key, no account.",
+        "after": "Code review before you push, from Cursor. One command runs scanners (Semgrep, Gitleaks, OSV-Scanner and more) on the lines you changed for security issues, secrets, vulnerable dependencies and lint errors, then starts a separate DipoleML or Codex reviewer that checks every scanner finding. Cursor is not the reviewer: without DipoleML or Codex installed, Cursor's agent reviews the change itself from the brief OpenQodex prints. No other key, no account.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=22"
+    ],
+    "packages": [
+      "openqodex-monorepo"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude",
+      "cursor"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

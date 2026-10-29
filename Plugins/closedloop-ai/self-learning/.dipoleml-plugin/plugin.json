@@ -1,0 +1,16 @@
+{
+  "name": "self-learning",
+  "displayName": "Self Learning",
+  "version": "1.2.7",
+  "description": "Deprecated, will be removed from the marketplace: Self-learning plugin",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Closedloop Ai"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/closedloop-ai/claude-plugins",
+  "repository": "https://github.com/closedloop-ai/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

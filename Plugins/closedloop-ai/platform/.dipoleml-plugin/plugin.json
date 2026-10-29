@@ -1,0 +1,16 @@
+{
+  "name": "platform",
+  "displayName": "Platform",
+  "version": "1.1.6",
+  "description": "ClosedLoop Platform plugin",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Closedloop Ai"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/closedloop-ai/claude-plugins",
+  "repository": "https://github.com/closedloop-ai/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

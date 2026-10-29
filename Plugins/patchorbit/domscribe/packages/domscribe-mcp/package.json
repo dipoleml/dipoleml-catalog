@@ -1,0 +1,24 @@
+{
+  "name": "@domscribe/mcp",
+  "version": "0.7.0",
+  "description": "MCP server for Domscribe \u2014 connects editors and agents to runtime context",
+  "type": "module",
+  "main": "src/bin/domscribe-mcp.ts",
+  "distBin": {
+    "domscribe-mcp": "./bin/domscribe-mcp.js"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@domscribe/relay": "workspace:*"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/patchorbit/domscribe.git",
+    "directory": "packages/domscribe-mcp"
+  }
+}

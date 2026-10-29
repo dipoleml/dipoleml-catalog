@@ -1,0 +1,175 @@
+{
+  "schema": 1,
+  "cell_id": "005-docs-audit-command--citadel-hybrid-risk-route",
+  "order": 5,
+  "scenario_id": "docs-audit-command",
+  "task_class": "documentation-consistency",
+  "risk": "low",
+  "policy_id": "citadel-hybrid-risk-route",
+  "repetition": 1,
+  "route": {
+    "initial_tier": "local",
+    "escalation_tier": "cloud",
+    "reason_code": "FROZEN_BOUNDED_LOCAL_THEN_VERIFY"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "local",
+      "started_at": "2026-08-02T00:56:07.409Z",
+      "duration_ms": 5491,
+      "output_text": "{\n  \"files\": {\n    \"GETTING_STARTED.md\": \"# Verify an operation\\n\\nRun `citadel evidence audit` after the operation completes.\\nThis check does not ask the model to grade itself.\"\n  }\n}",
+      "output_digest": "sha256:8bacd22d0a10f3add9a9797704dab8fac7b6241f8489999e671b77fcd4284cdd",
+      "verification": {
+        "status": "failed",
+        "code": "REPOSITORY_VERIFIER_FAILED",
+        "changed_paths": [
+          "GETTING_STARTED.md"
+        ],
+        "applied_file_digests": {
+          "GETTING_STARTED.md": "sha256:aeef01438cd984965ca3bd34dd622f935d11ce44617dd15a66bae9b241fbb66d"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 1,
+          "signal": null,
+          "stdout": "",
+          "stderr": "node:internal/assert/utils:281\r\n    throw err;\r\n    ^\r\n\r\nAssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:\r\n\r\n  assert(value.includes('Run `citadel operation audit` after the operation completes.'))\r\n\r\n    at Object.<anonymous> (<ISOLATED_WORKSPACE>\\verifier.js:5:1)\r\n    at Module._compile (node:internal/modules/cjs/loader:1730:14)\r\n    at Object..js (node:internal/modules/cjs/loader:1895:10)\r\n    at Module.load (node:internal/modules/cjs/loader:1465:32)\r\n    at Function._load (node:internal/modules/cjs/loader:1282:12)\r\n    at TracingChannel.traceSync (node:diagnostics_channel:322:14)\r\n    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)\r\n    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:171:5)\r\n    at node:internal/main/run_main_module:36:49 {\r\n  generatedMessage: true,\r\n  code: 'ERR_ASSERTION',\r\n  actual: false,\r\n  expected: true,\r\n  operator: '=='\r\n}\r\n\r\nNode.js v22.17.1\r\n",
+          "error": null
+        },
+        "patch_digest": "sha256:f7d229f7366fdc3f6fbba4c691dc3fbafaab9c1a0628cc0c117665964446d0bf"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "ollama-chat",
+        "requested_model": "qwen2.5-coder:3b",
+        "canonical_model": "qwen2.5-coder:3b",
+        "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+        "response_digest": "sha256:3d3c26b06d48a8b1ace9c559a2715088dab5dfa6ce43efbeea5bed9e5b8303ea",
+        "error": null
+      },
+      "usage": {
+        "input_tokens": 152,
+        "output_tokens": 47,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0
+      },
+      "economics": {
+        "comparison_cost": {
+          "status": "derived-comparison",
+          "total_usd": 0.000030476,
+          "source": "measured_gpu_energy_plus_frozen_residual_amortization"
+        },
+        "provider_reported_equivalent_cost": {
+          "status": "known",
+          "amount_usd": 0,
+          "source": "self_hosted_ollama"
+        },
+        "local_gpu_energy": {
+          "status": "measured",
+          "energy_kwh": 0.000076118,
+          "samples": 11,
+          "average_watts": 49.904545
+        },
+        "actual_subscription_cash": {
+          "status": "not-applicable",
+          "amount_usd": 0
+        }
+      }
+    },
+    {
+      "attempt": 2,
+      "tier": "cloud",
+      "started_at": "2026-08-02T00:56:13.156Z",
+      "duration_ms": 5678,
+      "output_text": "{\"files\":{\"GETTING_STARTED.md\":\"# Verify an operation\\n\\nRun `citadel operation audit` after the operation completes.\\nThis check does not ask the model to grade itself.\\n\"}}",
+      "output_digest": "sha256:4e8bb7be2c5f0f97cfea8342f3de62e3d7dc614f20148da3feca3be1a290e386",
+      "verification": {
+        "status": "passed",
+        "code": null,
+        "changed_paths": [
+          "GETTING_STARTED.md"
+        ],
+        "applied_file_digests": {
+          "GETTING_STARTED.md": "sha256:2cc06954236013b175cfe66056045e5f529638e2e8669e9ae47970dd79791231"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 0,
+          "signal": null,
+          "stdout": "",
+          "stderr": "",
+          "error": null
+        },
+        "patch_digest": "sha256:4a7b7e70e4994416e78f3d7d7f91e268526094ec2ebf93b52fcbd108a25914a6"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "claude-code-print",
+        "requested_model": "sonnet",
+        "canonical_model": "claude-sonnet-5",
+        "cli_version": "2.1.219",
+        "response_digest": "sha256:aba34981609a0f1cfb33a3f35238c20d448b24f7a829dec665488dbdd80f1b38",
+        "exit_status": 0,
+        "terminal_reason": "completed",
+        "error": null
+      },
+      "usage": {
+        "input_tokens": 428,
+        "output_tokens": 72,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0
+      },
+      "economics": {
+        "comparison_cost": {
+          "status": "provider-reported-equivalent",
+          "total_usd": 0.00313,
+          "source": "claude_code_total_cost_usd"
+        },
+        "provider_reported_equivalent_cost": {
+          "status": "provider-reported-equivalent",
+          "amount_usd": 0.00313,
+          "source": "claude_code_total_cost_usd"
+        },
+        "local_gpu_energy": {
+          "status": "not-applicable",
+          "energy_kwh": 0,
+          "samples": 0,
+          "average_watts": null
+        },
+        "actual_subscription_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "pro_subscription_cost_not_allocated_per_request"
+        }
+      }
+    }
+  ],
+  "status": "passed",
+  "final_verification": {
+    "status": "passed",
+    "code": null,
+    "changed_paths": [
+      "GETTING_STARTED.md"
+    ],
+    "applied_file_digests": {
+      "GETTING_STARTED.md": "sha256:2cc06954236013b175cfe66056045e5f529638e2e8669e9ae47970dd79791231"
+    },
+    "verifier": {
+      "command": "node verifier.js",
+      "status": 0,
+      "signal": null,
+      "stdout": "",
+      "stderr": "",
+      "error": null
+    },
+    "patch_digest": "sha256:4a7b7e70e4994416e78f3d7d7f91e268526094ec2ebf93b52fcbd108a25914a6"
+  },
+  "previous_cell_digest": "sha256:46b6c2e77d86d36c05c4d2f4f53cfc2b180ba6a7a5fc6ead88720d29820578f5",
+  "receipt_digest": "sha256:2b7bbb856d95ac2c1bb29a045728772bcc613d6ebbeaba52f55e2da5d51814c6",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:a9006d320936b7d4aa95e6e9b270fed5ebd4d2b4d74959597a7bad5378f8814e",
+    "signature": "x7kliuyH/F5xFZMT0q8arjmOyLRHmwAUt64KDTN+bVSBrXPTZ52VNVz0/gUTTANZExOMZa/FHdZOnTnE2Z7LAQ=="
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "adversarial-spec",
+  "owner": {
+    "name": "zscole"
+  },
+  "metadata": {
+    "description": "Adversarial spec development through multi-model debate",
+    "version": "1.0.0"
+  },
+  "plugins": [
+    {
+      "name": "adversarial-spec",
+      "description": "Iteratively refine product specs through multi-model debate until consensus",
+      "source": "./",
+      "keywords": ["spec", "prd", "technical-specification", "llm", "debate", "consensus"],
+      "skills": ["./skills/adversarial-spec"]
+    }
+  ]
+}

@@ -1,0 +1,64 @@
+{
+  "schema": 1,
+  "evidence_kind": "actual-run",
+  "scenario_set_id": "optimizer-scenarios-sha256:602e496906f3a293203750602234ba88a55a86b9e4f54f32239264098dcebe5b",
+  "metric_set_id": "optimizer-metrics-sha256:bedffbda2b18d725610b0f294a8273ef908237fd957bf9e51a5af4885b123e4f",
+  "scenario_id": "p-limit-cleanup-pending",
+  "category": "cleanup",
+  "holdout": false,
+  "policy_id": "always-cheap",
+  "repetition": 3,
+  "decision_id": "sha256:0fd80ea1e319159404740a24a86e5eb20d14a7c34674e57763ccfca66e00ef5e",
+  "selected_profile_id": "codex-utility",
+  "observed_profile_id": "codex-utility",
+  "requested_model": "gpt-5.6-luna",
+  "observed_model": "gpt-5.6-luna",
+  "model_proof_status": "passed",
+  "started_at": "2026-07-31T05:43:43.135Z",
+  "duration_ms": 134304,
+  "outcome": "failed",
+  "verified": false,
+  "attempts": 1,
+  "human_interventions": 0,
+  "topology": "sequential-recovery",
+  "cost": {
+    "status": "known",
+    "amount_usd": 0.131801,
+    "provenance": "tool_reported",
+    "source": "citadel_optimizer_runner",
+    "source_ref": "summed_attempts:1",
+    "pricing_snapshot_digest": "sha256:25b513c37e29469432a02426ef9fee93c190489cfada0548ae6c3376ec4b5ae1",
+    "components": [
+      {
+        "kind": "model",
+        "amount_usd": 0.131801,
+        "source": "attempt_1:openai/gpt-5.6-luna token pricing"
+      }
+    ]
+  },
+  "artifact_paths": [],
+  "verification_receipts": [
+    {
+      "attempt": 1,
+      "profile_id": "codex-utility",
+      "status": "failed",
+      "exit_code": 1,
+      "timed_out": false,
+      "output_digest": "sha256:1a92c7e53fd1153b8ed7ed28acd9b7a39f7e7a9a25931920915bc5cee30f74ed",
+      "output_excerpt": "[stdout]\n\n  √ throws on invalid concurrency argument\n  √ clearQueue\n  √ accepts additional arguments\n  √ continues after sync throw\n  √ runs all tasks asynchronously\n  √ non-promise returning function\n  √ map accepts an iterable (set)\n  √ map accepts an iterable (array iterator)\n  √ map\n  √ propagates async execution context properly\n  √ shared context with a limited provider helper\n  √ map passes index and preserves order with concurrency\n  √ map works when detached from the limit\n  × [fail]: clearQueue rejects pending promises when enabled\n  √ does not ignore errors (133ms)\n  √ accepts options object (129ms)\n  √ change concurrency to bigger value (180ms)\n  √ change concurrency to smaller value (237ms)\n  √ concurrency: 1 (618ms)\n  √ concurrency: 4 (2.4s)\n  √ limitFunction() (2.6s)\n  √ activeCount and pendingCount properties (3s)\n\n  Unhandled rejection in test.js\n\n  DOMException {}\n\n  × test.js exited with a non-zero exit code: 1\n  ─\n\n  clearQueue rejects pending promises when enabled\n\n  test.js:213\n\n   212:   await runningPromise;                                        \n   213:   await t.throwsAsync(pendingPromiseOne, {name: 'AbortError'});\n   214:   await t.throwsAsync(pendingPromiseTwo, {name: 'AbortError'});\n\n  Promise rejected with exception that is not an error:\n\n  DOMException {}\n\n  › file:///test.js:213:10\n\n  ─\n\n  1 test failed\n  1 unhandled rejection\n\n[stderr]\n",
+      "output_truncated": false,
+      "patch_exit_code": 0,
+      "patch_digest": "sha256:12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+      "patch_excerpt": "",
+      "patch_truncated": false,
+      "changed_paths": []
+    }
+  ],
+  "receipt_status": "verified",
+  "adversarial_result": "unknown",
+  "failure_code": "VERIFICATION_FAILED",
+  "attestation": {
+    "algorithm": "ed25519",
+    "signature_base64": "51UBE6CokLYhVqPx10z6x5q8mh3GP08wHn3UtyS85PUSQ35R+o2bDQXyMSMqwjQqmzciPucIZEpRGDLDHDcsAA=="
+  }
+}

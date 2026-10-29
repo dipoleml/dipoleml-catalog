@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# SessionStart hook — scans project for OKF concepts (any .md with type: frontmatter)
+# and injects a compact knowledge index into session context.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PLUGIN_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-${PWD}}"
+
+# Build knowledge index from project root
+CONTEXT=$("${SCRIPT_DIR}/run-python" "${PLUGIN_ROOT}/scripts/parse-okf.py" "${PROJECT_ROOT}") || {
+    printf '{"continue": true, "suppressOutput": true}\n'
+    exit 0
+}
+
+# If no concepts found, exit silently
+echo "${CONTEXT}" | grep -q "^Knowledge: 0 " && {
+    printf '{"continue": true, "suppressOutput": true}\n'
+    exit 0
+}
+
+escape_for_json() {
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//\"/\\\"}"
+    s="${s//$'\n'/\\n}"
+    s="${s//$'\r'/\\r}"
+    s="${s//$'\t'/\\t}"
+    printf '%s' "$s"
+}
+
+PAYLOAD=$(printf '<mega-brain>\n%s\n</mega-brain>' "${CONTEXT}")
+ESCAPED=$(escape_for_json "${PAYLOAD}")
+
+if [ -n "${CURSOR_PLUGIN_ROOT:-}" ]; then
+    printf '{"additional_context": "%s"}\n' "${ESCAPED}"
+elif [ -n "${CLAUDE_PLUGIN_ROOT:-}" ] && [ -z "${COPILOT_CLI:-}" ]; then
+    printf '{"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "%s"}}\n' "${ESCAPED}"
+else
+    printf '{"additionalContext": "%s"}\n' "${ESCAPED}"
+fi
+
+exit 0

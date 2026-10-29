@@ -1,0 +1,16 @@
+{
+  "name": "permission-guardian",
+  "displayName": "Permission Guardian",
+  "version": "0.1.0",
+  "description": "Analyzes project and generates DipoleML permissions for detected tech stacks.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Andrew54068"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/andrew54068/claude-plugins",
+  "repository": "https://github.com/andrew54068/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

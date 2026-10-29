@@ -1,0 +1,204 @@
+{
+  "name": "sage-cursor",
+  "displayName": "Gen Sage",
+  "description": "Safety for Agents — protects AI agent tool calls against dangerous commands, malicious URLs, and harmful file writes.",
+  "version": "0.14.0",
+  "private": true,
+  "publisher": "Gen",
+  "icon": "icon.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gendigitalinc/sage.git"
+  },
+  "license": "Apache-2.0",
+  "engines": {
+    "vscode": "^1.105.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:sage.enableProtection",
+    "onCommand:sage.disableProtection",
+    "onCommand:sage.openConfig",
+    "onCommand:sage.openExceptions",
+    "onCommand:sage.openAuditLog",
+    "onCommand:sage.showHookHealth",
+    "onCommand:sage.enableProtection.norton",
+    "onCommand:sage.disableProtection.norton",
+    "onCommand:sage.openConfig.norton",
+    "onCommand:sage.openExceptions.norton",
+    "onCommand:sage.openAuditLog.norton",
+    "onCommand:sage.showHookHealth.norton"
+  ],
+  "files": [
+    "dist/cursor_extension.js",
+    "dist/cursor_extension.js.map",
+    "dist/mcp-server.cjs",
+    "dist/mcp-server.cjs.map",
+    "dist/sage-hook.cjs",
+    "dist/sage-hook.cjs.map",
+    "dist/model-download-worker.cjs",
+    "dist/model-download-worker.cjs.map",
+    "dist/skill-upload-worker.cjs",
+    "dist/skill-upload-worker.cjs.map",
+    "dist/uninstall.cjs",
+    "dist/uninstall.cjs.map",
+    "resources/**",
+    "icon.png",
+    "package.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "main": "./dist/cursor_extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "sage.enableProtection",
+        "title": "Sage: Enable protection"
+      },
+      {
+        "command": "sage.disableProtection",
+        "title": "Sage: Disable protection until restart"
+      },
+      {
+        "command": "sage.openConfig",
+        "title": "Sage: Open config"
+      },
+      {
+        "command": "sage.openExceptions",
+        "title": "Sage: Open exceptions"
+      },
+      {
+        "command": "sage.openAuditLog",
+        "title": "Sage: Open audit log"
+      },
+      {
+        "command": "sage.showHookHealth",
+        "title": "Sage: Show hook health"
+      },
+      {
+        "command": "sage.enableProtection.norton",
+        "title": "Enable protection",
+        "category": "Norton AI Agent Protection"
+      },
+      {
+        "command": "sage.disableProtection.norton",
+        "title": "Disable protection until restart",
+        "category": "Norton AI Agent Protection"
+      },
+      {
+        "command": "sage.openConfig.norton",
+        "title": "Open config",
+        "category": "Norton AI Agent Protection"
+      },
+      {
+        "command": "sage.openExceptions.norton",
+        "title": "Open exceptions",
+        "category": "Norton AI Agent Protection"
+      },
+      {
+        "command": "sage.openAuditLog.norton",
+        "title": "Open audit log",
+        "category": "Norton AI Agent Protection"
+      },
+      {
+        "command": "sage.showHookHealth.norton",
+        "title": "Show hook health",
+        "category": "Norton AI Agent Protection"
+      }
+    ],
+    "mcpServerDefinitionProviders": [
+      {
+        "id": "sage.mcp-servers",
+        "label": "Gen Sage"
+      }
+    ],
+    "configuration": {
+      "title": "Sage",
+      "properties": {
+        "sage.hookRunnerPath": {
+          "type": "string",
+          "scope": "application",
+          "default": "",
+          "description": "Optional absolute path to a sage-hook runner script."
+        }
+      }
+    },
+    "menus": {
+      "commandPalette": [
+        {
+          "command": "sage.enableProtection",
+          "when": "!sage.brandKey"
+        },
+        {
+          "command": "sage.disableProtection",
+          "when": "!sage.brandKey"
+        },
+        {
+          "command": "sage.openConfig",
+          "when": "!sage.brandKey"
+        },
+        {
+          "command": "sage.openExceptions",
+          "when": "!sage.brandKey"
+        },
+        {
+          "command": "sage.openAuditLog",
+          "when": "!sage.brandKey"
+        },
+        {
+          "command": "sage.showHookHealth",
+          "when": "!sage.brandKey"
+        },
+        {
+          "command": "sage.enableProtection.norton",
+          "when": "sage.brandKey == 'norton'"
+        },
+        {
+          "command": "sage.disableProtection.norton",
+          "when": "sage.brandKey == 'norton'"
+        },
+        {
+          "command": "sage.openConfig.norton",
+          "when": "sage.brandKey == 'norton'"
+        },
+        {
+          "command": "sage.openExceptions.norton",
+          "when": "sage.brandKey == 'norton'"
+        },
+        {
+          "command": "sage.openAuditLog.norton",
+          "when": "sage.brandKey == 'norton'"
+        },
+        {
+          "command": "sage.showHookHealth.norton",
+          "when": "sage.brandKey == 'norton'"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "build": "npm run clean && npm run sync:assets && node scripts/generate-brand-commands.mjs && node esbuild.config.cjs",
+    "clean": "node ../../scripts/clean.mjs dist resources .vsce",
+    "sync:assets": "node scripts/sync-assets.mjs",
+    "pretest": "npm run sync:assets && node scripts/generate-brand-commands.mjs && node esbuild.config.cjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "package:cursor:vsix": "npm run build && pnpm dlx @vscode/vsce package -o ../../sage-cursor.vsix --no-dependencies --allow-package-secrets github --allow-package-secrets slack",
+    "package:vscode:vsix": "npm run build && node scripts/package-vscode-vsix.mjs",
+    "package:vsix": "npm run package:cursor:vsix && npm run package:vscode:vsix",
+    "vscode:uninstall": "node dist/uninstall.cjs cursor"
+  },
+  "devDependencies": {
+    "@gendigital/sage-core": "workspace:*",
+    "@gendigital/sage-mcp": "workspace:*",
+    "@types/node": "^22.0.0",
+    "@types/vscode": "^1.105.0",
+    "@vscode/test-electron": "^2.5.2",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.0"
+  }
+}

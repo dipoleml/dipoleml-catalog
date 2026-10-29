@@ -1,0 +1,281 @@
+{
+  "schema": 1,
+  "kind": "citadel_operation_control_report",
+  "operation_id": "citadel-short-executor-proof-v2",
+  "request_digest": "sha256:fad93592ecf1e5c34fb76ce77a74e08a624fa9af92cbdff279c2c93125ebcb83",
+  "decision": {
+    "schema": 1,
+    "kind": "citadel_operation_decision",
+    "operation_id": "citadel-short-executor-proof-v2",
+    "request_digest": "sha256:fad93592ecf1e5c34fb76ce77a74e08a624fa9af92cbdff279c2c93125ebcb83",
+    "catalog_digest": "sha256:8a6f3cc492a1f9046c0b8dfbd592360fe87f65af9aa75585db9efc9a94ec81cb",
+    "history_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "selection_status": "meets-quality-target",
+    "quality_target": 0.2,
+    "selected": {
+      "root_plan_id": "codex-direct-gpt-5-6-sol",
+      "plan_ids": [
+        "codex-direct-gpt-5-6-sol"
+      ],
+      "stages": [
+        {
+          "plan_id": "codex-direct-gpt-5-6-sol",
+          "reach_probability": 1,
+          "success_probability": 0.255017,
+          "evidence_basis": "declared-prior"
+        }
+      ],
+      "verified_success_probability": 0.255017,
+      "expected_duration_ms": 900000,
+      "maximum_duration_ms": 1800000,
+      "expected_costs": {
+        "actual_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "unknown_plan_ids": [
+            "codex-direct-gpt-5-6-sol"
+          ]
+        },
+        "marginal": {
+          "status": "unknown",
+          "amount_usd": null,
+          "unknown_plan_ids": [
+            "codex-direct-gpt-5-6-sol"
+          ]
+        },
+        "market_equivalent": {
+          "status": "unknown",
+          "amount_usd": null,
+          "unknown_plan_ids": [
+            "codex-direct-gpt-5-6-sol"
+          ]
+        }
+      },
+      "maximum_costs": {
+        "actual_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "unknown_plan_ids": [
+            "codex-direct-gpt-5-6-sol"
+          ]
+        },
+        "marginal": {
+          "status": "unknown",
+          "amount_usd": null,
+          "unknown_plan_ids": [
+            "codex-direct-gpt-5-6-sol"
+          ]
+        },
+        "market_equivalent": {
+          "status": "unknown",
+          "amount_usd": null,
+          "unknown_plan_ids": [
+            "codex-direct-gpt-5-6-sol"
+          ]
+        }
+      },
+      "eligible": true,
+      "reason_codes": []
+    },
+    "candidates": [
+      {
+        "root_plan_id": "codex-direct-gpt-5-6-sol",
+        "plan_ids": [
+          "codex-direct-gpt-5-6-sol"
+        ],
+        "stages": [
+          {
+            "plan_id": "codex-direct-gpt-5-6-sol",
+            "reach_probability": 1,
+            "success_probability": 0.255017,
+            "evidence_basis": "declared-prior"
+          }
+        ],
+        "verified_success_probability": 0.255017,
+        "expected_duration_ms": 900000,
+        "maximum_duration_ms": 1800000,
+        "expected_costs": {
+          "actual_cash": {
+            "status": "unknown",
+            "amount_usd": null,
+            "unknown_plan_ids": [
+              "codex-direct-gpt-5-6-sol"
+            ]
+          },
+          "marginal": {
+            "status": "unknown",
+            "amount_usd": null,
+            "unknown_plan_ids": [
+              "codex-direct-gpt-5-6-sol"
+            ]
+          },
+          "market_equivalent": {
+            "status": "unknown",
+            "amount_usd": null,
+            "unknown_plan_ids": [
+              "codex-direct-gpt-5-6-sol"
+            ]
+          }
+        },
+        "maximum_costs": {
+          "actual_cash": {
+            "status": "unknown",
+            "amount_usd": null,
+            "unknown_plan_ids": [
+              "codex-direct-gpt-5-6-sol"
+            ]
+          },
+          "marginal": {
+            "status": "unknown",
+            "amount_usd": null,
+            "unknown_plan_ids": [
+              "codex-direct-gpt-5-6-sol"
+            ]
+          },
+          "market_equivalent": {
+            "status": "unknown",
+            "amount_usd": null,
+            "unknown_plan_ids": [
+              "codex-direct-gpt-5-6-sol"
+            ]
+          }
+        },
+        "eligible": true,
+        "reason_codes": []
+      }
+    ],
+    "predictions": {
+      "codex-direct-gpt-5-6-sol": {
+        "plan_id": "codex-direct-gpt-5-6-sol",
+        "evidence_records": 0,
+        "decided_records": 0,
+        "passed_records": 0,
+        "posterior_mean": 0.65,
+        "conservative_probability": 0.255017,
+        "expected_duration_ms": 900000,
+        "costs": {
+          "actual_cash": {
+            "status": "unknown",
+            "amount_usd": null,
+            "basis": "estimate",
+            "source": "runtime template has no invoice attribution"
+          },
+          "marginal": {
+            "status": "unknown",
+            "amount_usd": null,
+            "basis": "estimate",
+            "source": "runtime template has no per-operation marginal observation"
+          },
+          "market_equivalent": {
+            "status": "unknown",
+            "amount_usd": null,
+            "basis": "estimate",
+            "source": "add a sourced estimate or learn from observed telemetry"
+          }
+        },
+        "evidence_basis": "declared-prior",
+        "confidence_method": "90-percent-one-sided-wilson-with-prior-pseudocounts"
+      }
+    },
+    "decision_digest": "sha256:8443d383e4b875516cb300723330cfec0abfc4cd2c2c2626d82b08066c126df3"
+  },
+  "status": "failed",
+  "terminal_reason_code": "RUNTIME_LAUNCH_FAILED",
+  "attempts": [
+    {
+      "attempt": 1,
+      "plan_id": "codex-direct-gpt-5-6-sol",
+      "retry_count": 0,
+      "requested_model": "gpt-5.6-sol",
+      "observed_model": null,
+      "requested_topology": "direct",
+      "observed_topology": "direct",
+      "planned_tools": [
+        "filesystem",
+        "shell"
+      ],
+      "observed_tools": [
+        "filesystem",
+        "shell"
+      ],
+      "observed_tool_calls": [],
+      "duration_ms": 353,
+      "completion_status": "failed",
+      "control_status": "unknown",
+      "control_reason_codes": [
+        "MODEL_NOT_OBSERVED"
+      ],
+      "failure_code": "RUNTIME_LAUNCH_FAILED",
+      "output_digest": "sha256:12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+      "evidence": {
+        "kind": "adapter-result",
+        "exit_code": null,
+        "output_digest": "sha256:12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126"
+      },
+      "usage": {},
+      "costs": {
+        "actual_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "basis": "observed",
+          "source": "invoice and subscription attribution are outside the runtime adapter"
+        },
+        "marginal": {
+          "status": "unknown",
+          "amount_usd": null,
+          "basis": "observed",
+          "source": "per-operation marginal cash was not observed"
+        },
+        "market_equivalent": {
+          "status": "unknown",
+          "amount_usd": null,
+          "basis": "observed",
+          "source": "runtime did not provide attributable list-price telemetry"
+        }
+      }
+    }
+  ],
+  "costs": {
+    "actual_cash": {
+      "status": "unknown",
+      "amount_usd": null,
+      "basis": "observed",
+      "source": "1 attempt(s) unknown"
+    },
+    "marginal": {
+      "status": "unknown",
+      "amount_usd": null,
+      "basis": "observed",
+      "source": "1 attempt(s) unknown"
+    },
+    "market_equivalent": {
+      "status": "unknown",
+      "amount_usd": null,
+      "basis": "observed",
+      "source": "1 attempt(s) unknown"
+    }
+  },
+  "telemetry": [
+    {
+      "name": "citadel.operation.attempt",
+      "attributes": {
+        "gen_ai.operation.name": "invoke_agent",
+        "gen_ai.request.model": "gpt-5.6-sol",
+        "gen_ai.response.model": null,
+        "citadel.operation.id": "citadel-short-executor-proof-v2",
+        "citadel.plan.id": "codex-direct-gpt-5-6-sol",
+        "citadel.topology.requested": "direct",
+        "citadel.topology.observed": "direct",
+        "citadel.verification.status": "failed",
+        "citadel.control.status": "unknown"
+      }
+    }
+  ],
+  "trust": {
+    "integrity": "digest-bound",
+    "signer": "unsigned",
+    "outcome": "failed",
+    "note": "Digest integrity does not establish signer trust or semantic correctness."
+  },
+  "report_digest": "sha256:1edecbe4fb3cf89af658a995fe4e2e2258d8c62082c42a3d7524515e38489dc2"
+}

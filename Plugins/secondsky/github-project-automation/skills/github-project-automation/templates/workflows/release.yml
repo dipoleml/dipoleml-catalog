@@ -1,0 +1,187 @@
+# Release Automation Workflow
+# Creates GitHub releases and publishes packages
+#
+# Triggers on: version tags (v*)
+# Actions: Create release, publish to npm/PyPI, generate changelog
+
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'  # Trigger on version tags (v1.0.0, v2.1.3, etc.)
+
+# Least privilege: read-only by default; the one job that publishes a
+# GitHub Release opts into contents: write explicitly below.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    # contents: write is required to create the GitHub Release itself;
+    # nothing else in this job needs elevated access.
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          fetch-depth: 0  # Fetch all history for changelog
+          # This job never pushes git objects: the release is created through
+          # the API with GH_TOKEN, so persisted checkout credentials are not
+          # needed and are disabled as a hardening measure.
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444  # v5.0.0
+        with:
+          node-version: '20'
+          # SECURITY: disable dependency caching in release/publish jobs —
+          # restored action caches are a cache-poisoning vector for a
+          # trusted publish path, so releases build from the registry.
+          package-manager-cache: false
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build production bundle
+        run: npm run build
+
+      - name: Extract version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Get commits since last tag
+          LAST_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -z "$LAST_TAG" ]; then
+            CHANGELOG=$(git log --pretty=format:"- %s (%h)" HEAD)
+          else
+            CHANGELOG=$(git log --pretty=format:"- %s (%h)" "$LAST_TAG..HEAD")
+          fi
+          {
+            echo "CHANGELOG<<EOF"
+            echo "$CHANGELOG"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        # SECURITY: uses the first-party `gh` CLI instead of a third-party
+        # release action, and receives every workflow expression via env —
+        # never interpolated directly into the script.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.VERSION }}
+          CHANGELOG: ${{ steps.changelog.outputs.CHANGELOG }}
+          COMPARE_URL: ${{ github.server_url }}/${{ github.repository }}/compare/${{ github.event.before }}...${{ github.sha }}
+        run: |
+          {
+            echo "## What's Changed"
+            echo ""
+            echo "$CHANGELOG"
+            echo ""
+            echo "## Installation"
+            echo ""
+            echo '```bash'
+            echo "npm install your-package@${VERSION}"
+            echo '```'
+            echo ""
+            echo "**Full Changelog**: $COMPARE_URL"
+          } > release-notes.md
+
+          shopt -s globstar nullglob
+          # gh release create only accepts regular files as assets; globstar
+          # otherwise expands to subdirectories too (e.g. dist/esm/) and the
+          # release step would hard-fail on them.
+          files=()
+          for f in dist/**/*; do
+            [ -f "$f" ] && files+=("$f")
+          done
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "::error::No files found under dist/ to attach to the release"
+            exit 1
+          fi
+          gh release create "v${VERSION}" \
+            --title "Release v${VERSION}" \
+            --notes-file release-notes.md \
+            "${files[@]}"
+
+  publish-npm:
+    name: Publish to npm
+    needs: create-release
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read  # npm publish authenticates with the NPM_TOKEN secret
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444  # v5.0.0
+        with:
+          node-version: '20'
+          # SECURITY: disable dependency caching in release/publish jobs
+          # (cache-poisoning hardening — see above).
+          package-manager-cache: false
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Publish to npm
+        # SECURITY NOTE: a long-lived NPM_TOKEN is the portable default for
+        # a public template. Prefer npm trusted publishing (OIDC, npm >= 11.5)
+        # in your own repo when your npm registry configuration supports it.
+        run: npm publish  # zizmor: ignore[use-trusted-publishing]
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # Uncomment if publishing Python package
+  # publish-pypi:
+  #   name: Publish to PyPI
+  #   needs: create-release
+  #   runs-on: ubuntu-24.04
+  #   if: startsWith(github.ref, 'refs/tags/v')
+  #
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+  #
+  #     - name: Setup Python
+  #       uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
+  #       with:
+  #         python-version: '3.12'
+  #
+  #     - name: Install build tools
+  #       run: |
+  #         python -m pip install --upgrade pip
+  #         pip install build twine
+  #
+  #     - name: Build package
+  #       run: python -m build
+  #
+  #     - name: Publish to PyPI
+  #       run: twine upload dist/*
+  #       env:
+  #         TWINE_USERNAME: __token__
+  #         TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}

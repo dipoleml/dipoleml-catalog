@@ -1,0 +1,750 @@
+import { tagCountDescription } from '../utils/canvasTags'
+import { TagFilterReset, TagFilterRow } from './TagFilterControls'
+import React, { memo } from 'react'
+import { CheckIcon } from '@chakra-ui/icons'
+import { useCopyFeedback, type CopyAction } from '../hooks/useCopyFeedback'
+import { editorFeedbackStyles, editorRevealStyles, editorToolbarStyles } from '../styles/editorInteractions'
+import type { ViewFloatingMenuSlots } from '../slots'
+
+import {
+  HStack, Tooltip, Button, Box, Text, Popover, PopoverTrigger, Portal, PopoverContent, PopoverBody, IconButton, Slider, SliderTrack, SliderFilledTrack, SliderThumb, Switch, VStack, useDisclosure
+} from '@chakra-ui/react'
+import { faArrowsSplitUpAndLeft, faFilter } from '@fortawesome/free-solid-svg-icons'
+import FontAwesomeIcon from './FontAwesomeIcon'
+
+import {
+  DrawIcon as PencilSvg,
+  EyeIcon as EyeSvg,
+  EyeOffIcon as EyeOffSvg,
+  MarkdownIcon as MarkdownSvg,
+  ImportIcon,
+  ExportIcon,
+  ExpandExtrasIcon as ExpandExtrasSvg,
+  CollapseExtrasIcon as CollapseExtrasSvg,
+  NoiseGateIcon,
+  TagsIcon,
+  ChevronDownIcon,
+} from './Icons'
+import { KbdHint, ShortcutHint } from './PanelUI'
+import { RedoSvg, UndoSvg } from './ViewDrawMenu'
+import { useViewEditorContext } from '../pages/ViewEditor/context'
+import { isElementGroupLayer } from '../utils/elementGroups'
+import type { Tag, ViewLayer } from '../types'
+
+const DENSITY_STOPS = [
+  { value: -2, label: 'Quiet' },
+  { value: -1, label: 'Lean' },
+  { value: 0, label: 'Normal' },
+  { value: 1, label: 'Rich' },
+  { value: 2, label: 'Full' },
+] as const
+
+function FilterOffIcon({ size = 15 }: { size?: number }) {
+  const [width, height, , , pathData] = faFilter.icon
+  const paths = Array.isArray(pathData) ? pathData : [pathData]
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${width} ${height}`} fill="currentColor" aria-hidden="true" style={{ flexShrink: 0 }}>
+      {paths.map((path, index) => <path key={index} d={path} />)}
+    </svg>
+  )
+}
+
+export interface ViewFloatingMenuProps extends ViewFloatingMenuSlots {
+  flowOpen?: boolean
+  onFlowOpenChange?: (open: boolean) => void
+  drawingMode: boolean
+  setDrawingMode: React.Dispatch<React.SetStateAction<boolean>>
+  hasDrawingPaths: boolean
+  drawingVisible: boolean
+  setDrawingVisible: React.Dispatch<React.SetStateAction<boolean>>
+  extrasOpen: boolean
+  setExtrasOpen: React.Dispatch<React.SetStateAction<boolean>>
+  disableImportExport?: boolean
+  onImport: () => void
+  onExport: () => void
+  onCopyMermaid?: CopyAction
+  onExportMermaid?: () => void
+  onShare?: () => void
+  focusMode: boolean
+  onFocusModeChange: (enabled: boolean) => void
+  densityLevel?: number
+  onDensityLevelChange?: (level: number) => void
+  noiseGateEnabled?: boolean
+  noiseGateBusy?: boolean
+  onNoiseGateEnabledChange?: (enabled: boolean) => void
+  canUndo?: boolean
+  canRedo?: boolean
+  undoRedoDisabled?: boolean
+  onUndo?: () => void
+  onRedo?: () => void
+  hasMarkdown?: boolean
+  markdownOpen?: boolean
+  markdownBusy?: boolean
+  onMarkdownToggle?: () => void
+
+  // Tag-related props
+  allTags: string[]
+  layers: ViewLayer[]
+  tagColors: Record<string, Tag>
+  hiddenTags: string[]
+  selectedTags?: string[]
+  onToggleTagSelection?: (tag: string) => void
+  onResetTagFilters?: () => void
+  toggleTagVisibility: (tag: string) => void
+  toggleLayerVisibility: (layer: ViewLayer) => void
+  tagElementCounts?: Record<string, number>
+  tagConnectorCounts?: Record<string, number>
+  layerConnectorCounts?: Record<number, number>
+  tagCounts: Record<string, number>
+  layerElementCounts: Record<number, number>
+  setHighlightedTags: (tags: string[] | null) => void
+  setHighlightColor: (color: string | null) => void
+
+  toolbarSlot?: React.ReactNode
+  hideFocusView?: boolean
+  hideExpandExtras?: boolean
+}
+
+/**
+ * Name: Floating Menu
+ * Role: Shows add element, draw, export, import, and share buttons with a collapsible section.
+ * Location: Floating at the bottom center of the editor.
+ * Aliases: Bottom bar, Action bar.
+ */
+function ViewFloatingMenu({
+  flowOpen = false,
+  onFlowOpenChange,
+  drawingMode,
+  setDrawingMode,
+  hasDrawingPaths,
+  drawingVisible,
+  setDrawingVisible,
+  extrasOpen,
+  setExtrasOpen,
+  disableImportExport = false,
+  onImport,
+  onExport,
+  onCopyMermaid,
+  focusMode,
+  onFocusModeChange,
+  densityLevel = 0,
+  onDensityLevelChange,
+  noiseGateEnabled = false,
+  noiseGateBusy = false,
+  onNoiseGateEnabledChange,
+  canUndo = false,
+  canRedo = false,
+  undoRedoDisabled = false,
+  onUndo,
+  onRedo,
+  hasMarkdown = false,
+  markdownOpen = false,
+  markdownBusy = false,
+  onMarkdownToggle,
+  allTags,
+  layers,
+  tagColors,
+  hiddenTags,
+  selectedTags = [],
+  onToggleTagSelection,
+  onResetTagFilters,
+  toggleTagVisibility,
+  toggleLayerVisibility,
+  tagCounts,
+  tagElementCounts,
+  tagConnectorCounts,
+  layerConnectorCounts,
+  layerElementCounts,
+  setHighlightedTags,
+  setHighlightColor,
+  shareSlot,
+  toolbarSlot,
+  hideFocusView = false,
+  hideExpandExtras = false,
+}: ViewFloatingMenuProps) {
+  const { canEdit } = useViewEditorContext()
+  const { isOpen: isTagsOpen, onClose: onTagsClose, onToggle: onTagsToggle } = useDisclosure()
+  const { isOpen: isFiltersOpen, onClose: onFiltersClose, onToggle: onFiltersToggle } = useDisclosure()
+  const [draftDensityLevel, setDraftDensityLevel] = React.useState(densityLevel)
+  const { state: copyState, copy: copyMermaid } = useCopyFeedback(onCopyMermaid)
+  const activeDensityLabel = DENSITY_STOPS.find((stop) => stop.value === draftDensityLevel)?.label ?? 'Normal'
+  const activeNoiseGateLabel = noiseGateEnabled ? activeDensityLabel : 'Off'
+  const showFilters = !hideFocusView || !!onDensityLevelChange
+  const hasActiveFilters = (!hideFocusView && focusMode) || (!!onDensityLevelChange && noiseGateEnabled && densityLevel !== 2)
+  const visibleTags = React.useMemo(
+    () => allTags.filter((tag) => (tagCounts[tag] ?? 0) > 0),
+    [allTags, tagCounts],
+  )
+  const notesLabel = !hasMarkdown ? 'Notes' : markdownOpen ? 'Hide Notes' : 'Notes'
+  const notesDisabled = markdownBusy || (!hasMarkdown && !canEdit)
+  // The VS Code webview has no cloud share/import/export surface, so the extras
+  // section (import, export, copy as mermaid, host slots) is hidden there.
+  const isVscode = typeof window !== 'undefined' && !!window.__TLD_VSCODE__
+  const showExtrasToggle = !hideExpandExtras && !isVscode
+  const extrasVisible = extrasOpen && !isVscode
+
+  React.useEffect(() => {
+    setDraftDensityLevel(densityLevel)
+  }, [densityLevel])
+
+  return (
+    <VStack
+      position="absolute"
+      left="50%"
+      bottom={4}
+      transform="translateX(-50%)"
+      maxW="calc(100% - 24px)"
+      zIndex={20}
+      spacing={2.5}
+      align="center"
+      pointerEvents="none"
+      style={{ bottom: 'calc(1.25rem + env(safe-area-inset-bottom, 0px))' } as React.CSSProperties}
+    >
+      <HStack spacing={4} opacity={0.6} userSelect="none">
+        <HStack spacing={1.5}><KbdHint ml={0}>C</KbdHint><Text fontSize="10px" fontWeight="bold" color="whiteAlpha.600">Create</Text></HStack>
+        <HStack spacing={1.5}><KbdHint ml={0}>F</KbdHint><Text fontSize="10px" fontWeight="bold" color="whiteAlpha.600">Fit</Text></HStack>
+        <HStack spacing={1.5}><ShortcutHint keys={['mod', 'K']} /><Text fontSize="10px" fontWeight="bold" color="whiteAlpha.600">Search</Text></HStack>
+        <HStack spacing={1.5}><KbdHint ml={0}>+/-</KbdHint><Text fontSize="10px" fontWeight="bold" color="whiteAlpha.600">Magnify</Text></HStack>
+      </HStack>
+
+      <HStack
+        pointerEvents="auto"
+        sx={{ ...editorToolbarStyles, '& > *': { flexShrink: 0 } }}
+        maxW="100%"
+        overflowX="auto"
+        spacing={0}
+        bg="var(--bg-panel)"
+        border="1px solid"
+        borderColor="whiteAlpha.100"
+        rounded="xl"
+        boxShadow="0 5px 10px rgba(0,0,0,0.5)"
+        backdropFilter="blur(20px)"
+        px={1.5}
+        py={1.5}
+        transition="all 0.2s cubic-bezier(0.4, 0, 0.2, 1)"
+      >
+
+        {(canUndo || canRedo) && (
+          <>
+            {canUndo && (
+              <Tooltip label="Undo (Cmd/Ctrl+Z)" placement="top" openDelay={200}>
+                <IconButton
+                  aria-label="Undo"
+                  icon={<UndoSvg size={16} />}
+                  variant="ghost"
+                  h="28px"
+                  minW="28px"
+                  px={0}
+                  display="inline-flex"
+                  alignItems="center"
+                  justifyContent="center"
+                  color="gray.300"
+                  isDisabled={undoRedoDisabled}
+                  _disabled={{ opacity: 0.35, cursor: 'not-allowed' }}
+                  _hover={{ bg: 'rgba(var(--accent-rgb), 0.12)', color: 'var(--accent)' }}
+                  onClick={onUndo}
+                />
+              </Tooltip>
+            )}
+
+            {canRedo && (
+              <Tooltip label="Redo (Cmd/Ctrl+Shift+Z)" placement="top" openDelay={200}>
+                <IconButton
+                  aria-label="Redo"
+                  icon={<RedoSvg size={16} />}
+                  variant="ghost"
+                  h="28px"
+                  minW="28px"
+                  px={0}
+                  display="inline-flex"
+                  alignItems="center"
+                  justifyContent="center"
+                  color="gray.300"
+                  isDisabled={undoRedoDisabled}
+                  _disabled={{ opacity: 0.35, cursor: 'not-allowed' }}
+                  _hover={{ bg: 'rgba(var(--accent-rgb), 0.12)', color: 'var(--accent)' }}
+                  onClick={onRedo}
+                />
+              </Tooltip>
+            )}
+            <Box w="1px" h="16px" bg="whiteAlpha.100" flexShrink={0} mx={0.5} />
+          </>
+        )}
+        {showFilters && (
+          <>
+            <Popover isOpen={isFiltersOpen} onClose={onFiltersClose} placement="top" isLazy closeOnBlur>
+              <PopoverTrigger>
+                <Button
+                  variant="ghost"
+                  h="28px"
+                  px={2.5}
+                  color={isFiltersOpen || hasActiveFilters ? 'var(--accent)' : 'gray.300'}
+                  bg={hasActiveFilters ? 'rgba(var(--accent-rgb), 0.12)' : 'transparent'}
+                  _hover={{ bg: 'rgba(var(--accent-rgb), 0.12)', color: 'var(--accent)' }}
+                  onClick={onFiltersToggle}
+                  data-testid="vieweditor-toolbar-filters"
+                  aria-label="Open filters"
+                  aria-expanded={isFiltersOpen}
+                >
+                  <HStack spacing={1.5}>
+                    {hasActiveFilters && onDensityLevelChange ? (
+                      noiseGateEnabled ? <NoiseGateIcon size={15} level={densityLevel} /> : <FilterOffIcon size={15} />
+                    ) : (
+                      <FilterOffIcon size={15} />
+                    )}
+                    <Text fontSize="11px" fontWeight={hasActiveFilters ? 'semibold' : 'normal'}>
+                      {noiseGateEnabled ? activeNoiseGateLabel : 'Filters'}
+                    </Text>
+                    <ChevronDownIcon size={10} strokeWidth={3.5} />
+                  </HStack>
+                </Button>
+              </PopoverTrigger>
+              <Portal>
+                <PopoverContent
+                  sx={editorToolbarStyles}
+                  bg="linear-gradient(180deg, rgba(var(--bg-main-rgb), 0.98) 0%, rgba(var(--bg-main-rgb), 0.92) 100%)"
+                  backdropFilter="blur(22px)"
+                  borderColor="whiteAlpha.100"
+                  boxShadow="0 18px 48px rgba(0,0,0,0.46), inset 0 1px 0 rgba(255,255,255,0.04)"
+                  borderRadius="lg"
+                  width="280px"
+                  _focus={{ boxShadow: 'none' }}
+                >
+                  <PopoverBody p={3}>
+                    <VStack align="stretch" spacing={3}>
+                      {!hideFocusView && (
+                        <HStack
+                          justify="space-between"
+                          spacing={3}
+                          px={2.5}
+                          py={2}
+                          rounded="md"
+                          bg={focusMode ? 'rgba(var(--accent-rgb), 0.10)' : 'whiteAlpha.50'}
+                          border="1px solid"
+                          borderColor={focusMode ? 'rgba(var(--accent-rgb), 0.22)' : 'whiteAlpha.100'}
+                        >
+                          <HStack spacing={2.5} minW={0}>
+                            <Box minW={0}>
+                              <Text fontSize="xs" fontWeight="semibold" color="whiteAlpha.900">Hide External</Text>
+                            </Box>
+                          </HStack>
+                          <Switch
+                            size="sm"
+                            isChecked={focusMode}
+                            onChange={(event) => onFocusModeChange(event.target.checked)}
+                            colorScheme="teal"
+                            flexShrink={0}
+                            aria-label="Toggle external view"
+                          />
+                        </HStack>
+                      )}
+
+                      {onDensityLevelChange && (
+                        <Box
+                          px={2.5}
+                          py={2.5}
+                          rounded="md"
+                          bg="whiteAlpha.50"
+                          border="1px solid"
+                          borderColor="whiteAlpha.100"
+                        >
+                          <HStack justify="space-between" mb={2.5} align="flex-start">
+                            <Box>
+                              <Text fontSize="xs" fontWeight="semibold" color="whiteAlpha.900">Noise Gate</Text>
+                              <Text fontSize="10px" color="whiteAlpha.600"></Text>
+                            </Box>
+                            <HStack spacing={2} flexShrink={0}>
+                              <Text
+                                fontSize="10px"
+                                fontWeight="bold"
+                                color={noiseGateEnabled ? 'var(--accent)' : 'whiteAlpha.600'}
+                                bg={noiseGateEnabled ? 'rgba(var(--accent-rgb), 0.10)' : 'whiteAlpha.100'}
+                                border="1px solid"
+                                borderColor={noiseGateEnabled ? 'rgba(var(--accent-rgb), 0.18)' : 'whiteAlpha.200'}
+                                rounded="full"
+                                px={2}
+                                py={0.5}
+                              >
+                                {activeNoiseGateLabel}
+                              </Text>
+                              <Switch
+                                data-testid="vieweditor-noise-gate-toggle"
+                                size="sm"
+                                isChecked={noiseGateEnabled}
+                                isDisabled={!onNoiseGateEnabledChange}
+                                onChange={(event) => onNoiseGateEnabledChange?.(event.target.checked)}
+                                colorScheme="teal"
+                                aria-label="Toggle noise gate"
+                              />
+                            </HStack>
+                          </HStack>
+                          <Box px={1} pt={1} pb={0.5} opacity={noiseGateEnabled ? 1 : 0.45}>
+                            <Slider
+                              aria-label="Noise gate"
+                              min={-2}
+                              max={2}
+                              step={1}
+                              value={draftDensityLevel}
+                              onChange={setDraftDensityLevel}
+                              onChangeEnd={(value) => {
+                                if (!noiseGateEnabled || noiseGateBusy) return
+                                setDraftDensityLevel(value)
+                                onDensityLevelChange(value)
+                              }}
+                              isDisabled={!noiseGateEnabled || noiseGateBusy}
+                              focusThumbOnChange={false}
+                            >
+                              <SliderTrack h="4px" bg="whiteAlpha.200">
+                                <SliderFilledTrack bg={noiseGateEnabled ? 'var(--accent)' : 'whiteAlpha.400'} />
+                              </SliderTrack>
+                              {DENSITY_STOPS.map((stop) => (
+                                <Box
+                                  key={stop.value}
+                                  position="absolute"
+                                  left={`${((stop.value + 2) / 4) * 100}%`}
+                                  top="50%"
+                                  transform="translate(-50%, -50%)"
+                                  w={stop.value === draftDensityLevel ? '6px' : '2px'}
+                                  h={stop.value === draftDensityLevel ? '6px' : '10px'}
+                                  rounded="full"
+                                  bg={draftDensityLevel >= stop.value ? 'var(--accent)' : 'whiteAlpha.500'}
+                                  pointerEvents="none"
+                                />
+                              ))}
+                              <SliderThumb boxSize="14px" bg="white" border="2px solid" borderColor="var(--accent)" />
+                            </Slider>
+                            <HStack justify="space-between" mt={2} px={0.5}>
+                              {DENSITY_STOPS.map((stop) => (
+                                <Text
+                                  key={stop.value}
+                                  fontSize="9px"
+                                  fontWeight={stop.value === draftDensityLevel ? 'bold' : 'medium'}
+                                  color={stop.value === draftDensityLevel ? 'whiteAlpha.900' : 'whiteAlpha.500'}
+                                >
+                                  {stop.label}
+                                </Text>
+                              ))}
+                            </HStack>
+                          </Box>
+                        </Box>
+                      )}
+                    </VStack>
+                  </PopoverBody>
+                </PopoverContent>
+              </Portal>
+            </Popover>
+          </>
+        )}
+        <Box w="1px" h="16px" bg="whiteAlpha.100" flexShrink={0} mx={0.5} />
+
+        {(visibleTags.length > 0 || layers.length > 0) && (
+          <>
+            <Popover
+              isOpen={isTagsOpen}
+              onClose={() => { onTagsClose(); setHighlightedTags(null); setHighlightColor(null) }}
+              placement="top"
+              isLazy
+              closeOnBlur
+            >
+              <PopoverTrigger>
+                <Button
+                  data-testid="vieweditor-toolbar-tags"
+                  aria-expanded={isTagsOpen}
+                  variant="ghost" h="28px" px={2.5}
+                  color={isTagsOpen ? 'var(--accent)' : 'gray.300'}
+                  _hover={{ bg: 'rgba(var(--accent-rgb), 0.12)', color: 'var(--accent)' }}
+                  onClick={onTagsToggle}
+                >
+                  <HStack spacing={1.5}>
+                    <TagsIcon size={15} />
+                    <Text fontSize="11px" fontWeight="normal">Tags</Text>
+                  </HStack>
+                </Button>
+              </PopoverTrigger>
+              <Portal>
+                <PopoverContent
+                  sx={editorToolbarStyles}
+                  bg="var(--bg-panel)"
+                  backdropFilter="blur(20px)"
+                  borderColor="whiteAlpha.100"
+                  boxShadow="0 8px 32px rgba(0,0,0,0.5)"
+                  borderRadius="lg"
+                  width="220px"
+                  _focus={{ boxShadow: 'none' }}
+                  onMouseLeave={() => { setHighlightedTags(null); setHighlightColor(null) }}
+                >
+                  <PopoverBody p={2} maxH="360px" overflowY="auto">
+                    {layers.map(layer => {
+                      const isHidden = layer.tags.length > 0 && layer.tags.every(t => hiddenTags.includes(t))
+                      return (
+                        <HStack
+                          key={`layer-${layer.id}`}
+                          px={2}
+                          py={1}
+                          spacing={2}
+                          borderRadius="md"
+                          _hover={{ bg: 'whiteAlpha.100' }}
+                          onMouseEnter={() => { setHighlightedTags(layer.tags); setHighlightColor(layer.color || '') }}
+                          opacity={isHidden ? 0.4 : 1}
+                          transition="opacity 0.15s"
+                        >
+                          <Box w="10px" h="10px" rounded="full" bg={layer.color || 'gray.500'} flexShrink={0} />
+                          <Text fontSize="xs" fontWeight="600" color="white" flex={1} isTruncated>
+                            {isElementGroupLayer(layer) ? `group:${layer.name}` : layer.name}
+                          </Text>
+                          <Text fontSize="10px" color="gray.600" flexShrink={0} title={tagCountDescription(layerElementCounts[layer.id] ?? 0, layerConnectorCounts?.[layer.id] ?? 0)}>
+                            {(layerElementCounts[layer.id] ?? 0) + (layerConnectorCounts?.[layer.id] ?? 0)}
+                          </Text>
+                          <IconButton
+                            aria-label={isHidden ? 'Show layer' : 'Hide layer'}
+                            data-testid="vieweditor-toolbar-layer-toggle"
+                            icon={isHidden ? <EyeOffSvg size={12} /> : <EyeSvg size={12} />}
+                            size="xs"
+                            variant="ghost"
+                            color={isHidden ? 'whiteAlpha.300' : 'whiteAlpha.600'}
+                            _hover={{ color: 'white', bg: 'whiteAlpha.200' }}
+                            onClick={(e) => { e.stopPropagation(); toggleLayerVisibility(layer) }}
+                            flexShrink={0}
+                          />
+                        </HStack>
+                      )
+                    })}
+
+                    {visibleTags.map((tag) => (
+                      <TagFilterRow
+                        key={`tag-${tag}`}
+                        tag={tag}
+                        count={tagCounts[tag] ?? 0}
+                        elementCount={tagElementCounts?.[tag] ?? (tagConnectorCounts ? 0 : undefined)}
+                        connectorCount={tagConnectorCounts?.[tag] ?? 0}
+                        color={tagColors[tag]?.color}
+                        hidden={hiddenTags.includes(tag)}
+                        selected={selectedTags.includes(tag)}
+                        onSelect={onToggleTagSelection}
+                        onHover={() => { setHighlightedTags([tag]); setHighlightColor(tagColors[tag]?.color || '') }}
+                        onToggleVisibility={toggleTagVisibility}
+                        eyeTestId="vieweditor-toolbar-tag-toggle"
+                      />
+                    ))}
+                  </PopoverBody>
+                </PopoverContent>
+              </Portal>
+            </Popover>
+            <TagFilterReset active={selectedTags.length > 0} onReset={onResetTagFilters ? () => { onResetTagFilters(); setHighlightedTags(null); setHighlightColor(null) } : undefined} />
+            <Box w="1px" h="16px" bg="whiteAlpha.100" flexShrink={0} mx={0.5} />
+          </>
+        )}
+
+        {onMarkdownToggle && (
+          <>
+            <Tooltip
+              label={!hasMarkdown ? 'Open notes setup' : markdownOpen ? 'Hide notes' : 'Open notes'}
+              placement="top"
+              openDelay={200}
+            >
+              <Button
+                data-testid="vieweditor-toolbar-markdown"
+                aria-pressed={!!markdownOpen}
+                variant="ghost"
+                h="28px"
+                px={2.5}
+                color={hasMarkdown ? 'var(--accent)' : 'gray.300'}
+                bg={hasMarkdown && markdownOpen ? 'rgba(var(--accent-rgb), 0.12)' : 'transparent'}
+                isDisabled={notesDisabled}
+                _disabled={{ opacity: 0.35, cursor: 'not-allowed' }}
+                _hover={{ bg: 'rgba(var(--accent-rgb), 0.12)', color: 'var(--accent)' }}
+                onClick={onMarkdownToggle}
+              >
+                <HStack spacing={1.5}>
+                  <MarkdownSvg />
+                  <Text fontSize="11px" fontWeight={hasMarkdown ? 'semibold' : 'normal'}>
+                    {notesLabel}
+                  </Text>
+                </HStack>
+              </Button>
+            </Tooltip>
+          </>
+        )}
+
+
+        {/* Draw mode toggle */}
+        <Box w="1px" h="16px" bg="whiteAlpha.100" flexShrink={0} mx={0.5} />
+        <Tooltip
+          label={drawingMode ? 'Exit drawing mode' : 'Draw on diagram'}
+          placement="top"
+          openDelay={200}
+        >
+          <Button
+            data-testid="vieweditor-toolbar-draw"
+            aria-pressed={drawingMode}
+            variant="ghost"
+            h="28px"
+            px={2.5}
+            color={drawingMode ? 'var(--accent)' : 'gray.300'}
+            bg={drawingMode ? 'rgba(var(--accent-rgb), 0.12)' : 'transparent'}
+            _hover={{ bg: drawingMode ? 'rgba(var(--accent-rgb), 0.18)' : 'rgba(var(--accent-rgb), 0.12)', color: 'var(--accent)' }}
+            onClick={() => setDrawingMode((v) => !v)}
+            aria-label={drawingMode ? 'Exit drawing mode' : 'Enter drawing mode'}
+          >
+            <HStack spacing={1.5}>
+              <PencilSvg size={15} />
+              <Text fontSize="11px" fontWeight="normal">Draw</Text>
+            </HStack>
+          </Button>
+        </Tooltip>
+
+        {onFlowOpenChange && <>
+          <Box w="1px" h="16px" bg="whiteAlpha.100" flexShrink={0} mx={0.5} />
+          <Button
+            data-testid="vieweditor-toolbar-flows"
+            variant="ghost"
+            h="28px"
+            px={2.5}
+            aria-expanded={flowOpen}
+            color={flowOpen ? 'var(--accent)' : 'gray.300'}
+            bg={flowOpen ? 'rgba(var(--accent-rgb), 0.12)' : 'transparent'}
+            _hover={{ bg: 'rgba(var(--accent-rgb), 0.12)', color: 'var(--accent)' }}
+            onClick={() => onFlowOpenChange(!flowOpen)}
+          >
+            <HStack spacing={1.5}>
+              {/* The icon's arrowhead extends above its declared 512×512 bounds. */}
+              <FontAwesomeIcon icon={faArrowsSplitUpAndLeft} size={15} viewBox="0 -32 512 544" />
+              <Text fontSize="11px" fontWeight="normal">Flows</Text>
+            </HStack>
+          </Button>
+        </>}
+
+        {/* Drawing layer visibility toggle - only shown when there are strokes */}
+        {hasDrawingPaths && (
+          <>
+            <Box w="1px" h="16px" bg="whiteAlpha.100" flexShrink={0} mx={0.5} />
+            <Tooltip
+              label={drawingVisible ? 'Hide Drawings' : 'Show Drawings'}
+              placement="top"
+              openDelay={200}
+            >
+              <Button
+                data-testid="vieweditor-toolbar-draw-visibility"
+                aria-pressed={drawingVisible}
+                variant="ghost"
+                h="28px"
+                minW="28px"
+                px={2}
+                color={drawingVisible ? 'gray.300' : 'gray.600'}
+                _hover={{ bg: 'rgba(var(--accent-rgb), 0.12)', color: 'var(--accent)' }}
+                onClick={() => setDrawingVisible((v) => !v)}
+                aria-label={drawingVisible ? 'Hide Drawings' : 'Show Drawings'}
+              >
+                {drawingVisible ? (
+                  <HStack spacing={1.5}>
+                    <EyeSvg size={15} />
+                    <Text fontSize="11px" fontWeight="normal">Hide Drawings</Text>
+                  </HStack>
+                ) : (
+                  <HStack spacing={1.5}>
+                    <EyeOffSvg size={15} />
+                    <Text fontSize="11px" fontWeight="normal">Show Drawings</Text>
+                  </HStack>
+                )}
+              </Button>
+            </Tooltip>
+          </>
+        )}
+
+        {extrasVisible && (
+          <>
+            <Box w="1px" h="16px" bg="whiteAlpha.100" flexShrink={0} mx={0.5} />
+            <HStack spacing={1} pl={1} pr={0.5} sx={editorRevealStyles}>
+
+              <Button
+                data-testid="vieweditor-toolbar-import"
+                variant="ghost"
+                h="28px"
+                px={2.5}
+                color="gray.300"
+                leftIcon={<ImportIcon size={14} />}
+                isDisabled={disableImportExport}
+                _disabled={{ opacity: 0.35, cursor: 'not-allowed' }}
+                _hover={{ bg: 'rgba(var(--accent-rgb), 0.12)', color: 'var(--accent)' }}
+                onClick={onImport}
+              >
+                <Text fontSize="11px" fontWeight="normal">Import</Text>
+              </Button>
+
+              <Box w="1px" h="16px" bg="whiteAlpha.100" flexShrink={0} mx={0.5} />
+
+              <Button
+                data-testid="vieweditor-toolbar-export"
+                variant="ghost"
+                h="28px"
+                px={2.5}
+                color="gray.300"
+                leftIcon={<ExportIcon size={14} />}
+                isDisabled={disableImportExport}
+                _disabled={{ opacity: 0.35, cursor: 'not-allowed' }}
+                _hover={{ bg: 'rgba(var(--accent-rgb), 0.12)', color: 'var(--accent)' }}
+                onClick={onExport}
+              >
+                <Text fontSize="11px" fontWeight="normal">Export</Text>
+              </Button>
+
+              <Box w="1px" h="16px" bg="whiteAlpha.100" flexShrink={0} mx={0.5} />
+
+              {onCopyMermaid && (
+                <Button
+                  data-testid="vieweditor-toolbar-copy-mermaid"
+                  variant="ghost"
+                  h="28px"
+                  px={2.5}
+                  color={copyState === 'copied' ? 'var(--accent)' : 'gray.300'}
+                  leftIcon={<Box as="span" key={copyState} display="inline-flex" alignItems="center" justifyContent="center" boxSize="16px" sx={editorFeedbackStyles}>
+                    {copyState === 'copied' ? <CheckIcon boxSize="14px" /> : <MarkdownSvg size={16} />}
+                  </Box>}
+                  isLoading={copyState === 'copying'}
+                  aria-label={copyState === 'copying' ? 'Copying Mermaid' : undefined}
+                  isDisabled={disableImportExport}
+                  _disabled={{ opacity: 0.35, cursor: 'not-allowed' }}
+                  _hover={{ bg: 'rgba(var(--accent-rgb), 0.12)', color: 'var(--accent)' }}
+                  onClick={() => void copyMermaid()}
+                >
+                  <Box as="span" display="inline-grid" fontSize="11px" fontWeight="normal">
+                    <Box as="span" gridArea="1 / 1" visibility="hidden" aria-hidden="true">Copy as Mermaid</Box>
+                    <Box as="span" gridArea="1 / 1" aria-live="polite">{copyState === 'copied' ? 'Copied' : 'Copy as Mermaid'}</Box>
+                  </Box>
+                </Button>
+              )}
+
+              {shareSlot}
+              {toolbarSlot}
+            </HStack>
+          </>
+        )}
+
+        {showExtrasToggle && (
+          <>
+            <Box w="1px" h="16px" bg="whiteAlpha.100" flexShrink={0} mx={0.5} />
+            <Button
+              data-testid="vieweditor-toolbar-extras"
+              aria-expanded={extrasVisible}
+              variant="ghost"
+              h="28px"
+              minW="36px"
+              px={2}
+              display="inline-flex"
+              alignItems="center"
+              justifyContent="center"
+              color="gray.300"
+              _hover={{ bg: 'rgba(var(--accent-rgb), 0.12)', color: 'var(--accent)' }}
+              onClick={() => setExtrasOpen((prev) => !prev)}
+              aria-label={extrasOpen ? 'Collapse extras' : 'Expand extras'}
+            >
+              {extrasOpen ? <CollapseExtrasSvg size={16} /> : <ExpandExtrasSvg size={16} />}
+            </Button>
+          </>
+        )}
+      </HStack>
+    </VStack>
+  )
+}
+
+export default memo(ViewFloatingMenu)

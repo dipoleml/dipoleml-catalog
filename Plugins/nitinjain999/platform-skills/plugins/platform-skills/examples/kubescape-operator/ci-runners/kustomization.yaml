@@ -1,0 +1,11 @@
+# Step 1 of narrowing runtime rules for ci-runners (opt-in): the
+# signature-only binding. Apply it after the base install (../flux) is Ready —
+# its CRD comes from the Helm release — and before step 2 (release/), so the
+# namespace is never left without runtime rules.
+#
+# Flux: a Kustomization for this path with `dependsOn: [{name: kubescape}]`,
+# where `kubescape` is the Kustomization that reconciles ../flux.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - runtime-rule-binding.yaml

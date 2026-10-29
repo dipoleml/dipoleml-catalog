@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# OS/editor noise
+.DS_Store
+.idea/
+.vscode/
+
+# Local/private capture material
+raw-corpus/
+*.local.md
+*.private.md
+
+# Session-local corpus analysis — never commit raw source text
+.scratch/

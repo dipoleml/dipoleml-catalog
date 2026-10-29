@@ -1,0 +1,8 @@
+{
+  "core": ["agents", "skills", "commands", "docs"],
+  "python": ["skills/python-patterns", "rules/python"],
+  "typescript": ["skills/typescript-patterns", "rules/typescript"],
+  "web": ["skills/frontend-patterns", "skills/wxt-chrome-extension", "rules/web"],
+  "mcp": [".mcp.json", "mcp-configs/mcp-servers.json"],
+  "hooks": ["hooks/hooks.json", "hooks/session-start.sh", "hooks/session-end.sh"]
+}

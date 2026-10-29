@@ -1,0 +1,39 @@
+{
+  "name": "domscribe-mcp",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "library",
+  "sourceRoot": "packages/domscribe-mcp/src",
+  "tags": ["scope:infra", "type:lib"],
+  "targets": {
+    "build": {
+      "executor": "@nx/js:tsc",
+      "outputs": ["{workspaceRoot}/dist/packages/domscribe-mcp"],
+      "options": {
+        "rootDir": "packages/domscribe-mcp/src",
+        "outputPath": "dist/packages/domscribe-mcp",
+        "main": "packages/domscribe-mcp/src/bin/domscribe-mcp.ts",
+        "tsConfig": "packages/domscribe-mcp/tsconfig.lib.json",
+        "generatePackageJson": true,
+        "generateExportsField": true,
+        "assets": ["packages/domscribe-mcp/*.md"]
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "outputs": ["{options.outputFile}"],
+      "options": {
+        "eslintConfig": "eslint.config.mjs",
+        "lintFilePatterns": ["packages/domscribe-mcp/**/*.ts"]
+      }
+    },
+    "typecheck": {
+      "executor": "nx:noop"
+    },
+    "watch-deps": {
+      "executor": "nx:noop"
+    },
+    "build-deps": {
+      "executor": "nx:noop"
+    }
+  }
+}

@@ -1,0 +1,321 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"time"
+)
+
+// toolHandler is the signature every per-tool handler in mcp_handlers_*.go
+// implements. Keeping the dispatcher table-driven means adding a new tool is
+// one entry in toolHandlers plus one handler function — no edits to the
+// switch-statement-as-router.
+type toolHandler func(ctx context.Context, args map[string]interface{}) (result string, isError bool)
+
+// toolHandlers maps MCP tool names to their handler functions. The actual
+// implementations live in mcp_handlers_auth.go, mcp_handlers_process.go,
+// mcp_handlers_discovery.go, mcp_handlers_tasks.go, and
+// mcp_handlers_dashboard.go — grouped by concern so a change to e.g. dashboard
+// behavior doesn't pull in unrelated diffs to login/push/etc.
+var toolHandlers = map[string]toolHandler{
+	// auth
+	"login":  handleLogin,
+	"logout": handleLogout,
+
+	// process / folder / alias
+	"pull-process":         handlePullProcess,
+	"pull-folder":          handlePullFolder,
+	"create-variable":      handleCreateVariable,
+	"list-variables":       handleListVariables,
+	"modify-variable":      handleModifyVariable,
+	"delete-variable":      handleDeleteVariable,
+	"push-process":         handlePushProcess,
+	"clean-process":        handleCleanProcess,
+	"layout-process":       handleLayoutProcess,
+	"lint-process":         handleLintProcess,
+	"run-task":             handleRunTask,
+	"create-process":       handleCreateProcess,
+	"create-state-diagram": handleCreateStateDiagram,
+	"create-folder":        handleCreateFolder,
+	"show-folder":          handleShowFolder,
+	"show-process":         handleShowProcess,
+	"list-folders":         handleListFolders,
+	"modify-folder":        handleModifyFolder,
+	"delete-folder":        handleDeleteFolder,
+	"delete-process":       handleDeleteProcess,
+	"pause-process":        handlePauseProcess,
+	"resume-process":       handleResumeProcess,
+	"move-process":         handleMoveProcess,
+	"move-folder":          handleMoveFolder,
+	"create-alias":         handleCreateAlias,
+
+	// discovery
+	"list-workspaces":     handleListWorkspaces,
+	"list-projects":       handleListProjects,
+	"list-stages":         handleListStages,
+	"list-aliases":        handleListAliases,
+	"deploy-stage":        handleDeployStage,
+	"set-stage-immutable": handleSetStageImmutable,
+	"create-project":      handleCreateProject,
+	"modify-project":      handleModifyProject,
+	"delete-project":      handleDeleteProject,
+	"show-project":        handleShowProject,
+
+	// tasks
+	"show-task":         handleShowTask,
+	"list-task-history": handleListTaskHistory,
+	"list-node-tasks":   handleListNodeTasks,
+	"get-node-stat":     handleGetNodeStat,
+	"modify-task":       handleModifyTask,
+	"delete-task":       handleDeleteTask,
+
+	// communications orchestrator (multi-platform messenger robot)
+	"create-communications-orchestrator": handleCreateCommsOrchestrator,
+
+	// dashboards
+	"create-dashboard":     handleCreateDashboard,
+	"get-dashboard":        handleGetDashboard,
+	"add-chart":            handleAddChart,
+	"modify-chart":         handleModifyChart,
+	"get-chart":            handleGetChart,
+	"set-dashboard-layout": handleSetDashboardLayout,
+
+	// access control (share, groups, api keys, invites)
+	"share-object":       handleShareObject,
+	"list-shares":        handleListShares,
+	"create-group":       handleCreateGroup,
+	"modify-group":       handleModifyGroup,
+	"list-group-objects": handleListGroupObjects,
+	"delete-group":       handleDeleteGroup,
+	"add-to-group":       handleAddToGroup,
+	"remove-from-group":  handleRemoveFromGroup,
+	"list-groups":        handleListGroups,
+	"create-api-key":     handleCreateAPIKey,
+	"modify-api-key":     handleModifyAPIKey,
+	"delete-api-key":     handleDeleteAPIKey,
+	"list-api-keys":      handleListAPIKeys,
+	"find-principal":     handleFindPrincipal,
+	"invite-user":        handleInviteUser,
+
+	// feedback
+	"send-feedback": handleSendFeedback,
+
+	// process snapshots
+	"create-snapshot": handleCreateSnapshot,
+	"list-snapshots":  handleListSnapshots,
+	"delete-snapshot": handleDeleteSnapshot,
+	"get-snapshot":    handleGetSnapshot,
+
+	// git mirror
+	"git-pull-context":    handleGitPullContext,
+	"git-push-context":    handleGitPushContext,
+	"read-context-file":   handleReadContextFile,
+	"update-context-file": handleUpdateContextFile,
+}
+
+// noAuthTools don't need any credentials. lint runs entirely on local files;
+// login/logout manage credentials themselves.
+// send-feedback must not require auth so users can report problems that
+// occurred before or during the login flow.
+// git tools use their own credential check (git_url + api_login/api_secret in
+// the current Folder in ~/.corezoid/config.json) rather than Corezoid API auth.
+var noAuthTools = map[string]struct{}{
+	"layout-process":      {},
+	"lint-process":        {},
+	"login":               {},
+	"logout":              {},
+	"send-feedback":       {},
+	"git-pull-context":    {},
+	"git-push-context":    {},
+	"read-context-file":   {},
+	"update-context-file": {},
+}
+
+// tokenOnlyTools need an OAuth token but not a fully configured workspace or
+// stage — they help the user discover those values during initial setup.
+var tokenOnlyTools = map[string]struct{}{
+	"list-workspaces":     {},
+	"list-projects":       {},
+	"list-stages":         {},
+	"list-aliases":        {},
+	"deploy-stage":        {},
+	"set-stage-immutable": {},
+	"create-project":      {},
+	"modify-project":      {},
+	"delete-project":      {},
+	"show-project":        {},
+}
+
+// handleToolCall dispatches an MCP tool invocation. ctx must be non-nil — it
+// flows down through the Executor into every HTTP request, so callers can
+// cancel a long-running tool (e.g. pull-folder on a large workspace) via the
+// MCP notifications/cancelled message or an HTTP server timeout.
+//
+// The handler tables above keep this function deliberately small: it does
+// auth gating, then a single map lookup. Per-tool logic lives in the
+// mcp_handlers_*.go files alongside related tools.
+//
+// A call naming a domain router (cz-access & co.) is resolved to the
+// action's real tool name FIRST, and everything downstream — auth gating,
+// argument validation, the handler lookup, analytics — sees that real name.
+// Gating on the router instead would be a security bug: cz-structure
+// fronts both list-workspaces (token-only, pre-workspace setup) and
+// delete-project, and the router itself is neither.
+func handleToolCall(ctx context.Context, name string, args map[string]interface{}) (result string, isError bool) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	if routed := resolveRouterCall(name, args); routed.Handled {
+		if routed.Tool == "" {
+			// Help text, or a routing miss that already explains itself. No
+			// handler runs, so there is nothing to gate — but the call still
+			// happened, and both outcomes are reported: help tells us which
+			// actions a model cannot use from their summary alone, and a miss
+			// is the cost of having collapsed the domain in the first place.
+			emitRouterEvent(ctx, name, routed.IsError)
+			return routed.Text, routed.IsError
+		}
+		name, args = routed.Tool, routed.Args
+	}
+
+	if hostedMode {
+		// Gated on the resolved tool, so a router cannot reach an action the
+		// hosted server does not offer.
+		if err := hostedGate(ctx, name); err != nil {
+			return err.Error(), true
+		}
+	} else {
+		// Detect an abandoned workspace before auth gating: if Folder.RootPath was
+		// deleted or wiped since the last login (and the .corezoid marker is gone
+		// with it), drop the stale Folder so ensureAuth() falls through to the
+		// standard "Not authenticated" hint and the user re-runs login on a fresh
+		// binding. Cheap read-only check when the workspace is intact.
+		pruneAbandonedFolder()
+	}
+
+	switch {
+	case hostedMode:
+		// hostedGate above already checked the token and scope.
+	case isInSet(name, noAuthTools):
+		// no auth required
+	case isInSet(name, tokenOnlyTools):
+		if err := ensureTokenAuth(); err != nil {
+			return err.Error(), true
+		}
+		// These tools are exempt from the stage_id requirement — they are what
+		// the init flow uses to FIND a stage — but they still call the Corezoid
+		// API, so they need a base URL like everything else. Resolving it only
+		// in ensureAuth would leave exactly the pre-configuration tools talking
+		// to an empty host.
+		if err := ensureAPIURL(); err != nil {
+			return err.Error(), true
+		}
+	default:
+		if err := ensureAuth(); err != nil {
+			return err.Error(), true
+		}
+	}
+
+	h, ok := toolHandlers[name]
+	if !ok {
+		return fmt.Sprintf("Unknown tool: %s", name), true
+	}
+	argsCheck := unknownArgsError
+	if hostedMode {
+		if hh, ok := hostedHandlers[name]; ok {
+			h = hh
+			argsCheck = hostedUnknownArgsError
+		}
+	}
+
+	start := time.Now()
+	// Reject arguments the tool does not declare. Unknown keys used to be
+	// silently dropped, which let a call like create-process{folder_id: N}
+	// quietly fall back to directory-based target resolution and create the
+	// process somewhere else entirely. The rejection flows through the same
+	// result/analytics path as any other tool error so it is visible in
+	// telemetry.
+	args, aliasErr := applyArgAliases(name, args)
+	if aliasErr != "" {
+		result, isError = aliasErr, true
+	} else if msg := argsCheck(name, args); msg != "" {
+		result, isError = msg, true
+	} else {
+		result, isError = h(ctx, args)
+	}
+
+	emitToolEvent(ctx, name, start, isError, result)
+
+	return result, isError
+}
+
+// emitToolEvent records one tool invocation. Factored out of handleToolCall so
+// every path that answers a call reports it — including the router paths that
+// answer without reaching a handler. How often a model fails to find an action
+// from its one-line summary is the number that tells us whether collapsing the
+// CRUD domains was worth it, and an unreported miss looks exactly like a call
+// that never happened.
+// result is classified here rather than by the caller: classifyError lowercases
+// the whole result string, and a tool result can be a pulled folder listing or
+// a lint report. Computing that on every successful call — and with analytics
+// switched off — is a copy nobody reads.
+func emitToolEvent(ctx context.Context, tool string, start time.Time, isError bool, result string) {
+	if !analyticsEnabled.Load() {
+		return
+	}
+	apiURLv, _, _, _, _ := authSnapshot()
+	clientNameV, clientVersionV := clientIdentityFor(ctx)
+	e := AnalyticsEvent{
+		Ts:             start.UTC().Format(time.RFC3339),
+		Product:        "corezoid",
+		Tool:           tool,
+		DurationMs:     time.Since(start).Milliseconds(),
+		IsError:        isError,
+		APIURL:         hostnameOnly(apiURLv),
+		Transport:      analyticsTransport,
+		ServerVersion:  serverVersion(),
+		InstallationID: installationID,
+		UserEmail:      telemetryEmailValue(),
+		ClientName:     clientNameV,
+		ClientVersion:  clientVersionV,
+	}
+	if isError {
+		e.ErrorType = classifyError(result)
+	}
+	emitAnalyticsEvent(e)
+}
+
+// emitRouterEvent reports an outcome the router answered by itself: help, or a
+// miss. The classification is fixed rather than derived from the text — the
+// text is documentation, and running it through classifyError would file "no
+// such action" under whatever keyword happened to appear in an action summary.
+func emitRouterEvent(ctx context.Context, router string, isError bool) {
+	if !analyticsEnabled.Load() {
+		return
+	}
+	apiURLv, _, _, _, _ := authSnapshot()
+	clientNameV, clientVersionV := clientIdentityFor(ctx)
+	e := AnalyticsEvent{
+		Ts:             time.Now().UTC().Format(time.RFC3339),
+		Product:        "corezoid",
+		Tool:           router,
+		IsError:        isError,
+		APIURL:         hostnameOnly(apiURLv),
+		Transport:      analyticsTransport,
+		ServerVersion:  serverVersion(),
+		InstallationID: installationID,
+		UserEmail:      telemetryEmailValue(),
+		ClientName:     clientNameV,
+		ClientVersion:  clientVersionV,
+	}
+	if isError {
+		e.ErrorType = errorTypeRouterMiss
+	}
+	emitAnalyticsEvent(e)
+}
+
+func isInSet(name string, set map[string]struct{}) bool {
+	_, ok := set[name]
+	return ok
+}

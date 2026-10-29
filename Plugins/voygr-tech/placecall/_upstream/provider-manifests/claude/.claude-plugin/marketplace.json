@@ -1,0 +1,37 @@
+{
+  "name": "placecall",
+  "description": "VOYGR's marketplace for PlaceCall. Give your agent a phone.",
+  "owner": {
+    "name": "VOYGR",
+    "url": "https://voygr.tech"
+  },
+  "plugins": [
+    {
+      "name": "placecall",
+      "displayName": "PlaceCall",
+      "source": "./",
+      "description": "PlaceCall makes AI phone calls that book, confirm, and reach US businesses. It places a real outbound call and returns a structured outcome plus a full transcript. Sign in on first use, no API key needed.",
+      "version": "6.5.1",
+      "author": {
+        "name": "VOYGR",
+        "url": "https://voygr.tech"
+      },
+      "homepage": "https://github.com/voygr-tech/placecall",
+      "repository": "https://github.com/voygr-tech/placecall",
+      "license": "MIT",
+      "keywords": [
+        "phone",
+        "calls",
+        "voice",
+        "telephony",
+        "booking",
+        "reservations",
+        "appointments"
+      ],
+      "category": "productivity",
+      "skills": [
+        "./skills/placecall"
+      ]
+    }
+  ]
+}

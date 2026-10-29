@@ -1,0 +1,224 @@
+#!/usr/bin/env bash
+# Native Windows has no supported Octopus runtime.
+case "$(uname -s 2>/dev/null)" in
+    MINGW*|MSYS*|CYGWIN*) exit 0 ;;
+esac
+# Claude Octopus — SessionStart Auto-Memory Loader (v8.41.0)
+# Fires on SessionStart. Reads persisted preferences from auto-memory
+# (written by session-end.sh) and pre-loads them into the session,
+# skipping provider detection and preference questions for returning users.
+#
+# Hook event: SessionStart
+# ═══════════════════════════════════════════════════════════════════════════════
+
+set -euo pipefail
+# EXIT trap — emits diagnostic stderr ONLY when the hook exits non-zero, so
+# the Claude Code harness error "No stderr output" can never recur. EXIT (not
+# ERR) avoids over-firing on intermediate `grep -o`/`cmd | ...` inside $() that
+# the hook's logic already handles. See issue #313.
+_octo_hook_exit() { local c=$?; if [[ $c -ne 0 ]]; then echo "[hook:$(basename "$0")] exit $c" >&2 2>/dev/null || true; fi; return 0; }
+trap _octo_hook_exit EXIT
+
+# Refresh non-secret install metadata whenever the host, root, version, scope,
+# or context profile changes. This is best-effort and never blocks SessionStart.
+LIFECYCLE_LIB="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd -P)}/scripts/lib/lifecycle.sh"
+if [[ -r "$LIFECYCLE_LIB" ]]; then
+    # shellcheck source=../scripts/lib/lifecycle.sh
+    source "$LIFECYCLE_LIB" 2>/dev/null || true
+    if declare -f octo_lifecycle_state_valid >/dev/null 2>&1 && ! octo_lifecycle_state_valid; then
+        octo_lifecycle_record_install >/dev/null 2>&1 || true
+    fi
+fi
+
+SESSION_INPUT=""
+if [[ ! -t 0 ]]; then
+    SESSION_INPUT="$(cat 2>/dev/null || true)"
+fi
+
+_publish_session_state() {
+    local destination="$1"
+    shift
+    local state_tmp=""
+    state_tmp=$(mktemp "${destination}.tmp.XXXXXX") || return 1
+    if "$@" > "$state_tmp" 2>/dev/null &&
+       mv "$state_tmp" "$destination" 2>/dev/null; then
+        return 0
+    fi
+    rm -f "$state_tmp"
+    return 1
+}
+
+REMOTE_SESSION=false
+# Remote hosting alone is not consent to autonomous Octopus behavior. Hosted
+# routines that need it set OCTOPUS_REMOTE_SESSION=true explicitly.
+if [[ "${OCTOPUS_REMOTE_SESSION:-false}" == "true" ]]; then
+    REMOTE_SESSION=true
+    export OCTOPUS_REMOTE_SESSION=true
+    export CLAUDE_OCTOPUS_AUTONOMY="${CLAUDE_OCTOPUS_AUTONOMY:-${OCTOPUS_AUTONOMY:-autonomous}}"
+    export OCTOPUS_AUTONOMY="${OCTOPUS_AUTONOMY:-$CLAUDE_OCTOPUS_AUTONOMY}"
+
+    if mkdir -p "${HOME}/.claude-octopus" 2>/dev/null; then
+        SESSION_FILE="${HOME}/.claude-octopus/session.json"
+        if command -v jq >/dev/null 2>&1; then
+            if [[ -f "$SESSION_FILE" ]]; then
+                _publish_session_state "$SESSION_FILE" jq --arg autonomy "$OCTOPUS_AUTONOMY" \
+                    '.remote_session = true | .autonomy = (.autonomy // $autonomy)' \
+                    "$SESSION_FILE" || true
+            else
+                _publish_session_state "$SESSION_FILE" jq -n \
+                    --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+                    --arg autonomy "$OCTOPUS_AUTONOMY" \
+                    --arg host_session_id "${CLAUDE_CODE_SESSION_ID:-${CLAUDE_SESSION_ID:-}}" \
+                    '{"remote_session": true, "autonomy": $autonomy, "session_start": $ts, "host_session_id": $host_session_id}' || true
+            fi
+        elif [[ ! -f "$SESSION_FILE" ]]; then
+            _publish_session_state "$SESSION_FILE" printf \
+                '{"remote_session":true,"autonomy":"%s"}\n' "$OCTOPUS_AUTONOMY" || true
+        fi
+    fi
+fi
+
+# --- 0. First-run detection (v9.19.2) ---
+# On very first install, auto-prompt the user to run /octo:setup
+SETUP_MARKER="${HOME}/.claude-octopus/.setup-complete"
+if [[ ! -f "$SETUP_MARKER" ]]; then
+    mkdir -p "${HOME}/.claude-octopus"
+    touch "$SETUP_MARKER"
+    [[ "$REMOTE_SESSION" == "true" ]] && exit 0
+    # First run is an offer, never an invocation. Installation must not take over
+    # an unrelated first prompt.
+    if command -v jq >/dev/null 2>&1; then
+        jq -cn --arg msg "🐙 Claude Octopus is installed but dormant. Run /octo:setup when you want to configure providers; nothing will start automatically." \
+            '{systemMessage:$msg}'
+    else
+        echo "[🐙] Welcome to Claude Octopus! Run /octo:setup for first-time configuration."
+    fi
+    exit 0
+fi
+
+# Outside an active workflow, memory injection and managed-settings writes are
+# opt-in. The prompt router reads its own preference file directly.
+ACTIVATION_LIB="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd -P)}/scripts/lib/hook-activation.sh"
+if [[ "${OCTOPUS_SESSION_MEMORY:-off}" != "on" ]]; then
+    [[ -r "$ACTIVATION_LIB" ]] || exit 0
+    # shellcheck source=../scripts/lib/hook-activation.sh
+    source "$ACTIVATION_LIB" 2>/dev/null || exit 0
+    octo_hook_workflow_active "$SESSION_INPUT" || exit 0
+fi
+
+# --- 0b. Session sync (merged from session-sync.sh to reduce hook spawns) ---
+export CLAUDE_OCTOPUS_SESSION_ID="${CLAUDE_SESSION_ID:-}"
+
+SESSION_FILE="${HOME}/.claude-octopus/session.json"
+
+# --- 1. Find and read persisted preferences from auto-memory ---
+# Use the same project mapping as SessionEnd, never repository-local memory.
+PREFS_FILE=""
+MEMORY_LIB="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd -P)}/hooks/helpers/claude-project-memory.sh"
+if [[ -r "$MEMORY_LIB" ]]; then
+    # shellcheck source=helpers/claude-project-memory.sh
+    source "$MEMORY_LIB"
+    if PROJECT_MEMORY_DIR="$(octo_claude_project_memory_dir)"; then
+        PREFS_FILE="$PROJECT_MEMORY_DIR/octopus-preferences.md"
+    fi
+fi
+
+SKIP_PREFS=0
+if [[ -z "$PREFS_FILE" || ! -f "$PREFS_FILE" || ! -r "$PREFS_FILE" ]]; then
+    # Missing or inaccessible preferences must not interrupt the session.
+    # Skip prefs/managed-settings/claude-mem blocks but still run cache hygiene.
+    SKIP_PREFS=1
+fi
+
+# --- 2. Parse preferences and inject into session ---
+if [[ "$SKIP_PREFS" == "0" ]]; then
+AUTONOMY=""
+PROVIDERS=""
+
+while IFS= read -r line; do
+    case "$line" in
+        *"Preferred autonomy:"*)
+            AUTONOMY="${line##*: }"
+            ;;
+        *"Provider config:"*)
+            PROVIDERS="${line##*: }"
+            ;;
+    esac
+done < "$PREFS_FILE"
+
+# --- 3. Apply preferences to current session ---
+if [[ -n "$AUTONOMY" ]] && command -v jq &>/dev/null; then
+    mkdir -p "$(dirname "$SESSION_FILE")"
+
+    if [[ -f "$SESSION_FILE" ]]; then
+        _publish_session_state "$SESSION_FILE" jq --arg autonomy "$AUTONOMY" \
+           --arg providers "${PROVIDERS:-}" \
+           '.autonomy = $autonomy | .restored_from_memory = true | if $providers != "" then .providers = $providers else . end' \
+           "$SESSION_FILE" || true
+    else
+        # Create initial session with restored preferences (jq --arg for safe escaping)
+        _publish_session_state "$SESSION_FILE" jq -n \
+            --arg autonomy "$AUTONOMY" \
+            --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            '{"autonomy": $autonomy, "restored_from_memory": true, "session_start": $ts}' || true
+    fi
+
+    echo "[🐙] restored: autonomy=${AUTONOMY}"
+fi
+
+# --- 4. Deploy managed-settings.d/ fragment (v9.19.0, CC v2.1.83+) ---
+# Installs octopus-defaults.json with git instructions off + auto-memory dir
+# Note: Generated dynamically (not copied) because JSON has no tilde expansion
+if [[ "${SUPPORTS_MANAGED_SETTINGS_D:-false}" == "true" ]]; then
+    SETTINGS_D="${HOME}/.claude/managed-settings.d"
+    SETTINGS_DEST="${SETTINGS_D}/octopus-defaults.json"
+    if [[ ! -f "$SETTINGS_DEST" ]] || ! grep -q "$HOME" "$SETTINGS_DEST" 2>/dev/null; then
+        mkdir -p "$SETTINGS_D"
+        _tmp="${SETTINGS_DEST}.tmp.$$"
+        cat > "$_tmp" <<EOFSET
+{
+  "includeGitInstructions": false,
+  "autoMemoryDirectory": "${HOME}/.claude-octopus/memory/"
+}
+EOFSET
+        mv "$_tmp" "$SETTINGS_DEST" 2>/dev/null || rm -f "$_tmp"
+    fi
+fi
+
+# --- 5. Query configured memory backend for recent project context ---
+MEMORY_LIB="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd -P)}/scripts/lib/memory.sh"
+if [[ -r "$MEMORY_LIB" ]]; then
+    # shellcheck disable=SC1090
+    source "$MEMORY_LIB" 2>/dev/null || true
+    MEM_CONTEXT=$(memory_context "" 3 2>/dev/null || echo "")
+    if [[ -n "$MEM_CONTEXT" ]]; then
+        echo "[Octopus] memory context available:"
+        echo "$MEM_CONTEXT"
+    fi
+fi
+fi  # end SKIP_PREFS guard
+
+# --- 6. Cache hygiene advisory (v9.29.0) ---
+# Notify when 3+ stale octo cache versions exist. Auto-clean only when explicitly
+# opted in via OCTOPUS_AUTO_CLEAN_CACHE=1 — never delete without consent.
+HYGIENE_LIB="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd -P)}/scripts/lib/cache-hygiene.sh"
+if [[ -r "$HYGIENE_LIB" ]]; then
+    # shellcheck disable=SC1090
+    source "$HYGIENE_LIB"
+    STALE_COUNT=$(octo_cache_stale 2>/dev/null | grep -c . || true)
+    STALE_COUNT="${STALE_COUNT:-0}"
+    if [[ "$STALE_COUNT" -ge 3 ]]; then
+        STALE_BYTES=$(octo_cache_stale_bytes 2>/dev/null || echo 0)
+        STALE_HUMAN=$(octo_cache_format_bytes "$STALE_BYTES" 2>/dev/null || echo "")
+        if [[ "${OCTOPUS_AUTO_CLEAN_CACHE:-0}" == "1" ]]; then
+            CLEANED=$(octo_cache_clean 2>/dev/null | grep -c '^removed:' || true)
+            CLEANED="${CLEANED:-0}"
+            [[ "$CLEANED" -gt 0 ]] && \
+                echo "[🐙] Cleaned ${CLEANED} stale octo cache version(s) — ${STALE_HUMAN} reclaimed"
+        else
+            echo "[🐙] ${STALE_COUNT} stale octo cache version(s) (${STALE_HUMAN}). Run /octo:doctor to clean, or set OCTOPUS_AUTO_CLEAN_CACHE=1."
+        fi
+    fi
+fi
+
+exit 0

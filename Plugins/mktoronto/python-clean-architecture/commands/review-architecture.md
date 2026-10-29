@@ -1,0 +1,123 @@
+---
+name: review-architecture
+description: Review code against Python Clean Architecture principles
+argument-hint: [path]
+---
+
+Before starting the review, use AskUserQuestion to ask: "Which review depth?" with these options:
+1. **Standard** — "Reviews against built-in checklists. No extra permissions needed."
+2. **In-depth** — "Loads detailed reference files for deeper analysis with refactoring recipes and pattern guidance."
+
+Then review the code at `$ARGUMENTS` (or the current working directory if no path given) against Python Clean Architecture principles.
+
+## Review Process
+
+1. **Read the code** — Find and read ALL Python files in the target path recursively. Read every `.py` file — do not skip any. Understand the project structure, imports, and relationships between files.
+
+2. **Check architecture layers** — Verify the three-layer separation:
+   - Routers (API) → Operations (business logic) → Database (persistence)
+   - No layer skipping (routers should not import DB modules directly)
+   - Operations accept `DataInterface` Protocol, not concrete DB classes
+   - Router acts as composition root (wires concrete implementations)
+
+3. **Check the 7 design principles** — For each file/class/function, evaluate:
+   - **High Cohesion** — Does each unit have a single responsibility?
+   - **Low Coupling** — Are dependencies minimized? Any Law of Demeter violations?
+   - **Depend on Abstractions** — Protocol/Callable used for DI? Or concrete imports?
+   - **Composition over Inheritance** — Any deep hierarchies or mixins?
+   - **Separate Creation from Use** — One composition root? Dict mapping over if/elif?
+   - **Start with the Data** — Prefixed fields? Parallel lists? Methods far from data?
+   - **Keep Things Simple** — Over-engineered? Speculative features? Unnecessary abstractions?
+
+4. **Check code quality** — Apply the 22 design rules:
+   - No type abuse, vague identifiers, flag parameters, deep nesting
+   - Tell don't ask, no parallel data structures, no god classes
+   - No broad exception catching, no mutable defaults, no wildcard imports
+   - Type hints on all functions, enums for fixed options, context managers for resources
+
+5. **Check Pythonic patterns** — Are patterns implemented the Pythonic way?
+   - Strategy as Callable, not ABC hierarchy
+   - Factory as dict mapping, not if/elif
+   - Protocol over ABC (unless shared state needed)
+   - functools.partial for configuration, closures for builders
+   - Pub/Sub for notification side effects, not inline calls
+   - Registry for data-driven object creation, not if/elif
+   - Context managers for resource management, not try/finally
+   - Custom exception classes, not broad except catching
+   - Dataclasses for value objects and DTOs, not manual __init__
+   - Pure functions where possible, side effects pushed to boundaries
+
+6. **Check code cleanup opportunities** — Look for concrete refactoring targets:
+   - Extract class when a class does two things
+   - Extract function when a function does two things
+   - Replace mutable globals with injected dataclass context
+   - Replace boolean flag parameters with separate functions
+   - Replace string constants with Enums
+   - Replace deep nesting (3+ levels) with early returns or extraction
+   - Replace god classes (too many responsibilities) with collaborators
+   - Move methods to the class that owns the data (Information Expert)
+   - Replace parallel data structures with a single data class
+   - Replace if/elif chains with dict mapping
+
+7. **Report findings** — Structure the output in this order:
+
+   ### Architecture Summary
+   Classify every Python file into a layer, then show the dependency flows. Use a simple vertical list format — never multi-column ASCII art. Example:
+
+   ```
+   Layers
+   ──────
+   API:        routers/booking.py, routers/customer.py
+   Logic:      operations/booking.py, operations/customer.py
+   Database:   db/db_interface.py, db/models.py, db/database.py
+   Unclear:    utils/helpers.py (mixed concerns)
+
+   Dependency Flows
+   ────────────────
+   routers/booking.py → operations/booking.py → db/db_interface.py    ✓
+   routers/customer.py → operations/customer.py → db/db_interface.py  ✓
+   routers/admin.py → db/models.py                                    ⚠ layer skip
+
+   Layer Violations
+   ────────────────
+   ⚠ routers/admin.py imports db/models.py directly — should go through operations
+   ```
+
+   Adapt to the actual project. If it does not follow the three-layer model, show the dependency flow as-is and note what a target architecture would look like. Keep it compact — group similar flows rather than listing every file individually if there are many.
+
+   ### What Works Well
+   Call out specific things the code does right. Reference files and patterns. Examples:
+   - Clean layer separation with no direct DB imports in routers
+   - Good use of Protocol-based DataInterface for dependency injection
+   - Consistent Pydantic model separation (Create vs Read)
+   - Effective use of dataclasses for value objects
+   - Pure functions in operations with side effects at boundaries
+   - Meaningful naming, good type hint coverage
+
+   This section builds trust and avoids a purely negative tone. Be specific — cite actual files and lines, not generic praise.
+
+   ### Findings by Severity
+   Present issues organized by severity:
+   - **Critical** — Layer violations, missing abstractions, tight coupling to concrete DB
+   - **Important** — Cohesion issues, Law of Demeter violations, missing type hints
+   - **Suggestions** — Pattern improvements, naming, simplification opportunities, cleanup refactorings
+
+   For each finding, include all of the following:
+   1. **File and line** — exact location
+   2. **Principle(s)** — which of the 7 design principles are violated, by number and name (e.g., "P1 High Cohesion", "P3 Depend on Abstractions"). Can be more than one.
+   3. **Pattern** — if a Pythonic design pattern would help, name it (e.g., "Strategy pattern — use Callable type alias", "Registry pattern — dict mapping replaces if/elif"). Not every finding needs a pattern.
+   4. **Fix** — show the recommended fix with a code snippet
+
+   Prioritize actionable cleanup suggestions over architectural observations.
+
+## In-Depth Mode
+
+If the user chose in-depth, load the following reference files for deeper analysis with detailed refactoring recipes and pattern guidance:
+- `${CLAUDE_PLUGIN_ROOT}/skills/clean-architecture/references/design-principles.md`
+- `${CLAUDE_PLUGIN_ROOT}/skills/clean-architecture/references/code-quality.md`
+- `${CLAUDE_PLUGIN_ROOT}/skills/clean-architecture/references/error-handling.md`
+- `${CLAUDE_PLUGIN_ROOT}/skills/clean-architecture/references/pythonic-patterns.md`
+
+For detailed pattern guidance (when explaining HOW to fix), consult the relevant files in `${CLAUDE_PLUGIN_ROOT}/skills/clean-architecture/references/patterns/`.
+
+If the user chose standard, use only the checklists above — do not load reference files.

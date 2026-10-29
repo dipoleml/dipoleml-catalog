@@ -1,0 +1,16 @@
+{
+  "name": "subagent-wall",
+  "displayName": "Subagent Wall",
+  "version": "1.0.0",
+  "description": "A wall-clock limit for subagents (a warning, then only git, gh and .md/.txt writes) and a nudge for a code-changing subagent past a set context size that has edited nothing",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Erikdarlingdata"
+  },
+  "license": "MIT",
+  "homepage": "https://erikdarling.com",
+  "repository": "https://github.com/erikdarlingdata/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

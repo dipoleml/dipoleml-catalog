@@ -1,0 +1,16 @@
+{
+  "name": "techwolf-brand-kit",
+  "displayName": "Techwolf Brand Kit",
+  "version": "1.0.0",
+  "description": "Official TechWolf brand assets for AI-generated outputs. Provides logo files in multiple variants (dark, white, monochrome) as SVG and PNG.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Techwolf Ai"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/techwolf-ai/ai-first-toolkit",
+  "repository": "https://github.com/techwolf-ai/ai-first-toolkit",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,121 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.cablate.ctx-handoff-mod",
+  "type": "plugin",
+  "name": "Ctx Handoff Mod",
+  "slug": "ctx-handoff-mod",
+  "vendor": "cablate",
+  "description": "DipoleML mod: hands off to a fresh conversation when context fills up, keeps the cache warm while you're away, and turns what you teach DipoleML into project notes",
+  "version": "0.8.2",
+  "homepage": "https://github.com/cablate/ctx-handoff-mod",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "ai-coding",
+    "anthropic",
+    "claude-code-mod",
+    "claude-code-plugin",
+    "context-management",
+    "prompt-caching"
+  ],
+  "tags": [
+    "ai-coding",
+    "anthropic",
+    "claude",
+    "claude-code",
+    "claude-code-mod",
+    "claude-code-plugin",
+    "context-management",
+    "prompt-caching"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "cablate",
+    "brandName": "cablate",
+    "source": "https://github.com/cablate.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:12:26Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "cablate/ctx-handoff-mod",
+    "url": "https://github.com/cablate/ctx-handoff-mod",
+    "commit": "866618a0301f3a704fad9ddfe58d9ae7573308f7",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 125,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:03:35Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Ctx Handoff Mod | Claude Code mod: hands off to a fresh conversation when context fills up, keeps the cache warm while you're away, and turns what you teach Claude into project notes",
+        "after": "Ctx Handoff Mod | DipoleML mod: hands off to a fresh conversation when context fills up, keeps the cache warm while you're away, and turns what you teach DipoleML into project notes",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Turns what you teach Claude into project notes, catches its usual slips, keeps the cache warm while you're away, and picks long sessions back up",
+        "after": "Turns what you teach DipoleML into project notes, catches its usual slips, keeps the cache warm while you're away, and picks long sessions back up",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

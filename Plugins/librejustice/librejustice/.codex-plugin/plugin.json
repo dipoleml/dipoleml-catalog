@@ -1,0 +1,38 @@
+{
+  "name": "librejustice",
+  "version": "1.18.0+codex.20260928224419",
+  "description": "Free and open source, LibreJustice gives your agent ~3.8 million French-language and European decisions and ~3.9 million legal articles, readable as they stood on any date and linked article by article. Four MCP tools over OAuth, two research skills.",
+  "author": {
+    "name": "LibreJustice"
+  },
+  "homepage": "https://librejustice.fr",
+  "keywords": [
+    "jurisprudence",
+    "droit",
+    "france",
+    "justice",
+    "loi",
+    "mcp"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "LibreJustice",
+    "shortDescription": "French case law and legislation.",
+    "longDescription": "The only legal research connector your agent needs for French law: ~3.8 million decisions from France's administrative and judicial courts and from the European courts, linked article by article to ~3.9 million legal articles readable as they stood on any date, plus EU law, treaties, collective agreements, BOFiP and the codes of 59 foreign countries.",
+    "developerName": "LibreJustice",
+    "category": "Productivity",
+    "capabilities": [
+      "Read"
+    ],
+    "websiteURL": "https://librejustice.fr",
+    "brandColor": "#892122",
+    "composerIcon": "./assets/icon.png",
+    "logo": "./assets/icon.png",
+    "defaultPrompt": [
+      "Trouve la jurisprudence sur la rupture brutale d'une relation commerciale établie et cite tes sources.",
+      "Quel était le texte de l'article L. 313-11 du CESEDA en vigueur en 2019 ?",
+      "Quels textes s'appliquent à un contrat conclu en 2015 ? Donne les versions en vigueur à cette date."
+    ]
+  }
+}

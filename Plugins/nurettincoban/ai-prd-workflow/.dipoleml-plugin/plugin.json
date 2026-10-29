@@ -1,0 +1,16 @@
+{
+  "name": "ai-prd-workflow",
+  "displayName": "Ai Prd Workflow",
+  "version": "3.0.0",
+  "description": "RFC-driven development workflow: vague idea → verified PRD → features → rules → sequenced RFCs → reviewed, tested code",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Nurettincoban"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/nurettincoban/ai-prd-workflow",
+  "repository": "https://github.com/nurettincoban/ai-prd-workflow",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

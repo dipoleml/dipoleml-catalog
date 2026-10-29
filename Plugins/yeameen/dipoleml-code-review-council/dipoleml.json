@@ -1,0 +1,124 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.yeameen.dipoleml-code-review-council",
+  "type": "plugin",
+  "name": "DipoleML Review Council",
+  "slug": "dipoleml-code-review-council",
+  "vendor": "yeameen",
+  "description": "Multi-agent code review for DipoleML: parallel review by Codex (GPT-5.5), Gemini 3.1 Pro, and 4 DipoleML specialist subagents (security, performance, logic, regression)",
+  "version": "1.2.0",
+  "homepage": "https://github.com/yeameen/claude-code-review-council",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "ai-code-review",
+    "claude-plugin",
+    "code-review",
+    "code-review-tool",
+    "codex",
+    "gemini",
+    "llm-code-review",
+    "multi-agent"
+  ],
+  "tags": [
+    "ai-code-review",
+    "claude-code",
+    "claude-plugin",
+    "code-review",
+    "code-review-tool",
+    "codex",
+    "gemini",
+    "llm-code-review",
+    "multi-agent"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "yeameen",
+    "brandName": "yeameen",
+    "source": "https://github.com/yeameen.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:15:28Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "yeameen/claude-code-review-council",
+    "url": "https://github.com/yeameen/claude-code-review-council",
+    "commit": "a09bdba2c6bbd791f3d08efeb436617c28e93c90",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 21,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:06:28Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Claude Code Review Council | Multi-agent code review for Claude Code: parallel review by Codex (GPT-5.5), Gemini 3.1 Pro, and 4 Claude specialist subagents (security, performance, logic, regression)",
+        "after": "DipoleML Review Council | Multi-agent code review for DipoleML: parallel review by Codex (GPT-5.5), Gemini 3.1 Pro, and 4 DipoleML specialist subagents (security, performance, logic, regression)",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Multi-agent code review for Claude Code — parallel review by Codex (gpt-6-astra high), Gemini 3.8 Flash (High), and five Claude specialist subagents (one run blind), then verified synthesis.",
+        "after": "Multi-agent code review for DipoleML — parallel review by Codex (gpt-6-astra high), Gemini 3.8 Flash (High), and five DipoleML specialist subagents (one run blind), then verified synthesis.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "claude-code-review-council",
+        "after": "dipoleml-code-review-council",
+        "reason": "provider token neutralized in slug/id"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

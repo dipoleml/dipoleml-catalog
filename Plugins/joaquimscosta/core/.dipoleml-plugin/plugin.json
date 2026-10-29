@@ -1,0 +1,16 @@
+{
+  "name": "core",
+  "displayName": "Core",
+  "version": "2.3.0",
+  "description": "Quality control and workflow orchestration utilities",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Joaquimscosta"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/joaquimscosta/arkhe-claude-plugins",
+  "repository": "https://github.com/joaquimscosta/arkhe-claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

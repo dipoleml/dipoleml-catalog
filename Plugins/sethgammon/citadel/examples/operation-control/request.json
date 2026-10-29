@@ -1,0 +1,27 @@
+{
+  "schema": 2,
+  "operation_id": "example-config-check",
+  "objective": "Verify that the checked-in example configuration contains the expected enabled feature.",
+  "feature_key": "repository-check",
+  "quality_target": 0.8,
+  "constraints": {
+    "privacy": "local-only",
+    "allowed_tools": ["filesystem"],
+    "required_tools": ["filesystem"],
+    "max_duration_ms": 30000,
+    "budgets": {
+      "actual_cash": 0,
+      "marginal": 0,
+      "market_equivalent": null
+    },
+    "unknown_cost_policy": "deny"
+  },
+  "verifier": {
+    "kind": "command",
+    "executable": "node",
+    "args": ["check.js"],
+    "cwd": ".",
+    "timeout_ms": 10000,
+    "required_changed_paths": []
+  }
+}

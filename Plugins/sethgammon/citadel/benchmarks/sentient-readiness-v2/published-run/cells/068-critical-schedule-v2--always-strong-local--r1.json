@@ -1,0 +1,113 @@
+{
+  "schema": 2,
+  "cell_id": "068-critical-schedule-v2--always-strong-local--r1",
+  "order": 68,
+  "scenario_id": "critical-schedule-v2",
+  "policy_id": "always-strong-local",
+  "repetition": 1,
+  "route": {
+    "capability_class": "baseline",
+    "initial_tier": "strong",
+    "escalation_tier": null,
+    "reason_code": "BASELINE_ALWAYS_STRONG"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "strong",
+      "started_at": "2026-08-01T03:53:10.652Z",
+      "duration_ms": 6899,
+      "output_text": "{\n  \"answer\": 10\n}",
+      "output_digest": "sha256:26431c4328d673dcba475a92f6d059ff5dfa6d738550f07b0da272eea71ee745",
+      "answer": 10,
+      "verification": {
+        "status": "failed",
+        "verifier_id": "exact-answer-v1",
+        "answer_digest": "sha256:4a44dc15364204a80fe80e9039455cc1608281820fe2b24f1e5233ade6af1dd5",
+        "failure_code": "ANSWER_DIGEST_MISMATCH"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "ollama-chat",
+        "requested_model": "qwen2.5-coder:7b",
+        "observed_model": "qwen2.5-coder:7b",
+        "model_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+        "done_reason": "stop",
+        "response_digest": "sha256:da7f9db363593de2d707f96c7680332f66381b8321721408d542f195a0d8dcd9",
+        "error": null
+      },
+      "usage": {
+        "prompt_tokens": 106,
+        "completion_tokens": 11,
+        "total_tokens": 117,
+        "provider_total_duration_ns": 6897815800
+      },
+      "economics": {
+        "provider_invoice": {
+          "status": "known",
+          "amount_usd": 0,
+          "source": "self_hosted_ollama_no_per_request_invoice"
+        },
+        "gpu_energy": {
+          "status": "measured",
+          "energy_kwh": 0.000106094,
+          "samples": 14,
+          "average_watts": 55.361429
+        },
+        "comparison_cost": {
+          "status": "derived-comparison",
+          "total_usd": 0.000040383,
+          "components": [
+            {
+              "kind": "gpu_electricity",
+              "status": "derived-comparison",
+              "amount_usd": 0.000021219,
+              "energy_kwh": 0.000106094,
+              "rate_usd_per_kwh": 0.2,
+              "source": "nvidia_smi_energy_times_frozen_scenario_rate"
+            },
+            {
+              "kind": "gpu_amortization",
+              "status": "derived-comparison",
+              "amount_usd": 0.000019164,
+              "residual_value_usd": 100,
+              "useful_compute_hours": 10000,
+              "source": "duration_times_frozen_residual_value_scenario"
+            },
+            {
+              "kind": "provider_invoice",
+              "status": "known",
+              "amount_usd": 0,
+              "source": "self_hosted_ollama_no_per_request_invoice"
+            },
+            {
+              "kind": "cpu_memory_storage_display_energy",
+              "status": "unknown",
+              "amount_usd": null,
+              "source": "not_measured"
+            }
+          ]
+        },
+        "actual_end_to_end_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "whole_system_energy_and_actual_utility_rate_not_observed"
+        }
+      }
+    }
+  ],
+  "status": "failed",
+  "final_verification": {
+    "status": "failed",
+    "verifier_id": "exact-answer-v1",
+    "answer_digest": "sha256:4a44dc15364204a80fe80e9039455cc1608281820fe2b24f1e5233ade6af1dd5",
+    "failure_code": "ANSWER_DIGEST_MISMATCH"
+  },
+  "previous_cell_digest": "sha256:b6b847bd3df9aec88b5f7e2e3bc36562d9f66e09ec27005311c3659b3485395e",
+  "receipt_digest": "sha256:04e873cc038c52ccee8eb3857cd2609037112067f16301f8ccdea58aac7db36b",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:06d77c6996f02b89d96fa021e09e3aeccf7343d6244b45e8f406c1b2f512a4b8",
+    "signature": "3yYvcH1TbG+MFTEqrxEAnwUpYSy0fOX7cqnQTus5yniTC9lx5cH9HbSOA//HiV50M4+Zn+750+r97u668DCLBw=="
+  }
+}

@@ -1,0 +1,201 @@
+{
+  "schema": 2,
+  "cell_id": "010-refactor-dedupe-types--citadel-risk-profile-local--r1",
+  "order": 10,
+  "scenario_id": "refactor-dedupe-types",
+  "task_class": "behavior-preserving-refactor",
+  "policy_id": "citadel-risk-profile-local",
+  "repetition": 1,
+  "route": {
+    "initial_tier": "cheap",
+    "escalation_tier": "strong",
+    "reason_code": "RISK_BOUNDED_CHEAP_THEN_VERIFY"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "cheap",
+      "started_at": "2026-08-01T05:21:36.590Z",
+      "duration_ms": 5825,
+      "output_text": "{\n  \"files\": {\n    \"src/dedupe.js\": \"'use strict';\\n\\nfunction dedupe(values) {\\n  return [...new Set(values.map(String))].map(JSON.parse);\\n}\\n\\nmodule.exports = { dedupe };\"\n  }\n}",
+      "output_digest": "sha256:df64686e97e8c0241e40adc2ebae1c22da30b227d57f679c5d7d6480d05553ef",
+      "verification": {
+        "status": "failed",
+        "code": "REPOSITORY_VERIFIER_FAILED",
+        "changed_paths": [
+          "src/dedupe.js"
+        ],
+        "applied_file_digests": {
+          "src/dedupe.js": "sha256:0faa54d939e08b247cf889cb861929f76cdd47b4e038487c51076496346cf6d1"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 1,
+          "signal": null,
+          "stdout": "",
+          "stderr": "node:assert:95\r\n  throw new AssertionError(obj);\r\n  ^\r\n\r\nAssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:\r\n+ actual - expected\r\n\r\n  [\r\n    1,\r\n-   '1',\r\n    2\r\n  ]\r\n\r\n    at Object.<anonymous> (<ISOLATED_WORKSPACE>\\test.js:4:8)\r\n    at Module._compile (node:internal/modules/cjs/loader:1730:14)\r\n    at Object..js (node:internal/modules/cjs/loader:1895:10)\r\n    at Module.load (node:internal/modules/cjs/loader:1465:32)\r\n    at Function._load (node:internal/modules/cjs/loader:1282:12)\r\n    at TracingChannel.traceSync (node:diagnostics_channel:322:14)\r\n    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)\r\n    at Module.require (node:internal/modules/cjs/loader:1487:12)\r\n    at require (node:internal/modules/helpers:135:16)\r\n    at Object.<anonymous> (<ISOLATED_WORKSPACE>\\verifier.js:2:1) {\r\n  generatedMessage: true,\r\n  code: 'ERR_ASSERTION',\r\n  actual: [ 1, 2 ],\r\n  expected: [ 1, '1', 2 ],\r\n  operator: 'deepStrictEqual'\r\n}\r\n\r\nNode.js v22.17.1\r\n",
+          "error": null
+        },
+        "patch_digest": "sha256:e0fb7a388ba9f184fe8b9123ed21d47ee93857b3d6b824e27e09dfb661b6afae"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "ollama-chat",
+        "requested_model": "qwen2.5-coder:3b",
+        "observed_model": "qwen2.5-coder:3b",
+        "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+        "done_reason": "stop",
+        "response_digest": "sha256:75762eeb8f3427d22722b214c6f145cde7002225b78220c0f11885f50effbfe8",
+        "error": null
+      },
+      "usage": {
+        "prompt_tokens": 218,
+        "completion_tokens": 58,
+        "total_tokens": 276,
+        "provider_total_duration_ns": 5822462000
+      },
+      "economics": {
+        "provider_invoice": {
+          "status": "known",
+          "amount_usd": 0,
+          "source": "self_hosted_ollama_no_per_request_invoice"
+        },
+        "gpu_energy": {
+          "status": "measured",
+          "energy_kwh": 0.000119708,
+          "samples": 12,
+          "average_watts": 73.9825
+        },
+        "comparison_cost": {
+          "status": "derived-comparison",
+          "total_usd": 0.000040122,
+          "components": [
+            {
+              "kind": "gpu_electricity",
+              "status": "derived-comparison",
+              "amount_usd": 0.000023942,
+              "source": "average_gpu_power_times_request_wall_duration_times_frozen_rate"
+            },
+            {
+              "kind": "gpu_amortization",
+              "status": "derived-comparison",
+              "amount_usd": 0.000016181,
+              "source": "request_wall_duration_times_frozen_residual_value"
+            }
+          ]
+        },
+        "actual_end_to_end_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "whole_system_energy_setup_and_observed_utility_rate_not_measured"
+        }
+      }
+    },
+    {
+      "attempt": 2,
+      "tier": "strong",
+      "started_at": "2026-08-01T05:21:42.636Z",
+      "duration_ms": 10554,
+      "output_text": "{\n  \"files\": {\n    \"src/dedupe.js\": \"function dedupe(values) {\\n  const seen = new Map();\\n  return values.filter(value => {\\n    const key = typeof value === 'object' ? JSON.stringify(value) : String(value);\\n    if (seen.has(key)) {\\n      return false;\\n    }\\n    seen.set(key, true);\\n    return true;\\n  });\\n}\\n\\nmodule.exports = { dedupe };\"\n  }\n}",
+      "output_digest": "sha256:316d6d670570abc0f7a3a76e81b69d75f40bd9136a2d17720ea7b7ce6a472f55",
+      "verification": {
+        "status": "failed",
+        "code": "REPOSITORY_VERIFIER_FAILED",
+        "changed_paths": [
+          "src/dedupe.js"
+        ],
+        "applied_file_digests": {
+          "src/dedupe.js": "sha256:af90c24c356721db02bef88274208419a734652417231e741b9a29a15eb6e129"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 1,
+          "signal": null,
+          "stdout": "",
+          "stderr": "node:assert:95\r\n  throw new AssertionError(obj);\r\n  ^\r\n\r\nAssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:\r\n+ actual - expected\r\n\r\n  [\r\n    1,\r\n-   '1',\r\n    2\r\n  ]\r\n\r\n    at Object.<anonymous> (<ISOLATED_WORKSPACE>\\test.js:4:8)\r\n    at Module._compile (node:internal/modules/cjs/loader:1730:14)\r\n    at Object..js (node:internal/modules/cjs/loader:1895:10)\r\n    at Module.load (node:internal/modules/cjs/loader:1465:32)\r\n    at Function._load (node:internal/modules/cjs/loader:1282:12)\r\n    at TracingChannel.traceSync (node:diagnostics_channel:322:14)\r\n    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)\r\n    at Module.require (node:internal/modules/cjs/loader:1487:12)\r\n    at require (node:internal/modules/helpers:135:16)\r\n    at Object.<anonymous> (<ISOLATED_WORKSPACE>\\verifier.js:2:1) {\r\n  generatedMessage: true,\r\n  code: 'ERR_ASSERTION',\r\n  actual: [ 1, 2 ],\r\n  expected: [ 1, '1', 2 ],\r\n  operator: 'deepStrictEqual'\r\n}\r\n\r\nNode.js v22.17.1\r\n",
+          "error": null
+        },
+        "patch_digest": "sha256:f8fb38554c45de76a1a28e40d409fabd16da9c06feff66584a6a09f153d4e255"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "ollama-chat",
+        "requested_model": "qwen2.5-coder:7b",
+        "observed_model": "qwen2.5-coder:7b",
+        "model_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+        "done_reason": "stop",
+        "response_digest": "sha256:a03d1ecc4ff765c24f4d21979cb19c27e885137fa36c821b25015c7f88b62d7c",
+        "error": null
+      },
+      "usage": {
+        "prompt_tokens": 218,
+        "completion_tokens": 108,
+        "total_tokens": 326,
+        "provider_total_duration_ns": 10551033400
+      },
+      "economics": {
+        "provider_invoice": {
+          "status": "known",
+          "amount_usd": 0,
+          "source": "self_hosted_ollama_no_per_request_invoice"
+        },
+        "gpu_energy": {
+          "status": "measured",
+          "energy_kwh": 0.000260486,
+          "samples": 21,
+          "average_watts": 88.852381
+        },
+        "comparison_cost": {
+          "status": "derived-comparison",
+          "total_usd": 0.000081414,
+          "components": [
+            {
+              "kind": "gpu_electricity",
+              "status": "derived-comparison",
+              "amount_usd": 0.000052097,
+              "source": "average_gpu_power_times_request_wall_duration_times_frozen_rate"
+            },
+            {
+              "kind": "gpu_amortization",
+              "status": "derived-comparison",
+              "amount_usd": 0.000029317,
+              "source": "request_wall_duration_times_frozen_residual_value"
+            }
+          ]
+        },
+        "actual_end_to_end_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "whole_system_energy_setup_and_observed_utility_rate_not_measured"
+        }
+      }
+    }
+  ],
+  "status": "failed",
+  "final_verification": {
+    "status": "failed",
+    "code": "REPOSITORY_VERIFIER_FAILED",
+    "changed_paths": [
+      "src/dedupe.js"
+    ],
+    "applied_file_digests": {
+      "src/dedupe.js": "sha256:af90c24c356721db02bef88274208419a734652417231e741b9a29a15eb6e129"
+    },
+    "verifier": {
+      "command": "node verifier.js",
+      "status": 1,
+      "signal": null,
+      "stdout": "",
+      "stderr": "node:assert:95\r\n  throw new AssertionError(obj);\r\n  ^\r\n\r\nAssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:\r\n+ actual - expected\r\n\r\n  [\r\n    1,\r\n-   '1',\r\n    2\r\n  ]\r\n\r\n    at Object.<anonymous> (<ISOLATED_WORKSPACE>\\test.js:4:8)\r\n    at Module._compile (node:internal/modules/cjs/loader:1730:14)\r\n    at Object..js (node:internal/modules/cjs/loader:1895:10)\r\n    at Module.load (node:internal/modules/cjs/loader:1465:32)\r\n    at Function._load (node:internal/modules/cjs/loader:1282:12)\r\n    at TracingChannel.traceSync (node:diagnostics_channel:322:14)\r\n    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)\r\n    at Module.require (node:internal/modules/cjs/loader:1487:12)\r\n    at require (node:internal/modules/helpers:135:16)\r\n    at Object.<anonymous> (<ISOLATED_WORKSPACE>\\verifier.js:2:1) {\r\n  generatedMessage: true,\r\n  code: 'ERR_ASSERTION',\r\n  actual: [ 1, 2 ],\r\n  expected: [ 1, '1', 2 ],\r\n  operator: 'deepStrictEqual'\r\n}\r\n\r\nNode.js v22.17.1\r\n",
+      "error": null
+    },
+    "patch_digest": "sha256:f8fb38554c45de76a1a28e40d409fabd16da9c06feff66584a6a09f153d4e255"
+  },
+  "previous_cell_digest": "sha256:b41d8a4d3dce3d97fa6669fd434c85812739ae1cbe116091a470dff76bfd87d5",
+  "receipt_digest": "sha256:5400026b5687bab4f52533bca86da4345e51eca214e8ef21feae3b21ca08bb94",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:8e0c76cff0f9cd6b3fd15d582d67fef03db747f1d4b063add8e8b6966a69bbce",
+    "signature": "xCYwsU111WFLma2UPQUiv93hjRsa4KiZ9pUgu05tPTJuxGSDcgaC6iBToC14q43M+nKuLULBglb/lB5c7hd7Dw=="
+  }
+}

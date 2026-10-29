@@ -1,0 +1,974 @@
+"""Phase-advance and gate validation for the session helper (POL-6f).
+
+The work-mode gate validators (plan-completeness, gate-final, test-skeletons + the rule-ID
+hallucination detector _validate_citations), the gate->validator registry, and the
+cmd_advance_phase / cmd_current_phase commands. Depends only on lower layers
+(cache/friction/locators/mode_engine) -- never the facade -- so the graph stays acyclic. The
+facade re-exports this surface, so main()'s advance/current-phase dispatch resolves unchanged.
+"""
+
+import os
+import re
+import sys
+
+from writ.session.cache import _read_cache, mutate_cache, record_transition
+from writ.session.friction import _log_friction_event
+from writ.session.gate_token import (
+    BINDING_GATE_MISMATCH,
+    BINDING_PLAN_DRIFT,
+    BINDING_RULE_MISMATCH,
+    BINDING_UNBOUND,
+    REPLAN_GATE,
+    claim_gate_token,
+    consume_gate_token,
+    gate_token_valid,
+    read_gate_snapshot,
+    snapshot_binding_refusal,
+)
+from writ.session.locators import (
+    _find_plan_md,
+    gate_artifact_path,
+    gate_dir,
+    plan_md_hash,
+    resolve_project_root,
+)
+from writ.session.mode_engine import (
+    MODE_CONFIG,
+    _gate_sequence_for_mode,
+    _initial_phase_for_mode,
+    _next_pending_gate,
+    reopen_planning,
+)
+from writ.session.cli_io import _emit_json
+
+# The re-open phrase has exactly ONE definition, in bin/lib/approval_match.py: that module
+# is the DETECTOR the UserPromptSubmit hook loads by path, and it deliberately carries no
+# writ-package import so a broken package cannot cost the user their approval. The
+# governance row below has to record the same bytes the detector matched, so the constant is
+# imported rather than restated -- a second spelling is a phrase the two would eventually
+# disagree about, and the user would be told to type something that no longer fires.
+# Resolved the way mode_engine resolves writ_mode_hint (a sys.path insert of bin/lib plus a
+# package-facing import), stated here rather than inherited from that module's side effect.
+_BIN_LIB = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "bin", "lib"
+)
+if _BIN_LIB not in sys.path:
+    sys.path.insert(0, _BIN_LIB)
+from approval_match import REPLAN_PHRASE  # noqa: E402  (path-loaded; single source)
+
+# A fully-annotated ## Files bullet: a backtick path, a (change_type), and a
+# non-empty reason after ' -- '. The (\S.*) group rejects a trailing-blank reason.
+_FILES_LINE_RE = re.compile(r'^-\s+`[^`]+`\s+\((\w+)\)\s+--\s+(\S.*)$')
+# A ## Files bullet that names a backtick path (with or without a reason).
+_FILES_PATH_ONLY_RE = re.compile(r'^-\s+`[^`]+`')
+# A bold-change-type ## Files bullet: a **change_type** prefix, a backtick path,
+# and a non-empty reason after ' -- '. The (\S.*) group rejects a trailing-blank
+# reason, mirroring _FILES_LINE_RE. Groups: (change_type, path, reason).
+_FILES_BOLD_LINE_RE = re.compile(r'^-\s+\*\*(\w+)\*\*\s+`([^`]+)`\s+--\s+(\S.*)$')
+# A bold-change-type ## Files bullet that names a backtick path (with or without a reason).
+_FILES_BOLD_PATH_ONLY_RE = re.compile(r'^-\s+\*\*\w+\*\*\s+`[^`]+`')
+
+# The canonical fill-in plan skeleton. Every rejection message names it, so a session
+# learns the format from ONE artifact instead of re-deriving it from each rejection.
+_PLAN_TEMPLATE_REF = 'templates/plan-template.md'
+
+# A cited id in ## Rules Applied: the canonical RULE-DOMAIN-NNN shape, or an
+# abstraction id, whose trailing segment is a label rather than three digits
+# (ABS-TESTING-E2E). Summary-mode injection renders abstractions as '[ABSTRACT: <id>]'
+# blocks, so the model sees and naturally cites them like any other id; excluding that
+# SHAPE made every such citation read as a hallucination. Widening the shape cannot
+# widen what is citable -- the check below still admits only ids the session loaded.
+_CITED_ID_RE = re.compile(r'ABS(?:-[A-Z0-9]+)+|[A-Z][A-Z0-9]+(?:-[A-Z][A-Z0-9]+)*-\d{3}')
+
+# A citation is the id that LEADS a Rules Applied bullet ('- **ID** -- why', '- [ID] why',
+# '- ID: why', '1. **ID**', '2) ID'). An id-shaped word in the bullet's prose (a Phase id
+# explaining a decision) is not a citation; reading the whole section reported it as a
+# hallucinated rule and spent the user's approval. Same two id shapes as _CITED_ID_RE.
+_BULLET_CITED_ID_RE = re.compile(
+    r'^\s*(?:[-*+]|\d+[.)])\s+(?:\*\*|\[|`)?\s*'
+    r'(ABS(?:-[A-Z0-9]+)+|[A-Z][A-Z0-9]+(?:-[A-Z][A-Z0-9]+)*-\d{3})',
+    re.MULTILINE)
+
+
+def _cited_rule_ids(section_text: str) -> tuple[set, bool]:
+    """The bullet-leading ids of a Rules Applied section, and whether any were found.
+
+    Only the first id of each bullet line counts. A section with no bullet-leading id
+    (prose-only) returns (set(), False) so the caller keeps its whole-section scan.
+    """
+    ids = set(_BULLET_CITED_ID_RE.findall(section_text))
+    return ids, bool(ids)
+
+
+def _validate_citations(cited: set, available: set) -> set:
+    """INV-2: the mode-agnostic citation-hallucination detector.
+
+    Returns the cited artifacts absent from the auto-captured `available` set.
+    An empty `available` yields the empty set -- absence cannot be proven when
+    nothing was captured (mirrors _validate_phase_a's historical `if loaded_ids:`
+    guard). The same set-difference catches a hallucinated rule ID today and a
+    hallucinated URL (INV-7) tomorrow. Presence, never truth.
+    """
+    if not available:
+        return set()
+    return set(cited) - set(available)
+
+
+def _validate_phase_a(project_root: str, session_id: str = "") -> str | None:
+    """Validate plan.md for phase-a gate. Returns error message or None."""
+    import re
+    plan_path = _find_plan_md(project_root, session_id or None)
+    if not plan_path:
+        return (f"plan.md not found. Write it by filling in {_PLAN_TEMPLATE_REF} in the "
+                "Writ skill directory, which encodes this gate's exact contract: "
+                "## Files (one bullet per file: - `path` (change_type) -- reason), "
+                "## Analysis (what and why, contracts, integration points), "
+                "## Rules Applied (cite ONLY rule IDs injected in this session's WRIT RULES blocks), "
+                "## Capabilities (- [ ] checkbox per testable behavior, all unchecked). "
+                "All four sections are required in a single write. Do not present partial plans.")
+    with open(plan_path) as f:
+        content = f.read()
+    missing = []
+    files_match = re.search(r'^##\s+Files', content, re.MULTILINE)
+    if not files_match:
+        missing.append('## Files')
+    else:
+        section_start = files_match.end()
+        rest = content[section_start:]
+        next_section = re.search(r'^## ', rest, re.MULTILINE)
+        section_text = rest[:next_section.start()] if next_section else rest
+        for line in section_text.splitlines():
+            stripped = line.strip()
+            # Legacy markdown-table rows (pipe-delimited with a reason) are accepted.
+            if stripped.startswith('|'):
+                continue
+            # A bullet that names a backtick path but lacks a non-empty reason after
+            # the ' -- ' separator has nothing for the harvest to capture.
+            if _FILES_PATH_ONLY_RE.match(stripped) and not _FILES_LINE_RE.match(stripped):
+                missing.append(
+                    '## Files line missing a reason (use: - `path` (change_type) -- reason, '
+                    f'as modeled in {_PLAN_TEMPLATE_REF}): ' + stripped
+                )
+            # The bold-change-type shape ('- **type** `path` -- reason') is a
+            # first-class ## Files form; a bold bullet naming a path but lacking a
+            # reason is flagged with the same message as the canonical shape.
+            if _FILES_BOLD_PATH_ONLY_RE.match(stripped) and not _FILES_BOLD_LINE_RE.match(stripped):
+                missing.append(
+                    '## Files line missing a reason (use: - `path` (change_type) -- reason, '
+                    f'as modeled in {_PLAN_TEMPLATE_REF}): ' + stripped
+                )
+    if not re.search(r'^##\s+Analysis', content, re.MULTILINE):
+        missing.append('## Analysis')
+    rules_match = re.search(r'^##\s+Rules\s+[Aa]pplied', content, re.MULTILINE)
+    if not rules_match:
+        missing.append('## Rules Applied')
+    else:
+        section_start = rules_match.end()
+        rest = content[section_start:]
+        next_section = re.search(r'^## ', rest, re.MULTILINE)
+        section_text = rest[:next_section.start()] if next_section else rest
+        bullet_ids, has_bullet_ids = _cited_rule_ids(section_text)
+        # Prose-only sections keep the whole-section scan, so no section that validates
+        # today starts failing; bullet-form sections read only the leading ids.
+        has_rule_id = has_bullet_ids or bool(_CITED_ID_RE.search(section_text))
+        has_no_match = bool(re.search(r'[Nn]o matching rules', section_text))
+        if not has_rule_id and not has_no_match:
+            missing.append('rule ID or "No matching rules" in ## Rules Applied')
+        # Validate cited rule IDs against session's loaded_rule_ids
+        elif has_rule_id and session_id:
+            cited_ids = bullet_ids if has_bullet_ids else set(_CITED_ID_RE.findall(section_text))
+            cache = _read_cache(session_id)
+            # Collect all rule IDs loaded across all phases
+            loaded_ids = set(cache.get("loaded_rule_ids", []))
+            by_phase = cache.get("loaded_rule_ids_by_phase", {})
+            for phase_ids in by_phase.values():
+                loaded_ids.update(phase_ids)
+            # Always-on rules are injected into every prompt by a channel that used to
+            # record only its token count, so citing one -- the natural thing to do --
+            # was reported as a hallucination and SPENT the user's approval token. This
+            # widens the legitimate set; it never narrows it, so nothing that validates
+            # today can start failing.
+            loaded_ids.update(cache.get("always_on_rule_ids", []))
+            # Rules shown to this session's own sub-agents (rolled up at SubagentStop), so
+            # a plan.md written by writ-planner can cite what the planner was given. Only
+            # widens the set, and only with ids injected into a child of THIS session.
+            loaded_ids.update(cache.get("subagent_rule_ids", []))
+            hallucinated = _validate_citations(cited_ids, loaded_ids)
+            if hallucinated:
+                _log_friction_event(
+                    session_id, cache.get("mode"),
+                    "hallucinated_rule_ids",
+                    cited=sorted(cited_ids),
+                    loaded=sorted(loaded_ids),
+                    hallucinated=sorted(hallucinated),
+                )
+                missing.append(
+                    f'hallucinated rule IDs in ## Rules Applied: {", ".join(sorted(hallucinated))}. '
+                    f'Only cite rules from the injected --- WRIT RULES --- block'
+                )
+    caps_match = re.search(r'^##\s+Capabilities', content, re.MULTILINE)
+    if not caps_match:
+        missing.append('## Capabilities (use checkbox format: - [ ] description)')
+    else:
+        section_start = caps_match.end()
+        rest = content[section_start:]
+        next_section = re.search(r'^## ', rest, re.MULTILINE)
+        section_text = rest[:next_section.start()] if next_section else rest
+        if not re.search(r'\[[ x]\]', section_text):
+            missing.append('## Capabilities must use checkbox format: - [ ] description (not dashes or bullets)')
+        # Capabilities must start unchecked -- pre-checked boxes bypass verification
+        elif re.search(r'\[x\]', section_text):
+            missing.append('capabilities must start as [ ] (unchecked), not [x]. They are checked after implementation')
+    if missing:
+        return f"plan.md validation failed: {'; '.join(missing)}. Fix ALL issues in one edit."
+    return None
+
+
+# The test-path shape this gate judges, at module scope because the session-scoped arms
+# and the project-wide tier both read it: two copies is how they would come to disagree
+# about what a test file IS.
+_TEST_PATH_PATTERNS = [
+    r'/Test/', r'/tests/', r'/test/', r'/__tests__/',
+    r'Test\.php$', r'test_.*\.py$', r'_test\.go$', r'_test\.rs$',
+    r'\.test\.[jt]sx?$', r'\.spec\.[jt]sx?$',
+]
+
+_TEST_METHOD_PATTERNS = [
+    r'function\s+test\w+', r'def\s+test_\w+', r'func\s+Test\w+',
+    r'fn\s+test_\w+', r'it\s*\(', r'test\s*\(', r'describe\s*\(',
+    r'@Test',
+]
+
+
+def _carries_test_method(path: str) -> bool:
+    """True when `path` is a readable file holding a test method signature.
+
+    An empty file at the right path is not a skeleton, so the path check alone would
+    approve a touch.
+    """
+    try:
+        with open(path) as handle:
+            content = handle.read()
+    except OSError:
+        return False
+    return any(re.search(pattern, content) for pattern in _TEST_METHOD_PATTERNS)
+
+
+def _validate_test_skeletons(project_root: str, session_id: str = "") -> str | None:
+    """Validate that this session's test skeleton is on disk before the gate advances.
+
+    Four arms when a session id is supplied, in order. A live manual-testing grant passes
+    and leaves a row saying so: it is minted only from the user's own typed words and
+    already admits arbitrary production files at the test-first gate, which is strictly
+    wider authority than advancing this one gate, and without it a cycle with no runnable
+    tests has no way out at all. Then files_written from the session cache, which was
+    already session-scoped. Then the APPROVED PLAN's own ## Files test entries, resolved
+    with the call phase-a uses so both gates judge the same plan.
+
+    With no session id the project-wide scan answers, unchanged: that tier has no session
+    to scope to, so its breadth is not a defect there.
+    """
+    # Check session-tracked files first
+    if session_id:
+        import manual_test_grant
+
+        cache = _read_cache(session_id)
+        if manual_test_grant.active(session_id) is not None:
+            _log_friction_event(
+                session_id, cache.get("mode"),
+                "gate_passed_by_manual_test_grant",
+                gate="test-skeletons",
+            )
+            return None
+
+        for filepath in cache.get("files_written", []):
+            if not any(re.search(p, filepath) for p in _TEST_PATH_PATTERNS):
+                continue
+            if _carries_test_method(filepath):
+                return None  # found a valid session test
+
+        # plan_harvest imports the ## Files regexes FROM this module, so the import is
+        # deferred into the body to keep the module graph acyclic. It is the canonical
+        # parser: a third copy of those regexes is a bill this repo has already paid twice.
+        from writ.session.plan_harvest import _extract_files
+
+        plan_path = _find_plan_md(project_root, session_id or None)
+        if not plan_path:
+            return (
+                "No plan.md resolves for this session, so nothing names the test file "
+                "this gate checks. Write the plan first, by filling in "
+                f"{_PLAN_TEMPLATE_REF} in the Writ skill directory."
+            )
+        try:
+            with open(plan_path) as handle:
+                plan_text = handle.read()
+        except OSError:
+            return (
+                f"{plan_path} could not be read, so this gate cannot see the test files "
+                "the approved plan names."
+            )
+        planned = [
+            entry["path"] for entry in _extract_files(plan_text)
+            if any(re.search(p, entry["path"]) for p in _TEST_PATH_PATTERNS)
+        ]
+        if not planned:
+            return (
+                f"{plan_path} names no test file, so reply `replan approved` to re-open "
+                "planning and add the test skeleton to ## Files. To verify this cycle by "
+                "hand instead, ask the user to reply `manual test approved`."
+            )
+        for path in planned:
+            candidate = path if os.path.isabs(path) else os.path.join(project_root, path)
+            if _carries_test_method(candidate):
+                return None
+        return (
+            f"{plan_path} names test files that are not on disk with a test method "
+            f"signature: {', '.join(planned)}. Write the skeleton before requesting "
+            "approval."
+        )
+
+    # Fallback: scan project for test files (excludes vendor/node_modules)
+    import glob
+    file_patterns = [
+        '**/Test/**/*Test.php', '**/tests/**/*test*.py', '**/test/**/*test*.py',
+        '**/__tests__/**/*.test.*', '**/tests/**/*_test.go', '**/test/**/*_test.rs',
+        '**/test_*.py', '**/*.test.ts', '**/*.test.js', '**/*.spec.ts', '**/*.spec.js',
+    ]
+    for pat in file_patterns:
+        full = os.path.join(project_root, pat)
+        matches = glob.glob(full, recursive=True)
+        matches = [m for m in matches if '/vendor/' not in m and '/node_modules/' not in m]
+        for match in matches:
+            if _carries_test_method(match):
+                return None  # found a valid test
+    return "No test files found with test method signatures. Write test skeleton files to disk before requesting approval."
+
+
+# Gate -> validation function mapping
+# Gate -> validation function registry. Dispatched by cmd_advance_phase so
+# adding a gate is a registry entry, not a new branch. Validators keep the
+# (project_root, session_id="") -> str | None signature.
+_GATE_VALIDATORS: dict[str, object] = {
+    "phase-a": _validate_phase_a,
+    "test-skeletons": _validate_test_skeletons,
+}
+
+
+# What to tell the user when the token they hold does not authorize the gate now
+# pending. Each message names the cause and says plainly whether a fresh approval is
+# needed, because the failure mode being fixed is a refusal the user read as "no gate is
+# pending" and then retried unchanged.
+_BINDING_REFUSAL_REASONS: dict[str, str] = {
+    BINDING_GATE_MISMATCH: (
+        "Your approval is bound to the {bound} gate, but the {target} gate is what is "
+        "pending now. Approve again while {target} is the gate being asked about."
+    ),
+    BINDING_PLAN_DRIFT: (
+        "plan.md changed after this approval was given, so the approval no longer covers "
+        "the plan on disk. Review the current plan and approve again."
+    ),
+    BINDING_UNBOUND: (
+        "This gate token records nothing about what it authorizes (it is the pre-binding "
+        "format), so it cannot be checked against the {target} gate. Approve again to "
+        "mint a bound token."
+    ),
+    # Wording taken from the candidate route's equivalent refusal so the two read the
+    # same: they are the same question about two different objects. Registered HERE, in
+    # the one table the CLI and both gate routes read, so one refusal cannot be described
+    # three ways.
+    BINDING_RULE_MISMATCH: (
+        "That approval authorizes promoting {bound}, not {target}. Surface {target} for "
+        "review with `writ review {target} --session-id <session_id>`, have the user "
+        "reply \"approved\", then re-run the promotion with --token."
+    ),
+}
+
+
+def _detect_project_root(project_root: str) -> str:
+    """Return project_root as given, else the marker dir at or above cwd, else cwd.
+
+    Thin wrapper over locators.resolve_project_root, which owns the tier order for
+    every gate caller (CLI here, HTTP route in server/routes/gate.py). os.getcwd() is
+    supplied HERE because this is the CLI path, where the process cwd IS the user's
+    cwd; the resolver never reads cwd on its own (see its docstring for why that
+    matters to the daemon).
+    """
+    root, _tier = resolve_project_root(explicit=project_root, start=os.getcwd())
+    return root
+
+
+def apply_phase_advance(
+    cache: dict,
+    target_gate: str,
+    old_phase: str,
+    new_phase: str,
+    *,
+    trigger: str,
+    mode: str | None,
+    confirmation_source: str | None = None,
+    artifacts_validated: list | None = None,
+    session_id: str | None = None,
+) -> None:
+    """The single shared cache-mutation unit for an approved-gate phase advance.
+
+    Both advance callers (cmd_advance_phase = CLI/token path; server._advance =
+    live HTTP path) delegate ALL six cache mutations here so the fields can no
+    longer drift between paths. Mutates `cache` in place; the caller still owns
+    _read_cache / _write_cache. Robust to a near-empty cache (uses .get defaults
+    and creates missing dicts).
+
+    The six mutations:
+      1. gates_approved   -- sorted set-union add of target_gate (idempotent).
+      2. current_phase    -- set to new_phase.
+      3. denial_counts    -- pop target_gate (cleared on a successful advance).
+      4. loaded_rule_ids_by_phase -- roll old_phase IDs into _historical, empty
+         the old_phase bucket, seed the new_phase bucket.
+      5. phase_transitions -- append one record via record_transition (full
+         schema: from/to/UTC-aware ts/trigger/mode/gate/artifacts_validated).
+         confirmation_source is additive: included only when not None (the live
+         path), so the CLI path's record stays free of the key.
+      6. escalation       -- clear it when the approved gate IS the escalated one
+         (a resolved escalation must stop reprinting the "do not proceed" banner).
+    """
+    # 1. gates_approved -- sorted set-union add (idempotent, preserves prior gates).
+    cache["gates_approved"] = sorted(set(cache.get("gates_approved", [])) | {target_gate})
+
+    # 1b. gates_approved_plan -- WHICH plan this approval covered.
+    #
+    # Without it a gate name is just a string, and rewriting plan.md leaves every
+    # prior approval standing. That is not hypothetical: a finished cycle's
+    # phase-a and test-skeletons approvals carried into the next cycle, whose
+    # plan.md was written afterwards, so the user's genuine approval of the NEW
+    # plan advanced nothing because no gate was pending.
+    #
+    # mode_engine already fingerprints plan.md, but across a MODE SWITCH, which
+    # answers "did the plan change while this session was away?". A gate needs
+    # the other question, "does this approval cover the plan in front of me
+    # now?", and only that one survives a rewrite between the switch and the
+    # gate.
+    from writ.session.locators import plan_md_hash
+
+    bound = dict(cache.get("gates_approved_plan", {}))
+    bound[target_gate] = plan_md_hash(cache.get("project_root"), session_id)
+    cache["gates_approved_plan"] = bound
+
+    # 2. current_phase.
+    cache["current_phase"] = new_phase
+
+    # 3. denial_counts -- clear the advanced gate's count.
+    denial_counts = cache.get("denial_counts", {})
+    denial_counts.pop(target_gate, None)
+    cache["denial_counts"] = denial_counts
+
+    # 4. loaded_rule_ids_by_phase -- roll old-phase IDs to _historical, seed new phase.
+    by_phase = cache.get("loaded_rule_ids_by_phase", {})
+    current_ids = by_phase.get(old_phase, [])
+    if current_ids:
+        by_phase.setdefault("_historical", []).extend(current_ids)
+        by_phase[old_phase] = []
+    by_phase.setdefault(new_phase, [])
+    cache["loaded_rule_ids_by_phase"] = by_phase
+
+    # 5. phase_transitions -- one full-schema audit record. confirmation_source is
+    # additive (live path only): omit the key entirely when None.
+    extra = {"confirmation_source": confirmation_source} if confirmation_source is not None else {}
+    record_transition(
+        cache,
+        from_phase=old_phase,
+        to_phase=new_phase,
+        trigger=trigger,
+        mode=mode,
+        gate=target_gate,
+        artifacts_validated=(artifacts_validated or []),
+        **extra,
+    )
+
+    # 6. escalation -- clear when the escalated gate is the one being approved. A
+    # resolved escalation must stop cmd_check_escalation reporting needed=True (the
+    # "do not proceed" banner reprinting every prompt). Only the matching gate
+    # resets: gates advance in sequence, so an escalation on a later gate is not
+    # cleared by advancing an earlier one. invalidation_history is left as the audit
+    # trail; the banner is keyed on escalation.needed alone.
+    esc = cache.get("escalation")
+    if isinstance(esc, dict) and esc.get("needed") and esc.get("gate") == target_gate:
+        cache["escalation"] = {
+            "gate": None, "needed": False, "diagnosis": None, "feedback_sent": False,
+        }
+
+
+def write_gate_artifact(project_root: str, session_id: str, gate: str, *, mode: str | None) -> bool:
+    """Create ONE session's `<gate>.approved` artifact. The single writer for both paths.
+
+    The path is <project_root>/.claude/gates/<session_id>/<gate>.approved. The flat file
+    this replaces was shared by every session working the same repo, so one session's
+    approval read as every session's and a re-arm in one deleted the others' files.
+
+    `project_root` is the root the CALLER already resolved for this same advance, never
+    cache["project_root"]: the artifact has to land where the readers look, and every
+    reader derives the root itself by walking markers up from the user's cwd or from the
+    edited file.
+
+    Deliberately NOT part of apply_phase_advance. That function is the cache-mutation
+    unit: it sees only the cache's project_root, and both callers run it under
+    mutate_cache's per-session flock, where a makedirs plus a file write on a possibly
+    network-mounted project directory does not belong. It is also driven by more than
+    twenty hermetic tests on plain dicts, which a filesystem side effect would give an
+    environment dependency.
+
+    Returns True when the artifact was written. An invalid session or gate component
+    makes the locators return "", which writes NOTHING and returns False: the advance
+    that precedes this call has already succeeded and the cache is the source of truth,
+    so refusing here costs the audit artifact and no enforcement. The friction row is
+    what makes the refusal visible instead of silent, and had_root separates the two
+    causes (an absent root, a bad component) that collapse into the same empty string.
+
+    A FAILED WRITE IS A REFUSAL TOO, never an exception. By the time this runs the
+    advance is durably committed and the gate token is spent, so letting an OSError out
+    would fail the caller's request for something that already happened, and on the route
+    it would also skip the phase_advance, decision-capture and playbook_step_complete
+    emits that follow. That is the same reasoning the route already applies to its other
+    post-advance side effect, capture_decision_at_approve. `reason` separates the two: a
+    path component this function refused to join, or a disk that would not take the write.
+    """
+    session_gate_dir = gate_dir(project_root, session_id)
+    gate_file = gate_artifact_path(project_root, session_id, gate)
+    if session_gate_dir and gate_file:
+        try:
+            os.makedirs(session_gate_dir, exist_ok=True)
+            with open(gate_file, "w") as f:
+                f.write(session_id + "\n")
+        except OSError as exc:
+            _log_friction_event(
+                session_id, mode, "gate_artifact_refused",
+                gate=gate, reason="write_failed", error=str(exc),
+                had_root=bool(project_root),
+            )
+            return False
+        return True
+
+    _log_friction_event(
+        session_id, mode, "gate_artifact_refused",
+        gate=gate, reason="invalid_session_or_gate_path_component",
+        had_root=bool(project_root),
+    )
+    return False
+
+
+def _log_phase_token_summary(session_id: str, mode, cache: dict, old_phase: str) -> None:
+    """Emit phase_token_summary from the token snapshots accumulated during old_phase."""
+    snapshots = cache.get("token_snapshots", [])
+    phase_snapshots = [s for s in snapshots if s.get("phase") == old_phase]
+    if phase_snapshots:
+        pcts = [s.get("context_percent", 0) for s in phase_snapshots]
+        tokens = [s.get("context_tokens", 0) for s in phase_snapshots]
+        _log_friction_event(
+            session_id, mode, "phase_token_summary",
+            phase=old_phase, snapshot_count=len(phase_snapshots),
+            peak_context_percent=max(pcts) if pcts else 0,
+            peak_context_tokens=max(tokens) if tokens else 0,
+            final_context_percent=pcts[-1] if pcts else 0,
+            final_context_tokens=tokens[-1] if tokens else 0,
+        )
+
+
+def cmd_advance_phase(session_id: str, project_root: str = "", token: str = "") -> None:
+    """Validate artifacts and advance to the next phase gate.
+
+    Creates gate file on disk as artifact. Updates session cache as source of truth.
+    Clears current-phase loaded_rule_ids. Logs transition to audit trail.
+
+    Requires a --token matching the gate token created by auto-approve-gate.sh.
+    This prevents the agent from calling advance-phase directly via Bash.
+
+    Output: JSON {"advanced": true, "gate": "...", "phase": "..."} or
+            {"advanced": false, "reason": "..."}
+    """
+    # Validate caller token (shared mechanism: writ.session.gate_token). The token file is
+    # read once; the binding check below uses the same snapshot.
+    snap = read_gate_snapshot(session_id)
+    expected_token = snap.secret if snap else ""
+
+    if not gate_token_valid(token, expected_token):
+        cache = _read_cache(session_id)
+        _log_friction_event(
+            session_id, cache.get("mode"),
+            "agent_self_approval_blocked",
+            had_token=bool(token),
+            had_expected=bool(expected_token),
+        )
+        _emit_json({"advanced": False, "reason": "Invalid or missing gate token. Gates can only be advanced by the approval hook, not by the agent."})
+        sys.stdout.write("\n")
+        return
+
+    # Consume stdin (hooks may pipe prompt text)
+    sys.stdin.read()
+
+    # C2 (audit): the decision-and-write span runs under mutate_cache's per-session
+    # flock (atomic read-modify-write) so a concurrent cache writer's update is not
+    # lost. The early-return branches (no-gate / all-approved / validator-error) exit
+    # cleanly and harmlessly rewrite the unchanged cache. The post-write token
+    # consumption, gate-file creation, and success JSON stay outside the lock.
+    with mutate_cache(session_id) as cache:
+        mode = cache.get("mode")
+
+        # Gate config is read from MODE_CONFIG. Modes without a gate sequence
+        # (debug/review/conversation/none) have nothing to advance.
+        gate_sequence = _gate_sequence_for_mode(mode)
+        if not gate_sequence:
+            _emit_json({"advanced": False, "reason": "No gates for this mode"})
+            sys.stdout.write("\n")
+            return
+
+        # Find next pending gate (shared scan: mode_engine._next_pending_gate; reached
+        # only in work mode here, where its mode=="work" guard matches this path).
+        target_gate = _next_pending_gate(cache, session_id)
+
+        if target_gate is None:
+            _emit_json({"advanced": False, "reason": "All gates already approved"})
+            sys.stdout.write("\n")
+            return
+
+        project_root = _detect_project_root(project_root)
+
+        # Validate artifacts for the target gate via the gate->validator registry.
+        validator = _GATE_VALIDATORS.get(target_gate)
+        error = validator(project_root, session_id) if validator else None
+
+        if error:
+            _emit_json({"advanced": False, "reason": error, "gate": target_gate})
+            sys.stdout.write("\n")
+            return
+
+        # The approval must authorize THIS gate and THIS plan. The fingerprint comes
+        # from the cache's project_root, which is the same input cmd_current_phase
+        # reports to the approval hook at mint time, so the mint and the claim hash the
+        # same file by construction; deriving one of them from a separately-resolved
+        # root would refuse legitimate approvals whenever the two roots differ.
+        plan_hash = plan_md_hash(cache.get("project_root"), session_id) or ""
+        refusal = snapshot_binding_refusal(snap, gate=target_gate, plan_hash=plan_hash)
+        if refusal:
+            # Refuse WITHOUT claiming: the token may legitimately authorize something
+            # else (another gate, a candidate promotion), and spending it here would
+            # destroy an approval the user did give. One friction event per refusal
+            # class, so the log can tell a fail-closed gate from an absent one.
+            bound_gate = snap.gate if snap and snap.bound else ""
+            _log_friction_event(
+                session_id, mode, refusal,
+                gate=target_gate, bound_gate=bound_gate,
+            )
+            _emit_json({
+                "advanced": False,
+                "gate": target_gate,
+                "reason": _BINDING_REFUSAL_REASONS[refusal].format(
+                    bound=bound_gate, target=target_gate,
+                ),
+            })
+            sys.stdout.write("\n")
+            return
+
+        # G1 concurrency: atomically CLAIM the token before mutating. Exactly one
+        # concurrent CLI advance wins; the loser returns a no-op WITHOUT advancing,
+        # so one token can never advance two gates (recompute-under-lock double-
+        # advance -- see project_advance_phase_token_race). The claim REPLACES the
+        # post-lock consume_gate_token below: claiming IS consuming. It sits AFTER
+        # the validator so a validator error / no-op still does not consume.
+        if not claim_gate_token(session_id, token, gate=target_gate, plan_hash=plan_hash):
+            _emit_json({
+                "advanced": False,
+                "reason": (
+                    "Gate token already consumed by a concurrent approval; this "
+                    "duplicate advance is a no-op."
+                ),
+            })
+            sys.stdout.write("\n")
+            return
+
+        # Validation passed -- update cache
+        old_phase = cache.get("current_phase", "planning")
+        new_phase = MODE_CONFIG.get(mode, {}).get("phase_after_gate", {}).get(target_gate, "implementation")
+
+        # Audit-trail artifacts: the plan.md rel-path on every gate but test-skeletons.
+        artifacts = []
+        plan_path = _find_plan_md(project_root, session_id)
+        if plan_path and target_gate != "test-skeletons":
+            artifacts.append(os.path.relpath(plan_path, project_root))
+
+        # All five cache mutations (gates_approved, current_phase, denial_counts,
+        # loaded_rule_ids_by_phase, phase_transitions) go through the shared unit.
+        apply_phase_advance(
+            cache, target_gate, old_phase, new_phase,
+            trigger="user-approved", mode=mode,
+            artifacts_validated=artifacts, confirmation_source=None,
+            session_id=session_id,
+        )
+
+    # H3/G1: the claim above (inside the lock, after the validator) consumed the
+    # gate token -- claiming IS consuming -- so one user approval authorizes exactly
+    # one advance and the genuine token cannot be replayed through repeated CLI
+    # advance calls. The old post-lock consume_gate_token(session_id) is removed:
+    # the claim both mutual-excludes concurrent advances and spends the token.
+    _log_phase_token_summary(session_id, mode, cache, old_phase)
+
+    # Create the gate file on disk as an artifact (not the source of truth), through the
+    # ONE writer the live route calls too. This used to be inline here, which is how the
+    # route ran for months committing advances that never stamped anything.
+    #
+    # The root is the one THIS command resolved above (_detect_project_root), the same
+    # root the validator judged, not the cache's.
+    #
+    # A refusal writes NOTHING and does not fail the advance: it already succeeded and the
+    # cache is the source of truth, so it costs the audit artifact and no enforcement.
+    write_gate_artifact(project_root, session_id, target_gate, mode=mode)
+
+    _emit_json({
+        "advanced": True,
+        "gate": target_gate,
+        "phase": new_phase,
+        "from_phase": old_phase,
+    })
+    sys.stdout.write("\n")
+
+
+def _reopen_refused(session_id: str, mode, reason: str, message: str, *, consume: bool) -> None:
+    """One exit for every refused re-open: the audit row, the token, then the JSON.
+
+    `reason` is a name out of a CLOSED set (state_unknown, not_work_mode,
+    not_implementation, gate_pending, token_not_replan, token_claimed, token_invalid), one
+    per class, per gate_token.py's rule that a fail-closed gate must not read the same as an
+    absent one. `message` is the sentence the user reads, and it names what is ACTUALLY
+    pending: the incident this command exists to fix was a message that conflated two causes
+    and then told the user no action was needed.
+
+    `consume` is a parameter rather than a constant because the two refusal families differ
+    in exactly this, and getting it backwards costs the user an approval either way:
+
+      * a STATE refusal (wrong mode, wrong phase, a gate already pending) comes after the
+        token was established as THIS act's credential, so it is spent. Leaving it on disk
+        would keep a live re-open credential for a state that just refused one.
+      * a refusal that never established that (a missing or forged secret, a binding naming
+        a real phase gate) consumes NOTHING: that file may be the user's genuine phase
+        approval, and destroying it to punish a request they did not make would cost them
+        an approval they did give.
+    """
+    _log_friction_event(session_id, mode, "plan_reopen_refused", reason=reason)
+    if consume:
+        consume_gate_token(session_id)
+    _emit_json({"reopened": False, "refusal": reason, "reason": message})
+    sys.stdout.write("\n")
+
+
+def cmd_reopen_planning(session_id: str, token: str = "") -> None:
+    """Return this session to planning on the user's `replan approved`, and nothing else.
+
+    THE STATE THIS ESCAPES: mode=work, current_phase=implementation, both gates approved.
+    plan.md is refused by the write gate there, and the plan change is what re-arms the
+    gates, so a session that needed to amend its plan had nothing the user could type that
+    acted on the refusal. `approved` had no gate to advance, and the hook said so in a
+    message that read as "nothing was needed".
+
+    IT LIVES HERE for the same reason cmd_advance_phase does: this layer already owns the
+    token-guarded commands and may import mode_engine. The reset itself is
+    mode_engine.reopen_planning; this function is the AUTHORIZATION and the audit trail.
+
+    The guard order is not arbitrary:
+      1. the token's secret, so a forged call can never reach a state check;
+      2. the token's line-2 binding, non-destructively, so a token that authorizes a real
+         phase gate is refused without being spent;
+      3. mode / phase / pending-gate, from the cache rather than from bash, so the hook's
+         guard is a fast path and not the only one;
+      4. the atomic claim, which is what makes one phrase authorize exactly one re-open.
+    Step 3 precedes any plan-fingerprint comparison deliberately: a session in the wrong
+    mode must be told THAT, not told its plan drifted.
+
+    NOT WRAPPED IN mutate_cache. mode_engine.reopen_planning -> _mode_set owns the
+    read-modify-write and deletes the `*.approved` artifacts after its own durable write, on
+    the documented assumption that its block is the outermost one for this session. Nesting
+    it here would delete the files while the cleared state was still only in memory.
+
+    Output: JSON {"reopened": true, ...} or {"reopened": false, "refusal": ..., "reason": ...}
+    """
+    cache = _read_cache(session_id)
+    mode = cache.get("mode")
+
+    # 1. The secret. Mirrors cmd_advance_phase: the token is minted only by the approval
+    # hook from the user's own words, so failing here means the caller is not the hook.
+    # Nothing is consumed and nothing is reset -- an agent guessing a token must not be
+    # able to destroy a real pending approval as a side effect of being refused. The token
+    # file is read once; step 2 checks the binding from the same snapshot.
+    snap = read_gate_snapshot(session_id)
+    expected_token = snap.secret if snap else ""
+    if not gate_token_valid(token, expected_token):
+        _log_friction_event(
+            session_id, mode, "agent_self_approval_blocked",
+            event_target="reopen_planning",
+            had_token=bool(token), had_expected=bool(expected_token),
+        )
+        _emit_json({
+            "reopened": False,
+            "refusal": "token_invalid",
+            "reason": (
+                "Invalid or missing gate token. Planning is re-opened only by the approval "
+                "hook, on the user typing `replan approved` in their own turn."
+            ),
+        })
+        sys.stdout.write("\n")
+        return
+
+    # 2. The binding, read non-destructively. A token bound to a real phase gate is the
+    # user's genuine phase approval and must survive this refusal; None means the
+    # pre-binding one-line format, which records nothing about what it authorizes and so
+    # cannot be checked against anything.
+    if snap is None or not snap.bound or snap.gate != REPLAN_GATE:
+        _reopen_refused(
+            session_id, mode, "token_not_replan",
+            (
+                "This approval does not authorize re-opening planning"
+                + (f" (it is bound to the {snap.gate} gate)" if snap and snap.bound and snap.gate else "")
+                + ". Re-opening planning needs the user to reply exactly `replan approved` "
+                "on their own turn; that mints the one approval this command accepts."
+            ),
+            consume=False,
+        )
+        return
+
+    # 3. The state, read authoritatively from the cache. Every refusal below changes
+    # nothing and names what IS pending, which is the other half of the fix: the user was
+    # left guessing once already.
+    phase = cache.get("current_phase")
+    if not mode:
+        # No mode at all is an UNKNOWN state, not a different one: there is nothing to
+        # return to planning and no evidence anybody put this session under the workflow.
+        _reopen_refused(
+            session_id, mode, "state_unknown",
+            (
+                "This session has no declared mode, so there is no plan phase to re-open. "
+                f"Declare one first: `writ mode set work {session_id}`, which already starts in planning."
+            ),
+            consume=True,
+        )
+        return
+    if mode != "work":
+        _reopen_refused(
+            session_id, mode, "not_work_mode",
+            (
+                f"This session is in {mode} mode, which has no plan gates, so there is "
+                "nothing to re-open and nothing was changed. plan.md is not frozen here."
+            ),
+            consume=True,
+        )
+        return
+    if phase != "implementation":
+        # `complete` is a terminal phase with its own documented reset (the advance route
+        # says the same words), so it gets the command that actually works there rather
+        # than a phrase that would not fire.
+        if phase == "complete":
+            detail = (
+                f"This session's phase is `complete`. The reset for a finished cycle is `writ mode set work {session_id}`, which starts a new one in planning."
+            )
+        else:
+            detail = (
+                f"This session's phase is {phase or 'unset'}, not implementation: plan.md "
+                "is already writable and a gate is already pending, so `approved` is the "
+                "reply that moves this forward. Nothing was changed."
+            )
+        _reopen_refused(session_id, mode, "not_implementation", detail, consume=True)
+        return
+    pending = _next_pending_gate(cache, session_id)
+    if pending:
+        # Includes the plan-drift re-arm: a plan edited under an approval re-arms its gate
+        # in ANY phase, so a gate can be pending during implementation. The plan is not
+        # frozen in that state, and clearing both approvals would throw away one the user
+        # can simply re-grant.
+        _reopen_refused(
+            session_id, mode, "gate_pending",
+            (
+                f"The {pending} gate is already pending, so the plan is not frozen: reply "
+                "`approved` to advance it. Nothing was changed."
+            ),
+            consume=True,
+        )
+        return
+
+    # 4. The claim. Atomic (os.rename), so exactly one of N concurrent calls re-opens and
+    # the rest are no-ops; claiming IS consuming, so the phrase authorizes exactly one
+    # re-open. The plan fingerprint is recomputed from the cache's own project_root, which
+    # is the same input cmd_current_phase reported to the hook at mint time, so the mint and
+    # the claim hash the same plan.md by construction.
+    plan_hash = plan_md_hash(cache.get("project_root"), session_id) or ""
+    if not claim_gate_token(session_id, token, gate=REPLAN_GATE, plan_hash=plan_hash):
+        # One name for the claim step, because both ways it can fail have the same remedy:
+        # a concurrent call already spent this approval, or plan.md changed between the
+        # mint and the claim so the approval no longer covers the plan it was given for.
+        _reopen_refused(
+            session_id, mode, "token_claimed",
+            (
+                "That approval could not be claimed: either a concurrent call already "
+                "spent it, or plan.md changed after it was given. Nothing was changed; "
+                "reply `replan approved` again to re-open planning."
+            ),
+            consume=False,
+        )
+        return
+
+    gates_cleared = list(cache.get("gates_approved", []))
+    reopen_planning(session_id)
+    new_phase = _initial_phase_for_mode("work")
+
+    # The governance record, AFTER the durable state change (write-before-log, as in
+    # _mode_set). `confirmation_source: pattern` plus a token only the hook can mint from
+    # the user's own words is how this row proves the human asked: the same vocabulary a
+    # phase advance uses, so one reader answers "who approved this" for both.
+    _log_friction_event(
+        session_id, mode, "plan_reopened",
+        from_phase="implementation", to_phase=new_phase,
+        gates_cleared=gates_cleared,
+        confirmation_source="pattern", matched_prompt=REPLAN_PHRASE,
+    )
+
+    _emit_json({
+        "reopened": True,
+        "phase": new_phase,
+        "from_phase": "implementation",
+        "gates_cleared": gates_cleared,
+    })
+    sys.stdout.write("\n")
+
+
+def cmd_current_phase(session_id: str) -> None:
+    """Return the authoritative current phase from session state.
+
+    Output: JSON {"phase": "...", "mode": "...", "gates_approved": [...],
+                  "next_gate": "..."|null, "plan_hash": "..."|null}
+
+    next_gate and plan_hash are the token binding the approval hook mints with. They are
+    reported HERE because the hook already makes this call once per approval turn and the
+    single cache read already has both answers in hand, so the binding costs the
+    per-prompt path nothing. null means "nothing to bind to": no gate is pending, or
+    there is no plan.md under the session's project root.
+    """
+    cache = _read_cache(session_id)
+    mode = cache.get("mode")
+    phase = cache.get("current_phase")
+
+    # Derive phase if not set
+    if phase is None and mode is not None:
+        phase = _initial_phase_for_mode(mode)
+
+    _emit_json({
+        "phase": phase or "unclassified",
+        "mode": mode,
+        "gates_approved": cache.get("gates_approved", []),
+        "next_gate": _next_pending_gate(cache, session_id),
+        "plan_hash": plan_md_hash(cache.get("project_root"), session_id),
+        # The candidate the review route surfaced to the human, if any. The mint reads
+        # this to bind a promotion approval to one candidate, the same way it reads
+        # plan_hash to bind a phase approval to one plan.
+        "candidate_id": cache.get("pending_candidate_id") or "",
+        # The RULE `writ review <rule_id> --session-id <sid>` surfaced to the human, if
+        # any. The mint writes it as the token's fifth line, so an approval typed after a
+        # rule was shown authorizes promoting that ONE rule. Only one of these two can be
+        # set at a time: each surfacing clears the other, so a single approval can never
+        # carry two promotion credentials.
+        "rule_id": cache.get("pending_review_rule_id") or "",
+    })
+    sys.stdout.write("\n")

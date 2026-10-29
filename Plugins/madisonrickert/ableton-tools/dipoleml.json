@@ -1,0 +1,112 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.madisonrickert.ableton-tools",
+  "type": "plugin",
+  "name": "Ableton Tools",
+  "slug": "ableton-tools",
+  "vendor": "madisonrickert",
+  "description": "DipoleML toolkit for Ableton Live projects: stem verification, tempo/drift analysis, MIDI transcription/comparison, and safe .als editing.",
+  "version": "1.1.0",
+  "homepage": "https://github.com/madisonrickert/ableton-tools",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "ableton",
+    "ableton-live",
+    "als",
+    "audio",
+    "claude-plugin",
+    "midi",
+    "music-production",
+    "stems"
+  ],
+  "tags": [
+    "ableton",
+    "ableton-live",
+    "als",
+    "audio",
+    "claude-code",
+    "claude-plugin",
+    "midi",
+    "music-production",
+    "stems"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "madisonrickert",
+    "brandName": "madisonrickert",
+    "source": "https://github.com/madisonrickert.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:13:57Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "madisonrickert/ableton-tools",
+    "url": "https://github.com/madisonrickert/ableton-tools",
+    "commit": "dd3e408af435d0d95968b02cdfb0d3f991d7f744",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 16,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:06:42Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Ableton Tools | Claude Code toolkit for Ableton Live projects: stem verification, tempo/drift analysis, MIDI transcription/comparison, and safe .als editing.",
+        "after": "Ableton Tools | DipoleML toolkit for Ableton Live projects: stem verification, tempo/drift analysis, MIDI transcription/comparison, and safe .als editing.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

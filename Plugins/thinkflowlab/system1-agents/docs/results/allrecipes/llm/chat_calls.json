@@ -1,0 +1,150 @@
+[
+ {
+  "ms": 4239,
+  "input_tokens": 28,
+  "output_tokens": 4,
+  "cache_tokens": 0,
+  "tool_calls": [],
+  "tool_args": [],
+  "content_chars": 3
+ },
+ {
+  "ms": 4870,
+  "input_tokens": 10061,
+  "output_tokens": 116,
+  "cache_tokens": 8905,
+  "tool_calls": [
+   "mcp_playwright-official_browser_navigate"
+  ],
+  "tool_args": [
+   "{\"url\": \"https://www.allrecipes.com/search?q=vegetarian+lasagna\"}"
+  ],
+  "content_chars": 86
+ },
+ {
+  "ms": 4149,
+  "input_tokens": 12149,
+  "output_tokens": 80,
+  "cache_tokens": 9063,
+  "tool_calls": [
+   "browser_probe_cards"
+  ],
+  "tool_args": [
+   "{\"viewport_only\": false, \"max_cards\": 20}"
+  ],
+  "content_chars": 0
+ },
+ {
+  "ms": 7600,
+  "input_tokens": 20645,
+  "output_tokens": 298,
+  "cache_tokens": 9063,
+  "tool_calls": [
+   "mcp_playwright-official_browser_evaluate"
+  ],
+  "tool_args": [
+   "{\"function\": \"() => Array.from(document.querySelectorAll('a.mntl-card-list-card--extendable, a[id^=\\\"mntl-card-list-card--extendable\\\"]')).map(a => ({title: a.querySelector('.card__title')?.innerText.trim(), href: a.href, ratings: a.querySelector('.mntl-recipe-card-meta__rating-count-number')?.innerText.trim(), stars: a.querySelectorAll('.icon-star:not(.icon-star-half)').length + '/' + a.querySelectorAll('.icon-star-half').length})).filter(x => x.title)\"}"
+  ],
+  "content_chars": 0
+ },
+ {
+  "ms": 10314,
+  "input_tokens": 24673,
+  "output_tokens": 399,
+  "cache_tokens": 9531,
+  "tool_calls": [
+   "mcp_playwright-official_browser_navigate"
+  ],
+  "tool_args": [
+   "{\"url\": \"https://www.allrecipes.com/recipe/21090/vegetarian-four-cheese-lasagna/\"}"
+  ],
+  "content_chars": 0
+ },
+ {
+  "ms": 7528,
+  "input_tokens": 22340,
+  "output_tokens": 447,
+  "cache_tokens": 14742,
+  "tool_calls": [
+   "mcp_playwright-official_browser_evaluate"
+  ],
+  "tool_args": [
+   "{\"function\": \"() => { const q = s => document.querySelector(s)?.innerText.trim(); return { title: q('h1'), rating: q('#mm-recipes-review-bar__rating_1-0') || q('.mm-recipes-review-bar__rating'), ratingCount: q('.mm-recipes-review-bar__rating-count'), reviews: q('.mm-recipes-review-bar__comment-count'), details: Array.from(document.querySelectorAll('.mm-recipes-details__item')).map(e=>e.innerText.replace(/\\\\s+/g,' ').trim()), ingredients: Array.from(document.querySelectorAll('.mm-recipes-structured-ingredients__list-item')).map(e=>e.innerText.replace(/\\\\s+/g,' ').trim()), steps: Array.from(document.querySelectorAll('#mm-recipes-steps_1-0 ol li p, .mm-recipes-steps__content ol li p')).map(e=>e.innerText.trim()) } }\"}"
+  ],
+  "content_chars": 0
+ },
+ {
+  "ms": 18804,
+  "input_tokens": 20374,
+  "output_tokens": 1215,
+  "cache_tokens": 9531,
+  "tool_calls": [
+   "mcp_playwright-official_browser_evaluate"
+  ],
+  "tool_args": [
+   "{\"function\": \"async () => { const urls = [\\\"https://www.allrecipes.com/recipe/229764/easy-vegetarian-spinach-lasagna/\\\",\\\"https://www.allrecipes.com/recipe/87173/black-bean-lasagna/\\\",\\\"https://www.allrecipes.com/recipe/20082/artichoke-spinach-lasagna/\\\",\\\"https://www.allrecipes.com/recipe/23988/simple-spinach-lasagna/\\\",\\\"https://www.allrecipes.com/recipe/22729/spinach-lasagna-iii/\\\",\\\"https://www.allrecipes.com/recipe/220094/eggplant-lasagna/\\\",\\\"https://www.allrecipes.com/recipe/11933/easy-spinach-lasagna-with-white-sauce/\\\",\\\"https://www.allrecipes.com/recipe/204052/roasted-butternut-squash-and-garlic-lasagna/\\\",\\\"https://www.allrecipes.com/recipe/43926/pesto-polenta-lasagna/\\\",\\\"https://www.allrecipes.com/recipe/19354/cheese-lasagna/\\\"]; const out=[]; for (const u of urls){ try{ const html = await (await fetch(u)).text(); const doc = new DOMParser().parseFromString(html,'text/html'); const ld = JSON.parse(doc.querySelector('script[type=\\\"application/ld+json\\\"]').textContent); const r = (Array.isArray(ld)?ld:[ld]).find(x=>(x['@type']||[]).includes?.('Recipe')||x['@type']==='Recipe'); out.push({u, yield:r?.recipeYield, rating:r?.aggregateRating?.ratingValue, ratingCount:r?.aggregateRating?.ratingCount, reviews: doc.querySelector('.mm-recipes-review-bar__comment-count')?.textContent.trim(), servings: Array.from(doc.querySelectorAll('.mm-recipes-details__item')).map(e=>e.textContent.replace(/\\\\s+/g,' ').trim()).find(t=>t.includes('Servings'))}); }catch(e){out.push({u, err:String(e)})} } return out; }\"}"
+  ],
+  "content_chars": 112
+ },
+ {
+  "ms": 10507,
+  "input_tokens": 21458,
+  "output_tokens": 666,
+  "cache_tokens": 9531,
+  "tool_calls": [
+   "mcp_playwright-official_browser_evaluate"
+  ],
+  "tool_args": [
+   "{\"function\": \"async () => { const out=[]; for (const q of [\\\"https://www.allrecipes.com/search?q=vegetarian+lasagna&offset=24\\\",\\\"https://www.allrecipes.com/search?q=veggie+lasagna\\\",\\\"https://www.allrecipes.com/search?q=vegetable+lasagna\\\"]) { const html = await (await fetch(q)).text(); const doc = new DOMParser().parseFromString(html,'text/html'); for (const a of doc.querySelectorAll('a[id^=\\\"mntl-card-list-card--extendable\\\"]')) { const t=a.querySelector('.card__title')?.textContent.trim(); const c=a.querySelector('.mntl-recipe-card-meta__rating-count-number')?.textContent.trim(); if(t && c && parseInt(c.replace(/,/g,''))>100) out.push({t, href:a.href, c}); } } return out; }\"}"
+  ],
+  "content_chars": 0
+ },
+ {
+  "ms": 15578,
+  "input_tokens": 23645,
+  "output_tokens": 870,
+  "cache_tokens": 9531,
+  "tool_calls": [
+   "mcp_playwright-official_browser_evaluate"
+  ],
+  "tool_args": [
+   "{\"function\": \"async () => { const urls = [\\\"https://www.allrecipes.com/recipe/21076/easy-four-cheese-lasagna/\\\",\\\"https://www.allrecipes.com/recipe/11786/hearty-vegetable-lasagna/\\\",\\\"https://www.allrecipes.com/recipe/231072/spinach-lasagna-roll-ups/\\\",\\\"https://www.allrecipes.com/recipe/22478/cheesy-vegetable-lasagna/\\\",\\\"https://www.allrecipes.com/recipe/172958/no-noodle-zucchini-lasagna/\\\",\\\"https://www.allrecipes.com/recipe/73964/summer-lasagna/\\\",\\\"https://www.allrecipes.com/recipe/43742/baked-spaghetti-squash-lasagna-style/\\\",\\\"https://www.allrecipes.com/recipe/26275/lasagna-spirals/\\\",\\\"https://www.allrecipes.com/recipe/14965/baked-fettuccine-lasagna/\\\"]; const out=[]; for (const u of urls){ try{ const html = await (await fetch(u)).text(); const doc = new DOMParser().parseFromString(html,'text/html'); const ld = JSON.parse(doc.querySelector('script[type=\\\"application/ld+json\\\"]').textContent); const r = (Array.isArray(ld)?ld:[ld]).find(x=>(x['@type']||[]).includes?.('Recipe')||x['@type']==='Recipe'); out.push({u, yield:r?.recipeYield, rating:r?.aggregateRating?.ratingValue, ratingCount:r?.aggregateRating?.ratingCount, reviews: doc.querySelector('.mm-recipes-review-bar__comment-count')?.textContent.trim(), meat: /chicken|beef|sausage|pork|turkey|ground/i.test((r?.recipeIngredient||[]).join(' '))}); }catch(e){out.push({u, err:String(e)})} } return out; }\"}"
+  ],
+  "content_chars": 0
+ },
+ {
+  "ms": 8711,
+  "input_tokens": 24731,
+  "output_tokens": 496,
+  "cache_tokens": 9531,
+  "tool_calls": [
+   "mcp_playwright-official_browser_navigate"
+  ],
+  "tool_args": [
+   "{\"url\": \"https://www.allrecipes.com/recipe/229764/easy-vegetarian-spinach-lasagna/\"}"
+  ],
+  "content_chars": 150
+ },
+ {
+  "ms": 6321,
+  "input_tokens": 25271,
+  "output_tokens": 351,
+  "cache_tokens": 12807,
+  "tool_calls": [
+   "mcp_playwright-official_browser_evaluate"
+  ],
+  "tool_args": [
+   "{\"function\": \"() => { const q = s => document.querySelector(s)?.innerText.trim(); return { title: q('h1'), rating: q('.mm-recipes-review-bar__rating'), ratingCount: q('.mm-recipes-review-bar__rating-count'), reviews: q('.mm-recipes-review-bar__comment-count'), details: Array.from(document.querySelectorAll('.mm-recipes-details__item')).map(e=>e.innerText.replace(/\\\\s+/g,' ').trim()), ingredients: Array.from(document.querySelectorAll('.mm-recipes-structured-ingredients__list-item')).map(e=>e.innerText.replace(/\\\\s+/g,' ').trim()), steps: Array.from(document.querySelectorAll('.mm-recipes-steps__content ol li p')).map(e=>e.innerText.trim()) } }\"}"
+  ],
+  "content_chars": 0
+ },
+ {
+  "ms": 20964,
+  "input_tokens": 25224,
+  "output_tokens": 1258,
+  "cache_tokens": 12807,
+  "tool_calls": [],
+  "tool_args": [],
+  "content_chars": 2193
+ }
+]

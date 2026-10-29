@@ -1,0 +1,27 @@
+{
+  "name": "citadel-local",
+  "interface": {
+    "displayName": "Citadel Local Plugins"
+  },
+  "plugins": [
+    {
+      "name": "citadel",
+      "source": {
+        "source": "local",
+        "path": "./"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Developer Tools",
+      "interface": {
+        "displayName": "Citadel Harness"
+      },
+      "version": "1.4.4",
+      "description": "Codex-native agent orchestration harness for durable campaigns, skills, hooks, telemetry, and parallel work.",
+      "repository": "https://github.com/SethGammon/Citadel",
+      "metadata": "../../citadel-metadata.json"
+    }
+  ]
+}

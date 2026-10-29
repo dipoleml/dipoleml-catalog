@@ -1,0 +1,16 @@
+{
+  "name": "dipoleml-code-review-council",
+  "displayName": "DipoleML Review Council",
+  "version": "1.2.0",
+  "description": "Multi-agent code review for DipoleML — parallel review by Codex (gpt-6-astra high), Gemini 3.8 Flash (High), and five DipoleML specialist subagents (one run blind), then verified synthesis.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Yeameen"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/yeameen/claude-code-review-council",
+  "repository": "https://github.com/yeameen/claude-code-review-council",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

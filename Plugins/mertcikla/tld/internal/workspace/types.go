@@ -1,0 +1,248 @@
+package workspace
+
+import (
+	"fmt"
+	"time"
+
+	hashidlib "github.com/mertcikla/tld/v2/internal/hashids"
+	"github.com/mertcikla/tld/v2/internal/ignore"
+	"gopkg.in/yaml.v3"
+)
+
+// WorkspaceConfig is parsed from the workspace-local .tld.yaml.
+type WorkspaceConfig struct {
+	ProjectName     string                 `yaml:"project_name,omitempty"`
+	Exclude         []string               `yaml:"exclude,omitempty"`
+	Validation      *ValidationOverride    `yaml:"validation,omitempty"`
+	Repositories    map[string]Repository  `yaml:"repositories,omitempty"`
+	WorkspaceSource *WorkspaceSourceConfig `yaml:"workspace_source,omitempty"`
+}
+
+// ValidationOverride carries workspace-local overrides for validation settings
+// that otherwise come from the global config. Fields left unset keep the global
+// value, so a workspace can pin only what it cares about.
+type ValidationOverride struct {
+	Level               *int `yaml:"level,omitempty"`
+	LinkCoveragePercent *int `yaml:"link_coverage_percent,omitempty"`
+}
+
+// RepositoryConfig holds per-repository behavior flags.
+type RepositoryConfig struct {
+	Mode string `yaml:"mode,omitempty"`
+}
+
+// WorkspaceSourceConfig holds opt-in Mermaid workspace sync settings.
+type WorkspaceSourceConfig struct {
+	ViewsDir string `yaml:"views_dir,omitempty"`
+}
+
+// Repository describes one repository in a multi-repo workspace.
+type Repository struct {
+	URL             string                 `yaml:"url,omitempty"`
+	LocalDir        string                 `yaml:"localDir,omitempty"`
+	Root            string                 `yaml:"root,omitempty"`
+	ID              string                 `yaml:"id,omitempty"` // matches a codeindex repository id when indexed
+	Config          *RepositoryConfig      `yaml:"config,omitempty"`
+	Exclude         []string               `yaml:"exclude,omitempty"`
+	WorkspaceSource *WorkspaceSourceConfig `yaml:"workspace_source,omitempty"`
+}
+
+// ViewPlacement is an element placement within another element's internal view.
+// Parent "root" means the synthetic workspace root.
+type ViewPlacement struct {
+	ParentRef          string  `yaml:"parent"`
+	PositionX          float64 `yaml:"position_x,omitempty"`
+	PositionY          float64 `yaml:"position_y,omitempty"`
+	PositionXSet       bool    `yaml:"-"`
+	PositionYSet       bool    `yaml:"-"`
+	VisibilityDelta    int     `yaml:"visibility_delta,omitempty"`
+	VisibilityDeltaSet bool    `yaml:"-"`
+}
+
+func (p *ViewPlacement) UnmarshalYAML(node *yaml.Node) error {
+	for i := 0; node.Kind == yaml.MappingNode && i+1 < len(node.Content); i += 2 {
+		switch key := node.Content[i].Value; key {
+		case "parent", "position_x", "position_y", "visibility_delta":
+		default:
+			return fmt.Errorf("unknown placement field %q; use parent, position_x, position_y, or visibility_delta", key)
+		}
+	}
+	var raw struct {
+		ParentRef       string   `yaml:"parent"`
+		PositionX       *float64 `yaml:"position_x"`
+		PositionY       *float64 `yaml:"position_y"`
+		VisibilityDelta *int     `yaml:"visibility_delta"`
+	}
+	if err := node.Decode(&raw); err != nil {
+		return err
+	}
+	p.ParentRef = raw.ParentRef
+	if raw.VisibilityDelta != nil {
+		p.VisibilityDelta, p.VisibilityDeltaSet = *raw.VisibilityDelta, true
+	}
+	if raw.PositionX != nil {
+		p.PositionX = *raw.PositionX
+		p.PositionXSet = true
+	}
+	if raw.PositionY != nil {
+		p.PositionY = *raw.PositionY
+		p.PositionYSet = true
+	}
+	return nil
+}
+
+func (p ViewPlacement) MarshalYAML() (any, error) {
+	var raw struct {
+		ParentRef       string   `yaml:"parent"`
+		PositionX       *float64 `yaml:"position_x,omitempty"`
+		PositionY       *float64 `yaml:"position_y,omitempty"`
+		VisibilityDelta int      `yaml:"visibility_delta,omitempty"`
+	}
+	raw.ParentRef = p.ParentRef
+	raw.VisibilityDelta = p.VisibilityDelta
+	if p.PositionXSet || p.PositionX != 0 {
+		x := p.PositionX
+		raw.PositionX = &x
+	}
+	if p.PositionYSet || p.PositionY != 0 {
+		y := p.PositionY
+		raw.PositionY = &y
+	}
+	return raw, nil
+}
+
+// Element is the primary workspace resource.
+// It combines reusable identity with optional internal view metadata.
+type Element struct {
+	Name            string          `yaml:"name"`
+	Kind            string          `yaml:"kind"`
+	Owner           string          `yaml:"owner,omitempty"`
+	Description     string          `yaml:"description,omitempty"`
+	Technology      string          `yaml:"technology,omitempty"`
+	URL             string          `yaml:"url,omitempty"`
+	LogoURL         string          `yaml:"logo_url,omitempty"`
+	Repo            string          `yaml:"repo,omitempty"`
+	RepositoryID    string          `yaml:"repository_id,omitempty"` // links to a codeindex repository
+	Branch          string          `yaml:"branch,omitempty"`
+	Language        string          `yaml:"-"`
+	FilePath        string          `yaml:"file_path,omitempty"`
+	Symbol          string          `yaml:"symbol,omitempty"` // Named code symbol within FilePath (e.g. "MyFunc")
+	Tags            []string        `yaml:"tags,omitempty"`
+	HasView         bool            `yaml:"has_view"`
+	ViewName        string          `yaml:"view_name,omitempty"`
+	ViewLabel       string          `yaml:"view_label,omitempty"`
+	DensityLevel    int             `yaml:"density_level,omitempty"`
+	DensityLevelSet bool            `yaml:"-"`
+	BypassNoiseGate *bool           `yaml:"bypass_noise_gate,omitempty"`
+	Placements      []ViewPlacement `yaml:"placements,omitempty"`
+}
+
+// Connector is one entry in connectors.yaml.
+type Connector struct {
+	View               string     `yaml:"view"`
+	Source             string     `yaml:"source"`
+	Target             string     `yaml:"target"`
+	Label              string     `yaml:"label,omitempty"`
+	Description        string     `yaml:"description,omitempty"`
+	Relationship       string     `yaml:"relationship,omitempty"`
+	Direction          string     `yaml:"direction,omitempty"`
+	Style              string     `yaml:"style,omitempty"`
+	URL                string     `yaml:"url,omitempty"`
+	SourceHandle       string     `yaml:"source_handle,omitempty"`
+	TargetHandle       string     `yaml:"target_handle,omitempty"`
+	Tags               []string   `yaml:"tags,omitempty"`
+	VisibilityDelta    int        `yaml:"visibility_delta,omitempty"`
+	VisibilityDeltaSet bool       `yaml:"-"`
+	ID                 ResourceID `yaml:"id,omitempty"`
+	UpdatedAt          time.Time  `yaml:"updated_at,omitempty"`
+}
+
+// ResourceID is an int32 that serializes to Hashids in YAML
+type ResourceID int32
+
+// MarshalYAML serialises a ResourceID to its Hashid string representation.
+func (r ResourceID) MarshalYAML() (any, error) {
+	if r == 0 {
+		return nil, nil
+	}
+	return hashidlib.Encode(int32(r)), nil
+}
+
+// UnmarshalYAML deserialises a Hashid string back to a ResourceID.
+func (r *ResourceID) UnmarshalYAML(unmarshal func(any) error) error {
+	var s string
+	if err := unmarshal(&s); err != nil {
+		return err
+	}
+	if s == "" {
+		*r = 0
+		return nil
+	}
+	id, err := hashidlib.Decode(s)
+	if err != nil {
+		return fmt.Errorf("decode resource id: %w", err)
+	}
+	*r = ResourceID(id)
+	return nil
+}
+
+// ResourceMetadata tracks system IDs and timestamps for resources
+type ResourceMetadata struct {
+	ID        ResourceID `yaml:"id"`
+	UpdatedAt time.Time  `yaml:"updated_at"`
+	Conflict  bool       `yaml:"conflict,omitempty"` // True if both local and server changed since last sync
+}
+
+// WorkspaceSourceLock tracks refs managed by the Mermaid workspace source workflow.
+type WorkspaceSourceLock struct {
+	ViewsDir          string                       `yaml:"views_dir,omitempty"`
+	LastHash          string                       `yaml:"last_hash,omitempty"`
+	ManagedElements   map[string]*ResourceMetadata `yaml:"managed_elements,omitempty"`
+	ManagedViews      map[string]*ResourceMetadata `yaml:"managed_views,omitempty"`
+	ManagedConnectors map[string]*ResourceMetadata `yaml:"managed_connectors,omitempty"`
+}
+
+// LockFile tracks workspace versioning and change history
+type LockFile struct {
+	ActiveTarget      string                       `yaml:"active_target,omitempty"`
+	Targets           map[string]*TargetState      `yaml:"targets,omitempty"`
+	Version           string                       `yaml:"version"`    // "v1"
+	VersionID         string                       `yaml:"version_id"` // Workspace version UUID
+	LastApply         time.Time                    `yaml:"last_apply"`
+	AppliedBy         string                       `yaml:"applied_by"` // "cli" or "frontend"
+	Resources         *ResourceCounts              `yaml:"resources"`
+	WorkspaceHash     string                       `yaml:"workspace_hash"`               // Hash of all YAML files
+	ParentVersion     *string                      `yaml:"parent_version,omitempty"`     // Previous version
+	Metadata          *Meta                        `yaml:"metadata,omitempty"`           // Metadata at time of last sync
+	CurrentElements   map[string]*ResourceMetadata `yaml:"current_elements,omitempty"`   // Current local element metadata, migrated from _meta_elements
+	CurrentViews      map[string]*ResourceMetadata `yaml:"current_views,omitempty"`      // Current local view metadata, migrated from _meta_views
+	CurrentConnectors map[string]*ResourceMetadata `yaml:"current_connectors,omitempty"` // Current local connector metadata; connector timestamps now live here
+	WorkspaceSource   *WorkspaceSourceLock         `yaml:"workspace_source,omitempty"`   // Mermaid workspace source managed refs
+}
+
+// ResourceCounts holds current model counts plus legacy fields retained for lockfile compatibility.
+type ResourceCounts struct {
+	Elements   int `yaml:"elements,omitempty"`
+	Views      int `yaml:"views,omitempty"`
+	Connectors int `yaml:"connectors,omitempty"`
+}
+
+// Workspace holds the fully loaded workspace state
+type Workspace struct {
+	CacheTarget     string // Destination whose IDs are loaded; empty for unscoped YAML editing.
+	Dir             string
+	Config          Config
+	WorkspaceConfig *WorkspaceConfig
+	Elements        map[string]*Element // key = ref
+	Connectors      map[string]*Connector
+	Meta            *Meta         // Loaded from separate _meta sections
+	IgnoreRules     *ignore.Rules // Loaded from workspace config; nil if file absent
+	ActiveRepo      string        // active repository scope for plan/apply operations
+}
+
+// Meta contains current-model metadata plus legacy buckets retained for compatibility with older lockfiles and exports.
+type Meta struct {
+	Elements   map[string]*ResourceMetadata
+	Views      map[string]*ResourceMetadata
+	Connectors map[string]*ResourceMetadata
+}

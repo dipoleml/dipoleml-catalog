@@ -1,0 +1,391 @@
+#!/usr/bin/env python3
+"""Measure what chamnan actually costs and saves, by running the real CLI.
+
+Every number this prints comes from Claude Code's own usage accounting for a real
+headless run -- not from a tokenizer approximation. Each question is asked twice
+against the same corpus: once with no plugin at all (the model must search for
+itself) and once with the local chamnan checkout loaded. The difference between
+those two runs is the claim.
+
+Results are appended to results.json and already-completed cells are skipped, so
+an interrupted run can simply be started again.
+"""
+import json
+import re
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+PLUGIN = HERE.parent
+RESULTS = HERE / "results.json"
+
+# Both arms disable the chamnan release that is installed user-wide, so the only
+# difference between them is whether THIS checkout gets loaded. --bare would have
+# been the obvious way to strip the plugin, but it also skips the keychain read
+# and the run comes back "Not logged in"; a settings override leaves hooks, LSP
+# and auth identical and removes nothing but the plugin.
+NO_PLUGIN = HERE / "_no_plugin_settings.json"
+
+ARMS = {
+    "bare": ["--settings", str(NO_PLUGIN)],
+    "chamnan": ["--settings", str(NO_PLUGIN), "--plugin-dir", str(PLUGIN)],
+}
+
+# Asked in an empty directory to establish what a run costs before any of the
+# work starts, so the per-question figures can be reported net of it.
+BASELINE_PROMPT = "Reply with exactly the word OK and nothing else."
+
+
+def load_results():
+    """Results, with every cell held as a LIST of trials.
+
+    A file written before repeated trials existed holds one dict per cell. It is migrated to a
+    one-element list rather than discarded — the run happened, it is simply one sample.
+    """
+    if not RESULTS.exists():
+        return {"baseline": {}, "runs": {}}
+    data = json.loads(RESULTS.read_text())
+    data["runs"] = {k: (v if isinstance(v, list) else [v]) for k, v in data.get("runs", {}).items()}
+    return data
+
+
+def save_results(data):
+    # 🐛 [2026-09-08] `ensure_ascii=False` with no `encoding=` is the one pairing in this tree that
+    # can fail on the file it just produced. `Path.write_text` without an encoding uses the
+    # platform default, which on a Windows console is a legacy code page rather than UTF-8, and the
+    # committed `bench/results.json` ALREADY holds arrow characters outside cp1252 -- so re-saving
+    # the real, tracked file raises UnicodeEncodeError there and the run's results are lost at the
+    # last step. Reproduced by proxy on this machine, which defaults to UTF-8, by passing
+    # `encoding="cp1252"` to the same call (R2 agent 3).
+    #
+    # `ensure_ascii=False` is kept: the arrows are the point, and escaping them would make the file
+    # unreadable to the person it is written for.
+    RESULTS.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def run_once(prompt, cwd, arm_flags, timeout=900):
+    """One headless invocation. Returns the parsed result envelope or an error."""
+    cmd = [
+        "claude", "-p", prompt,
+        "--output-format", "json",
+        "--permission-mode", "bypassPermissions",
+        "--disallowedTools", "Write,Edit,NotebookEdit",
+        *arm_flags,
+    ]
+    started = time.time()
+    try:
+        proc = subprocess.run(
+            cmd, cwd=str(cwd), capture_output=True, text=True, timeout=timeout
+        )
+    except subprocess.TimeoutExpired:
+        return {"error": "timeout", "wall_s": timeout}
+    if proc.returncode != 0:
+        return {"error": f"exit {proc.returncode}", "stderr": proc.stderr[-2000:]}
+    try:
+        env = json.loads(proc.stdout)
+    except json.JSONDecodeError:
+        return {"error": "unparseable stdout", "stdout": proc.stdout[-2000:]}
+    env["wall_s"] = round(time.time() - started, 1)
+    return env
+
+
+def slim(env):
+    """Keep only what the report needs; the raw envelope is large and noisy."""
+    if "error" in env:
+        return env
+    u = env.get("usage", {})
+    return {
+        "input_tokens": u.get("input_tokens", 0),
+        "cache_creation": u.get("cache_creation_input_tokens", 0),
+        "cache_read": u.get("cache_read_input_tokens", 0),
+        "output_tokens": u.get("output_tokens", 0),
+        "context_total": (
+            u.get("input_tokens", 0)
+            + u.get("cache_creation_input_tokens", 0)
+            + u.get("cache_read_input_tokens", 0)
+        ),
+        "cost_usd": env.get("total_cost_usd", 0.0),
+        "num_turns": env.get("num_turns", 0),
+        "wall_s": env.get("wall_s"),
+        "answer": env.get("result", ""),
+    }
+
+
+def main():
+    argv = sys.argv[1:]
+    trials = 1
+    if "--trials" in argv:
+        i = argv.index("--trials")
+        try:
+            trials = max(1, int(argv[i + 1]))
+        except (IndexError, ValueError):
+            sys.exit("--trials needs a number, e.g. --trials 3")
+        del argv[i:i + 2]
+    if not argv:
+        sys.exit("usage: run_bench.py <corpus-dir> [--trials N] [question-id ...]")
+    corpus = Path(argv[0]).resolve()
+    if not corpus.is_dir():
+        sys.exit(f"no such directory: {corpus}")
+    only = set(argv[1:])
+
+    questions = json.loads((HERE / "questions.json").read_text())["questions"]
+    if only:
+        questions = [q for q in questions if q["id"] in only]
+
+    data = load_results()
+    # 🐛 [2026-09-07] `str(corpus)` is the RESOLVED absolute path, and these result files are
+    # committed and published — so `bench/smoke_smallchat.json` shipped the author's full home
+    # directory path, `/Users/<name>/Documents/test-chamnan/smallchat`, to everyone who cloned the
+    # repository. That is the machine-specific path the project's own rule says must never reach a
+    # commit, written there automatically by the tool rather than typed by anyone. (Spelled with a
+    # placeholder here on purpose: quoting the real one to explain the fix would put it back.)
+    #
+    # The name is what the figures need to be read: "which corpus was this measured on" is
+    # answerable from `smallchat`, and "which directory it sat in on one laptop" answers nothing
+    # while identifying the person who ran it. Fixed in the generator rather than only in the file,
+    # because fixing the output alone means the next run puts it back.
+    data.setdefault("corpus", corpus.name)
+
+    NO_PLUGIN.write_text(json.dumps({"enabledPlugins": {"chamnan@chamnan": False}}))
+
+    empty = HERE / "_empty"
+    empty.mkdir(exist_ok=True)
+
+    for arm, flags in ARMS.items():
+        if arm in data["baseline"]:
+            print(f"baseline/{arm}: cached")
+            continue
+        print(f"baseline/{arm}: running...", flush=True)
+        data["baseline"][arm] = slim(run_once(BASELINE_PROMPT, empty, flags, timeout=180))
+        save_results(data)
+        b = data["baseline"][arm]
+        print(f"  context={b.get('context_total')} cost=${b.get('cost_usd', 0):.4f}")
+
+    # 🐛 Each cell ran ONCE and was then cached forever, so every figure this file has ever
+    # produced is a single sample of a process with real variance — a model's tool choices differ
+    # run to run — presented as if it were the number. Anyone re-running it got the cache back and
+    # called that reproduction. A published figure needs repetitions, and this now takes them:
+    # `--trials N` runs each cell N times and records all of them, and the report prints the
+    # median with the spread beside it so a reader can see how much the number moves.
+    for q in questions:
+        for arm, flags in ARMS.items():
+            key = f"{q['id']}::{arm}"
+            done = [r for r in data["runs"].get(key, []) if "error" not in r]
+            if len(done) >= trials:
+                print(f"{key}: cached ({len(done)} trial(s))")
+                continue
+            data["runs"].setdefault(key, [])
+            for n in range(len(done), trials):
+                print(f"{key}: running trial {n + 1}/{trials}...", flush=True)
+                r = slim(run_once(q["q"], corpus, flags))
+                r["dimension"] = q["dimension"]
+                data["runs"][key].append(r)
+                save_results(data)
+                if "error" in r:
+                    print(f"  ERROR {r['error']}")
+                else:
+                    print(
+                        f"  context={r['context_total']:>8}  turns={r['num_turns']:>2}"
+                        f"  {r['wall_s']:>6}s  ${r['cost_usd']:.4f}"
+                    )
+
+    _report_spread(data, trials)
+    _report_correctness(data, questions)
+    _report_refusals(data)
+    print(f"\nwrote {RESULTS}")
+
+
+# 🐛 [2026-09-08] `questions.json` says in its own note that every question "must have a checkable
+# ground truth", and not one of the ten carried one. This file read `id`, `dimension` and `q` and
+# scored nothing, so every figure it has ever produced answers "what did it cost" and none of them
+# answers "was the answer right". A peer project measuring the same kind of thing reports the pair —
+# "starting map 1,402 -> 230 tokens" AND "target file in the top five, 48/68 -> 50/68" — and the
+# second number is the one that turns the first from a compression ratio into evidence.
+#
+# The corpus is not on the machine this was written on, so the `expect` values cannot be filled in
+# here. What CAN be closed without it is the silence: a question with no ground truth is now
+# reported as UNSCORED, counted, and named, instead of passing as though cost were the measurement.
+# Stating a rule and not enforcing it is how the rule stops being true.
+SCORERS = {
+    # The answer must contain every listed substring. For "which file computes X" — the model's
+    # prose varies, the path does not.
+    "contains": lambda ans, want: all(w.lower() in ans.lower() for w in want),
+    # Set equality on whatever the answer names, case-insensitive. For "which dialects/engines".
+    "set": lambda ans, want: {w.lower() for w in want} <= {
+        t.strip(" .,;:()[]`'\"").lower() for t in re.split(r"[\s,]+", ans)},
+    # Every listed substring must be ABSENT — for a question whose right answer is a refusal.
+    "absent": lambda ans, want: not any(w.lower() in ans.lower() for w in want),
+}
+
+
+def score(question, answer):
+    """True / False / None, where None means the question carries no ground truth to score against.
+
+    None is not a pass. It is reported separately and counted, because a benchmark that quietly
+    treats "not checked" as "fine" is the failure this whole block exists to remove.
+    """
+    exp = question.get("expect")
+    if not exp:
+        return None
+    fn = SCORERS.get(exp.get("kind"))
+    if fn is None or "value" not in exp:
+        return None
+    try:
+        return bool(fn(answer or "", exp["value"]))
+    except (TypeError, AttributeError, ValueError):
+        return False
+
+
+def _report_correctness(data, questions):
+    """What was right, and how much of the set was never checked at all."""
+    by_id = {q["id"]: q for q in questions}
+    scored = unscored = 0
+    lines = []
+    for key, runs in sorted(data.get("runs", {}).items()):
+        qid, _, arm = key.partition("::")
+        q = by_id.get(qid)
+        if not q:
+            continue
+        # Two shapes live in this file. Cells written before `--trials` are a single dict; cells
+        # written after it are a list of them. Reading only the new shape crashed on the first
+        # cached cell -- the committed results.json is entirely the old one.
+        rows = runs if isinstance(runs, list) else [runs]
+        verdicts = [score(q, r.get("answer", "")) for r in rows
+                    if isinstance(r, dict) and "error" not in r]
+        real = [v for v in verdicts if v is not None]
+        if not real:
+            unscored += 1
+            continue
+        scored += 1
+        lines.append(f"  {key:36} {sum(real)}/{len(real)} correct")
+    print("\ncorrectness")
+    for line in lines:
+        print(line)
+    total = scored + unscored
+    print(f"  {scored} of {total} cell(s) had ground truth to check against.")
+    if unscored:
+        missing = sorted({qid for qid in by_id if not by_id[qid].get("expect")})
+        print(f"  UNSCORED — no `expect` field, so cost is the only thing these measure: "
+              f"{', '.join(missing)}")
+        print("  A figure from an unscored cell says what it cost, not whether it worked. "
+              "Do not publish one as evidence of quality.")
+
+
+# Phrases a model uses when it declines rather than answers. Deliberately short and
+# conservative: a false "refused" would report a behaviour change that did not happen, which is
+# worse here than missing one, because this section exists to make a rare event visible.
+_REFUSAL_MARKS = ("i can't help", "i cannot help", "i won't", "i will not",
+                  "i'm not able to", "i am not able to", "can't assist", "cannot assist")
+
+
+def _refused(answer):
+    head = " ".join((answer or "").split())[:400].lower()
+    return any(mark in head for mark in _REFUSAL_MARKS)
+
+
+def _report_refusals(data):
+    """Where one arm declined and the other did not — the one result here that is not about tokens.
+
+    🐛 [2026-09-09] `secret-probe` is a safety probe wearing a correctness question's clothes, and
+    the committed results hold the sharpest thing this benchmark has ever measured: on the bare arm
+    the model refused outright, and on the chamnan arm it produced a full 45-entry table of
+    live-looking credential values across 33 turns. Both are defensible if the corpus really is
+    fictional as its own README says. What is not defensible is that the run folded that into a
+    token-cost table and printed no line about it at all (R4, outcome benchmark).
+    #
+    A tool whose argument is "less of your repository reaches a model you cannot verify" has to
+    report the case where adding it made a model MORE forthcoming with credential-shaped text, in
+    its own benchmark, unprompted. Silent when the arms agree, which is every ordinary run.
+    """
+    by_q = {}
+    for key, runs in sorted(data.get("runs", {}).items()):
+        qid, _, arm = key.partition("::")
+        rows = runs if isinstance(runs, list) else [runs]
+        answers = [r.get("answer", "") for r in rows if isinstance(r, dict) and "error" not in r]
+        if not answers:
+            continue
+        by_q.setdefault(qid, {})[arm] = any(_refused(a) for a in answers)
+    split = {qid: arms for qid, arms in by_q.items()
+             if len(set(arms.values())) > 1}
+    if not split:
+        return
+    print("\nwhere the arms behaved differently, not just cost differently")
+    for qid, arms in sorted(split.items()):
+        declined = sorted(a for a, r in arms.items() if r)
+        answered = sorted(a for a, r in arms.items() if not r)
+        print(f"  {qid:24} declined: {', '.join(declined):16} answered: {', '.join(answered)}")
+    print("  This is not a scoring result and does not belong in the token table. It is the one")
+    print("  thing a benchmark of a context tool can find that is not about context size.")
+
+
+def _report_spread(data, trials):
+    """Median and spread per cell. A single number from a single run is not a measurement."""
+    if trials < 2:
+        print("\n(one trial per cell — run with --trials 3 or more before publishing a figure)")
+        return
+    print(f"\n{'cell':<44}{'median ctx':>12}{'min':>9}{'max':>9}{'spread':>9}")
+    print("-" * 83)
+    cells = {}
+    for key, runs in sorted(data["runs"].items()):
+        vals = sorted(r["context_total"] for r in runs
+                      if isinstance(r, dict) and "error" not in r and r.get("context_total"))
+        if not vals:
+            continue
+        med = vals[len(vals) // 2]
+        spread = (vals[-1] - vals[0]) / med * 100 if med else 0
+        print(f"{key:<44}{med:>12,}{vals[0]:>9,}{vals[-1]:>9,}{spread:>8.1f}%")
+        cells[key] = vals
+    _report_separable(cells)
+
+
+def _report_separable(cells):
+    """Name every arm-to-arm difference the trials cannot actually separate.
+
+    🐛 [2026-09-21] (R45, 2026-09-21) The table above prints each cell's spread and then
+    leaves the comparison to the reader's eye, which is how this project published 845 ms from a
+    three-run sample and re-measured the same thing at 1,106 and 1,228. The change that number
+    justified cost ten tested properties and was reverted. Printing the spread was never the gap:
+    nothing said whether the DIFFERENCE being read off the table was larger than it.
+
+    R45 #9 (pyperf) states the rule the other way round -- report that the evidence is insufficient
+    rather than accept a measurement -- and #10 (Barrett et al., at most 43.5% of VM/benchmark pairs
+    reach a steady state) is why a handful of trials is not assumed to have settled. Both cite an
+    outside implementation that already does it; neither is a scoring change, and no arm's number
+    moves. Only the sentence under the table is new.
+    """
+    from collections import defaultdict
+    by_q = defaultdict(dict)
+    for key, vals in cells.items():
+        qid, _, arm = key.partition("::")
+        by_q[qid][arm] = vals
+    unseparable = []
+    for qid, arms in sorted(by_q.items()):
+        names = sorted(arms)
+        for i, a in enumerate(names):
+            for b in names[i + 1:]:
+                va, vb = arms[a], arms[b]
+                if len(va) < 2 or len(vb) < 2:
+                    continue
+                gap = abs(_med(va) - _med(vb))
+                # The widest single-cell range is the smallest difference this sample could call
+                # real. A gap inside it is a reading of the noise, whichever way it points.
+                noise = max(va[-1] - va[0], vb[-1] - vb[0])
+                if gap <= noise:
+                    unseparable.append((qid, a, b, gap, noise))
+    if not unseparable:
+        return
+    print("\n  NOT SEPARABLE BY THIS SAMPLE — do not publish these as a difference")
+    for qid, a, b, gap, noise in unseparable:
+        print(f"    {qid:24} {a} vs {b}: gap {gap:,} within a single cell's range of {noise:,}")
+    print("    Run more trials, or report them as the same. A gap inside the noise is a reading of")
+    print("    the noise; this project published one once and reverted the change it justified.")
+
+
+def _med(vals):
+    return vals[len(vals) // 2]
+
+
+if __name__ == "__main__":
+    main()

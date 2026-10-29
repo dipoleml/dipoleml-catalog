@@ -1,0 +1,15 @@
+{
+  "name": "super-oracle",
+  "displayName": "Super Oracle",
+  "version": "0.6.0",
+  "description": "Run independent Claude and Codex reviews, cross-pollinate findings, and return one synthesis.",
+  "author": {
+    "name": "Parlance Labs",
+    "url": "https://github.com/parlance-labs"
+  },
+  "homepage": "https://github.com/parlance-labs/super-oracle",
+  "repository": "https://github.com/parlance-labs/super-oracle",
+  "license": "MIT",
+  "keywords": ["oracle", "claude-code", "codex", "fable", "opus", "gpt-6-astra", "code-review", "synthesis"],
+  "skills": "./skills/"
+}

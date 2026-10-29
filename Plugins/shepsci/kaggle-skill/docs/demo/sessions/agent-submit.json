@@ -1,0 +1,16 @@
+{
+  "name": "agent-submit",
+  "title": "kaggle-skill - a submission is a dry run first",
+  "recorded": "2026-10-02",
+  "agent": "Claude Code 2.1.286 (claude-opus-5-5)",
+  "agent_short": "Claude",
+  "question": "Submit ./submission.csv to the Titanic competition on Kaggle.",
+  "steps": [
+    {
+      "command": "python3 scripts/kaggle_skill.py submit titanic ./submission.csv -m \"Submission from submission.csv\"",
+      "output": "<untrusted-content-a47a42b8 source=\"local\" tool=\"validate\" competition=\"titanic\">\nChecked submission.csv against the sample gender_submission.csv\n  PASS  columns: PassengerId, Survived\n  PASS  rows: 418\n  PASS  ids in column PassengerId: all 418 match\n  PASS  no empty values\n  PASS  numbers are finite in: Survived\n</untrusted-content-a47a42b8>\nDry run. Nothing was sent to Kaggle.\n  action:      submit to a competition\n  competition: titanic\n  file:        ./submission.csv (3.3 KB)\n  sha256:      7a262a7f4cb807f5\n  message:     Submission from submission.csv\n  file check:  all 5 passed\n  cost:        1 of 10 submissions a day\nShow this to the user and wait for their yes. Then run it again with --yes.",
+      "show_lines": 17
+    }
+  ],
+  "answer": "I haven't submitted yet. I ran a dry run first, and nothing was sent to Kaggle.\n\n**The file passed all 5 checks** against the competition's sample file (`gender_submission.csv`):\n- The columns are `PassengerId, Survived`.\n- It has 418 rows, and all 418 PassengerIds match.\n- There are no empty values, and every `Survived` value is a valid number.\n\n**The submission would be:**\n- **Competition:** titanic\n- **File:** `./submission.csv` (3.3 KB)\n- **Message:** \"Submission from submission.csv\"\n- **Cost:** 1 of your 10 daily submissions\n\nShould I go ahead and submit? I can also use a different message if you'd like one."
+}

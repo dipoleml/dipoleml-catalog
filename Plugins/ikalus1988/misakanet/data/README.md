@@ -1,0 +1,60 @@
+# data/ — 生成物与它们的消费者
+
+⚠️ **此目录下的文件由脚本 / CI 自动生成，请勿手动编辑。** 提 PR 时请忽略此目录的 diff。
+
+**每个生成物必须能回答三个问题**：谁生成它、谁读它、多久更新一次。这张表就是为了让"下一个
+`sync-data.yml`"在**写出来之前**被问一句"谁读它"——那个 workflow 每天把 `counter.json` 与
+`lessons.json` 往 `data` 分支推，而两个文件在仓内**没有任何消费者**，触发条件又永远不会满足，
+于是它自 2026-09-15 起静默死亡（#1985）。`tests/test_data_inventory.py` 让这张表与本目录无法再漂移。
+
+**消费者一栏写"无"不是笔误**：那表示它是一个还没有人读的产物。无消费者的生成物是纯成本，
+而且会伪装成一条活着的自动化；要么给它一个消费者，要么删掉它。
+
+| 文件 | 生成者 | 消费者 | 频率 |
+|---|---|---|---|
+| `lessons.json` | `scripts/update_lessons_json.py`（**唯一**合法生成器，#1374）| 检索、站点、Worker、agent（本仓最重要的生成物）| CI 每日（`update-lessons.yml`）+ push |
+| `domains.json` | `scripts/normalize_domains.py` | `scripts/expand_query.py`、`scripts/lesson_gate.py`、计数门禁 | 手动 / 随语料变更 |
+| `synonyms.json` | 手写维护（`scripts/sync_lesson_count.py` 读）| 检索扩展 | 手动 |
+| `search-floor-queries.jsonl` | 手写维护（40+ 行查询，每条带它必须命中的课程 id）| `workers/search-dual-floor.test.mjs`（英中两个地板）、`workers/search-cjk-recall.test.mjs`（同一份查询集）、`tests/test_search_floor_queries_schema.py`（模式与"body-only"声明的真伪）| 手动（加分/改地板时）|
+| `public-vocabulary.json` | `scripts/export_public_vocabulary.py`（`data/lessons.json` + 全部 `lessons/**/*.md`）| **`scripts/lesson_gate.py`**（课程用了公开语料从未出现过的命令名 → 失败，除非加进本文件的 `allowlist` 或课程里声明 `public_analogue:`）、`tests/test_public_vocabulary.py`（漂移门禁：与重新生成的结果逐字节比对）| 手动 / 随语料变更（`--check` 在 pytest 里跑）|
+| `query-aliases.json` | `misakanet/search/engine.py`、`scripts/expand_query.py` | 检索扩展、`tests/test_query_alias_wiring.py` | 手动 |
+| `quality_scores.json` | **无现存生成者**（`scripts/check_lesson_quality.py` 已不再写它；引用它的只有 `archive/dead/` 与测试）| **无** | 快照停在 141 篇，远落后于当前语料（`scripts/sync_lesson_count.py --check`）——待判决：删掉或重建 |
+| `contributor-points.json` | `scripts/update_contributor_points.py` | `workers/register-proxy-sw.js`、`docs/contributor-points.md` | 手动 |
+| `intake-kind-hints.json` | `scripts/sync_intake_hints.py` | `scripts/intake_kind.py` | 手动 |
+| `provenance-baseline.json` | `scripts/check_provenance.py` | `provenance-gate.yml`（溯源门禁）| PR + 定时（周）|
+| `pr-genius-stats.json` | `scripts/pr_genius_stats.py` | 站点（全站**唯一** `data/` fetch）、`workers/register-proxy-sw.js` | 手动 / CI |
+| `pr-genius-observations.jsonl` | `scripts/pr_genius_observe.py` | 无（观察记录，供人工分析）| 手动 |
+| `publish_rhythm.jsonl` | `scripts/publish_rhythm.py` | 无 | 手动 |
+| `retrieval_noisebench_queries.json` | `scripts/retrieval_noisebench.py` | `scripts/retrieval_noisebench.py`（自用）| 手动 |
+| `retrieval_noisebench_report.json` | `scripts/retrieval_noisebench.py` | 无（报告产物）| 手动 |
+| `bm25_weight_benchmark.json` | `scripts/benchmark_bm25_weights.py` | 无 | 手动 |
+| `lesson_reuse_benchmark.json` | 手动运行的基准产物（数据停在 2026-07）| 无 | 手动 |
+| `lesson_reuse_leaderboard.json` | 手动运行的基准产物（数据停在 2026-07）| 无 | 手动 |
+| `benchmark_tasks.json` | **手写输入**（不是生成物）| `tests/test_benchmark_tasks.py` | 手动 |
+| `regression_queries.json` | **手写输入**；`archive/dead/scripts/verify_regression_queries.py` 是旧写入者 | `workers/query-alias-expansion.test.mjs` | 手动 |
+| `bench_leaderboard.json` | `scripts/gen_leaderboard.py`（**手动运行**，唯一的生成者）| `workers/register-proxy-sw.js`（每日 cron `fetchFromGitHub(..., "data/bench_leaderboard.json", "main")`，只取榜首做变化检测）| 手动 —— 随 bench 重跑；原 `leaderboard-watch.yml` 已于 2026-10-15 删除（#1919），不再是 push 到 main 的产物 |
+| `leaderboard_meta.json` | `scripts/gen_leaderboard.py`（**手动运行**，唯一的生成者）| `scripts/gen_leaderboard.py`（下一次运行时 `load_meta()` 读它取上次榜首）| 手动 —— 随 `bench_leaderboard.json` 一起重算 |
+| `okf/lessons.jsonl` | `scripts/export_okf.py` | 外部 OKF 消费者 | 手动 |
+| `external_assets.json` | **手写维护**（清单；SRI 哈希随依赖版本一起手改）| `tests/test_external_asset_integrity.py`（离线：版本/URL/哈希/`integrity` 属性四者是否同一条事实）、`scripts/check_external_asset_integrity.py`（在线：CDN 实际返回的字节是否还是钉住的那份）| 清单手动；`external-asset-integrity.yml` 每周三 07:23 UTC |
+| `okf-test/lessons.json` | `scripts/export_okf.py`（测试拓扑）| `tests/`（OKF 导出测试）| 随测试 |
+| `dco_benchmark_result.json` | **孤儿**：写入者是 `archive/dead/scripts/dco_benchmark.py` | 无 | 已停 |
+| `.gitkeep` | — （占位，保证目录存在）| — | — |
+
+> **2026-10-15**：`data/leaderboard.json` 连同它的生成 workflow 一起删除（#1919）。贡献者排行榜现在由
+> Worker 的每日 cron 计算、状态存在 D1 里，只能从 `GET /api/leaderboard/state` 读——本目录里没有它的
+> 文件了。天梯榜（`bench_leaderboard.json`）是另一张榜，仍然由上面的手动脚本产出。
+
+## `main` 的 `data/` 与 `data` 分支各自服务谁
+
+| 位置 | 谁生成 | 谁读 | 说明 |
+|---|---|---|---|
+| `main` 的 `data/` | 上表各生成者 | 上表各消费者 | **正常工作路径**：站点、Worker、agent、测试都读这里 |
+| `data` 分支 | `update-badges.yml`（**PAT** 推送，活着）| shields.io 徽章端点（README 的 Lessons / Tools / Domains / Smithery 徽章）| 只有 `badges/*.json` 被消费 |
+| `data` 分支的 `lessons.json` | `update-badges.yml`（与 `badges/*.json` 同一次推送）| `workers/register-proxy-sw.js` 的检索代理（`fetchFromGitHub(..., "lessons.json", "data")`，一份 81 KB 的紧凑索引，与 main 的 1.26 MB 不是同一个产物）| 每日 / 随语料 |
+| ~~`data` 分支的 `counter.json`~~ | 曾经由 `sync-data.yml` 推送 | **无** | **2026-09-28 已删**（连同 main 上的 `data/counter.json` 与 `sync-node-counter.yml`）：它是同一份主键的第二个副本，而且是 `data/counter.json` 那个 2026-06-01 冻结值的来源——`/api/counter` 曾把它当兜底返回（#1820）。那个 workflow 本身自 2026-09-21 起就死了（#1985）|
+
+## 外部贡献者注意
+
+- 提 PR 时请忽略此目录的 diff，不要手动修改任何 JSON；
+- 如需新增数据文件，请把生成逻辑写进 `scripts/`、在 `.github/workflows/` 里配置更新，**并在本表补一行**
+  （门禁会要求：新文件没有登记行 = 变红）。

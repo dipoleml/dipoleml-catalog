@@ -1,0 +1,26 @@
+{
+  "version": "1.36.1",
+  "modules": [
+    "assets.py",
+    "catalogs.py",
+    "deploy.py",
+    "impact.py",
+    "mapper.py",
+    "md.py",
+    "mdblock.py",
+    "memory.py",
+    "pointer.py",
+    "recall.py",
+    "redact.py",
+    "rollup.py",
+    "rulecheck.py",
+    "schema.py",
+    "sessions.py",
+    "state.py",
+    "tokens.py",
+    "tools_index.py",
+    "tree.py",
+    "unicode_marks.py",
+    "workspace.py"
+  ]
+}

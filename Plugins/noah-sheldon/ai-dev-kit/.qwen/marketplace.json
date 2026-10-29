@@ -1,0 +1,19 @@
+{
+  "name": "ai-dev-kit",
+  "owner": {
+    "name": "Noah Sheldon",
+    "email": "noahsheldon06@gmail.com"
+  },
+  "metadata": {
+    "description": "Production-ready AI dev workflow scaffold with 59 skills, 33 agents, hooks, and rules for Qwen Code.",
+    "version": "1.1.0"
+  },
+  "plugins": [
+    {
+      "name": "ai-dev-kit",
+      "description": "Complete plugin suite for professional engineering workflows — TDD, code review, security, ML, infrastructure, data pipelines, and 33 specialized agents.",
+      "version": "1.1.0",
+      "source": "./"
+    }
+  ]
+}

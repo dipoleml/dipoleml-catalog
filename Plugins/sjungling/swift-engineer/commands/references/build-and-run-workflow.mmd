@@ -1,0 +1,42 @@
+graph TD
+    start([Start])
+    has_mcp{mcp__xcode__*<br/>available?}
+
+    %% MCP path - stateful: set scheme/destination, then act
+    mcp_ws[XcodeListWorkspaces<br/>→ XcodeOpenWorkspace if none]
+    mcp_pick[XcodeListSchemes +<br/>XcodeListRunDestinations]
+    mcp_state[XcodeSwitchScheme<br/>→ XcodeSwitchRunDestination<br/>read back activeDestinationDisplayTitle]
+    mcp_run[RunProject<br/>builds + installs + boots + launches]
+    mcp_ok{Launched?}
+    mcp_log[GetBuildLog severity=error]
+    mcp_fix[Fix root cause<br/>XcodeRefreshCodeIssuesInFile]
+
+    %% CLI fallback path
+    cli_find[Find .xcworkspace<br/>or .xcodeproj]
+    cli_pick[xcodebuild -list -json<br/>-showdestinations]
+    cli_build[xcodebuild build<br/>background task]
+    cli_ok{Build succeeded?}
+    cli_fix[Parse error: lines<br/>→ Edit source files]
+    cli_run[open .app  /  simctl<br/>boot + install + launch]
+
+    %% Shared verification
+    console[GetConsoleOutput<br/>filter error/fault]
+    crashed{Crashed on<br/>launch?}
+    attempts{< 3 attempts?}
+    done([Report scheme, destination,<br/>build + launch state])
+
+    start --> has_mcp
+
+    has_mcp -->|yes| mcp_ws --> mcp_pick --> mcp_state --> mcp_run --> mcp_ok
+    mcp_ok -->|yes| console
+    mcp_ok -->|no| mcp_log --> attempts
+    attempts -->|yes| mcp_fix --> mcp_run
+    attempts -->|no| done
+
+    has_mcp -->|no| cli_find --> cli_pick --> cli_build --> cli_ok
+    cli_ok -->|yes| cli_run --> console
+    cli_ok -->|no| cli_fix --> cli_build
+
+    console --> crashed
+    crashed -->|yes| attempts
+    crashed -->|no| done

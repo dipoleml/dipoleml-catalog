@@ -1,0 +1,350 @@
+import { editDistance } from "./prose.js";
+import { usageError } from "./exit-codes.js";
+
+// Every CLI option, in help order. `value` names the argument shown in help
+// (boolean flags have none), `repeatable` collects every value given, and
+// `help` lists the help lines; options without help are accepted aliases
+// (plural forms such as --characters) that stay out of the help text.
+// `aliasOf` names the flag an alias shares its value with, so a flag given
+// on the command line overrides a story.md default set through either name.
+// `commas` marks a plural list form (--characters a,b) whose values split on
+// commas; every other flag keeps each value whole (see optionValues).
+export const OPTIONS = [
+  { name: "title", value: "<name>", help: ["Story title for import; title of the new chapter", "for split"] },
+  { name: "dir", value: "<path>", help: ["Target directory for init or import"] },
+  { name: "genre", value: "<name>", help: ["Story genre for init or import"] },
+  { name: "sub-genre", value: "<name>", help: ["Story sub-genre for init or import"] },
+  { name: "setting-era", value: "<name>", help: ["Setting era for init or import"] },
+  { name: "theme", value: "<name>", repeatable: true, help: ["Theme for init, import, or add arc; repeatable"] },
+  { name: "themes", value: "<a,b>", repeatable: true, commas: true, aliasOf: "theme", help: ["Comma-separated themes for init, import, or add arc"] },
+  { name: "pov", value: "<style|id>", help: ["POV style for init or import; POV character id", "for add chapter/scene (also added to characters)"] },
+  { name: "tense", value: "<tense>", help: ["Narrative tense for init or import"] },
+  { name: "form", value: "<form>", help: ["Story form for init (novel, novella, novelette,", "short-story, flash, serial, picture-book,", "chapter-book); sets a default target-words"] },
+  { name: "synopsis", value: "<text>", help: ["Starter synopsis for init or import"] },
+  { name: "language", value: "<tag>", help: ["Manuscript language for import, a BCP 47 tag", "such as fr; defaults to the existing story.md"] },
+  { name: "bylines", help: ["For import, read each chapter's author from a", "leading by-line (\"by Ada Writer\", taken out of", "the prose) or its file's frontmatter author"] },
+  { name: "series", value: "<id>", help: ["Series id for init"] },
+  { name: "book-number", value: "<n>", help: ["Publication order for init"] },
+  { name: "follows", value: "<path>", repeatable: true, help: ["Init a sequel set after this story project;", "repeatable"] },
+  { name: "precedes", value: "<path>", repeatable: true, help: ["Init a prequel set before this story project;", "repeatable"] },
+  {
+    name: "force",
+    help: [
+      "Let init/import use an existing directory: add",
+      "missing starter files, never overwrite existing",
+      "ones; import also replaces every chapter-NN.md",
+      "file; snapshot replaces a same-named snapshot"
+    ]
+  },
+  { name: "write", help: ["Update chapter word-count frontmatter"] },
+  { name: "log", help: ["Record today's word count in progress.md"] },
+  { name: "weeks", value: "<n>", help: ["Weeks of writing history for progress (1 to 52,", "default 4)"] },
+  { name: "ref", value: "<git-ref>", help: ["Earlier draft as a git branch, tag, or commit", "for compare"] },
+  { name: "against", value: "<path>", help: ["Earlier draft as another project folder for", "compare; text to check for similarity (a file,", "folder, or git ref)"] },
+  { name: "snapshot", value: "<name>", help: ["Earlier draft as a snapshot saved by story", "snapshot, for compare or similarity"] },
+  { name: "anchor", value: "<label>", repeatable: true, help: ["Review-copy paragraph label (ch03-p12) to find", "in the current text for compare; repeatable"] },
+  { name: "list", help: ["List the saved snapshots for snapshot"] },
+  { name: "restore", value: "<name>", help: ["Put a snapshot back over the project for", "snapshot, after saving the project as it is;", "deletes markdown files the snapshot lacks"] },
+  { name: "path", value: "<path>", help: ["Project root for every command except init,", "import, and lsp"] },
+  { name: "out", value: "<file>", help: ["Output path for export/build/synopsis/diagram", "(a folder for build --format codex)"] },
+  { name: "format", value: "<name>", help: ["Output format for build (markdown, epub, docx,", "shunn, html, print, narration, metadata,", "fountain, twee, ink, codex) or grid (markdown,", "csv)"] },
+  { name: "trim", value: "<size>", help: ["Trim size for build --format print (5x8,", "5.25x8, 5.5x8.5, 6x9, a5; default 5.5x8.5)"] },
+  { name: "paper", value: "<letter|a4>", help: ["Paper for build --format shunn --pdf and", "--format docx --shunn (letter, a4; default letter)"] },
+  { name: "stamp", value: "<label>", help: ["Build label printed in build --format html (a", "date, commit, or review round)"] },
+  { name: "note-url", value: "<url>", help: ["Note form linked, prefilled, from every label in", "build --format html (a GitHub new-issue link)"] },
+  { name: "shunn", help: ["Apply Shunn manuscript formatting (with --format", "docx)"] },
+  { name: "anonymous", help: ["Leave every name out of build --format shunn and", "--format docx --shunn, for a market that reads", "blind: byline, editor, contact lines, running head"] },
+  { name: "pdf", help: ["Render build --format print or shunn to PDF with an", "installed engine (Prince, WeasyPrint, pagedjs-cli,", "or Chrome/Chromium, found on PATH in that order)"] },
+  { name: "pdf-engine", value: "<name|path>", help: ["PDF engine for build --pdf: prince, weasyprint,", "pagedjs-cli, chrome, or the path to one"] },
+  { name: "spoilers", help: ["Include notes, statuses, deaths, knowledge,", "clues, and resolutions in build --format codex"] },
+  { name: "include-pending", help: ["Keep matter pages whose permission is pending in", "export and build (left out by default)"] },
+  { name: "from", value: "<chapter>", help: ["First chapter (id or number) grid shows"] },
+  { name: "to", value: "<chapter>", help: ["Last chapter (id or number) grid shows"] },
+  { name: "where", value: "<filter>", repeatable: true, help: ["Filter for list: key=value (a list contains it),", "key!=value, key (set), or !key (unset);", "repeatable, and every filter must match"] },
+  { name: "query", value: "<name>", help: ["Run a story.md query for list: its kind and", "filters, and any --where as well"] },
+  { name: "at", value: "<chapter-id>", help: ["Chapter id for knowledge: what the character knew", "and how their progressions had changed them; for", "split, where to split: a scene break number, a", "heading, or a line of the text"] },
+  { name: "budget", value: "<tokens>", help: ["Token budget for context (default 6000)"] },
+  { name: "scenes", value: "<n>", help: ["Earlier scenes to summarise for context", "(default 5)"] },
+  { name: "init", help: ["Add the default revision passes for passes"] },
+  { name: "start", value: "<pass>", help: ["Mark a revision pass in progress for passes"] },
+  { name: "done", value: "<pass>", help: ["Mark a revision pass done for passes"] },
+  { name: "max-filter-words", value: "<n>", help: ["Warn above n filter words per 1,000 narration", "words for prose (default 10)"] },
+  { name: "max-adverbs", value: "<n>", help: ["Warn above n -ly adverbs per 1,000 narration", "words for prose (default 12)"] },
+  { name: "baseline", help: ["Compare prose with style-sheet.md samples of your", "own writing (on when samples are listed;", "--baseline=false turns it off)"] },
+  { name: "max-bookisms", value: "<n>", help: ["Warn above n said-bookism tags in a chapter for", "prose (default 2)"] },
+  { name: "min-words", value: "<n>", help: ["Shortest shared run of words similarity reports", "(default 8, at least 5)"] },
+  { name: "pages", value: "<n>", help: ["Synopsis length for synopsis (1 or 3)"] },
+  { name: "actionable", help: ["Include next actions in report"] },
+  { name: "fix", help: ["Apply doctor's safe repairs (migrate, reindex,", "wordcount --write), then report what remains"] },
+  { name: "strict", help: ["Fail check on warnings as well as errors"] },
+  { name: "stdio", help: ["Talk to the editor over stdin and stdout for lsp", "(the default, accepted for editors that pass it)"] },
+  { name: "json", help: ["Print one JSON result object (apiVersion,", "command, ok, data, diagnostics, writes) instead", "of text"] },
+  { name: "dry-run", help: ["List the files add, rename, remove, move, split,", "merge, reindex, migrate, wordcount --write,", "doctor --fix, snapshot, passes, progress --log,", "diagram or synopsis --out, export, build, init,", "or import would create, update, or delete, and", "change nothing"] },
+  { name: "id", value: "<kebab-id>", help: ["Explicit id for add, rename, or snapshot, for a", "name with letters an id cannot spell"] },
+  { name: "prose", help: ["For rename: also replace the entity's name and", "given name in drafted chapter prose (not its", "aliases)"] },
+  { name: "number", value: "<n>", help: ["Chapter number for add chapter or move chapter"] },
+  { name: "chapter", value: "<id>", help: ["Chapter id for add scene or move scene"] },
+  { name: "scene", value: "<n>", help: ["Scene number for add scene or move scene"] },
+  { name: "type", value: "<name>", help: ["Entity type for add"] },
+  { name: "role", value: "<name>", help: ["Character role for add character"] },
+  { name: "status", value: "<name>", help: ["Entity status for add"] },
+  { name: "mode", value: "<name>", help: ["Mode for add chapter (e.g. discovered)"] },
+  { name: "date", value: "<date>", help: ["Story date (YYYY-MM-DD, or in the story.md", "calendar) for add chapter/scene; the session", "date for progress, and today for progress and", "next release dates (default today)"] },
+  { name: "time", value: "<time>", help: ["Story time (HH:MM or dawn, morning, midday,", "afternoon, evening, night) for add chapter/scene"] },
+  { name: "travel-hours", value: "<n>", help: ["Travel hours for add scene"] },
+  { name: "dilemma", value: "<text>", help: ["Dilemma for add scene sequel unit"] },
+  { name: "sequel", help: ["Mark scene as sequel unit for add scene"] },
+  { name: "outcome", value: "<name>", help: ["Scene outcome for add scene (yes, no, yes-but,", "no-and)"] },
+  { name: "hook", value: "<name>", help: ["Chapter-ending hook for add chapter (cliffhanger,", "question, revelation, reversal, decision,", "emotional, resolution)"] },
+  { name: "beat", value: "<text>", help: ["Beat-sheet beat for add chapter, as free text", "(such as Midpoint or All Is Lost)"] },
+  { name: "location", value: "<id>", repeatable: true, help: ["Location reference for add"] },
+  { name: "locations", value: "<ids>", repeatable: true, commas: true, aliasOf: "location" },
+  { name: "character", value: "<id>", repeatable: true, help: ["Character reference for add; repeatable"] },
+  { name: "characters", value: "<ids>", repeatable: true, commas: true, aliasOf: "character" },
+  { name: "mention", value: "<id>", repeatable: true, help: ["Mentioned character for add chapter/scene;", "repeatable"] },
+  { name: "mentions", value: "<ids>", repeatable: true, commas: true, aliasOf: "mention" },
+  { name: "member", value: "<id>", repeatable: true, help: ["Faction member reference for add faction; repeatable"] },
+  { name: "members", value: "<ids>", repeatable: true, commas: true, aliasOf: "member" },
+  { name: "owner", value: "<id>", help: ["Owner reference for add artifact"] },
+  { name: "arc", value: "<id>", repeatable: true, help: ["Arc reference for add (arc theme for add", "character); repeatable"] },
+  { name: "arcs", value: "<ids>", repeatable: true, commas: true, aliasOf: "arc" },
+  { name: "introduced", value: "<id>", help: ["Chapter id for add question"] },
+  { name: "resolved", value: "<id>", help: ["Chapter id for add question"] },
+  { name: "planted", value: "<id>", help: ["Chapter id for add promise/clue"] },
+  { name: "payoff", value: "<id>", help: ["Chapter id for add promise/clue"] },
+  { name: "significance-delayed", help: ["Significance is delayed for add clue"] },
+  { name: "red-herring", help: ["Mark add clue as a red herring"] },
+  { name: "category", value: "<name>", help: ["Category for add term"] },
+  { name: "alias", value: "<name>", repeatable: true, help: ["Alias for add term; repeatable"] },
+  { name: "aliases", value: "<names>", repeatable: true, commas: true, aliasOf: "alias" },
+  { name: "region", value: "<name>", help: ["Region for add location"] },
+  { name: "population", value: "<name>", help: ["Population for add location"] },
+  { name: "controlled-by", value: "<id>", help: ["Controlling faction for add location"] },
+  { name: "prevalence", value: "<name>", help: ["Prevalence for add system"] },
+  { name: "acts", value: "<a,b>", repeatable: true, commas: true, help: ["Comma-separated acts for add arc; repeatable"] },
+  { name: "act", value: "<name>", repeatable: true, aliasOf: "acts" },
+  { name: "placement", value: "<front|back>", help: ["Placement for add matter (default front)"] },
+  { name: "order", value: "<n>", help: ["Order within its placement for add matter"] },
+  { name: "heading", help: ["Print the page title for add matter;", "--heading=false for a dedication or epigraph"] },
+  { name: "source", value: "<text>", repeatable: true, help: ["Source for add research; repeatable"] },
+  { name: "sources", value: "<texts>", repeatable: true, aliasOf: "source" },
+  { name: "used-in", value: "<chapter-id>", repeatable: true, help: ["Chapter that relies on add research; repeatable"] },
+  { name: "accuracy", value: "<level>", help: ["Accuracy for add research (must-be-accurate,", "blended, invented)"] },
+  { name: "confidence", value: "<level>", help: ["Confidence for add research (high, medium, low)"] },
+  { name: "method", value: "<name>", help: ["Research method for add research (fact, interview,", "site-visit, expert-review, reading)"] },
+  { name: "risk", value: "<name>", repeatable: true, help: ["Risk area for add research (legal, medical,", "weapons, safety, cultural, defamation,", "technical); repeatable"] }
+];
+
+const BOOLEAN_OPTIONS = new Set(OPTIONS.filter((option) => option.value === undefined).map((option) => option.name));
+const VALUE_OPTIONS = new Set(OPTIONS.filter((option) => option.value !== undefined).map((option) => option.name));
+// Any option not marked repeatable keeps the last value given, so
+// `--out a.md --out b.md` writes b.md.
+const REPEATABLE_OPTIONS = new Set(OPTIONS.filter((option) => option.repeatable).map((option) => option.name));
+const COMMA_OPTIONS = new Set(OPTIONS.filter((option) => option.commas).map((option) => option.name));
+const PATH_OPTIONS = new Set(OPTIONS.filter((option) => option.value === "<path>").map((option) => option.name));
+
+// Whether --name reads the next argument as its value.
+export function takesValue(name) {
+  return VALUE_OPTIONS.has(name);
+}
+
+// Whether --name is a boolean flag, which takes a value only as --name=value.
+export function isBooleanOption(name) {
+  return BOOLEAN_OPTIONS.has(name);
+}
+
+// Whether --name takes a file-system path (shown as <path> in help), which
+// cannot be empty.
+export function isPathOption(name) {
+  return PATH_OPTIONS.has(name);
+}
+
+const OPTION_COLUMN = 28;
+
+// The named options that have help lines, in help order: aliases such as
+// --characters are left out.
+export function documentedOptions(names) {
+  return OPTIONS.filter((option) => option.help && names.includes(option.name)).map((option) => option.name);
+}
+
+// Help lines for every option, or only the named ones (per-command help).
+export function formatOptionsHelp(names = null) {
+  const rows = OPTIONS
+    .filter((option) => option.help && (names === null || names.includes(option.name)))
+    .map((option) => ({ flag: `--${option.name}${option.value ? ` ${option.value}` : ""}`, help: option.help }))
+    .concat([
+      { flag: "-h, --help", help: ["Show this help"] },
+      { flag: "-v, --version", help: ["Show the story CLI version"] }
+    ]);
+  const lines = [];
+  for (const row of rows) {
+    const head = `  ${row.flag}`;
+    const [first, ...rest] = row.help;
+    lines.push(head.length < OPTION_COLUMN ? `${head.padEnd(OPTION_COLUMN)}${first}` : `${head}  ${first}`);
+    for (const line of rest) {
+      lines.push(`${" ".repeat(OPTION_COLUMN)}${line}`);
+    }
+  }
+  return lines;
+}
+
+function isKnownOptionToken(token) {
+  if (token === "-h" || token === "-v") {
+    return true;
+  }
+  if (!token.startsWith("--")) {
+    return false;
+  }
+  const equalIndex = token.indexOf("=");
+  const key = token.slice(2, equalIndex === -1 ? undefined : equalIndex);
+  return key === "help" || key === "version" || BOOLEAN_OPTIONS.has(key) || VALUE_OPTIONS.has(key);
+}
+
+function addOption(options, key, value) {
+  const stored = BOOLEAN_OPTIONS.has(key) ? normalizeBooleanValue(key, value) : value;
+  if (options[key] === undefined || !REPEATABLE_OPTIONS.has(key)) {
+    options[key] = stored;
+  } else {
+    options[key] = Array.isArray(options[key]) ? options[key].concat(stored) : [options[key], stored];
+  }
+}
+
+export function normalizeBooleanValue(key, value) {
+  if (typeof value !== "string") {
+    return Boolean(value);
+  }
+  const lower = value.trim().toLowerCase();
+  if (lower === "false" || lower === "0" || lower === "no" || lower === "off") {
+    return false;
+  }
+  if (lower === "true" || lower === "1" || lower === "yes" || lower === "on") {
+    return true;
+  }
+  throw usageError(`Unknown value "${value}" for --${key}: expected true or false`);
+}
+
+// "; did you mean --format?" for a near miss (every candidate tied for
+// nearest, up to three), else "".
+export function suggestion(input, candidates, prefix = "") {
+  const scored = candidates.map((candidate) => ({ candidate, distance: editDistance(input.toLowerCase(), candidate) }));
+  const best = Math.min(...scored.map((entry) => entry.distance));
+  if (best > Math.max(1, Math.floor(input.length / 3))) {
+    return "";
+  }
+  const names = scored.filter((entry) => entry.distance === best).slice(0, 3).map((entry) => `${prefix}${entry.candidate}`);
+  return `; did you mean ${names.join(" or ")}?`;
+}
+
+export function isTruthy(value) {
+  const current = Array.isArray(value) ? value[value.length - 1] : value;
+  if (typeof current === "string") {
+    const lower = current.trim().toLowerCase();
+    if (lower === "false" || lower === "0" || lower === "no" || lower === "off" || lower === "") {
+      return false;
+    }
+    return true;
+  }
+  return Boolean(current);
+}
+
+// The values given for one flag, trimmed, without empty ones. Only a plural
+// list form splits on commas (`--characters a,b`); a singular flag keeps each
+// value whole, so `--alias "Rite of Ash, the"` is one alias.
+export function optionValues(options, name) {
+  const value = options[name];
+  const values = value === undefined || value === true ? [] : Array.isArray(value) ? value : [value];
+  const parts = COMMA_OPTIONS.has(name) ? values.flatMap((item) => String(item).split(",")) : values.map(String);
+  return parts.map((part) => part.trim()).filter(Boolean);
+}
+
+// A flag and its aliases, which share one value: `character` and
+// `characters`, `theme` and `themes`.
+export function optionFamily(name) {
+  const canonical = OPTIONS.find((option) => option.name === name)?.aliasOf ?? name;
+  return [canonical, ...OPTIONS.filter((option) => option.aliasOf === canonical).map((option) => option.name)];
+}
+
+export function isBooleanLiteralToken(token) {
+  return typeof token === "string" && /^(true|false|0|1|yes|no|on|off)$/i.test(token);
+}
+
+// `suggestFrom` limits "did you mean" to the options the command accepts.
+export function parseArgs(argv, suggestFrom = OPTIONS.map((option) => option.name)) {
+  const positionals = [];
+  const options = {};
+
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index];
+    if (arg === "-h" || arg === "--help") {
+      options.help = true;
+      continue;
+    }
+    if (arg === "-v" || arg === "--version") {
+      options.version = true;
+      continue;
+    }
+
+    // `--` ends the options: everything after it is positional, so a title
+    // or name may start with a dash (`story init -- -Untitled`).
+    if (arg === "--") {
+      positionals.push(...argv.slice(index + 1));
+      break;
+    }
+
+    // A single-dash word such as "-ism" is a positional (a name can start
+    // with a dash); the project-path error hints when it was meant as an
+    // option.
+    if (!arg.startsWith("--")) {
+      positionals.push(arg);
+      continue;
+    }
+
+    const equalIndex = arg.indexOf("=");
+    const key = arg.slice(2, equalIndex === -1 ? undefined : equalIndex);
+    const inlineValue = equalIndex === -1 ? undefined : arg.slice(equalIndex + 1);
+
+    // `--help=true` and `--version=false` read like any other boolean flag.
+    if ((key === "help" || key === "version") && inlineValue !== undefined) {
+      if (normalizeBooleanValue(key, inlineValue)) {
+        options[key] = true;
+      }
+      continue;
+    }
+
+    if (BOOLEAN_OPTIONS.has(key)) {
+      if (inlineValue !== undefined) {
+        addOption(options, key, inlineValue);
+        continue;
+      }
+      // A flag takes a value only as --flag=value. A boolean word right after
+      // it (`--heading false`, `--dry-run No Way Back`) is refused rather than
+      // read as a title word or a path: either reading could turn a requested
+      // dry run into a write, or a flag turned off into one turned on.
+      const nextToken = argv[index + 1];
+      if (isBooleanLiteralToken(nextToken)) {
+        const value = normalizeBooleanValue(key, nextToken);
+        throw usageError(`--${key} ${nextToken} is ambiguous: write --${key}=${value} to turn the flag ${value ? "on" : "off"}, or put --${key} after ${nextToken}, or ${nextToken} after --, to keep ${nextToken} as an argument`);
+      }
+      addOption(options, key, true);
+      continue;
+    }
+
+    if (VALUE_OPTIONS.has(key)) {
+      if (inlineValue !== undefined) {
+        addOption(options, key, inlineValue);
+        continue;
+      }
+      const nextValue = argv[index + 1];
+      if (nextValue === undefined || isKnownOptionToken(nextValue) || nextValue.startsWith("--")) {
+        throw usageError(`Missing value for --${key}: expected a value`);
+      }
+      addOption(options, key, nextValue);
+      index += 1;
+      continue;
+    }
+
+    throw usageError(`Unknown option --${key}${suggestion(key, suggestFrom, "--")}`);
+  }
+
+  return { positionals, options };
+}

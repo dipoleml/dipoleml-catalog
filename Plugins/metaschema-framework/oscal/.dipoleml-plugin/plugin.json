@@ -1,0 +1,16 @@
+{
+  "name": "oscal",
+  "displayName": "Oscal",
+  "version": "0.5.0",
+  "description": "Skills and agents for understanding OSCAL security models",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Metaschema Framework"
+  },
+  "license": "CC0-1.0",
+  "homepage": "https://github.com/metaschema-framework/claude-plugins",
+  "repository": "https://github.com/metaschema-framework/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

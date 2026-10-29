@@ -1,0 +1,728 @@
+#!/usr/bin/env bash
+# lib/heuristics.sh — Result scoring, ranking, aggregation, and synthesis
+# Extracted from orchestrate.sh (v9.5.0+)
+# Sourced by orchestrate.sh — do not run directly.
+
+if ! type probe_result_file_status >/dev/null 2>&1; then
+    _octo_probe_results_lib="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/probe-results.sh"
+    [[ -f "$_octo_probe_results_lib" ]] && source "$_octo_probe_results_lib"
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# RESULT RANKING (v8.49.0)
+# Ranks result files by quality signals WITHOUT deleting any content.
+# Inspired by Crawl4AI's content filtering but adapted for multi-AI synthesis:
+# rank by signals, present best first, let the synthesis LLM do the weighting.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Score a single result file by quality signals (higher = more valuable)
+# Returns score on stdout. Factors:
+#   - Word count (log scale, max 40 pts): longer ≠ better, but extremely short = low value
+#   - Code block count (max 20 pts): concrete examples signal actionable content
+#   - Specificity (max 20 pts): named files/functions/URLs vs vague prose
+#   - Structure (max 20 pts): headers, lists, tables signal organized thinking
+# `grep -c` prints 0 AND exits 1 on no-match; naive `$(grep -c ... || echo 0)` concatenates a 2nd zero and breaks arithmetic.
+safe_count() {
+    local pattern="$1"
+    local content="$2"
+    local extra="${3:-}"
+    local n
+    if [[ "$extra" == "-E" ]]; then
+        n=$(grep -cE -- "$pattern" <<<"$content" 2>/dev/null) || n=0
+    else
+        n=$(grep -c -- "$pattern" <<<"$content" 2>/dev/null) || n=0
+    fi
+    printf '%s' "${n:-0}"
+}
+
+score_result_file() {
+    local file="$1"
+    [[ ! -f "$file" ]] && echo "0" && return
+
+    local content
+    content=$(<"$file")
+    local score=0
+
+    # Factor 1: Word count (log scale, 0-40 pts)
+    # 100 words=20pts, 500=30pts, 2000=40pts; <50 words=5pts
+    local word_count
+    word_count=$(wc -w <<< "$content" | tr -d ' ')
+    if [[ $word_count -lt 50 ]]; then
+        score=$((score + 5))
+    elif [[ $word_count -lt 200 ]]; then
+        score=$((score + 20))
+    elif [[ $word_count -lt 1000 ]]; then
+        score=$((score + 30))
+    else
+        score=$((score + 40))
+    fi
+
+    local code_blocks block_count
+    code_blocks=$(safe_count '```' "$content")
+    block_count=$(( code_blocks / 2 ))
+    [[ $block_count -gt 4 ]] && block_count=4
+    score=$((score + block_count * 5))
+
+    local specifics
+    specifics=$(safe_count '\.(ts|js|py|sh|rs|go|md|json)[ :\)]|/[a-z]+/' "$content" -E)
+    [[ $specifics -gt 20 ]] && specifics=20
+    score=$((score + specifics))
+
+    local structure=0 headers bullets
+    headers=$(safe_count '^#' "$content")
+    [[ $headers -gt 5 ]] && headers=5
+    structure=$((structure + headers * 2))
+    bullets=$(safe_count '^[[:space:]]*[-*]' "$content")
+    [[ $bullets -gt 5 ]] && bullets=5
+    structure=$((structure + bullets * 2))
+    [[ $structure -gt 20 ]] && structure=20
+    score=$((score + structure))
+
+    # Factor 5: Contract compliance (0-20 pts) — structured status markers from Output Contract
+    local contract=0
+    if grep -qE '\*\*Return status:\*\*|COMPLETE|BLOCKED|PARTIAL' <<< "$content" 2>/dev/null; then
+        contract=$((contract + 10))
+    fi
+    if grep -qE 'Key Findings|Findings|Root Cause|Threat Model|Architecture|Components Implemented|Tests Written|Documentation Content|Data Model|Performance Baselines|Architecture Design' <<< "$content" 2>/dev/null; then
+        contract=$((contract + 5))
+    fi
+    if grep -qE 'Confidence: \[?[0-9]' <<< "$content" 2>/dev/null; then
+        contract=$((contract + 5))
+    fi
+    score=$((score + contract))
+
+    echo "$score"
+}
+
+# Rank result files and return them ordered best-first (one path per line)
+# Usage: rank_results_by_signals /path/to/results [filter]
+rank_results_by_signals() {
+    local results_dir="$1"
+    local filter="${2:-}"
+    local -a scored=()
+
+    for result in "$results_dir"/*.md; do
+        [[ -f "$result" ]] || continue
+        [[ "$result" == *aggregate* ]] && continue
+        [[ "$result" == *.raw-concat* ]] && continue
+        [[ "$result" == *.partial-* ]] && continue
+        [[ -n "$filter" && "$result" != *"$filter"* ]] && continue
+        probe_result_file_is_usable "$result" || continue
+        type octo_seat_was_rejected >/dev/null 2>&1 && octo_seat_was_rejected "$result" && continue
+
+        local score
+        score=$(score_result_file "$result")
+        scored+=("${score}|${result}")
+    done
+
+    # Sort descending by score, output paths only
+    printf '%s\n' "${scored[@]}" | sort -t'|' -k1 -rn | cut -d'|' -f2
+}
+
+probe_synthesis_sanitize_context() {
+    sed \
+        -e 's/\[Auto-synthesis failed - raw findings below\]/[Prior auto-synthesis failed; raw fallback omitted from compact probe context]/g' \
+        -e 's/\[Synthesis failed - raw results attached\]/[Prior synthesis failed; raw fallback omitted from compact probe context]/g'
+}
+
+probe_synthesis_append_excerpt() {
+    local file="$1"
+    local max_chars="$2"
+    local score="${3:-}"
+    local size
+
+    [[ -f "$file" ]] || return 0
+    size=$(wc -c < "$file" 2>/dev/null | tr -d '[:space:]')
+    size="${size:-0}"
+
+    echo "## Source: $(basename "$file")${score:+ [Quality: ${score}/100]}"
+    echo "- File: ${file}"
+    echo "- Size: ${size} bytes"
+    if [[ "$size" =~ ^[0-9]+$ && "$size" -gt "$max_chars" ]]; then
+        echo "- Included: first ${max_chars} bytes (truncated)"
+    else
+        echo "- Included: full file"
+    fi
+    echo ""
+    echo '```markdown'
+    if [[ "$size" =~ ^[0-9]+$ && "$size" -gt "$max_chars" ]]; then
+        head -c "$max_chars" "$file" 2>/dev/null | probe_synthesis_sanitize_context
+        echo ""
+        echo "[... truncated by probe synthesis context: original ${size} bytes, included ${max_chars} bytes ...]"
+    else
+        probe_synthesis_sanitize_context < "$file"
+    fi
+    echo '```'
+    echo ""
+}
+
+probe_synthesis_byte_length() {
+    local LC_ALL=C
+    printf '%s\n' "${#1}"
+}
+
+probe_synthesis_budget_bytes() {
+    local synth_agent="${1:-}" reserve_bytes="${2:-0}"
+    local tokens proportion=100
+    [[ -n "$synth_agent" && "$reserve_bytes" =~ ^[0-9]+$ ]] || return 1
+    declare -F get_provider_context_limit >/dev/null 2>&1 || return 1
+    tokens=$(get_provider_context_limit "$synth_agent" "probe" "synthesizer" 2>/dev/null) || return 1
+    [[ "$tokens" =~ ^[0-9]+$ ]] || return 1
+    if declare -F get_role_budget_proportion >/dev/null 2>&1; then
+        proportion=$(get_role_budget_proportion "synthesizer")
+        [[ "$proportion" =~ ^[0-9]+$ ]] || proportion=100
+    fi
+    tokens=$(( tokens / 100 * proportion + tokens % 100 * proportion / 100 ))
+    local bytes=$(( tokens * 3 - reserve_bytes ))
+    [[ "$bytes" -gt 0 ]] || return 1
+    printf '%s\n' "$bytes"
+}
+
+build_probe_synthesis_context() {
+    local task_group="$1"
+    local provider_results_dir="${2:-$RESULTS_DIR}"
+    local budget_bytes="${3:-}"
+    local max_total="${OCTOPUS_PROBE_SYNTHESIS_CONTEXT_CHARS:-}"
+    local max_file="${OCTOPUS_PROBE_SYNTHESIS_FILE_CHARS:-}"
+
+    if [[ ! "$max_total" =~ ^[0-9]+$ ]]; then
+        max_total=120000
+        if [[ "$budget_bytes" =~ ^[0-9]+$ ]] && [[ "$((10#$budget_bytes))" -gt "$max_total" ]]; then
+            max_total=$((10#$budget_bytes))
+        fi
+    fi
+    max_total=$((10#$max_total))
+    [[ "$max_total" -lt 4000 ]] && max_total=4000
+
+    local -a usable_files=()
+    local ranked_file
+    while IFS= read -r ranked_file; do
+        [[ -z "$ranked_file" ]] && continue
+        [[ ! -f "$ranked_file" ]] && continue
+        probe_result_file_is_usable "$ranked_file" || continue
+        type octo_seat_was_rejected >/dev/null 2>&1 && octo_seat_was_rejected "$ranked_file" && continue
+        usable_files+=("$ranked_file")
+    done < <(rank_results_by_signals "$provider_results_dir" "probe-${task_group}")
+
+    if [[ ! "$max_file" =~ ^[0-9]+$ ]]; then
+        max_file=24000
+        if [[ "${#usable_files[@]}" -gt 0 ]]; then
+            local fair_share=$(( max_total / ${#usable_files[@]} - 1024 ))
+            [[ "$fair_share" -gt "$max_file" ]] && max_file="$fair_share"
+        fi
+    fi
+    max_file=$((10#$max_file))
+    [[ "$max_file" -lt 1000 ]] && max_file=1000
+
+    local tmp_context
+    tmp_context=$(mktemp "${TMPDIR:-/tmp}/octo-probe-synthesis.XXXXXX") || return 1
+
+    local result_count=0
+    {
+        echo "# Compact Probe Synthesis Context"
+        echo ""
+        echo "This context is bounded before synthesis. Full raw probe artifacts remain on disk in RESULTS_DIR."
+        echo ""
+        echo "## Context Budget"
+        echo "- Max per source file: ${max_file} bytes"
+        echo "- Max total context: ${max_total} bytes"
+        echo ""
+
+        for ranked_file in ${usable_files[@]+"${usable_files[@]}"}; do
+            local score
+            score=$(score_result_file "$ranked_file")
+            probe_synthesis_append_excerpt "$ranked_file" "$max_file" "$score"
+            ((result_count++)) || true
+        done
+    } > "$tmp_context"
+
+    local total_size
+    total_size=$(wc -c < "$tmp_context" 2>/dev/null | tr -d '[:space:]')
+    total_size="${total_size:-0}"
+
+    if [[ "$total_size" =~ ^[0-9]+$ && "$total_size" -gt "$max_total" ]]; then
+        head -c "$max_total" "$tmp_context" 2>/dev/null
+        echo ""
+        echo ""
+        echo "[... compact probe synthesis context truncated: original ${total_size} bytes, included ${max_total} bytes ...]"
+    else
+        cat "$tmp_context"
+    fi
+
+    rm -f "$tmp_context"
+}
+
+# One repair pass for a synthesis that failed evidence verification. The
+# verifier names the exact lines and failure kinds, so the synthesizer that
+# wrote the draft can correct its citations without re-running the providers.
+# The caller re-verifies the result, and a second failure still blocks.
+probe_synthesis_repair() {
+    local agent="$1" draft_file="$2" evidence_catalog="$3" local_evidence_root="$4"
+    [[ -n "$agent" && -n "${RESEARCH_RUN_DIR:-}" ]] || return 1
+    declare -F research_synthesis_repairable_findings >/dev/null 2>&1 || return 1
+    local findings
+    findings=$(research_synthesis_repairable_findings "$RESEARCH_RUN_DIR/verification.json")
+    [[ -n "$findings" ]] || return 1
+
+    log WARN "Probe synthesis failed evidence verification; asking '$agent' for one repair pass"
+    local numbered_draft repair_prompt repaired
+    numbered_draft=$(awk '{ printf "%d\t%s\n", NR, $0 }' "$draft_file")
+    repair_prompt="The research synthesis below failed mechanical evidence verification. Return the complete corrected document and nothing else: no preamble and no code fence around it.
+
+Fix every listed finding and keep all other content, structure and headings. Do not add new claims.
+- missing_citation: the line makes a claim without a valid citation. Add a catalog ID as [source:S001], cite a workspace-relative path with line numbers (src/app.ts:42, src/app.ts:40-48 or src/app.ts:12,40), or mark the claim [inference]. A bare :42, a basename that is not a workspace path, or a path elided after its first mention is not a citation: repeat the full path on every line that cites it.
+- unresolved_local_citation: replace the named citation with a full workspace-relative path and valid line numbers, or remove it.
+- unknown_source: the cited ID is not in the evidence catalog. Replace it with a catalog ID, a workspace citation, or [inference].
+- number_mismatch or quote_mismatch: the number or quote does not appear in the cited source or the cited lines. Re-read the file and correct the line range, correct the number or quote, or remove it. Double quotation marks are only for exact text from a cited source: write a proposed string, label or paraphrase without them, or in backticks when it is a literal value.
+- false_consensus: the line calls something consensus without two independent evidence groups. Reword it or cite a second independent source.
+
+Workspace root for file citations: ${local_evidence_root}. Every cited file and line must exist there.
+
+Verifier findings (line numbers refer to the numbered draft):
+${findings}
+
+Evidence catalog (the only valid source IDs):
+${evidence_catalog:-No external evidence catalog is available. Mark factual conclusions [inference].}
+
+Numbered draft (each line is its number, a tab, then the text; return the text without the numbers):
+${numbered_draft}"
+
+    repaired=$(run_agent_sync "$agent" "$repair_prompt" "${TIMEOUT:-300}" "synthesizer" "probe") || return 1
+    [[ -n "${repaired//[[:space:]]/}" ]] || return 1
+    local normalized
+    normalized=$(mktemp "${draft_file}.repair.XXXXXX") || return 1
+    if ! probe_synthesis_unwrap_repair "$repaired" > "$normalized" \
+       || ! grep -c '[^[:space:]]' "$normalized" >/dev/null; then
+        rm -f "$normalized"
+        return 1
+    fi
+    if ! mv "$normalized" "$draft_file"; then
+        rm -f "$normalized"
+        return 1
+    fi
+}
+
+# The verifier skips fenced blocks, so a repair returned inside one outer
+# fence would pass with nothing checked. Drop that fence and any echoed line
+# numbers before the draft is verified again.
+probe_synthesis_unwrap_repair() {
+    printf '%s\n' "$1" | awk '
+        { line = $0; sub(/^[0-9]+\t/, "", line); lines[NR] = line }
+        END {
+            first = 1; last = NR
+            while (first <= last && lines[first] ~ /^[[:space:]]*$/) first++
+            while (last >= first && lines[last] ~ /^[[:space:]]*$/) last--
+            opener = lines[first]
+            sub(/^ ? ? ?/, "", opener)
+            if (first < last && match(opener, /^`+|^~+/) && RLENGTH >= 3) {
+                marker = substr(opener, 1, 1); size = RLENGTH
+                suffix = substr(opener, size + 1); closer = 0
+                if (marker != "`" || suffix !~ /`/) {
+                    for (i = first + 1; i <= last; i++) {
+                        closing = lines[i]; sub(/^ ? ? ?/, "", closing)
+                        if (substr(closing, 1, 1) != marker) continue
+                        if (match(closing, /^`+|^~+/) && RLENGTH >= size \
+                            && substr(closing, RLENGTH + 1) ~ /^[[:space:]]*$/) {
+                            closer = i
+                            break
+                        }
+                    }
+                }
+                if (closer == 0) exit 1
+                if (closer == last) { first++; last-- }
+            }
+            for (i = first; i <= last; i++) print lines[i]
+        }'
+}
+
+build_probe_fallback_synthesis() {
+    local original_prompt="$1"
+    local result_count="$2"
+    local usable_results="$3"
+    local total_content_size="$4"
+    local prompt_summary="${original_prompt//$'\n'/ }"
+
+    cat <<EOF
+Automated probe synthesis unavailable.
+
+## Key Findings
+The synthesis provider did not produce a coherent discovery summary. This fallback is intentionally compact and does not attach full raw probe artifacts.
+
+## Source Coverage
+- Usable research threads included: ${result_count} [inference]
+- Usable results reported by probe: ${usable_results} [inference]
+- Raw source bytes considered: ${total_content_size} [inference]
+- Full raw artifacts remain available in RESULTS_DIR for manual inspection.
+
+## Original Question: ${prompt_summary}
+
+## Raw Artifacts
+Raw provider artifacts remain available in RESULTS_DIR for manual inspection. [inference]
+EOF
+}
+
+aggregate_results() {
+    local _ts; _ts=$(date +%s)
+    local filter="${1:-}"
+    local user_query="${2:-}"  # v8.49.0: Optional user query for relevance-aware synthesis
+    local aggregate_file="${RESULTS_DIR}/aggregate-${_ts}.md"
+    local raw_concat="${RESULTS_DIR}/.raw-concat-$$.md"
+
+    log INFO "Aggregating results..."
+
+    # Phase 1: Collect results ranked by quality signals (v8.49.0)
+    # Results are ordered best-first so the synthesis LLM sees highest-quality content first
+    local result_count=0
+    : > "$raw_concat"
+    local ranked_files=""
+    if type agent_status_output_files >/dev/null 2>&1; then
+        ranked_files=$(agent_status_output_files "$filter" 2>/dev/null || true)
+    fi
+    [[ -z "$ranked_files" ]] && ranked_files=$(rank_results_by_signals "$RESULTS_DIR" "$filter")
+
+    if [[ -z "$ranked_files" ]]; then
+        # Fallback: no ranked results, use original glob order
+        for result in "$RESULTS_DIR"/*.md; do
+            [[ -f "$result" ]] || continue
+            [[ "$result" == *aggregate* ]] && continue
+            [[ "$result" == *.raw-concat* ]] && continue
+            [[ -n "$filter" && "$result" != *"$filter"* ]] && continue
+            probe_result_file_is_usable "$result" || continue
+            type octo_seat_was_rejected >/dev/null 2>&1 && octo_seat_was_rejected "$result" && continue
+            ranked_files+="$result"$'\n'
+        done
+    fi
+
+    local agent_summary=""
+    if type render_agent_summary >/dev/null 2>&1; then
+        agent_summary=$(render_agent_summary 2>/dev/null || true)
+    fi
+
+    while IFS= read -r result; do
+        [[ -z "$result" ]] && continue
+        [[ ! -f "$result" ]] && continue
+        probe_result_file_is_usable "$result" || continue
+        type octo_seat_was_rejected >/dev/null 2>&1 && octo_seat_was_rejected "$result" && continue
+        local score
+        score=$(score_result_file "$result")
+        echo "---" >> "$raw_concat"
+        echo "## Source: $(basename "$result") [Quality: ${score}/100]" >> "$raw_concat"
+        echo "" >> "$raw_concat"
+        cat "$result" >> "$raw_concat"
+        echo "" >> "$raw_concat"
+        ((result_count++)) || true
+    done <<< "$ranked_files"
+
+    # Phase 2: Synthesize via the agy-capable run_agent_sync abstraction when we
+    # have a reachable provider and multiple results. (Gemini CLI sunset
+    # 2026-06-18 — agy is the default Google seat; claude-sonnet is the fallback;
+    # plain concatenation only when no provider is reachable.) The picker lives in
+    # parallel.sh, which orchestrate.sh sources before this lib.
+    local synth_agent="" synth_used=""
+    type _aggregate_pick_synth_agent >/dev/null 2>&1 && synth_agent=$(_aggregate_pick_synth_agent)
+    synth_used="$synth_agent"
+    if [[ $result_count -gt 1 ]] && [[ -n "$synth_agent" ]] \
+        && type run_agent_sync >/dev/null 2>&1 && [[ "$DRY_RUN" != "true" ]]; then
+        log INFO "Synthesizing $result_count results via $synth_agent (ranked by quality, not just concatenating)..."
+
+        # v8.49.0: Enhanced synthesis prompt with relevance awareness and structured output
+        local query_context=""
+        if [[ -n "$user_query" ]]; then
+            query_context="
+Original User Query: $user_query
+Weight content by relevance to this query. Sources are pre-ranked by quality (best first)."
+        fi
+
+        local synthesis_prompt
+        synthesis_prompt="Synthesize these $result_count subtask results into ONE coherent output.
+${query_context}
+Rules:
+- Sources are ordered by quality score (best first); weight accordingly
+- Merge overlapping content; preserve distinct contributions from each source
+- Short but critical findings (minority opinions, edge cases, warnings) are EQUALLY important as verbose analysis — do NOT dismiss them for brevity
+- If sources conflict, state the conflict and your resolution
+- Cite the source provider/file for factual claims; mark uncited interpretation as [inference]
+- Treat failed providers as unavailable, not as evidence
+- The output must stand alone — a reader should get the complete picture without seeing the inputs
+
+Structure the output as:
+1. **Key Findings** — Top 3-5 actionable insights
+2. **Detailed Analysis** — Organized by topic, not by source
+3. **Conflicts & Trade-offs** — Where sources disagreed and why
+4. **Recommendations** — Prioritized next steps
+
+Agent status:
+${agent_summary:-No agent status ledger available}
+
+Subtask results:
+$(<"$raw_concat")"
+
+        local synthesis_result=""
+        if synthesis_result=$(run_agent_sync "$synth_agent" "$synthesis_prompt" "${TIMEOUT:-300}" "synthesizer" "aggregate" 2>/dev/null) \
+            && [[ -n "$synthesis_result" ]]; then
+            :  # primary synthesizer produced output
+        elif [[ "$synth_agent" != "claude-sonnet" ]] \
+            && { ! declare -f octo_provider_allowed >/dev/null 2>&1 || octo_provider_allowed claude-sonnet; } \
+            && command -v claude >/dev/null 2>&1 \
+            && synthesis_result=$(run_agent_sync "claude-sonnet" "$synthesis_prompt" "${TIMEOUT:-300}" "synthesizer" "aggregate" 2>/dev/null) \
+            && [[ -n "$synthesis_result" ]]; then
+            log WARN "Synthesizer '$synth_agent' failed — used claude-sonnet fallback"
+            synth_used="claude-sonnet"
+        else
+            synthesis_result=""
+        fi
+
+        if [[ -n "$synthesis_result" ]]; then
+            echo "# Claude Octopus - Synthesized Results" > "$aggregate_file"
+            echo "" >> "$aggregate_file"
+            echo "Generated: $(date)" >> "$aggregate_file"
+            echo "Sources: $result_count subtask outputs (ranked by quality)" >> "$aggregate_file"
+            echo "Synthesizer: $synth_used" >> "$aggregate_file"
+            [[ -n "$user_query" ]] && echo "Query: $user_query" >> "$aggregate_file"
+            if [[ -n "$agent_summary" ]]; then
+                echo "" >> "$aggregate_file"
+                echo "$agent_summary" >> "$aggregate_file"
+            fi
+            echo "" >> "$aggregate_file"
+            echo "$synthesis_result" >> "$aggregate_file"
+            rm -f "$raw_concat"
+            log INFO "Synthesized $result_count results via $synth_used to: $aggregate_file"
+            echo ""
+            echo -e "${GREEN}✓${NC} Results synthesized to: $aggregate_file"
+            guard_output "$(<"$aggregate_file")" "aggregate-synthesis"
+            return
+        fi
+        log WARN "Synthesis failed, falling back to concatenation"
+    fi
+
+    # Fallback: concatenation (single result or no synthesis provider)
+    echo "# Claude Octopus - Aggregated Results" > "$aggregate_file"
+    echo "" >> "$aggregate_file"
+    echo "Generated: $(date)" >> "$aggregate_file"
+    if [[ -n "$agent_summary" ]]; then
+        echo "" >> "$aggregate_file"
+        echo "$agent_summary" >> "$aggregate_file"
+    fi
+    echo "" >> "$aggregate_file"
+    cat "$raw_concat" >> "$aggregate_file"
+    echo "" >> "$aggregate_file"
+    echo "**Total Results: $result_count**" >> "$aggregate_file"
+
+    rm -f "$raw_concat"
+    log INFO "Aggregated $result_count results to: $aggregate_file"
+    echo ""
+    echo -e "${GREEN}✓${NC} Results aggregated to: $aggregate_file"
+    guard_output "$(<"$aggregate_file")" "aggregate-concat"
+}
+
+# Synthesize probe results into insights
+synthesize_probe_results() {
+    local task_group="$1"
+    local original_prompt="$2"
+    local prompt_summary="${original_prompt//$'\n'/ }"
+    local usable_results="${3:-0}"  # v7.19.0 P1.1: Accept usable result count
+    local synthesis_file="${RESULTS_DIR}/probe-synthesis-${task_group}.md"
+
+    if [[ "${OCTOPUS_RESEARCH_EVIDENCE:-false}" == "true" ]] \
+       && declare -F research_synthesis_prepare >/dev/null 2>&1; then
+        research_synthesis_prepare "$task_group" "$original_prompt" || return 1
+    fi
+    local provider_results_dir="${RESEARCH_PROVIDER_RESULTS_DIR:-$RESULTS_DIR}"
+
+    log INFO "Synthesizing research findings..."
+
+    # v7.19.0 P1.1: Gather probe result metrics with size filtering.
+    # Do not concatenate raw artifacts here; synthesis gets a bounded context below.
+    local results=""
+    local result_count=0
+    local total_content_size=0
+    for result in "$provider_results_dir"/*-probe-${task_group}-*.md; do
+        [[ -f "$result" ]] || continue
+        probe_result_file_is_usable "$result" || { log DEBUG "Skipping $result (unusable probe output)"; continue; }
+        type octo_seat_was_rejected >/dev/null 2>&1 && octo_seat_was_rejected "$result" && { log DEBUG "Skipping $result (provider rejection)"; continue; }
+
+        local file_size
+        file_size=$(wc -c < "$result" 2>/dev/null || echo "0")
+        ((result_count++)) || true
+        total_content_size=$((total_content_size + file_size))
+    done
+
+    # v7.19.0 P1.1: Graceful degradation - proceed with 2+ results
+    if [[ $result_count -eq 0 ]]; then
+        # v7.19.0 P1.3: Use enhanced error messaging
+        local error_details=()
+        error_details+=("All agents either failed, timed out without output, or produced empty results")
+        error_details+=("Expected 4 probe results, found 0 with meaningful content")
+        error_details+=("Check individual agent status in logs directory")
+        enhanced_error "probe_synthesis_no_results" "$task_group" "${error_details[@]}"
+        return 1
+    elif [[ $result_count -eq 1 ]]; then
+        log WARN "Only 1 usable result found (minimum 2 recommended)"
+        log WARN "Synthesis quality may be reduced with limited perspectives"
+        log WARN "Proceeding anyway..."
+    elif [[ $result_count -lt 4 ]]; then
+        log WARN "Proceeding with $result_count/$usable_results usable results ($(numfmt --to=iec-i --suffix=B $total_content_size 2>/dev/null || echo "${total_content_size}B"))"
+    else
+        log INFO "All $result_count results available for synthesis ($(numfmt --to=iec-i --suffix=B $total_content_size 2>/dev/null || echo "${total_content_size}B"))"
+    fi
+
+    local evidence_catalog=""
+    if declare -F research_source_catalog >/dev/null 2>&1; then
+        evidence_catalog=$(research_source_catalog 2>/dev/null || true)
+    fi
+    local agent_status
+    agent_status=$(type render_agent_summary >/dev/null 2>&1 && render_agent_summary 2>/dev/null || echo "No agent status ledger available")
+    local local_evidence_root="${RESEARCH_PROJECT_ROOT:-${PROJECT_ROOT:-$PWD}}"
+
+    local synth_agent="" synthesis=""
+    type _aggregate_pick_synth_agent >/dev/null 2>&1 && synth_agent=$(_aggregate_pick_synth_agent)
+    local prompt_reserve_bytes synthesis_budget_bytes=""
+    prompt_reserve_bytes=$(( $(probe_synthesis_byte_length "$original_prompt") \
+        + $(probe_synthesis_byte_length "$agent_status") \
+        + $(probe_synthesis_byte_length "$evidence_catalog") + 16384 ))
+    synthesis_budget_bytes=$(probe_synthesis_budget_bytes "$synth_agent" "$prompt_reserve_bytes") || synthesis_budget_bytes=""
+
+    # v8.49.0: Rank results by quality signals before synthesis.
+    # Keep the synthesis prompt bounded; full raw files remain on disk.
+    local compact_results
+    if compact_results=$(build_probe_synthesis_context "$task_group" "$provider_results_dir" "$synthesis_budget_bytes") \
+       && [[ -n "$compact_results" ]]; then
+        results="$compact_results"
+    else
+        results="# Compact Probe Synthesis Context"$'\n\n'"No bounded probe excerpts could be collected. Inspect RESULTS_DIR for raw artifacts."
+    fi
+
+    # Use the Google seat (agy, post Gemini-CLI sunset #524) for intelligent synthesis
+    # v8.49.0: Enhanced prompt with structured output, minority opinion preservation,
+    # and relevance-aware weighting (inspired by Crawl4AI content filtering patterns)
+    local synthesis_prompt="Synthesize these research findings into a coherent discovery summary.
+
+Original Question: $original_prompt
+
+Agent status:
+${agent_status}
+
+Sources are pre-ranked by quality score (best first). However:
+- Short but specific findings may be MORE valuable than lengthy general analysis
+- Minority opinions and dissenting views MUST be preserved — they often contain critical insights
+- Concrete examples (code, file paths, commands) outweigh abstract discussion
+- Every factual claim must cite one or more catalog IDs as [source:S001], cite a workspace file, or be explicitly marked [inference]
+- A claim about a file in the workspace (${local_evidence_root}) may cite it as a workspace-relative path with line numbers: src/app.ts:42, src/app.ts:40-48 or src/app.ts:12,40. The file and every cited line must exist; a bare :42, a basename that is not a workspace path, or an elided path is not a citation
+- Quotes and numeric claims must cite a catalog source whose snapshot, or a workspace file whose text, contains the exact quote or number
+- Count independent evidence groups, not citation count. Sources with the same independence key are one voice
+- Never call duplicated or syndicated sources consensus; consensus requires at least two independence keys
+- Failed or rejected provider outputs were excluded and must not be cited as evidence
+
+Structure your synthesis as:
+1. **Key Findings** — Top 3-5 actionable insights, ranked by relevance to the original question
+2. **Patterns & Consensus** — Where multiple sources agree
+3. **Conflicts & Trade-offs** — Where sources disagree, with your reasoned resolution
+4. **Gaps** — What's still unknown and needs more research
+5. **Priority Matrix** — Rank findings by impact (High/Medium/Low) and effort (Low/Medium/High) in a table
+6. **Recommended Approach** — Specific next steps based on findings
+
+Evidence catalog (the only valid source IDs):
+${evidence_catalog:-No external evidence catalog is available. Mark factual conclusions [inference].}
+
+Research findings:
+$results"
+
+    # Route probe synthesis through the Google seat (agy) with a claude-sonnet
+    # retry, then the compact static fallback. (#524 — Gemini CLI sunset.)
+    # Keep an empty picker result authoritative — do NOT override it with
+    # claude-sonnet, which would bypass OCTO_ALLOWED_PROVIDERS and send probe
+    # context to a disabled provider. _aggregate_pick_synth_agent already returns
+    # claude-sonnet when (and only when) the allowlist permits it (#538).
+    local synthesis_agent=""
+    if [[ -n "$synth_agent" ]]; then
+        synthesis=$(run_agent_sync "$synth_agent" "$synthesis_prompt" "${TIMEOUT:-300}" "synthesizer" "probe") || synthesis=""
+        [[ -n "$synthesis" ]] && synthesis_agent="$synth_agent"
+        if [[ -z "$synthesis" && "$synth_agent" != "claude-sonnet" ]] \
+            && { ! declare -f octo_provider_allowed >/dev/null 2>&1 || octo_provider_allowed claude-sonnet; } \
+            && command -v claude >/dev/null 2>&1; then
+            log WARN "Probe synthesis via '$synth_agent' failed — retrying with claude-sonnet"
+            synthesis=$(run_agent_sync "claude-sonnet" "$synthesis_prompt" "${TIMEOUT:-300}" "synthesizer" "probe") || synthesis=""
+            [[ -n "$synthesis" ]] && synthesis_agent="claude-sonnet"
+        fi
+    fi
+    local synthesis_degraded=false
+    if [[ -z "$synthesis" ]]; then
+        log WARN "Synthesis failed, using compact fallback"
+        synthesis=$(build_probe_fallback_synthesis "$original_prompt" "$result_count" "$usable_results" "$total_content_size")
+        synthesis_degraded=true
+    fi
+
+    local draft_file="$synthesis_file"
+    if declare -F research_synthesis_select_draft >/dev/null 2>&1; then
+        research_synthesis_select_draft "$synthesis_file" "$task_group" || return 1
+        draft_file="$RESEARCH_SYNTHESIS_DRAFT_FILE"
+    fi
+
+    cat > "$draft_file" << EOF
+# PROBE Phase Synthesis
+## Discovery Summary - $(date)
+## Original Task: $prompt_summary
+
+$synthesis
+
+---
+*Synthesized from $result_count research threads (task group: $task_group)* [inference]
+EOF
+
+    if declare -F research_synthesis_publish >/dev/null 2>&1; then
+        if ! research_synthesis_publish "$draft_file" "$synthesis_file"; then
+            probe_synthesis_repair "$synthesis_agent" "$draft_file" "$evidence_catalog" "$local_evidence_root" || return 1
+            research_synthesis_publish "$draft_file" "$synthesis_file" || return 1
+        fi
+    fi
+
+    log INFO "Synthesis complete: $synthesis_file"
+    if declare -F feature_workflow_research_completed >/dev/null 2>&1; then
+        feature_workflow_research_completed "$synthesis_file" "$synthesis_agent" "${RESEARCH_RUN_ID:-$task_group}" "$synthesis_degraded" || true
+    fi
+
+    # v7.19.0 P2.3: Save to cache for reuse
+    local cache_key
+    cache_key=$(get_cache_key "$original_prompt")
+
+    local _green="${GREEN:-}"
+    local _yellow="${YELLOW:-}"
+    local _cyan="${CYAN:-}"
+    local _nc="${NC:-}"
+    echo ""
+    echo -e "${_green}✓${_nc} Probe synthesis saved to: $synthesis_file"
+    # A compact fallback carries no findings; caching it would hand the same
+    # empty stub to every retry of this prompt until the TTL expires.
+    if [[ "$synthesis_degraded" == true ]]; then
+        echo -e "${_yellow}⚠${_nc}  Compact fallback synthesis not cached; a retry will re-run the providers"
+    else
+        report_probe_cache_result "$cache_key" "$synthesis_file" "$_cyan" "$_yellow" "$_nc"
+    fi
+    echo ""
+    guard_output "$(<"$synthesis_file")" "probe-synthesis"
+}
+
+# Persisting the optimization is secondary to returning the completed
+# synthesis. Cache failure is visible and durable, but intentionally non-fatal.
+report_probe_cache_result() {
+    local cache_key="$1" synthesis_file="$2"
+    local cyan="${3:-${CYAN:-}}" yellow="${4:-${YELLOW:-}}" nc="${5:-${NC:-}}"
+
+    if save_to_cache "$cache_key" "$synthesis_file"; then
+        echo -e "${cyan}♻️${nc}  Cached for 1 hour (reuse if prompt unchanged)"
+        return 0
+    fi
+
+    log "WARN" "Probe synthesis usable but cache persistence failed: $synthesis_file"
+    echo -e "${yellow}⚠${nc}  Probe synthesis was not cached; this result remains usable"
+    if type run_contract_record_event >/dev/null 2>&1; then
+        run_contract_record_event cache.write.failed \
+            "artifact=$synthesis_file" "cache_key=$cache_key" \
+            "reason=cache persistence failed" >/dev/null 2>&1 || true
+    elif type octo_event_emit >/dev/null 2>&1; then
+        octo_event_emit cache.write.failed \
+            "artifact=$synthesis_file" "cache_key=$cache_key" \
+            "reason=cache persistence failed" >/dev/null 2>&1 || true
+    fi
+    return 0
+}

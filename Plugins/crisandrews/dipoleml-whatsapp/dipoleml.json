@@ -1,0 +1,151 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.crisandrews.dipoleml-whatsapp",
+  "type": "plugin",
+  "name": "DipoleML WhatsApp",
+  "slug": "dipoleml-whatsapp",
+  "vendor": "crisandrews",
+  "description": "WhatsApp channel plugin for DipoleML — connect your WhatsApp to an AI agent. QR scan, voice transcription, access control, media support.",
+  "version": "1.21.1",
+  "homepage": "https://github.com/crisandrews/claude-whatsapp",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "anthropic",
+    "baileys",
+    "chatbot",
+    "claude-code-plugin",
+    "claude-plugin",
+    "voice-transcription",
+    "whatsapp",
+    "whatsapp-api",
+    "whatsapp-bot"
+  ],
+  "tags": [
+    "ai-agent",
+    "anthropic",
+    "baileys",
+    "chatbot",
+    "claude",
+    "claude-code",
+    "claude-code-plugin",
+    "claude-plugin",
+    "mcp",
+    "mcp-server",
+    "voice-transcription",
+    "whatsapp",
+    "whatsapp-api",
+    "whatsapp-bot",
+    "whisper"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "whatsapp",
+    "brandName": "whatsapp",
+    "source": "https://cdn.simpleicons.org/whatsapp",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:12:37Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "crisandrews/claude-whatsapp",
+    "url": "https://github.com/crisandrews/claude-whatsapp",
+    "commit": "343925d2f9762dbed8d59dee181e2f54f0fa71bd",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 16,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:51:00Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Claude WhatsApp | WhatsApp channel plugin for Claude Code — connect your WhatsApp to an AI agent. QR scan, voice transcription, access control, media support.",
+        "after": "DipoleML WhatsApp | WhatsApp channel plugin for DipoleML — connect your WhatsApp to an AI agent. QR scan, voice transcription, access control, media support.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "WhatsApp channel for Claude Code — messaging bridge via QR code with built-in access control.",
+        "after": "WhatsApp channel for DipoleML — messaging bridge via QR code with built-in access control.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "claude-whatsapp",
+        "after": "dipoleml-whatsapp",
+        "reason": "provider token neutralized in slug/id"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "npm",
+      "args": [
+        "--prefix",
+        "${DIPOLEML_PLUGIN_ROOT}",
+        "run",
+        "start"
+      ]
+    },
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "claude-whatsapp-channel"
+    ],
+    "env": [
+      "GROQ_API_KEY",
+      "OPENAI_API_KEY"
+    ],
+    "credentials": [
+      "GROQ_API_KEY",
+      "OPENAI_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative. Upstream plugin scripts may reference CLAUDE_PLUGIN_ROOT; the DipoleML loader must set it as an alias for DIPOLEML_PLUGIN_ROOT.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

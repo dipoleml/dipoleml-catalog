@@ -1,0 +1,16 @@
+{
+  "name": "shopify-commerce-2",
+  "displayName": "Shopify Commerce",
+  "version": "1.0.0",
+  "description": "Expert subagent and skills for Shopify development — GraphQL Admin and Storefront APIs, Liquid templating, Online Store 2.0 themes, Hydrogen/Remix headless storefronts, Shopify Functions, checkout UI extensions, Polaris components, app development with App Bridge, webhooks, and JavaScript/TypeScript/React patterns.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Orcaqubits"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/OrcaQubits/agentic-commerce-skills-plugins/tree/main/shopify-commerce",
+  "repository": "https://github.com/OrcaQubits/agentic-commerce-skills-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,149 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.hex.dipoleml-council",
+  "type": "plugin",
+  "name": "DipoleML Council",
+  "slug": "dipoleml-council",
+  "vendor": "hex",
+  "description": "DipoleML plugin that asks several AI coding agents the same question and shows their answers side by side. Gemini, OpenAI, Grok, Perplexity, Kimi and any model OpenRouter routes to over API; codex, antigravity, grok, kimi and cursor CLIs on subscription auth; ollama locally. Codex specialists take coding tasks on their own branch (experimental).",
+  "version": "2026.10.14",
+  "homepage": "https://github.com/hex/claude-council",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "antigravity",
+    "claude-code-plugin",
+    "codex",
+    "cursor",
+    "gemini",
+    "grok",
+    "kimi",
+    "multi-agent",
+    "ollama"
+  ],
+  "tags": [
+    "ai-agents",
+    "antigravity",
+    "claude-code",
+    "claude-code-plugin",
+    "codex",
+    "cursor",
+    "gemini",
+    "grok",
+    "kimi",
+    "llm",
+    "multi-agent",
+    "ollama",
+    "openai",
+    "openrouter",
+    "perplexity",
+    "specialists",
+    "tmux"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "hex",
+    "brandName": "hex",
+    "source": "https://github.com/hex.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:13:14Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "hex/claude-council",
+    "url": "https://github.com/hex/claude-council",
+    "commit": "b264cdec39b5df208954b4709c5fd2e70e947ca2",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 911,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:48:34Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Claude Council | Claude Code plugin that asks several AI coding agents the same question and shows their answers side by side. Gemini, OpenAI, Grok, Perplexity, Kimi and any model OpenRouter routes to over API; codex, antigravity, grok, kimi and cursor CLIs on subscription auth; ollama locally. Codex specialists take coding tasks on their own branch (experimental).",
+        "after": "DipoleML Council | DipoleML plugin that asks several AI coding agents the same question and shows their answers side by side. Gemini, OpenAI, Grok, Perplexity, Kimi and any model OpenRouter routes to over API; codex, antigravity, grok, kimi and cursor CLIs on subscription auth; ollama locally. Codex specialists take coding tasks on their own branch (experimental).",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Consult multiple AI coding agents (Gemini, OpenAI, Grok, Perplexity, Kimi, any model OpenRouter routes to, plus codex, antigravity, grok, kimi and cursor CLIs when installed, and a local ollama model) to get diverse perspectives on coding problems, with a streaming pane in tmux or inside Claude Code, and, once switched on, a heads-up side-check where one council seat, codex by default, rereads a long turn and shows one line above the prompt about something you may have missed.",
+        "after": "Consult multiple AI coding agents (Gemini, OpenAI, Grok, Perplexity, Kimi, any model OpenRouter routes to, plus codex, antigravity, grok, kimi and cursor CLIs when installed, and a local ollama model) to get diverse perspectives on coding problems, with a streaming pane in tmux or inside DipoleML, and, once switched on, a heads-up side-check where one council seat, codex by default, rereads a long turn and shows one line above the prompt about something you may have missed.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "claude-council",
+        "after": "dipoleml-council",
+        "reason": "provider token neutralized in slug/id"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [
+      "OPENAI_API_KEY",
+      "GEMINI_API_KEY",
+      "XAI_API_KEY",
+      "PERPLEXITY_API_KEY",
+      "KIMI_API_KEY",
+      "OPENROUTER_API_KEY",
+      "CODEX_API_KEY"
+    ],
+    "credentials": [
+      "OPENAI_API_KEY",
+      "GEMINI_API_KEY",
+      "XAI_API_KEY",
+      "PERPLEXITY_API_KEY",
+      "KIMI_API_KEY",
+      "OPENROUTER_API_KEY",
+      "CODEX_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

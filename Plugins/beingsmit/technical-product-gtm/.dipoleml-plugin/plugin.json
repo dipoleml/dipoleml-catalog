@@ -1,0 +1,16 @@
+{
+  "name": "technical-product-gtm",
+  "displayName": "Technical Product Gtm",
+  "version": "3.0.0",
+  "description": "11 go-to-market skills for AI and technical founders — positioning, pricing, partnerships, enterprise sales, PLG, AI GTM, and board communication. Built from 15 years operating at companies from Seed through IPO.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Beingsmit"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/beingsmit/technical-product-gtm",
+  "repository": "https://github.com/beingsmit/technical-product-gtm",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

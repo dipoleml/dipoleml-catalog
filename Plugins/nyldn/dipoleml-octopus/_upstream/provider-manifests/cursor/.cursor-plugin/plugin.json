@@ -1,0 +1,25 @@
+{
+  "name": "claude-octopus",
+  "displayName": "Claude Octopus",
+  "description": "Multi-LLM orchestration \u2014 up to 8 providers check each other's work. Research, build, review, and ship with consensus gates.",
+  "version": "11.15.2",
+  "author": {
+    "name": "nyldn"
+  },
+  "homepage": "https://github.com/nyldn/claude-octopus",
+  "repository": "https://github.com/nyldn/claude-octopus",
+  "license": "MIT",
+  "keywords": [
+    "multi-llm",
+    "multi-agent",
+    "orchestration",
+    "double-diamond",
+    "code-review",
+    "tdd",
+    "research",
+    "debugging"
+  ],
+  "skills": "./skills/",
+  "agents": "./agents/",
+  "commands": "./.cursor-plugin/commands/"
+}

@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "id": "nanoid-safety-random-boundary",
+  "category": "safety_boundary",
+  "repository": "https://github.com/ai/nanoid.git",
+  "pinned_ref": "1a1fee4610061c63e2429eb5c22a35e3634c1d03",
+  "task": "Add adversarial tests around the 65536-byte crypto boundary and prove chunking never skips, overlaps, or silently accepts a partially filled random buffer.",
+  "setup_command": ["corepack", "pnpm", "install", "--frozen-lockfile"],
+  "verification_command": ["corepack", "pnpm", "test"],
+  "expected_artifacts": ["index.js", "index.browser.js", "test/index.test.js"],
+  "allowed_tools": ["read", "search", "edit", "test", "git"],
+  "timeout_minutes": 45,
+  "probe_budget": {
+    "max_files": 400,
+    "max_bytes": 2097152,
+    "max_duration_ms": 2500
+  },
+  "max_attempts": 2,
+  "max_agents": 1,
+  "candidate_executors": ["codex-utility", "claude-workhorse", "claude-frontier", "codex-frontier"],
+  "holdout": false,
+  "adversarial_case": "tamper"
+}

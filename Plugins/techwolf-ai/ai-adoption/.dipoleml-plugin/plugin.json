@@ -1,0 +1,16 @@
+{
+  "name": "ai-adoption",
+  "displayName": "Ai Adoption",
+  "version": "2.1.0",
+  "description": "AI Adoption, two skills for working with your DipoleML history. token-doctor diagnoses where your DipoleML + Cowork spend goes (length distribution, marathon share, sub-agent fan-out, model mix, cache rebuilds, per-project health), writes a doctor-style terminal report, and optionally fans out parallel Haiku subagents over your top sessions for habit-level recommendations. task-profile mines those same sessions into a structured task profile: what you do with AI, how often, how successfully, where friction lives; it emits a shareable CSV, an interactive HTML explorer with progressive disclosure and a code-vs-cowork token chart, AI-first coaching cards, and up to five task-centric skill proposals. (session-search moved to the session-tools plugin.)",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Techwolf Ai"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/techwolf-ai/ai-first-toolkit",
+  "repository": "https://github.com/techwolf-ai/ai-first-toolkit",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

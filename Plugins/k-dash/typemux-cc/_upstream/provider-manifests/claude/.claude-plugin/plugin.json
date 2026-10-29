@@ -1,0 +1,23 @@
+{
+  "name": "typemux-cc",
+  "version": "0.2.18",
+  "description": "Python type-checker LSP multiplexer for Claude Code (pyright, ty, pyrefly)",
+  "author": {
+    "name": "K-dash"
+  },
+  "homepage": "https://github.com/K-dash/typemux-cc",
+  "repository": "https://github.com/K-dash/typemux-cc",
+  "license": "MIT",
+  "keywords": ["lsp", "pyright", "ty", "pyrefly", "proxy", "rust", "monorepo", "python"],
+  "hooks": "./hooks.json",
+  "lspServers": {
+    "typemux-cc": {
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/typemux-cc",
+      "args": [],
+      "extensionToLanguage": {
+        ".py": "python",
+        ".pyi": "python"
+      }
+    }
+  }
+}

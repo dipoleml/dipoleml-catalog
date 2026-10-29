@@ -1,0 +1,101 @@
+---
+title: 微服务延迟成本分析 — 何时不该用微服务
+domain: devops
+tags:
+- microservices
+- architecture
+- latency
+- performance
+- monolith
+status: published
+created: '2026-07-01'
+language: zh
+source: dev.to
+confidence: 0.9
+domain_expert: ''
+verified_date: ''
+subdomain: architecture
+provenance:
+  source: "community"
+  contributor: "Community"
+  merged_at: "2026-08-23"
+  evidence: "post-publication"
+---
+
+## Problem
+
+微服务的承诺：可扩展、可维护、快速。现实：对大多数系统，微服务只增加了延迟、复杂度和故障点。
+
+## Root Cause
+
+微服务通过网络通信，网络比函数调用慢 1000-5000 倍。
+
+## Solution
+
+### 延迟对比
+
+| 调用方式 | 延迟 |
+|---------|------|
+| 进程内函数调用（单体） | 0.001ms |
+| 同机房 HTTP 调用（微服务） | 1-5ms |
+| 跨区域 HTTP 调用 | 50-200ms |
+
+### 实际案例：电商结账
+
+```
+操作：验证会话 → 查库存 → 算运费 → 支付 → 建单 → 发邮件
+
+单体架构：
+  6 次函数调用 × 0.001ms = 0.006ms
+  3 次数据库查询 × 2ms = 6ms
+  1 次外部 API = 150ms
+  总计：~156ms
+
+微服务架构：
+  6 次服务调用 × 3ms = 18ms（序列化/反序列化 + 网络 + 处理）
+  + 数据库查询
+  + 外部 API
+  总计：~174ms（+18ms 开销）
+```
+
+### 何时用微服务
+
+| 场景 | 推荐 |
+|------|------|
+| 团队 < 10 人 | 单体 |
+| 团队 10-50 人 | 模块化单体 |
+| 团队 > 50 人 | 微服务 |
+| 需要独立扩缩容 | 微服务 |
+| 需要独立部署 | 微服务 |
+
+### 模块化单体（推荐）
+
+```
+单体应用
+├── 模块 A（用户）
+├── 模块 B（订单）
+├── 模块 C（支付）
+└── 模块 D（通知）
+
+模块间通过内部 API 调用（0.001ms）
+需要拆分时再拆
+```
+
+## Verification
+
+```bash
+echo "Lesson: 微服务延迟成本分析 — 何时不该用微服务"
+wc -l lessons/contrib/lesson-10-microservices-latency-math.md
+```
+
+**Expected Output:**
+```
+Lesson: 微服务延迟成本分析 — 何时不该用微服务
+# (line count)
+```
+
+## Notes
+
+- "对大多数系统，微服务只增加了延迟、复杂度和故障点"
+- 模块化单体是更务实的选择
+- Source: dev.to (2026-01-14, 151↑)

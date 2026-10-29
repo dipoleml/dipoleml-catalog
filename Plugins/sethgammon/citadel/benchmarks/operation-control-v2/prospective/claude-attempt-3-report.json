@@ -1,0 +1,283 @@
+{
+  "schema": 1,
+  "kind": "citadel_operation_control_report",
+  "operation_id": "citadel-short-executor-proof-v2-claude",
+  "request_digest": "sha256:71a447726f167954efc3156f3de0b5441be213d8d1697a6b1cbb70c4c301f82d",
+  "decision": {
+    "schema": 1,
+    "kind": "citadel_operation_decision",
+    "operation_id": "citadel-short-executor-proof-v2-claude",
+    "request_digest": "sha256:71a447726f167954efc3156f3de0b5441be213d8d1697a6b1cbb70c4c301f82d",
+    "catalog_digest": "sha256:68ac0a8afbb704139d39c921eb8a7e15cb153b978b26ee49660ffc4f0cc629f3",
+    "history_digest": "sha256:4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "selection_status": "meets-quality-target",
+    "quality_target": 0.2,
+    "selected": {
+      "root_plan_id": "claude-direct-claude-opus-5",
+      "plan_ids": [
+        "claude-direct-claude-opus-5"
+      ],
+      "stages": [
+        {
+          "plan_id": "claude-direct-claude-opus-5",
+          "reach_probability": 1,
+          "success_probability": 0.255017,
+          "evidence_basis": "declared-prior"
+        }
+      ],
+      "verified_success_probability": 0.255017,
+      "expected_duration_ms": 900000,
+      "maximum_duration_ms": 1800000,
+      "expected_costs": {
+        "actual_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "unknown_plan_ids": [
+            "claude-direct-claude-opus-5"
+          ]
+        },
+        "marginal": {
+          "status": "unknown",
+          "amount_usd": null,
+          "unknown_plan_ids": [
+            "claude-direct-claude-opus-5"
+          ]
+        },
+        "market_equivalent": {
+          "status": "unknown",
+          "amount_usd": null,
+          "unknown_plan_ids": [
+            "claude-direct-claude-opus-5"
+          ]
+        }
+      },
+      "maximum_costs": {
+        "actual_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "unknown_plan_ids": [
+            "claude-direct-claude-opus-5"
+          ]
+        },
+        "marginal": {
+          "status": "unknown",
+          "amount_usd": null,
+          "unknown_plan_ids": [
+            "claude-direct-claude-opus-5"
+          ]
+        },
+        "market_equivalent": {
+          "status": "unknown",
+          "amount_usd": null,
+          "unknown_plan_ids": [
+            "claude-direct-claude-opus-5"
+          ]
+        }
+      },
+      "eligible": true,
+      "reason_codes": []
+    },
+    "candidates": [
+      {
+        "root_plan_id": "claude-direct-claude-opus-5",
+        "plan_ids": [
+          "claude-direct-claude-opus-5"
+        ],
+        "stages": [
+          {
+            "plan_id": "claude-direct-claude-opus-5",
+            "reach_probability": 1,
+            "success_probability": 0.255017,
+            "evidence_basis": "declared-prior"
+          }
+        ],
+        "verified_success_probability": 0.255017,
+        "expected_duration_ms": 900000,
+        "maximum_duration_ms": 1800000,
+        "expected_costs": {
+          "actual_cash": {
+            "status": "unknown",
+            "amount_usd": null,
+            "unknown_plan_ids": [
+              "claude-direct-claude-opus-5"
+            ]
+          },
+          "marginal": {
+            "status": "unknown",
+            "amount_usd": null,
+            "unknown_plan_ids": [
+              "claude-direct-claude-opus-5"
+            ]
+          },
+          "market_equivalent": {
+            "status": "unknown",
+            "amount_usd": null,
+            "unknown_plan_ids": [
+              "claude-direct-claude-opus-5"
+            ]
+          }
+        },
+        "maximum_costs": {
+          "actual_cash": {
+            "status": "unknown",
+            "amount_usd": null,
+            "unknown_plan_ids": [
+              "claude-direct-claude-opus-5"
+            ]
+          },
+          "marginal": {
+            "status": "unknown",
+            "amount_usd": null,
+            "unknown_plan_ids": [
+              "claude-direct-claude-opus-5"
+            ]
+          },
+          "market_equivalent": {
+            "status": "unknown",
+            "amount_usd": null,
+            "unknown_plan_ids": [
+              "claude-direct-claude-opus-5"
+            ]
+          }
+        },
+        "eligible": true,
+        "reason_codes": []
+      }
+    ],
+    "predictions": {
+      "claude-direct-claude-opus-5": {
+        "plan_id": "claude-direct-claude-opus-5",
+        "evidence_records": 0,
+        "decided_records": 0,
+        "passed_records": 0,
+        "posterior_mean": 0.65,
+        "conservative_probability": 0.255017,
+        "expected_duration_ms": 900000,
+        "costs": {
+          "actual_cash": {
+            "status": "unknown",
+            "amount_usd": null,
+            "basis": "estimate",
+            "source": "runtime template has no invoice attribution"
+          },
+          "marginal": {
+            "status": "unknown",
+            "amount_usd": null,
+            "basis": "estimate",
+            "source": "runtime template has no per-operation marginal observation"
+          },
+          "market_equivalent": {
+            "status": "unknown",
+            "amount_usd": null,
+            "basis": "estimate",
+            "source": "add a sourced estimate or learn from observed telemetry"
+          }
+        },
+        "evidence_basis": "declared-prior",
+        "confidence_method": "90-percent-one-sided-wilson-with-prior-pseudocounts"
+      }
+    },
+    "decision_digest": "sha256:446f553c4cbcd6bbc0459ce655314e52637d5a8a000dcfa6fcfccc14cf7e1251"
+  },
+  "status": "passed",
+  "terminal_reason_code": "VERIFIED_SUCCESS",
+  "attempts": [
+    {
+      "attempt": 1,
+      "plan_id": "claude-direct-claude-opus-5",
+      "retry_count": 0,
+      "requested_model": "claude-opus-5",
+      "observed_model": "claude-opus-5",
+      "requested_topology": "direct",
+      "observed_topology": "direct",
+      "planned_tools": [
+        "filesystem",
+        "shell"
+      ],
+      "observed_tools": [
+        "filesystem",
+        "shell"
+      ],
+      "observed_tool_calls": [],
+      "duration_ms": 307836,
+      "completion_status": "passed",
+      "control_status": "passed",
+      "control_reason_codes": [],
+      "failure_code": null,
+      "output_digest": "sha256:1b66c36c3abcabe1ee5c4d110b019bb2c52c7b8118d5e536e0c83a08b88ccd67",
+      "evidence": {
+        "kind": "command",
+        "exit_code": 0,
+        "duration_ms": 230,
+        "output_digest": "sha256:cfbcb5eb561d7757d10e054de15d8c886ab07285c428bc508c3dfec194eea343",
+        "artifact_coverage": "passed",
+        "required_paths_digest": "sha256:2a5e638821e0082795d0f4c96f8170113c3e307468fd033d42584d62a16dddc0",
+        "changed_paths_digest": "sha256:2a5e638821e0082795d0f4c96f8170113c3e307468fd033d42584d62a16dddc0"
+      },
+      "usage": {},
+      "costs": {
+        "actual_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "basis": "observed",
+          "source": "invoice and subscription attribution are outside the runtime adapter"
+        },
+        "marginal": {
+          "status": "unknown",
+          "amount_usd": null,
+          "basis": "observed",
+          "source": "per-operation marginal cash was not observed"
+        },
+        "market_equivalent": {
+          "status": "known",
+          "amount_usd": 0.7042557,
+          "basis": "list-price",
+          "source": "claude total_cost_usd telemetry"
+        }
+      }
+    }
+  ],
+  "costs": {
+    "actual_cash": {
+      "status": "unknown",
+      "amount_usd": null,
+      "basis": "observed",
+      "source": "1 attempt(s) unknown"
+    },
+    "marginal": {
+      "status": "unknown",
+      "amount_usd": null,
+      "basis": "observed",
+      "source": "1 attempt(s) unknown"
+    },
+    "market_equivalent": {
+      "status": "known",
+      "amount_usd": 0.704256,
+      "basis": "observed",
+      "source": "summed_attempts:1"
+    }
+  },
+  "telemetry": [
+    {
+      "name": "citadel.operation.attempt",
+      "attributes": {
+        "gen_ai.operation.name": "invoke_agent",
+        "gen_ai.request.model": "claude-opus-5",
+        "gen_ai.response.model": "claude-opus-5",
+        "citadel.operation.id": "citadel-short-executor-proof-v2-claude",
+        "citadel.plan.id": "claude-direct-claude-opus-5",
+        "citadel.topology.requested": "direct",
+        "citadel.topology.observed": "direct",
+        "citadel.verification.status": "passed",
+        "citadel.control.status": "passed"
+      }
+    }
+  ],
+  "trust": {
+    "integrity": "digest-bound",
+    "signer": "unsigned",
+    "outcome": "independently-verified",
+    "note": "Digest integrity does not establish signer trust or semantic correctness."
+  },
+  "report_digest": "sha256:87cd8dfed9ca5c74735aeeebe4b1b515272cc141093b9ff2af77ef0840691dcb"
+}

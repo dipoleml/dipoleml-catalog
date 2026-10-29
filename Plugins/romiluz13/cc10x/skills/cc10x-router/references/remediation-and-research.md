@@ -1,0 +1,397 @@
+## 9. Remediation And Workflow Rules
+
+### Standard REM-FIX task shape
+
+Every remediation task description must include:
+
+```text
+wf:{workflow_uuid}
+kind:remfix
+origin:{originating agent}
+phase:{phase}
+plan:{plan_file or 'N/A'}
+scope:{ALL_ISSUES|CRITICAL_ONLY|N/A}
+reason:{short remediation reason}
+```
+
+### REM-FIX TaskCreate template
+
+The router creates every REM-FIX with this call. The subject names the executing agent the dispatch table assigns: `component-builder`, or `bug-investigator` when the REM-FIX is created in a DEBUG workflow or has `origin:bug-investigator`. `origin:` names the agent whose findings triggered the fix, never the executor. `phase:` carries the originating phase from the metadata enum (for example `build-review`).
+
+```text
+TaskCreate({
+  subject: "CC10X {executing agent: component-builder | bug-investigator}: REM-FIX {short reason}",
+  description: "wf:{workflow_uuid}\nkind:remfix\norigin:{originating agent}\nphase:{originating phase}\nplan:{plan_file or 'N/A'}\nscope:{ALL_ISSUES|CRITICAL_ONLY|N/A}\nreason:{short remediation reason}\n\nFix the findings below as ONE batch. Verify each finding against the code before changing it. When done, report COVERING_TESTS, TEST_COMMAND and TEST_OUTPUT for the tests that exercise the fixed behavior. For a finding you can disprove, report FINDING_DISPUTED, VERIFY_COMMAND and VERIFY_OUTPUT instead of applying it. When every finding is disproved and no code changed, return the dispute-only report.\n\nFindings:\n{findings}\n\n{rejected disputes block, only when created from a DISPUTE_REJECTED ruling}",
+  activeForm: "Fixing review findings"
+})
+```
+
+When the router creates a REM-FIX from a `DISPUTE_REJECTED` ruling, the description carries, under `Rejected disputes:` after the findings, each rejected finding with the ruling (`DISPUTE_REJECTED`) and the verifier's rejection reason (its text for that scenario). The executor applies those findings and does not dispute the same `VERIFY_COMMAND` again unless it has new evidence (a different command or new output).
+
+### Producers of the REM-FIX gate fields
+
+- `COVERING_TESTS`, `TEST_COMMAND` and `TEST_OUTPUT` are produced by the remediating builder: the contract of the agent that executes a `kind:remfix` task (`component-builder`, or `bug-investigator` when the REM-FIX is created in a DEBUG workflow or has `origin:bug-investigator`; both declare them; the template body above is how the router asks for them).
+- `FINDING_DISPUTED`, `VERIFY_COMMAND` and `VERIFY_OUTPUT` are produced by the remediating builder (either executor), per disputed finding (see Verify-before-implement).
+- `DISPUTE_UPHELD` and `DISPUTE_REJECTED` are produced by `integration-verifier`, the only adjudicator, as 1-based positions in the builder's `FINDING_DISPUTED` list.
+- `AMENDED_FILES`, `STALE_SWEEP` and `RECONCILIATION_RERUN` are produced by `planner` on a `phase:qa-re-plan` return (see `qa-workflow.md`).
+- The Re-review precondition gate (Section 11) consumes the first group; the router never fills these fields itself. The producers are declared in the agent contracts, and the gates still fail closed when an agent omits them: a REM-FIX report without the fields goes back, and a `qa-re-plan` return without the three sweep fields creates no pass-2 task.
+
+### Circuit breaker
+
+Before creating a new remediation task:
+
+- Count the entries in the workflow artifact's `remediation_history`. That count is authoritative without Task tools: each remediation round appends exactly one entry in BOTH modes, with or without Task tools.
+- Only when Task tools exist, cross-check it against the number of tasks whose descriptions contain both `wf:{workflow_uuid}` and `kind:remfix`; on a mismatch, report it to the user and use the LARGER of the two counts (a missed append or a missed REM-FIX task must never lower the count).
+- If count >= 3, ask the user how to proceed BEFORE creating a 4th remediation cycle.
+- This is the only point where the limit is evaluated; every other mention of the breaker points here. One review pass is one cycle (see Fix-wave consolidation).
+
+**Remediation history (MANDATORY — do not skip):** each remediation round appends exactly one entry to the workflow artifact's `remediation_history` array, `{ts, phase, reason, cycle_number}`, where `cycle_number` is this workflow's running remediation count (starting at 1): immediately after creating the `kind:remfix` task when Task tools exist, and when the router records the REM-FIX step in artifact-only mode or inline mode (no task exists then). In the same step, append a `remediation_created` event with `details.phase_id` (the `phase_cursor` value) to the events log; it is the boundary the artifact-only resume rule reads (`SKILL.md` §4). The circuit breaker above is a router rule, and the router is the only counter. The breaker count reads `remediation_history` and artifact-only resume reads the `remediation_created` event, so skipping either append breaks one of them; without Task tools there are no REM-FIX tasks to cross-check, so a missed append lowers the count.
+
+### Change-something-before-re-dispatch
+
+When an agent returns `BLOCKED` (or a fix attempt fails), the circuit breaker only BOUNDS the loop — it does not improve it. Re-dispatching the SAME agent with the SAME model on the SAME unchanged input just burns a circuit-breaker cycle and produces the same failure. Before any re-dispatch, the router MUST change at least one input:
+
+1. Provide missing context — supply the file/spec/decision the agent said it lacked.
+2. Escalate the model tier — re-dispatch on a more capable model when the task needs more reasoning (only where the mechanism allows; per the router's model-tier policy the model comes from agent frontmatter, so when per-dispatch selection is unavailable change context or scope instead).
+3. Shrink the task scope — split an oversized task into smaller, completable pieces.
+4. Escalate to the human — if the plan itself is wrong, stop and ask; do not loop.
+
+NEVER re-dispatch the same agent with the same model on the same unchanged input. If the agent said it is stuck, something must change. This complements (does not replace) the circuit breaker (see `### Circuit breaker`).
+
+### Rule matrix
+
+| Rule | Condition | Action |
+| ------ | ----------- | -------- |
+| 0b | Legacy `STATUS=SELF_REMEDIATED` or blocked task state | Do not create a duplicate REM-FIX. Leave task blocked. |
+| 0c | bug-investigator sets `NEEDS_EXTERNAL_RESEARCH=true` | Spawn research tasks and re-invoke investigator. No REM-FIX yet. |
+| 1a-SCOPE | BUILD parallel phase has CRITICAL + HIGH issues | Ask for `critical only` vs `all issues`, store pending scope marker, stop. |
+| 1a | Blocking issue in BUILD/DEBUG | Router creates scoped REM-FIX task, blocks downstream tasks, stop. |
+| 1b | Non-blocking remediation needed | In BUILD/DEBUG, auto-create REM-FIX. In REVIEW, ask whether to start BUILD. |
+| 2 | Reviewer verdict is Approve but failure-hunter reports HIGH issues | Ask whether to remediate or proceed. (CRITICAL hunter issues never reach this row — the contract override already converts them to blocking.) |
+| 2b | Planner needs clarification | Ask the user, persist answers, then restart PLAN with a fresh visible DAG after clarification. |
+| 2c | Investigator still investigating | Create follow-up investigation task with loop cap. |
+| 2d | Verifier failed | Router creates REM-FIX unless user chooses REVERT at the router gate. |
+| 2f | Investigator blocked | Ask: research, manual fix, or abort. |
+
+### Scope resolution
+
+The router is authoritative for BUILD remediation scope.
+
+- BUILD reviewer/verifier should request `REMEDIATION_SCOPE_REQUESTED: N/A`; the router resolves `CRITICAL_ONLY` vs `ALL_ISSUES`.
+- Remediation tasks are created only by the router: no agent contract creates a REM-FIX, so there is no agent-created remediation to accept.
+- `1a-SCOPE` applies only in BUILD when the review phase shows both:
+  - at least one CRITICAL issue
+  - at least one HIGH issue in the reviewer or hunter narrative
+- The trigger source is explicit:
+  - a reviewer summary line `High issues: [count]`
+  - or a `### Findings` bullet clearly labeled `HIGH`
+- When `1a-SCOPE` fires:
+  1. write `[SCOPE-DECISION-PENDING: wf:{workflow_uuid} reason:{top remediation reason}]` into `activeContext.md ## Decisions`
+  2. ask exactly: `Fix critical only (Recommended)` or `Fix all issues`
+  3. do not create a REM-FIX until the next user reply resolves the scope
+- If no reliable HIGH count/signal can be extracted, default to normal rule `1a` without pretending scope selection happened.
+
+### REVIEW-to-BUILD
+
+If a REVIEW workflow ends with `CHANGES_REQUESTED`:
+
+- Ask: `Start BUILD to fix (Recommended)` or `Done for now`
+- `Start BUILD` -> create a fresh BUILD workflow using reviewer findings as input context
+- `Done for now` -> persist the decision and stop
+
+### Planner clarification
+
+When planner returns `STATUS=NEEDS_CLARIFICATION`:
+
+- Prefer `USER_INPUT_NEEDED` from the YAML contract.
+- Fallback to bullets under `**Your Input Needed:**`.
+- If this was the initial `plan-create` task, prune the unused pre-created review branch before continuing:
+  - mark `plan-review-gap-1`, `re-plan`, and `plan-review-gap-2` as `deleted`
+  - [FALLBACK: if the host task system does not support deleting tasks, mark each `completed` with the note `pruned — unused review branch` instead. A pruned task must never leave a downstream task blocked: verify the memory task's blockers all resolve after pruning.]
+- Persist answers in `activeContext.md ## Decisions`.
+- Create a follow-up PLAN workflow after the user answers clarification.
+- Do not mutate BUILD/DEBUG/REVIEW. Clarification answers restart PLAN with a fresh visible DAG.
+
+When planner returns `STATUS=PLAN_CREATED` or `STATUS=DECISION_RFC_CREATED`:
+
+- Verify `PLAN_FILE` exists with `Glob(...)`.
+- Extract the intent/spec header from the saved plan and persist it into workflow artifact `intent`.
+- Update the parent workflow task `plan:` line to the saved plan path.
+- Update the pending memory task `plan:` line to the same saved plan path so resume and finalization stay scoped to the real artifact.
+- Persist planner fresh-review fields when present:
+  - `planning_review_runs`
+  - `planning_review_status`
+- Do not create a new review task here. The bounded PLAN DAG already contains both fresh-review passes.
+- If the completed planner phase was `plan-create`:
+  - update the pre-created `plan-review-gap-1` task `plan:` line to `{plan_file}`
+  - keep `planning_review_status=pending_review`
+- If the completed planner phase was `re-plan`:
+  - update the pre-created `plan-review-gap-2` task `plan:` line to `{plan_file}`
+  - keep `planning_review_status=pending_review`
+- `planning_review_runs` counts only completed fresh-review passes with valid contract output. Invalid or malformed reviewer output must fail closed without consuming one of the two allowed passes.
+
+When `plan-gap-reviewer` pass 1 returns `PASS`:
+
+- Increment `planning_review_runs += 1`
+- Set `last_reviewed_revision = plan_revision`, so that the precondition `plan_revision == last_reviewed_revision` holds
+- **Then**, and only then, set `planning_review_status=passed`
+- Persist findings summary into `results.planning_reviewer`
+- Mark the pre-created `re-plan` and `plan-review-gap-2` tasks as `deleted` (same fallback as above: if deletion is unsupported, mark them `completed` with the note `pruned — unused review branch`, and confirm the memory task unblocks)
+- Continue to memory finalization
+
+When `plan-gap-reviewer` pass 1 returns `FINDINGS`:
+
+- Increment `planning_review_runs += 1`
+- Persist findings into:
+  - `planning_review_findings`
+  - `planning_review_status=findings_received`
+  - `results.planning_reviewer`
+- Do not create a new `re-plan` task. The pre-created `re-plan` task becomes the next runnable PLAN node.
+
+When `plan-gap-reviewer` pass 2 returns `PASS`:
+
+- Increment `planning_review_runs += 1`
+- Set `last_reviewed_revision = plan_revision`, so that the precondition `plan_revision == last_reviewed_revision` holds
+- **Then**, and only then, set `planning_review_status=passed`
+- Persist findings summary into `results.planning_reviewer`
+- Continue to memory finalization
+
+When the planner amends a saved plan after last_reviewed_revision was set:
+
+- Applies to a router amendment, an accepted-finding revision, or any edit to `PLAN_FILE` made while the review status is already terminal.
+- Set `planning_review_status=revised_after_review`
+- **Then** increment `plan_revision += 1`
+- Do **not** set `last_reviewed_revision`
+- `planning_review_runs` is **unchanged** — an amendment is not a fresh pass
+
+The order of the first two is load-bearing, not stylistic: incrementing `plan_revision` while the status still reads `passed` creates a transitional state where a `passed` status coexists with `plan_revision != last_reviewed_revision` — the exact pairing the PostToolUse closure check treats as a defect. Set the status first, so the artifact is never caught mid-amendment with a closed status over mismatched revisions.
+
+Reaching the fresh-review cap is a stopping point, not closure. `revised_after_review` is the status after any amendment, and `passed` is unreachable while `plan_revision` and `last_reviewed_revision` differ.
+
+`revised_after_review` is terminal. An amendment-lane pass does not lift it. Such a lane is diff-scoped, so setting `last_reviewed_revision = plan_revision` on its verdict would claim revision *N* was reviewed when only its diff was. What a lane changes is the *evidence available about* the amendment, persisted to `results.planning_reviewer.amendment_verification`; the status is unchanged.
+
+When plan-gap-reviewer returns from phase:plan-review-amendment:
+
+- `planning_review_runs` is **unchanged**. An amendment pass is not a fresh pass, and the cap of 2 counts only fresh passes.
+- `last_reviewed_revision` is **not** set. The lane is diff-scoped; setting it would claim the whole revision was reviewed when only its diff was.
+- `planning_review_status` is **unchanged** and remains `revised_after_review`.
+- Persist the verdict to `results.planning_reviewer.amendment_verification` as `{verdict, blocking_findings_count, plan_revision, ts}`. No new top-level artifact key — `results.planning_reviewer` already exists and is already written by both fresh passes.
+- The planner reads that key to fill the `{verified | not run}` slot in the plan header's required sentence.
+- On `FINDINGS`, the same three non-writes apply and the findings are recorded under the same key. Do **not** auto-create a `re-plan` task: the fresh-review cap may already be spent, and the router owns that decision.
+- **Why this transition writes no status.** An amendment lane that could write a terminal status would be the forbidden closure claim wearing a verification badge. What the lane buys is one honest word in the plan header's sentence, and that is the entire deliverable.
+
+When `plan-gap-reviewer` pass 2 returns `FINDINGS`:
+
+- Increment `planning_review_runs += 1`
+- Persist findings into:
+  - `planning_review_findings`
+  - `planning_review_status=needs_clarification`
+  - `results.planning_reviewer`
+- Stop with clarification:
+  - set `pending_gate=clarification`
+  - ask the user for a decision on the unresolved plan contradiction
+  - do not create more fresh-review or re-plan tasks
+
+### Investigator continuation
+
+When bug-investigator returns `STATUS=INVESTIGATING`:
+
+- Count prior investigation continuation tasks in the same `wf:`. If count >= 2, ask the user before creating another.
+- Otherwise create a follow-up investigation task:
+
+```text
+TaskCreate({
+  subject: "CC10X bug-investigator: Continue investigation",
+  description: "wf:{workflow_uuid}\nkind:agent\norigin:router\nphase:debug-investigate\nplan:N/A\nscope:N/A\nreason:{ROOT_CAUSE or 'Continue investigation'}\n\nContinue investigating using the prior root-cause hints and evidence.",
+  activeForm: "Continuing investigation"
+})
+```
+
+### Verifier REVERT gate
+
+If integration-verifier emits `FAIL` and the findings contain `REVERT`:
+
+- Ask the user whether to revert or create a fix task.
+- `Revert` -> record the decision in memory and stop; run a command that drops work only if the user asks, under the drop-work rule in `SKILL.md` §14 Hard Rules.
+- `Create fix task instead` -> continue with normal remediation creation.
+
+### Verify-before-implement (bidirectional remediation)
+
+A reviewer/verifier finding is an input to be checked, not an order to blindly apply. The REM-FIX agent must restate each finding and confirm it against codebase reality before changing code.
+
+For every finding in the dispatch, the fix agent first:
+
+1. Restates the finding in one line (what is allegedly wrong, where).
+2. Reads the cited code and confirms the defect actually exists as described.
+3. Only then applies the fix.
+
+A finding the fix agent believes is wrong may take the `FINDING_DISPUTED` path instead of being applied:
+
+- A dispute is valid ONLY if it carries a concrete `VERIFY_COMMAND` whose output PROVES the finding false (a passing test, a grep showing the alleged-missing guard already present, a type-check refuting the claim).
+- A dispute with no proving command is invalid. Treat it as unverified and apply the finding.
+- The dispute is adjudicated by the INDEPENDENT VERIFIER (integration-verifier), never by the reviewer who raised it. The verifier re-runs the `VERIFY_COMMAND` and rules `DISPUTE_UPHELD` or `DISPUTE_REJECTED`. On `DISPUTE_REJECTED`, the original finding stands and the fix agent must apply it.
+- [EASY TO MISS: this is evidence-gated and must NOT become a rationalization escape hatch. "The fix agent decided the finding was wrong" is not a dispute. Only a reproducible command that contradicts the finding is. Prose disagreement, "looks fine to me", or "the plan said so" are never grounds to dispute — they fall through to apply.]
+
+REM-FIX report carries, per disputed finding:
+
+```text
+FINDING_DISPUTED: {finding id or one-line restatement}
+VERIFY_COMMAND: {exact command}
+VERIFY_OUTPUT: {output proving the finding false}
+ADJUDICATOR: integration-verifier
+```
+
+### Fix-wave consolidation
+
+Do NOT fire one REM-FIX agent per finding. Batch ALL findings from a single review pass into ONE REM-FIX dispatch carrying the implementer contract.
+
+- One review pass -> one REM-FIX task -> counts as ONE cycle against the circuit breaker, not N.
+- Per-finding dispatch is wasteful: each agent rebuilds context and re-runs the suite, and each inflates the `remediation_history` count toward the circuit-breaker limit (see `### Circuit breaker`), tripping it on a single review's worth of work.
+- The single dispatch lists every finding (each subject to verify-before-implement above); the fix agent works them as a batch and runs the covering tests once at the end.
+- Findings from a LATER, distinct review pass form a new wave and a new cycle. Consolidation is within one pass, never across passes.
+
+### Plan-mandated-finding adjudication carve-out
+
+The `skill_precedence_gate` (plan > domain skills) must NOT be misread as "auto-dismiss any reviewer finding the plan mandated". A wrong plan cannot launder defects past the gates by claiming precedence.
+
+- Normal precedence still applies when a finding merely prefers a different approach than the plan chose.
+- CARVE-OUT: when a finding DIRECTLY CONTRADICTS an explicit plan mandate (e.g. the plan mandated a test and the finding is that the test asserts nothing, or the plan mandated a guard the finding shows is unsafe), the router does NOT silently apply precedence.
+- Instead the router surfaces a which-governs `AskUserQuestion` that places the finding text BESIDE the plan mandate text so the user can see the contradiction directly:
+  - option A: `Plan governs` (finding is dismissed, record why)
+  - option B: `Finding governs` (plan mandate is overridden, REM-FIX applies the finding)
+- The reviewer must STILL report the finding regardless of plan precedence. Precedence governs what the router does with a finding, never whether the reviewer is allowed to raise it.
+
+## 10. Research Orchestration
+
+Research runs only when triggered by:
+
+- Explicit user request for research.
+- Plan references an external API, SDK, or service whose current behavior must be verified.
+- Plan proposes an architecture pattern not currently used in the codebase.
+- Bug investigation suspects a dependency version regression or behavioral change.
+- Two or more remediation cycles on the same issue without convergence.
+- PLAN workflow where the planner needs to choose between approaches with external precedent.
+- [EASY TO MISS: LLM training data may be stale. When a dependency, API, or framework version post-dates the model cutoff, treat pre-training knowledge as unreliable and require research evidence before planning or building.]
+
+Loop caps:
+
+- Count research rounds by `wf:` + `reason:` using `kind:research` tasks.
+- If the same workflow already created 2 research rounds for the same reason, ask the user before creating more.
+
+Capability model:
+
+1. Research backends are optional accelerators, never hard dependencies.
+2. Before the first research round in a workflow, record capability assumptions in the workflow artifact:
+   - `brightdata_available=true` only if the session can use Bright Data MCP
+   - `octocode_available=true` only if the session can use Octocode MCP
+   - `websearch_available` and `webfetch_available` reflect built-in tool availability
+3. If capability is unknown, prefer the accelerated backend first and fall back immediately when it fails. Persist the observed result in the artifact so later rounds do not guess again.
+
+Research persistence:
+
+1. Wait for both research tasks in the round to finish.
+2. Parse each agent YAML contract for:
+   - `FILE_PATH`
+   - `BACKEND_MODE`
+   - `SOURCES_ATTEMPTED`
+   - `SOURCES_USED`
+   - `QUALITY_LEVEL`
+3. Persist discovered paths and backend metadata into the workflow artifact immediately:
+   - `results.research.web`
+   - `results.research.github`
+   - `research_backend_history`
+   - `research_quality`
+   - `research_rounds`
+   - `results.research.synthesis`
+4. Index research file paths in `activeContext.md ## References` during memory finalization, not before.
+5. Partial success is valid:
+   - If one file exists and the other is unavailable, proceed with the successful file.
+6. Build `## Research Quality` using artifact-backed status:
+
+```text
+## Research Quality
+Web: {COMPLETE|PARTIAL|DEGRADED|UNAVAILABLE} ({quality_level})
+GitHub: {COMPLETE|PARTIAL|DEGRADED|UNAVAILABLE} ({quality_level})
+Overall: {high|medium|low|none}
+```
+
+1. Re-invoke planner or investigator with:
+
+```text
+## Research Files
+Web: {web_file or 'Unavailable'}
+GitHub: {github_file or 'Unavailable'}
+```
+
+1. Include `cc10x:research` in `## SKILL_HINTS` only when at least one research file exists.
+
+Do not misread a tool/fallback message as a hard blocker (the "you ARE the provider" anti-pattern):
+
+- When an MCP accelerator (octocode, brightdata) returns a missing-capability, degraded, or fallback message, that is a signal to route around the backend — NOT a reason to abort the round to BLOCKED.
+- Before treating any such message as a blocker, the researcher must first ask: is the orchestrating model ITSELF the capability being requested? Tasks like summarizing, classifying, reasoning over fetched text, or comparing approaches are things the model does directly. A backend reporting it "cannot summarize" or "has no model for this" is irrelevant — the model is the provider; do the work and continue.
+- [EASY TO MISS: a backend saying "capability X unavailable" describes the BACKEND, not the workflow. Map it to the next available path (accelerated -> WebSearch/WebFetch -> the model's own analysis) per the capability model above. Never abort to BLOCKED while a built-in fallback path still exists.]
+- Only escalate to BLOCKED when EVERY path is genuinely exhausted: the accelerator failed, the built-in tools failed or are unavailable, AND the model cannot supply the capability itself. Record the exhausted paths in `research_backend_history` so the next round does not re-discover the same fallback.
+
+## 11. Re-Review Loop
+
+When a `kind:remfix` task completes:
+
+1. The circuit breaker is evaluated only when a REM-FIX is created (see `### Circuit breaker`); completion of a REM-FIX proceeds to step 2 without a second count. REVIEW never creates a REM-FIX (`references/review-workflow.md`), so this loop runs only in BUILD and DEBUG.
+2. Create a re-review task:
+
+```text
+TaskCreate({
+  subject: "CC10X code-reviewer: Re-review after REM-FIX",
+  description: "wf:{workflow_uuid}\nkind:agent\norigin:router\nphase:re-review\nplan:{plan_file or 'N/A'}\nscope:{scope from completed remfix}\nreason:{reason from completed remfix}\n\nRe-review the changes made by the completed remediation task.\nIf scope=ALL_ISSUES: perform a FULL re-audit of CRITICAL and HIGH issue categories after remediation.\nIf scope=CRITICAL_ONLY: verify the CRITICAL issue was resolved and treat HIGH issues as deferred unless newly escalated.",
+  activeForm: "Re-reviewing fix"
+}) -> rereview_task_id
+```
+
+3. Create a re-hunt task (BUILD only — the hunter re-scans for silent failures after remediation):
+
+```text
+TaskCreate({
+  subject: "CC10X failure-hunter: Re-hunt after REM-FIX",
+  description: "wf:{workflow_uuid}\nkind:agent\norigin:router\nphase:re-hunt\nplan:{plan_file or 'N/A'}\nscope:{scope from completed remfix}\nreason:{reason from completed remfix}\n\nRe-scan for silent failures after remediation. Focus on the remediated surface and its immediate call sites.",
+  activeForm: "Re-hunting failures"
+}) -> rehunt_task_id
+```
+
+4. Reuse the pending verifier in the same `wf:` if one exists; otherwise create:
+
+```text
+TaskCreate({
+  subject: "CC10X integration-verifier: Re-verify after REM-FIX",
+  description: "wf:{workflow_uuid}\nkind:reverify\norigin:router\nphase:re-verify\nplan:{plan_file or 'N/A'}\nscope:{scope from completed remfix}\nreason:{reason from completed remfix}\n\nRe-verify after remediation. Include the REM-FIX report's proof and dispute fields in the `### REM-FIX report` sub-block of `## Previous Agent Findings`.",
+  activeForm: "Re-verifying fix"
+}) -> reverify_task_id
+```
+
+5. Block the verifier on both the re-review and re-hunt tasks.
+6. Re-block the memory task on the verifier.
+7. Increment telemetry loop counters whenever the follow-up tasks are created:
+   - `telemetry.loop_counts.re_review += 1`
+   - `telemetry.loop_counts.re_hunt += 1` (BUILD only)
+   - `telemetry.loop_counts.re_verify += 1`
+
+### Re-review precondition gate
+
+The reviewer/verifier is NEVER re-dispatched on an unverified fix. Before step 2 above creates any re-review/re-verify task, the completed REM-FIX report MUST contain proof the fix was exercised:
+
+```text
+COVERING_TESTS: {test file names that cover the fixed behavior}
+TEST_COMMAND: {exact command run}
+TEST_OUTPUT: {its output}
+```
+
+- Name only the COVERING tests — the files that exercise the changed behavior — not the whole suite. "Ran all tests, green" is not sufficient; the report must point at the tests that would fail if this fix were wrong.
+- If `COVERING_TESTS`, `TEST_COMMAND`, and `TEST_OUTPUT` are missing or empty, the gate fails closed: do NOT create the re-review task. Send the REM-FIX back (or block the task) until the proof is supplied.
+- A `FINDING_DISPUTED` entry satisfies this gate for that finding via its `VERIFY_COMMAND`/`VERIFY_OUTPUT` pair (adjudicated by integration-verifier per Section 9), since the dispute itself carries the proving evidence. When EVERY finding dispatched in the REM-FIX is disputed (the `FINDING_DISPUTED` entries are distinct, each maps to exactly one finding in the task by its id or restated file and summary, and the count of `FINDING_DISPUTED` entries equals the count of findings in the task) the report is dispute-only: empty `COVERING_TESTS`, null `TEST_COMMAND`/`TEST_OUTPUT` and null `TDD_*` exits are accepted, because no code changed. A report with any applied finding keeps the full proof requirement.
+- Dispute consumption (the verifier's ruling is binding, and nothing else adjudicates). While a `FINDING_DISPUTED` entry is unadjudicated, the finding stays in the blocking set, the phase cannot pass, and a re-review or re-hunt that re-raises it creates NO new REM-FIX: it is the finding already in flight, and the verifier decides it. After the verifier returns, for each entry position: `DISPUTE_UPHELD` drops the finding exactly as `validated: false` does, before any REM-FIX scope is computed, and logs it in `status_history` (`finding_dropped: dispute upheld`); a later re-raise of an upheld finding is dropped the same way, and the stricter-verdict rule of the default loop does not override it, because the ruling rests on the verifier's own re-run. `DISPUTE_REJECTED` keeps the finding in the blocking set and the router creates the REM-FIX for it (a new cycle, counted by the Circuit breaker), carrying the ruling and the verifier's rejection reason as the template section above says. A disputed finding the verifier marked `validated: false` is listed `DISPUTE_UPHELD` (upheld by validation).
+- Adjudication validity: every position 1..N of `FINDING_DISPUTED` must appear in exactly one of `DISPUTE_UPHELD` or `DISPUTE_REJECTED`. A verifier return that omits a position, lists one in both, or lists an out-of-range or non-integer entry is invalid output: every dispute in it stays unadjudicated and the router fails closed (no REM-FIX created from it, no phase advance). When the verifier is absent, blocked or unavailable, the disputes stay unadjudicated and the gate stays closed: no phase advance, no workflow completion and no new REM-FIX for a disputed finding until a valid verifier return adjudicates it or the user decides.
+- Re-raise matching. A finding that a re-review or re-hunt raises while it is in the `FINDING_DISPUTED` of the in-flight REM-FIX is matched to that dispute by identity: the same file and the same summary as the disputed finding. When the router cannot match confidently it treats the finding as new and it follows the normal REM-FIX path. A matched re-raise creates no REM-FIX and the chain CONTINUES to the verifier: a blocking reviewer or hunter verdict whose findings are all matched re-raises of in-flight disputes does not stop the chain before the verifier; a verdict with any unmatched blocking finding follows the normal rules for that finding.
+- Persisted dispute set. When the router persists a REM-FIX report that carries `FINDING_DISPUTED`, it writes one `results.disputes_in_flight` entry per disputed position: `{cycle_number, position, finding, ruling}` with `ruling` null until the verifier adjudicates. A valid adjudication sets `ruling` to `upheld` or `rejected` per position (an invalid one leaves every `ruling` null). The re-raise match above and a resumed workflow read this list, so a dispute survives compaction.
+- Unadjudicated-dispute exit. When the verifier return is invalid, absent or blocked, the router re-dispatches the verifier ONCE with a changed input: the same `### REM-FIX report` sub-block plus an explicit `### Disputed findings` list (every position with its finding) and the rule the first return broke (every position in exactly one list). If that return is still invalid, absent or blocked, the router stops with `BLOCKED`, logs it in `status_history` and asks the user whether to adjudicate by hand, apply the findings, or abort; it creates no REM-FIX and advances no phase. In inline mode (no Agent primitive) the router states that it cannot adjudicate its own builder's disputes and asks the user.
+- Dispute-only phase transition. A valid dispute-only return (`STATUS=PASS`, `PHASE_STATUS=partial`, `PHASE_EXIT_READY=false`) is not a stop: the router persists `phase_status=partial`, completes the REM-FIX task and runs the Re-Review loop. When the verifier adjudicates EVERY dispute validly (by index) and returns `PASS`, the router sets `phase_status=completed` and runs `phase_exit_gate` on exactly two things: the verifier return, and the phase's earlier builder evidence (the original builder completion the router validated before review, with `PHASE_EXIT_READY=true`, plus the proof of any applied-finding REM-FIX). The gate never reads the dispute-only report's `PHASE_EXIT_READY=false`, which only meant "not yet adjudicated". If the verifier rejects any dispute, the phase stays `partial` and each rejected finding becomes a REM-FIX as above.
+- Verifier hand-off: the re-verify dispatch (including a pending original verifier that takes its slot) adds a `### REM-FIX report` sub-block to `## Previous Agent Findings`, after the Code Reviewer and Failure Hunter blocks. It names `results.builder`, or `results.investigator` when `bug-investigator` executed the REM-FIX, of the workflow artifact, where the router persisted the report, and lists the proof and dispute field names it carries: a reference, not pasted bodies. Without it the only adjudicator never sees `FINDING_DISPUTED`, and a disputed CRITICAL or HIGH finding could never leave the blocking set. Anti-anchoring is intact: the verifier is not a reviewer, and it re-runs `VERIFY_COMMAND` itself and rules on its own output, so the builder's claim is re-checked primary evidence, never a verdict.
+- This precondition is independent of the circuit breaker, which is checked when a REM-FIX is created (see `### Circuit breaker`); both must pass before the remediation loop continues.

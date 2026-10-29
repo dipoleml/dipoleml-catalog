@@ -1,0 +1,16 @@
+{
+  "name": "economist-style",
+  "displayName": "Economist Style",
+  "version": "1.4.2",
+  "description": "Apply The Economist style guide to written content - clarity, precision, brevity, dialect-aware",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Tajd"
+  },
+  "license": "MIT",
+  "homepage": "https://tom-dickson.com/blog/teaching-claude-economist-style/",
+  "repository": "https://github.com/TAJD/economist-style-guide-plugin",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

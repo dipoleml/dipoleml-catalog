@@ -1,0 +1,20 @@
+{
+  "name": "brand-docs",
+  "displayName": "Brand Docs",
+  "version": "0.10.1",
+  "description": "AI on-brand document generator for DipoleML & Codex: turn a company's Word, PowerPoint or Excel template into unlimited on-brand .docx/.pptx/.xlsx. Extracts a reusable Brand Profile once - off-brand output impossible by construction. Skills: brand-docx, brand-pptx, brand-xlsx.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Ferdinandobons"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/ferdinandobons/brand-docs",
+  "repository": "https://github.com/ferdinandobons/brand-docs",
+  "skills": [
+    "./skills/brand-docx",
+    "./skills/brand-pptx",
+    "./skills/brand-xlsx"
+  ],
+  "commands": [],
+  "agents": []
+}

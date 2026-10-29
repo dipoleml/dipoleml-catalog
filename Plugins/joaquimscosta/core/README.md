@@ -1,0 +1,132 @@
+# Core Plugin
+
+<div align="center">
+  <img src="../../assets/core-plugin.jpg" alt="Core Plugin" width="100%" />
+</div>
+
+Quality control and workflow orchestration utilities for Claude Code.
+
+## Components
+
+### Skills
+
+- **sdlc-develop** (command-invoke): 6-phase SDLC pipeline for feature development with progressive disclosure. Orchestrates Discovery, Requirements, Architecture, Workstreams, Implementation, and Summary phases. Supports plan persistence to `arkhe/specs/`, resume mode, and autonomous execution. Invoked via `/develop` command.
+
+- **workflow-orchestration** (auto-invoke): Coordinates structured thinking and multi-agent parallel execution for complex tasks. Auto-triggered when tackling multi-step projects, planning parallel work, breaking down complex problems, or when user mentions "workflow", "orchestration", "multi-step", "coordinate", "parallel execution", "structured thinking". Recommends appropriate tools (`/develop`, `/think`) based on context.
+
+- **deep-research** (auto-invoke + command-invoke): Deep technical research using EXA tools with intelligent two-tier caching. Auto-triggered when user asks to research a topic, investigate best practices, look up information, find patterns, or explore architectures. Also invoked via `/research` command. Features cross-project cache reuse and promotion to version-controlled project docs.
+
+- **lyra** (auto-invoke): Transforms vague inputs into precision-optimized AI prompts using a 4-D methodology (Deconstruct, Diagnose, Develop, Deliver). Auto-triggered when user mentions "optimize prompt", "improve prompt", "lyra", or "prompt engineering". Supports `BASIC`/`DETAIL` modes, per-platform tuning (Claude, ChatGPT, Gemini, reasoning models), and a `--research` flag for current best practices. Invoked as `/core:lyra`.
+
+### Agents
+
+- **deep-think-partner**: Elite reasoning partner for complex logical problems, multi-step reasoning challenges, and strategic decisions. Triggers on "should I", "what are the tradeoffs", "help me decide", or "think through". Provides structured output with problem restatement, multi-perspective analysis, and ranked recommendations. Uses Opus model with sequential-thinking MCP for maximum reasoning depth.
+
+- **deep-researcher**: Deep research specialist using EXA tools for comprehensive topic investigation. Manages a two-tier cache system (user-level for cross-project reuse, project-level for version-controlled team knowledge). Conducts research on patterns, architectures, technologies, and best practices.
+
+- **code-explorer**: Specialized agent for exploring and understanding codebases. Traces through implementations, maps architecture, identifies patterns, and returns lists of key files to read.
+
+- **code-architect**: Software architecture agent for designing implementation approaches. Evaluates trade-offs between minimal changes, clean architecture, and pragmatic balance.
+
+- **code-reviewer**: Expert code reviewer for bugs, logic errors, security vulnerabilities, and project convention adherence. Uses confidence-based filtering to report only high-priority issues.
+
+- **systematic-debugger**: Systematic debugging specialist using a 4-phase evidence-based methodology (evidence gathering, pattern analysis, hypothesis testing, resolution). Enforces root cause investigation before fixes, with red flag detection and architecture escalation. Uses Opus model with sequential-thinking MCP.
+
+### Commands
+
+- **/discuss**: Facilitates thorough technical discussions about code, architecture, and implementation decisions. Helps you think through problems by asking focused questions.
+
+- **/double-check**: Comprehensive verification with automated quality gates, confession gathering, and confidence-based issue filtering. Auto-detects and runs project tests/lint/types/build as backpressure gates before reasoning-based review. `--deep` mode dispatches the `code-reviewer` agent for Critic-Actor separation.
+
+- **/develop**: Unified SDLC command with 6-phase pipeline (Discovery, Requirements, Architecture, Workstreams, Implementation, Summary). Supports plan persistence, resume mode (`@path/to/plan.md`), and configurable interaction (`--auto` for autonomous). Includes mandatory Phase 0 existing system analysis. Flags: `--plan-only`, `--validate`, `--phase=N`, `--auto`.
+
+- **/debug**: Systematic debugging with automated evidence gathering and 4-phase methodology (investigate, analyze patterns, diagnose, resolve). Default mode runs inline investigation and diagnosis. `--deep` mode dispatches the `systematic-debugger` agent for autonomous debugging with root cause enforcement.
+
+- **/think**: Invokes the deep-think-partner agent for collaborative reasoning on complex problems. Can be called with a specific problem or to analyze the current conversation context.
+
+- **/research**: Deep technical research with intelligent caching. Supports: `/research <topic>` (research), `/research promote <slug>` (promote to project docs), `/research refresh <slug>` (force refresh), `/research list` (show inventory). Uses EXA tools for web search and code context retrieval.
+
+## Installation
+
+```bash
+# Add the marketplace
+/plugin marketplace add ./arkhe-claude-plugins
+
+# Install the core plugin
+/plugin install core@arkhe-claude-plugins
+```
+
+<!-- BEGIN cross-platform-install -->
+<!-- Generated by scripts/update-plugin-readmes.py — do not edit by hand. -->
+
+## Install on Gemini CLI
+
+Install the Gemini extension shim (regenerated from the canonical Claude plugin):
+
+```bash
+# From the repo root
+gemini extensions install ./.gemini-extensions/core
+```
+
+On first session, the `using-arkhe-skills` bootstrap skill loads automatically and maps Claude-only primitives (`AskUserQuestion`, `TaskCreate`, `EnterPlanMode`, the `Skill` tool, the `Agent` tool with `subagent_type`) to Gemini equivalents. Install the `core` extension first if you have not already — its bootstrap is referenced by every other plugin's `GEMINI.md`.
+
+## Install on Codex CLI
+
+Codex consumes per-plugin `AGENTS.md` files plus a symlinked skills tree:
+
+```bash
+# Enable experimental skill support (Codex CLI ≥ Dec 2025)
+codex --enable skills
+
+# From the repo root, wire this plugin into Codex
+mkdir -p ~/.codex/plugins/core
+cp .codex-marketplace/core/AGENTS.md ~/.codex/plugins/core/AGENTS.md
+ln -s "$(pwd)/plugins/core/skills" ~/.codex/plugins/core/skills
+```
+
+Codex surfaces commands as trigger phrases inside `AGENTS.md` (it has no native slash-command support). The `using-arkhe-skills` bootstrap pointer at the top of `AGENTS.md` is loaded on first turn.
+
+### Behavioral notes on Gemini and Codex
+
+Some commands in `core` dispatch Claude subagents (a Claude-only capability). On Gemini and Codex, those commands ship with the agent's prompt **inlined** and a banner:
+
+> *On Gemini/Codex, the agent that would be invoked on Claude has been collapsed into this prompt. Behavior is degraded — no parallel sub-execution.*
+
+Affected commands degrade gracefully for single-pass workflows (deep research, code review, debugging) but lose parallel sub-execution and persistent agent state. Use Claude Code if your workflow requires multi-agent orchestration.
+<!-- END cross-platform-install -->
+
+## Usage
+
+After installation, the agents and commands will be available:
+
+```bash
+# Use quality control commands
+/discuss implementing a new authentication system
+/double-check
+/double-check --deep
+
+# Use the unified develop command
+/develop add user authentication              # Full 6-phase pipeline
+/develop add logout button --auto             # Autonomous mode
+/develop create plan for dashboard --plan-only # Plan only, don't implement
+/develop @arkhe/specs/01-auth/                # Resume existing spec
+/develop refactor payment service --validate  # With deep validation
+
+# Use debugging
+/debug why is my API returning 500 errors
+/debug TypeError: Cannot read property 'map' of undefined
+
+# Use deep thinking
+/think how should I structure the authentication module
+/think  # Analyzes current context
+
+# Use deep research
+/research domain-driven design            # Research a topic
+/research promote domain-driven-design    # Promote to project docs
+/research refresh domain-driven-design    # Force refresh
+/research list                            # Show all cached research
+```
+
+## Version
+
+2.3.0

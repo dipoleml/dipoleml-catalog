@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "kind": "citadel_optimizer_matrix_intent",
+  "authorization_digest": "sha256:b17292a5a08b6ea705f82d5c265e047aa65bb9f774d2fc5ea085648e0fdab1eb",
+  "ordinal": 5,
+  "run_key": "citadel-short-executor-proof/always-cheap/2",
+  "scenario_id": "citadel-short-executor-proof",
+  "policy_id": "always-cheap",
+  "repetition": 2,
+  "state": "completed",
+  "started_at": "2026-07-30T21:11:11.168Z",
+  "completed_at": "2026-07-30T21:12:08.141Z",
+  "output_file": "records/005-citadel-short-executor-proof-always-cheap-2.json",
+  "error": null
+}

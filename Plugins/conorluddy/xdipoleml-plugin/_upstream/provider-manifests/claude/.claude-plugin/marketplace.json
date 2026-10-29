@@ -1,0 +1,34 @@
+{
+  "name": "xclaude-plugin-marketplace",
+  "owner": {
+    "name": "Conor Luddy",
+    "email": "conor@conorluddy.com",
+    "url": "https://github.com/conorluddy"
+  },
+  "metadata": {
+    "description": "iOS development automation plugin for Claude Code",
+    "version": "0.4.0"
+  },
+  "plugins": [
+    {
+      "name": "xclaude-plugin",
+      "source": "./",
+      "description": "Modular iOS development automation suite. 8 workflow-specific MCP servers (400-3500 tokens) with 24 tools across Xcode, Simulator, and IDB. Enable only what you need!",
+      "version": "0.4.0",
+      "author": {
+        "name": "Conor Luddy",
+        "url": "https://github.com/conorluddy"
+      },
+      "keywords": [
+        "xcode",
+        "ios",
+        "simulator",
+        "testing",
+        "idb",
+        "accessibility",
+        "automation"
+      ],
+      "strict": true
+    }
+  ]
+}

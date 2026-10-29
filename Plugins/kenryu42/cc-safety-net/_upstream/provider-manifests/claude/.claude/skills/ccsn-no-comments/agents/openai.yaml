@@ -1,0 +1,6 @@
+interface:
+  display_name: "CCSN No Comments"
+  short_description: "Fix comment-check failures without losing what comments said"
+
+policy:
+  allow_implicit_invocation: true

@@ -1,0 +1,16 @@
+{
+  "name": "open-steps",
+  "description": "Open Steps by Pavlo Kharmanskyi: plain-language skills for coding agents.",
+  "owner": {
+    "name": "Pavlo Kharmanskyi"
+  },
+  "plugins": [
+    {
+      "name": "open-steps",
+      "source": "./",
+      "description": "Plain-language skills for coding agents, for the person running development who does not read code: session reports, decisions, next steps and the whole picture.",
+      "homepage": "https://opensteps.ai",
+      "repository": "https://github.com/kharmanskyi/open-steps"
+    }
+  ]
+}

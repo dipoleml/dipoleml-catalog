@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+input=$(cat)
+is_antigravity=false
+if printf '%s' "$input" | grep -q '"executionNum"'; then
+  is_antigravity=true
+fi
+
+if [ "$is_antigravity" = true ]; then
+  printf '{}\n'
+  exit 0
+fi
+
+messages=()
+
+plan=$(ls docs/supergraph/plans/*.md 2>/dev/null | head -1 || true)
+
+if [ -n "$plan" ]; then
+  pending=$(grep -c '^Status: pending' "$plan" 2>/dev/null || true)
+  in_progress=$(grep -c '^Status: in_progress' "$plan" 2>/dev/null || true)
+  completed=$(grep -c '^Status: completed' "$plan" 2>/dev/null || true)
+  stuck=$(grep -c '^Status: stuck' "$plan" 2>/dev/null || true)
+  total=$((pending + in_progress + completed + stuck))
+
+  if [ "$total" -gt 0 ]; then
+    messages+=("📊 Progress: completed=$completed/$total pending=$pending in_progress=$in_progress stuck=$stuck")
+  fi
+
+  if [ "$pending" -gt 0 ]; then
+    next_task=$(grep -B2 -m1 '^Status: pending' "$plan" 2>/dev/null | grep '^## Task' | sed 's/^## //' || true)
+    if [ -n "$next_task" ]; then
+      messages+=("👉 Next action: $next_task → /supergraph:execute")
+    else
+      messages+=('👉 Next action: run /supergraph:execute to continue pending tasks')
+    fi
+  elif [ "$in_progress" -gt 0 ]; then
+    messages+=('👉 Next action: continue in-progress task with /supergraph:execute')
+  elif [ "$completed" -gt 0 ]; then
+    messages+=('✅ Plan tasks done → Next: /supergraph:fix → /supergraph:verify → /supergraph:review')
+  fi
+fi
+
+dirty=$(git status --porcelain 2>/dev/null | wc -l | tr -d ' ')
+if [ "${dirty:-0}" -gt 0 ]; then
+  messages+=("⚠️ $dirty uncommitted changes → Next: run tests & /supergraph:verify before commit")
+fi
+
+if [ "${#messages[@]}" -gt 0 ]; then
+  printf '%s\n' "${messages[@]}" | python3 -c '
+import json, sys
+print(json.dumps({"systemMessage": sys.stdin.read().rstrip("\n")}))
+'
+else
+  printf '{"systemMessage": "ok"}\n'
+fi

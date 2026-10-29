@@ -1,0 +1,117 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.kumarsashank.motiscope",
+  "type": "plugin",
+  "name": "Motiscope",
+  "slug": "motiscope",
+  "vendor": "kumarsashank",
+  "description": "Recreate any web animation from a screen recording. A motion-design plugin: analyzes motion (timing, easing, stagger, loops) and rebuilds it as GSAP / CSS / Framer Motion / Lottie code.",
+  "version": "1.0.0",
+  "homepage": "https://github.com/KumarSashank/motiscope",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "animation",
+    "claude-code-plugin",
+    "css-animation",
+    "ffmpeg",
+    "framer-motion",
+    "gsap",
+    "lottie",
+    "motion-design"
+  ],
+  "tags": [
+    "ai-agent",
+    "animation",
+    "claude-code",
+    "claude-code-plugin",
+    "css-animation",
+    "ffmpeg",
+    "framer-motion",
+    "gsap",
+    "lottie",
+    "motion-design"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "kumarsashank",
+    "brandName": "kumarsashank",
+    "source": "https://github.com/KumarSashank.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:13:45Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "KumarSashank/motiscope",
+    "url": "https://github.com/KumarSashank/motiscope",
+    "commit": "c0ce3ddedfbe59f445b74372a064e908587a648a",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 127,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:03:31Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Recreate any web animation from a screen recording. Drop a video of an animation you like, motiscope measures its timing and curates keyframes, and your agent rebuilds it as GSAP, CSS, Framer Motion, or Lottie code. Works in Claude Code, Codex, and Cursor.",
+        "after": "Recreate any web animation from a screen recording. Drop a video of an animation you like, motiscope measures its timing and curates keyframes, and your agent rebuilds it as GSAP, CSS, Framer Motion, or Lottie code. Works in DipoleML, Codex, and Cursor.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [
+      "GEMINI_API_KEY"
+    ],
+    "credentials": [
+      "GEMINI_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

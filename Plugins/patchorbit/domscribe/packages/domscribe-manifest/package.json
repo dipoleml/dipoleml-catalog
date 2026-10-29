@@ -1,0 +1,23 @@
+{
+  "name": "@domscribe/manifest",
+  "version": "0.7.0",
+  "description": "Append-only DOM-to-source manifest for Domscribe",
+  "type": "module",
+  "main": "src/index.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@domscribe/core": "workspace:*",
+    "xxhash-wasm": "^1.1.0",
+    "zod": "^4.6.7"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/patchorbit/domscribe.git",
+    "directory": "packages/domscribe-manifest"
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "task_id": "lesson-dco-auto-fix-workflow",
+  "title": "Dco Auto Fix Workflow",
+  "domain": "general",
+  "tags": [
+    "general"
+  ],
+  "problem": "DCO (Signed-off-by) check failure is one of the most common blockers for contributor PRs. AI Agent-submitted PRs frequently lack sign-off. A one-click auto-fix capability via PR comments is needed.\n\n**Error message** from DCO check:\n\n\n**Root cause**: GitHub's DCO check requires every commit to include a `Signed-off-by:` line. When contributors use `git commit` without the `-s` flag, or AI Agents generate commits without sign-off, the DCO check fails. Manual fix requires `git rebase --signoff`, which is a high barrier for new contributors.",
+  "solution": "### Design\n\nA GitHub Actions workflow triggered by issue comments containing `/fix-dco`:\n\n1. Detect `/fix-dco` comment on a PR\n2. Check out the PR branch (with fork support via `pull_request_target`)\n3. Run `git rebase --signoff` on all commits\n4. Force-push the amended branch back to the PR\n\n### Security Considerations\n\n- Only allow `/fix-dco` from PR authors or repo collaborators\n- Use a scoped GITHUB_TOKEN with minimal permissions\n- Never execute arbitrary code from the PR content\n- Validate the comment is exactly `/fix-dco` (no trailing commands)\n\n### Plan B: Supply-chain safe alternative\n\nIf force-push to forks is not feasible:\n1. Post a comment with exact commands for the contributor to run locally\n2. Provide a GitHub Codespaces one-click fix link\n3. Use a bot that creates a new PR with signed commits",
+  "source": "lessons/en/dco-auto-fix-workflow.md",
+  "test_cmd": ""
+}

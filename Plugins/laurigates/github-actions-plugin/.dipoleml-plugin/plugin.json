@@ -1,0 +1,16 @@
+{
+  "name": "github-actions-plugin",
+  "displayName": "GitHub Actions Plugin",
+  "version": "1.13.4",
+  "description": "GitHub Actions CI/CD - workflows, authentication, inspection",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Laurigates"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/laurigates/claude-plugins",
+  "repository": "https://github.com/laurigates/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

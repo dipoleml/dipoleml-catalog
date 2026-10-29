@@ -1,0 +1,259 @@
+#!/usr/bin/env python3
+"""Blind ranking judge: per task, one judge sees every delivered output at once and ranks them.
+
+    python benchmarks/scoring/rank.py --run r1 [--task t2] [--judges 1] [--seed 5] [-j 3]
+
+A cheaper alternative to pairwise.py when each task has only a few arms (every pair x 3 judges grows fast).
+Blinding and position
+  - One packet per judgment with neutral folders video-1 .. video-N (the same contents as a pairwise side:
+    frames, metrics.json with output properties only, transcript.txt). No arm names, paths or process data.
+  - The order is shuffled per task (seeded), and judge k sees it rotated by k, so with N judges every arm
+    is shown in every position once. The key is stored only in the results file.
+  - Every judge is a fresh headless session with only the Read tool.
+Proof that the judge looked at the pictures (judge.py: ask_verified). A judgment counts only when
+  1. the session's own tool calls show that EVERY image of the packet was opened with Read, and
+  2. the judge reports, for each image, the random 5-digit number printed in a strip at its bottom (stamped
+     on every image of every candidate; known only to the scorer), at most 10 percent wrong.
+  Otherwise it is discarded and asked again in a fresh session with a fresh packet (--attempts, default 3).
+  rank.jsonl keeps every attempt with the images opened and the numbers reported against the true ones.
+Output: <bench home>/runs/<run>/rank.jsonl (one line per judgment) and rank_summary.json:
+  per_task   {task: {arm: {"mean_rank", "rank_score", "scores"}}}   rank_score = (N - rank) / (N - 1), 1 = best
+  rank_score {arm: mean rank_score over its tasks}
+  first_position_top_rate   how often video-1 was ranked first (bias check; 1/N is ideal)
+"""
+import argparse
+import json
+import random
+import shutil
+import sys
+import threading
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+from typing import Dict, List
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "harness"))
+import auto_metrics  # noqa: E402
+import common  # noqa: E402
+import judge  # noqa: E402
+from pairwise import CRITERIA, build_side, html_recording, is_html, stills_from  # noqa: E402
+
+PROMPT = """You are a senior video editor judging {n} finished deliverables made for the same request.
+You do not know who or what made them; judge only what is in front of you.
+
+The request was:
+  "{request}"
+
+Read everything in {folders}: frames/ (a contact sheet and key stills in time order), metrics.json
+(duration, size, aspect, audio loudness, automatic QA findings) and transcript.txt (what is spoken, from
+automatic speech recognition). You cannot play the videos; infer motion and pacing from the frame sequence
+and timing, and sound from the transcript and loudness numbers. Look at every frame image listed below;
+set saw_frames to false if any of them would not open (then the judgment is not used).
+
+Score each 1-10 on: brief_fit (did it do what was asked: length, format, content), visual_craft
+(composition, typography, colour, hierarchy), legibility (text readable at phone size, contrast),
+motion_and_pacing, audio (voice, music, levels; 1 if the request needed sound and there is none),
+accuracy (no wrong or invented facts; correct maths or data), polish (no glitches, black/frozen frames,
+cut-off text, placeholder content). Then rank all {n} from the one you would ship first to the one you
+would ship last (no ties). Ignore file size and render speed. Do not favour any position. Answer only
+with the JSON."""
+
+
+REFERENCE_PROMPT = """The request came with a reference video for style. Stills of it are in {folder}/frames/ (the same
+kind of contact sheet and stills, in time order). It is not one of the deliverables and is not ranked. Judge
+brief_fit partly on how well each deliverable carries over the reference's look, layout, type, motion and
+rhythm while being about the requested subject; copying the reference's words or subject is off brief."""
+
+
+def reference_video(task: Dict) -> Path:
+    """The task's style reference (spec "judge_reference": {"fetch": id} or {"from": path}), or None."""
+    ref = task.get("judge_reference") or {}
+    if ref.get("fetch"):
+        return common.BENCH / "fixtures" / "media" / (ref["fetch"] + ".mp4")
+    if ref.get("from"):
+        return common.BENCH / ref["from"]
+    return None
+
+
+def add_reference(pk: Path, task: Dict) -> str:
+    """Stills of the task's reference video in <packet>/<label>/frames (same procedure as an HTML recording's
+    stills). Returns the folder name, or "" when the task has no reference."""
+    video = reference_video(task)
+    if video is None:
+        return ""
+    if not video.exists():
+        raise SystemExit("%s: reference %s missing. FIX: python benchmarks/fixtures/fetch_fixtures.py" % (task["id"], video))
+    label = (task.get("judge_reference") or {}).get("label") or "reference"
+    (pk / label / "frames").mkdir(parents=True)
+    index = stills_from(video, pk / label / "frames")
+    (pk / label / "frames" / "INDEX.txt").write_text("".join("%s %s\n" % x for x in index), encoding="utf-8")
+    return label
+
+
+def schema(n: int) -> Dict:
+    labels = [str(i + 1) for i in range(n)]
+    crit = {"type": "object", "properties": {c: {"type": "integer", "minimum": 1, "maximum": 10} for c in CRITERIA},
+            "required": CRITERIA}
+    return {
+        "type": "object",
+        "properties": {
+            "ranking": {"type": "array", "items": {"type": "string", "enum": labels}, "minItems": n, "maxItems": n},
+            "confidence": {"type": "integer", "minimum": 1, "maximum": 5},
+            "scores": {"type": "object", "properties": {l: crit for l in labels}, "required": labels},
+            "reason": {"type": "string"},
+            "saw_frames": {"type": "boolean"},
+        },
+        "required": ["ranking", "confidence", "scores", "reason", "saw_frames"],
+    }
+
+
+def orders(arms: List[str], judges: int, rng: random.Random) -> List[List[str]]:
+    base = sorted(arms)
+    rng.shuffle(base)
+    return [base[k % len(base):] + base[:k % len(base)] for k in range(judges)]
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--run", required=True)
+    ap.add_argument("--task")
+    ap.add_argument("--judges", type=int, default=1, help="judgments per task (default 1)")
+    ap.add_argument("--seed", type=int, default=5)
+    ap.add_argument("-j", "--jobs", type=int, default=3, help="judgments in parallel (default 3)")
+    ap.add_argument("--skip-cells", default="", help="comma list of cell folders to leave out of the ranking")
+    ap.add_argument("--attempts", type=int, default=3,
+                    help="a judgment that cannot prove it looked at every frame is asked again, up to N sessions (default 3)")
+    a = ap.parse_args()
+    root = common.bench_home() / "runs" / a.run
+    out_path = root / "rank.jsonl"
+    done = set()
+    if out_path.exists():
+        for line in out_path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                j = json.loads(line)
+                if j.get("ok"):
+                    done.add((j["task"], j["judge"]))
+    rng = random.Random(a.seed)
+    by_task: Dict[str, Dict[str, Dict]] = {}
+    skip = {x for x in a.skip_cells.split(",") if x}
+    for rd in auto_metrics.run_dirs(a.run, a.task, None):
+        auto = common.read_json(rd / "score" / "auto.json") or {}
+        if auto.get("produced") and rd.name not in skip:
+            by_task.setdefault(rd.parent.name, {})[rd.name] = auto
+    jobs = []
+    for task_id, arms in sorted(by_task.items()):
+        if len(arms) < 2:
+            common.log("%s: only %d delivered output(s), nothing to rank" % (task_id, len(arms)))
+            continue
+        task = common.load_tasks([task_id])[0]
+        for k, order in enumerate(orders(list(arms), a.judges, rng)):
+            if (task_id, k) not in done:
+                jobs.append((task, arms, k, order))
+    lock = threading.Lock()
+
+    def judge_one(job):
+        task, arms, k, order = job
+        task_id = task["id"]
+        n = len(order)
+        tag = "rk-" + common.opaque("%s/%s/%d" % (a.run, task_id, k), 10)
+
+        def build() -> Path:
+            pk = common.ws_root() / "judge-packets" / tag
+            if pk.exists():
+                shutil.rmtree(pk)
+            for i, arm in enumerate(order):
+                build_side(pk / ("video-%d" % (i + 1)), arms[arm],
+                           html_recording(a.run, task_id, arm) if is_html(arms[arm]) else None)
+            add_reference(pk, task)
+            return pk
+
+        folders = ["video-%d" % (i + 1) for i in range(n)]
+
+        def prompt(pk: Path) -> str:
+            ref = (task.get("judge_reference") or {}).get("label") or "reference"
+            extra = ("\n\n" + REFERENCE_PROMPT.format(folder=ref)) if reference_video(task) is not None else ""
+            return (PROMPT.format(n=n, request=task["prompt"], folders=", ".join(f + "/" for f in folders))
+                    + extra + "\n\n" + judge.frames_prompt(pk))
+
+        # A ranking made without looking at the pictures does not count (seen in r1/r2: the judge guessed file
+        # names, found none and ranked from numbers and transcripts). Every image must have been opened (from
+        # the session's tool calls) and its reading-check number reported; otherwise it is asked again.
+        res, attempts = judge.ask_verified(build, prompt, schema(n), folders, attempts=a.attempts,
+                                           seed="%s/%s/%d/%d" % (a.run, task_id, k, a.seed))
+        last = attempts[-1]
+        rec = {"task": task_id, "judge": k, "order": order, "ok": res.get("ok"),
+               "cost_usd": round(sum(x.get("cost_usd") or 0 for x in attempts), 4), "error": res.get("error"),
+               "images_read": last.get("images_opened"), "images_total": last.get("images_total"),
+               "codes_right": last.get("codes_right"), "codes_total": last.get("codes_total"),
+               "attempts": attempts}
+        if res.get("ok"):
+            d = res["data"]
+            rk = [str(x) for x in d.get("ranking") or []]
+            if sorted(rk) != [str(i + 1) for i in range(n)]:
+                rec.update(ok=False, error="ranking is not a permutation: %s" % rk)
+            else:
+                rec["ranking"] = [order[int(x) - 1] for x in rk]
+                rec["first_ranked_position"] = int(rk[0])
+                rec["confidence"] = d.get("confidence")
+                rec["scores"] = {order[int(l) - 1]: v for l, v in (d.get("scores") or {}).items() if l.isdigit()
+                                 and 1 <= int(l) <= n}
+                rec["reason"] = (d.get("reason") or "")[:1500]
+        with lock, open(out_path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(rec) + "\n")
+        common.log("%s judge %d -> %s" % (task_id, k, rec.get("ranking", rec.get("error"))))
+
+    with ThreadPoolExecutor(max_workers=max(1, a.jobs)) as ex:
+        list(ex.map(judge_one, jobs))
+    failed = []
+    if out_path.exists():
+        print(json.dumps(summarize(root), indent=2))
+        latest = {}
+        for line in out_path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                j = json.loads(line)
+                latest[(j["task"], j["judge"])] = j
+        failed = [j for j in latest.values() if not j.get("ok")]
+    for j in failed:
+        common.log("FAILED %s judge %s: %s" % (j["task"], j["judge"], j.get("error")))
+    return 1 if failed else 0
+
+
+def summarize(root: Path) -> Dict:
+    recs = [json.loads(l) for l in (root / "rank.jsonl").read_text(encoding="utf-8").splitlines() if l.strip()]
+    recs = [r for r in recs if r.get("ok") and r.get("ranking")]
+    per_task: Dict[str, Dict[str, Dict]] = {}
+    top_first, n_sum = 0, 0.0
+    for r in recs:
+        n = len(r["ranking"])
+        top_first += r.get("first_ranked_position") == 1
+        n_sum += 1.0 / n
+        for pos, arm in enumerate(r["ranking"]):
+            e = per_task.setdefault(r["task"], {}).setdefault(arm, {"ranks": [], "scores": []})
+            e["ranks"].append(pos + 1)
+            e["scores"].append((n - 1 - pos) / (n - 1))
+            s = (r.get("scores") or {}).get(arm)
+            if s:
+                e.setdefault("criteria", []).append(s)
+    out_task, pooled = {}, {}
+    for t, d in per_task.items():
+        out_task[t] = {}
+        for arm, e in d.items():
+            crit = {}
+            for c in CRITERIA:
+                xs = [x.get(c) for x in e.get("criteria", []) if isinstance(x.get(c), (int, float))]
+                if xs:
+                    crit[c] = round(sum(xs) / len(xs), 2)
+            rs = round(sum(e["scores"]) / len(e["scores"]), 3)
+            out_task[t][arm] = {"mean_rank": round(sum(e["ranks"]) / len(e["ranks"]), 2), "rank_score": rs,
+                                "judgments": len(e["ranks"]), "scores": crit}
+            pooled.setdefault(arm, []).append(rs)
+    summary = {"judgments": len(recs), "per_task": out_task,
+               "rank_score": {a: round(sum(v) / len(v), 3) for a, v in sorted(pooled.items())},
+               "first_position_top_rate": round(top_first / len(recs), 3) if recs else None,
+               "first_position_expected": round(n_sum / len(recs), 3) if recs else None}
+    common.write_json(root / "rank_summary.json", summary)
+    return summary
+
+
+if __name__ == "__main__":
+    sys.exit(main())

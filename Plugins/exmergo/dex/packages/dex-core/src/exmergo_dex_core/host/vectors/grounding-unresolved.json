@@ -1,0 +1,65 @@
+{
+  "name": "grounding-unresolved",
+  "contract": "grounding",
+  "description": "A reference dex read and could not name. There is a dependency there, and reporting it is the difference between an incomplete answer and a wrong one.",
+  "payload": {
+    "edits": [
+      {
+        "path": "models/staging/dyn.sql",
+        "new_content": "select * from {{ ref(var('which')) }}\n",
+        "old_content_hash": null,
+        "op": "upsert",
+        "kind": "model_sql"
+      }
+    ],
+    "project": {
+      "dbt_project.yml": "name: dex_test\nversion: \"1.0.0\"\nprofile: dex_test\nmodel-paths: [\"models\"]\n",
+      "models/staging/schema.yml": "version: 2\nmodels:\n  - name: stg_customers\n    columns:\n      - name: id\n        tests: [not_null]\n",
+      "models/staging/stg_customers.sql": "select 1 as id, 'a@example.com' as email\n",
+      "models/staging/stg_orders.sql": "select 1 as order_id, 1 as customer_id\n"
+    }
+  },
+  "expect": {
+    "completeness": "partial",
+    "unresolved_count": 1,
+    "result": {
+      "completeness": "partial",
+      "limits": [],
+      "unresolved": [
+        {
+          "path": "models/staging/dyn.sql",
+          "line": 1,
+          "form": "ref_call",
+          "kind": "model",
+          "reason": "dex could not resolve this reference statically"
+        }
+      ],
+      "ambiguous": [],
+      "missing": [],
+      "freshness": {
+        "manifest_present": false,
+        "generated_at": null,
+        "newest_source_at": "2026-10-14T22:01:09.783046+00:00",
+        "stale": null
+      },
+      "binding": {
+        "plan_digest": null,
+        "source_digest": "sha256:53d71c2d65ec6ce63b5ae8468651902cfcfd6fd2576f7c6c58adda78a93bd2cb",
+        "config_digest": null,
+        "packages_digest": null,
+        "engine_version": "1.13.2"
+      },
+      "relations": [],
+      "dependencies": [
+        {
+          "kind": "var",
+          "name": "which",
+          "origin": "source_scan",
+          "used_in": [
+            "models/staging/dyn.sql"
+          ]
+        }
+      ]
+    }
+  }
+}

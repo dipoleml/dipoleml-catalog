@@ -1,0 +1,107 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.christian-katzmann.app-it-windows",
+  "type": "plugin",
+  "name": "App It Windows",
+  "slug": "app-it-windows",
+  "vendor": "christian-katzmann",
+  "description": "Turn your local web projects into Mac apps you can launch from the Dock, with their own window, name and icon.",
+  "version": "0.2.0",
+  "homepage": "https://github.com/Christian-Katzmann/app-it",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "claude-plugin",
+    "codex",
+    "codex-plugin",
+    "developer-tools",
+    "dock",
+    "macos",
+    "skill",
+    "webkit"
+  ],
+  "tags": [
+    "claude-code",
+    "claude-plugin",
+    "codex",
+    "codex-plugin",
+    "developer-tools",
+    "dock",
+    "macos",
+    "plugin",
+    "skill",
+    "webkit"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "christian-katzmann",
+    "brandName": "christian-katzmann",
+    "source": "https://github.com/Christian-Katzmann.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:12:32Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "Christian-Katzmann/app-it",
+    "url": "https://github.com/Christian-Katzmann/app-it",
+    "commit": "9ad064e62c2f2cdde7125e9f6577a0c487906e94",
+    "path": "plugins/app-it-windows",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 215,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:02:05Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

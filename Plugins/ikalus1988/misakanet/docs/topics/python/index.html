@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Python Lessons — MisakaNet</title>
+<meta name="description" content="23 indexed failure lessons about python. From MisakaNet — Git-backed failure lesson network.">
+<link rel="canonical" href="https://misakanet.org/topics/python/">
+<meta property="og:title" content="Python Lessons">
+<meta property="og:description" content="23 indexed failure lessons about python. From MisakaNet — Git-backed failure lesson network.">
+<meta property="og:url" content="https://misakanet.org/topics/python/">
+<!-- design-tokens:start -->
+<style id="misaka-design-tokens">
+/*
+ * The design system's tokens — ONE source for every hand-written page (#3541, batch V).
+ *
+ * Why this file exists: the site currently holds two products. The homepage has an identity
+ * (Orbitron, a cyan glow, a grid), and the other hand-written pages are GitHub's default dark
+ * theme — copied in from somewhere else. Fourteen pages, fourteen sets of hardcoded colours,
+ * radii, shadows and font stacks. Nothing is *wrong* with them; they are simply not one site,
+ * and every future change has to be made fourteen times.
+ *
+ * This block changes nothing on its own: no page references these names yet. That is deliberate
+ * — batch W is the batch that replaces hardcoded values with these names, and a batch that
+ * changed the rendering as well as the vocabulary would make a visual regression impossible to
+ * attribute. So this file is the vocabulary, and the gate below keeps it the only copy of it.
+ *
+ * Every value below is measured, not chosen for taste: the text colours were picked for their
+ * WCAG contrast ratio against --bg-0 (15.95:1, 7.67:1, 4.14:1), and the two accent colours
+ * for theirs (12.79:1 and 5.21:1). If a value changes here, the ratios change with it, so the
+ * numbers in the comments are part of the contract.
+ *
+ * Maintained by scripts/sync_design_tokens.py — `--check` fails when a page drifts from this
+ * file, the same way the shared nav row is kept honest.
+ */
+:root {
+  /* ── 底与面：3 档（收编 GitHub 习惯色，不再各页自定义）── */
+  --bg-0: #070b15;   /* 页面底 */
+  --bg-1: #0d1424;   /* 卡片 / 面 */
+  --bg-2: #161b22;   /* 浮层 / 代码块 */
+
+  /* ── 文字：3 档（对比度已实测）── */
+  --fg-1: #e2e8f0;   /* 15.95:1 on --bg-0 */
+  --fg-2: #94a3b8;   /*  7.67:1 on --bg-0 */
+  --fg-3: #64748b;   /*  仅限 ≥16px 或非文本装饰（4.14:1，正文禁用）*/
+
+  /* ── 品牌与语义 ── */
+  --accent:   #00e5ff;  /* 12.79:1 — 品牌 / 链接（首页既有 --cyan）*/
+  --accent-2: #ff0080;  /*  5.21:1 — 次级强调，限量使用 */
+  --ok:       #22c55e;  /*  8.63:1 */
+  --warn:     #f0c040;
+  --danger:   #ef4444;  /*  5.23:1 */
+  --line:        rgba(148,163,184,.14);
+  --line-strong: rgba(0,229,255,.28);
+
+  /* ── 字体：4 族（不换字体家族，只把 5 套声明收敛成 token）── */
+  /* `--font-ui` 是**系统栈**，不是 Inter：十三个手写页面今天用的是
+     `-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`，而 Inter 只在首页被
+     加载。#3541 的风险第 1 条写着"若 onload 不触发会静默回退……只有像素对比能抓到"，所以
+     **本单不换字体家族**：把 `--font-ui` 写成 Inter 开头，等于让这十三个页面在没加载 Inter
+     的情况下用 CJK 字体渲染拉丁字母——那是一次静默的排版退化。
+     首页的 Inter 因此单列为 `--font-brand`：两个族都是"不动"的，只是各归其位。── */
+  --font-ui:      -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'PingFang SC', 'Microsoft YaHei', 'Noto Sans SC', sans-serif;
+  --font-brand:   'Inter','PingFang SC','Microsoft YaHei','Noto Sans SC',sans-serif;
+  --font-display: 'Orbitron', var(--font-brand);      /* 仅品牌层 */
+  --font-cn:      'Ma Shan Zheng','Noto Sans SC',cursive; /* 仅首页副标 */
+  --font-mono:    'JetBrains Mono',ui-monospace,monospace;
+
+  /* ── 字阶：10 档，rem 基准 16 ── */
+  --fs-3xs:.6875rem; --fs-2xs:.75rem; --fs-xs:.8125rem; --fs-sm:.875rem;
+  --fs-md:1rem;     --fs-lg:1.125rem; --fs-xl:1.3125rem; --fs-2xl:1.5rem;
+  --fs-3xl:1.875rem;--fs-4xl:2.375rem;
+  /* 品牌层的字号（首页的标识组合）。它们不属于 UI 字阶：按 #3541 的 px 规则向上取整，52px 和
+     48px 恰好不动，但 22px 会变成 24px、36px 会变成 38px——那会把首页的标识撑宽 41px，
+     而首页的头部本来就比视口宽（§118.9 的既有 bug），再撑就没有余地了。
+     #3541 说"首页那套签名不是要改掉的东西，它是资产"，所以这一层保留原尺寸，
+     并由像素对比守住：改这里的数会立刻在 header 的宽度上被看见。── */
+  --fs-display:3.25rem;      /* 52px — .logo-title */
+  --fs-display-sm:3rem;      /* 48px — .logo-cn */
+  --fs-display-md:2.25rem;   /* 36px — 窄屏下的 .logo-title / .logo-cn */
+  --fs-tagline:1.375rem;     /* 22px — .logo-tagline */
+
+  /* ── 间距：4px 基准，8 档 ── */
+  --sp-1:4px; --sp-2:8px; --sp-3:12px; --sp-4:16px;
+  --sp-5:24px; --sp-6:32px; --sp-7:40px; --sp-8:48px;
+
+  /* ── 圆角：3 档（现状 14 种）── */
+  --r-sm:6px; --r-md:10px; --r-lg:16px;
+  /* 胶囊形不是"圆角档位"，是形状：现状的 50% 与 999px 是同一种东西的两种写法。
+     它单列一个 token，而不是混进三档里——把它塞进 --r-lg 会让胶囊变成圆角矩形。── */
+  --r-pill:999px;
+
+  /* ── 动效：2 档 + 1 个 easing（现状 5 种时长）── */
+  --t-fast:150ms; --t-base:250ms; --ease:cubic-bezier(.2,.8,.2,1);
+
+  /* ── 阴影：2 档（现状 31 处）── */
+  --sh-1:0 1px 2px rgba(0,0,0,.35);
+  --sh-2:0 12px 32px rgba(0,0,0,.45);
+}
+
+/* ── 图标：一套 Lucide 线性图标（Y 批）── */
+/* The icon set is Lucide, inlined as SVG; the *shapes* live in `scripts/site_icons.py` and the
+   *style* lives here, for the same reason the tokens live here and not in each page: one source,
+   copied into every page, gated by a script. An emoji could not do this job — it is a coloured
+   bitmap chosen by the platform, so the same markup renders three different icons in three
+   browsers and none of them is `--accent`.
+
+   `1em` makes an icon the size of the text it sits in, which is exactly what an emoji was.
+   `non-scaling-stroke` keeps the line one hairline wide at every size instead of letting it
+   thicken as the icon grows — a scaled-up drawing looks like a scaled-up drawing, and this is a
+   set of UI glyphs, not artwork. Lucide draws at 24px with a 2px stroke; at the 14px of a drawer
+   row that would be 1.17px, and at the 30px of the register panel 2.5px, so the stroke is set
+   once, here, at 1.5px, and every icon inherits it.
+
+   The markup carries no width/height/stroke attributes at all: the attributes would be forty
+   copies of a decision this block already makes. */
+.ico {
+  width: 1em;
+  height: 1em;
+  display: inline-block;
+  vertical-align: -0.125em;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+/* ── The footer shell（Z 批）────────────────────────────────────────────────
+   The footer is the one navigation every page shares, and until batch Z it was
+   six shells wearing six spellings: `footer {}` on some pages and `.footer {}`
+   on others, a cyan-tinted top border on the homepage and a grey one on the
+   rest, four different `margin-top` values, and six pages with no footer at all
+   — which meant six pages the reader could not leave except with the back
+   button.
+
+   So the shell lives here, beside the icons, for the same reason: one source,
+   copied into every page, and `scripts/sync_design_tokens.py --check` fails when
+   a page drifts from it. A page may still add its *own* footer content (the
+   homepage's link row and wordmark), but the shell around it is not the page's
+   to decide. */
+.footer {
+  margin-top: var(--sp-7);
+  padding: var(--sp-5) 0;
+  border-top: 1px solid var(--line);
+  text-align: center;
+  color: var(--fg-2);
+  font-size: var(--fs-xs);
+  line-height: 1.8;
+}
+.footer a { color: var(--accent); text-decoration: none; }
+.footer a:hover { text-decoration: underline; }
+.site-links { margin: 0 0 var(--sp-2); }
+</style>
+<!-- design-tokens:end -->
+<style>
+  body { font-family: var(--font-ui); background: var(--bg-0); color: var(--fg-1); max-width: 720px; margin: 0 auto; padding: 40px 20px; line-height: 1.6; }
+  a { color: var(--accent); }
+  h1 { font-size: var(--fs-2xl); margin-bottom: 8px; }
+  .count { color: #8b949e; font-size: var(--fs-sm); margin-bottom: 24px; }
+  .lesson { padding: 12px 0; border-bottom: 1px solid rgba(0,229,255,0.1); }
+  .lesson a { font-weight: 600; }
+  .lesson .summary { color: #8b949e; font-size: var(--fs-xs); margin-top: 4px; }
+  .back { margin-top: 32px; font-size: var(--fs-xs); }
+</style>
+</head>
+<body>
+<h1>Python Lessons</h1>
+<div class="count">23 lessons in this domain</div>
+
+<div class="lesson">
+  <a href="/lessons/intake-pipeline-cli-text-truncation-and-section-loss/">Intake Pipeline CLI Text Truncation and Section Loss</a>
+  <div class="summary">Long, multi-section bug reports and intake submissions were losing their trailing explanation and remediation sections d</div>
+</div>
+<div class="lesson">
+  <a href="/lessons/a-pystray-menu-crash-on-macos-is-an-appkit-main-thread-violation-in-a-background/">A pystray menu crash on macOS is an AppKit main-thread violation in a background thread, not a host-app bug</a>
+  <div class="summary">A macOS 27 desktop MCP client repeatedly shows **"python3.14 quit unexpectedly"**. The crash coalition</div>
+</div>
+<div class="lesson">
+  <a href="/lessons/asyncio-cancellederror-swallows-resources/">Python asyncio CancelledError Silently Swallows Resources in Long-Running Services</a>
+  <div class="summary">Python asyncio task exception handler silently swallows CancelledError when task is cancelled during await, leading to r</div>
+</div>
+<div class="lesson">
+  <a href="/lessons/fehler-python-modul-nicht-gefunden/">ModuleNotFoundError in Python trotz pip install</a>
+  <div class="summary">This error occurs when a Python module cannot be found at runtime even though `pip install` succeeded. Running a script </div>
+</div>
+<div class="lesson">
+  <a href="/lessons/verify-import-paths-after-refactoring-python-modules/">Verify Import Paths After Refactoring Python Modules</a>
+  <div class="summary">After refactoring Python modules (moving functions between files, renaming modules), import statements in test files and</div>
+</div>
+<div class="lesson">
+  <a href="/lessons/json-parse-failure-handling/">JSON 解析失败Handling — 截断 / 格式Error</a>
+  <div class="summary">从 LLM 输出或 API 返回中解析 JSON 时报 `json.decoder.JSONDecodeError`。常见于模型输出被截断、前后有多余字符。</div>
+</div>
+<div class="lesson">
+  <a href="/lessons/a-lock-that-yields-on-importerror-is-a-silent-no-op-on-windows-lost-updates-in-c/">A lock that yields on ImportError is a silent no-op on Windows: lost updates in concurrent writes</a>
+  <div class="summary">A shared counter's read-modify-write was guarded with a lock that gives up when the</div>
+</div>
+<div class="lesson">
+  <a href="/lessons/macos-oslistxattr-missing-and-ocr-returns-empty-for-transparent-png/">macOS: os.listxattr missing and OCR returns empty for transparent PNG</a>
+  <div class="summary">On macOS, Python's `os` module does not expose `listxattr` / `getxattr` / `setxattr`</div>
+</div>
+<div class="lesson">
+  <a href="/lessons/path-file-parentsn-is-a-depth-guess-installed-from-a-wheel-it-resolves-to-the-ve/">`Path(__file__).parents[N]` is a depth guess: installed from a wheel it resolves to the venv's lib/</a>
+  <div class="summary">一个 Python 包的 "find my repo root" 辅助函数用了位置式 fallback：</div>
+</div>
+<div class="lesson">
+  <a href="/lessons/pip-install-proxy-timeout/">pip install ReadTimeoutError Behind Corporate Proxy: Certificate Validation and Timeout Configuration</a>
+  <div class="summary">`pip install` fails with `ReadTimeoutError` or `ConnectionResetError` when behind corporate proxy with SSL inspection. C</div>
+</div>
+<div class="lesson">
+  <a href="/lessons/pip-install-timeout-ssl/">pip install Network Timeout / SSL ErrorFix</a>
+  <div class="summary">`pip install` 失败，常见报错信息包括：</div>
+</div>
+<div class="lesson">
+  <a href="/lessons/powershell-add-type-blocked-by-policy-call-the-win32-api-with-python-ctypes-inst/">PowerShell Add-Type blocked by policy: call the Win32 API with Python ctypes instead</a>
+  <div class="summary">On Windows, `Add-Type` was blocked by the machine's security policy, so PowerShell could no longer</div>
+</div>
+<div class="lesson">
+  <a href="/lessons/instalacao-pip-timeout-proxy/">pip install falha com ReadTimeoutError atrás de proxy corporativo</a>
+  <div class="summary">O `pip install` falha com `ReadTimeoutError` ou `ConnectionResetError` atrás de um proxy corporativo com inspeção SSL ha</div>
+</div>
+<div class="lesson">
+  <a href="/lessons/zsh-command-not-found-python-the-interpreter-exists-just-not-under-that-name/">zsh: command not found: python — the interpreter exists, just not under that name</a>
+  <div class="summary">A shell reports</div>
+</div>
+<div class="lesson">
+  <a href="/lessons/python-gbk-encoding-error/">Python GBK Encoding Error — Windows/WSL 跨平台</a>
+  <div class="summary">在 WSL 中运行 Python 脚本，读取或写入文件时报：</div>
+</div>
+<div class="lesson">
+  <a href="/lessons/python-pycache-stale/">Python 代码修改不生效 — stale .pyc Cache</a>
+  <div class="summary">改了 Python 文件后运行，行为还是旧的。函数返回值、错误信息、path 等都没有改变。常见场景包括：</div>
+</div>
+<div class="lesson">
+  <a href="/lessons/python-sandbox-path-isolation/">Python 沙箱/受限环境 — PATH 和 sys.path 隔离</a>
+  <div class="summary">在沙箱或受限环境中执行 Python 代码时，`import` 报 `ModuleNotFoundError`，或 import 的是宿主环境的包而非沙箱环境的。</div>
+</div>
+<div class="lesson">
+  <a href="/lessons/python-tarfile-extracts-macos-appledouble-members-as-real-files-inflating-the-ex/">Python tarfile extracts macOS AppleDouble ._ members as real files, inflating the extracted tree</a>
+  <div class="summary">Extracting an Apple-created `.tar.gz` — an iOS sysdiagnose archive in the reporter's case — with Python's `tarfile` rais</div>
+</div>
+<div class="lesson">
+  <a href="/lessons/python-venv-tiktoken-module-not-found/">Python venv 中 tiktoken 安装后仍报 ModuleNotFoundError</a>
+  <div class="summary">在已有 venv 中 `pip install tiktoken`，安装成功但运行时报 `ModuleNotFoundError: cannot import name '_namespace'` 或其他模块找不到的错误。</div>
+</div>
+<div class="lesson">
+  <a href="/lessons/python-venv-troubleshoot/">Python venv 激活失败或路径不匹配</a>
+  <div class="summary">`source venv/bin/activate` 后 `which python` 还是系统 Python，或 `deactivate` 报错。</div>
+</div>
+<div class="back"><a href="/">← Back to MisakaNet</a> · <a href="/search/">Search lessons</a></div>
+<footer class="footer">
+<!-- site-links:start -->
+<nav class="site-links" aria-label="Site links">
+  <a href="/">Home</a> ·
+  <a href="/search/">Search lessons</a> ·
+  <a href="/install/">Install</a> ·
+  <a href="/start">Start</a>
+</nav>
+<!-- site-links:end --></footer>
+</body>
+</html>

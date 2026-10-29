@@ -1,0 +1,1079 @@
+import { describe, expect, test } from "bun:test";
+import { execFileSync } from "node:child_process";
+import {
+  existsSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+const CLI = join(import.meta.dir, "access.ts");
+
+function freshStateDir(): string {
+  return mkdtempSync(join(tmpdir(), "wa-access-"));
+}
+
+/** Returns stdout+stderr and the exit code, since failures are part of the contract. */
+function run(dir: string, ...args: string[]): { out: string; code: number } {
+  return runEnv(dir, {}, ...args);
+}
+
+/** Same as `run`, with extra env vars overlaid (e.g. WHATSAPP_PICKER_LAUNCH). */
+function runEnv(
+  dir: string,
+  env: Record<string, string>,
+  ...args: string[]
+): { out: string; code: number } {
+  try {
+    const out = execFileSync("bun", [CLI, ...args], {
+      encoding: "utf8",
+      env: { ...process.env, WHATSAPP_STATE_DIR: dir, ...env },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    return { out, code: 0 };
+  } catch (err) {
+    const e = err as { stdout?: string; stderr?: string; status?: number };
+    return { out: (e.stdout ?? "") + (e.stderr ?? ""), code: e.status ?? 1 };
+  }
+}
+
+describe("Cloud permission owner status", () => {
+  test("never reports a customer as the fallback approver", () => {
+    const dir = freshStateDir();
+    try {
+      writeFileSync(
+        join(dir, ".env"),
+        "WHATSAPP_PROVIDER=cloud-api\nWHATSAPP_CLOUD_ACCESS_TOKEN=test-private-token\n",
+      );
+      writeFileSync(
+        join(dir, "access.json"),
+        JSON.stringify({
+          dmPolicy: "allowlist",
+          allowFrom: ["886900000001@s.whatsapp.net"],
+          groups: {},
+          pending: {},
+        }),
+      );
+      const { out, code } = run(dir, "status");
+      expect(code).toBe(0);
+      expect(out).toContain("owner:      (none)");
+      expect(out).toContain("Cloud has no fallback owner");
+      expect(out).not.toContain("falling back to allowFrom[0]");
+      expect(out).not.toContain("permission requests go here");
+      expect(out).not.toContain("test-private-token");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+  test("revoked and LID owners never advertise a usable Cloud recipient", () => {
+    const dir = freshStateDir();
+    try {
+      for (const owner of ["886900000009@s.whatsapp.net", "12345@lid"]) {
+        writeFileSync(
+          join(dir, "access.json"),
+          JSON.stringify({
+            dmPolicy: "allowlist",
+            allowFrom: ["886900000001@s.whatsapp.net", "12345@lid"],
+            owner,
+            groups: {},
+            pending: {},
+          }),
+        );
+        const { out } = runEnv(
+          dir,
+          { WHATSAPP_PROVIDER: "cloud-api" },
+          "status",
+        );
+        expect(out).toContain("NO VALID CLOUD OWNER");
+        expect(out).not.toContain("requests go to your own chat");
+      }
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+  test("an owner stamped by linked-device mode is not a Cloud owner until re-set", () => {
+    const dir = freshStateDir();
+    try {
+      writeFileSync(join(dir, ".env"), "WHATSAPP_PROVIDER=cloud-api\n");
+      writeFileSync(
+        join(dir, "access.json"),
+        JSON.stringify({
+          dmPolicy: "allowlist",
+          allowFrom: ["886900000001@s.whatsapp.net"],
+          owner: "886900000001@s.whatsapp.net",
+          groups: {},
+          pending: {},
+        }),
+      );
+      const inherited = run(dir, "status").out;
+      expect(inherited).toContain("NO VALID CLOUD OWNER");
+      expect(inherited).toContain("inherited from linked-device mode");
+      expect(run(dir, "set", "owner", "886900000001@s.whatsapp.net").code).toBe(
+        0,
+      );
+      const explicit = run(dir, "status").out;
+      expect(explicit).not.toContain("NO VALID CLOUD OWNER");
+      expect(explicit).toContain("different from the business number");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+// Stands in for the terminal launcher. Prints the argv it was handed (so the
+// test can assert what the platform branch would have run), optionally edits
+// access.json via `body`, then writes the done marker the way the real
+// wizard's exit handler does - so `review` (which polls for that file) ends
+// its wait the same way a real window closing would.
+//
+// Filename has a space on purpose: pickerLaunch()'s .ts/.js override branch
+// runs this file under `process.execPath` with the file's own path as a
+// single args[] element (`{ cmd: process.execPath, args: [override, ...] }`).
+// A space in that path is exactly what would come apart if spawnSync ever
+// went through a shell instead of an argv array - this repo's own install
+// path (`Pull Requests`/`Whatsapp Plugin`, see CLI above) has one for real,
+// so the property is worth pinning down rather than trusting by inspection.
+function writeFakeLauncher(dir: string, body: string): string {
+  const path = join(dir, "fake launcher.ts");
+  writeFileSync(
+    path,
+    [
+      `import { writeFileSync, mkdirSync } from "node:fs";`,
+      `import { join } from "node:path";`,
+      // process.argv[1] is this file's own path, as bun/node resolved it -
+      // printed so the test can confirm it arrived whole, not split at the
+      // space into two argv entries.
+      `console.log("SELF=" + process.argv[1]);`,
+      `console.log(process.argv.slice(2).join(" "));`,
+      `const dir = process.env.WHATSAPP_STATE_DIR!;`,
+      body,
+      `mkdirSync(dir, { recursive: true, mode: 0o700 });`,
+      `writeFileSync(join(dir, ".picker-done"), String(Date.now()), { mode: 0o600 });`,
+    ].join("\n"),
+  );
+  return path;
+}
+
+function writeContacts(
+  dir: string,
+  contacts: Record<string, { name?: string; notify?: string }>,
+): void {
+  writeFileSync(join(dir, "contacts.json"), JSON.stringify(contacts, null, 2));
+}
+
+function readContacts(
+  dir: string,
+): Record<string, { name?: string; notify?: string }> {
+  return JSON.parse(readFileSync(join(dir, "contacts.json"), "utf8"));
+}
+
+function writeLidMap(dir: string, map: Record<string, string>): void {
+  writeFileSync(join(dir, "lid-map.json"), JSON.stringify(map, null, 2));
+}
+
+function writeGroupsMeta(
+  dir: string,
+  meta: Record<
+    string,
+    {
+      name: string;
+      memberCount: number;
+      archived: boolean;
+      lastActivityAt?: number;
+      updatedAt: number;
+    }
+  >,
+): void {
+  writeFileSync(join(dir, "groups-meta.json"), JSON.stringify(meta, null, 2));
+}
+
+function writeDmActivity(dir: string, activity: Record<string, number>): void {
+  writeFileSync(
+    join(dir, "dm-activity.json"),
+    JSON.stringify(activity, null, 2),
+  );
+}
+
+const access = (dir: string) =>
+  JSON.parse(readFileSync(join(dir, "access.json"), "utf8"));
+
+function seedPending(dir: string, code: string, expiresAt: number): void {
+  const current = existsSync(join(dir, "access.json"))
+    ? access(dir)
+    : { dmPolicy: "pairing", allowFrom: [], groups: {}, pending: {} };
+  current.pending[code] = {
+    senderId: "999@s.whatsapp.net",
+    chatId: "999@s.whatsapp.net",
+    createdAt: 0,
+    expiresAt,
+  };
+  writeFileSync(join(dir, "access.json"), JSON.stringify(current, null, 2));
+}
+
+describe("allowlist", () => {
+  test("allow adds, is idempotent, and remove takes it back out", () => {
+    const dir = freshStateDir();
+    expect(run(dir, "allow", "1@s.whatsapp.net").code).toBe(0);
+    expect(run(dir, "allow", "1@s.whatsapp.net").out).toContain(
+      "already allowed",
+    );
+    expect(access(dir).allowFrom).toEqual(["1@s.whatsapp.net"]);
+    run(dir, "remove", "1@s.whatsapp.net");
+    expect(access(dir).allowFrom).toEqual([]);
+  });
+
+  test("a bare number is refused - the server would never match it", () => {
+    const dir = freshStateDir();
+    const res = run(dir, "allow", "886912345678");
+    expect(res.code).toBe(1);
+    expect(res.out).toContain("886912345678@s.whatsapp.net");
+  });
+
+  test("removing someone who is not listed fails loudly", () => {
+    const dir = freshStateDir();
+    expect(run(dir, "remove", "nobody@s.whatsapp.net").code).toBe(1);
+  });
+
+  test("a positional JID (typed by a human) prints unmasked", () => {
+    const dir = freshStateDir();
+    const res = run(dir, "allow", "61400011675@s.whatsapp.net");
+    expect(res.out).toContain("Allowed 61400011675@s.whatsapp.net.");
+  });
+
+  test("removing a contact also forgets their cached name, not just the allowlist entry", () => {
+    const dir = freshStateDir();
+    run(dir, "allow", "1@s.whatsapp.net");
+    writeContacts(dir, { "1@s.whatsapp.net": { name: "Akash" } });
+    const res = run(dir, "remove", "1@s.whatsapp.net");
+    expect(res.code).toBe(0);
+    expect(res.out).toContain("Forgot their cached name too.");
+    expect(readContacts(dir)["1@s.whatsapp.net"]).toBeUndefined();
+  });
+
+  test("removing a contact with no cached name still succeeds, no false claim of forgetting", () => {
+    const dir = freshStateDir();
+    run(dir, "allow", "1@s.whatsapp.net");
+    const res = run(dir, "remove", "1@s.whatsapp.net");
+    expect(res.code).toBe(0);
+    expect(res.out).not.toContain("Forgot");
+  });
+
+  test("removing via a LID resolves through lid-map.json to forget the right contacts.json key", () => {
+    const dir = freshStateDir();
+    run(dir, "allow", "184710990000999@lid");
+    writeLidMap(dir, { "184710990000999@lid": "61400011675@s.whatsapp.net" });
+    writeContacts(dir, { "61400011675@s.whatsapp.net": { name: "Rohan" } });
+    const res = run(dir, "remove", "184710990000999@lid");
+    expect(res.code).toBe(0);
+    expect(res.out).toContain("Forgot their cached name too.");
+    expect(readContacts(dir)["61400011675@s.whatsapp.net"]).toBeUndefined();
+  });
+
+  test("removal never touches lid-map.json itself", () => {
+    const dir = freshStateDir();
+    run(dir, "allow", "184710990000999@lid");
+    writeLidMap(dir, { "184710990000999@lid": "61400011675@s.whatsapp.net" });
+    writeContacts(dir, { "61400011675@s.whatsapp.net": { name: "Rohan" } });
+    run(dir, "remove", "184710990000999@lid");
+    const lidMap = JSON.parse(readFileSync(join(dir, "lid-map.json"), "utf8"));
+    expect(lidMap["184710990000999@lid"]).toBe("61400011675@s.whatsapp.net");
+  });
+
+  test("removing a contact also purges their entry in the wizard's recency cache", () => {
+    const dir = freshStateDir();
+    run(dir, "allow", "1@s.whatsapp.net");
+    writeDmActivity(dir, {
+      "1@s.whatsapp.net": 5000,
+      "2@s.whatsapp.net": 3000,
+    });
+    const res = run(dir, "remove", "1@s.whatsapp.net");
+    expect(res.code).toBe(0);
+    expect(res.out).toContain("Forgot their cached name too.");
+    const activity = JSON.parse(
+      readFileSync(join(dir, "dm-activity.json"), "utf8"),
+    );
+    expect(activity["1@s.whatsapp.net"]).toBeUndefined();
+    // Only the removed contact's own entry goes - everyone else's stays.
+    expect(activity["2@s.whatsapp.net"]).toBe(3000);
+  });
+
+  test("removing a contact with no recency entry cached still succeeds cleanly", () => {
+    const dir = freshStateDir();
+    run(dir, "allow", "1@s.whatsapp.net");
+    const res = run(dir, "remove", "1@s.whatsapp.net");
+    expect(res.code).toBe(0);
+    expect(res.out).not.toContain("Forgot");
+  });
+
+  // One contact can be allowlisted twice, under its @lid form AND its phone
+  // form, and both resolve to the same contacts.json / dm-activity.json key.
+  // Revoking one form must not wipe the cache the surviving grant still
+  // relies on (PR #24 review, #3).
+  test("revoking one form of a doubly-allowlisted contact keeps the shared cache", () => {
+    const dir = freshStateDir();
+    writeLidMap(dir, { "184710990000999@lid": "61400011675@s.whatsapp.net" });
+    writeContacts(dir, { "61400011675@s.whatsapp.net": { name: "Akash" } });
+    writeDmActivity(dir, { "61400011675@s.whatsapp.net": 1000 });
+    run(dir, "allow", "184710990000999@lid");
+    run(dir, "allow", "61400011675@s.whatsapp.net");
+
+    const { out } = run(dir, "remove", "184710990000999@lid");
+    expect(out).toContain("Kept their cached name");
+    expect(out).not.toContain("Forgot their cached name");
+    // The surviving grant still works, so the name behind it must survive too.
+    expect(readContacts(dir)["61400011675@s.whatsapp.net"]).toEqual({
+      name: "Akash",
+    });
+    expect(access(dir).allowFrom).toEqual(["61400011675@s.whatsapp.net"]);
+  });
+
+  test("nothing cached: the surviving grant is kept quietly, no invented name claim", () => {
+    // Allowlisted by JID, never DMed - so there is no cached name to keep,
+    // and saying one was kept is as wrong as saying one was forgotten.
+    const dir = freshStateDir();
+    writeLidMap(dir, { "184710990000999@lid": "61400011675@s.whatsapp.net" });
+    run(dir, "allow", "184710990000999@lid");
+    run(dir, "allow", "61400011675@s.whatsapp.net");
+
+    const { out } = run(dir, "remove", "184710990000999@lid");
+    expect(out).toContain("Removed 184710990000999@lid.");
+    expect(out).not.toContain("cached name");
+  });
+
+  test("revoking the LAST form of that contact does forget them", () => {
+    const dir = freshStateDir();
+    writeLidMap(dir, { "184710990000999@lid": "61400011675@s.whatsapp.net" });
+    writeContacts(dir, { "61400011675@s.whatsapp.net": { name: "Akash" } });
+    run(dir, "allow", "184710990000999@lid");
+    run(dir, "allow", "61400011675@s.whatsapp.net");
+    run(dir, "remove", "184710990000999@lid");
+
+    const { out } = run(dir, "remove", "61400011675@s.whatsapp.net");
+    expect(out).toContain("Forgot their cached name");
+    expect(readContacts(dir)["61400011675@s.whatsapp.net"]).toBeUndefined();
+  });
+});
+
+describe("forget", () => {
+  test("purges a cached name for a JID that was NEVER allowlisted - remove refuses this, forget doesn't", () => {
+    const dir = freshStateDir();
+    writeContacts(dir, { "1@s.whatsapp.net": { name: "Akash" } });
+    expect(run(dir, "remove", "1@s.whatsapp.net").code).toBe(1);
+    const res = run(dir, "forget", "1@s.whatsapp.net");
+    expect(res.code).toBe(0);
+    expect(readContacts(dir)["1@s.whatsapp.net"]).toBeUndefined();
+  });
+
+  test("purges the recency cache entry too", () => {
+    const dir = freshStateDir();
+    writeDmActivity(dir, {
+      "1@s.whatsapp.net": 5000,
+      "2@s.whatsapp.net": 3000,
+    });
+    const res = run(dir, "forget", "1@s.whatsapp.net");
+    expect(res.code).toBe(0);
+    const activity = JSON.parse(
+      readFileSync(join(dir, "dm-activity.json"), "utf8"),
+    );
+    expect(activity["1@s.whatsapp.net"]).toBeUndefined();
+    expect(activity["2@s.whatsapp.net"]).toBe(3000);
+  });
+
+  test("resolves through lid-map.json, same as remove", () => {
+    const dir = freshStateDir();
+    writeLidMap(dir, { "184710990000999@lid": "61400011675@s.whatsapp.net" });
+    writeContacts(dir, { "61400011675@s.whatsapp.net": { name: "Rohan" } });
+    const res = run(dir, "forget", "184710990000999@lid");
+    expect(res.code).toBe(0);
+    expect(readContacts(dir)["61400011675@s.whatsapp.net"]).toBeUndefined();
+  });
+
+  test("nothing cached for the JID fails loudly, not a silent no-op", () => {
+    const dir = freshStateDir();
+    expect(run(dir, "forget", "nobody@s.whatsapp.net").code).toBe(1);
+  });
+
+  test("never touches access.json, even for a JID that happens to be allowlisted", () => {
+    const dir = freshStateDir();
+    run(dir, "allow", "1@s.whatsapp.net");
+    writeContacts(dir, { "1@s.whatsapp.net": { name: "Akash" } });
+    const res = run(dir, "forget", "1@s.whatsapp.net");
+    expect(res.code).toBe(0);
+    expect(access(dir).allowFrom).toEqual(["1@s.whatsapp.net"]);
+  });
+});
+
+describe("policy", () => {
+  test("a valid mode is written; an invalid one is refused", () => {
+    const dir = freshStateDir();
+    run(dir, "policy", "disabled");
+    expect(access(dir).dmPolicy).toBe("disabled");
+    const bad = run(dir, "policy", "wide-open");
+    expect(bad.code).toBe(1);
+    expect(access(dir).dmPolicy).toBe("disabled"); // unchanged
+  });
+});
+
+// The chat permission requests go to. A dedicated-bot-number deployment has
+// to be able to point this at the human, and has to be able to SEE where it
+// points - a wrong value is otherwise silent, with the agent waiting on
+// approvals nobody receives.
+describe("owner", () => {
+  test("set owner takes an allowlisted jid and refuses a bare number", () => {
+    const dir = freshStateDir();
+    run(dir, "allow", "886912345678@s.whatsapp.net");
+    const ok = run(dir, "set", "owner", "886912345678@s.whatsapp.net");
+    expect(ok.code).toBe(0);
+    expect(access(dir).owner).toBe("886912345678@s.whatsapp.net");
+    // Only `set owner` marks the owner as user-chosen; Cloud API requires it.
+    expect(access(dir).ownerExplicit).toBe(true);
+    const bad = run(dir, "set", "owner", "886912345678");
+    expect(bad.code).toBe(1);
+    expect(access(dir).owner).toBe("886912345678@s.whatsapp.net"); // unchanged
+  });
+
+  // The value this guards is the chat every permission request is delivered
+  // to, command preview and all. A mistyped digit is still a well-formed jid,
+  // so an "@ is present" check pointed that at a stranger for good.
+  test("set owner refuses a jid nobody allowlisted", () => {
+    const dir = freshStateDir();
+    run(dir, "allow", "886912345678@s.whatsapp.net");
+    run(dir, "set", "owner", "886912345678@s.whatsapp.net");
+
+    const typo = run(dir, "set", "owner", "886912345679@s.whatsapp.net");
+    expect(typo.code).toBe(1);
+    expect(typo.out).toContain("allowlisted");
+    expect(access(dir).owner).toBe("886912345678@s.whatsapp.net"); // unchanged
+
+    expect(run(dir, "set", "owner", "a@b").code).toBe(1);
+    expect(access(dir).owner).toBe("886912345678@s.whatsapp.net");
+  });
+
+  test("status names the owner, and says when it is only a fallback", () => {
+    const dir = freshStateDir();
+    run(dir, "allow", "886900000000@s.whatsapp.net");
+    run(dir, "allow", "886912345678@s.whatsapp.net");
+    expect(run(dir, "status").out).toContain("unstamped");
+    run(dir, "set", "owner", "886912345678@s.whatsapp.net");
+    const out = run(dir, "status").out;
+    expect(out).toContain("owner:      886912345678@s.whatsapp.net");
+    expect(out).not.toContain("unstamped");
+  });
+
+  // The server stops sending to a revoked owner on the next read; status
+  // printing the bare field had the user waiting on a chat that gets nothing.
+  test("status flags an owner that has left the allowlist", () => {
+    const dir = freshStateDir();
+    run(dir, "allow", "886900000000@s.whatsapp.net");
+    run(dir, "allow", "886912345678@s.whatsapp.net");
+    run(dir, "set", "owner", "886912345678@s.whatsapp.net");
+    run(dir, "remove", "886912345678@s.whatsapp.net");
+    const out = run(dir, "status").out;
+    expect(out).toContain("NO LONGER ALLOWLISTED");
+    expect(access(dir).owner).toBe("886912345678@s.whatsapp.net"); // kept: an unstamped owner would fall back to allowFrom[0]
+  });
+
+  // The check is normalised, so a device-suffixed spelling passes it; stored
+  // raw, the server addressed one stale device and `remove` could not find it.
+  test("set owner stores the allowlist's own spelling", () => {
+    const dir = freshStateDir();
+    run(dir, "allow", "886912345678@s.whatsapp.net");
+    expect(
+      run(dir, "set", "owner", "886912345678:12@s.whatsapp.net").code,
+    ).toBe(0);
+    expect(access(dir).owner).toBe("886912345678@s.whatsapp.net");
+  });
+});
+
+describe("pairing", () => {
+  test("a wrong code approves nobody", () => {
+    const dir = freshStateDir();
+    seedPending(dir, "abcde", Date.now() + 60_000);
+    const res = run(dir, "pair", "zzzzz");
+    expect(res.code).toBe(1);
+    expect(access(dir).allowFrom).toEqual([]);
+    expect(access(dir).pending.abcde).toBeDefined();
+  });
+
+  test("an expired code approves nobody and is dropped", () => {
+    const dir = freshStateDir();
+    seedPending(dir, "abcde", Date.now() - 1);
+    expect(run(dir, "pair", "abcde").code).toBe(1);
+    expect(access(dir).allowFrom).toEqual([]);
+    expect(access(dir).pending.abcde).toBeUndefined();
+  });
+
+  test("a valid code allows the sender, locks the policy, and signals the server", () => {
+    const dir = freshStateDir();
+    seedPending(dir, "abcde", Date.now() + 60_000);
+    expect(run(dir, "pair", "abcde").code).toBe(0);
+    const a = access(dir);
+    expect(a.allowFrom).toEqual(["999@s.whatsapp.net"]);
+    expect(a.pending).toEqual({});
+    expect(a.dmPolicy).toBe("allowlist");
+    // The server polls approved/<senderId> to send the "you're in" message.
+    expect(
+      readFileSync(join(dir, "approved", "999@s.whatsapp.net"), "utf8"),
+    ).toBe("999@s.whatsapp.net");
+  });
+
+  test("the policy stays open while another pairing is still waiting", () => {
+    const dir = freshStateDir();
+    seedPending(dir, "aaaaa", Date.now() + 60_000);
+    seedPending(dir, "bbbbb", Date.now() + 60_000);
+    run(dir, "pair", "aaaaa");
+    expect(access(dir).dmPolicy).toBe("pairing");
+  });
+});
+
+describe("groups", () => {
+  test("add writes the policy and seeds editable files; rm keeps them", () => {
+    const dir = freshStateDir();
+    run(dir, "group", "add", "1@g.us", "--mention", "--allow", "x@s,y@s");
+    expect(access(dir).groups["1@g.us"]).toEqual({
+      requireMention: true,
+      allowFrom: ["x@s", "y@s"],
+      roster: false,
+    });
+    const config = join(dir, "groups", "1@g.us", "config.md");
+    expect(existsSync(config)).toBe(true);
+    expect(existsSync(join(dir, "groups", "1@g.us", "memory.md"))).toBe(true);
+    writeFileSync(config, "# edited by hand\n");
+    run(dir, "group", "rm", "1@g.us");
+    expect(access(dir).groups["1@g.us"]).toBeUndefined();
+    expect(readFileSync(config, "utf8")).toBe("# edited by hand\n");
+  });
+
+  test("re-adding a group does not clobber an edited config", () => {
+    const dir = freshStateDir();
+    run(dir, "group", "add", "1@g.us");
+    const config = join(dir, "groups", "1@g.us", "config.md");
+    writeFileSync(config, "# mine\n");
+    run(dir, "group", "add", "1@g.us");
+    expect(readFileSync(config, "utf8")).toBe("# mine\n");
+  });
+
+  test("flags may precede the JID; unknown or valueless flags are refused", () => {
+    const dir = freshStateDir();
+    run(dir, "group", "add", "--mention", "1@g.us");
+    expect(access(dir).groups["1@g.us"].requireMention).toBe(true);
+    expect(existsSync(join(dir, "groups", "--mention"))).toBe(false);
+    expect(run(dir, "group", "add", "2@g.us", "--bogus").code).toBe(1);
+    expect(run(dir, "group", "add", "2@g.us", "--allow").code).toBe(1);
+    expect(access(dir).groups["2@g.us"]).toBeUndefined();
+  });
+
+  test("--roster grants roster access; omitting it defaults to false", () => {
+    const dir = freshStateDir();
+    run(dir, "group", "add", "1@g.us", "--roster");
+    expect(access(dir).groups["1@g.us"].roster).toBe(true);
+    run(dir, "group", "add", "2@g.us");
+    expect(access(dir).groups["2@g.us"].roster).toBe(false);
+  });
+
+  test("--no-roster explicitly revokes roster on an already-granted group", () => {
+    const dir = freshStateDir();
+    run(dir, "group", "add", "1@g.us", "--roster");
+    const res = run(dir, "group", "add", "1@g.us", "--no-roster");
+    expect(res.code).toBe(0);
+    expect(access(dir).groups["1@g.us"].roster).toBe(false);
+  });
+
+  test("--no-mention explicitly turns off requireMention on an already-set group", () => {
+    const dir = freshStateDir();
+    run(dir, "group", "add", "1@g.us", "--mention");
+    run(dir, "group", "add", "1@g.us", "--no-mention");
+    expect(access(dir).groups["1@g.us"].requireMention).toBe(false);
+  });
+
+  test("--no-context opts a group out of no-mention context; omitting it writes no key", () => {
+    const dir = freshStateDir();
+    run(dir, "group", "add", "1@g.us", "--no-context");
+    expect(access(dir).groups["1@g.us"].context).toBe(false);
+    // Default: the key is not materialised at all (absent = kept, 0.22.0).
+    run(dir, "group", "add", "2@g.us");
+    expect("context" in access(dir).groups["2@g.us"]).toBe(false);
+    // Merge preserves it when other flags change...
+    run(dir, "group", "add", "1@g.us", "--roster");
+    expect(access(dir).groups["1@g.us"].context).toBe(false);
+    expect(access(dir).groups["1@g.us"].roster).toBe(true);
+    // ...and --context turns it back on explicitly.
+    run(dir, "group", "add", "1@g.us", "--context");
+    expect(access(dir).groups["1@g.us"].context).toBe(true);
+  });
+
+  test("passing both --context and --no-context together is refused", () => {
+    const dir = freshStateDir();
+    const res = run(dir, "group", "add", "1@g.us", "--context", "--no-context");
+    expect(res.code).toBe(1);
+    expect(existsSync(join(dir, "access.json"))).toBe(false);
+  });
+
+  test("passing both --roster and --no-roster together is refused, never silently resolved", () => {
+    const dir = freshStateDir();
+    const res = run(dir, "group", "add", "1@g.us", "--roster", "--no-roster");
+    expect(res.code).toBe(1);
+    // Refused before load()/save() ever ran - nothing written at all.
+    expect(existsSync(join(dir, "access.json"))).toBe(false);
+  });
+
+  test("passing both --mention and --no-mention together is refused", () => {
+    const dir = freshStateDir();
+    const res = run(dir, "group", "add", "1@g.us", "--mention", "--no-mention");
+    expect(res.code).toBe(1);
+  });
+
+  test("re-adding an already-configured group MERGES, not overwrites: omitted flags are kept", () => {
+    const dir = freshStateDir();
+    run(dir, "group", "add", "1@g.us", "--mention", "--allow", "x@s,y@s");
+    // Only --roster passed this time - --mention and --allow are omitted,
+    // not explicitly turned off, so they must survive untouched.
+    const res = run(dir, "group", "add", "1@g.us", "--roster");
+    expect(res.code).toBe(0);
+    expect(res.out).toContain("Updated 1@g.us");
+    expect(access(dir).groups["1@g.us"]).toEqual({
+      requireMention: true,
+      allowFrom: ["x@s", "y@s"],
+      roster: true,
+    });
+  });
+
+  test('a genuinely new group still reports "Added", not "Updated"', () => {
+    const dir = freshStateDir();
+    const res = run(dir, "group", "add", "1@g.us");
+    expect(res.out).toContain("Added 1@g.us");
+  });
+
+  test('--allow "" (passed, empty) explicitly clears the allowlist on re-add', () => {
+    const dir = freshStateDir();
+    run(dir, "group", "add", "1@g.us", "--allow", "x@s,y@s");
+    run(dir, "group", "add", "1@g.us", "--allow", "");
+    expect(access(dir).groups["1@g.us"].allowFrom).toEqual([]);
+  });
+
+  test("passing --mention or --roster again on an already-true flag is a harmless no-op", () => {
+    const dir = freshStateDir();
+    run(dir, "group", "add", "1@g.us", "--mention", "--roster");
+    run(dir, "group", "add", "1@g.us", "--mention", "--roster");
+    expect(access(dir).groups["1@g.us"]).toEqual({
+      requireMention: true,
+      allowFrom: [],
+      roster: true,
+    });
+  });
+});
+
+// The one-screen picker (scripts/picker.ts) is a raw-mode TUI, so it cannot
+// be driven from a piped stdin the way the old checkbox prompts could - the
+// tests below assert the CLI-level guard (a non-TTY stdin refuses, cleanly)
+// and the output printed BEFORE the screen would open (the archived-hidden
+// disclosure, the USAGE text). The screen's own keystroke/layout behaviour
+// is covered in picker.test.ts instead.
+describe("wizard", () => {
+  test("no group or DM activity cached at all: refuses with a clear message", () => {
+    const dir = freshStateDir();
+    const res = run(dir, "wizard");
+    expect(res.code).toBe(1);
+    expect(res.out).toContain("Nothing to review");
+  });
+
+  test("wizard --help prints USAGE and opens no prompt", () => {
+    const dir = freshStateDir();
+    // Empty stdin: a prompt here would hang/fail the test, which is the point.
+    const res = run(dir, "wizard", "--help");
+    expect(res.code).toBe(0);
+    expect(res.out).toContain("PRE-TICKED");
+    expect(res.out).toContain("--revoke");
+    expect(res.out).toContain("--undo");
+  });
+
+  test("wizard needs a real terminal: a non-TTY stdin exits 1, writes nothing", () => {
+    const dir = freshStateDir();
+    writeGroupsMeta(dir, {
+      "1@g.us": {
+        name: "Family",
+        memberCount: 4,
+        archived: false,
+        updatedAt: 0,
+      },
+    });
+    const res = run(dir, "wizard");
+    expect(res.code).toBe(1);
+    expect(res.out.toLowerCase()).toContain("needs a real terminal");
+    expect(res.out).not.toContain("ExitPromptError");
+    expect(existsSync(join(dir, "access.json"))).toBe(false);
+  });
+
+  test("a synced address book with no activity is enough to open the screen", () => {
+    const dir = freshStateDir();
+    writeContacts(dir, { "61400011675@s.whatsapp.net": { name: "Thilian" } });
+    const res = run(dir, "wizard");
+    expect(res.code).toBe(1);
+    expect(res.out.toLowerCase()).toContain("needs a real terminal");
+    expect(res.out).not.toContain("Nothing to review");
+  });
+
+  test("--revoke opens the same screen as plain wizard", () => {
+    const dir = freshStateDir();
+    writeGroupsMeta(dir, {
+      "1@g.us": {
+        name: "Family",
+        memberCount: 4,
+        archived: false,
+        updatedAt: 0,
+      },
+    });
+    run(dir, "group", "add", "1@g.us");
+    const plain = run(dir, "wizard");
+    const revoke = run(dir, "wizard", "--revoke");
+    expect(revoke.code).toBe(plain.code);
+    expect(revoke.out).toBe(plain.out);
+  });
+
+  test("an already-configured group is offered instead of leaving nothing to review", () => {
+    const dir = freshStateDir();
+    writeGroupsMeta(dir, {
+      "1@g.us": {
+        name: "Active",
+        memberCount: 3,
+        archived: false,
+        updatedAt: 0,
+      },
+      "2@g.us": {
+        name: "Archived",
+        memberCount: 2,
+        archived: true,
+        updatedAt: 0,
+      },
+    });
+    run(dir, "group", "add", "1@g.us"); // already configured
+    const res = run(dir, "wizard");
+    expect(res.code).toBe(1);
+    expect(res.out.toLowerCase()).toContain("needs a real terminal");
+    expect(res.out).not.toContain("Nothing to review");
+  });
+
+  test("--include-archived surfaces an archived group as a candidate", () => {
+    const dir = freshStateDir();
+    writeGroupsMeta(dir, {
+      "1@g.us": {
+        name: "Old Chat",
+        memberCount: 2,
+        archived: true,
+        updatedAt: 0,
+      },
+    });
+    // Without the flag there'd be nothing to review at all - with it, the
+    // group enters the pool and the run gets as far as the terminal guard
+    // instead of dying earlier with "Nothing to review".
+    const plain = run(dir, "wizard");
+    expect(plain.code).toBe(1);
+    expect(plain.out).toContain("Nothing to review");
+    const withFlag = run(dir, "wizard", "--include-archived");
+    expect(withFlag.code).toBe(1);
+    expect(withFlag.out.toLowerCase()).toContain("needs a real terminal");
+  });
+
+  // The disclosure lines below are written before the terminal guard fires,
+  // so a plain non-TTY run() is enough to observe them.
+  test("archived groups hidden are disclosed with the --include-archived hint", () => {
+    const dir = freshStateDir();
+    writeGroupsMeta(dir, {
+      "1@g.us": {
+        name: "Active",
+        memberCount: 2,
+        archived: false,
+        updatedAt: 0,
+      },
+      "2@g.us": {
+        name: "Old",
+        memberCount: 2,
+        archived: true,
+        updatedAt: 0,
+      },
+      "3@g.us": {
+        name: "Older",
+        memberCount: 2,
+        archived: true,
+        updatedAt: 0,
+      },
+    });
+    const res = run(dir, "wizard");
+    expect(res.out).toContain("2 archived group(s) are hidden");
+    expect(res.out).toContain("--include-archived");
+    const withFlag = run(dir, "wizard", "--include-archived");
+    expect(withFlag.out).not.toContain("are hidden");
+  });
+
+  test("an archived group that is already configured does not count toward hiddenArchived", () => {
+    const dir = freshStateDir();
+    writeGroupsMeta(dir, {
+      "1@g.us": {
+        name: "Active",
+        memberCount: 2,
+        archived: false,
+        updatedAt: 0,
+      },
+      "2@g.us": {
+        name: "Old",
+        memberCount: 2,
+        archived: true,
+        updatedAt: 0,
+      },
+      "3@g.us": {
+        name: "AlreadyConfigured",
+        memberCount: 2,
+        archived: true,
+        updatedAt: 0,
+      },
+    });
+    run(dir, "group", "add", "3@g.us");
+    const res = run(dir, "wizard");
+    expect(res.out).toContain("1 archived group(s) are hidden");
+    expect(res.out).not.toContain("2 archived group(s) are hidden");
+  });
+
+  // The only proof, along with the test below, that Bun fires
+  // process.on("exit") on the die() path - `review` polls for this file, so
+  // if the wizard's exit handler ever stopped firing here, `review` would
+  // hang until its 30-minute cap on every single "nothing to review" run.
+  test("nothing cached: still writes .picker-done", () => {
+    const dir = freshStateDir();
+    const res = run(dir, "wizard");
+    expect(res.code).toBe(1);
+    expect(existsSync(join(dir, ".picker-done"))).toBe(true);
+  });
+
+  test("needs a real terminal: still writes .picker-done", () => {
+    const dir = freshStateDir();
+    writeGroupsMeta(dir, {
+      "1@g.us": {
+        name: "Family",
+        memberCount: 4,
+        archived: false,
+        updatedAt: 0,
+      },
+    });
+    const res = run(dir, "wizard");
+    expect(res.code).toBe(1);
+    expect(existsSync(join(dir, ".picker-done"))).toBe(true);
+  });
+});
+
+// T18: `review` opens the picker in a NEW terminal window and reports back
+// only the delta. WHATSAPP_PICKER_LAUNCH names a fixture "launcher" (a .ts
+// run under this same bun) so these tests never open a real terminal.
+describe("review", () => {
+  test("spawn argv + delta + exit 0", () => {
+    const dir = freshStateDir();
+    writeContacts(dir, { "61400011675@s.whatsapp.net": { name: "Akash" } });
+    const launcher = writeFakeLauncher(
+      dir,
+      [
+        `writeFileSync(`,
+        `  join(dir, "access.json"),`,
+        `  JSON.stringify({`,
+        `    dmPolicy: "pairing",`,
+        `    allowFrom: ["61400011675@s.whatsapp.net"],`,
+        `    groups: { "1@g.us": { requireMention: false, allowFrom: [], roster: false } },`,
+        `    pending: {},`,
+        `  }, null, 2),`,
+        `);`,
+      ].join("\n"),
+    );
+    const res = runEnv(dir, { WHATSAPP_PICKER_LAUNCH: launcher }, "review");
+    expect(res.code).toBe(0);
+    expect(res.out).toContain("bun");
+    expect(res.out).toContain(CLI);
+    expect(res.out).toContain("wizard");
+    // Proves the launcher itself was run under process.execPath with its own
+    // (space-containing) path as a single argv element, not split by a shell.
+    // Compared via realpath: on macOS `tmpdir()` resolves through the
+    // /var -> /private/var symlink, so the child's reported argv[1] (fully
+    // resolved by the OS) can legitimately differ from `launcher`'s literal
+    // string while still being the very same, unsplit path.
+    expect(res.out).toContain(`SELF=${realpathSync(launcher)}`);
+    expect(res.out).toContain(
+      "Opening the access screen in a new terminal window. Pick there; I only see what changed.",
+    );
+    expect(res.out).toContain("+ Akash");
+    expect(res.out).toContain("(+ = access this grants");
+    expect(res.out).not.toContain("61400011675");
+    expect(existsSync(join(dir, ".picker-done"))).toBe(false);
+  });
+
+  test("pre-touched marker + a launcher that changes nothing -> Nothing changed, exit 0", () => {
+    const dir = freshStateDir();
+    writeFileSync(join(dir, ".picker-done"), "stale");
+    const launcher = writeFakeLauncher(dir, "");
+    const res = runEnv(dir, { WHATSAPP_PICKER_LAUNCH: launcher }, "review");
+    expect(res.code).toBe(0);
+    expect(res.out).toContain(
+      "Nothing changed - the access screen was closed without applying anything.",
+    );
+    expect(existsSync(join(dir, ".picker-done"))).toBe(false);
+  });
+
+  test("missing launcher -> exit 2 + D2, and the stale marker was removed first", () => {
+    const dir = freshStateDir();
+    writeFileSync(join(dir, ".picker-done"), "stale");
+    const res = runEnv(
+      dir,
+      { WHATSAPP_PICKER_LAUNCH: "whatsapp-no-such-launcher-xyz" },
+      "review",
+    );
+    expect(res.code).toBe(2);
+    expect(res.out).toContain("Could not open a terminal window");
+    expect(res.out).toContain("Run this in your own terminal, then come back:");
+    // The exact D2 command: absolute, quoted, forward slashes even on
+    // Windows (see wizard-cmd.ts) - not just "access.ts" and "wizard"
+    // appearing somewhere.
+    const expectedPath = CLI.replace(/\\/g, "/");
+    expect(
+      expectedPath.startsWith("/") || /^[A-Za-z]:\//.test(expectedPath),
+    ).toBe(true);
+    expect(res.out).toContain(`bun "${expectedPath}" wizard`);
+    expect(res.out).toContain("Nothing was changed.");
+    // Nothing recreated it, so the removal must have happened before the
+    // launch attempt.
+    expect(existsSync(join(dir, ".picker-done"))).toBe(false);
+    expect(existsSync(join(dir, "access.json"))).toBe(false);
+  });
+
+  test("takes no arguments", () => {
+    const dir = freshStateDir();
+    const withJid = run(dir, "review", "somebody@s.whatsapp.net");
+    expect(withJid.code).toBe(1);
+    expect(existsSync(join(dir, ".picker-done"))).toBe(false);
+    expect(existsSync(join(dir, "access.json"))).toBe(false);
+
+    const withFlag = run(dir, "review", "--include-archived");
+    expect(withFlag.code).toBe(1);
+    expect(existsSync(join(dir, ".picker-done"))).toBe(false);
+    expect(existsSync(join(dir, "access.json"))).toBe(false);
+  });
+
+  // Skipped, not implemented: PICKER_WAIT_MS (30 * 60_000) and POLL_MS are
+  // local consts inside review() (access.ts ~L821-822), not read from an env
+  // var or a parameter, and nothing in the spec (T18 §2.2 step 7, §7 "no new
+  // dependency... no user-facing knob") offers a way to shrink the cap for a
+  // test. Adding one would mean changing review()'s production code beyond
+  // what this task authorized a test session to touch. Not run: a real
+  // 30-minute wait is not something to eat in a test suite either way.
+  // Flagging for the reviewer/coder rather than guessing at a hook.
+  test.skip("a launcher that never touches the marker hits the 30-minute cap", () => {});
+});
+
+describe("--backup", () => {
+  test("allow <jid> --backup creates access.json.bak holding the pre-write content", () => {
+    const dir = freshStateDir();
+    run(dir, "allow", "1@s.whatsapp.net");
+    const before = readFileSync(join(dir, "access.json"), "utf8");
+    run(dir, "allow", "2@s.whatsapp.net", "--backup");
+    expect(readFileSync(join(dir, "access.json.bak"), "utf8")).toBe(before);
+  });
+
+  test("without --backup no .bak file exists", () => {
+    const dir = freshStateDir();
+    run(dir, "allow", "1@s.whatsapp.net");
+    expect(existsSync(join(dir, "access.json.bak"))).toBe(false);
+  });
+
+  test("a second --backup overwrites it (documented behaviour)", () => {
+    const dir = freshStateDir();
+    run(dir, "allow", "1@s.whatsapp.net");
+    run(dir, "allow", "2@s.whatsapp.net", "--backup");
+    const afterFirstBackup = readFileSync(join(dir, "access.json"), "utf8");
+    run(dir, "allow", "3@s.whatsapp.net", "--backup");
+    expect(readFileSync(join(dir, "access.json.bak"), "utf8")).toBe(
+      afterFirstBackup,
+    );
+  });
+});
+
+describe("undo", () => {
+  test("no .bak: prints the nothing-to-undo line, exit 0, access.json byte-identical", () => {
+    const dir = freshStateDir();
+    run(dir, "allow", "1@s.whatsapp.net");
+    const before = readFileSync(join(dir, "access.json"), "utf8");
+    const res = run(dir, "undo", "--dry-run");
+    expect(res.code).toBe(0);
+    expect(res.out).toContain("No previous access file - nothing to undo");
+    expect(readFileSync(join(dir, "access.json"), "utf8")).toBe(before);
+  });
+
+  test("a misspelled --dry-run flag is refused instead of performing a real undo", () => {
+    const dir = freshStateDir();
+    run(dir, "allow", "1@s.whatsapp.net");
+    run(dir, "allow", "--backup", "2@s.whatsapp.net");
+    const before = readFileSync(join(dir, "access.json"), "utf8");
+    const res = run(dir, "undo", "--dryrun");
+    expect(res.code).not.toBe(0);
+    expect(readFileSync(join(dir, "access.json"), "utf8")).toBe(before);
+  });
+
+  test("--dry-run after a backed-up change prints a +/- line per changed entry, no raw number, modifies neither file", () => {
+    const dir = freshStateDir();
+    run(dir, "allow", "61400011675@s.whatsapp.net");
+    run(dir, "allow", "61400039386@s.whatsapp.net", "--backup");
+    const accessBefore = readFileSync(join(dir, "access.json"), "utf8");
+    const bakBefore = readFileSync(join(dir, "access.json.bak"), "utf8");
+    const res = run(dir, "undo", "--dry-run");
+    expect(res.code).toBe(0);
+    expect(res.out).toContain("+");
+    expect(res.out).toContain("-");
+    expect(res.out).not.toContain("61400011675");
+    expect(res.out).not.toContain("61400039386");
+    expect(readFileSync(join(dir, "access.json"), "utf8")).toBe(accessBefore);
+    expect(readFileSync(join(dir, "access.json.bak"), "utf8")).toBe(bakBefore);
+  });
+
+  test("restores the previous access.json; a second undo puts the change back (swap semantics)", () => {
+    const dir = freshStateDir();
+    run(dir, "allow", "1@s.whatsapp.net");
+    const beforeChange = readFileSync(join(dir, "access.json"), "utf8");
+    run(dir, "allow", "2@s.whatsapp.net", "--backup");
+    const afterChange = readFileSync(join(dir, "access.json"), "utf8");
+
+    expect(run(dir, "undo").code).toBe(0);
+    expect(readFileSync(join(dir, "access.json"), "utf8")).toBe(beforeChange);
+
+    expect(run(dir, "undo").code).toBe(0);
+    expect(readFileSync(join(dir, "access.json"), "utf8")).toBe(afterChange);
+  });
+
+  test("access.json missing but .bak present (a corrupt file deleted per load()'s own advice): restores instead of crashing", () => {
+    const dir = freshStateDir();
+    run(dir, "allow", "1@s.whatsapp.net");
+    run(dir, "allow", "2@s.whatsapp.net", "--backup");
+    const bak = readFileSync(join(dir, "access.json.bak"), "utf8");
+    rmSync(join(dir, "access.json"));
+
+    const dry = run(dir, "undo", "--dry-run");
+    expect(dry.code).toBe(0);
+    expect(dry.out).toContain("+");
+    expect(existsSync(join(dir, "access.json"))).toBe(false);
+
+    const res = run(dir, "undo");
+    expect(res.code).toBe(0);
+    expect(readFileSync(join(dir, "access.json"), "utf8")).toBe(bak);
+  });
+
+  test("wizard --undo produces the same output as undo and never blocks on a prompt", () => {
+    const dir = freshStateDir();
+    run(dir, "allow", "1@s.whatsapp.net");
+    run(dir, "allow", "2@s.whatsapp.net", "--backup");
+    const dir2 = freshStateDir();
+    run(dir2, "allow", "1@s.whatsapp.net");
+    run(dir2, "allow", "2@s.whatsapp.net", "--backup");
+
+    const viaUndo = run(dir, "undo", "--dry-run");
+    const viaWizard = run(dir2, "wizard", "--undo", "--dry-run");
+    expect(viaWizard.code).toBe(0);
+    expect(viaWizard.out).toBe(viaUndo.out);
+  });
+});

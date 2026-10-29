@@ -1,0 +1,92 @@
+{
+  "schema": 1,
+  "run_id": "sha256:daa2e179a7ed7347c532732e791862d36230a679b3eaad2f2732f627643562a4",
+  "freeze_id": "sha256:f1ecf932261ceac604978952c42cdb8ec14032b795bffd1848fae90e9572ded5",
+  "scenario_id": "constraint-elimination",
+  "policy_id": "always-open-local",
+  "route": null,
+  "attempts": [
+    {
+      "receipt": {
+        "schema": 1,
+        "receipt_id": "sha256:097cc37b0ff7da6e554f50b7adef8a7faf4f19d50c3b608075ddd01895637a36",
+        "scenario_id": "constraint-elimination",
+        "policy_id": "always-open-local",
+        "attempt": 1,
+        "plan_id": null,
+        "observation_digest": null,
+        "output_digest": "sha256:15d5c8ebdd05b1f160e33683f82fd07c5175ac100de2f9a4276afc5abe93c8ad",
+        "started_at": "2026-07-31T19:40:12.659Z",
+        "duration_ms": 1338,
+        "completion": {
+          "status": "passed",
+          "verifier_id": "json-answer-v1",
+          "answer_digest": "sha256:cb0314876ed8f3ae55780cabf10f4a8b458793c66979d8f2fe4faec57ec463c4",
+          "failure_code": null
+        },
+        "control": {
+          "status": "verified",
+          "mismatch_codes": [],
+          "module_exercise": []
+        },
+        "execution_evidence": {
+          "status": "verified",
+          "runtime": "ollama-chat",
+          "requested_model": "qwen2.5-coder:7b",
+          "observed_model": "qwen2.5-coder:7b",
+          "model_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+          "done_reason": "stop",
+          "error": null
+        },
+        "cost": {
+          "status": "unknown",
+          "total_usd": null,
+          "reason": "electricity_rate_cpu_energy_and_hardware_amortization_unmeasured",
+          "components": [
+            {
+              "kind": "provider_invoice",
+              "status": "known",
+              "amount_usd": 0,
+              "source": "self_hosted_ollama_no_per_request_invoice"
+            },
+            {
+              "kind": "gpu_energy",
+              "status": "measured_nonmonetary",
+              "amount_usd": null,
+              "energy_kwh": 0.000028013,
+              "samples": 3,
+              "source": "nvidia_smi_power_draw_integration"
+            },
+            {
+              "kind": "cpu_and_system_energy",
+              "status": "unknown",
+              "amount_usd": null,
+              "source": "not_measured"
+            },
+            {
+              "kind": "hardware_amortization",
+              "status": "unknown",
+              "amount_usd": null,
+              "source": "not_allocated"
+            }
+          ],
+          "duration_ms": 1338,
+          "usage": {
+            "prompt_tokens": 182,
+            "completion_tokens": 12,
+            "total_tokens": 194,
+            "provider_total_duration_ns": 1334746800
+          },
+          "setup_costs_included": false
+        },
+        "adversarial_result": null
+      },
+      "plan": null,
+      "observation": null,
+      "output_text": "```json\n{\"answer\": \"R4\"}\n```",
+      "raw_execution": {
+        "response_digest": "sha256:74a8ab85db35ed0714047757f2e4b2f7f87f1e5abc9758f39cc2606b828e6e90"
+      }
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "name": "cybrix-deploy",
+  "displayName": "Cybrix Deploy",
+  "version": "0.1.3",
+  "description": "Deploy the current static site to a live HTTPS URL via Cybrix. Detects Next.js export, Astro, Vite, Hugo, Eleventy, and plain HTML. Returns a live URL on *.cbrx.cc in under 60 seconds.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Cybrixcc"
+  },
+  "license": "MIT",
+  "homepage": "https://cybrix.cc",
+  "repository": "https://github.com/cybrixcc/cybrix-skills",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

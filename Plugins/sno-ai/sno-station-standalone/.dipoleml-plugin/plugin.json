@@ -1,0 +1,16 @@
+{
+  "name": "sno-station-standalone",
+  "displayName": "Sno Station Standalone",
+  "version": "1.0.202610272202",
+  "description": "Twelve Sno Station skills for review, intent checks, end-to-end triage, work briefs, Shell, TypeScript, Python and Rust coding, and test writing that run without Sno Station programs or hooks.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Sno Ai"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/sno-ai/sno-station-skills",
+  "repository": "https://github.com/sno-ai/sno-station-skills",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

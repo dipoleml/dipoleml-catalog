@@ -1,0 +1,27 @@
+{
+  "name": "super-oracle",
+  "version": "0.6.0",
+  "description": "Run independent Claude and Codex reviews, cross-pollinate findings, and return one synthesis.",
+  "author": {
+    "name": "Parlance Labs",
+    "url": "https://github.com/parlance-labs"
+  },
+  "homepage": "https://github.com/parlance-labs/super-oracle",
+  "repository": "https://github.com/parlance-labs/super-oracle",
+  "license": "MIT",
+  "keywords": ["oracle", "claude-code", "codex", "fable", "opus", "gpt-6-astra", "code-review", "synthesis"],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Super Oracle",
+    "shortDescription": "Two-model review council",
+    "longDescription": "Run independent Claude and Codex gpt-6-astra reviews, refine each against peer findings, then return one synthesis for deep code review, debugging, planning, and research.",
+    "developerName": "Parlance Labs",
+    "category": "Developer Tools",
+    "capabilities": ["Read", "Write"],
+    "websiteURL": "https://github.com/parlance-labs/super-oracle",
+    "defaultPrompt": [
+      "Use the super oracle to review this plan.",
+      "Ask the super oracle for a second opinion on this bug."
+    ]
+  }
+}

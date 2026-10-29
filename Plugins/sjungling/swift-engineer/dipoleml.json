@@ -1,0 +1,94 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.sjungling.swift-engineer",
+  "type": "plugin",
+  "name": "Swift Engineer",
+  "slug": "swift-engineer",
+  "vendor": "sjungling",
+  "description": "personal collection of DipoleML plugins",
+  "version": "4.0.1",
+  "homepage": "https://github.com/sjungling/sjungling-claude-plugins",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "sjungling",
+    "brandName": "sjungling",
+    "source": "https://github.com/sjungling.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:14:50Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "sjungling/sjungling-claude-plugins",
+    "url": "https://github.com/sjungling/sjungling-claude-plugins",
+    "commit": "e27ef34a38eb8b54320918942daa77596541fb64",
+    "path": "plugins/swift-engineer",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 14,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:51:19Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Swift Engineer | personal collection of Claude Code plugins",
+        "after": "Swift Engineer | personal collection of DipoleML plugins",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

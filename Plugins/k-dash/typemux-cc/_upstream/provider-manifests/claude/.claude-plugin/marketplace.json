@@ -1,0 +1,19 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "typemux-cc-marketplace",
+  "description": "Marketplace for typemux-cc, a Python type-checker LSP multiplexer for Claude Code: per-venv backend pooling, late .venv detection, and environment change tracking for pyright, ty, and pyrefly.",
+  "owner": {
+    "name": "K-dash"
+  },
+  "plugins": [
+    {
+      "name": "typemux-cc",
+      "source": "./",
+      "description": "Python type-checker LSP multiplexer for Claude Code (pyright, ty, pyrefly)",
+      "version": "0.2.18",
+      "homepage": "https://github.com/K-dash/typemux-cc",
+      "repository": "https://github.com/K-dash/typemux-cc",
+      "strict": false
+    }
+  ]
+}

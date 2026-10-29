@@ -1,0 +1,1217 @@
+// The book package writers: EPUB, DOCX (Word and Shunn manuscript), the HTML
+// review and print parts, and the ZIP container they share. Everything here
+// takes a manuscript built by story.js and knows nothing about scanning a
+// project.
+import { Buffer } from "node:buffer";
+import { deflateRaw } from "./deflate.js";
+import { readFileBytes, writeFile } from "./files.js";
+import { cssString, DROP_CAP_RULE, escapeHtml, headingRule, withBlockquotes } from "./html.js";
+import { CLASSIC_STYLE, styleFonts } from "./build-style.js";
+import { fillLabel, languagePack } from "./languages/index.js";
+import { formatNumber, pluralLabelKey } from "./languages/locale.js";
+import { characterReference } from "./entities.js";
+import { autolinkEnd, breaksParagraph, characterCount, codeSpanCloser, collapseSourceSpace, flattenHeadings, isHeadingLine, isSceneBreakLine, plainLinks, softBreak, splitFences, trimSourceSpace, withoutFenceMarkers, wordCount } from "./markdown.js";
+import { creditLines, publishingMeta } from "./publishing.js";
+import { typesetting, writtenTag } from "./typesetting.js";
+
+function epubModifiedTimestamp() {
+  // Deterministic builds: identical sources must produce byte-identical
+  // output. Honor SOURCE_DATE_EPOCH when set (seconds since epoch, per the
+  // reproducible-builds spec); otherwise fall back to a stable default
+  // instead of the current time so local builds are deterministic too.
+  const raw = process.env.SOURCE_DATE_EPOCH;
+  if (raw !== undefined && raw !== "") {
+    // Only whole seconds that give a four-digit year are used; anything else
+    // (a fraction, 1e20) falls back to the default like a non-number does.
+    const date = /^\d+$/.test(raw.trim()) ? new Date(Number(raw.trim()) * 1000) : null;
+    if (date !== null && !Number.isNaN(date.getTime()) && date.getUTCFullYear() <= 9999) {
+      return date.toISOString().replace(/\.\d{3}Z$/, "Z");
+    }
+  }
+  return "2000-01-01T00:00:00Z";
+}
+
+export function writeEpub(outFile, storyId, manuscript, writeOptions = {}) {
+  const meta = manuscript.meta ?? publishingMeta({});
+  const lang = xmlEscape(meta.language);
+  // Reading systems do not infer direction from the language, so an RTL
+  // book says so on every document root and in the spine. A vertical book
+  // turns its pages right to left too.
+  const type = typesetting(meta.language, meta.writingMode);
+  const rtl = type.rtl;
+  const root = `xml:lang="${lang}" lang="${lang}"${rtl ? ` dir="rtl"` : ""}`;
+  // story.md build-style: its rules join style.css, and its extra
+  // stylesheet is extra.css, linked after it so it can override them.
+  const style = manuscript.style ?? CLASSIC_STYLE;
+  const bylines = manuscript.chapters.some((chapter) => (chapter.byline ?? "") !== "");
+  const stylesheet = epubStylesheet(type, style, bylines);
+  const extra = style.cssText ?? "";
+  const head = [
+    stylesheet === "" ? "" : `<link rel="stylesheet" type="text/css" href="style.css"/>`,
+    extra === "" ? "" : `<link rel="stylesheet" type="text/css" href="extra.css"/>`
+  ].join("");
+  // A styled book marks its scene breaks and its chapter and matter bodies
+  // for the stylesheet; an unstyled one keeps the plain markup.
+  // Only indented paragraphs set a first-line indent of their own.
+  const markup = { styled: style.styled, sceneBreak: style.sceneBreak ?? "* * *", ownIndent: style.paragraphs === "indented" };
+  const documents = [];
+  const pushMatter = (placement) => (entry) => documents.push({
+    id: `${placement}-${entry.id}`,
+    label: entry.title,
+    content: matterXhtml(entry, placement, root, head, markup)
+  });
+  manuscript.front.forEach(pushMatter("front"));
+  // Duplicate chapter numbers are refused up front in manuscriptParts, so ids
+  // here are unique by construction. Matter ids carry a front- or back-
+  // prefix, so they cannot collide with chapter-NN.
+  for (const chapter of manuscript.chapters) {
+    documents.push({
+      id: `chapter-${String(chapter.number).padStart(2, "0")}`,
+      label: chapter.heading,
+      content: chapterXhtml(chapter, root, head, markup),
+      bodymatter: true
+    });
+  }
+  manuscript.back.forEach(pushMatter("back"));
+
+  const coverEntries = [];
+  const coverItems = [];
+  const coverMeta = [];
+  const coverSpine = [];
+  if (manuscript.cover) {
+    const href = `images/cover.${manuscript.cover.extension}`;
+    const alt = meta.coverAlt === "" ? fillLabel(meta.labels, "cover-alt", { title: manuscript.title }) : meta.coverAlt;
+    // Every cover type (GIF, JPEG, PNG, WebP) is compressed already, so the
+    // image is stored without trying to deflate it.
+    coverEntries.push(
+      { name: `OEBPS/${href}`, content: readFileBytes(manuscript.cover.filePath, manuscript.cover.maxBytes), stored: true },
+      { name: "OEBPS/cover.xhtml", content: `<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" ${root}><head><title>${xmlEscape(manuscript.title)}</title>${head}</head><body epub:type="cover"><img src="${href}" alt="${xmlEscape(alt)}"/></body></html>` }
+    );
+    coverItems.push(`<item id="cover-image" href="${href}" media-type="${manuscript.cover.mediaType}" properties="cover-image"/>`, `<item id="cover" href="cover.xhtml" media-type="application/xhtml+xml"/>`);
+    coverMeta.push(`<meta name="cover" content="cover-image"/>`);
+    coverSpine.push(`<itemref idref="cover"/>`);
+  }
+
+  const creator = epubCreators(meta, manuscript.chapters);
+  const identifier = meta.isbn === "" ? xmlEscape(storyId) : `urn:isbn:${meta.isbn}`;
+  const optional = [
+    meta.publisher === "" ? "" : `<dc:publisher>${xmlEscape(meta.publisher)}</dc:publisher>`,
+    meta.publicationDate === "" ? "" : `<dc:date>${xmlEscape(meta.publicationDate)}</dc:date>`,
+    meta.description === "" ? "" : `<dc:description>${xmlEscape(meta.description)}</dc:description>`,
+    ...meta.subjects.map((subject) => `<dc:subject>${xmlEscape(subject)}</dc:subject>`),
+    meta.copyright === "" ? "" : `<dc:rights>${xmlEscape(meta.copyright)}</dc:rights>`
+  ].join("");
+  const accessibility = epubAccessibilityMeta(Boolean(manuscript.cover), meta.labels);
+  const items = documents.map((doc) => `<item id="${doc.id}" href="${doc.id}.xhtml" media-type="application/xhtml+xml"/>`);
+  const spine = documents.map((doc) => `<itemref idref="${doc.id}"/>`);
+  const modified = epubModifiedTimestamp();
+  writeZip(outFile, [
+    // OCF requires mimetype first and uncompressed so the media type sits at
+    // a fixed offset in the archive.
+    { name: "mimetype", content: "application/epub+zip", stored: true },
+    { name: "META-INF/container.xml", content: `<?xml version="1.0" encoding="UTF-8"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container"><rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles></container>` },
+    { name: "OEBPS/content.opf", content: `<?xml version="1.0" encoding="UTF-8"?><package version="3.0" unique-identifier="book-id" xmlns="http://www.idpf.org/2007/opf"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/"><dc:identifier id="book-id">${identifier}</dc:identifier><dc:title>${xmlEscape(manuscript.title)}</dc:title>${creator}<dc:language>${lang}</dc:language>${optional}<meta property="dcterms:modified">${modified}</meta>${accessibility}${coverMeta.join("")}${type.vertical ? `<meta name="primary-writing-mode" content="vertical-rl"/>` : ""}</metadata><manifest><item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>${stylesheet === "" ? "" : `<item id="style" href="style.css" media-type="text/css"/>`}${extra === "" ? "" : `<item id="extra-style" href="extra.css" media-type="text/css"/>`}${coverItems.join("")}${items.join("")}</manifest><spine${rtl || type.vertical ? ` page-progression-direction="rtl"` : ""}>${coverSpine.join("")}${spine.join("")}</spine></package>` },
+    { name: "OEBPS/nav.xhtml", content: navXhtml(manuscript.title, documents, root, meta.labels, head) },
+    ...(stylesheet === "" ? [] : [{ name: "OEBPS/style.css", content: stylesheet }]),
+    ...(extra === "" ? [] : [{ name: "OEBPS/extra.css", content: extra }]),
+    ...coverEntries,
+    ...documents.map((doc) => ({ name: `OEBPS/${doc.id}.xhtml`, content: doc.content }))
+  ], writeOptions);
+}
+
+// The package's dc:creator and dc:contributor elements. A book by its
+// authors alone lists them as plain creators. Once a book also has editors
+// (story.md `editor`) or stories by other writers (chapter `author`),
+// every name carries its MARC relator roles so reading systems and
+// retailers can tell them apart: the authors and editors as creators (aut,
+// edt, and both for an editor who also wrote a story), and each other
+// story author once, in reading order, as a contributor (aut).
+function epubCreators(meta, chapters) {
+  const storyAuthors = new Set(chapters.flatMap((chapter) => chapter.authors ?? []));
+  const credited = new Set([...meta.authors, ...meta.editors]);
+  const contributors = [...storyAuthors].filter((name) => !credited.has(name));
+  if (meta.editors.length === 0 && contributors.length === 0) {
+    return meta.authors.map((name) => `<dc:creator>${xmlEscape(name)}</dc:creator>`).join("");
+  }
+  const entry = (element, id, name, roles) => `<dc:${element} id="${id}">${xmlEscape(name)}</dc:${element}>${roles.map((role) => `<meta refines="#${id}" property="role" scheme="marc:relators">${role}</meta>`).join("")}`;
+  const authors = new Set(meta.authors);
+  return [
+    ...meta.authors.map((name, index) => entry("creator", `author-${index + 1}`, name, ["aut"])),
+    ...meta.editors.map((name, index) => entry("creator", `editor-${index + 1}`, name, storyAuthors.has(name) && !authors.has(name) ? ["edt", "aut"] : ["edt"])),
+    ...contributors.map((name, index) => entry("contributor", `contributor-${index + 1}`, name, ["aut"]))
+  ].join("");
+}
+
+// The EPUB's stylesheet, or "" when the reading system's defaults serve: a
+// Latin-script book without a build-style has none. A book in another
+// script names fonts for it, and a vertical book is set in columns (with
+// the -epub- prefix older reading systems read). A build-style adds its
+// fonts, headings, paragraphs, scene breaks, and drop caps; a choice it
+// leaves unset stays with the reading system.
+export function epubStylesheet(type, style = CLASSIC_STYLE, bylines = false) {
+  const rules = [];
+  if (type.vertical) {
+    rules.push("html { -epub-writing-mode: vertical-rl; -webkit-writing-mode: vertical-rl; writing-mode: vertical-rl; }");
+  }
+  // A body font only when the script or the style chooses one, so a
+  // Latin-script book keeps the reader's own font otherwise.
+  const fonts = styleFonts(style, type);
+  if (!type.fonts.latin || fonts.body !== type.fonts.body) {
+    rules.push(`body { font-family: ${fonts.body}; }`);
+  }
+  if (!style.styled) {
+    return rules.length === 0 ? "" : `${rules.join("\n")}\n`;
+  }
+  // A story's byline under its heading (chapter `author`) sits between the
+  // heading and the first paragraph, so the rules that start a chapter look
+  // past it.
+  const opening = bylines ? ["h1 + p:not(.byline)", "h1 + p.byline + p"] : ["h1 + p"];
+  if (fonts.heading !== null) {
+    rules.push(`h1 { font-family: ${fonts.heading}; }`);
+  }
+  const heading = headingRule(style.headingStyle, type);
+  if (heading !== "") {
+    rules.push(`h1 { ${heading} }`);
+  }
+  // Space after a paragraph is below it, or to its left in vertical columns.
+  const after = type.vertical ? "0 0 0 0.8em" : "0 0 0.8em";
+  if (style.paragraphs === "indented") {
+    rules.push("p { margin: 0; text-indent: 1.5em; }", `${opening.join(", ")}, p.scene-break + p, blockquote p, body.matter p { text-indent: 0; }`, `body.matter p { margin: ${after}; }`);
+  } else if (style.paragraphs === "block") {
+    rules.push(`p { margin: ${after}; text-indent: 0; }`);
+  }
+  rules.push("p.scene-break { text-align: center; text-indent: 0; margin: 1em 0; }");
+  if (bylines) {
+    rules.push(`p.byline { text-align: center; text-indent: 0; margin: ${after}; }`);
+  }
+  if (style.dropCaps === true && type.cased && !type.vertical) {
+    rules.push(`${opening.map((selector) => `body.chapter > ${selector}::first-letter`).join(", ")} { ${DROP_CAP_RULE} }`);
+  }
+  return `${rules.join("\n")}\n`;
+}
+
+// `root` is the html element's language (and direction) attributes,
+// `labels` the book's, for the contents heading and the landmark, and
+// `head` the stylesheet link, if any.
+function navXhtml(title, documents, root, labels, head = "") {
+  const links = documents.map((doc) => `<li><a href="${doc.id}.xhtml">${xmlEscape(doc.label)}</a></li>`);
+  const start = documents.find((doc) => doc.bodymatter);
+  // The nav document is not in the spine, so landmarks point only at spine
+  // documents (EPUBCheck RSC-011); reading systems find the toc themselves.
+  const landmarks = start ? `<nav epub:type="landmarks" hidden="hidden"><ol><li><a epub:type="bodymatter" href="${start.id}.xhtml">${xmlEscape(fillLabel(labels, "start-of-content"))}</a></li></ol></nav>` : "";
+  return `<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" ${root}><head><title>${xmlEscape(title)}</title>${head}</head><body><nav epub:type="toc" id="toc"><h1>${xmlEscape(fillLabel(labels, "contents"))}</h1><ol>${links.join("")}</ol></nav>${landmarks}</body></html>`;
+}
+
+// EPUB Accessibility 1.1 discovery metadata for a text-only book with a
+// table of contents and a single reading order. The summary is in the
+// book's language, from `labels`.
+function epubAccessibilityMeta(hasCover, labels) {
+  const features = ["tableOfContents", "readingOrder", "structuralNavigation", ...(hasCover ? ["alternativeText"] : [])];
+  const summary = xmlEscape(fillLabel(labels, hasCover ? "accessibility-summary-cover" : "accessibility-summary"));
+  return [
+    `<meta property="schema:accessMode">textual</meta>`,
+    ...(hasCover ? [`<meta property="schema:accessMode">visual</meta>`] : []),
+    `<meta property="schema:accessModeSufficient">textual</meta>`,
+    ...features.map((feature) => `<meta property="schema:accessibilityFeature">${feature}</meta>`),
+    `<meta property="schema:accessibilityHazard">none</meta>`,
+    `<meta property="schema:accessibilitySummary">${summary}</meta>`
+  ].join("");
+}
+
+// `markup` is { styled, sceneBreak, ownIndent } from writeEpub.
+function xhtmlParagraphs(body, markup) {
+  const sceneBreak = markup.styled ? `<p class="scene-break">${xmlEscape(markup.sceneBreak)}</p>` : "<p>* * *</p>";
+  return withBlockquotes(markdownParagraphs(body, markup.ownIndent).map((paragraph) => ({
+    quote: Boolean(paragraph.quote),
+    markup: paragraph.sceneBreak ? sceneBreak : `<p>${inlineRuns(paragraph.text, paragraph.code).map((run) => runMarkup(run, xmlEscape, "<br/>")).join("")}</p>`
+  }))).join("");
+}
+
+function xhtmlDocument(title, root, head, bodyType, content, bodyClass = "") {
+  const classes = bodyClass === "" ? "" : ` class="${bodyClass}"`;
+  return `<?xml version="1.0" encoding="UTF-8"?><html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops" ${root}><head><title>${xmlEscape(title)}</title>${head}</head><body epub:type="${bodyType}"${classes}>${content}</body></html>`;
+}
+
+function chapterXhtml(chapter, root, head, markup) {
+  const heading = chapter.heading;
+  // XHTML needs a non-blank <title>; an untitled chapter uses its heading.
+  const title = String(chapter.title ?? "").trim() || heading;
+  const byline = (chapter.byline ?? "") === "" ? "" : `<p class="byline"><em>${xmlEscape(chapter.byline)}</em></p>`;
+  return xhtmlDocument(title, root, head, "bodymatter chapter", `<h1>${xmlEscape(heading)}</h1>${byline}${xhtmlParagraphs(chapter.body, markup)}`, markup.styled ? "chapter" : "");
+}
+
+function matterXhtml(entry, placement, root, head, markup) {
+  const heading = entry.heading ? `<h1>${xmlEscape(entry.title)}</h1>` : "";
+  const bodyType = entry.copyright ? `${placement}matter copyright-page` : `${placement}matter`;
+  return xhtmlDocument(entry.title, root, head, bodyType, `${heading}${xhtmlParagraphs(entry.body, markup)}`, markup.styled ? "matter" : "");
+}
+
+// The manuscript as HTML parts for the review and print builds. Paragraph
+// anchors are keyed by the printed chapter number (ch03), an unnumbered
+// chapter's title (prologue), or matter id (front-dedication), so they stay
+// stable while other chapters change.
+export function htmlBook(manuscript, ownIndent = false) {
+  // A book counted in characters also counts each part's characters.
+  const characters = (body) => (manuscript.unit === "characters" ? { characters: characterCount(body) } : {});
+  const paragraphs = (body) => markdownParagraphs(body, ownIndent).map((paragraph) => {
+    if (paragraph.sceneBreak) {
+      return null;
+    }
+    const runs = inlineRuns(paragraph.text, paragraph.code);
+    return {
+      html: runs.map((run) => runMarkup(run, escapeHtml, "<br>")).join(""),
+      // Plain text, one line, for matching labels and quoting in note links.
+      text: runs.map((run) => run.text).join("").split(LINE_BREAK).join(" ").replace(/\s+/g, " ").trim(),
+      quote: paragraph.quote
+    };
+  });
+  const matter = (placement) => (entry) => ({
+    key: `${placement}-${entry.id}`,
+    kind: entry.copyright ? `${placement} copyright-page` : placement,
+    copyright: Boolean(entry.copyright),
+    placement,
+    title: entry.title,
+    heading: entry.heading,
+    words: wordCount(entry.body),
+    ...characters(entry.body),
+    paragraphs: paragraphs(entry.body)
+  });
+  const parts = [
+    ...manuscript.front.map(matter("front")),
+    ...manuscript.chapters.map((chapter) => ({
+      key: chapter.key,
+      kind: "chapter",
+      placement: "body",
+      title: chapter.heading,
+      heading: true,
+      byline: chapter.byline ?? "",
+      words: wordCount(chapter.body),
+      ...characters(chapter.body),
+      paragraphs: paragraphs(chapter.body)
+    })),
+    ...manuscript.back.map(matter("back"))
+  ];
+  return {
+    title: manuscript.title,
+    // The unit the print page estimate counts (see estimateBookPages).
+    ...(manuscript.unit === "characters" ? { unit: "characters" } : {}),
+    authors: manuscript.meta.authors,
+    editors: manuscript.meta.editors ?? [],
+    language: manuscript.meta.language,
+    writingMode: manuscript.meta.writingMode,
+    labels: manuscript.meta.labels,
+    words: manuscript.chapters.reduce((sum, chapter) => sum + wordCount(chapter.body), 0),
+    parts
+  };
+}
+
+export function writeDocx(outFile, manuscript, writeOptions = {}) {
+  const meta = manuscript.meta ?? publishingMeta({});
+  const script = docxScript(meta);
+  // The title block: the title, then the book's credits as the HTML and
+  // print title pages set them, the authors and then "Edited by" the
+  // editors, in the book's language. A story's own author stays in its
+  // byline.
+  const bodyParts = [paragraphXml(script, manuscript.title, "Title"), ...creditLines(meta).map((line) => paragraphXml(script, line, "Credit"))];
+  const pushSection = (heading, body, byline = "") => {
+    if (heading !== null) {
+      bodyParts.push(paragraphXml(script, heading, "Heading1"));
+    }
+    if (byline !== "") {
+      bodyParts.push(paragraphXml(script, byline, "Byline"));
+    }
+    // Normal indents every first line (see docxStyles).
+    for (const paragraph of markdownParagraphs(body, true)) {
+      bodyParts.push(paragraph.sceneBreak
+        ? paragraphXml(script, "* * *", "SceneBreak")
+        : paragraphXml(script, paragraph.text, paragraph.quote ? "Quote" : "", inlineRuns(paragraph.text, paragraph.code)));
+    }
+  };
+  const pushMatter = (entry) => pushSection(entry.heading ? entry.title : null, entry.body);
+  manuscript.front.forEach(pushMatter);
+  for (const chapter of manuscript.chapters) {
+    pushSection(chapter.heading, chapter.body, chapter.byline ?? "");
+  }
+  manuscript.back.forEach(pushMatter);
+
+  writeZip(outFile, docxPackageEntries(script, bodyParts.join("")), writeOptions);
+}
+
+// Word's settings for the book's language and script, as XML fragments:
+// `lang` for the run defaults (left out for the default language, en, so
+// Word keeps the reader's own), `bidi` and `rtl` to mark each paragraph and
+// run right to left, `bold` and `italic` that reach complex-script text
+// too (bCs, iCs), `sizeCs` for complex-script text sizes, `fonts` for the
+// run defaults, and the section's `direction`: columns set top to bottom
+// and right to left for a vertical book, or a right-to-left section.
+function docxScript(meta) {
+  const language = meta?.language ?? "en";
+  const type = typesetting(language, meta?.writingMode);
+  const { eastAsia, cs, eastAsian, complex } = type.docx;
+  const written = writtenTag(language);
+  const tag = xmlEscape(written);
+  const font = (name) => `"${name ?? "Times New Roman"}"`;
+  return {
+    lang: written === "en" || written === "und" ? "" : `<w:lang w:val="${tag}"${eastAsian ? ` w:eastAsia="${tag}"` : ""}${complex ? ` w:bidi="${tag}"` : ""}/>`,
+    bidi: type.rtl ? "<w:bidi/>" : "",
+    rtl: type.rtl ? "<w:rtl/>" : "",
+    bold: complex ? "<w:b/><w:bCs/>" : "<w:b/>",
+    italic: complex ? "<w:i/><w:iCs/>" : "<w:i/>",
+    sizeCs: complex,
+    // The eastAsia hint sets quotation marks and other shared punctuation in
+    // the East Asian font.
+    fonts: `<w:rFonts w:ascii="Times New Roman" w:hAnsi="Times New Roman" w:eastAsia=${font(eastAsia)} w:cs=${font(cs)}${eastAsian ? ` w:hint="eastAsia"` : ""}/>`,
+    direction: type.vertical ? `<w:textDirection w:val="tbRl"/>` : type.rtl ? "<w:bidi/>" : ""
+  };
+}
+
+// The section properties that close the document, in the order the
+// WordprocessingML schema gives them (CT_SectPr): a reference to each of
+// `headers`, an optional page size and margins (`page`), titlePg when a
+// first-page header sets the first page apart, then the text direction.
+function docxSection(script, page = "", headers = []) {
+  const references = headers.map((header, index) => `<w:headerReference w:type="${header.type}" r:id="${docxHeaderId(index)}"/>`).join("");
+  const titlePage = headers.some((header) => header.type === "first") ? "<w:titlePg/>" : "";
+  const content = `${references}${page}${titlePage}${script.direction}`;
+  return content === "" ? "<w:sectPr/>" : `<w:sectPr>${content}</w:sectPr>`;
+}
+
+// The document relationship id of the header at `index`: rId1 is the styles.
+function docxHeaderId(index) {
+  return `rId${index + 2}`;
+}
+
+// Paper for the Shunn manuscript builds: US Letter, the default, or A4 for
+// markets outside North America. `css` is the @page size, and `width` and
+// `height` are the DOCX page size in twentieths of a point. Margins stay
+// 1in (1440 twips, about 25mm) on either paper, as Shunn sets them.
+export const SHUNN_PAPERS = new Map([
+  ["letter", { css: "letter", width: 12240, height: 15840 }],
+  ["a4", { css: "A4", width: 11906, height: 16838 }]
+]);
+export const DEFAULT_PAPER = "letter";
+
+function shunnPaper(name) {
+  const paper = SHUNN_PAPERS.get(name ?? DEFAULT_PAPER);
+  if (paper === undefined) {
+    throw new Error(`Unsupported paper: ${name}`);
+  }
+  return paper;
+}
+
+// `headers` are the section's headers, as { type, content }: `type` is
+// "default" or "first", and `content` the header part's paragraphs. Each is
+// written as word/headerN.xml, with its content type and relationship.
+function docxPackageEntries(script, body, page = "", headers = []) {
+  const headerName = (index) => `header${index + 1}.xml`;
+  const headerTypes = headers.map((header, index) => `<Override PartName="/word/${headerName(index)}" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.header+xml"/>`).join("");
+  const headerRelationships = headers.map((header, index) => `<Relationship Id="${docxHeaderId(index)}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/header" Target="${headerName(index)}"/>`).join("");
+  // The relationships namespace only when a header reference uses it.
+  const relationshipsNamespace = headers.length === 0 ? "" : ` xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"`;
+  return [
+    { name: "[Content_Types].xml", content: `<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/><Override PartName="/word/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.styles+xml"/>${headerTypes}</Types>` },
+    { name: "_rels/.rels", content: `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>` },
+    { name: "word/_rels/document.xml.rels", content: `<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>${headerRelationships}</Relationships>` },
+    { name: "word/styles.xml", content: docxStyles(script) },
+    ...headers.map((header, index) => ({ name: `word/${headerName(index)}`, content: `<?xml version="1.0" encoding="UTF-8"?><w:hdr xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">${header.content}</w:hdr>` })),
+    { name: "word/document.xml", content: `<?xml version="1.0" encoding="UTF-8"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"${relationshipsNamespace}><w:body>${body}${docxSection(script, page, headers)}</w:body></w:document>` }
+  ];
+}
+
+// Body text is 12pt Times New Roman (or a font for the book's script) at
+// 1.5 spacing with a half-inch first-line indent, so paragraph breaks show
+// without blank lines; titles, credits, headings, and scene breaks cancel
+// the indent. The credit lines under the title sit together at 14pt, as
+// the print title page sets them, with space after the last.
+function docxStyles(script) {
+  return `<?xml version="1.0" encoding="UTF-8"?><w:styles xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">`
+    + `<w:docDefaults><w:rPrDefault><w:rPr>${script.fonts}<w:sz w:val="24"/><w:szCs w:val="24"/>${script.lang}</w:rPr></w:rPrDefault><w:pPrDefault><w:pPr><w:spacing w:after="0" w:line="360" w:lineRule="auto"/></w:pPr></w:pPrDefault></w:docDefaults>`
+    + `<w:style w:type="paragraph" w:default="1" w:styleId="Normal"><w:name w:val="Normal"/><w:qFormat/><w:pPr><w:ind w:firstLine="720"/></w:pPr></w:style>`
+    + `<w:style w:type="paragraph" w:styleId="Title"><w:name w:val="Title"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/><w:pPr><w:spacing w:after="240"/><w:ind w:firstLine="0"/><w:jc w:val="center"/></w:pPr><w:rPr>${script.bold}<w:sz w:val="56"/>${script.sizeCs ? `<w:szCs w:val="56"/>` : ""}</w:rPr></w:style>`
+    + `<w:style w:type="paragraph" w:customStyle="1" w:styleId="Credit"><w:name w:val="Credit"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:pPr><w:spacing w:after="240"/><w:ind w:firstLine="0"/><w:contextualSpacing/><w:jc w:val="center"/></w:pPr><w:rPr><w:sz w:val="28"/>${script.sizeCs ? `<w:szCs w:val="28"/>` : ""}</w:rPr></w:style>`
+    + `<w:style w:type="paragraph" w:styleId="Heading1"><w:name w:val="heading 1"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/><w:pPr><w:keepNext/><w:spacing w:before="480" w:after="240"/><w:ind w:firstLine="0"/><w:outlineLvl w:val="0"/></w:pPr><w:rPr>${script.bold}<w:sz w:val="32"/>${script.sizeCs ? `<w:szCs w:val="32"/>` : ""}</w:rPr></w:style>`
+    + `<w:style w:type="paragraph" w:styleId="Quote"><w:name w:val="Quote"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:qFormat/><w:pPr><w:spacing w:before="120" w:after="120"/><w:ind w:left="720" w:right="720" w:firstLine="0"/></w:pPr></w:style>`
+    + `<w:style w:type="paragraph" w:customStyle="1" w:styleId="SceneBreak"><w:name w:val="Scene Break"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:pPr><w:spacing w:before="240" w:after="240"/><w:ind w:firstLine="0"/><w:jc w:val="center"/></w:pPr></w:style>`
+    + `<w:style w:type="paragraph" w:customStyle="1" w:styleId="Byline"><w:name w:val="Byline"/><w:basedOn w:val="Normal"/><w:next w:val="Normal"/><w:pPr><w:keepNext/><w:spacing w:after="240"/><w:ind w:firstLine="0"/><w:jc w:val="center"/></w:pPr><w:rPr>${script.italic}</w:rPr></w:style>`
+    + `</w:styles>`;
+}
+
+// Shunn manuscript format: Courier New 12pt, double spacing, page break
+// before each chapter heading, a title page with contact and word count, and
+// a running head on every later page. An anonymous build (`meta.anonymous`,
+// for a market that reads blind) has no names in it: shunnMeta leaves out
+// the author, editor, contact lines, and surname, and the chapter bylines
+// go too.
+const SHUNN_FONT = `<w:rFonts w:ascii="Courier New" w:hAnsi="Courier New"/>`;
+const SHUNN_SIZE = `<w:sz w:val="24"/>`;
+const SHUNN_PARAGRAPH_SPACING = `<w:spacing w:line="480" w:lineRule="auto"/>`;
+
+// `script` is docxScript's settings for the book's language. Run properties
+// keep the order the WordprocessingML schema gives them: font, bold,
+// italic, size, then direction.
+function shunnRunProperties(script, { strong = false, em = false } = {}) {
+  return `<w:rPr>${SHUNN_FONT}${strong ? script.bold : ""}${em ? script.italic : ""}${SHUNN_SIZE}${script.rtl}</w:rPr>`;
+}
+
+function shunnRunXml(script, text, decoration) {
+  return `<w:r>${shunnRunProperties(script, decoration)}${docxTextXml(text)}</w:r>`;
+}
+
+// The running head's parts, as the PDF and DOCX print them before the page
+// number: Shunn's surname and short title, each left out when empty.
+// story.md `surname` and `short-title` set them, and are used whole.
+// Otherwise the surname comes from the first author's name (`meta.lead`, an
+// editor's in an anthology with no author; see headSurname) and the short
+// title is the title before any subtitle, each cut to fit (see headFit), so
+// a head the build works out never wraps.
+export function shunnHeadParts(meta) {
+  const name = meta.surname ? oneLine(meta.surname) : headFit(headSurname(meta.lead ?? meta.author ?? "", meta.pack?.familyNameFirst), HEAD_NAME_COLUMNS, meta.labels);
+  const title = meta.shortTitle ? oneLine(meta.shortTitle) : headFit(headTitle(meta.title), HEAD_TITLE_COLUMNS, meta.labels);
+  return [name, title].filter((part) => part !== "");
+}
+
+// Courier sets 65 characters across a Letter page's text and 62 across
+// A4's. A head of a 20-column name, a 30-column title, two " / ", and a
+// four-digit page number takes 60.
+const HEAD_NAME_COLUMNS = 20;
+const HEAD_TITLE_COLUMNS = 30;
+
+// Text on one line: each run of line breaks, other control characters,
+// and spaces is one space (LINE_BREAK too, which would split a DOCX run),
+// and none is left at the ends. Typed no-break and ideographic spaces stay.
+function oneLine(text) {
+  return String(text).replace(/[ \u0000-\u001f\u007f-\u009f\u2028\u2029\ue001]+/g, " ").replace(/^ | $/g, "");
+}
+
+// The surname in a name: its last word, past a suffix or degree (Jr., III,
+// PhD, M.D.), or its first word in a language that puts the family name
+// first (`familyFirst`, from the language pack: Chinese, Japanese, Korean,
+// Hungarian). Only the part before a comma counts, so "King, Jr.", "Smith,
+// PhD", and "Smith, John" all give the surname. A name written with no
+// spaces is used whole.
+const NAME_SUFFIX = /^(?:jr|jnr|sr|snr|ii|iii|iv|phd|ph\.d|md|m\.d|esq)\.?$/i;
+
+function headSurname(name, familyFirst = false) {
+  const words = (oneLine(name).split(",").find((part) => part.trim() !== "") ?? "").split(" ").filter((word) => word !== "");
+  if (familyFirst) {
+    return words[0] ?? "";
+  }
+  while (words.length > 1 && NAME_SUFFIX.test(words[words.length - 1])) {
+    words.pop();
+  }
+  return words[words.length - 1] ?? "";
+}
+
+// The title before a subtitle: up to a colon and a space, a full-width
+// colon, or an em dash, unless nothing comes before it.
+function headTitle(title) {
+  const text = oneLine(title);
+  const main = text.split(/:\s|\uff1a|\u2014/u)[0].replace(/\s+$/u, "");
+  return main === "" ? text : main;
+}
+
+// Characters a fallback font sets twice as wide as Courier's: Chinese,
+// Japanese, and Korean, and full-width forms.
+const WIDE_CHARACTER = /[\u1100-\u115f\u2e80-\u303e\u3041-\u33ff\u3400-\u4dbf\u4e00-\u9fff\ua000-\ua4cf\uac00-\ud7a3\uf900-\ufaff\ufe30-\ufe4f\uff00-\uff60\uffe0-\uffe6\u{20000}-\u{3fffd}]/u;
+
+function headColumns(char) {
+  return /\p{M}/u.test(char) ? 0 : WIDE_CHARACTER.test(char) ? 2 : 1;
+}
+
+// `text` cut to `limit` columns: at the last space or hyphen that fits, or
+// in the middle of a word longer than the limit, less what the cut leaves
+// dangling (see withoutDangling).
+function headFit(text, limit, labels) {
+  let kept = "";
+  let width = 0;
+  for (const char of text) {
+    width += headColumns(char);
+    if (width > limit) {
+      const cut = /[ -]/.test(char) ? kept.length : Math.max(kept.lastIndexOf(" "), kept.lastIndexOf("-"));
+      return withoutDangling(cut > 0 ? kept.slice(0, cut) : kept, labels);
+    }
+    kept += char;
+  }
+  return text;
+}
+
+// A cut part without the spaces, punctuation, and joining words at its end:
+// "&", "/", "and", and the word of the book's `and` label ("und" in German),
+// so "Salt and" is "Salt".
+function withoutDangling(text, labels) {
+  const joiners = new Set(["and", String(labels?.and ?? "").replace(/\{[ab]\}/g, "").trim().toLowerCase()]);
+  const dangling = /[\s,;:/&\u2013\u2014\u3001\uff0c-]+$/u;
+  let rest = text.replace(dangling, "");
+  let space = rest.lastIndexOf(" ");
+  while (space > 0 && joiners.has(rest.slice(space + 1).toLowerCase())) {
+    rest = rest.slice(0, space).replace(dangling, "");
+    space = rest.lastIndexOf(" ");
+  }
+  return rest;
+}
+
+// The DOCX headers, as the PDF sets them: every page but the first carries
+// the running head, its parts and then a PAGE field that Word and
+// LibreOffice fill in with the page's number, single-spaced at the top
+// right, or the top left in a right-to-left book (in a bidi paragraph,
+// Word and LibreOffice read jc="right" as the end of the line). The first
+// page gets an empty header of its own (titlePg sets it apart), as Shunn
+// leaves the title page without a head.
+function shunnHeaders(script, meta) {
+  const paragraph = (runs) => `<w:p><w:pPr>${script.bidi}<w:spacing w:line="240" w:lineRule="auto"/><w:ind w:firstLine="0"/><w:jc w:val="right"/></w:pPr>${runs}</w:p>`;
+  const text = shunnHeadParts(meta).map((part) => `${part} / `).join("");
+  const field = [`<w:fldChar w:fldCharType="begin"/>`, `<w:instrText xml:space="preserve"> PAGE </w:instrText>`, `<w:fldChar w:fldCharType="separate"/>`, `<w:fldChar w:fldCharType="end"/>`]
+    .map((content) => `<w:r>${shunnRunProperties(script)}${content}</w:r>`).join("");
+  return [
+    { type: "default", content: paragraph(`${shunnRunXml(script, text)}${field}`) },
+    { type: "first", content: paragraph("") }
+  ];
+}
+
+// Body paragraphs indent their first line half an inch; centred lines
+// (title page, scene breaks) do not, and a quotation is indented as a block.
+function shunnParagraphXml(script, runXml, centered, quote = false) {
+  const layout = centered
+    ? `<w:ind w:firstLine="0"/><w:jc w:val="center"/>`
+    : quote ? `<w:ind w:left="720" w:right="720" w:firstLine="0"/>` : `<w:ind w:firstLine="720"/>`;
+  return `<w:p><w:pPr>${script.bidi}${SHUNN_PARAGRAPH_SPACING}${layout}</w:pPr>${runXml}</w:p>`;
+}
+
+function shunnChapterHeadingXml(script, text) {
+  return `<w:p><w:pPr>${script.bidi}${SHUNN_PARAGRAPH_SPACING}<w:ind w:firstLine="0"/><w:jc w:val="center"/></w:pPr><w:r>${script.rtl === "" ? "" : `<w:rPr>${script.rtl}</w:rPr>`}<w:br w:type="page"/></w:r>${shunnRunXml(script, text, { strong: true })}</w:p>`;
+}
+
+// Shunn word counts are rounded: exact under 1,000 words, to the nearest
+// 100 below novel length (40,000), and to the nearest 1,000 above it, and
+// written as the story's language writes numbers (12.300 in German).
+export function shunnWordCount(words, pack = languagePack()) {
+  return formatNumber(shunnRounded(words), pack);
+}
+
+// A count rounded as shunnWordCount rounds it, as a number.
+function shunnRounded(count) {
+  const step = count < 1000 ? 1 : count < 40000 ? 100 : 1000;
+  return Math.round(count / step) * step;
+}
+
+// The title page's length line in the book's language, in characters for a
+// book counted in characters (`meta.characters`), rounded the same way. Its
+// noun takes the plural form the rounded count needs (see pluralLabelKey).
+function shunnLength(meta) {
+  const pack = meta.pack ?? languagePack();
+  const characters = meta.characters !== undefined;
+  const count = shunnRounded(characters ? meta.characters : meta.words);
+  const key = pluralLabelKey(meta.labels, characters ? "approximate-characters" : "approximate-words", count, pack);
+  return fillLabel(meta.labels, key, { [characters ? "characters" : "words"]: formatNumber(count, pack) });
+}
+
+// The title block's byline, as lines: "by" and the author, the name alone
+// when the language's `by` label is empty, and nothing without an author,
+// then an anthology's editor credit (`meta.editors`, "Edited by Cara
+// Editor"), which stands in for the byline when the book has no author.
+function shunnByline(meta) {
+  const lines = [];
+  if (meta.author) {
+    const by = fillLabel(meta.labels, "by");
+    lines.push(...(by === "" ? [meta.author] : [by, meta.author]));
+  }
+  if (meta.editors) {
+    lines.push(meta.editors);
+  }
+  return lines;
+}
+
+// A story's byline under its heading in a collection or anthology manuscript.
+// A short story or flash piece runs its chapters together as one story, so
+// it prints none, and an anonymous build names no one.
+function shunnChapterByline(chapter, meta) {
+  return meta.shortForm || meta.anonymous ? "" : chapter.byline ?? "";
+}
+
+function shunnTitlePageXml(script, meta) {
+  const line = (text, decoration) => shunnParagraphXml(script, shunnRunXml(script, text, decoration), true);
+  const lines = [line(meta.title, { strong: true })];
+  lines.push(...shunnByline(meta).map((text) => line(text)));
+  lines.push(line(shunnLength(meta)));
+  for (const contactLine of meta.contact) {
+    lines.push(line(String(contactLine)));
+  }
+  return lines;
+}
+
+// A novel starts each chapter on a new page under its heading. A short story
+// or flash piece (`meta.shortForm`) runs on from the title block with no
+// headings or page breaks, its chapters joined as sections, and every
+// section or scene break is a centred `#`, as Shunn's short-story format
+// sets it.
+export function writeShunnDocx(outFile, manuscript, meta, writeOptions = {}, paperName = DEFAULT_PAPER) {
+  const script = docxScript(manuscript.meta);
+  const paragraphs = [...shunnTitlePageXml(script, meta)];
+  const sceneBreak = meta.shortForm ? "#" : "* * *";
+  const hash = shunnParagraphXml(script, shunnRunXml(script, "#"), true);
+  if (meta.shortForm) {
+    paragraphs.push(shunnParagraphXml(script, "", true));
+  }
+  let sections = 0;
+  for (const chapter of manuscript.chapters) {
+    // A Shunn manuscript indents every first line half an inch.
+    const body = markdownParagraphs(chapter.body, true);
+    if (!meta.shortForm) {
+      paragraphs.push(shunnChapterHeadingXml(script, chapter.heading));
+      const byline = shunnChapterByline(chapter, meta);
+      if (byline !== "") {
+        paragraphs.push(shunnParagraphXml(script, shunnRunXml(script, byline), true));
+      }
+    } else if (body.length === 0) {
+      continue;
+    } else if (sections++ > 0) {
+      paragraphs.push(hash);
+    }
+    for (const paragraph of body) {
+      paragraphs.push(paragraph.sceneBreak
+        ? shunnParagraphXml(script, shunnRunXml(script, sceneBreak), true)
+        : shunnParagraphXml(script, inlineRuns(paragraph.text, paragraph.code).map((run) => shunnRunXml(script, run.text, run)).join(""), false, paragraph.quote));
+    }
+  }
+
+  const paper = shunnPaper(paperName);
+  const page = `<w:pgSz w:w="${paper.width}" w:h="${paper.height}"/><w:pgMar w:top="1440" w:right="1440" w:bottom="1440" w:left="1440" w:header="720" w:footer="720" w:gutter="0"/>`;
+  writeZip(outFile, docxPackageEntries(script, paragraphs.join(""), page, shunnHeaders(script, meta)), writeOptions);
+}
+
+export function writeShunnMarkdown(outFile, manuscript, meta, writeOptions = {}) {
+  const lines = [meta.title];
+  lines.push(...shunnByline(meta), "", shunnLength(meta), "");
+  for (const contactLine of meta.contact) {
+    lines.push(String(contactLine));
+  }
+  const sceneBreak = meta.shortForm ? "#" : "* * *";
+  if (meta.shortForm) {
+    lines.push("");
+  }
+  let sections = 0;
+  for (const chapter of manuscript.chapters) {
+    // The Shunn format's own half-inch indent, as in the DOCX and PDF, so a
+    // typed one goes here too.
+    const body = markdownParagraphs(chapter.body, true);
+    if (!meta.shortForm) {
+      lines.push("\f", `# ${chapter.heading}`, "");
+      const byline = shunnChapterByline(chapter, meta);
+      if (byline !== "") {
+        lines.push(byline, "");
+      }
+    } else if (body.length === 0) {
+      continue;
+    } else if (sections++ > 0) {
+      lines.push("#", "");
+    }
+    for (const paragraph of body) {
+      if (paragraph.sceneBreak) {
+        lines.push(sceneBreak, "");
+        continue;
+      }
+      // Hard breaks stay backslash breaks; a quote keeps its markers.
+      const prefix = paragraph.quote ? "> " : "";
+      lines.push(`${prefix}${paragraph.text.split(LINE_BREAK).join(`\\\n${prefix}`)}`, "");
+    }
+  }
+
+  writeFile(outFile, `${lines.join("\n").trimEnd()}\n`, writeOptions);
+}
+
+// The Shunn manuscript as HTML with CSS paged media, the source `build
+// --format shunn --pdf` renders: US Letter (or A4, `paperName`) with 1in margins, Courier New 12pt
+// double-spaced, half-inch paragraph indents, and a running head of surname,
+// short title, and page number on every page after the first. The first page sets
+// the contact lines top left and the length top right, then the title and
+// byline. A novel starts each chapter on a new page under its heading, a
+// third of the way down; a short story or flash piece runs on after the
+// byline, as the DOCX and markdown builds lay it out.
+export function shunnHtml(manuscript, meta, paperName = DEFAULT_PAPER) {
+  const paper = shunnPaper(paperName);
+  const language = manuscript.meta?.language ?? "en";
+  const type = typesetting(language, "horizontal");
+  const fonts = `"Courier New", Courier, ${type.fonts.latin ? "monospace" : type.fonts.body}`;
+  const head = shunnHeadParts(meta).map((part) => `"${cssString(part)} / "`).join(" ");
+  // The head sits at the top right, or the top left in a right-to-left
+  // book, as the DOCX sets it.
+  const headBox = type.rtl ? "@top-left" : "@top-right";
+  const sceneBreak = meta.shortForm ? "#" : "* * *";
+  const paragraphMarkup = (paragraph) => ({
+    quote: Boolean(paragraph.quote),
+    markup: paragraph.sceneBreak
+      ? `<p class="break">${escapeHtml(sceneBreak)}</p>`
+      : `<p>${inlineRuns(paragraph.text, paragraph.code).map((run) => runMarkup(run, escapeHtml, "<br>")).join("")}</p>`
+  });
+  const body = [];
+  let sections = 0;
+  for (const chapter of manuscript.chapters) {
+    const paragraphs = markdownParagraphs(chapter.body, true);
+    if (!meta.shortForm) {
+      const byline = shunnChapterByline(chapter, meta);
+      body.push(`<section class="chapter"><h2>${escapeHtml(chapter.heading)}</h2>\n${byline === "" ? "" : `<p class="byline">${escapeHtml(byline)}</p>\n`}${withBlockquotes(paragraphs.map(paragraphMarkup)).join("\n")}\n</section>`);
+      continue;
+    }
+    if (paragraphs.length === 0) {
+      continue;
+    }
+    if (sections++ > 0) {
+      body.push(`<p class="break">#</p>`);
+    }
+    body.push(withBlockquotes(paragraphs.map(paragraphMarkup)).join("\n"));
+  }
+  const dir = type.rtl ? ` dir="rtl"` : "";
+  return `<!DOCTYPE html>
+<html lang="${escapeHtml(language)}"${dir}>
+<head>
+<meta charset="utf-8">
+<title>${escapeHtml(meta.title)}</title>
+<style>
+@page { size: ${paper.css}; margin: 1in;
+  ${headBox} { content: ${head === "" ? "" : `${head} `}counter(page); font: 12pt ${fonts}; } }
+@page :first { ${headBox} { content: none; } }
+html { font: 12pt/2 ${fonts}; }
+body { margin: 0; }
+p { margin: 0; text-indent: 0.5in; text-align: start; widows: 2; orphans: 2; }
+.title-page { line-height: 1.2; }
+.title-page p { text-indent: 0; }
+.title-page .length { float: ${type.rtl ? "left" : "right"}; }
+.title-block { clear: both; text-align: center; margin-top: ${meta.shortForm ? "2.5in" : "3in"}; }
+.title-block h1, .chapter h2 { font: inherit; font-weight: bold; margin: 0; }
+.title-block p { text-indent: 0; text-align: center; }
+.short-form { margin-top: 2em; }
+.chapter { break-before: page; }
+.chapter h2 { text-align: center; margin: 2.25in 0 1em; break-after: avoid; }
+p.break, p.byline { text-align: center; text-indent: 0; }
+blockquote { margin: 0 0.5in; }
+blockquote p { text-indent: 0; }
+</style>
+</head>
+<body>
+<header class="title-page">
+<p class="length">${escapeHtml(shunnLength(meta))}</p>
+${meta.contact.map((line) => `<p>${escapeHtml(String(line))}</p>`).join("\n")}
+</header>
+<div class="title-block"><h1>${escapeHtml(meta.title)}</h1>
+${shunnByline(meta).map((line) => `<p>${escapeHtml(line)}</p>`).join("\n")}
+</div>
+${meta.shortForm ? `<div class="short-form">\n${body.join("\n")}\n</div>` : body.join("\n")}
+</body>
+</html>
+`;
+}
+
+// The text elements of a DOCX run, with a <w:br/> for each hard break.
+function docxTextXml(text) {
+  return String(text).split(LINE_BREAK).map((part) => `<w:t xml:space="preserve">${xmlEscape(part)}</w:t>`).join("<w:br/>");
+}
+
+function paragraphXml(script, text, style = "", runs = [{ text }]) {
+  const properties = `${style ? `<w:pStyle w:val="${style}"/>` : ""}${script.bidi}`;
+  const styleXml = properties === "" ? "" : `<w:pPr>${properties}</w:pPr>`;
+  const runXml = runs.map((run) => {
+    const decoration = `${run.strong ? script.bold : ""}${run.em ? script.italic : ""}${script.rtl}`;
+    const runStyle = decoration === "" ? "" : `<w:rPr>${decoration}</w:rPr>`;
+    return `<w:r>${runStyle}${docxTextXml(run.text)}</w:r>`;
+  });
+  return `<w:p>${styleXml}${runXml.join("")}</w:p>`;
+}
+
+// Markdown emphasis: **bold** / __bold__, *italic* / _italic_, and both
+// nested (***both***, *a **b** c*), following the CommonMark delimiter rules:
+// a run opens when it is left-flanking and closes when right-flanking, an
+// underscore inside a word is literal, and a backslash escapes punctuation.
+// A character reference (`&mdash;`, `&#8212;`) is the character it names,
+// and an autolink (`<https://example.com>`) its address, both as plain text,
+// so `&#42;` is never emphasis. Code from a fence (`code`) is printed as
+// written, with none of this read in it. Returns runs of { text, strong, em }.
+function inlineRuns(text, code = false) {
+  if (code) {
+    return [{ text, strong: false, em: false }];
+  }
+  const nodes = [];
+  const closeSpan = codeSpanCloser(text);
+  let buffer = "";
+  const isSpace = (char) => char === undefined || char === LINE_BREAK || /\s/u.test(char);
+  const isPunct = (char) => char !== undefined && /[\p{P}\p{S}]/u.test(char);
+  for (let index = 0; index < text.length;) {
+    const char = text[index];
+    if (char === "\\" && /[!-/:-@[-`{-~]/.test(text[index + 1] ?? "")) {
+      buffer += text[index + 1];
+      index += 2;
+      continue;
+    }
+    if (char === "`") {
+      // A code span is literal: no emphasis inside, and no backticks shown.
+      let run = 0;
+      while (text[index + run] === "`") {
+        run += 1;
+      }
+      const end = closeSpan(index, run);
+      if (end === -1) {
+        buffer += "`".repeat(run);
+        index += run;
+      } else {
+        // One space comes off each end of a span that is not all spaces.
+        // Plain string tests: a regex for this backtracks quadratically on a
+        // long span.
+        const code = text.slice(index + run, end - run);
+        buffer += code.startsWith(" ") && code.endsWith(" ") && /[^ ]/.test(code) ? code.slice(1, -1) : code;
+        index = end;
+      }
+      continue;
+    }
+    const reference = char === "&" ? characterReference(text, index) : null;
+    if (reference !== null) {
+      buffer += reference.value;
+      index += reference.length;
+      continue;
+    }
+    const autolink = char === "<" ? autolinkEnd(text, index) : -1;
+    if (autolink !== -1) {
+      buffer += text.slice(index + 1, autolink - 1);
+      index = autolink;
+      continue;
+    }
+    if (char !== "*" && char !== "_") {
+      buffer += char;
+      index += 1;
+      continue;
+    }
+    let end = index;
+    while (text[end] === char) {
+      end += 1;
+    }
+    if (buffer !== "") {
+      nodes.push({ text: buffer });
+      buffer = "";
+    }
+    const before = text[index - 1];
+    const after = text[end];
+    const left = !isSpace(after) && (!isPunct(after) || isSpace(before) || isPunct(before));
+    const right = !isSpace(before) && (!isPunct(before) || isSpace(after) || isPunct(after));
+    nodes.push({
+      delimiter: char,
+      count: end - index,
+      original: end - index,
+      open: char === "*" ? left : left && (!right || isPunct(before)),
+      close: char === "*" ? right : right && (!left || isPunct(after)),
+      strong: 0,
+      em: 0
+    });
+    index = end;
+  }
+  if (buffer !== "") {
+    nodes.push({ text: buffer });
+  }
+
+  // The CommonMark delimiter stack: openers wait on `stack`; a closer pairs
+  // with the nearest usable opener and drops every delimiter between them.
+  // `bottom` remembers, per kind of closer, how far down a search already
+  // failed, so unmatched delimiters are not rescanned. Emphasis depth is
+  // recorded as +1/-1 marks and summed once, so each pair costs O(1).
+  const stack = [];
+  const bottom = new Map();
+  const depth = { strong: new Array(nodes.length + 1).fill(0), em: new Array(nodes.length + 1).fill(0) };
+  for (const [closeIndex, closer] of nodes.entries()) {
+    if (!closer.delimiter) {
+      continue;
+    }
+    const key = `${closer.delimiter}${closer.open ? 1 : 0}${closer.original % 3}`;
+    while (closer.close && closer.count > 0) {
+      const floor = bottom.get(key) ?? 0;
+      let position = stack.length - 1;
+      while (position >= floor && !canPairEmphasis(nodes[stack[position]], closer)) {
+        position -= 1;
+      }
+      if (position < floor) {
+        bottom.set(key, stack.length);
+        break;
+      }
+      const openIndex = stack[position];
+      const opener = nodes[openIndex];
+      const used = opener.count >= 2 && closer.count >= 2 ? 2 : 1;
+      opener.count -= used;
+      closer.count -= used;
+      const marks = depth[used === 2 ? "strong" : "em"];
+      marks[openIndex + 1] += 1;
+      marks[closeIndex] -= 1;
+      // Delimiters between the pair can no longer pair outward.
+      stack.length = opener.count > 0 ? position + 1 : position;
+      for (const [other, value] of bottom) {
+        if (value > stack.length) {
+          bottom.set(other, stack.length);
+        }
+      }
+    }
+    if (closer.open && closer.count > 0) {
+      stack.push(closeIndex);
+    }
+  }
+  let strongDepth = 0;
+  let emDepth = 0;
+  for (const [index, node] of nodes.entries()) {
+    strongDepth += depth.strong[index];
+    emDepth += depth.em[index];
+    node.strong = strongDepth;
+    node.em = emDepth;
+  }
+
+  const runs = [];
+  for (const node of nodes) {
+    const value = node.delimiter ? node.delimiter.repeat(node.count) : node.text;
+    if (value === "") {
+      continue;
+    }
+    const strong = (node.strong ?? 0) > 0;
+    const em = (node.em ?? 0) > 0;
+    const previous = runs[runs.length - 1];
+    if (previous && previous.strong === strong && previous.em === em) {
+      previous.text += value;
+    } else {
+      runs.push({ text: value, strong, em });
+    }
+  }
+  return runs;
+}
+
+// Openers on the stack can open and have characters left, so only the
+// delimiter and CommonMark's rule of three decide: in *foo**bar* the **
+// cannot close the *.
+function canPairEmphasis(opener, closer) {
+  const both = opener.close || closer.open;
+  const ruleOfThree = both && (opener.original + closer.original) % 3 === 0 && !(opener.original % 3 === 0 && closer.original % 3 === 0);
+  return opener.delimiter === closer.delimiter && !ruleOfThree;
+}
+
+// Inline markdown (emphasis, code spans, character references, autolinks,
+// hard breaks) as HTML, as the review copy sets a paragraph.
+export function inlineHtml(text) {
+  return inlineRuns(String(text)).map((run) => runMarkup(run, escapeHtml, "<br>")).join("");
+}
+
+// HTML or XHTML markup for one run; `escape` is the matching text escaper
+// and `lineBreak` the matching break element.
+function runMarkup(run, escape, lineBreak) {
+  let markup = escape(run.text).split(LINE_BREAK).join(lineBreak);
+  if (run.em) {
+    markup = `<em>${markup}</em>`;
+  }
+  if (run.strong) {
+    markup = `<strong>${markup}</strong>`;
+  }
+  return markup;
+}
+
+// A hard line break inside a paragraph (a backslash or two spaces at a line
+// end), carried through inlineRuns as one character and written as each
+// format's break: <br> in HTML, <br/> in EPUB, <w:br/> in DOCX. Verse,
+// lyrics, and letter sign-offs keep their lines.
+export const LINE_BREAK = "\uE001";
+
+// The body as paragraphs: { sceneBreak: true } for a thematic break (three
+// or more of the same marker, optionally spaced), otherwise
+// { text, quote, code } where `text` is inline markdown on one line, with
+// LINE_BREAK for each hard break, `quote` marks a blockquote paragraph (an
+// epigraph, a letter), and `code` one from a code fence, which inlineRuns
+// prints as written.
+// Whitespace-only lines are blank, as in CommonMark, and a scene-break line
+// ends a paragraph even with no blank line around it, as a thematic break
+// does (see breaksParagraph); a `---` right under a line of text is a break
+// too, not the setext heading CommonMark reads (story validate warns, see
+// setextSceneBreakLines). Fence lines go and the code stays, with no breaks
+// in it, and a fence's paragraphs stand apart from the prose around them;
+// outside code, links print as their text and images are left out,
+// as word counts treat them (see plainLinks). Footnotes stay as written
+// (story validate warns, see footnoteLines). A build that indents first
+// lines itself passes `ownIndent`, and a paragraph's typed indent (the
+// ideographic space a Japanese paragraph opens with) goes, so the two never
+// add up; the other builds keep it as the paragraph's only indent.
+function markdownParagraphs(markdown, ownIndent = false) {
+  const paragraphs = [];
+  let lines = [];
+  let quote = false;
+  const flush = () => {
+    if (lines.length === 0) {
+      return;
+    }
+    // Each line without the layout whitespace at its ends, which a soft
+    // break replaces and a hard break (the backslash, or the trailing
+    // spaces) drops.
+    const texts = lines.map(({ line }, index) => trimSourceSpace(index < lines.length - 1 && /\\$/.test(line) ? line.slice(0, -1) : line));
+    const joined = texts.map((text, index) => {
+      if (index === texts.length - 1) {
+        return text;
+      }
+      // Plain string tests: a pattern for the spaces backtracks
+      // quadratically on a long run of them inside the line.
+      if (lines[index].line.endsWith("\\") || lines[index].line.endsWith("  ")) {
+        return `${text}${LINE_BREAK}`;
+      }
+      // A soft break is a space, except between Chinese or Japanese
+      // characters (see softBreak). A heading's text never runs into the
+      // line beside it.
+      return `${text}${lines[index].heading || lines[index + 1].heading ? " " : softBreak(text, texts[index + 1])}`;
+    }).join("");
+    // Only layout whitespace collapses, so a typed no-break or ideographic
+    // space reaches the book (see collapseSourceSpace). A hard-broken line
+    // of nothing but whitespace that opens the paragraph goes. The last
+    // line is never blank (a blank line flushes), so none can end it, and
+    // text is never empty here.
+    const parts = collapseSourceSpace(joined).split(LINE_BREAK).map(trimSourceSpace);
+    const kept = parts.slice(parts.findIndex((part) => part.trim() !== "")).join(LINE_BREAK);
+    const text = ownIndent ? kept.replace(/^\s+/, "") : kept;
+    // A break spaced with typed spaces (`*\u00a0*\u00a0*`) is still a break,
+    // and so is one wrapped over lines (`* *` then `*`).
+    // Fence lines are blank lines here, so a paragraph is all code or none.
+    const { code } = lines[0];
+    lines = [];
+    paragraphs.push(!code && !text.includes(LINE_BREAK) && isSceneBreakLine(text) ? { sceneBreak: true } : { text, quote, code });
+  };
+  // Each line, and whether it is code: closed backtick fences lose their
+  // fence lines, and the code between them has no breaks.
+  const source = splitFences(markdown.replace(/\r\n?/g, "\n")).flatMap((part) => (part.fenced ? withoutFenceMarkers(part.text) : plainLinks(part.text))
+    .split("\n")
+    .map((line) => ({ line, code: part.fenced })));
+  for (const { line: sourceLine, code } of source) {
+    const heading = isHeadingLine(sourceLine);
+    const rawLine = flattenHeadings(sourceLine);
+    // Blockquote markers (nested ones too) come off; the paragraph is
+    // marked as quoted instead.
+    const marker = /^(?:[ \t]*>[ \t]?)+/.exec(rawLine);
+    const line = marker ? rawLine.slice(marker[0].length) : rawLine;
+    if (line.trim() === "") {
+      flush();
+      continue;
+    }
+    if (!code && breaksParagraph(line)) {
+      flush();
+      paragraphs.push({ sceneBreak: true });
+      continue;
+    }
+    // A quote interrupts a plain paragraph; an unmarked line after a quoted
+    // one continues the quote, as CommonMark's lazy continuation does.
+    if (lines.length > 0 && marker && !quote) {
+      flush();
+    }
+    if (lines.length === 0) {
+      quote = Boolean(marker);
+    }
+    lines.push({ line, heading, code });
+  }
+  flush();
+  return paragraphs;
+}
+
+// Every entry is stamped 1980-01-01 00:00, the earliest valid MS-DOS date
+// (day and month are 1-based, so an all-zero field is invalid), which keeps
+// builds byte-identical.
+const ZIP_DOS_DATE = (0 << 9) | (1 << 5) | 1;
+
+// General-purpose bit 11 declares the entry name as UTF-8. Names are always
+// written as UTF-8, and a clear bit 11 means IBM Code Page 437 (APPNOTE
+// 4.4.4), so a strict reader would misdecode any non-ASCII name without it.
+const ZIP_UTF8_NAME_FLAG = 0x0800;
+const ZIP_STORED = 0;
+const ZIP_DEFLATED = 8;
+
+export function writeZip(outFile, entries, writeOptions = {}) {
+  const localParts = [];
+  const centralParts = [];
+  let offset = 0;
+
+  for (const entry of entries) {
+    const name = Buffer.from(entry.name, "utf8");
+    const content = Buffer.isBuffer(entry.content) ? entry.content : Buffer.from(entry.content, "utf8");
+    const crc = crc32(content);
+    // Entries marked stored are not compressed: the EPUB mimetype, which
+    // must not be, and cover images, which are compressed already.
+    // Everything else deflates, except where deflating would not shrink it.
+    // The deflate is the CLI's own (src/deflate.js), not node:zlib, whose
+    // bytes differ between Bun and Node, so the archive is byte-identical on
+    // every runtime.
+    const deflated = entry.stored ? null : deflateRaw(content);
+    const compressed = deflated !== null && deflated.length < content.length;
+    const body = compressed ? deflated : content;
+    const method = compressed ? ZIP_DEFLATED : ZIP_STORED;
+    const localHeader = Buffer.alloc(30);
+    localHeader.writeUInt32LE(0x04034b50, 0);
+    localHeader.writeUInt16LE(20, 4);
+    localHeader.writeUInt16LE(ZIP_UTF8_NAME_FLAG, 6);
+    localHeader.writeUInt16LE(method, 8);
+    localHeader.writeUInt16LE(0, 10);
+    localHeader.writeUInt16LE(ZIP_DOS_DATE, 12);
+    localHeader.writeUInt32LE(crc, 14);
+    localHeader.writeUInt32LE(body.length, 18);
+    localHeader.writeUInt32LE(content.length, 22);
+    localHeader.writeUInt16LE(name.length, 26);
+    localHeader.writeUInt16LE(0, 28);
+    localParts.push(localHeader, name, body);
+
+    const centralHeader = Buffer.alloc(46);
+    centralHeader.writeUInt32LE(0x02014b50, 0);
+    centralHeader.writeUInt16LE(20, 4);
+    centralHeader.writeUInt16LE(20, 6);
+    centralHeader.writeUInt16LE(ZIP_UTF8_NAME_FLAG, 8);
+    centralHeader.writeUInt16LE(method, 10);
+    centralHeader.writeUInt16LE(0, 12);
+    centralHeader.writeUInt16LE(ZIP_DOS_DATE, 14);
+    centralHeader.writeUInt32LE(crc, 16);
+    centralHeader.writeUInt32LE(body.length, 20);
+    centralHeader.writeUInt32LE(content.length, 24);
+    centralHeader.writeUInt16LE(name.length, 28);
+    centralHeader.writeUInt16LE(0, 30);
+    centralHeader.writeUInt16LE(0, 32);
+    centralHeader.writeUInt16LE(0, 34);
+    centralHeader.writeUInt16LE(0, 36);
+    centralHeader.writeUInt32LE(0, 38);
+    centralHeader.writeUInt32LE(offset, 42);
+    centralParts.push(centralHeader, name);
+    offset += localHeader.length + name.length + body.length;
+  }
+
+  let centralSize = 0;
+  for (const part of centralParts) {
+    centralSize += part.length;
+  }
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(0x06054b50, 0);
+  end.writeUInt16LE(0, 4);
+  end.writeUInt16LE(0, 6);
+  end.writeUInt16LE(entries.length, 8);
+  end.writeUInt16LE(entries.length, 10);
+  end.writeUInt32LE(centralSize, 12);
+  end.writeUInt32LE(offset, 16);
+  end.writeUInt16LE(0, 20);
+  writeFile(outFile, Buffer.concat(localParts.concat(centralParts, end)), writeOptions);
+}
+
+export function crc32(buffer) {
+  let crc = 0xffffffff;
+  for (const byte of buffer) {
+    crc = CRC_TABLE[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+const CRC_TABLE = [];
+for (let index = 0; index < 256; index += 1) {
+  let value = index;
+  for (let bit = 0; bit < 8; bit += 1) {
+    value = (value & 1) ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+  }
+  CRC_TABLE.push(value >>> 0);
+}
+
+// XML 1.0 forbids most C0 control characters, U+FFFE, U+FFFF, and unpaired
+// surrogates even when escaped, so they are dropped.
+const XML_INVALID_CHARACTERS = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\uFFFE\uFFFF]|[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+
+function xmlEscape(value) {
+  return String(value)
+    .replace(XML_INVALID_CHARACTERS, "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}

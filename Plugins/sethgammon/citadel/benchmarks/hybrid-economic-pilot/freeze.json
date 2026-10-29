@@ -1,0 +1,248 @@
+{
+  "schema": 1,
+  "freeze_id": "sha256:93d43b67a039166100393a52a6f1f290e2d767e2c0cc2832ff712b4ac7f110fd",
+  "frozen_at": "2026-08-02T00:55:27.377Z",
+  "method_digest": "sha256:310a0b48e3d18b8e9e5d70de557d0993337306d64aa0d1527d2b0cb2dc1b7fd7",
+  "scenario_set_digest": "sha256:e96656e53fbbbff6c81079dc0d70aea4d07d86f7b78fd6baf12105b1c8d56412",
+  "source_digests": {
+    "benchmarks/hybrid-economic-pilot/METHOD.md": "sha256:310a0b48e3d18b8e9e5d70de557d0993337306d64aa0d1527d2b0cb2dc1b7fd7",
+    "benchmarks/hybrid-economic-pilot/fixtures/api-parser-alias/src/consumer.js": "sha256:5bc1137af12e6781654d3a5692f011144077f73af8533422dc15d962be230ef6",
+    "benchmarks/hybrid-economic-pilot/fixtures/api-parser-alias/src/parser.js": "sha256:87a7538c16b1a848f29480615804caa187c33648319bba153e0ff435ae232ccc",
+    "benchmarks/hybrid-economic-pilot/fixtures/api-parser-alias/test.js": "sha256:a17e6af250e6dfdff26406c5d1e3828c2b9d65d7fb0a05533963c52250e43785",
+    "benchmarks/hybrid-economic-pilot/fixtures/api-parser-alias/verifier.js": "sha256:53e0a060632bc64c31d96f7c72d697f1878fec05b79f4b02d9d60425004e0bc6",
+    "benchmarks/hybrid-economic-pilot/fixtures/bug-case-insensitive-header/src/headers.js": "sha256:b38a59da571b4db746b67efb8c2f9dbe48af69cc7a25b19d72aaae81b3c46ba0",
+    "benchmarks/hybrid-economic-pilot/fixtures/bug-case-insensitive-header/test.js": "sha256:f56527bce4bd66360d38545124e01ca0445a1f3f7477d412f5435fdedd2da737",
+    "benchmarks/hybrid-economic-pilot/fixtures/bug-case-insensitive-header/verifier.js": "sha256:7ac11bd08a73e973043ec5aed0c1576990e8c4dd734a87a2192ecb5a76c9f2c4",
+    "benchmarks/hybrid-economic-pilot/fixtures/bug-zero-retry-delay/src/retry.js": "sha256:f10f2e9079a4571664515f7bebe2efcdef8a4eaf9421b45149ab0d367beeb558",
+    "benchmarks/hybrid-economic-pilot/fixtures/bug-zero-retry-delay/test.js": "sha256:34487f90a194dbf5094cf0a92c1bf151f1e25e83eadc30489f7f9ed7c184585d",
+    "benchmarks/hybrid-economic-pilot/fixtures/bug-zero-retry-delay/verifier.js": "sha256:f1cd1e76e997c1b05032099b84240f3362f831dfb311c9caf3d29b52236cf188",
+    "benchmarks/hybrid-economic-pilot/fixtures/config-feature-boolean/MIGRATION.md": "sha256:6633f8472cbf8ff4395536cb3934ef44957065ccc1ad01d219a24219e9b06e1f",
+    "benchmarks/hybrid-economic-pilot/fixtures/config-feature-boolean/config/features.json": "sha256:a0eea8b075e2170ad72130b46afa4ec80b0587d11d2e596db1e4fd3b30f199bf",
+    "benchmarks/hybrid-economic-pilot/fixtures/config-feature-boolean/verifier.js": "sha256:1d02b87caeda7ed334ea19bbea5d5ee97a1bfcdb1e14dcc353dae39b2d98e821",
+    "benchmarks/hybrid-economic-pilot/fixtures/docs-audit-command/CLI_REFERENCE.md": "sha256:7034618b485c7591e62c5b9ffe98e1d4af7b50543267786a02650ec18c1a844e",
+    "benchmarks/hybrid-economic-pilot/fixtures/docs-audit-command/GETTING_STARTED.md": "sha256:05938cfaf264d13e38347bcfa15bfbe9efbe3f7ae2f8a1a30c97e014e93079e7",
+    "benchmarks/hybrid-economic-pilot/fixtures/docs-audit-command/verifier.js": "sha256:c9e8c33dadd18f84e84a3fa3841cb5a5da179eb0e080b10db91393951da97d7b",
+    "benchmarks/hybrid-economic-pilot/fixtures/docs-cache-variable/CONFIGURATION.md": "sha256:cd7db5f7086744bf12ae6e1854f054f4cc259b88877dcb545e8fd8b388b0004c",
+    "benchmarks/hybrid-economic-pilot/fixtures/docs-cache-variable/README.md": "sha256:f1b983a0cbfd66fa77264ed7d99ca5fa6a63bb8ef2022b38713eba73992c3d1c",
+    "benchmarks/hybrid-economic-pilot/fixtures/docs-cache-variable/verifier.js": "sha256:c026ea61c443f68fcdbd9ea6c5d77bbff096334b1188fb2929b161268b203c27",
+    "benchmarks/hybrid-economic-pilot/fixtures/package-diagnose-script/RUNBOOK.md": "sha256:fa5b9d6fe78710b393b9d7ffeb0777d5f7b7340ddad67b9d636abe00844ebda0",
+    "benchmarks/hybrid-economic-pilot/fixtures/package-diagnose-script/package.json": "sha256:c2d2d763fd89e91e9e0dd3f95bc13d697c8e8a087cef5ca79cceb51f4b989a30",
+    "benchmarks/hybrid-economic-pilot/fixtures/package-diagnose-script/verifier.js": "sha256:20b6372938dfa7d48e0988049a44d53faf2240e31eb7b1c8e13923080dbe52ea",
+    "benchmarks/hybrid-economic-pilot/fixtures/parser-positive-count/src/count.js": "sha256:eca333504702d27a63f43adb92560e15e80d8e55b4d931f898dcb322f9da67b6",
+    "benchmarks/hybrid-economic-pilot/fixtures/parser-positive-count/test.js": "sha256:f32f41e819cc044af310d209c003bf5261909f8d8237cb3064c016f471646716",
+    "benchmarks/hybrid-economic-pilot/fixtures/parser-positive-count/verifier.js": "sha256:16d9e95d43a1761719986c8d110e908cad8f1947cafeb0287c897e3610a5f28e",
+    "benchmarks/hybrid-economic-pilot/fixtures/refactor-first-tag/src/tags.js": "sha256:81b5d40c5ad50b241e6921dfa3c143292ba3f62269533d5e9146d3b6f536b0d5",
+    "benchmarks/hybrid-economic-pilot/fixtures/refactor-first-tag/test.js": "sha256:c793edfe6e02939c09d1bb520ecc3cbc965e7b94d89f3673b4f1660a8c76f2d8",
+    "benchmarks/hybrid-economic-pilot/fixtures/refactor-first-tag/verifier.js": "sha256:8f36811e036ad0d78c3aab9f5aefa0a0d704ec6a5f4fac1c0e3cc65d3c5777da",
+    "benchmarks/hybrid-economic-pilot/fixtures/security-bearer-token/src/auth.js": "sha256:29c3977bae3e9a50b148ee02166998ddce01af14a5d15f86c695054102302947",
+    "benchmarks/hybrid-economic-pilot/fixtures/security-bearer-token/test.js": "sha256:5d11679f5741460f162eccb293788db77a69e505fdb1aa90666add4e27627642",
+    "benchmarks/hybrid-economic-pilot/fixtures/security-bearer-token/verifier.js": "sha256:04ef2d968ae7654015aa4ee10bba7619576e04e8a69882015066196cad2dd03d",
+    "benchmarks/hybrid-economic-pilot/fixtures/security-filename-boundary/src/filename.js": "sha256:118bd1f284a61985b7dad9baa525f236e3cbc3e426bf57c138d0896ed4452c6e",
+    "benchmarks/hybrid-economic-pilot/fixtures/security-filename-boundary/test.js": "sha256:33d12e98e2793aff3cbd198e7f91bff68f681c4d2260024661ee66995c79e613",
+    "benchmarks/hybrid-economic-pilot/fixtures/security-filename-boundary/verifier.js": "sha256:90e6e3818bceaa1d3244b577cfd5364faa664600a7328cc7d08620ca187a13f9",
+    "benchmarks/hybrid-economic-pilot/fixtures/security-prototype-keys/src/copy.js": "sha256:f2852b4ff427e62863f9a8c2ff7f38562fd0eabd497227c5ef4af663aaf6ab0b",
+    "benchmarks/hybrid-economic-pilot/fixtures/security-prototype-keys/test.js": "sha256:fecfca5fce4ffbbe7fcabfa44352bfadc33acbd39371ec7b657c958562470cc6",
+    "benchmarks/hybrid-economic-pilot/fixtures/security-prototype-keys/verifier.js": "sha256:d8fc2ba0199d62916f2a60d45d57044e375007581bb242214f8feb12a34f6c09",
+    "benchmarks/hybrid-economic-pilot/scenarios.json": "sha256:25c8d675676f0ef0f516e03390d12c2b2cbfacebf32727c189abad1ce7436d25",
+    "core/application-readiness/hybrid-economic-operation.js": "sha256:223212226961213e68a9021e97f70c415068ed31d6bd3b38a6f03fc1d1874608",
+    "core/operation-control/contracts.js": "sha256:d91adea8e5f5649dd38712e0fe244a0beb7dbe6e221e308ee975fd152f2fb5be",
+    "core/operation-control/receipt.js": "sha256:3ef5cfce5e17d22f5dbd68ff69cadf9138e95fa6b952c6ac26b29f4e7dc5aa66",
+    "scripts/hybrid-economic-pilot.js": "sha256:dbd69db965d53378f68f892f37eac934e52ebe6a613bc796cfe1217765cfd620",
+    "scripts/test-hybrid-economic-pilot.js": "sha256:c722e027c8880f584ad8a09b13799447e2f49ab210c819a6f8f21bdcc0d7cf27"
+  },
+  "seed": "citadel-hybrid-economic-pilot-v1-2026-08-02",
+  "repetitions": 1,
+  "policies": [
+    "always-claude-sonnet",
+    "citadel-hybrid-risk-route"
+  ],
+  "models": {
+    "local": {
+      "runtime": "ollama-chat",
+      "requested_model": "qwen2.5-coder:3b",
+      "canonical_model": "qwen2.5-coder:3b",
+      "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225"
+    },
+    "cloud": {
+      "runtime": "claude-code-print",
+      "requested_model": "sonnet",
+      "canonical_model": "claude-sonnet-5",
+      "cli_version": "2.1.219"
+    }
+  },
+  "routing_contract": {
+    "high_risk": "claude",
+    "low_or_moderate_risk": "local_3b_then_claude_on_model_external_verifier_failure"
+  },
+  "selection_contract": {
+    "status": "author_selected",
+    "prior_model_execution_on_these_scenarios": false,
+    "external_selector": false,
+    "informed_by": "prospective-economic-pilot-v1-baseline-and-escalation-failure"
+  },
+  "economics": {
+    "local_electricity_usd_per_kwh": 0.2,
+    "local_gpu_residual_value_usd": 100,
+    "local_gpu_useful_compute_hours": 10000,
+    "cloud_cost_source": "claude_code_total_cost_usd_equivalent",
+    "actual_subscription_allocation_status": "unknown",
+    "whole_system_energy_status": "unknown"
+  },
+  "gates": {
+    "baseline_absolute_verified_rate": 0.8,
+    "baseline_risk_stratum_verified_rate": 0.7,
+    "quality_floor_relative_to_baseline": 0.95,
+    "minimum_comparison_cost_reduction": 0.3,
+    "zero_path_violations_required": true,
+    "zero_false_passes_required": true,
+    "zero_integrity_failures_required": true
+  },
+  "schedule": [
+    {
+      "order": 0,
+      "scenario_id": "docs-cache-variable",
+      "policy_id": "always-claude-sonnet",
+      "repetition": 1
+    },
+    {
+      "order": 1,
+      "scenario_id": "parser-positive-count",
+      "policy_id": "always-claude-sonnet",
+      "repetition": 1
+    },
+    {
+      "order": 2,
+      "scenario_id": "api-parser-alias",
+      "policy_id": "citadel-hybrid-risk-route",
+      "repetition": 1
+    },
+    {
+      "order": 3,
+      "scenario_id": "config-feature-boolean",
+      "policy_id": "always-claude-sonnet",
+      "repetition": 1
+    },
+    {
+      "order": 4,
+      "scenario_id": "security-prototype-keys",
+      "policy_id": "always-claude-sonnet",
+      "repetition": 1
+    },
+    {
+      "order": 5,
+      "scenario_id": "docs-audit-command",
+      "policy_id": "citadel-hybrid-risk-route",
+      "repetition": 1
+    },
+    {
+      "order": 6,
+      "scenario_id": "package-diagnose-script",
+      "policy_id": "citadel-hybrid-risk-route",
+      "repetition": 1
+    },
+    {
+      "order": 7,
+      "scenario_id": "config-feature-boolean",
+      "policy_id": "citadel-hybrid-risk-route",
+      "repetition": 1
+    },
+    {
+      "order": 8,
+      "scenario_id": "bug-zero-retry-delay",
+      "policy_id": "citadel-hybrid-risk-route",
+      "repetition": 1
+    },
+    {
+      "order": 9,
+      "scenario_id": "refactor-first-tag",
+      "policy_id": "always-claude-sonnet",
+      "repetition": 1
+    },
+    {
+      "order": 10,
+      "scenario_id": "security-filename-boundary",
+      "policy_id": "always-claude-sonnet",
+      "repetition": 1
+    },
+    {
+      "order": 11,
+      "scenario_id": "api-parser-alias",
+      "policy_id": "always-claude-sonnet",
+      "repetition": 1
+    },
+    {
+      "order": 12,
+      "scenario_id": "bug-zero-retry-delay",
+      "policy_id": "always-claude-sonnet",
+      "repetition": 1
+    },
+    {
+      "order": 13,
+      "scenario_id": "docs-audit-command",
+      "policy_id": "always-claude-sonnet",
+      "repetition": 1
+    },
+    {
+      "order": 14,
+      "scenario_id": "security-prototype-keys",
+      "policy_id": "citadel-hybrid-risk-route",
+      "repetition": 1
+    },
+    {
+      "order": 15,
+      "scenario_id": "parser-positive-count",
+      "policy_id": "citadel-hybrid-risk-route",
+      "repetition": 1
+    },
+    {
+      "order": 16,
+      "scenario_id": "bug-case-insensitive-header",
+      "policy_id": "always-claude-sonnet",
+      "repetition": 1
+    },
+    {
+      "order": 17,
+      "scenario_id": "security-bearer-token",
+      "policy_id": "always-claude-sonnet",
+      "repetition": 1
+    },
+    {
+      "order": 18,
+      "scenario_id": "security-filename-boundary",
+      "policy_id": "citadel-hybrid-risk-route",
+      "repetition": 1
+    },
+    {
+      "order": 19,
+      "scenario_id": "bug-case-insensitive-header",
+      "policy_id": "citadel-hybrid-risk-route",
+      "repetition": 1
+    },
+    {
+      "order": 20,
+      "scenario_id": "package-diagnose-script",
+      "policy_id": "always-claude-sonnet",
+      "repetition": 1
+    },
+    {
+      "order": 21,
+      "scenario_id": "refactor-first-tag",
+      "policy_id": "citadel-hybrid-risk-route",
+      "repetition": 1
+    },
+    {
+      "order": 22,
+      "scenario_id": "docs-cache-variable",
+      "policy_id": "citadel-hybrid-risk-route",
+      "repetition": 1
+    },
+    {
+      "order": 23,
+      "scenario_id": "security-bearer-token",
+      "policy_id": "citadel-hybrid-risk-route",
+      "repetition": 1
+    }
+  ],
+  "ollama_endpoint": "http://127.0.0.1:11434",
+  "attestation_public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEArrxSLJ2gFdz4Kvawwa/sObRB/RWUh2zwpcUopwZQvQ4=\n-----END PUBLIC KEY-----\n"
+}

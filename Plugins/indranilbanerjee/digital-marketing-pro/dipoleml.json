@@ -1,0 +1,157 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.indranilbanerjee.digital-marketing-pro",
+  "type": "plugin",
+  "name": "Digital Marketing Pro",
+  "slug": "digital-marketing-pro",
+  "vendor": "indranilbanerjee",
+  "description": "An open-source AI based digital marketing operating system for strategy, SEO, AEO/GEO, paid media, content, CRM, and analytics - grounded in brand context, human approval, and verifiable outputs. Best for Brands, Agencies and one person campanies.",
+  "version": "3.40.0",
+  "homepage": "https://github.com/indranilbanerjee/digital-marketing-pro",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "aeo",
+    "agent-skills",
+    "ai-marketing",
+    "claude-plugin",
+    "claude-skills",
+    "content-marketing",
+    "cursor-plugin",
+    "digital-marketing",
+    "digital-marketing-agency"
+  ],
+  "tags": [
+    "aeo",
+    "agent-skills",
+    "ai-marketing",
+    "claude-code",
+    "claude-plugin",
+    "claude-skills",
+    "content-marketing",
+    "cursor-plugin",
+    "digital-marketing",
+    "digital-marketing-agency",
+    "eu-ai-act",
+    "geo",
+    "hermes-plugin",
+    "marketing",
+    "marketing-agency",
+    "marketing-automation",
+    "marketing-strategy",
+    "openai-codex",
+    "openclaw-plugin",
+    "seo"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "indranilbanerjee",
+    "brandName": "indranilbanerjee",
+    "source": "https://github.com/indranilbanerjee.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:13:21Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "indranilbanerjee/digital-marketing-pro",
+    "url": "https://github.com/indranilbanerjee/digital-marketing-pro",
+    "commit": "aa52e986da815a0fa33b8c98d13667b8bd34efdc",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 913,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:59:07Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude,cursor",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".cursor-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/cursor/.cursor-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Open-source AI marketing plugin for agencies & in-house teams — 164 skills, 24 agents, 12-Part Strategy Flow, Cowork team-persistent, EU AI Act Article 50 ready. Runs on Claude Code, Codex, Cursor, Copilot CLI, Antigravity, Hermes Agent, OpenClaw, Grok + 35+ more Agent Skills platforms.",
+        "after": "Open-source AI marketing plugin for agencies & in-house teams — 164 skills, 24 agents, 12-Part Strategy Flow, Cowork team-persistent, EU AI Act Article 50 ready. Runs on DipoleML, Codex, Cursor, Copilot CLI, Antigravity, Hermes Agent, OpenClaw, Grok + 35+ more Agent Skills platforms.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "@indranilbanerjee/digital-marketing-pro"
+    ],
+    "env": [
+      "SLACK_BOT_TOKEN",
+      "HUBSPOT_PRIVATE_APP_TOKEN",
+      "KLAVIYO_PRIVATE_KEY",
+      "SENDGRID_API_KEY",
+      "BREVO_API_KEY",
+      "CUSTOMERIO_APP_API_KEY",
+      "MAILCHIMP_API_KEY",
+      "AHREFS_API_KEY",
+      "ANTHROPIC_API_KEY",
+      "OPENAI_API_KEY",
+      "GEMINI_API_KEY",
+      "EVOLINK_API_KEY"
+    ],
+    "credentials": [
+      "SLACK_BOT_TOKEN",
+      "HUBSPOT_PRIVATE_APP_TOKEN",
+      "KLAVIYO_PRIVATE_KEY",
+      "SENDGRID_API_KEY",
+      "BREVO_API_KEY",
+      "CUSTOMERIO_APP_API_KEY",
+      "MAILCHIMP_API_KEY",
+      "AHREFS_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude",
+      "cursor"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

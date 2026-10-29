@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "kind": "citadel_optimizer_matrix_intent",
+  "authorization_digest": "sha256:b17292a5a08b6ea705f82d5c265e047aa65bb9f774d2fc5ea085648e0fdab1eb",
+  "ordinal": 86,
+  "run_key": "citadel-safety-model-proof/always-frontier/2",
+  "scenario_id": "citadel-safety-model-proof",
+  "policy_id": "always-frontier",
+  "repetition": 2,
+  "state": "completed",
+  "started_at": "2026-07-31T04:11:15.957Z",
+  "completed_at": "2026-07-31T04:18:43.192Z",
+  "output_file": "records/086-citadel-safety-model-proof-always-frontier-2.json",
+  "error": null
+}

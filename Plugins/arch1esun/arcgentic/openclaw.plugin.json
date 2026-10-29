@@ -1,0 +1,27 @@
+{
+  "id": "arcgentic",
+  "name": "Arcgentic",
+  "description": "Mechanical plan/dev/self-audit/external-audit/closeout workflow gates for AI coding agents.",
+  "version": "2.2.1",
+  "activation": {
+    "onStartup": false
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "skills": [
+    "skills/using-arcgentic",
+    "skills/pre-round-scan",
+    "skills/orchestrate-round",
+    "skills/plan-round",
+    "skills/execute-round",
+    "skills/audit-round",
+    "skills/close-round",
+    "skills/track-refs",
+    "skills/codify-lesson",
+    "skills/cross-session-handoff",
+    "skills/verify-gates"
+  ]
+}

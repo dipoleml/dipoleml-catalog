@@ -1,0 +1,16 @@
+{
+  "name": "switchxprovider",
+  "displayName": "Switchxprovider",
+  "version": "0.14.0",
+  "description": "Local proxy that routes DipoleML traffic to multiple API providers with automatic failover, user-set priority, adaptive cooldowns, and auto-recovery",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Shaheer 00"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/shaheer-00/switchXprovider",
+  "repository": "https://github.com/shaheer-00/switchXprovider",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

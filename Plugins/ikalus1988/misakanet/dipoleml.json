@@ -1,0 +1,130 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.ikalus1988.misakanet",
+  "type": "plugin",
+  "name": "Misakanet",
+  "slug": "misakanet",
+  "vendor": "ikalus1988",
+  "description": "Re-debugging Solved Failures? No Way. 500+ Evidence-graded fix lessons, One MCP Call-->https://misakanet.org",
+  "version": "2.50.1",
+  "homepage": "https://github.com/Ikalus1988/MisakaNet",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "claude-code-plugin",
+    "codex",
+    "codex-plugin",
+    "d1",
+    "debugging",
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "dsh-plugins"
+  ],
+  "tags": [
+    "ai-agents",
+    "claude-code-plugin",
+    "codex",
+    "codex-plugin",
+    "d1",
+    "debugging",
+    "deepseek-harness",
+    "dsh",
+    "dsh-plugin",
+    "dsh-plugins",
+    "failure-injection",
+    "failure-memory",
+    "github-actions",
+    "hermes-agent",
+    "knowledge-base",
+    "mcp",
+    "mcp-server",
+    "opencode-plugin",
+    "sqlite",
+    "stackoverflow"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "ikalus1988",
+    "brandName": "ikalus1988",
+    "source": "https://github.com/Ikalus1988.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:13:19Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "Ikalus1988/MisakaNet",
+    "url": "https://github.com/Ikalus1988/MisakaNet",
+    "commit": "de5b881e13a449d66768a7d714c8f8356a00a52a",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 543,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:00:13Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=20.0.0",
+      "python3",
+      "python3"
+    ],
+    "packages": [
+      "misakanet"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

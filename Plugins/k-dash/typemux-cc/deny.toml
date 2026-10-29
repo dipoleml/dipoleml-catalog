@@ -1,0 +1,43 @@
+# cargo-deny configuration. Run locally with `cargo deny check`; enforced in
+# CI by the `deny` job in .github/workflows/ci.yml.
+#
+# https://embarkstudios.github.io/cargo-deny/
+
+[advisories]
+ignore = []
+
+[licenses]
+# Allow-list derived from the current dependency graph (`cargo metadata`),
+# not copied from a template. Every license expression in the graph resolves
+# via one of these three:
+# - MIT / Apache-2.0: the vast majority of crates.
+# - Unicode-3.0: required by the icu4x family (pulled in transitively via
+#   `url`'s IDNA support) and by unicode-ident, whose expression is
+#   `(MIT OR Apache-2.0) AND Unicode-3.0` — the AND means Unicode-3.0 must
+#   also be allowed, not just MIT/Apache-2.0.
+# Anything not covered by this list is denied by default; widening it is a
+# deliberate decision, not an implicit fallback.
+allow = ["MIT", "Apache-2.0", "Unicode-3.0"]
+confidence-threshold = 0.8
+
+[licenses.private]
+ignore = false
+
+[bans]
+# Duplicates are denied outright, with each tolerated one listed below.
+# Enumerating them is more useful than leaving this at "warn" forever: it
+# catches any *new* duplicate immediately instead of silently accumulating
+# more.
+multiple-versions = "deny"
+wildcards = "deny"
+skip = [
+    { crate = "syn@2", reason = "the ecosystem-wide syn 2 -> 3 migration is in progress: proc-macro crates cross over one release at a time (clap_derive, serde_derive and thiserror-impl already have; tokio-macros, tracing-attributes and the icu4x derives have not), so a 2/3 split is unavoidable for months. A version range rather than an exact pin, because syn 2.x keeps shipping patches while the migration runs. Delete this once `cargo tree -i syn@2` comes back empty; until then it stays, and while the graph happens to hold only one syn major it reports an `unnecessary-skip` warning (non-fatal)." },
+    { crate = "bitflags@1.3.2", reason = "the only consumer left on bitflags 1.x is lsp-types 0.97 (via fluent-uri); every other dependency in the graph already uses bitflags 2.x. Re-check when lsp-types updates its URI parser." },
+]
+
+[sources]
+# crates.io only. No git or alternate-registry dependencies exist today;
+# denying (not warning) means a new one must be added here deliberately.
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

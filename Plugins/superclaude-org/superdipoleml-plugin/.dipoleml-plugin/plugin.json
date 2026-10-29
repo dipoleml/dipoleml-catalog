@@ -1,0 +1,16 @@
+{
+  "name": "superdipoleml-plugin",
+  "displayName": "SuperDipoleML Plugin",
+  "version": "4.3.0",
+  "description": "Transform DipoleML into a structured development platform with 29 /sc: commands, 23 specialized agents, 7 behavioral modes, and MCP server integration",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Superclaude Org"
+  },
+  "license": "MIT",
+  "homepage": "https://superclaude.netlify.app/",
+  "repository": "https://github.com/SuperClaude-Org/SuperClaude_Plugin",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

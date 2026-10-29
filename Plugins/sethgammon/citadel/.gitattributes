@@ -1,0 +1,19 @@
+# The repository stores text as LF and checks it out as LF on every platform,
+# regardless of core.autocrlf. Generated surfaces, drift checks, and digests
+# compare bytes, so CRLF checkouts would create false drift.
+* text=auto eol=lf
+
+# Binary assets. Do not text-diff or normalize their bytes.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.webp binary
+*.mp4 binary
+*.webm binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.zip binary
+*.gz binary

@@ -1,0 +1,16 @@
+{
+  "name": "trace-dipoleml-code",
+  "displayName": "Trace DipoleML",
+  "version": "3.0.5",
+  "description": "Automatically trace DipoleML conversations to Braintrust for observability. Captures sessions, conversation turns, and tool calls as hierarchical traces.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Braintrustdata"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/braintrustdata/braintrust-claude-plugin",
+  "repository": "https://github.com/braintrustdata/braintrust-claude-plugin",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

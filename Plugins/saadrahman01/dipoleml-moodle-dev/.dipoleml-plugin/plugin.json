@@ -1,0 +1,16 @@
+{
+  "name": "dipoleml-moodle-dev",
+  "displayName": "DipoleML Moodle Dev",
+  "version": "0.5.0",
+  "description": "The most complete Moodle development toolkit: 13 skills, 8 slash commands, 2 subagents — covering scaffolding, XMLDB, capabilities, web services, Hooks API, AMD JS, PHPUnit, Behat, security, privacy/GDPR, performance, accessibility, themes, mobile, and cross-version upgrades. Ships with adapters for Cursor, Copilot, Aider, Continue, plus a companion MCP server (moodle-mcp) for live moodledev.io documentation lookups.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Saadrahman01"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/SaadRahman01/claude-moodle-dev",
+  "repository": "https://github.com/SaadRahman01/claude-moodle-dev",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

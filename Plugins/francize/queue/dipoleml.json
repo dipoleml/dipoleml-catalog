@@ -1,0 +1,110 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.francize.queue",
+  "type": "plugin",
+  "name": "Queue",
+  "slug": "queue",
+  "vendor": "francize",
+  "description": "Plugins and mods that make DipoleML better: work with the local Codex CLI, watch the prompt cache, preview pasted images.",
+  "version": "0.0.1",
+  "homepage": "https://github.com/francize/my-better-claude",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "claude-code-plugin",
+    "codex",
+    "plugin-marketplace",
+    "prompt-caching"
+  ],
+  "tags": [
+    "claude-code",
+    "claude-code-plugin",
+    "codex",
+    "plugin-marketplace",
+    "prompt-caching"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "francize",
+    "brandName": "francize",
+    "source": "https://github.com/francize.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:13:03Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "francize/my-better-claude",
+    "url": "https://github.com/francize/my-better-claude",
+    "commit": "486dc3ecf94e2bfdbaba2ad961eaf021b4f0b4ea",
+    "path": "plugins/queue",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 98,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:04:41Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Queue | Plugins and mods that make Claude Code better: work with the local Codex CLI, watch the prompt cache, preview pasted images.",
+        "after": "Queue | Plugins and mods that make DipoleML better: work with the local Codex CLI, watch the prompt cache, preview pasted images.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "A real prompt queue: Enter while Claude works queues the prompt instead of steering the running turn, and it is sent when the turn ends. Send now, edit or cancel each one from a band above the prompt.",
+        "after": "A real prompt queue: Enter while DipoleML works queues the prompt instead of steering the running turn, and it is sent when the turn ends. Send now, edit or cancel each one from a band above the prompt.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

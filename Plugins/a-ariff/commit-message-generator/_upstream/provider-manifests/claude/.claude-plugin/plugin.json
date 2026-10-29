@@ -1,0 +1,12 @@
+{
+  "name": "commit-message-generator",
+  "version": "1.0.0",
+  "description": "name: commit-message-generator",
+  "author": {
+    "name": "Ariff",
+    "email": "info@ariff.dev"
+  },
+  "skills": [
+    "skills/commit-message-generator.skill.md"
+  ]
+}

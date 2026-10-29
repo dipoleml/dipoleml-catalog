@@ -1,0 +1,113 @@
+---
+title: Agent Memory Extractor Timing — Eager vs Lazy with Implementation
+domain: agent
+tags:
+- agent-memory
+- extractor
+- timing
+- token-efficiency
+- quality
+status: published
+source: brgsk.xyz
+provenance:
+  source: "community"
+  contributor: "Community"
+  merged_at: "2026-08-23"
+  evidence: "post-publication"
+---
+
+## Problem
+
+Agent memory extractors that run at the wrong time waste tokens or produce low-quality extractions. Eager extraction (every message) wastes tokens on small talk. Lazy extraction (end of session) degrades quality on long transcripts due to "lost in the middle" effect.
+
+## Root Cause
+
+LLMs attend worse to material placed in the middle of long contexts. A 50-message transcript degrades extraction quality compared to 5 focused messages.
+
+## Solution
+
+### Component Anatomy
+
+Every agent memory library has 4 components:
+
+| Component | Function | Key Choice |
+|-----------|----------|------------|
+| **Extractor** | Reads conversation, decides what to keep | Timing: eager vs lazy vs hybrid |
+| **Statements** | Short abstracted facts | Granularity: atomic vs composite |
+| **Retriever** | Recalls relevant memories | Strategy: vector + keyword + time decay |
+| **Store** | Persistence | Backend: vector / relational / hybrid |
+
+### Hybrid Timing Strategy
+
+```python
+import re
+
+HIGH_DENSITY_PATTERNS = [
+    r"(?i)(prefer|like|always|never|remember that|my .+ is)",
+    r"(?i)(fix|solve|workaround|the issue was|root cause)",
+    r"(?i)(decision|chose|picked|going with|locked in)",
+]
+
+LOW_DENSITY_PATTERNS = [
+    r"(?i)^(hi|hello|thanks|ok|sure|got it|yes|no)\s*[.!?]?$",
+    r"(?i)^(lol|haha|nice|cool|great)\s*[.!?]?$",
+]
+
+def should_extract(message: str) -> bool:
+    for pattern in HIGH_DENSITY_PATTERNS:
+        if re.search(pattern, message):
+            return True
+    for pattern in LOW_DENSITY_PATTERNS:
+        if re.match(pattern, message.strip()):
+            return False
+    return len(message) > 50
+```
+
+### Extraction Prompts
+
+```python
+EXTRACT_PROMPT = """Analyze this message and extract factual statements.
+Only extract: preferences, corrections, decisions, facts.
+Skip: greetings, acknowledgments, questions, opinions.
+
+Format: one statement per line, prefixed with type:
+- PREF: user preference
+- FACT: world knowledge
+- CORR: correction to previous belief
+- DEC: decision made
+
+Message: {message}
+Statements:"""
+
+SUMMARY_PROMPT = """Given this transcript, extract the 5 most important
+durable facts. Focus on preferences, decisions, corrections, key facts.
+
+Transcript: {transcript}
+Top 5 facts:"""
+```
+
+### Token Usage Comparison
+
+| Strategy | Tokens (50 msgs) | Quality | Latency |
+|----------|-----------------|---------|---------|
+| Eager (every message) | ~15,000 | High | High (50 calls) |
+| Lazy (session end) | ~2,000 | Low (lost-in-middle) | Low (1 call) |
+| **Hybrid (density filter)** | **~4,000** | **High** | **Medium (~10 calls)** |
+
+## Verification
+
+```bash
+echo "Lesson: Agent Memory Extractor Timing — Eager vs Lazy with"
+wc -l lessons/contrib/agent-memory-extractor-timing.md
+```
+
+**Expected Output:**
+```
+Lesson: Agent Memory Extractor Timing — Eager vs Lazy with
+# (line count)
+```
+
+## Notes
+
+- Episodic/Semantic/Procedural labels from Tulving (1972) but many libraries just贴标签
+- Source: https://brgsk.xyz/agent-memory-anatomy/

@@ -1,0 +1,108 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.ainsteinsbr.renata",
+  "type": "plugin",
+  "name": "Renata",
+  "slug": "renata",
+  "vendor": "ainsteinsbr",
+  "description": "RENATA — a product method that ties persona → metric → ADR → code, as a DipoleML plugin. by AInsteins.",
+  "version": "0.5.0",
+  "homepage": "https://github.com/AInsteinsBR/renata",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "adr",
+    "ainsteins",
+    "claude-plugin",
+    "prd",
+    "product-management",
+    "tdd"
+  ],
+  "tags": [
+    "adr",
+    "ainsteins",
+    "claude-code",
+    "claude-plugin",
+    "prd",
+    "product-management",
+    "tdd"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "ainsteinsbr",
+    "brandName": "ainsteinsbr",
+    "source": "https://github.com/AInsteinsBR.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:12:06Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "AInsteinsBR/renata",
+    "url": "https://github.com/AInsteinsBR/renata",
+    "commit": "ac0f55d77008f6af4e35037ae25fe35bd8058afa",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 11,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:51:28Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Renata | RENATA — a product method that ties persona → metric → ADR → code, as a Claude Code plugin. by AInsteins.",
+        "after": "Renata | RENATA — a product method that ties persona → metric → ADR → code, as a DipoleML plugin. by AInsteins.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

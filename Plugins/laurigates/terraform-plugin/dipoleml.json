@@ -1,0 +1,104 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.laurigates.terraform-plugin",
+  "type": "plugin",
+  "name": "Terraform Plugin",
+  "slug": "terraform-plugin",
+  "vendor": "laurigates",
+  "description": "DipoleML plugins for development workflows",
+  "version": "1.7.11",
+  "homepage": "https://github.com/laurigates/claude-plugins",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "managed-by-opentofu",
+    "plugins"
+  ],
+  "tags": [
+    "claude-code",
+    "managed-by-opentofu",
+    "plugins"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "laurigates",
+    "brandName": "laurigates",
+    "source": "https://github.com/laurigates.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:13:47Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "laurigates/claude-plugins",
+    "url": "https://github.com/laurigates/claude-plugins",
+    "commit": "3cbda15de062aa6d3302afd330afb0ff1c8979df",
+    "path": "terraform-plugin",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 59,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:49:37Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Terraform Plugin | Claude Code plugins for development workflows",
+        "after": "Terraform Plugin | DipoleML plugins for development workflows",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [
+      "TFE_TOKEN"
+    ],
+    "credentials": [
+      "TFE_TOKEN"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

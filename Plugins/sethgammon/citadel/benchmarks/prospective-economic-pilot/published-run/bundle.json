@@ -1,0 +1,239 @@
+{
+  "schema": 1,
+  "bundle_id": "sha256:63b42d287782b46a1c4ffb61e2c2560f28cc8ea7c7ba45269c859c67ff2119f8",
+  "run_id": "sha256:f89f3a3cde8534b23a84702174fe29c2e2625b83d994df08f82bfc081e1555d1",
+  "freeze_id": "sha256:364ea819b1a769f07a04702c47b928c2ba0b2c77e04412615350f272ddbcb237",
+  "started_at": "2026-08-02T00:32:14.789Z",
+  "completed_at": "2026-08-02T00:38:07.827Z",
+  "environment": {
+    "platform": "win32",
+    "arch": "x64",
+    "cpu_count": 12,
+    "cpu_model": "AMD Ryzen 5 2600 Six-Core Processor            ",
+    "total_memory_bytes": 34266742784,
+    "gpu": "NVIDIA GeForce GTX 1070, 8192 MiB, 582.53",
+    "hostname_digest": "sha256:76ad7b959234467904798f9c25069a2cf56a833f2282c4e8a4adfca9cf651540",
+    "git_commit": "bce1ca26e04c44d962f8eda13cd2764b0114852e",
+    "node": "v22.17.1",
+    "model_inventory": [
+      {
+        "model": "qwen2.5-coder:3b",
+        "expected_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+        "observed_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+        "status": "passed"
+      },
+      {
+        "model": "qwen2.5-coder:7b",
+        "expected_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+        "observed_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+        "status": "passed"
+      }
+    ],
+    "human_interventions_during_cells": {
+      "value": 0,
+      "provenance": "operator-declared"
+    }
+  },
+  "economics": {
+    "electricity_usd_per_kwh": 0.2,
+    "gpu_residual_value_usd": 100,
+    "gpu_useful_compute_hours": 10000,
+    "setup_and_download_costs_included": false,
+    "whole_system_energy_status": "unknown"
+  },
+  "artifacts": [
+    {
+      "path": "cells/000-parser-port-boundary--citadel-frozen-risk-route.json",
+      "digest": "sha256:151bc32bbafb1463f98439bc9f17f2eea930b433f21e9e1a726452466aa80fa6"
+    },
+    {
+      "path": "cells/001-security-local-redirect--citadel-frozen-risk-route.json",
+      "digest": "sha256:faf2377ae6f5bd9d2d1034fc2eb81c73fbafa8bd60af052892a131cbb129697a"
+    },
+    {
+      "path": "cells/002-bug-nullish-timeout--always-strong-local.json",
+      "digest": "sha256:65e88169dd3fb0cde27385546cb0621c2a55bc71315a2bd4d6b1a2d05e5a20e3"
+    },
+    {
+      "path": "cells/003-package-health-script--citadel-frozen-risk-route.json",
+      "digest": "sha256:c02374e29c9224e142ca791dd416f652a66fd024258d0a197a3b56703dd02c8d"
+    },
+    {
+      "path": "cells/004-refactor-first-unique--always-strong-local.json",
+      "digest": "sha256:0079d7c8c2feb4ce937393945eaf1c31c2311a395f26d8c3b779c4e2947c9404"
+    },
+    {
+      "path": "cells/005-security-header-crlf--citadel-frozen-risk-route.json",
+      "digest": "sha256:bf08df925d8fb5691ff7f784f56836dd470c7c1a3f3b8000cab5eead507fc2a5"
+    },
+    {
+      "path": "cells/006-security-header-crlf--always-strong-local.json",
+      "digest": "sha256:18ac950b9a74535dcba5e8a6d11ec1ca742c539e009502b6d1898a452423daf9"
+    },
+    {
+      "path": "cells/007-config-retry-numbers--always-strong-local.json",
+      "digest": "sha256:1dea995e5e15770bc22957e7020bec03132126648b2cbdc3639b22c4ad0e2f83"
+    },
+    {
+      "path": "cells/008-bug-inclusive-range--always-strong-local.json",
+      "digest": "sha256:634672684c462e3832219b47f64286a3be4c59c98f2807d04b13593203df311f"
+    },
+    {
+      "path": "cells/009-parser-port-boundary--always-strong-local.json",
+      "digest": "sha256:da11650384393a93bc59a159129a3f428409e69e1678d96ca52fcd4296b527b4"
+    },
+    {
+      "path": "cells/010-bug-inclusive-range--citadel-frozen-risk-route.json",
+      "digest": "sha256:4506a5cbaccae8788311f01e4954a880f1143566684d0778a86c0d32d7a06866"
+    },
+    {
+      "path": "cells/011-docs-trace-flag--always-strong-local.json",
+      "digest": "sha256:1acc5bf628bf94ae28b746ed5bcbc6b28238742885573f10835e767d965a3e8a"
+    },
+    {
+      "path": "cells/012-docs-verify-command--always-strong-local.json",
+      "digest": "sha256:e02acc4e178829ccd9772e09d06ccf3e192a2f1443a343627ccd9dbb725c5c4d"
+    },
+    {
+      "path": "cells/013-api-formatter-alias--citadel-frozen-risk-route.json",
+      "digest": "sha256:0faa7c0a056a6d4dd3f0df390b98e874b2032738a90e26733fff29e0a3b083e6"
+    },
+    {
+      "path": "cells/014-docs-trace-flag--citadel-frozen-risk-route.json",
+      "digest": "sha256:7943d861f516bec3d54b00a13f5768ba7e56a00876c3d9303b83748041596857"
+    },
+    {
+      "path": "cells/015-bug-nullish-timeout--citadel-frozen-risk-route.json",
+      "digest": "sha256:f60f81072d7a667878837df516bbd65949622436110f23c4a5c849519c462856"
+    },
+    {
+      "path": "cells/016-bug-status-normalization--always-strong-local.json",
+      "digest": "sha256:b5308d5896d752f7636b2726f25ab9e65d709d9f68b627b6d31d662d6b4598dc"
+    },
+    {
+      "path": "cells/017-api-formatter-alias--always-strong-local.json",
+      "digest": "sha256:97cf765871dea9e2cad67cb56c569ab9566d48419e40f5b01ffb02b04a25480d"
+    },
+    {
+      "path": "cells/018-bug-status-normalization--citadel-frozen-risk-route.json",
+      "digest": "sha256:95233fd8362edb590e7889b0d0979300a9a4366d047dc186865053bc57fa0b89"
+    },
+    {
+      "path": "cells/019-config-retry-numbers--citadel-frozen-risk-route.json",
+      "digest": "sha256:a506bf12be14d17d867ccfb8667ea50cb1bcfe500aefec4cae2d2f12ef4fc963"
+    },
+    {
+      "path": "cells/020-package-health-script--always-strong-local.json",
+      "digest": "sha256:dbf6192ae469f2af45269bfc0e0f7924f45f034e519858c2dc24e6cf003a25e9"
+    },
+    {
+      "path": "cells/021-refactor-first-unique--citadel-frozen-risk-route.json",
+      "digest": "sha256:946712e1e2f9a2f24ddb9a844941e25d801152a4e9e863aa15c579ad7a692b32"
+    },
+    {
+      "path": "cells/022-docs-verify-command--citadel-frozen-risk-route.json",
+      "digest": "sha256:2d0c8495c5edcffdf85ba87edc9a6133ebc8cf3176f8615774975ecf1ee9568b"
+    },
+    {
+      "path": "cells/023-security-local-redirect--always-strong-local.json",
+      "digest": "sha256:565269162b4084761fe2f7d886175e20b43adb2fe5a9d8bdb1d7df7aaa1fab0e"
+    }
+  ],
+  "final_chain_digest": "sha256:45b852c0316356efd31c546b0352fe15d3946b32730fff97ce15e8922b4c96e6",
+  "summary": {
+    "policies": [
+      {
+        "policy_id": "always-strong-local",
+        "cells": 12,
+        "unique_tasks": 12,
+        "verified": 8,
+        "failed": 4,
+        "unknown": 0,
+        "verified_rate": 0.666667,
+        "attempts": 12,
+        "cheap_attempts": 0,
+        "strong_attempts": 12,
+        "escalations": 0,
+        "request_wall_duration_ms": 120583,
+        "prompt_tokens": 2294,
+        "completion_tokens": 815,
+        "gpu_energy_status": "measured",
+        "gpu_energy_kwh": 0.002558003,
+        "modeled_gpu_cost_status": "derived-comparison",
+        "modeled_gpu_cost_usd": 0.000846553,
+        "actual_end_to_end_cash_status": "unknown"
+      },
+      {
+        "policy_id": "citadel-frozen-risk-route",
+        "cells": 12,
+        "unique_tasks": 12,
+        "verified": 8,
+        "failed": 4,
+        "unknown": 0,
+        "verified_rate": 0.666667,
+        "attempts": 15,
+        "cheap_attempts": 10,
+        "strong_attempts": 5,
+        "escalations": 3,
+        "request_wall_duration_ms": 221093,
+        "prompt_tokens": 2886,
+        "completion_tokens": 942,
+        "gpu_energy_status": "measured",
+        "gpu_energy_kwh": 0.003441985,
+        "modeled_gpu_cost_status": "derived-comparison",
+        "modeled_gpu_cost_usd": 0.001302544,
+        "actual_end_to_end_cash_status": "unknown"
+      }
+    ],
+    "risk_strata": [
+      {
+        "risk": "low",
+        "cells": 4,
+        "verified": 4,
+        "verified_rate": 1
+      },
+      {
+        "risk": "moderate",
+        "cells": 6,
+        "verified": 4,
+        "verified_rate": 0.666667
+      },
+      {
+        "risk": "high",
+        "cells": 2,
+        "verified": 0,
+        "verified_rate": 0
+      }
+    ],
+    "comparison": {
+      "quality_ratio": 1,
+      "gpu_energy_reduction": -0.345575,
+      "modeled_gpu_cost_reduction": -0.538644,
+      "request_wall_duration_reduction": -0.833534,
+      "token_reduction": -0.231264
+    },
+    "path_violations": 0,
+    "false_passes": 0,
+    "integrity_failures": 0,
+    "gates": {
+      "baseline_absolute_quality": false,
+      "baseline_risk_strata": false,
+      "relative_quality": true,
+      "gpu_energy": false,
+      "modeled_gpu_cost": false,
+      "terminal_coverage": true,
+      "execution_identity": true,
+      "zero_path_violations": true,
+      "zero_false_passes": true,
+      "integrity": true
+    },
+    "evidence_result": "failed",
+    "actual_end_to_end_cash_status": "unknown"
+  },
+  "report_digest": "sha256:df2677c3861baa69512d642a5fdecb8707be86d70d8a023289b840c9c0428fe8",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:6eeadadfce743454feda32e391797f187ccdcadc6aa744160cdfb6cb566e1e77",
+    "signature": "Rab+1I7vwRc5vmp8/iancCf2u6z5ja0V7eLaLnJ7cCeTBiKqUOy6tBgl7YtIZGs1e3JLmp5BIK3byhYp7NLnAA=="
+  }
+}

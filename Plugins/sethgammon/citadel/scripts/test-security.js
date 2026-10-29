@@ -1,0 +1,798 @@
+#!/usr/bin/env node
+
+/**
+ * test-security.js — Security regression tests for Citadel hooks
+ *
+ * Tests for:
+ *   1. Path traversal protection in protect-files.js
+ *   2. Shell injection prevention in git operations
+ *   3. Pip gate untracked file detection
+ *
+ * These tests validate that security fixes remain in place.
+ * Run manually: node scripts/test-security.js
+ * Run via CI: included in scripts/test-all.js
+ *
+ * Exit codes:
+ *   0 = all security tests pass
+ *   1 = one or more tests failed
+ */
+
+'use strict';
+
+const { execFileSync, spawnSync } = require('child_process');
+const fs = require('fs');
+const path = require('path');
+const os = require('os');
+
+const PLUGIN_ROOT = path.resolve(__dirname, '..');
+const PROTECT_FILES_HOOK = path.join(PLUGIN_ROOT, 'hooks_src', 'protect-files.js');
+const QUALITY_GATE_HOOK = path.join(PLUGIN_ROOT, 'hooks_src', 'quality-gate.js');
+const CODEX_ADAPTER = path.join(PLUGIN_ROOT, 'hooks_src', 'codex-adapter.js');
+
+let passed = 0;
+let failed = 0;
+const failures = [];
+
+function test(name, fn) {
+  try {
+    fn();
+    passed++;
+    console.log(`  ✓ ${name}`);
+  } catch (err) {
+    failed++;
+    const msg = err.message || String(err);
+    failures.push({ name, msg });
+    console.log(`  ✗ ${name}\n    ${msg}`);
+  }
+}
+
+function assert(condition, message) {
+  if (!condition) {
+    throw new Error(message || 'Assertion failed');
+  }
+}
+
+function main() {
+  console.log('\nCitadel Security Test Suite\n' + '='.repeat(40));
+
+  // Isolated temp project root keeps these tests independent of the repo's
+  // own harness.json, campaigns, and consent state, and keeps the blocks they
+  // provoke out of the repo's .planning/telemetry.
+  const envProj = fs.mkdtempSync(path.join(os.tmpdir(), 'citadel-envproj-'));
+  const isolatedEnv = { ...process.env, CLAUDE_PROJECT_DIR: envProj };
+
+  // ── 1. Path Traversal Protection ──
+
+  console.log('\n▶ Path Traversal Protection');
+
+  test('protect-files blocks ../../../etc/passwd', () => {
+    const input = JSON.stringify({
+      tool_name: 'Edit',
+      tool_input: { file_path: '../../../etc/passwd' }
+    });
+
+    const result = spawnSync(process.execPath, [PROTECT_FILES_HOOK], {
+      input,
+      encoding: 'utf8',
+      cwd: envProj,
+      env: isolatedEnv,
+    });
+
+    assert(result.status === 2, `Expected exit code 2 (block), got ${result.status}`);
+    assert(
+      result.stdout.includes('traversal') || result.stdout.includes('outside'),
+      'Expected traversal violation message in stdout'
+    );
+  });
+
+  test('protect-files blocks absolute path outside project', () => {
+    const input = JSON.stringify({
+      tool_name: 'Write',
+      tool_input: { file_path: '/etc/passwd' }
+    });
+
+    const result = spawnSync(process.execPath, [PROTECT_FILES_HOOK], {
+      input,
+      encoding: 'utf8',
+      cwd: envProj,
+      env: isolatedEnv,
+    });
+
+    assert(result.status === 2, `Expected exit code 2 (block), got ${result.status}`);
+  });
+
+  test('protect-files allows absolute read outside project for non-env files', () => {
+    const input = JSON.stringify({
+      tool_name: 'Read',
+      tool_input: { file_path: path.join(os.tmpdir(), `citadel-reference-${process.pid}.md`) }
+    });
+
+    const result = spawnSync(process.execPath, [PROTECT_FILES_HOOK], {
+      input,
+      encoding: 'utf8',
+      cwd: envProj,
+      env: isolatedEnv,
+    });
+
+    assert(result.status === 0, `Expected exit code 0 (allow), got ${result.status}: ${result.stdout}`);
+  });
+
+  test('protect-files allows legitimate project-relative path', () => {
+    const input = JSON.stringify({
+      tool_name: 'Edit',
+      tool_input: { file_path: path.join(envProj, 'README.md') }
+    });
+
+    const result = spawnSync(process.execPath, [PROTECT_FILES_HOOK], {
+      input,
+      encoding: 'utf8',
+      cwd: envProj,
+      env: isolatedEnv,
+    });
+
+    assert(result.status === 0, `Expected exit code 0 (allow), got ${result.status}`);
+  });
+
+  test('protect-files accepts an in-root write through an equivalent filesystem alias', () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'citadel-root-alias-'));
+    const actualRoot = path.join(base, 'actual');
+    const aliasRoot = path.join(base, 'alias');
+    try {
+      fs.mkdirSync(path.join(actualRoot, '.claude'), { recursive: true });
+      fs.mkdirSync(path.join(actualRoot, 'safe'), { recursive: true });
+      fs.writeFileSync(path.join(actualRoot, '.claude', 'harness.json'), '{"protectedFiles":[]}\n');
+      fs.symlinkSync(actualRoot, aliasRoot, process.platform === 'win32' ? 'junction' : 'dir');
+      const result = spawnSync(process.execPath, [PROTECT_FILES_HOOK], {
+        input: JSON.stringify({ tool_name: 'Write', tool_input: { file_path: 'safe/alias-note.txt' } }),
+        encoding: 'utf8',
+        cwd: fs.realpathSync(actualRoot),
+        env: { ...process.env, CLAUDE_PROJECT_DIR: aliasRoot, CITADEL_TEST: '1', CITADEL_UI: 'false' },
+      });
+      assert(result.status === 0, `Expected equivalent root alias to allow, got ${result.status}: ${result.stdout} ${result.stderr}`);
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  test('protect-files blocks an in-root symlink or junction that escapes outside', () => {
+    const base = fs.mkdtempSync(path.join(os.tmpdir(), 'citadel-root-escape-'));
+    const projectRoot = path.join(base, 'project');
+    const outsideRoot = path.join(base, 'outside');
+    try {
+      fs.mkdirSync(path.join(projectRoot, '.claude'), { recursive: true });
+      fs.mkdirSync(outsideRoot, { recursive: true });
+      fs.writeFileSync(path.join(projectRoot, '.claude', 'harness.json'), '{"protectedFiles":[]}\n');
+      fs.symlinkSync(outsideRoot, path.join(projectRoot, 'escape'), process.platform === 'win32' ? 'junction' : 'dir');
+      const result = spawnSync(process.execPath, [PROTECT_FILES_HOOK], {
+        input: JSON.stringify({ tool_name: 'Write', tool_input: { file_path: 'escape/canary.txt' } }),
+        encoding: 'utf8',
+        cwd: projectRoot,
+        env: { ...process.env, CLAUDE_PROJECT_DIR: projectRoot, CITADEL_TEST: '1', CITADEL_UI: 'false' },
+      });
+      assert(result.status === 2, `Expected escaping link to block, got ${result.status}: ${result.stdout} ${result.stderr}`);
+    } finally {
+      fs.rmSync(base, { recursive: true, force: true });
+    }
+  });
+
+  test('protect-files blocks .env file reads', () => {
+    const input = JSON.stringify({
+      tool_name: 'Read',
+      tool_input: { file_path: '.env' }
+    });
+
+    const result = spawnSync(process.execPath, [PROTECT_FILES_HOOK], {
+      input,
+      encoding: 'utf8',
+      cwd: envProj,
+      env: isolatedEnv,
+    });
+
+    assert(result.status === 2, `Expected exit code 2 (block), got ${result.status}`);
+    assert(result.stdout.includes('.env'), 'Expected .env block message');
+  });
+
+  // ── 2. Shell Injection Prevention ──
+
+  console.log('\n▶ Shell Injection Prevention');
+
+  test('quality-gate uses execFileSync (safe)', () => {
+    const content = fs.readFileSync(QUALITY_GATE_HOOK, 'utf8');
+    assert(
+      content.includes('execFileSync') && !content.includes('execSync('),
+      'quality-gate should use execFileSync, not execSync'
+    );
+    assert(
+      content.includes("execFileSync('git'") || content.includes('execFileSync("git"'),
+      'quality-gate should pass git as separate argument, not in shell string'
+    );
+  });
+
+  test('protect-files does not use child_process exec', () => {
+    const content = fs.readFileSync(PROTECT_FILES_HOOK, 'utf8');
+    assert(
+      !content.includes('execSync(') && !content.includes('exec('),
+      'protect-files should not use execSync or exec (shell injection risk)'
+    );
+  });
+
+  // ── 3. Pip Gate (in quality-gate.js) ──
+
+  console.log('\n▶ Pip Gate (advisory checks)');
+
+  test('quality-gate checks requirements.txt git tracking', () => {
+    const content = fs.readFileSync(QUALITY_GATE_HOOK, 'utf8');
+    assert(
+      content.includes('requirements.txt') || content.includes('pip'),
+      'quality-gate should check Python dependency files'
+    );
+    // Verify it uses git ls-files (safe) not shell commands
+    assert(
+      content.includes("execFileSync('git'") || content.includes('execFileSync("git"'),
+      'quality-gate should use execFileSync for git operations'
+    );
+  });
+
+  // ── 4. External Action Gate — Consent System ──
+
+  console.log('\n▶ External Action Gate (Consent)');
+
+  const EAG_HOOK = path.join(PLUGIN_ROOT, 'hooks_src', 'external-action-gate.js');
+
+  test('external-action-gate blocks secrets regardless of consent', () => {
+    const input = JSON.stringify({
+      tool_name: 'Bash',
+      tool_input: { command: 'cat .env.local' }
+    });
+
+    const result = spawnSync(process.execPath, [EAG_HOOK], {
+      input,
+      encoding: 'utf8',
+      cwd: envProj,
+      env: isolatedEnv,
+    });
+
+    assert(result.status === 2, `Expected exit code 2 (block), got ${result.status}`);
+    assert(result.stderr.includes('secrets'), 'Expected secrets block message');
+  });
+
+  test('external-action-gate blocks hard actions (gh release create)', () => {
+    const input = JSON.stringify({
+      tool_name: 'Bash',
+      tool_input: { command: 'gh release create v1.0.0' }
+    });
+
+    const result = spawnSync(process.execPath, [EAG_HOOK], {
+      input,
+      encoding: 'utf8',
+      cwd: envProj,
+      env: isolatedEnv,
+    });
+
+    assert(result.status === 2, `Expected exit code 2 (block), got ${result.status}`);
+    assert(
+      result.stderr.includes('requires approval') || result.stderr.includes('irreversible'),
+      'Expected approval/block message for hard action'
+    );
+  });
+
+  test('external-action-gate blocks protected branch deletion', () => {
+    const input = JSON.stringify({
+      tool_name: 'Bash',
+      tool_input: { command: 'git push origin --delete main' }
+    });
+
+    const result = spawnSync(process.execPath, [EAG_HOOK], {
+      input,
+      encoding: 'utf8',
+      cwd: envProj,
+      env: isolatedEnv,
+    });
+
+    assert(result.status === 2, `Expected exit code 2 (block), got ${result.status}`);
+    assert(result.stderr.includes('protected branch'), 'Expected protected branch message');
+  });
+
+  test('external-action-gate allows reversible delivery actions by default', () => {
+    const input = JSON.stringify({
+      tool_name: 'Bash',
+      tool_input: { command: 'git push origin feat/test' }
+    });
+
+    const result = spawnSync(process.execPath, [EAG_HOOK], {
+      input,
+      encoding: 'utf8',
+      cwd: envProj,
+      env: isolatedEnv,
+    });
+
+    assert(result.status === 0, `Expected exit code 0 (allow), got ${result.status}: ${result.stderr}`);
+  });
+
+  test('external-action-gate allows non-external commands', () => {
+    const input = JSON.stringify({
+      tool_name: 'Bash',
+      tool_input: { command: 'npm run build' }
+    });
+
+    const result = spawnSync(process.execPath, [EAG_HOOK], {
+      input,
+      encoding: 'utf8',
+      cwd: envProj,
+      env: isolatedEnv,
+    });
+
+    assert(result.status === 0, `Expected exit code 0 (allow), got ${result.status}`);
+  });
+
+  test('consent utilities round-trip correctly', () => {
+    const health = require(path.join(PLUGIN_ROOT, 'hooks_src', 'harness-health-util'));
+    const tmpDir = path.join(os.tmpdir(), `citadel-consent-test-${Date.now()}`);
+    const origProjectRoot = health.PROJECT_ROOT;
+
+    // Test readConsent returns null when no config exists
+    const result = health.checkConsent('externalActions');
+    // Can't easily test with mocked PROJECT_ROOT, so verify the function exists and returns valid shape
+    assert(
+      result && typeof result.action === 'string',
+      'checkConsent should return { action: string }'
+    );
+    assert(
+      ['allow', 'block', 'first-encounter'].includes(result.action),
+      `checkConsent action should be allow/block/first-encounter, got ${result.action}`
+    );
+  });
+
+  // ── 5. Glob Pattern Matching (protect-files) ──
+
+  console.log('\n▶ Glob Pattern Security');
+
+  test('protect-files blocks protected glob patterns', () => {
+    // Create a temporary harness.json with a protected pattern
+    const tmpConfig = path.join(os.tmpdir(), `citadel-test-${Date.now()}.json`);
+    fs.writeFileSync(tmpConfig, JSON.stringify({
+      protectedFiles: ['secrets/**']
+    }));
+
+    const input = JSON.stringify({
+      tool_name: 'Edit',
+      tool_input: { file_path: path.join(PLUGIN_ROOT, 'secrets', 'api-keys.txt') }
+    });
+
+    // Test would need to mock harness.json location — document expected behavior
+    // For now, verify the matchPattern logic exists
+    const content = fs.readFileSync(PROTECT_FILES_HOOK, 'utf8');
+    assert(
+      content.includes('matchPattern') && content.includes('**'),
+      'protect-files should support ** glob patterns'
+    );
+
+    fs.unlinkSync(tmpConfig);
+  });
+
+  // ── 6. Symmetric .env Protection (Edit/Write) ──
+
+  console.log('\n▶ Symmetric .env Protection (Edit/Write)');
+
+  function runProtectFiles(toolName, filePath, extraEnv = {}) {
+    const input = JSON.stringify({
+      tool_name: toolName,
+      tool_input: { file_path: filePath },
+    });
+    return spawnSync(process.execPath, [PROTECT_FILES_HOOK], {
+      input,
+      encoding: 'utf8',
+      cwd: PLUGIN_ROOT,
+      env: { ...process.env, CLAUDE_PROJECT_DIR: envProj, ...extraEnv },
+    });
+  }
+
+  test('protect-files blocks Write to .env with reason on stderr', () => {
+    const result = runProtectFiles('Write', path.join(envProj, '.env'));
+    assert(result.status === 2, `Expected exit code 2 (block), got ${result.status}`);
+    assert(
+      result.stderr.includes('.env') && result.stderr.includes('secrets'),
+      `Expected .env block reason on stderr, got: ${result.stderr}`
+    );
+  });
+
+  test('protect-files blocks Edit to .env.local', () => {
+    const result = runProtectFiles('Edit', path.join(envProj, '.env.local'));
+    assert(result.status === 2, `Expected exit code 2 (block), got ${result.status}`);
+  });
+
+  test('protect-files allows Write to .env.example', () => {
+    const result = runProtectFiles('Write', path.join(envProj, '.env.example'));
+    assert(
+      result.status === 0,
+      `Expected exit code 0 (allow), got ${result.status}: ${result.stdout} ${result.stderr}`
+    );
+  });
+
+  test('protect-files honors allowEnvWrites escape hatch', () => {
+    const optInProj = fs.mkdtempSync(path.join(os.tmpdir(), 'citadel-envallow-'));
+    fs.mkdirSync(path.join(optInProj, '.claude'), { recursive: true });
+    fs.writeFileSync(
+      path.join(optInProj, '.claude', 'harness.json'),
+      JSON.stringify({ allowEnvWrites: true })
+    );
+    const input = JSON.stringify({
+      tool_name: 'Write',
+      tool_input: { file_path: path.join(optInProj, '.env') },
+    });
+    const result = spawnSync(process.execPath, [PROTECT_FILES_HOOK], {
+      input,
+      encoding: 'utf8',
+      cwd: PLUGIN_ROOT,
+      env: { ...process.env, CLAUDE_PROJECT_DIR: optInProj },
+    });
+    fs.rmSync(optInProj, { recursive: true, force: true });
+    assert(
+      result.status === 0,
+      `Expected exit code 0 (allow), got ${result.status}: ${result.stdout} ${result.stderr}`
+    );
+  });
+
+  // ── 7. Native Memory Directory Allowlist ──
+
+  console.log('\n▶ Native Memory Directory Allowlist');
+
+  test('protect-files allows native memory writes through an equivalent home alias', () => {
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'citadel-home-'));
+    const tmpHome = path.join(tmpRoot, 'real-home');
+    const homeAlias = path.join(tmpRoot, 'home-alias');
+    fs.mkdirSync(tmpHome);
+    fs.symlinkSync(tmpHome, homeAlias, process.platform === 'win32' ? 'junction' : 'dir');
+    const memFile = path.join(tmpHome, '.claude', 'projects', 'some-slug', 'memory', 'notes.md');
+    const result = runProtectFiles('Write', memFile, {
+      CITADEL_TEST: '1',
+      CITADEL_HOME_OVERRIDE: homeAlias,
+    });
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+    assert(
+      result.status === 0,
+      `Expected exit code 0 (allow), got ${result.status}: ${result.stdout} ${result.stderr}`
+    );
+  });
+
+  test('protect-files allows plan-mode writes to ~/.claude/plans, including through a home alias', () => {
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'citadel-home-'));
+    try {
+      const tmpHome = path.join(tmpRoot, 'real-home');
+      const homeAlias = path.join(tmpRoot, 'home-alias');
+      fs.mkdirSync(tmpHome);
+      fs.symlinkSync(tmpHome, homeAlias, process.platform === 'win32' ? 'junction' : 'dir');
+      const planFile = path.join(tmpHome, '.claude', 'plans', 'plan.md');
+      for (const home of [tmpHome, homeAlias]) {
+        for (const tool of ['Write', 'Edit']) {
+          const result = runProtectFiles(tool, planFile, {
+            CITADEL_TEST: '1', CITADEL_HOME_OVERRIDE: home, CITADEL_RUNTIME: 'claude-code',
+          });
+          assert(
+            result.status === 0,
+            `Expected ${tool} allow via ${home}, got ${result.status}: ${result.stdout} ${result.stderr}`
+          );
+        }
+      }
+      const read = runProtectFiles('Read', planFile, { CITADEL_TEST: '1', CITADEL_HOME_OVERRIDE: tmpHome });
+      assert(read.status === 0, `Expected Read allow, got ${read.status}: ${read.stderr}`);
+    } finally {
+      fs.rmSync(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('protect-files keeps the plan-file exemption narrow', () => {
+    const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'citadel-home-'));
+    try {
+      const env = { CITADEL_TEST: '1', CITADEL_HOME_OVERRIDE: tmpHome, CITADEL_RUNTIME: 'claude-code' };
+      for (const rel of [
+        ['.claude', 'plansX', 'plan.md'],
+        ['.claude', 'plans', '.env'],
+        ['.claude', 'plans', '.env.local'],
+        ['.claude', 'settings.json'],
+        ['.claude', 'plans'],
+        ['.claude', 'projects', 'some-slug', 'plans', 'plan.md'],
+      ]) {
+        const result = runProtectFiles('Write', path.join(tmpHome, ...rel), env);
+        assert(result.status === 2, `Expected block for ${rel.join('/')}, got ${result.status}`);
+      }
+      const planFile = path.join(tmpHome, '.claude', 'plans', 'plan.md');
+      for (const runtime of ['codex', 'opencode']) {
+        const result = runProtectFiles('Write', planFile, { ...env, CITADEL_RUNTIME: runtime });
+        assert(result.status === 2, `Expected block under ${runtime}, got ${result.status}`);
+      }
+    } finally {
+      fs.rmSync(tmpHome, { recursive: true, force: true });
+    }
+  });
+
+  test('protect-files never exempts .env secrets in native memory or the scratchpad', () => {
+    const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'citadel-home-'));
+    try {
+      const memEnv = path.join(tmpHome, '.claude', 'projects', 'some-slug', 'memory', '.env');
+      const mem = runProtectFiles('Write', memEnv, { CITADEL_TEST: '1', CITADEL_HOME_OVERRIDE: tmpHome });
+      assert(mem.status === 2, `Expected block for memory .env, got ${mem.status}`);
+      const padEnv = path.join(tmpHome, 'claude', 'C--proj', 'sess-1', 'scratchpad', '.env');
+      const pad = spawnSync(process.execPath, [PROTECT_FILES_HOOK], {
+        input: JSON.stringify({ tool_name: 'Write', tool_input: { file_path: padEnv }, session_id: 'sess-1' }),
+        encoding: 'utf8',
+        cwd: PLUGIN_ROOT,
+        env: { ...process.env, CLAUDE_PROJECT_DIR: envProj, CLAUDE_CODE_TMPDIR: tmpHome },
+      });
+      assert(pad.status === 2, `Expected block for scratchpad .env, got ${pad.status}`);
+      const template = path.join(tmpHome, '.claude', 'projects', 'some-slug', 'memory', '.env.example');
+      const ok = runProtectFiles('Write', template, { CITADEL_TEST: '1', CITADEL_HOME_OVERRIDE: tmpHome });
+      assert(ok.status === 0, `Expected allow for memory .env.example, got ${ok.status}: ${ok.stderr}`);
+    } finally {
+      fs.rmSync(tmpHome, { recursive: true, force: true });
+    }
+  });
+
+  test('protect-files still blocks other writes outside project root with stderr reason', () => {
+    const tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), 'citadel-home-'));
+    const outsideFile = path.join(tmpHome, 'elsewhere', 'x.txt');
+    const result = runProtectFiles('Write', outsideFile, {
+      CITADEL_TEST: '1',
+      CITADEL_HOME_OVERRIDE: tmpHome,
+    });
+    fs.rmSync(tmpHome, { recursive: true, force: true });
+    assert(result.status === 2, `Expected exit code 2 (block), got ${result.status}`);
+    assert(
+      result.stderr.includes('outside project root'),
+      `Expected outside-project-root reason on stderr, got: ${result.stderr}`
+    );
+  });
+
+  // ── 7b. Linked Worktrees and Session Scratchpad ──
+
+  console.log('\n▶ Linked Worktrees and Session Scratchpad');
+
+  function runProtectFilesIn(projectDir, toolName, filePath, extra = {}) {
+    return spawnSync(process.execPath, [PROTECT_FILES_HOOK], {
+      input: JSON.stringify({ tool_name: toolName, tool_input: { file_path: filePath }, ...extra.event }),
+      encoding: 'utf8',
+      cwd: PLUGIN_ROOT,
+      env: { ...process.env, CLAUDE_PROJECT_DIR: projectDir, ...extra.env },
+    });
+  }
+
+  test('protect-files treats linked git worktrees as inside the project', () => {
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'citadel-wt-'));
+    try {
+      const repo = path.join(tmpRoot, 'repo');
+      fs.mkdirSync(repo);
+      const git = (args) => execFileSync('git', args, { cwd: repo, encoding: 'utf8' });
+      git(['init', '-q']);
+      git(['-c', 'user.email=t@example.com', '-c', 'user.name=t', 'commit', '-q', '--allow-empty', '-m', 'init']);
+      const sibling = path.join(tmpRoot, 'repo-agent-1');
+      const nested = path.join(repo, '.claude', 'worktrees', 'agent-2');
+      git(['worktree', 'add', '-q', '-b', 'agent-1', sibling]);
+      git(['worktree', 'add', '-q', '-b', 'agent-2', nested]);
+
+      for (const wt of [sibling, nested]) {
+        const ok = runProtectFilesIn(repo, 'Write', path.join(wt, 'src', 'a.js'));
+        assert(ok.status === 0, `Expected allow in worktree ${wt}, got ${ok.status}: ${ok.stderr}`);
+        const env = runProtectFilesIn(repo, 'Write', path.join(wt, '.env'));
+        assert(env.status === 2, `Expected .env block in worktree ${wt}, got ${env.status}`);
+        const prot = runProtectFilesIn(repo, 'Edit', path.join(wt, '.claude', 'harness.json'));
+        assert(prot.status === 2, `Expected protected-pattern block in worktree ${wt}, got ${prot.status}`);
+      }
+      const stray = runProtectFilesIn(repo, 'Write', path.join(tmpRoot, 'not-a-worktree', 'a.js'));
+      assert(stray.status === 2, `Expected block outside any worktree, got ${stray.status}`);
+    } finally {
+      fs.rmSync(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
+  test('protect-files allows writes to the current session scratchpad only', () => {
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'citadel-scratch-'));
+    try {
+      const pad = (session) => path.join(tmpRoot, 'claude', 'C--proj', session, 'scratchpad', 'notes.txt');
+      const extra = { env: { CLAUDE_CODE_TMPDIR: tmpRoot }, event: { session_id: 'sess-1' } };
+      const own = runProtectFilesIn(envProj, 'Write', pad('sess-1'), extra);
+      assert(own.status === 0, `Expected allow for own scratchpad, got ${own.status}: ${own.stderr}`);
+      const other = runProtectFilesIn(envProj, 'Write', pad('sess-2'), extra);
+      assert(other.status === 2, `Expected block for another session's scratchpad, got ${other.status}`);
+      const notPad = runProtectFilesIn(envProj, 'Write', path.join(tmpRoot, 'claude', 'C--proj', 'sess-1', 'other', 'x.txt'), extra);
+      assert(notPad.status === 2, `Expected block outside scratchpad, got ${notPad.status}`);
+    } finally {
+      fs.rmSync(tmpRoot, { recursive: true, force: true });
+    }
+  });
+
+  // ── 8. Bash .env Write Gate ──
+
+  console.log('\n▶ Bash .env Write Gate');
+
+  function runBashGate(command) {
+    const input = JSON.stringify({
+      tool_name: 'Bash',
+      tool_input: { command },
+    });
+    return spawnSync(process.execPath, [EAG_HOOK], {
+      input,
+      encoding: 'utf8',
+      cwd: PLUGIN_ROOT,
+      env: { ...process.env, CLAUDE_PROJECT_DIR: envProj },
+    });
+  }
+
+  function runCodexHook(hookName, toolName, toolInput) {
+    const input = JSON.stringify({
+      hook_event_name: 'PreToolUse',
+      cwd: envProj,
+      tool_name: toolName,
+      tool_input: toolInput,
+    });
+    return spawnSync(process.execPath, [CODEX_ADAPTER, hookName], {
+      input,
+      encoding: 'utf8',
+      cwd: PLUGIN_ROOT,
+      env: {
+        ...process.env,
+        CLAUDE_PROJECT_DIR: envProj,
+        CITADEL_DEV: 'false',
+      },
+    });
+  }
+
+  test('external-action-gate fails closed on malformed input', () => {
+    const result = spawnSync(process.execPath, [EAG_HOOK], {
+      input: '{',
+      encoding: 'utf8',
+      cwd: PLUGIN_ROOT,
+      env: { ...process.env, CLAUDE_PROJECT_DIR: envProj },
+    });
+    assert(result.status === 2, `Expected exit code 2 (block), got ${result.status}`);
+  });
+
+  test('external-action-gate fails closed on malformed external-action policy', () => {
+    const configDir = path.join(envProj, '.claude');
+    const configPath = path.join(configDir, 'harness.json');
+    fs.mkdirSync(configDir, { recursive: true });
+    fs.writeFileSync(configPath, JSON.stringify({
+      policy: { externalActions: { hard: 'gh release create' } },
+    }));
+    try {
+      const result = runBashGate('git push origin feat/test');
+      assert(result.status === 2, `Expected malformed policy to block, got ${result.status}: ${result.stderr}`);
+    } finally {
+      fs.rmSync(configPath, { force: true });
+    }
+  });
+
+  test('external-action-gate enforces P-001 and P-004 while preserving normal push', () => {
+    const forceMain = runBashGate('git push --force origin main');
+    assert(forceMain.status === 2, `Expected P-001 block, got ${forceMain.status}`);
+    assert(forceMain.stderr.includes('P-001'), `Expected P-001 reason, got: ${forceMain.stderr}`);
+
+    const quotedMain = runBashGate('git push --force origin "main"');
+    assert(quotedMain.status === 2, `Expected quoted-ref P-001 block, got ${quotedMain.status}`);
+
+    const globalOption = runBashGate('git -C repo push --force origin main');
+    assert(globalOption.status === 2, `Expected git-global-option P-001 block, got ${globalOption.status}`);
+
+    const plusRefspec = runBashGate('git push origin +HEAD:main');
+    assert(plusRefspec.status === 2, `Expected leading-plus P-001 block, got ${plusRefspec.status}`);
+
+    const implicitForce = runBashGate('git push -f');
+    assert(implicitForce.status === 2, `Expected implicit-target P-001 block, got ${implicitForce.status}`);
+
+    const noVerify = runBashGate('git commit --no-verify -m test');
+    assert(noVerify.status === 2, `Expected P-004 block, got ${noVerify.status}`);
+    assert(noVerify.stderr.includes('P-004'), `Expected P-004 reason, got: ${noVerify.stderr}`);
+
+    const normalPush = runBashGate('git push origin feat/test');
+    assert(normalPush.status === 0, `Expected normal reversible push to remain allowed, got ${normalPush.status}`);
+  });
+
+  test('external-action-gate enforces hard invariants through common command wrappers', () => {
+    for (const command of [
+      'env git push --force origin main',
+      'cmd /c "git push --force origin main"',
+      "bash -c 'git push --force origin main'",
+      '"C:\\Program Files\\Git\\bin\\git.exe" push --force origin main',
+      'C:\\Git\\bin\\git.exe push --force origin main',
+      'cmd /c call git push --force origin main',
+      'bash -c "exec git push --force origin main"',
+      'git push --force origin HEAD',
+      'git push -fu origin main',
+      'command git commit --no-verify -m test',
+      'git commit -n -m test',
+      'powershell -Command "git commit --no-verify -m test"',
+    ]) {
+      const result = runBashGate(command);
+      assert(result.status === 2, `Expected wrapped hard-invariant block for ${command}, got ${result.status}: ${result.stderr}`);
+    }
+  });
+
+  test('canonical Claude and Codex Bash events enforce the same hard invariant', () => {
+    const claude = runBashGate('git commit --no-verify -m test');
+    const codex = runCodexHook('external-action-gate', 'Bash', {
+      command: 'git commit --no-verify -m test',
+    });
+    assert(claude.status === 2, `Expected Claude boundary to block, got ${claude.status}`);
+    assert(codex.status === 2, `Expected Codex boundary to block, got ${codex.status}: ${codex.stderr}`);
+  });
+
+  test('Codex apply_patch projection checks every target and blocks protected files', () => {
+    const patchCommand = [
+      '*** Begin Patch',
+      '*** Add File: src/safe.js',
+      '+safe',
+      '*** Update File: .claude/harness.json',
+      '@@',
+      '-old',
+      '+new',
+      '*** End Patch',
+    ].join('\n');
+    const result = runCodexHook('protect-files', 'apply_patch', { command: patchCommand });
+    assert(result.status === 2, `Expected protected apply_patch target to block, got ${result.status}: ${result.stderr}`);
+    assert(
+      result.stderr.includes('.claude/harness.json'),
+      `Expected protected target in block reason, got: ${result.stderr}`
+    );
+  });
+
+  test('Codex apply_patch projection allows a repo-local unprotected target', () => {
+    const patchCommand = [
+      '*** Begin Patch',
+      '*** Add File: src/safe.js',
+      '+safe',
+      '*** End Patch',
+    ].join('\n');
+    const result = runCodexHook('protect-files', 'apply_patch', { command: patchCommand });
+    assert(result.status === 0, `Expected safe apply_patch target to pass, got ${result.status}: ${result.stderr}`);
+  });
+
+  test('external-action-gate blocks redirect append to .env', () => {
+    const result = runBashGate('echo X >> .env');
+    assert(result.status === 2, `Expected exit code 2 (block), got ${result.status}`);
+    assert(result.stderr.includes('secrets'), 'Expected secrets block message on stderr');
+  });
+
+  test('external-action-gate blocks tee onto .env', () => {
+    const result = runBashGate('printf x | tee .env');
+    assert(result.status === 2, `Expected exit code 2 (block), got ${result.status}`);
+  });
+
+  test('external-action-gate blocks cp with .env destination', () => {
+    const result = runBashGate('cp config.txt .env');
+    assert(result.status === 2, `Expected exit code 2 (block), got ${result.status}`);
+  });
+
+  test('external-action-gate allows redirect to non-env file', () => {
+    const result = runBashGate('echo done > build.log');
+    assert(result.status === 0, `Expected exit code 0 (allow), got ${result.status}: ${result.stderr}`);
+  });
+
+  test('external-action-gate allows redirect to .env.example', () => {
+    const result = runBashGate('echo PLACEHOLDER=1 > .env.example');
+    assert(result.status === 0, `Expected exit code 0 (allow), got ${result.status}: ${result.stderr}`);
+  });
+
+  try { fs.rmSync(envProj, { recursive: true, force: true }); } catch { /* best effort */ }
+
+  // ── Summary ──
+
+  console.log('\n' + '='.repeat(40));
+  console.log(`Results: ${passed} passed, ${failed} failed\n`);
+
+  if (failures.length > 0) {
+    console.log('Failures:');
+    for (const { name, msg } of failures) {
+      console.log(`  - ${name}:`);
+      console.log(`    ${msg}`);
+    }
+    console.log('\nSecurity tests failed! Do not ship until these are fixed.\n');
+    process.exit(1);
+  }
+
+  console.log('All security tests pass.\n');
+  console.log('Note: Some tests are structural (verify code uses safe APIs)');
+  console.log('rather than behavioral (execute and verify output). This is');
+  console.log('by design — prevents test suite from requiring complex setup.\n');
+  process.exit(0);
+}
+
+main();

@@ -1,0 +1,198 @@
+# Kubescape posture gate for Kubernetes manifests, Helm charts and Kustomize.
+#
+# Pull requests: fail only on findings the PR introduces. The base branch is
+#   scanned from a git worktree of the same clone and used as --baseline, so
+#   existing debt never blocks a PR and a new finding always does.
+# Pushes to main: full scan, results to code scanning, no gate (the PR gate
+#   already ran; main shows the debt you are paying down).
+#
+# Why not kubescape/github-action: its latest release (v3.0.21) is a Docker
+# action that bundles CLI v3.0.21, and its README recommends @main plus
+# tj-actions/changed-files. This job installs the pinned v4 CLI and verifies the
+# release signature instead.
+#
+# Copy to .github/workflows/kubescape.yml and set SCAN_PATH.
+name: kubescape
+
+on:
+  # No paths filter on pull_request: `posture` is meant to be a required check,
+  # and a workflow skipped by a paths filter leaves a required check pending,
+  # which blocks the merge. A PR that changes no manifests scans in about a minute.
+  pull_request:
+  push:
+    branches: [main]
+    paths:
+      - "k8s/**"
+      - "charts/**"
+      - ".kubescape/**"
+
+permissions: {}
+
+concurrency:
+  group: kubescape-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  posture:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 15
+    permissions:
+      contents: read          # checkout
+      security-events: write  # upload SARIF to code scanning
+    env:
+      # renovate: datasource=github-releases depName=kubescape/kubescape extractVersion=^v(?<version>.*)$
+      KUBESCAPE_VERSION: "4.0.16"   # CLI release; the cosign identity below is derived from it
+      # renovate: datasource=github-releases depName=kubescape/regolibrary
+      CONTROLS_VERSION: "v2.0.38"   # regolibrary release; pin it so results only change when you bump it
+      FRAMEWORKS: "nsa,mitre"       # kubescape list frameworks; EKS → cis-eks-t1.8.0, AKS → cis-aks-t1.8.0, GKE → cis-gke-v1.9.0
+      SCAN_PATH: "k8s"              # directory with manifests, Helm charts or kustomization.yaml
+      EXCEPTIONS: ".kubescape/exceptions.json"
+      SEVERITY_THRESHOLD: "high"    # new findings at or above this fail the PR
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0  # the base branch must exist locally for the baseline worktree
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+        with:
+          cosign-release: v3.1.3
+
+      - name: Install Kubescape (signature-verified)
+        run: |
+          set -euo pipefail
+          base="https://github.com/kubescape/kubescape/releases/download/v${KUBESCAPE_VERSION}"
+          tarball="kubescape_${KUBESCAPE_VERSION}_linux_amd64.tar.gz"
+          mkdir -p "$RUNNER_TEMP/kubescape" && cd "$RUNNER_TEMP/kubescape"
+          for f in "$tarball" checksums.sha256 checksums.sha256.sig checksums.sha256.pem; do
+            curl -fsSLO --retry 3 "$base/$f"
+          done
+          # Kubescape publishes a keyless .sig + .pem, not a bundle; cosign v3
+          # prints deprecation warnings for these flags, which is expected.
+          cosign verify-blob checksums.sha256 \
+            --certificate checksums.sha256.pem \
+            --signature checksums.sha256.sig \
+            --certificate-identity "https://github.com/kubescape/kubescape/.github/workflows/02-release.yaml@refs/tags/v${KUBESCAPE_VERSION}" \
+            --certificate-oidc-issuer "https://token.actions.githubusercontent.com"
+          sha256sum --check --ignore-missing checksums.sha256
+          tar -xzf "$tarball" kubescape
+          echo "$RUNNER_TEMP/kubescape" >> "$GITHUB_PATH"
+          ./kubescape version
+
+      - name: Check exception policy
+        run: |
+          set -euo pipefail
+          # Uses $EXCEPTIONS itself, so a non-default path is checked too.
+          [ -f "$EXCEPTIONS" ] || { echo "no exceptions file at $EXCEPTIONS"; exit 0; }
+          # Convention: every "disable" exception (an accepted risk; it removes
+          # the finding from the score and the gate) ends in -until-YYYY-MM-DD.
+          # Undated ones would suppress forever, so they fail like expired ones.
+          # Kubescape (opa-utils v0.0.315) suppresses unless an exception is
+          # explicitly alertOnly: a mixed list, an empty or missing actions field
+          # and an unknown value all suppress. Accept only the two singletons.
+          today="$(date -u +%F)"
+          bad="$(jq -r --arg today "$today" '
+            .[] | (.name // "<unnamed>") as $n
+                | if .actions != ["disable"] and .actions != ["alertOnly"] then
+                    "\($n)  (actions must be exactly [disable] or [alertOnly])"
+                  elif .actions == ["disable"] then
+                    ($n | capture("until-(?<d>[0-9]{4}-[0-9]{2}-[0-9]{2})$").d // null) as $d
+                    | if $d == null then "\($n)  (no until-YYYY-MM-DD date)"
+                      elif $d < $today then "\($n)  (expired \($d))"
+                      else empty end
+                  else empty end' "$EXCEPTIONS")"
+          if [ -n "$bad" ]; then
+            echo "::error::Kubescape exceptions must be [disable] with a current until-YYYY-MM-DD date, or [alertOnly] — renew with a reason or fix the finding:"
+            echo "$bad"
+            exit 1
+          fi
+
+      - name: Check out the base branch
+        if: github.event_name == 'pull_request'
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          # A worktree of this clone shares its origin remote; --baseline compares by
+          # repository identity, so a second clone would mark everything incomparable.
+          git worktree add --detach "$RUNNER_TEMP/base" "origin/${BASE_REF}"
+
+      - name: Build Helm chart dependencies
+        run: |
+          set -euo pipefail
+          # Kubescape tries `helm dependency build` itself but only logs a warning
+          # when it fails, and the chart is then scanned without its subcharts.
+          # Build them here, from Chart.lock, and fail on any error. On a fresh
+          # runner `helm dependency build` with a Chart.lock fails unless each
+          # https:// repository is registered, so add them first (oci:// needs no
+          # registration; repo aliases such as "@internal" need your own
+          # `helm repo add` step with credentials). Helm, jq and yq are
+          # preinstalled on ubuntu-24.04.
+          i=0
+          for root in "$GITHUB_WORKSPACE" "$RUNNER_TEMP/base"; do
+            [ -d "$root/$SCAN_PATH" ] || continue
+            while IFS= read -r chart; do
+              # Skip vendored subcharts: a Chart.yaml inside <chart>/charts/. Matching
+              # on a directory named "charts" alone would skip SCAN_PATH=charts.
+              parent="$(dirname "$(dirname "$chart")")"
+              if [ "$(basename "$parent")" = charts ] && [ -f "$(dirname "$parent")/Chart.yaml" ]; then
+                continue
+              fi
+              [ "$(yq '.dependencies // [] | length' "$chart")" -gt 0 ] || continue
+              while IFS= read -r url; do
+                i=$((i + 1))
+                helm repo add "kubescape-dep-$i" "$url" --force-update >/dev/null
+              done < <(yq -r '.dependencies[].repository // ""' "$chart" | grep -E '^https?://' | sort -u || true)
+              echo "helm dependency build $(dirname "$chart")"
+              helm dependency build "$(dirname "$chart")"
+            done < <(find "$root/$SCAN_PATH" -name Chart.yaml)
+          done
+
+      - name: Scan base branch for the baseline
+        if: github.event_name == 'pull_request'
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/base"
+          exc=(); [ -f "$EXCEPTIONS" ] && exc=(--exceptions "$EXCEPTIONS")
+          if [ -d "$SCAN_PATH" ]; then
+            # Inline kubescape.io/skip-controls annotations are off in both scans:
+            # every suppression goes through the reviewed exceptions file.
+            kubescape scan framework "$FRAMEWORKS" "$SCAN_PATH" ${exc[@]+"${exc[@]}"} \
+              --honor-inline-exceptions=false \
+              --controls-version "$CONTROLS_VERSION" \
+              --format json --output "$RUNNER_TEMP/baseline.json"
+          fi
+
+      - name: Scan and gate
+        id: scan
+        run: |
+          set -euo pipefail
+          exc=(); [ -f "$EXCEPTIONS" ] && exc=(--exceptions "$EXCEPTIONS")
+          gate=()
+          if [ -f "$RUNNER_TEMP/baseline.json" ]; then
+            gate=(--baseline "$RUNNER_TEMP/baseline.json" --baseline-fail-on-new \
+                  --baseline-severity-threshold "$SEVERITY_THRESHOLD")
+          elif [ "$GITHUB_EVENT_NAME" = "pull_request" ]; then
+            gate=(--severity-threshold "$SEVERITY_THRESHOLD")  # new SCAN_PATH: no baseline yet
+          fi
+          kubescape scan framework "$FRAMEWORKS" "$SCAN_PATH" ${exc[@]+"${exc[@]}"} ${gate[@]+"${gate[@]}"} \
+            --honor-inline-exceptions=false \
+            --controls-version "$CONTROLS_VERSION" \
+            --format sarif,json,markdown --output kubescape-results
+
+      - name: Job summary
+        if: always() && steps.scan.outcome != 'skipped'
+        run: |
+          [ -f kubescape-results.md ] && cat kubescape-results.md >> "$GITHUB_STEP_SUMMARY" || true
+
+      - name: Upload SARIF to code scanning
+        # Fork PRs get a read-only token and cannot upload; the gate still runs.
+        if: >-
+          always() && hashFiles('kubescape-results.sarif') != '' &&
+          (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository)
+        uses: github/codeql-action/upload-sarif@6f2ac81f5cd81fe351a197ba0b00d91d03cd2aee # v4.39.0
+        with:
+          sarif_file: kubescape-results.sarif
+          category: kubescape

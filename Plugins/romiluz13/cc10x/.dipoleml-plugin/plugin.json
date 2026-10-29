@@ -1,0 +1,16 @@
+{
+  "name": "cc10x",
+  "displayName": "Cc10x",
+  "version": "12.10.0",
+  "description": "The Loop Engine: a harness for DipoleML. One router sends each request to one of eight workflows (build, debug, review, plan, QA, orient, triage, codebase health) run by specialist subagents, with fail-closed gates, workflow artifacts on disk, hook guardrails, test honesty gates, fresh-context verification, and memory that survives compaction.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Romiluz13"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/romiluz13/cc10x",
+  "repository": "https://github.com/romiluz13/cc10x",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

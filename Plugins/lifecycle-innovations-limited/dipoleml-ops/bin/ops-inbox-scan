@@ -1,0 +1,1528 @@
+#!/usr/bin/env bash
+# ops-inbox-scan — offline, (near) zero-token inbox scan + classify.
+#
+# WHY: the /ops:ops-inbox "all channels" path used to fan out one subagent per
+# channel through the Workflow tool. A single run burned ~330k subagent tokens to
+# do work that is, for the two heaviest channels, just a sqlite read (WhatsApp)
+# and a CLI call (Gmail). This script does that classification deterministically
+# in the main process and prints compact JSON, so the skill reads a tiny result
+# instead of paying for 5 agent contexts.
+#
+# COVERS (offline, no MCP, no subagents):
+#   - WhatsApp  : reads the whatsmeow bridge sqlite store directly; merges each
+#                 person's lid<->phone chats into one conversation; classifies
+#                 NEEDS_REPLY / WAITING / FYI from the true last message.
+#   - Email     : `gog gmail search` envelope first-pass classify (NEEDS_REPLY /
+#                 WAITING / FYI). Deep per-thread reads stay in the skill, run
+#                 only for the handful of NEEDS_REPLY candidates before drafting.
+#
+# DOES NOT COVER (left to the skill as single, light inline MCP calls — NOT
+# subagents): Slack (channels_me + conversations_history per DM, never
+# conversations_unreads — unread is never a filter, the operator 2026-09-17) and
+# Telegram (one list_dialogs call). Those are one/few round-trips; a subagent
+# is overkill.
+#
+# OUTPUT: one JSON object on stdout. Always valid JSON, even on partial failure.
+# READ-ONLY: opens every sqlite db in immutable/read-only mode; never sends,
+# archives, or mutates anything. All sending stays in the skill under Rule 6.
+#
+# FULL INBOX, ALWAYS. Unread is a DISPLAY state — never the working set.
+# WhatsApp open set is `archived=0`; email open set is `in:inbox`. On top of
+# that, --debt-days (default 90) reopens FORGOTTEN unanswered asks that were
+# archived, read, or otherwise put away while the other person still holds the
+# ball: last inbound is a real question, we never answered (or they asked
+# again after us), inside the debt window. History older than --debt-days
+# stays shut so a sweep cannot drag 2025 back in.
+#
+# FLAGS:
+#   --whatsapp-only / --email-only   limit to one channel
+#   --days N                         send-log lookback, in days (default 7)
+#   --debt-days N                    forgotten-ask window, in days (default 90)
+#   --email-query Q                  Gmail working set (default "in:inbox")
+#   --email-max N                    max Gmail results (default 400)
+#   --gmail-account ADDR             override Gmail account (default: gog default)
+#   --wa-store DB                    WhatsApp messages.db to scan
+#   --bridge-port N                  bridge REST port for that store
+#   --all-accounts                   scan EVERY agent-enabled account, not one
+#                                    (default when no --wa-store is given)
+#   --peer-store DB                  another account's store, read ONLY to see
+#                                    whether a person was already answered there
+#                                    (repeatable; auto-discovered by default)
+#   --no-peer-stores                 disable that auto-discovery
+#   --pretty                         pretty-print JSON
+#
+# WHICH WHATSAPP ACCOUNT: more than one bridge can run here, one per number, and
+# they differ only by port and store. This script never assumes a port. It asks
+# `ops-wa-accounts` for the single account policy marks as agent-enabled, and
+# refuses to scan at all when that is ambiguous — a wrong guess means reading,
+# and later replying from, a number that was meant to be left alone. Override
+# both --wa-store and --bridge-port together to target a specific account.
+set -euo pipefail
+
+DAYS=7
+DEBT_DAYS=90
+DO_WA=1
+DO_EMAIL=1
+GMAIL_ACCOUNT="${GMAIL_ACCOUNT:-}"
+PRETTY=0
+EMAIL_QUERY="in:inbox"
+EMAIL_MAX=400
+WA_STORE_OVERRIDE=""
+BRIDGE_PORT_OVERRIDE=""
+ALL_ACCOUNTS=0
+PEER_STORES=""
+AUTO_PEERS=1
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --whatsapp-only) DO_EMAIL=0; shift ;;
+    --email-only)    DO_WA=0; shift ;;
+    --days)
+      [ $# -ge 2 ] || { echo "ops-inbox-scan: --days requires a value" >&2; exit 2; }
+      DAYS="$2"; shift 2 ;;
+    --debt-days)
+      [ $# -ge 2 ] || { echo "ops-inbox-scan: --debt-days requires a value" >&2; exit 2; }
+      DEBT_DAYS="$2"; shift 2 ;;
+    --email-query)
+      [ $# -ge 2 ] || { echo "ops-inbox-scan: --email-query requires a value" >&2; exit 2; }
+      EMAIL_QUERY="$2"; shift 2 ;;
+    --email-max)
+      [ $# -ge 2 ] || { echo "ops-inbox-scan: --email-max requires a value" >&2; exit 2; }
+      EMAIL_MAX="$2"; shift 2 ;;
+    --gmail-account)
+      [ $# -ge 2 ] || { echo "ops-inbox-scan: --gmail-account requires a value" >&2; exit 2; }
+      GMAIL_ACCOUNT="$2"; shift 2 ;;
+    --wa-store)
+      [ $# -ge 2 ] || { echo "ops-inbox-scan: --wa-store requires a value" >&2; exit 2; }
+      WA_STORE_OVERRIDE="$2"; shift 2 ;;
+    --bridge-port)
+      [ $# -ge 2 ] || { echo "ops-inbox-scan: --bridge-port requires a value" >&2; exit 2; }
+      BRIDGE_PORT_OVERRIDE="$2"; shift 2 ;;
+    --all-accounts)  ALL_ACCOUNTS=1; shift ;;
+    --peer-store)
+      [ $# -ge 2 ] || { echo "ops-inbox-scan: --peer-store requires a value" >&2; exit 2; }
+      PEER_STORES="${PEER_STORES}${PEER_STORES:+:}$2"; shift 2 ;;
+    --no-peer-stores) AUTO_PEERS=0; shift ;;
+    --pretty)        PRETTY=1; shift ;;
+    -h|--help)
+      grep '^#' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    *) echo "ops-inbox-scan: unknown arg: $1" >&2; exit 2 ;;
+  esac
+done
+
+# ------------------------------------------------- every agent-enabled acct ----
+# THE DEFECT THIS CLOSES (2026-09-06). With two agent-enabled numbers the
+# resolver correctly refuses to pick one and this script exited 3. Callers then
+# either passed one account (silently scanning half the inbox) or fell back to
+# an `unread` listing — and `unread` is a DISPLAY state, empty for every thread
+# the owner already opened on their phone. A person's real unanswered ask does
+# not have to be unread. So: scan EVERY enabled account and merge, labelled.
+# Default: when the caller did not pin a store, scan every enabled account.
+if [ "$ALL_ACCOUNTS" = 0 ] && [ -z "$WA_STORE_OVERRIDE$BRIDGE_PORT_OVERRIDE" ] && [ "$DO_WA" = 1 ]; then
+  ALL_ACCOUNTS=1
+fi
+if [ "$ALL_ACCOUNTS" = 1 ]; then
+  [ -n "$WA_STORE_OVERRIDE$BRIDGE_PORT_OVERRIDE" ] && {
+    echo "ops-inbox-scan: --all-accounts cannot be combined with --wa-store/--bridge-port" >&2
+    exit 2
+  }
+  _resolver="$(dirname "$0")/ops-wa-accounts"
+  [ -x "$_resolver" ] || { echo "ops-inbox-scan: ops-wa-accounts not found" >&2; exit 4; }
+  _self="$0"
+  "$_resolver" | OIS_SELF="$_self" OIS_DAYS="$DAYS" OIS_DEBT_DAYS="$DEBT_DAYS" OIS_DO_EMAIL="$DO_EMAIL" \
+    OIS_EMAIL_QUERY="$EMAIL_QUERY" OIS_EMAIL_MAX="$EMAIL_MAX" \
+    OIS_GMAIL_ACCOUNT="$GMAIL_ACCOUNT" OIS_PRETTY="$PRETTY" python3 -c '
+import json, os, subprocess, sys
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
+blob = json.load(sys.stdin)
+enabled = [a for a in blob.get("accounts", []) if a.get("agent_enabled") is True]
+if not enabled:
+    print(json.dumps({"error": "no agent-enabled WhatsApp account", "notes": blob.get("notes", [])}))
+    sys.exit(3)
+
+self_bin = os.environ["OIS_SELF"]
+merged = {"generated_at": None, "window_days": int(os.environ["OIS_DAYS"]),
+          "debt_days": int(os.environ.get("OIS_DEBT_DAYS", "90")),
+          "notes": [], "whatsapp_accounts": []}
+
+def scan_one(acct):
+    store = acct.get("store") or acct.get("remote_store") or ""
+    port = acct.get("port")
+    cmd = [self_bin, "--whatsapp-only", "--days", os.environ["OIS_DAYS"],
+           "--debt-days", os.environ.get("OIS_DEBT_DAYS", "90"),
+           "--wa-store", store, "--bridge-port", str(port)]
+    env = dict(os.environ, OIS_SSH=acct.get("ssh") or "",
+               OIS_SSH_FALLBACK=acct.get("ssh_fallback") or "",
+               OIS_REMOTE_STORE=acct.get("remote_store") or "",
+               OIS_LABEL=acct.get("label") or "", OIS_PHONE=acct.get("phone") or "")
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=300, env=env)
+        one = json.loads(out.stdout or "{}")
+    except Exception as exc:  # a broken account must be LOUD, never silent
+        one = {"whatsapp": {"reachable": False, "error": str(exc)}}
+    return acct, store, port, one
+
+workers = min(len(enabled), 4)
+with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+    futs = [pool.submit(scan_one, a) for a in enabled]
+    email_fut = None
+    if os.environ.get("OIS_DO_EMAIL") == "1":
+        def scan_email():
+            cmd = [self_bin, "--email-only", "--email-query", os.environ["OIS_EMAIL_QUERY"],
+                   "--email-max", os.environ["OIS_EMAIL_MAX"]]
+            if os.environ.get("OIS_GMAIL_ACCOUNT"):
+                cmd += ["--gmail-account", os.environ["OIS_GMAIL_ACCOUNT"]]
+            out = subprocess.run(cmd, capture_output=True, text=True, timeout=300)
+            return json.loads(out.stdout or "{}")
+        email_fut = pool.submit(scan_email)
+    by_label = {}
+    for fut in as_completed(futs):
+        acct, store, port, one = fut.result()
+        by_label[id(acct)] = (acct, store, port, one)
+    # Preserve resolver order so the same inbox is labelled the same way every run.
+    for acct in enabled:
+        _acct, store, port, one = by_label[id(acct)]
+        merged["generated_at"] = merged["generated_at"] or one.get("generated_at")
+        merged["notes"].extend(one.get("notes", []))
+        merged["whatsapp_accounts"].append({
+            "account": acct.get("label"), "phone": acct.get("phone"),
+            "bridge_port": port, "store": store,
+            **one.get("whatsapp", {}),
+        })
+    if email_fut is not None:
+        try:
+            one = email_fut.result()
+            merged["email"] = one.get("email")
+            merged["notes"].extend(one.get("notes", []))
+        except Exception as exc:
+            merged["email"] = {"reachable": False, "note": "email scan failed: %s" % exc}
+
+merged["counts"] = {
+    "whatsapp": {a["account"]: {b: len(a.get(b) or []) for b in
+                 ("needs_reply", "waiting", "groups", "fyi")}
+                 for a in merged["whatsapp_accounts"]},
+    "email": {b: len((merged.get("email") or {}).get(b) or [])
+              for b in ("needs_reply", "waiting", "fyi")} if merged.get("email") else None,
+}
+# BACK-COMPAT: every existing consumer (ops-inbox-archive-set, ops-inbox-zero)
+# iterates scan["whatsapp"][bucket]. Adding only the per-account list would make
+# them silently see nothing — the exact silent-drop class this fix exists to
+# kill. So also emit the flat union, with each row tagged by account so a reply
+# still goes out on the number the thread actually lives on.
+flat = {"needs_reply": [], "waiting": [], "groups": [], "fyi": [],
+        "reachable": any(a.get("reachable") is not False for a in merged["whatsapp_accounts"])}
+for a in merged["whatsapp_accounts"]:
+    for b in ("needs_reply", "waiting", "groups", "fyi"):
+        for row in (a.get(b) or []):
+            row = dict(row)
+            row["account"] = a.get("account")
+            row["bridge_port"] = a.get("bridge_port")
+            flat[b].append(row)
+for b in ("needs_reply", "waiting", "groups", "fyi"):
+    flat[b].sort(key=lambda x: x.get("age_min") if x.get("age_min") is not None else 1 << 30)
+merged["whatsapp"] = flat
+print(json.dumps(merged, indent=2 if os.environ.get("OIS_PRETTY") == "1" else None,
+                 ensure_ascii=False))
+'
+  exit $?
+fi
+
+# --------------------------------------------------------- which account ----
+# Resolution order: explicit flags, then the long-standing WHATSAPP_BRIDGE_*
+# env vars, then whichever single account policy marks agent-enabled. The last
+# step is the only one that can be ambiguous, and when it is we stop rather
+# than fall back to a port — the whole point is to never pick a number by luck.
+WA_ACCOUNT_PHONE=""
+WA_ACCOUNT_SOURCE=""
+BRIDGE_PORT=""
+
+if [ -n "$WA_STORE_OVERRIDE" ] || [ -n "$BRIDGE_PORT_OVERRIDE" ]; then
+  if [ -z "$WA_STORE_OVERRIDE" ] || [ -z "$BRIDGE_PORT_OVERRIDE" ]; then
+    echo "ops-inbox-scan: --wa-store and --bridge-port must be given together" >&2
+    exit 2
+  fi
+  WA_MSGDB="$WA_STORE_OVERRIDE"
+  BRIDGE_PORT="$BRIDGE_PORT_OVERRIDE"
+  WA_ACCOUNT_SOURCE="flags"
+elif [ -n "${WHATSAPP_BRIDGE_DIR:-}" ] || [ -n "${WHATSAPP_BRIDGE_DB:-}" ]; then
+  _envstore="${WHATSAPP_BRIDGE_DIR:-$HOME/.local/share/whatsapp-mcp/whatsapp-bridge}/store"
+  WA_MSGDB="${WHATSAPP_BRIDGE_DB:-$_envstore/messages.db}"
+  BRIDGE_PORT="${WHATSAPP_BRIDGE_PORT:-8080}"
+  WA_ACCOUNT_SOURCE="env"
+elif [ "$DO_WA" = 1 ]; then
+  _resolver="$(dirname "$0")/ops-wa-accounts"
+  if [ -x "$_resolver" ]; then
+    if _acct="$("$_resolver" --default 2>/dev/null)"; then
+      BRIDGE_PORT="$(printf '%s' "$_acct" | cut -f1)"
+      WA_MSGDB="$(printf '%s' "$_acct" | cut -f2)"
+      WA_ACCOUNT_PHONE="$(printf '%s' "$_acct" | cut -f3)"
+      WA_ACCOUNT_SOURCE="policy"
+    else
+      echo "ops-inbox-scan: cannot resolve a WhatsApp account to scan." >&2
+      "$_resolver" --list >&2 2>/dev/null || true
+      echo "ops-inbox-scan: pass --wa-store DB --bridge-port N, or set agent_enabled in the policy file." >&2
+      exit 3
+    fi
+  else
+    # No resolver on this install: fall back to the historical single-account
+    # layout, which is correct precisely when there is only one bridge.
+    WA_MSGDB="$HOME/.local/share/whatsapp-mcp/whatsapp-bridge/store/messages.db"
+    BRIDGE_PORT=8080
+    WA_ACCOUNT_SOURCE="legacy-default"
+  fi
+fi
+
+WA_STORE="$(dirname "${WA_MSGDB:-$HOME/.local/share/whatsapp-mcp/whatsapp-bridge/store/messages.db}")"
+WA_MSGDB="${WA_MSGDB:-$HOME/.local/share/whatsapp-mcp/whatsapp-bridge/store/messages.db}"
+WA_WADB="$WA_STORE/whatsapp.db"
+BRIDGE_PORT="${BRIDGE_PORT:-8080}"
+BRIDGE_API="http://127.0.0.1:${BRIDGE_PORT}"
+
+# ------------------------------------------------------- remote store pull ----
+# THE DEFECT THIS CLOSES (2026-09-06). When the bridge runs on another host this
+# box is a CLIENT: there is no local messages.db at all. The scan used to answer
+# that with empty buckets plus a note telling the agent to "use live MCP" — and
+# an agent that only calls the unread listing then reports inbox zero on a
+# mailbox full of unanswered asks. Empty output is never evidence of an empty
+# inbox. Policy already carries `ssh` + `remote_store`, so USE them: snapshot the
+# remote sqlite read-only into a temp file and classify it exactly like a local
+# store. Only when that genuinely fails do we fall back to the remote-only note.
+WA_REMOTE_PULLED=0
+# One cleanup owner for every temporary path in this process. Later sections add
+# to this list instead of replacing the EXIT trap, so a pulled snapshot cannot
+# be orphaned by an unrelated trap registration.
+OIS_CLEANUP_PATHS=()
+ois_cleanup() {
+  local _p
+  for _p in ${OIS_CLEANUP_PATHS[@]+"${OIS_CLEANUP_PATHS[@]}"}; do
+    [ -n "$_p" ] && rm -rf -- "$_p" 2>/dev/null || true
+  done
+}
+trap ois_cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+if [ "$DO_WA" = 1 ] && [ ! -f "$WA_MSGDB" ]; then
+  _rs="${OIS_REMOTE_STORE:-$WA_MSGDB}"
+  for _host in "${OIS_SSH:-}" "${OIS_SSH_FALLBACK:-}"; do
+    [ -n "$_host" ] || continue
+    _tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/ois-wa.XXXXXX")"
+    OIS_CLEANUP_PATHS+=("$_tmpdir")
+    # Each account/run gets its own remote directory. A fixed shared path let
+    # concurrent account pulls overwrite or delete one another's snapshot.
+    _rdir="$(ssh -o BatchMode=yes -o ConnectTimeout=8 "$_host" \
+      "mktemp -d /tmp/ois-snap.XXXXXX" 2>/dev/null | tail -1 | tr -d '\r')" || _rdir=""
+    if [[ ! "$_rdir" =~ ^/tmp/ois-snap\.[A-Za-z0-9]+$ ]]; then
+      rm -rf -- "$_tmpdir"
+      continue
+    fi
+    # VACUUM INTO is the only safe way to copy a live sqlite db: it takes a
+    # consistent snapshot without a writer lock and never risks the WAL. A plain
+    # `scp` of a hot db can copy a torn page set.
+    if ssh -o BatchMode=yes -o ConnectTimeout=8 "$_host" \
+         "sqlite3 'file:${_rs}?mode=ro' \"VACUUM INTO '${_rdir}/messages.db'\"" \
+         >/dev/null 2>&1 &&
+       scp -q -o BatchMode=yes -o ConnectTimeout=8 "$_host:${_rdir}/messages.db" "$_tmpdir/messages.db" 2>/dev/null; then
+      ssh -o BatchMode=yes -o ConnectTimeout=8 "$_host" "rm -rf -- '${_rdir}'" >/dev/null 2>&1 || true
+      WA_MSGDB="$_tmpdir/messages.db"
+      WA_STORE="$_tmpdir"
+      WA_WADB="$_tmpdir/whatsapp.db"   # optional; absent => lid map falls back
+      WA_REMOTE_PULLED=1
+      WA_ACCOUNT_SOURCE="${WA_ACCOUNT_SOURCE}+ssh:${_host}"
+      break
+    fi
+    # Failed pulls remove only the directory this run created, on both sides.
+    ssh -o BatchMode=yes -o ConnectTimeout=8 "$_host" "rm -rf -- '${_rdir}'" >/dev/null 2>&1 || true
+    rm -rf -- "$_tmpdir"
+  done
+fi
+export OIS_WA_REMOTE_PULLED="$WA_REMOTE_PULLED"
+
+# Resolve a default Gmail account from gog if not supplied (best-effort).
+# `gog whoami` prints several tab-separated lines (name, email, photo...) and
+# the address is NOT on the first one. Piping through `head -1` therefore threw
+# the account away, and every downstream call ran without --account: on a box
+# with many tokens gog then refuses with "missing --account" and the scan
+# reports an unreachable mailbox that is in fact perfectly reachable. Scan all
+# lines and take the first address.
+if [ "$DO_EMAIL" = 1 ] && [ -z "$GMAIL_ACCOUNT" ]; then
+  GMAIL_ACCOUNT="$(gog whoami 2>/dev/null \
+    | grep -oE '[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}' | head -1 || true)"
+fi
+
+export OIS_DAYS="$DAYS" OIS_DEBT_DAYS="$DEBT_DAYS" OIS_DO_WA="$DO_WA" OIS_DO_EMAIL="$DO_EMAIL"
+export OIS_WA_MSGDB="$WA_MSGDB" OIS_WA_WADB="$WA_WADB"
+export OIS_GMAIL_ACCOUNT="$GMAIL_ACCOUNT" OIS_PRETTY="$PRETTY"
+export OIS_WA_PHONE="$WA_ACCOUNT_PHONE" OIS_WA_PORT="$BRIDGE_PORT"
+export OIS_WA_ACCOUNT_SOURCE="$WA_ACCOUNT_SOURCE"
+
+# ---------------------------------------------------- peer account stores ----
+# One person, two numbers, two stores. A reply sent from account A lands ONLY in
+# A's messages.db, so B's copy of that same conversation still ends in an
+# inbound message and the scan calls it NEEDS_REPLY -- an already-answered
+# thread, offered up for a second, duplicate reply. (2026-09-06: a contact was
+# answered on the NL number two days earlier; the US store had no idea.)
+# Peer stores are read-only evidence of "already answered", never a scan target.
+if [ "$DO_WA" = 1 ] && [ "$AUTO_PEERS" = 1 ] && [ -z "$PEER_STORES" ]; then
+  _resolver="$(dirname "$0")/ops-wa-accounts"
+  if [ -x "$_resolver" ]; then
+    PEER_STORES="$("$_resolver" 2>/dev/null | python3 -c '
+import json, os, sys
+try:
+    data = json.load(sys.stdin)
+except Exception:
+    sys.exit(0)
+mine = os.path.realpath(os.environ.get("OIS_WA_MSGDB", ""))
+out = []
+for a in data.get("accounts", []):
+    st = a.get("store")
+    if not st:
+        continue
+    st = os.path.realpath(st)
+    if st != mine and os.path.exists(st):
+        out.append(st)
+print(":".join(out))
+' 2>/dev/null || true)"
+  fi
+fi
+export OIS_PEER_STORES="$PEER_STORES"
+
+# The bridge dir that owns the store we are actually scanning — not a fixed
+# path, or link_contacts.py would be run out of the wrong account's install.
+BRIDGE_DIR="$(dirname "$WA_STORE")"
+
+# --------------------------------------------------------- refresh on load ----
+# Autonomous "always pull latest before classifying" pass (owner directive
+# 2026-06-05: "ensure backfill and frontfill is fully done automatically when I
+# run /ops-inbox"). Best-effort + bounded — NEVER blocks the scan for long and
+# NEVER fails it. Only runs when this account's own bridge is reachable.
+# Skip with OIS_NO_REFRESH=1 (e.g. CI / repeated calls in one session).
+if [ "$DO_WA" = 1 ] && [ "${OIS_NO_REFRESH:-0}" != 1 ]; then
+  if curl -s -o /dev/null -m 4 "$BRIDGE_API/" 2>/dev/null; then
+    # frontfill: recent-conversation history backfill (idempotent)
+    curl -fsS -m 10 -X POST "$BRIDGE_API/api/backfill" >/dev/null 2>&1 || true
+    # contacts link: phone + LID aliases -> names (idempotent)
+    [ -f "$BRIDGE_DIR/link_contacts.py" ] && \
+      python3 "$BRIDGE_DIR/link_contacts.py" >/dev/null 2>&1 || true
+    # bounded settle: wait until the newest stored message stops advancing
+    # (or ~18s elapses), so the classify pass reads a converged store.
+    if command -v sqlite3 >/dev/null 2>&1 && [ -f "$WA_MSGDB" ]; then
+      _prev=""; _stable=0
+      for _i in 1 2 3 4 5 6; do
+        _cur=$(sqlite3 "file:$WA_MSGDB?mode=ro" "SELECT max(timestamp) FROM messages;" 2>/dev/null || echo "")
+        if [ -n "$_cur" ] && [ "$_cur" = "$_prev" ]; then
+          _stable=$((_stable+1)); [ "$_stable" -ge 2 ] && break
+        else
+          _stable=0
+        fi
+        _prev="$_cur"
+        sleep 3
+      done
+    fi
+  fi
+fi
+
+# Send-log reconciliation feed: hand python the bridge's outbound-send journal so
+# it can demote NEEDS_REPLY threads already answered via /api/send or a
+# phone-originated send that hasn't landed in messages.db yet (owner directive:
+# "include all things I sent to all people"). Linux: systemd journal. macOS /
+# other: bridge log file. Best-effort; empty feed => reconciliation is a no-op.
+OIS_SENDLOG_FILE=""
+if [ "$DO_WA" = 1 ]; then
+  OIS_SENDLOG_FILE="$(mktemp "${TMPDIR:-/tmp}/ois-sendlog.XXXXXX")"
+  OIS_CLEANUP_PATHS+=("$OIS_SENDLOG_FILE")
+  if command -v journalctl >/dev/null 2>&1; then
+    journalctl --user -u whatsapp-bridge.service -o short-unix --no-pager \
+      --since "${DAYS} days ago" 2>/dev/null \
+      | grep -E "Received request to send message|Message sent to " \
+      > "$OIS_SENDLOG_FILE" 2>/dev/null || true
+  fi
+  # Fallback: scan the bridge's own log files if journal yielded nothing.
+  if [ ! -s "$OIS_SENDLOG_FILE" ]; then
+    for _lg in "$BRIDGE_DIR/logs/bridge.log" "$BRIDGE_DIR/logs/bridge.err.log"; do
+      [ -f "$_lg" ] && grep -E "Received request to send message|Message sent to " \
+        "$_lg" 2>/dev/null >> "$OIS_SENDLOG_FILE" || true
+    done
+  fi
+fi
+export OIS_SENDLOG_FILE
+
+# Gmail is fetched in bash (gog is a CLI) and handed to python via a temp file so
+# python never shells out. Empty file => python emits an "unreachable" note.
+GMAIL_JSON_FILE=""
+GMAIL_ERR=""
+GMAIL_OK=0
+if [ "$DO_EMAIL" = 1 ]; then
+  GMAIL_JSON_FILE="$(mktemp "${TMPDIR:-/tmp}/ois-gmail.XXXXXX")"
+  OIS_CLEANUP_PATHS+=("$GMAIL_JSON_FILE" "${GMAIL_JSON_FILE}.err")
+  # gog rejects a bare call once more than one token is stored, and again when
+  # the keyring is locked. Resolve the account and unlock first, so a config
+  # problem never reads as an empty inbox.
+  # shellcheck source=../lib/gog-account.sh
+  . "$(cd "$(dirname "$0")/.." && pwd)/lib/gog-account.sh"
+  ACCT_ARGS=()
+  if ops_gog_ready; then
+    ACCT_ARGS=(-a "$OPS_GOG_ACCOUNT")
+    # The python pass keys sweep watermarks on the mailbox actually read.
+    export OPS_GOG_ACCOUNT
+  else
+    GMAIL_ERR="$OPS_GOG_NOTE"
+  fi
+  # FULL INBOX, always. The working set is "not archived" -- i.e. everything
+  # still carrying the INBOX label -- never "unread", and never a recency slice.
+  # This used to be `in:inbox newer_than:${DAYS}d --max 30`, which silently hid
+  # every unanswered thread older than the window or past the 30th result, so a
+  # mail you never replied to just aged out of the scan. --days now only sizes
+  # the WhatsApp send-log lookback; it does not filter the mailbox. Narrow the
+  # mailbox deliberately with --email-query if you ever need to.
+  if ! gog gmail search "${ACCT_ARGS[@]}" -j --results-only --no-input \
+        --max "$EMAIL_MAX" "$EMAIL_QUERY" >"$GMAIL_JSON_FILE" 2>"${GMAIL_JSON_FILE}.err"; then
+    GMAIL_ERR="$(head -c 400 "${GMAIL_JSON_FILE}.err" 2>/dev/null | tr '\n' ' ')"
+    : >"$GMAIL_JSON_FILE"   # blank => unreachable
+  else
+    # A GENUINELY EMPTY INBOX IS A RESULT, NOT A FAILURE. gog prints `[]` for
+    # zero hits, and the old code could not tell that apart from a call that
+    # never ran — both left an unusable file and the scan said "unreachable".
+    # Marking the success explicitly keeps "inbox zero" and "scan broke" as two
+    # different answers, which is the whole point.
+    GMAIL_OK=1
+  fi
+  rm -f "${GMAIL_JSON_FILE}.err" 2>/dev/null || true
+
+  # FORGOTTEN EMAIL DEBT. The inbox query above only sees threads that still
+  # carry the INBOX label. A filter, a Gmail category, a mute, or one stray
+  # archive removes that label while the other person is still waiting for an
+  # answer — and every later scan then reports the mailbox as handled. That is
+  # exactly how a Believe thread ("MRT Gen AI Videos") sat unanswered across
+  # several clean runs: Gmail had filed the thread out of the inbox, so the
+  # scan never saw it, three times in a row.
+  #
+  # This mirrors the WhatsApp forgotten-debt sweep: pull archived inbound mail
+  # (never from the operator) plus his own sent mail over --debt-days, and let python
+  # keep only the threads whose LAST message is inbound. Conversation debt is
+  # direction, not label state.
+  if [ "$GMAIL_OK" = 1 ] && [ ${#ACCT_ARGS[@]} -gt 0 ]; then
+    GMAIL_DEBT_IN_FILE="$(mktemp "${TMPDIR:-/tmp}/ois-gmail-debt-in.XXXXXX")"
+    GMAIL_DEBT_OUT_FILE="$(mktemp "${TMPDIR:-/tmp}/ois-gmail-debt-out.XXXXXX")"
+    gog gmail messages search "${ACCT_ARGS[@]}" -j --max "$EMAIL_MAX" -- \
+      "-in:inbox -in:chats -in:spam -in:trash -from:me newer_than:${DEBT_DAYS}d" \
+      >"$GMAIL_DEBT_IN_FILE" 2>/dev/null || : >"$GMAIL_DEBT_IN_FILE"
+    gog gmail messages search "${ACCT_ARGS[@]}" -j --max "$EMAIL_MAX" -- \
+      "in:sent newer_than:${DEBT_DAYS}d" \
+      >"$GMAIL_DEBT_OUT_FILE" 2>/dev/null || : >"$GMAIL_DEBT_OUT_FILE"
+    export OIS_GMAIL_DEBT_IN_FILE="$GMAIL_DEBT_IN_FILE" \
+           OIS_GMAIL_DEBT_OUT_FILE="$GMAIL_DEBT_OUT_FILE"
+    OIS_CLEANUP_PATHS+=("$GMAIL_DEBT_IN_FILE" "$GMAIL_DEBT_OUT_FILE")
+  fi
+fi
+export OIS_GMAIL_JSON_FILE="$GMAIL_JSON_FILE" OIS_GMAIL_ERR="$GMAIL_ERR" OIS_GMAIL_OK="$GMAIL_OK"
+
+python3 <<'PY'
+import os, sys, json, sqlite3, re
+from datetime import datetime, timezone
+
+DAYS      = int(os.environ.get("OIS_DAYS", "7"))
+DEBT_DAYS = int(os.environ.get("OIS_DEBT_DAYS", "90"))
+DO_WA     = os.environ.get("OIS_DO_WA") == "1"
+DO_EMAIL  = os.environ.get("OIS_DO_EMAIL") == "1"
+MSGDB     = os.environ.get("OIS_WA_MSGDB", "")
+WADB      = os.environ.get("OIS_WA_WADB", "")
+ACCT      = os.environ.get("OIS_GMAIL_ACCOUNT", "")
+PRETTY    = os.environ.get("OIS_PRETTY") == "1"
+GMAIL_F   = os.environ.get("OIS_GMAIL_JSON_FILE", "")
+GMAIL_ERR = os.environ.get("OIS_GMAIL_ERR", "")
+GMAIL_OK  = os.environ.get("OIS_GMAIL_OK") == "1"
+GMAIL_DEBT_IN  = os.environ.get("OIS_GMAIL_DEBT_IN_FILE", "")
+GMAIL_DEBT_OUT = os.environ.get("OIS_GMAIL_DEBT_OUT_FILE", "")
+SENDLOG_F = os.environ.get("OIS_SENDLOG_FILE", "")
+PEER_STORES = [p for p in os.environ.get("OIS_PEER_STORES", "").split(":") if p]
+
+now = datetime.now(timezone.utc)
+notes = []
+
+def ts_epoch(ts_str):
+    """messages.db timestamp string -> unix epoch (float), or None."""
+    if not ts_str:
+        return None
+    s = ts_str.strip().replace("Z", "+00:00")
+    for cand in (s, re.sub(r"\.\d+", "", s)):
+        try:
+            dt = datetime.fromisoformat(cand)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.timestamp()
+        except ValueError:
+            continue
+    return None
+
+def load_send_log():
+    """Parse the bridge outbound-send journal into {recipient_jid: latest_epoch}.
+
+    Source lines (journalctl -o short-unix) look like:
+      <epoch>.<frac> host whatsapp-bridge[pid]: ... Message sent to <JID>
+    This lets the WhatsApp classifier demote a NEEDS_REPLY thread that was
+    already answered via /api/send (or a phone send not yet in messages.db) —
+    owner directive 2026-06-05 "include all things I sent to all people".
+    Only epoch-stamped lines drive demotion; undated lines are ignored so we
+    never demote a thread whose send actually predates the last inbound.
+    """
+    sent = {}
+    if not SENDLOG_F or not os.path.exists(SENDLOG_F):
+        return sent
+    pat = re.compile(r"^(\d+)(?:\.\d+)?\s.*Message sent to\s+(\S+@\S+)")
+    try:
+        with open(SENDLOG_F, "r", errors="ignore") as fh:
+            for line in fh:
+                m = pat.search(line)
+                if not m:
+                    continue
+                ep = float(m.group(1))
+                jid = m.group(2).strip().rstrip(".,;")
+                if jid not in sent or ep > sent[jid]:
+                    sent[jid] = ep
+    except OSError:
+        pass
+    return sent
+
+SEND_LOG = load_send_log()
+
+def age_min(ts_str):
+    if not ts_str:
+        return None
+    s = ts_str.strip().replace("Z", "+00:00")
+    try:
+        dt = datetime.fromisoformat(s)
+    except ValueError:
+        # try trimming fractional seconds / odd offsets
+        try:
+            dt = datetime.fromisoformat(re.sub(r"\.\d+", "", s))
+        except ValueError:
+            return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return int((now - dt.astimezone(timezone.utc)).total_seconds() // 60)
+
+def trunc(s, n=160):
+    s = (s or "").replace("\n", " ").strip()
+    return s if len(s) <= n else s[: n - 1] + "…"
+
+# ---------------------------------------------------------------- WhatsApp ----
+def ro(path):
+    # mode=ro (NOT immutable=1): the bridge writes this DB live in WAL mode;
+    # immutable=1 skips the -wal file and would hide the freshest, uncheckpointed
+    # messages. mode=ro respects WAL + locking and never mutates.
+    return sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+
+
+def load_peer_outbound():
+    """person-key -> newest epoch WE sent them from ANY other account.
+
+    Keys are both the raw jid and its bare local part (the digits before @), so
+    a peer's `12345@lid` matches this account's `12345@s.whatsapp.net`: the
+    lid<->phone map is per-store, and the same person is routinely filed under a
+    different jid suffix on the other number. Matching on the digits is what
+    makes the cross-account check actually fire.
+    """
+    sent = {}
+    for path in PEER_STORES:
+        if not os.path.exists(path):
+            continue
+        try:
+            con = ro(path)
+            rows = con.execute(
+                "SELECT chat_jid, MAX(timestamp) FROM messages "
+                "WHERE is_from_me=1 GROUP BY chat_jid"
+            ).fetchall()
+            con.close()
+        except sqlite3.Error as exc:                  # noqa: BLE001 - note, never crash
+            notes.append(f"whatsapp: peer store unreadable ({path}): {exc}")
+            continue
+        for jid, ts in rows:
+            ep = ts_epoch(ts)
+            if ep is None or not jid:
+                continue
+            for key in (jid, re.sub(r"@.*$", "", jid)):
+                if key and (key not in sent or ep > sent[key]):
+                    sent[key] = ep
+    return sent
+
+
+PEER_OUTBOUND = load_peer_outbound()
+
+
+def peer_answered_after(jids, inbound_ep):
+    """Newest cross-account send to any of these jids after inbound_ep."""
+    if inbound_ep is None or not PEER_OUTBOUND:
+        return None
+    best = None
+    for j in jids:
+        for key in (j, re.sub(r"@.*$", "", j)):
+            ep = PEER_OUTBOUND.get(key)
+            if ep is not None and ep > inbound_ep + 30 and (best is None or ep > best):
+                best = ep
+    return best
+
+
+def scan_whatsapp():
+    out = {"needs_reply": [], "waiting": [], "groups": [], "fyi": []}
+    if not os.path.exists(MSGDB):
+        # No store, local OR pulled. The SSH snapshot above already tried and
+        # failed, so this is a genuine blocker, not a quiet "nothing here".
+        out["reachable"] = False
+        out["source"] = "remote"
+        out["scan_via"] = "live-mcp"
+        out["blocked"] = True
+        notes.append(
+            "whatsapp: NO STORE — the local store is absent and the ssh/remote_store "
+            "snapshot failed. These empty buckets are a FAILED SCAN, not an empty "
+            "inbox. Do not report inbox zero. Fix the ssh path in policy, or scan "
+            "every non-handled chat via the live bridge tools (find/thread — NOT the "
+            "unread listing, which is a display state and is empty for any thread "
+            "already opened on a phone). WA replies stay DRAFT-ONLY."
+        )
+        return out
+    con = ro(MSGDB)
+    con.row_factory = sqlite3.Row
+
+    # lid<->phone map: lid_jid -> pn_jid  (authoritative, from whatsmeow store)
+    lid2pn = {}
+    if os.path.exists(WADB):
+        try:
+            w = ro(WADB)
+            for lid, pn in w.execute("SELECT lid, pn FROM whatsmeow_lid_map"):
+                lid2pn[f"{lid}@lid"] = f"{pn}@s.whatsapp.net"
+            w.close()
+        except sqlite3.Error as e:
+            notes.append(f"whatsapp: lid_map unreadable ({e}); falling back to contacts.phone")
+
+    # Reverse map: phone_jid -> [lid_jids]. Used to seed merged groups with BOTH
+    # twins even when one twin's `chats` row is absent/stale at scan time (backfill
+    # timing). Without this a live @lid conversation can be missed while only the
+    # stale phone twin surfaces — the lid blind-spot. last_msgs() reads `messages`
+    # directly, so adding the twin as a member catches the live side regardless.
+    pn2lids = {}
+    for _l, _p in lid2pn.items():
+        pn2lids.setdefault(_p, []).append(_l)
+
+    # contacts: jid -> name, and phone -> jids (fallback merge + name resolution)
+    name_by_jid, phone_by_jid, jids_by_phone = {}, {}, {}
+    try:
+        for jid, name, phone in con.execute(
+            "SELECT jid, name, phone FROM contacts"
+        ):
+            if name:
+                name_by_jid[jid] = name
+            if phone:
+                phone_by_jid[jid] = phone
+                jids_by_phone.setdefault(phone, set()).add(jid)
+    except sqlite3.Error:
+        pass
+
+    def canonical(jid):
+        # Prefer the phone JID as the canonical key so a person's lid + phone
+        # chats collapse to one conversation.
+        if jid in lid2pn:
+            return lid2pn[jid]
+        ph = phone_by_jid.get(jid)
+        if ph:
+            for cand in jids_by_phone.get(ph, ()):
+                if cand.endswith("@s.whatsapp.net"):
+                    return cand
+        return jid
+
+    # Working set: everything the owner has not DEALT WITH yet.
+    #
+    # Three columns can define "still in my inbox" and only one of them means
+    # what we need:
+    #   * unread_count  — a DISPLAY state. The owner reads on a phone, so every
+    #                     real thread reads 0. Scanning unread reports inbox
+    #                     zero on a mailbox full of unanswered asks. Never use it.
+    #   * archived      — has been observed mass-corrupted (every chat flagged
+    #                     archived=1, live two-way threads included), which
+    #                     silently blinds the scan the same way.
+    #   * handled       — set by this toolchain when a thread was actioned or
+    #                     swept. That is the real "done" bit, so `handled=0` is
+    #                     the working set when the column exists.
+    # Recency is kept as a floor so a corrupt flag can never hide an actively
+    # conversing chat, and genuinely old dealt-with chats still stay hidden.
+    has_handled = False
+    try:
+        has_handled = any(r[1] == "handled" for r in
+                          con.execute("PRAGMA table_info(chats)"))
+    except sqlite3.Error:
+        pass
+    if has_handled:
+        done_pred = "(handled=0 AND archived=0)"
+        # "Every chat is archived" has two very different causes:
+        #   * flag corruption — the store mass-set archived=1 while threads were
+        #     still live and unanswered (observed 2026-06-09).
+        #   * a completed inbox-zero run — every chat archived ON PURPOSE.
+        # The old code assumed the first and fell back to `handled=0`. That is
+        # only a working set if something actually WRITES `handled`. Nothing in
+        # this toolchain does, so on a genuinely-empty inbox the fallback
+        # reopened the entire history: 1803 of 1806 archived chats came back as
+        # unanswered asks, and inbox zero became unreachable by construction.
+        # A column nobody maintains cannot arbitrate anything, so use it only
+        # when it is demonstrably in use.
+        try:
+            n_open = con.execute("SELECT count(*) FROM chats WHERE archived=0").fetchone()[0]
+        except sqlite3.Error:
+            n_open = 1
+        if not n_open:
+            try:
+                n_handled = con.execute(
+                    "SELECT count(*) FROM chats WHERE handled=1").fetchone()[0]
+                n_total = con.execute("SELECT count(*) FROM chats").fetchone()[0]
+            except sqlite3.Error:
+                n_handled, n_total = 0, 0
+            # In use = it tracks the archiving it is being asked to stand in for.
+            # A handful of rows out of thousands is a leftover, not a signal.
+            if n_total and n_handled * 2 >= n_total:
+                done_pred = "handled=0"
+                notes.append(
+                    "whatsapp: every chat is flagged archived=1 (known corruption); "
+                    "using handled=0 as the working set instead"
+                )
+            else:
+                notes.append(
+                    "whatsapp: every chat is archived and `handled` is not "
+                    "maintained (%d of %d rows), so the archive is taken at face "
+                    "value: inbox zero, not flag corruption"
+                    % (n_handled, n_total)
+                )
+    else:
+        done_pred = "archived=0"
+    # The recency floor is a corruption net, NOT a second working set. It may
+    # only reopen a chat the flags could be LYING about, and after an
+    # intentional inbox-zero run they are not lying: on 2026-09-06 a US account
+    # with every chat deliberately archived still reported 23 needs_reply, all
+    # 23 already archived, because "active in the last 7 days" outranked the
+    # archive. Archived means dealt with; that is the whole contract of the
+    # sweep. So the net is armed only where corruption is actually plausible --
+    # a store that has never been swept clean.
+    try:
+        n_open_now = con.execute(
+            "SELECT count(*) FROM chats WHERE archived=0").fetchone()[0]
+    except sqlite3.Error:
+        n_open_now = 1
+    if n_open_now:
+        # Corruption net, narrowed. It used to be a bare
+        # `OR last_message_time >= now - DAYS`, which outranked the archive flag
+        # for ANY recent chat, so a thread archived while already settled came
+        # straight back. A mass-corrupted flag always leaves the other person's
+        # message last (we never got to answer), so require that: recent,
+        # archived, and ending on THEIR line. A chat we closed out ourselves is
+        # left alone, and the post-sweep reopen below handles the case where
+        # they answer afterwards.
+        chats = list(con.execute(
+            "SELECT jid, name, last_message_time FROM chats c "
+            f"WHERE {done_pred} OR ("
+            "  c.last_message_time >= datetime('now', ?) "
+            "  AND EXISTS (SELECT 1 FROM messages m WHERE m.chat_jid = c.jid "
+            "              AND m.is_from_me = 0 "
+            "              AND m.timestamp = (SELECT MAX(x.timestamp) "
+            "                                 FROM messages x "
+            "                                 WHERE x.chat_jid = c.jid))) "
+            "ORDER BY last_message_time DESC",
+            (f"-{DAYS} days",)
+        ))
+    else:
+        notes.append(
+            "whatsapp: inbox is fully archived — recency net disarmed so a "
+            "deliberately archived chat is not reopened as unanswered"
+        )
+        chats = list(con.execute(
+            "SELECT jid, name, last_message_time FROM chats "
+            f"WHERE {done_pred} ORDER BY last_message_time DESC"
+        ))
+
+    # REPLIES AFTER THE SWEEP. Archiving a thread says "dealt with as of now",
+    # not "dealt with forever". When the other person answers afterwards the
+    # chat is unhandled again, but WhatsApp leaves the archive flag exactly
+    # where it was, so a working set of archived=0 alone never sees the reply --
+    # inbox zero reported over a stack of live questions (observed 2026-09-06:
+    # five people replied within four hours of the sweep, all invisible).
+    #
+    # The evidence must be NARROW or this becomes a second working set. A first
+    # attempt reopened on "inbound newer than our last outbound" alone and
+    # dragged back 316 chats going to 2025, because a thread we never answered
+    # satisfies that trivially. Two conditions, both required:
+    #   1. a sweep watermark for that chat (written by ops-inbox-archive-set),
+    #      and an inbound strictly newer than it; or, for chats archived before
+    #      watermarks existed, an outbound of OURS with an inbound after it,
+    #   2. and the inbound falls inside the --days window, so history stays shut.
+    reopened = 0
+    seen_jids = {c["jid"] for c in chats}
+    marks = {}
+    if MSGDB:
+        wm_path = os.path.join(os.path.dirname(MSGDB), "ops-sweep-watermarks.json")
+        try:
+            with open(wm_path) as fh:
+                loaded = json.load(fh)
+            if isinstance(loaded, dict):
+                marks = {k: str(v) for k, v in loaded.items()}
+        except (OSError, ValueError):
+            marks = {}
+    try:
+        rows = con.execute(
+            "SELECT c.jid AS jid, c.name AS name, "
+            "       c.last_message_time AS last_message_time, "
+            "       (SELECT MAX(i.timestamp) FROM messages i "
+            "          WHERE i.chat_jid = c.jid AND i.is_from_me = 0) AS last_in, "
+            "       (SELECT MAX(o.timestamp) FROM messages o "
+            "          WHERE o.chat_jid = c.jid AND o.is_from_me = 1) AS last_out "
+            "FROM chats c WHERE c.archived = 1 "
+            "  AND c.last_message_time >= datetime('now', ?) "
+            "ORDER BY c.last_message_time DESC",
+            (f"-{DAYS} days",),
+        ).fetchall()
+    except sqlite3.Error as exc:                     # noqa: BLE001 - note, never crash
+        rows = []
+        notes.append(f"whatsapp: post-archive reply check failed ({exc})")
+    for r in rows:
+        jid = r["jid"]
+        if jid.endswith("@broadcast") or jid.endswith("@newsletter"):
+            continue
+        last_in = r["last_in"]
+        mark = marks.get(jid)
+        keep = False
+        if last_in:
+            if mark:
+                keep = last_in > mark
+            else:
+                # No watermark: only a thread we actually engaged in can be
+                # judged, otherwise every old unanswered chat qualifies.
+                keep = bool(r["last_out"]) and last_in > r["last_out"]
+        if jid in seen_jids:
+            # It arrived via the corruption net. The watermark still rules: a
+            # chat archived AFTER their last word is dealt with, however recent.
+            if mark and not keep:
+                chats = [c for c in chats if c["jid"] != jid]
+                seen_jids.discard(jid)
+            elif keep:
+                # Same situation the reopen exists for, different door in.
+                # Count it so the note matches what the run actually surfaced.
+                reopened += 1
+            continue
+        if not keep:
+            continue
+        chats.append(r)
+        seen_jids.add(jid)
+        reopened += 1
+    if reopened:
+        notes.append(
+            "whatsapp: %d archived chat(s) reopened — they replied after the "
+            "sweep, so the archive no longer means dealt-with" % reopened
+        )
+
+    # FORGOTTEN DEBT. An archived/read thread can still hold an unanswered ask
+    # the owner put away and never came back to. Unread is a display state, so
+    # this must not depend on unread_count. Narrow: last inbound is a real
+    # question, we never answered (or they asked again after us), inside
+    # --debt-days. Older history stays shut (the 316-chat blowout).
+    ASK_RE = re.compile(
+        r"\?|\b(kun|kan|could|can|would|please|graag|laat.*weten|let me know|"
+        r"need|nodig|wanneer|when|hoe|how|wat|what|waarom|why|stuur|send|"
+        r"call|bel|oké met|oke met|ok with)\b",
+        re.IGNORECASE)
+    forgotten = 0
+    forgotten_jids = set()
+    try:
+        debt_rows = con.execute(
+            "SELECT c.jid AS jid, c.name AS name, "
+            "       c.last_message_time AS last_message_time, "
+            "       (SELECT content FROM messages i WHERE i.chat_jid = c.jid "
+            "          AND i.is_from_me = 0 ORDER BY i.timestamp DESC LIMIT 1) AS last_in_text, "
+            "       (SELECT MAX(i.timestamp) FROM messages i "
+            "          WHERE i.chat_jid = c.jid AND i.is_from_me = 0) AS last_in, "
+            "       (SELECT MAX(o.timestamp) FROM messages o "
+            "          WHERE o.chat_jid = c.jid AND o.is_from_me = 1) AS last_out "
+            "FROM chats c WHERE c.archived = 1 "
+            "  AND c.last_message_time >= datetime('now', ?) "
+            "ORDER BY c.last_message_time DESC",
+            (f"-{DEBT_DAYS} days",),
+        ).fetchall()
+    except sqlite3.Error as exc:
+        debt_rows = []
+        notes.append(f"whatsapp: forgotten-debt check failed ({exc})")
+    for r in debt_rows:
+        jid = r["jid"]
+        if jid in seen_jids:
+            continue
+        if jid.endswith("@broadcast") or jid.endswith("@newsletter") or jid.endswith("@g.us"):
+            continue
+        last_in = r["last_in"]
+        last_out = r["last_out"]
+        body = (r["last_in_text"] or "").strip()
+        if not last_in or not body:
+            continue
+        mark = marks.get(jid)
+        if mark and last_in <= mark:
+            continue
+        if last_out and last_out >= last_in:
+            continue
+        if not ASK_RE.search(body):
+            continue
+        chats.append(r)
+        seen_jids.add(jid)
+        forgotten_jids.add(jid)
+        forgotten += 1
+    if forgotten:
+        notes.append(
+            "whatsapp: %d forgotten unanswered ask(s) reopened inside the "
+            "%d-day debt window (archived/read, still their ball)"
+            % (forgotten, DEBT_DAYS)
+        )
+
+    # Build merged DM groups keyed by canonical jid.
+    groups = {}   # canonical_jid -> {member_jids:set, name, latest_ts}
+    g_chats = []  # @g.us
+    n_chats = []  # @newsletter
+    for c in chats:
+        jid = c["jid"]
+        if jid.endswith("@g.us"):
+            g_chats.append(c); continue
+        if jid.endswith("@newsletter") or jid.endswith("@broadcast"):
+            n_chats.append(c); continue
+        key = canonical(jid)
+        g = groups.setdefault(key, {"members": set(), "name": None, "latest": None})
+        g["members"].add(jid)
+        g["members"].add(key)
+        # Always include the phone key's lid twin(s), even if their chats row is
+        # missing/stale this scan — so the merged thread sees the live side.
+        for _lt in pn2lids.get(key, ()):
+            g["members"].add(_lt)
+        nm = name_by_jid.get(jid) or (c["name"] if c["name"] and not c["name"][0].isdigit() else None)
+        if nm and not g["name"]:
+            g["name"] = nm
+        if c["last_message_time"] and (g["latest"] is None or c["last_message_time"] > g["latest"]):
+            g["latest"] = c["last_message_time"]
+
+    def last_msgs(jids, limit=6):
+        qs = ",".join("?" * len(jids))
+        rows = con.execute(
+            f"SELECT is_from_me, content, media_type, timestamp, sender "
+            f"FROM messages WHERE chat_jid IN ({qs}) "
+            f"ORDER BY timestamp DESC LIMIT ?",
+            (*jids, limit),
+        ).fetchall()
+        return rows  # newest first
+
+    # DM classification
+    for key, g in groups.items():
+        members = sorted(g["members"])
+        rows = last_msgs(members, 6)
+        if not rows:
+            continue
+        last = rows[0]
+        am = age_min(last["timestamp"])
+        # NO hard recency cutoff: archived=0 IS the working-set filter. An
+        # unanswered ask from 10 days ago is still actionable (per SKILL.md).
+        # Recency only sorts (below).
+        name = (g["name"]
+                or name_by_jid.get(key)
+                or re.sub(r"@.*$", "", key))
+        preview = []
+        for r in reversed(rows):  # oldest->newest for readability
+            body = r["content"]
+            if not body and r["media_type"]:
+                body = f"[{r['media_type']}]"
+            preview.append({
+                "from_me": bool(r["is_from_me"]),
+                "text": trunc(body, 140),
+            })
+        item = {
+            "who": name,
+            "jid": key,
+            "alt_jids": [j for j in members if j != key],
+            "last_message_at": last["timestamp"],
+            "age_min": am,
+            "last_from_me": bool(last["is_from_me"]),
+            "preview": preview,
+        }
+        if forgotten_jids.intersection(members):
+            item["forgotten"] = True
+        if last["is_from_me"]:
+            out["waiting"].append(item)
+        else:
+            # Send-log reconciliation: if we sent to ANY of this person's JIDs
+            # AFTER their last inbound message, the thread is already answered
+            # (the reply went out via /api/send or a phone send the store hasn't
+            # ingested yet). Demote NEEDS_REPLY -> waiting so we never re-flag or
+            # re-draft a thread the user already handled.
+            inbound_ep = ts_epoch(last["timestamp"])
+            answered_ep = None
+            if SEND_LOG and inbound_ep is not None:
+                for mj in members:
+                    se = SEND_LOG.get(mj)
+                    if se is not None and se > inbound_ep + 30:  # 30s tolerance
+                        answered_ep = se if (answered_ep is None or se > answered_ep) else answered_ep
+            if answered_ep is not None:
+                item["last_from_me"] = True
+                item["reconciled"] = "answered via send-log (reply sent, not yet in store)"
+                out["waiting"].append(item)
+            else:
+                # Cross-account: same person, other number, answer already sent
+                # there. Without this the second account re-offers a handled
+                # thread and a duplicate reply goes out.
+                peer_ep = peer_answered_after(members, inbound_ep)
+                if peer_ep is not None:
+                    item["last_from_me"] = True
+                    item["reconciled"] = "answered from another WhatsApp account"
+                    out["waiting"].append(item)
+                else:
+                    out["needs_reply"].append(item)
+
+    # Group chats — surface recent ones for the skill to scan for @mentions /
+    # direct questions. Provisional status from last-message direction only.
+    for c in g_chats:
+        rows = last_msgs([c["jid"]], 6)
+        if not rows:
+            continue
+        last = rows[0]
+        am = age_min(last["timestamp"])
+        preview = []
+        for r in reversed(rows):
+            body = r["content"] or (f"[{r['media_type']}]" if r["media_type"] else "")
+            preview.append({
+                "from_me": bool(r["is_from_me"]),
+                "sender": re.sub(r"@.*$", "", r["sender"] or ""),
+                "text": trunc(body, 140),
+            })
+        out["groups"].append({
+            "who": c["name"] or re.sub(r"@.*$", "", c["jid"]),
+            "jid": c["jid"],
+            "last_message_at": last["timestamp"],
+            "age_min": am,
+            "last_from_me": bool(last["is_from_me"]),
+            "preview": preview,
+            "note": "group — scan preview for @mention/direct question before NEEDS_REPLY",
+        })
+
+    # Newsletters/broadcasts are always FYI.
+    for c in n_chats:
+        am = age_min(c["last_message_time"])
+        out["fyi"].append({
+            "who": c["name"] or re.sub(r"@.*$", "", c["jid"]),
+            "jid": c["jid"],
+            "last_message_at": c["last_message_time"],
+            "age_min": am,
+            "reason": "newsletter/broadcast",
+        })
+
+    con.close()
+    # Stable ordering: most recent first within each bucket.
+    for b in ("needs_reply", "waiting", "groups", "fyi"):
+        out[b].sort(key=lambda x: x.get("age_min") if x.get("age_min") is not None else 1 << 30)
+    return out
+
+# ------------------------------------------------------------------- Email ----
+# Protected todo/action labels — an email carrying any of these is a user-tracked
+# open task and MUST NEVER be archived until verified done (see the HARD GUARDRAIL
+# in ops-inbox SKILL.md). Match by normalized label NAME (gog returns names, which
+# we upper() before comparing). System labels are excluded.
+SYSTEM_LABELS = {"INBOX", "SENT", "DRAFT", "UNREAD", "IMPORTANT", "STARRED",
+                 "TRASH", "SPAM", "CHAT", "FYI"}
+def _norm_label(l):
+    return re.sub(r"[^A-Z0-9]+", " ", str(l).upper()).strip()
+# substring signals (normalized) that imply an open task
+PROTECTED_SUBSTRINGS = (
+    "TO RESPOND", "RESPOND", "REPLY LATER", "REPLY", "NEEDS ACTION", "ACTION",
+    "FOLLOW UP", "FOLLOWUP", "AWAITING REPLY", "TO DO", "TODO", "TASKLET",
+    "TASK", "TIMED ACTIONS",
+)
+# a 'done/completed' label clears protection even if a stale todo label lingers
+COMPLETION_SUBSTRINGS = ("ACTIONED", "DONE", "COMPLETED", "RESOLVED", "HANDLED", "ARCHIVED")
+PROTECTED_PHRASES = tuple(s for s in PROTECTED_SUBSTRINGS if " " in s)
+PROTECTED_WORDS = tuple(s for s in PROTECTED_SUBSTRINGS if " " not in s)
+def protected_todo_labels(labels):
+    """Return the list of protected todo/action labels on a message (empty if none/done)."""
+    hits, done = [], False
+    for raw in labels or []:
+        if str(raw).upper() in SYSTEM_LABELS or str(raw).upper().startswith("CATEGORY_"):
+            continue
+        n = _norm_label(raw)
+        words = set(n.split())
+        tokens = n.split()
+        for i, t in enumerate(tokens):
+            if t in COMPLETION_SUBSTRINGS and (i == 0 or tokens[i - 1] != "NOT"):
+                done = True
+                break
+        if any(p in n for p in PROTECTED_PHRASES) or any(w in words for w in PROTECTED_WORDS):
+            hits.append(str(raw))
+    return [] if done else hits
+
+def from_email_addr(header):
+    """Bare address from a From header (exact match; avoids substring false positives)."""
+    if not header:
+        return ""
+    m = re.search(r"<([^>]+)>", header)
+    if m:
+        return m.group(1).lower().strip()
+    m = re.search(r"[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}", header.lower())
+    return m.group(0) if m else header.lower().strip()
+
+def _load_msg_list(path):
+    """Read a `gog gmail messages search -j` dump -> list of message dicts."""
+    if not path or not os.path.exists(path) or os.path.getsize(path) == 0:
+        return []
+    try:
+        with open(path) as fh:
+            data = json.load(fh)
+    except (json.JSONDecodeError, OSError):
+        return []
+    if isinstance(data, dict):
+        return data.get("messages") or data.get("results") or []
+    return data if isinstance(data, list) else []
+
+
+def _msg_when(m):
+    return m.get("internalDateIso") or m.get("date") or ""
+
+
+# Machine senders, by address only — never by subject keyword, which would risk
+# hiding a real human. Deliberately wider than the inbox pass: the debt sweep
+# reads ARCHIVED mail, where transactional traffic dominates. Bare support@ /
+# info@ mailers, ticket robots, DMARC reporters, OTP senders and calendar
+# plumbing otherwise drown the handful of humans actually waiting — measured
+# 2026-09-16: 47 raw rows, 12 real conversations. Anything genuinely human
+# writing from such an address still reaches the operator through the inbox pass.
+MACHINE_SENDER_RE = re.compile(
+    r"(no[-_.]?reply|do[-_.]?not[-_.]?reply|notifications?@|notifications?_at_|alerts?@|"
+    r"mailer-daemon|postmaster@|@.*\.amazonses\.com|bounce|"
+    r"^support@|@.*\.atlassian\.net|automation@|billing@|invoice|receipts?@|"
+    r"dmarc|newsletter|marketing@|welcome@|techcomms@|via google|"
+    r"@mail\.notion\.so|flyingblue|klm_royal|@notifications\.|@.*\.ikosresorts\.com)",
+    re.IGNORECASE)
+
+
+def _answered_threads():
+    """Thread ids where OUR newest message is newer than THEIR newest.
+
+    Gmail keeps the INBOX label on a thread after you reply from another client
+    (phone, web, a different alias). The envelope pass only sees the last
+    *inbound* message and calls that debt, so a thread the operator answered himself
+    minutes ago still reads as "waiting for the operator". That happened on 2026-09-16:
+    he replied to Tjark at 11:03, the scan still listed it, and he had to catch
+    it. Debt is direction, not label state, so build the set of threads we
+    already answered and let the inbox pass demote them.
+    """
+    outbound = _load_msg_list(GMAIL_DEBT_OUT)
+    if not outbound:
+        return {}
+    inbound = _load_msg_list(GMAIL_DEBT_IN)
+    last_out, last_in = {}, {}
+    for m in outbound:
+        tid = m.get("threadId") or m.get("id")
+        when = _msg_when(m)
+        if tid and when and when > last_out.get(tid, ""):
+            last_out[tid] = when
+    for m in inbound:
+        tid = m.get("threadId") or m.get("id")
+        when = _msg_when(m)
+        if tid and when and when > last_in.get(tid, ""):
+            last_in[tid] = when
+    return {tid: when for tid, when in last_out.items()
+            if when > last_in.get(tid, "")}
+
+
+def _when_epoch(s):
+    """ISO-ish timestamp -> epoch seconds, or None.
+
+    Gmail hands back "2026-09-16T10:00:00+00:00" while the sweep watermark is
+    written as "2026-09-16 10:00:00+00:00". Comparing those as STRINGS silently
+    always favours the Gmail one ("T" sorts after " "), so every swept thread
+    read as "they wrote after the sweep" and came straight back. Compare real
+    instants, never text.
+    """
+    if not s:
+        return None
+    t = str(s).strip().replace("Z", "+00:00")
+    if len(t) > 10 and t[10] == " ":
+        t = t[:10] + "T" + t[11:]
+    for cand in (t, re.sub(r"\.\d+", "", t)):
+        try:
+            dt = datetime.fromisoformat(cand)
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return dt.timestamp()
+        except ValueError:
+            continue
+    return None
+
+
+def _email_watermarks():
+    """When did WE deliberately archive each thread? Written by ops-inbox-archive-set.
+
+    Without this the forgotten-debt pass re-opens everything a sweep just filed,
+    because "archived + they spoke last" is true for every thread we close out.
+    On 2026-09-16 that turned a genuinely empty inbox into 47 items, all of them
+    mail archived minutes earlier. A watermark separates "Gmail filed this away
+    on its own" (real debt) from "we dealt with this at 12:05" (not debt, unless
+    they wrote again AFTER that).
+    """
+    base = os.environ.get("HERMES_HOME") or os.path.expanduser("~/.hermes")
+    # Key on the mailbox actually READ, not the one requested. --gmail-account
+    # may name an alias, but every alias forwards into one real mailbox and
+    # lib/gog-account.sh resolves the query to that account. Keying on the
+    # alias wrote watermarks nobody ever reads back, so a swept thread came
+    # straight back on the next scan of that alias.
+    read_acct = os.environ.get("OPS_GOG_ACCOUNT") or ACCT or "default"
+    safe = re.sub(r"[^a-z0-9._-]+", "_", read_acct.lower())
+    path = os.path.join(base, "state", "ops-email-sweep-watermarks-%s.json" % safe)
+    try:
+        with open(path) as fh:
+            loaded = json.load(fh)
+        return {k: str(v) for k, v in loaded.items()} if isinstance(loaded, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def forgotten_email_threads():
+    """Archived mail where THEY spoke last and we never answered.
+
+    Label state is not conversation state: a Gmail filter, a category, a mute
+    or one stray archive strips INBOX from a live thread, and an inbox-only
+    scan then calls the mailbox clean while someone waits. Direction is the
+    only honest test, so compare the newest inbound message per thread against
+    the newest message we sent in that same thread.
+    """
+    inbound = _load_msg_list(GMAIL_DEBT_IN)
+    if not inbound:
+        return []
+    outbound = _load_msg_list(GMAIL_DEBT_OUT)
+    last_in, last_out, newest = {}, {}, {}
+    for m in inbound:
+        tid = m.get("threadId") or m.get("id")
+        when = _msg_when(m)
+        if not tid or not when:
+            continue
+        if when > last_in.get(tid, ""):
+            last_in[tid] = when
+            newest[tid] = m
+    for m in outbound:
+        tid = m.get("threadId") or m.get("id")
+        when = _msg_when(m)
+        if not tid or not when:
+            continue
+        if when > last_out.get(tid, ""):
+            last_out[tid] = when
+    # Threads the owner has ever written into are real conversations, not
+    # one-way blasts. Used as a confidence signal, never as a filter: a first
+    # approach from a new human is still debt.
+    participated = set(last_out)
+    self_addr = (ACCT or "").lower()
+    swept = _email_watermarks()
+    # Timestamps shared by many threads = a bulk sweep, not a human decision.
+    _mc = {}
+    for _v in swept.values():
+        _mc[_v] = _mc.get(_v, 0) + 1
+    # >=2 threads sharing one timestamp is already a sweep, not a human
+    # deciding thread by thread. Deliberate one-off stamps are unique.
+    BULK_MARKS = {_when_epoch(k) for k, c in _mc.items() if c >= 2}
+    BULK_MARKS.discard(None)
+    items = []
+    for tid, when in last_in.items():
+        if when <= last_out.get(tid, ""):
+            continue  # we answered after them: not debt
+        # We archived this on purpose. Only real if they wrote again AFTER that.
+        #
+        # EXCEPTION, and it matters: a watermark closes ONE-WAY mail, never a
+        # conversation the operator is actually in. A bulk sweep stamps hundreds of
+        # threads in one second (1007 on 2026-09-16) without a human reading any
+        # of them, and that wiped all 12 genuine two-way threads — Believe,
+        # PingPong, Ace, Ikos — from the result. Archiving is a filing decision;
+        # it is not evidence that a reply was sent. So a thread the operator has written
+        # into survives its watermark and is demoted only by the direction test
+        # above (we answered after them), which is the honest signal.
+        mark = _when_epoch(swept.get(tid))
+        inbound_at = _when_epoch(when)
+        if mark is not None and inbound_at is not None and inbound_at <= mark:
+            # A BULK stamp (hundreds in one second) is a filing decision, not
+            # proof anyone read the thread, so it may not silence a conversation
+            # the operator is actually in. A stamp we set alone, deliberately, after
+            # reading it, may. `bulk` marks the timestamps shared by many
+            # threads at once.
+            if tid not in participated or mark not in BULK_MARKS:
+                continue
+        m = newest[tid]
+        frm = (m.get("from") or "").lower()
+        if self_addr and self_addr == from_email_addr(frm):
+            continue
+        labels = [str(l).upper() for l in (m.get("labels") or m.get("labelIds") or [])]
+        if any(l in labels for l in ("CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL",
+                                     "CATEGORY_UPDATES", "CATEGORY_FORUMS")):
+            continue
+        if MACHINE_SENDER_RE.search(frm):
+            continue
+        items.append({
+            "who": m.get("from") or "(unknown)",
+            "subject": trunc(m.get("subject") or "(no subject)", 120),
+            "threadId": tid,
+            "date": m.get("date"),
+            "labels": labels,
+            "forgotten": True,
+            "operator_participated": tid in participated,
+            "note": ("KEEP — archived/filtered out of the inbox but they still "
+                     "spoke last inside the %d-day debt window; deep-read before "
+                     "drafting" % DEBT_DAYS),
+        })
+    # Threads the owner already joined rank first: those are live conversations
+    # someone is actively waiting on. Recency breaks ties inside each group.
+    items.sort(key=lambda x: (x["operator_participated"], last_in.get(x["threadId"], "")),
+               reverse=True)
+    return items
+
+
+def _merge_forgotten(res):
+    """Add archived-but-unanswered threads to needs_reply, without duplicates."""
+    try:
+        extra = forgotten_email_threads()
+    except Exception as exc:  # never let the sweep break the whole scan
+        res.setdefault("notes", []).append("email forgotten-debt check failed (%s)" % exc)
+        return res
+    if not extra:
+        return res
+    seen = {i.get("threadId") for bucket in ("needs_reply", "waiting", "fyi")
+            for i in res.get(bucket, [])}
+    added = [i for i in extra if i.get("threadId") not in seen]
+    if not added:
+        return res
+    res["needs_reply"].extend(added)
+    res["forgotten_count"] = len(added)
+    res.setdefault("notes", []).append(
+        "email: %d archived/filtered thread(s) reopened — they spoke last inside "
+        "the %d-day debt window, so the INBOX label was hiding real debt"
+        % (len(added), DEBT_DAYS))
+    if res.pop("empty", None):
+        res["note"] = ("inbox label is empty, but %d archived/filtered thread(s) "
+                       "still owe a reply" % len(added))
+    return res
+
+
+def scan_email():
+    # Two passes, one answer: the INBOX-labelled working set, plus the archived
+    # threads that still owe a reply. A thread Gmail filed away is still debt.
+    return _merge_forgotten(_scan_email_inbox())
+
+
+def _scan_email_inbox():
+    res = {"account": ACCT or "(gog default account)",
+           "needs_reply": [], "waiting": [], "fyi": [], "reachable": True}
+    if not GMAIL_F or not os.path.exists(GMAIL_F) or os.path.getsize(GMAIL_F) == 0:
+        if GMAIL_OK:
+            # The call succeeded and returned nothing: a real, empty inbox.
+            res["empty"] = True
+            res["note"] = "inbox is empty (gog gmail search returned no results)"
+            return res
+        res["reachable"] = False
+        res["note"] = "gmail unreachable: " + (GMAIL_ERR or "empty result from gog gmail search")
+        return res
+    try:
+        with open(GMAIL_F) as fh:
+            data = json.load(fh)
+    except (json.JSONDecodeError, OSError) as e:
+        res["reachable"] = False
+        res["note"] = f"gmail result unparseable: {e}"
+        return res
+    rows = data if isinstance(data, list) else data.get("results", data.get("threads", []))
+    ANSWERED = _answered_threads()
+    if not rows:
+        # Parsed fine, zero hits. That is inbox zero, and it must never read the
+        # same as a call that failed — an agent cannot act on an ambiguous empty.
+        res["empty"] = True
+        res["note"] = "inbox is empty (gog gmail search returned no results)"
+        return res
+    self_addr = ACCT.lower()
+    for r in rows or []:
+        labels = r.get("labels") or r.get("labelIds") or []
+        labels = [str(l).upper() for l in labels]
+        frm = (r.get("from") or "").lower()
+        subj = r.get("subject") or "(no subject)"
+        tid = r.get("threadId") or r.get("id") or r.get("thread_id")
+        item = {
+            "who": r.get("from") or "(unknown)",
+            "subject": trunc(subj, 120),
+            "threadId": tid,
+            "date": r.get("date"),
+            "labels": labels,
+        }
+        # HARD GUARDRAIL: a protected todo/action label pins this to KEEP, never archive.
+        prot = protected_todo_labels(r.get("labels") or r.get("labelIds") or [])
+        if prot:
+            item["protected_todo"] = True
+            item["protected_labels"] = prot
+            item["note"] = ("KEEP — carries todo/action label(s) " + ", ".join(prot) +
+                            "; never archive until verified done")
+            res["needs_reply"].append(item)  # surface as actionable, never FYI/archive
+            continue
+        is_sent_last = ("SENT" in labels) or (self_addr and self_addr == from_email_addr(frm))
+        # Did we already answer this THREAD? The envelope row is the last
+        # inbound message, which stays visible after a reply sent from the operator's
+        # phone or another alias. Without this the scan hands him back work he
+        # finished himself.
+        if not is_sent_last and tid and tid in ANSWERED:
+            item["note"] = ("KEEP OUT OF NEEDS-REPLY — we already replied in this "
+                            "thread at %s; ball is with them" % ANSWERED[tid])
+            item["answered_by_us"] = True
+            res["waiting"].append(item)
+            continue
+        promo = any(l in labels for l in ("CATEGORY_PROMOTIONS", "CATEGORY_SOCIAL",
+                                          "CATEGORY_UPDATES", "CATEGORY_FORUMS"))
+        # Conservative no-reply / automated-sender heuristic: route obvious
+        # machine senders to FYI so they don't inflate needs_reply. Sender-address
+        # only — never subject keywords (those risk hiding real humans).
+        automated = bool(re.search(
+            r"(no[-_.]?reply|do[-_.]?not[-_.]?reply|notifications?@|alerts?@|"
+            r"mailer-daemon|postmaster@|@.*\.amazonses\.com|bounce)", frm))
+        if is_sent_last:
+            res["waiting"].append(item)
+        elif promo or automated:
+            res["fyi"].append(item)
+        else:
+            item["note"] = "first-pass (envelope) — deep-read thread before drafting"
+            res["needs_reply"].append(item)
+    return res
+
+# ------------------------------------------------------------------ assemble --
+result = {
+    "generated_at": now.isoformat(),
+    "window_days": DAYS,
+    "debt_days": DEBT_DAYS,
+    "peer_stores_read": PEER_STORES,
+    "notes": notes,
+}
+if DO_WA:
+    # Which number these rows belong to. Carried through so a reply is composed
+    # against the account the thread actually lives on, and so a scan pasted
+    # into a later session still says which inbox it came from.
+    result["whatsapp_account"] = {
+        "phone": os.environ.get("OIS_WA_PHONE") or None,
+        "bridge_port": int(os.environ.get("OIS_WA_PORT") or 0) or None,
+        "bridge_api": "http://127.0.0.1:%s" % os.environ.get("OIS_WA_PORT", ""),
+        "store": MSGDB,
+        "resolved_by": os.environ.get("OIS_WA_ACCOUNT_SOURCE") or None,
+    }
+    result["whatsapp"] = scan_whatsapp()
+if DO_EMAIL:
+    result["email"] = scan_email()
+
+# Counts for a quick headline.
+def cnt(ch, bucket):
+    return len(result.get(ch, {}).get(bucket, []) or [])
+result["counts"] = {
+    "whatsapp": {b: cnt("whatsapp", b) for b in ("needs_reply", "waiting", "groups", "fyi")} if DO_WA else None,
+    "email":    {b: cnt("email", b) for b in ("needs_reply", "waiting", "fyi")} if DO_EMAIL else None,
+}
+result["notes"].append(
+    "Slack + Telegram NOT scanned here — the skill does channels_me + "
+    "conversations_history per DM for Slack (never conversations_unreads) "
+    "and one list_dialogs call for Telegram, no subagent."
+)
+result["notes"].append(
+    "WhatsApp store may lag phone-sent messages; confirm 'did I already reply?' with the human "
+    "for any NEEDS_REPLY before drafting (ops-inbox details.md, 'Full context per candidate')."
+)
+
+print(json.dumps(result, indent=2 if PRETTY else None, ensure_ascii=False))
+PY

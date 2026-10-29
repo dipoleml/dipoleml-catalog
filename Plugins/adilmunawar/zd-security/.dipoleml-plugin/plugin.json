@@ -1,0 +1,16 @@
+{
+  "name": "zd-security",
+  "displayName": "Zd Security",
+  "version": "7.6.1",
+  "description": "Security review for Next.js/Flask/.NET/Expo, dependency and licence audits, branch protection, repository hardening templates",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Adilmunawar"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/adilmunawar/ZD-claude-plugin/tree/main/plugins/zd-security",
+  "repository": "https://github.com/Adilmunawar/ZD-claude-plugin",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

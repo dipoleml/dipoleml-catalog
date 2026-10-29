@@ -1,0 +1,81 @@
+{
+  "version": "1.3.0",
+  "mode": "scaffold",
+  "siteDir": "docs-site",
+  "createdAt": "2026-02-20T00:00:00Z",
+  "updatedAt": "2026-02-20T00:00:00Z",
+  "files": {
+    "docs-site/scripts/mdx-escape.js": {
+      "checksum": "sha256:f9efad79d0ae71dfd5ed1e475c24eb02db67f910cb5d9789f7e5f8f83a74b4a3",
+      "managed": true
+    },
+    "docs-site/scripts/transform-adrs.js": {
+      "checksum": "sha256:c2b5739f9bff4d674f07f3289a599d8ff73e33fe0f0d8064c43001a249273a8b",
+      "managed": true
+    },
+    "docs-site/scripts/build-spec-mapping.js": {
+      "checksum": "sha256:6405b29206c98c3e005d22e01c89ce5fb84d39456cc3fbc658ea2025b35eb44d",
+      "managed": true
+    },
+    "docs-site/scripts/transform-utils.js": {
+      "checksum": "sha256:ebe4e535676ae337c030a564aa2b37271ff25aae2f61620fee803c11ab57ba7f",
+      "managed": true
+    },
+    "docs-site/scripts/transform-openspecs.js": {
+      "checksum": "sha256:dce66a17add51c3cb1aee7c8da5c025ef731cef92a8d42396e705e93f0b6904e",
+      "managed": true
+    },
+    "docs-site/scripts/build-docs.js": {
+      "checksum": "sha256:b66a17dc160edf133a6ef05a4a902f4a7bed341d726e0c0aa2137e4fe0aa93d5",
+      "managed": true
+    },
+    "docs-site/scripts/generate-index.js": {
+      "checksum": "sha256:7880e1ae99ca20d8de55a87e4d2be0693fd86cbde0c44bb89f47dbd4d0ae05f2",
+      "managed": true
+    },
+    "docs-site/src/components/RequirementBox.tsx": {
+      "checksum": "sha256:3a965858dcfc085b4a1827ed6e9293a7d0f3e10391eb99f1bde20793bbad2def",
+      "managed": true
+    },
+    "docs-site/src/components/Field.tsx": {
+      "checksum": "sha256:52b5a8a389be1ef50939dc5a7cd5003e3f945d8521e5fe4a45ac7d0ea5474b6d",
+      "managed": true
+    },
+    "docs-site/src/components/PriorityBadge.tsx": {
+      "checksum": "sha256:1b26f4b73dee2dc0b4cbed90da64f77e7faf879a82ca8c80af7077d7f231a6e0",
+      "managed": true
+    },
+    "docs-site/src/components/RFCLevelBadge.tsx": {
+      "checksum": "sha256:db8298dc3ff244bf6cee2655bf719dfd1d4155d520aeb623b6050c8344d40295",
+      "managed": true
+    },
+    "docs-site/src/components/FieldGroup.tsx": {
+      "checksum": "sha256:21b282db4398cde0a755e8f9144fe309ddd5303cb5c9c3436bbf85e675946ed9",
+      "managed": true
+    },
+    "docs-site/src/components/SeverityBadge.tsx": {
+      "checksum": "sha256:48562fc3176b8d201efb30671f4cc0e77adddd2a70dece0b0bcb017c8984dd7e",
+      "managed": true
+    },
+    "docs-site/src/components/StatusBadge.tsx": {
+      "checksum": "sha256:2ca9ca387863f58e74cf9decf5fcba852245b3264f2781fd6d123e74b48b8f41",
+      "managed": true
+    },
+    "docs-site/src/components/DateBadge.tsx": {
+      "checksum": "sha256:05fdc8bffd1983498f3ea2ce114417efbabda95fa0044a66fd43ffadb0d19069",
+      "managed": true
+    },
+    "docs-site/src/components/DomainBadge.tsx": {
+      "checksum": "sha256:5f35a17c4d5dfa12c0bd87fe7b83424283e053f7092c28f6e06f5a90ff461e0d",
+      "managed": true
+    },
+    "docs-site/src/css/custom.css": {
+      "checksum": "sha256:37e2dc42113489d2840b95420e34e9d0714ac45c6472716e687c97767bcd5213",
+      "managed": true
+    },
+    "docs-site/src/theme/MDXComponents.tsx": {
+      "checksum": "sha256:9da9c5d20f90045d6b580b3b1db43dee08b7c1a84f4435e589e827b0c6531110",
+      "managed": true
+    }
+  }
+}

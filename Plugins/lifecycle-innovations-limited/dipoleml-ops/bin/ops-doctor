@@ -1,0 +1,837 @@
+#!/usr/bin/env bash
+# ops-doctor — Diagnose ops plugin health and emit JSON report
+# Checks: plugin manifest, bin permissions, skill files, MCP config,
+# registry, preferences, env vars, CLI tools, and agent definitions.
+set -euo pipefail
+
+has() { command -v "$1" >/dev/null 2>&1 && echo true || echo false; }
+has_env() { [ -n "${!1:-}" ] && echo true || echo false; }
+
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+PLUGIN_JSON="$SCRIPT_DIR/.claude-plugin/plugin.json"
+OPS_PLUGIN_ROOT_FALLBACK="$SCRIPT_DIR" . "$SCRIPT_DIR/lib/registry-path.sh"
+MCP_JSON_FILE="$SCRIPT_DIR/.mcp.json"
+PREFS_DIR="${CLAUDE_PLUGIN_DATA_DIR:-$HOME/.claude/plugins/data/ops-ops-marketplace}"
+PREFS="$PREFS_DIR/preferences.json"
+if [ ! -f "$PREFS" ] && [ -f "$SCRIPT_DIR/scripts/preferences.json" ]; then
+  PREFS="$SCRIPT_DIR/scripts/preferences.json"
+fi
+
+ERRORS=()
+WARNINGS=()
+INFO=()
+
+# --- 1. Plugin manifest ---
+if [ ! -f "$PLUGIN_JSON" ]; then
+  ERRORS+=("plugin_manifest_missing: .claude-plugin/plugin.json not found")
+else
+  if command -v jq >/dev/null 2>&1; then
+    if ! jq empty "$PLUGIN_JSON" 2>/dev/null; then
+      ERRORS+=("plugin_manifest_invalid_json: plugin.json is not valid JSON")
+    else
+      # Check repository field type
+      REPO_TYPE=$(jq -r 'type_of(.repository) // "null"' "$PLUGIN_JSON" 2>/dev/null || echo "unknown")
+      if [ "$REPO_TYPE" = "unknown" ]; then
+        REPO_TYPE=$(jq -r '.repository | type' "$PLUGIN_JSON" 2>/dev/null || echo "unknown")
+      fi
+      if [ "$REPO_TYPE" = "object" ]; then
+        ERRORS+=("plugin_manifest_repository_type: repository field is an object, must be a string")
+      fi
+      # Check required fields
+      for field in name version description; do
+        VAL=$(jq -r ".$field // empty" "$PLUGIN_JSON" 2>/dev/null)
+        if [ -z "$VAL" ]; then
+          ERRORS+=("plugin_manifest_missing_field_$field: required field '$field' is missing or empty")
+        fi
+      done
+      VERSION=$(jq -r '.version // "unknown"' "$PLUGIN_JSON" 2>/dev/null)
+    fi
+  else
+    WARNINGS+=("jq_missing: cannot validate plugin.json without jq")
+  fi
+fi
+
+# --- 2. Bin script permissions ---
+BIN_ISSUES=()
+for script in "$SCRIPT_DIR"/bin/ops-*; do
+  [ -f "$script" ] || continue
+  if [ ! -x "$script" ]; then
+    BIN_ISSUES+=("$(basename "$script")")
+  fi
+done
+if [ ${#BIN_ISSUES[@]} -gt 0 ]; then
+  WARNINGS+=("bin_not_executable: $(IFS=,; echo "${BIN_ISSUES[*]}")")
+fi
+
+# --- 3. Skill directories ---
+SKILL_ISSUES=()
+for skill_dir in "$SCRIPT_DIR"/skills/*/; do
+  [ -d "$skill_dir" ] || continue
+  if [ ! -f "${skill_dir}SKILL.md" ]; then
+    SKILL_ISSUES+=("$(basename "$skill_dir")")
+  fi
+done
+if [ ${#SKILL_ISSUES[@]} -gt 0 ]; then
+  ERRORS+=("skill_missing_definition: skills without SKILL.md: $(IFS=,; echo "${SKILL_ISSUES[*]}")")
+fi
+
+# --- 4. Agent definitions ---
+AGENT_ISSUES=()
+for agent_file in "$SCRIPT_DIR"/agents/*.md; do
+  [ -f "$agent_file" ] || continue
+  if ! head -1 "$agent_file" | grep -q "^---"; then
+    AGENT_ISSUES+=("$(basename "$agent_file")")
+  fi
+done
+if [ ${#AGENT_ISSUES[@]} -gt 0 ]; then
+  WARNINGS+=("agent_missing_frontmatter: $(IFS=,; echo "${AGENT_ISSUES[*]}")")
+fi
+
+# --- 5. MCP config ---
+if [ ! -f "$MCP_JSON_FILE" ]; then
+  WARNINGS+=("mcp_config_missing: .mcp.json not found")
+elif command -v jq >/dev/null 2>&1; then
+  if ! jq empty "$MCP_JSON_FILE" 2>/dev/null; then
+    ERRORS+=("mcp_config_invalid_json: .mcp.json is not valid JSON")
+  else
+    # Check each MCP server for user_config references and validate they're configured
+    MCP_SERVERS=$(jq -r '.mcpServers // {} | keys[]' "$MCP_JSON_FILE" 2>/dev/null || true)
+    for server in $MCP_SERVERS; do
+      # Extract all ${user_config.*} references from this server's config
+      USER_CONFIG_REFS=$(jq -r "
+        .mcpServers[\"$server\"] | .. | strings | select(test(\"\\\\$\\{user_config\\.\")) |
+        [scan(\"\\\\$\\{user_config\\.([^}]+)\\}\")] | .[][]
+      " "$MCP_JSON_FILE" 2>/dev/null | sort -u || true)
+
+      if [ -n "$USER_CONFIG_REFS" ]; then
+        MISSING_CONFIGS=()
+        for config_key in $USER_CONFIG_REFS; do
+          # Check if this userConfig key has a non-empty value set
+          # Look in preferences.json for saved values
+          HAS_VALUE=false
+          if [ -f "$PREFS" ]; then
+            SAVED_VAL=$(jq -r ".user_config.\"$config_key\" // empty" "$PREFS" 2>/dev/null || true)
+            if [ -n "$SAVED_VAL" ]; then
+              HAS_VALUE=true
+            fi
+          fi
+          # Also check if plugin.json userConfig declares it with a non-empty default
+          if [ "$HAS_VALUE" = false ] && [ -f "$PLUGIN_JSON" ]; then
+            DEFAULT_VAL=$(jq -r ".userConfig.\"$config_key\".default // empty" "$PLUGIN_JSON" 2>/dev/null || true)
+            if [ -n "$DEFAULT_VAL" ]; then
+              HAS_VALUE=true
+            fi
+          fi
+          if [ "$HAS_VALUE" = false ]; then
+            MISSING_CONFIGS+=("$config_key")
+          fi
+        done
+        if [ ${#MISSING_CONFIGS[@]} -gt 0 ]; then
+          ERRORS+=("mcp_missing_user_config_${server}: MCP server '$server' references unconfigured user_config values: $(IFS=,; echo "${MISSING_CONFIGS[*]}"). Run /ops:setup to configure.")
+        fi
+      fi
+    done
+  fi
+fi
+
+# --- 5b. Claude Code native diagnostics ---
+# Check for issues that Claude Code's /doctor would flag
+# Scan all MCP configs Claude Code reads for env var issues
+CLAUDE_MCP_CONFIGS=("$HOME/.claude/.mcp.json" "$HOME/.claude.json")
+for mcp_cfg in "${CLAUDE_MCP_CONFIGS[@]}"; do
+  [ -f "$mcp_cfg" ] || continue
+  if command -v jq >/dev/null 2>&1 && jq empty "$mcp_cfg" 2>/dev/null; then
+    # Check for servers with empty/placeholder env values
+    BROKEN_SERVERS=$(jq -r '
+      .mcpServers // {} | to_entries[] |
+      select(.value.env != null) |
+      select(.value.env | to_entries[] | .value | test("^\\$\\{") ) |
+      .key
+    ' "$mcp_cfg" 2>/dev/null | sort -u || true)
+    for srv in $BROKEN_SERVERS; do
+      WARNINGS+=("claude_mcp_unresolved_vars_${srv}: MCP server '$srv' in $(basename "$mcp_cfg") has unresolved variable references")
+    done
+  fi
+done
+
+# Check plugin data dir for user_config values that are required but missing
+if [ -f "$PLUGIN_JSON" ] && command -v jq >/dev/null 2>&1; then
+  # Map from user_config keys to preferences.json channels paths
+  # e.g. telegram_api_id -> channels.telegram.api_id
+  _prefs_channel_lookup() {
+    local key="$1"
+    local channel="" field=""
+    case "$key" in
+      telegram_api_id)    channel="telegram"; field="api_id" ;;
+      telegram_api_hash)  channel="telegram"; field="api_hash" ;;
+      telegram_phone)     channel="telegram"; field="phone" ;;
+      telegram_session)   channel="telegram"; field="session" ;;
+      *)                  echo ""; return ;;
+    esac
+    if [ -f "$PREFS" ]; then
+      jq -r ".channels.${channel}.${field} // empty" "$PREFS" 2>/dev/null || true
+    fi
+  }
+
+  # Get all userConfig keys that have sensitive=true (likely required credentials)
+  SENSITIVE_KEYS=$(jq -r '.userConfig // {} | to_entries[] | select(.value.sensitive == true) | .key' "$PLUGIN_JSON" 2>/dev/null || true)
+  UNCONFIGURED_SENSITIVE=()
+  for skey in $SENSITIVE_KEYS; do
+    IS_SET=false
+    if [ -f "$PREFS" ]; then
+      SVAL=$(jq -r ".user_config.\"$skey\" // empty" "$PREFS" 2>/dev/null || true)
+      [ -n "$SVAL" ] && IS_SET=true
+    fi
+    # Fallback: check preferences.json channels.* section for matching values
+    if [ "$IS_SET" = false ]; then
+      CHAN_VAL=$(_prefs_channel_lookup "$skey")
+      if [ -n "$CHAN_VAL" ]; then
+        IS_SET=true
+      fi
+    fi
+    if [ "$IS_SET" = false ]; then
+      UNCONFIGURED_SENSITIVE+=("$skey")
+    fi
+  done
+  if [ ${#UNCONFIGURED_SENSITIVE[@]} -gt 0 ]; then
+    # Collect all env var names referenced by any MCP server across known config files.
+    # Only warn about keys that are actually referenced by an MCP server — keys for
+    # optional/unused integrations (shipping carriers, monitoring, etc.) are intentionally
+    # unconfigured and should not produce noise.
+    MCP_ENV_VARS=""
+    for mcp_cfg in "$MCP_JSON_FILE" "$HOME/.claude/.mcp.json" "$HOME/.claude.json" \
+                   "$HOME/.claude/plugins/cache"/*/ops/*/.mcp.json; do
+      [ -f "$mcp_cfg" ] || continue
+      VARS=$(jq -r '[.mcpServers // {} | to_entries[] | .value.env // {} | keys[]] | unique[]' \
+               "$mcp_cfg" 2>/dev/null || true)
+      MCP_ENV_VARS="$MCP_ENV_VARS $VARS"
+    done
+
+    # Filter: only keep keys whose uppercase form appears in MCP env refs
+    MCP_REFERENCED_SENSITIVE=()
+    for ukey in "${UNCONFIGURED_SENSITIVE[@]}"; do
+      UPPER_KEY=$(echo "$ukey" | tr '[:lower:]' '[:upper:]')
+      if echo "$MCP_ENV_VARS" | grep -qw "$UPPER_KEY"; then
+        MCP_REFERENCED_SENSITIVE+=("$ukey")
+      fi
+    done
+
+    if [ ${#MCP_REFERENCED_SENSITIVE[@]} -gt 0 ]; then
+      # Check if a separate working MCP server already provides the same functionality
+      _has_global_mcp_server() {
+        local server_name="$1"
+        for global_cfg in "$HOME/.claude/.mcp.json" "$HOME/.claude.json"; do
+          [ -f "$global_cfg" ] || continue
+          if jq -e ".mcpServers.\"$server_name\"" "$global_cfg" >/dev/null 2>&1; then
+            echo true; return
+          fi
+        done
+        for cache_mcp in "$HOME/.claude/plugins/cache"/*/ops/*/.mcp.json; do
+          [ -f "$cache_mcp" ] || continue
+          if jq -e ".mcpServers.\"$server_name\"" "$cache_mcp" >/dev/null 2>&1; then
+            echo true; return
+          fi
+        done
+        echo false
+      }
+
+      ALL_COVERED_BY_GLOBAL=true
+      for ukey in "${MCP_REFERENCED_SENSITIVE[@]}"; do
+        SERVER_PREFIX="${ukey%%_*}"
+        if [ "$(_has_global_mcp_server "$SERVER_PREFIX")" = false ]; then
+          ALL_COVERED_BY_GLOBAL=false
+          break
+        fi
+      done
+
+      if [ "$ALL_COVERED_BY_GLOBAL" = true ]; then
+        : # Covered by a working global MCP server — intentionally unconfigured, non-actionable. Suppress.
+      else
+        WARNINGS+=("unconfigured_sensitive_keys: Sensitive user config values not set: $(IFS=,; echo "${MCP_REFERENCED_SENSITIVE[*]}"). MCP servers depending on these will fail. Run /ops:setup to configure.")
+      fi
+    fi
+    # Keys with no MCP server reference are intentionally unconfigured — no warning emitted.
+  fi
+fi
+
+# --- 5c. Kapture MCP transport check (issue #206) ---
+# Kapture must be configured as direct stdio in ~/.claude.json.
+# When routed through mcp-proxy SSE, its internal 1-second WS handshake
+# pushes past Claude Code's tool-registration window, causing all
+# mcp__kapture__* tools to silently drop from the deferred-tool registry.
+if command -v jq >/dev/null 2>&1; then
+  KAPTURE_STATUS="unconfigured"
+  KAPTURE_CONFIG_FILE=""
+
+  # 1. Check ~/.claude.json for a direct kapture entry
+  for global_cfg in "$HOME/.claude.json" "$HOME/.claude/.mcp.json"; do
+    [ -f "$global_cfg" ] || continue
+    if jq -e '.mcpServers.kapture' "$global_cfg" >/dev/null 2>&1; then
+      KAPTURE_TRANSPORT=$(jq -r '.mcpServers.kapture.type // "stdio"' "$global_cfg" 2>/dev/null)
+      KAPTURE_CONFIG_FILE="$global_cfg"
+      if [ "$KAPTURE_TRANSPORT" = "sse" ]; then
+        KAPTURE_STATUS="sse"
+      else
+        KAPTURE_STATUS="stdio"
+      fi
+      break
+    fi
+  done
+
+  # 2. Check if kapture is proxy-routed via mcp-proxy servers.json
+  MCP_PROXY_SERVERS_FILE="$HOME/.claude/mcp-proxy/servers.json"
+  if [ -f "$MCP_PROXY_SERVERS_FILE" ] && jq -e '.kapture' "$MCP_PROXY_SERVERS_FILE" >/dev/null 2>&1; then
+    if [ "$KAPTURE_STATUS" != "stdio" ]; then
+      KAPTURE_STATUS="proxy"
+    fi
+  fi
+
+  case "$KAPTURE_STATUS" in
+    stdio)
+      INFO+=("kapture_transport_ok: Kapture MCP is configured as stdio in $(basename "$KAPTURE_CONFIG_FILE") — all 22 mcp__kapture__* tools will register correctly.")
+      ;;
+    sse)
+      WARNINGS+=("kapture_transport_sse: Kapture MCP in $(basename "$KAPTURE_CONFIG_FILE") uses type=sse. Its internal WS handshake delay causes mcp__kapture__* tools to silently drop from the registry. Fix: change to type=stdio with command=node and args=[path/to/kapture-mcp/dist/bridge.js]. See: https://github.com/Lifecycle-Innovations-Limited/claude-ops/issues/206")
+      ;;
+    proxy)
+      WARNINGS+=("kapture_transport_proxy: Kapture is routed through mcp-proxy (found in ~/.claude/mcp-proxy/servers.json) but not present as a direct stdio entry in ~/.claude.json. The proxy SSE layer causes mcp__kapture__* tools to silently drop. Move kapture to a direct stdio entry in ~/.claude.json. See: https://github.com/Lifecycle-Innovations-Limited/claude-ops/issues/206")
+      ;;
+    unconfigured)
+      : # Kapture is RETIRED (2026-05-24 doctrine) — browser automation is gstack /browse only. Do not nag to add it.
+      ;;
+  esac
+fi
+
+# --- 5d. Stale GH secrets check (Doppler→GH drift, read-only) ---
+# If ops-secret-sync bin is available AND both gh + doppler are installed, run a
+# quick per-project drift scan for projects in the registry that have a
+# doppler_project field. Only emits a WARNING — never reads or writes secret values.
+if command -v jq >/dev/null 2>&1 && \
+   command -v gh >/dev/null 2>&1 && \
+   command -v doppler >/dev/null 2>&1 && \
+   [ -x "$SCRIPT_DIR/bin/ops-secret-sync" ] && \
+   [ -f "$REGISTRY" ] && jq empty "$REGISTRY" >/dev/null 2>&1; then
+
+  STALE_PROJECTS=()
+
+  # Iterate projects that have both github_repo and doppler_project defined
+  PROJ_COUNT=$(jq '.projects | length' "$REGISTRY" 2>/dev/null || echo 0)
+  for i in $(seq 0 $((PROJ_COUNT - 1))); do
+    GH_REPO=$(jq -r ".projects[$i].github_repo // empty" "$REGISTRY" 2>/dev/null)
+    DOP_PROJ=$(jq -r ".projects[$i].doppler_project // empty" "$REGISTRY" 2>/dev/null)
+    DOP_CFG=$(jq -r ".projects[$i].doppler_config // \"prd\"" "$REGISTRY" 2>/dev/null)
+    [ -z "$GH_REPO" ] || [ -z "$DOP_PROJ" ] && continue
+
+    # Run drift check — exit 1 = drift found, exit 0 = in sync, exit 2 = error/skip
+    if "$SCRIPT_DIR/bin/ops-secret-sync" \
+         --repo "$GH_REPO" --project "$DOP_PROJ" --config "$DOP_CFG" \
+         --json >/dev/null 2>&1; then
+      : # in sync
+    elif [ $? -eq 1 ]; then
+      STALE_PROJECTS+=("$GH_REPO ($DOP_PROJ/$DOP_CFG)")
+    fi
+    # exit 2 (error/missing tools) — silently skip
+  done
+
+  if [ ${#STALE_PROJECTS[@]} -gt 0 ]; then
+    WARNINGS+=("stale_gh_secrets: Potentially stale GH secrets detected in: $(IFS=', '; echo "${STALE_PROJECTS[*]}"). Run /ops:secret-sync --repo <repo> --project <proj> to review and sync.")
+  fi
+fi
+
+# --- 5e. Pocket health probe ---
+POCKET_STATE_DIR="$HOME/.claude/state/pocket"
+POCKET_CONFIGURED=false
+POCKET_DISABLED=false
+if [ -f "$PREFS" ] && command -v jq >/dev/null 2>&1; then
+  jq -e '.pocket.enabled == true'  "$PREFS" >/dev/null 2>&1 && POCKET_CONFIGURED=true
+  # Explicit opt-out wins: if pocket.enabled is set to false, never warn about it.
+  jq -e '.pocket.enabled == false' "$PREFS" >/dev/null 2>&1 && POCKET_DISABLED=true
+fi
+# Also treat pocket as active if a service has actually registered a health file.
+# NOTE: config JSONs (whatsapp-config.json / email-config.json) are written by
+# setup and may linger after pocket is turned off — they do NOT imply the daemon
+# should be running, so they must NOT flip POCKET_CONFIGURED (false-positive source).
+for _pf in \
+  "$POCKET_STATE_DIR/.activity-notifier-health" \
+  "$POCKET_STATE_DIR/.out-queue-health" \
+  "$POCKET_STATE_DIR/.email-bridge-health" \
+  "$POCKET_STATE_DIR/.whatsapp-bridge-health"; do
+  [ -f "$_pf" ] && POCKET_CONFIGURED=true && break
+done
+# Explicit disable overrides any inferred-active signal.
+[ "$POCKET_DISABLED" = true ] && POCKET_CONFIGURED=false
+
+if [ "$POCKET_CONFIGURED" = true ]; then
+  NOW=$(date +%s)
+  MAX_HEALTH_AGE=300  # 5 minutes
+
+  # Map service name -> health file
+  _pocket_health_check() {
+    local svc="$1" hf="$2"
+    if [ ! -f "$hf" ]; then
+      WARNINGS+=("pocket_health_missing_${svc}: $hf does not exist — service may not be running")
+      return
+    fi
+    # Staleness check (GNU stat -c on Linux, BSD stat -f on macOS).
+    # NOTE: order matters — `stat -f` on GNU coreutils means "filesystem stat" and
+    # *succeeds* with multi-line FS info instead of an mtime, which corrupts MTIME
+    # under `set -u` (the multi-line blob then trips $((NOW - MTIME)) on words like
+    # "File:"). Try GNU first; fall back to BSD; finally `echo 0` so MTIME is always
+    # a clean integer.
+    if command -v stat >/dev/null 2>&1; then
+      MTIME=$(stat -c '%Y' "$hf" 2>/dev/null || stat -f '%m' "$hf" 2>/dev/null || echo 0)
+      # Defensive sanitize: keep only the first token if anything multi-line slipped through.
+      MTIME="${MTIME%%[!0-9]*}"
+      MTIME="${MTIME:-0}"
+      AGE=$(( NOW - MTIME ))
+      if [ "$AGE" -gt "$MAX_HEALTH_AGE" ]; then
+        WARNINGS+=("pocket_health_stale_${svc}: $hf last written ${AGE}s ago (threshold: ${MAX_HEALTH_AGE}s)")
+      fi
+    fi
+    # Status field
+    if command -v jq >/dev/null 2>&1; then
+      HF_STATUS=$(jq -r '.status // "unknown"' "$hf" 2>/dev/null || echo "unknown")
+      if [ "$HF_STATUS" = "error" ]; then
+        HF_MSG=$(jq -r '.message // ""' "$hf" 2>/dev/null || echo "")
+        WARNINGS+=("pocket_health_error_${svc}: reports error — $HF_MSG")
+      fi
+    fi
+  }
+
+  _pocket_health_check "activity-notifier" "$POCKET_STATE_DIR/.activity-notifier-health"
+  _pocket_health_check "out-queue"         "$POCKET_STATE_DIR/.out-queue-health"
+
+  # Email bridge — only if email is enabled
+  if [ -f "$POCKET_STATE_DIR/email-config.json" ]; then
+    EM_EN=$(jq -r '.enabled // "true"' "$POCKET_STATE_DIR/email-config.json" 2>/dev/null || echo "true")
+    [ "$EM_EN" != "false" ] && _pocket_health_check "email-bridge" "$POCKET_STATE_DIR/.email-bridge-health"
+  fi
+
+  # WhatsApp bridge — only if whatsapp is enabled
+  if [ -f "$POCKET_STATE_DIR/whatsapp-config.json" ]; then
+    WA_EN=$(jq -r '.enabled // "true"' "$POCKET_STATE_DIR/whatsapp-config.json" 2>/dev/null || echo "true")
+    [ "$WA_EN" != "false" ] && _pocket_health_check "whatsapp-bridge" "$POCKET_STATE_DIR/.whatsapp-bridge-health"
+  fi
+
+  # Validate JSON config files
+  for _cfg in whatsapp-config email-config; do
+    _cf="$POCKET_STATE_DIR/${_cfg}.json"
+    if [ -f "$_cf" ] && command -v jq >/dev/null 2>&1; then
+      if ! jq empty "$_cf" 2>/dev/null; then
+        ERRORS+=("pocket_config_invalid_${_cfg}: $_cf is not valid JSON — re-run /ops:setup pocket")
+      fi
+    fi
+  done
+
+  # pocket-exec tmux session
+  TMUX_SESSION="${POCKET_TMUX_SESSION:-pocket-exec}"
+  if command -v tmux >/dev/null 2>&1; then
+    if ! tmux has-session -t "$TMUX_SESSION" 2>/dev/null; then
+      INFO+=("pocket_tmux_missing: tmux session '$TMUX_SESSION' not running — pocket executor inactive (expected if executor not in use)")
+    fi
+  fi
+
+  # gog gmail auth (proxy for email send)
+  if [ -f "$POCKET_STATE_DIR/email-config.json" ]; then
+    EM_EN=$(jq -r '.enabled // "true"' "$POCKET_STATE_DIR/email-config.json" 2>/dev/null || echo "true")
+    if [ "$EM_EN" != "false" ] && command -v gog >/dev/null 2>&1; then
+      # `gog auth status` does not print the word "authenticated"; it emits
+      # key<TAB>value lines. The authoritative signal is `credentials_exists true`
+      # alongside a non-empty `account`. (Old grep for "authenticated|logged in|
+      # active" never matched and always false-warned.)
+      GOG_STATUS=$(gog auth status 2>&1 || true)
+      if ! printf '%s\n' "$GOG_STATUS" | grep -qE '^credentials_exists[[:space:]]+true'; then
+        WARNINGS+=("pocket_email_auth: gog gmail not authenticated — email notifications will fail. Run: gog auth add <email> --services gmail")
+      fi
+    fi
+  fi
+
+  # Baileys bridge port 8080 (proxy for WhatsApp send)
+  if [ -f "$POCKET_STATE_DIR/whatsapp-config.json" ]; then
+    WA_EN=$(jq -r '.enabled // "true"' "$POCKET_STATE_DIR/whatsapp-config.json" 2>/dev/null || echo "true")
+    if [ "$WA_EN" != "false" ]; then
+      if ! lsof -i :8080 2>/dev/null | grep -q LISTEN; then
+        WARNINGS+=("pocket_bridge_port: WhatsApp bridge not listening on :8080 — WhatsApp notifications will fail. Run: launchctl kickstart -k gui/$(id -u)/com.<user>.whatsapp-bridge")
+      fi
+    fi
+  fi
+fi
+
+# --- 5f. MCP watchdog health probes ---
+# 1. ~/.claude.json is valid JSON
+if [ -f "$HOME/.claude.json" ]; then
+  if command -v jq >/dev/null 2>&1; then
+    if ! jq empty "$HOME/.claude.json" 2>/dev/null; then
+      ERRORS+=("claude_json_invalid: ~/.claude.json is not valid JSON — MCP watchdog and Claude Code will fail to parse server list")
+    fi
+  fi
+else
+  WARNINGS+=("claude_json_missing: ~/.claude.json not found — no MCP servers configured")
+fi
+
+# 2. For each stdio MCP server, check its command resolves on PATH
+if [ -f "$HOME/.claude.json" ] && command -v jq >/dev/null 2>&1 && jq empty "$HOME/.claude.json" 2>/dev/null; then
+  STDIO_SERVERS=$(jq -r '
+    .mcpServers // {} | to_entries[] |
+    select(.value.type == null or .value.type == "stdio") |
+    select(.value.command != null) |
+    "\(.key)=\(.value.command)"
+  ' "$HOME/.claude.json" 2>/dev/null || true)
+  while IFS='=' read -r srv_name srv_cmd; do
+    [ -z "$srv_name" ] && continue
+    CMD_BIN="${srv_cmd%% *}"
+    if [[ "$CMD_BIN" == /* ]]; then
+      if [ ! -x "$CMD_BIN" ]; then
+        WARNINGS+=("mcp_stdio_cmd_missing_${srv_name}: MCP server '${srv_name}' command '${CMD_BIN}' not found or not executable")
+      fi
+    else
+      if ! command -v "$CMD_BIN" >/dev/null 2>&1; then
+        WARNINGS+=("mcp_stdio_cmd_missing_${srv_name}: MCP server '${srv_name}' command '${CMD_BIN}' not on PATH")
+      fi
+    fi
+  done <<< "$STDIO_SERVERS"
+fi
+
+# 3. Watchdog health file — check it exists and is not stale (>60 min = watchdog not running)
+WATCHDOG_HEALTH_FILE="$HOME/.claude/state/mcp-watchdog/.health"
+if [ -f "$WATCHDOG_HEALTH_FILE" ]; then
+  if command -v python3 >/dev/null 2>&1; then
+    WATCHDOG_AGE_STATUS=$(python3 -c "
+import json, time, sys
+try:
+    h = json.load(open('$WATCHDOG_HEALTH_FILE'))
+    last = h.get('last_run', '')
+    if not last:
+        print('unknown'); sys.exit(0)
+    from datetime import datetime, timezone
+    ts = datetime.fromisoformat(last.replace('Z','+00:00')).timestamp()
+    print('stale' if (time.time()-ts) > 3600 else 'ok')
+except Exception:
+    print('error')
+" 2>/dev/null || echo "unknown")
+    if [ "$WATCHDOG_AGE_STATUS" = "stale" ]; then
+      WARNINGS+=("mcp_watchdog_stale: MCP watchdog health not updated in >1h — cron may be unregistered. Run /ops:mcp restart")
+    fi
+
+    # 4. Warn on servers that have been degraded >1 hour
+    WATCHDOG_STATE_FILE="$HOME/.claude/state/mcp-watchdog/state.json"
+    if [ -f "$WATCHDOG_STATE_FILE" ] && [ "$WATCHDOG_AGE_STATUS" = "ok" ]; then
+      DEGRADED_LONG=$(python3 -c "
+import json, time
+try:
+    s = json.load(open('$WATCHDOG_STATE_FILE'))
+    now = time.time()
+    bad = []
+    for name, info in s.items():
+        if info.get('state') == 'healthy': continue
+        # no_probe_credential means the watchdog had no token to present, not
+        # that the server is down — sessions use it fine. Never warn on it.
+        if info.get('state') == 'no_probe_credential': continue
+        probed = info.get('probed_at', '')
+        if not probed: continue
+        from datetime import datetime
+        ts = datetime.fromisoformat(probed.replace('Z','+00:00')).timestamp()
+        if now - ts > 3600:
+            bad.append(name + ':' + info.get('state','?'))
+    print(','.join(bad))
+except Exception:
+    print('')
+" 2>/dev/null || echo "")
+      if [ -n "$DEGRADED_LONG" ]; then
+        WARNINGS+=("mcp_servers_degraded_long: MCP servers degraded >1h: $DEGRADED_LONG — run /ops:mcp status")
+      fi
+    fi
+  fi
+else
+  WARNINGS+=("mcp_watchdog_no_health: MCP watchdog has never run (no health file). Run /ops:mcp restart to register cron")
+fi
+
+# --- 6. Registry ---
+REGISTRY_STATUS="missing"
+REGISTRY_COUNT=0
+if [ -f "$REGISTRY" ]; then
+  REGISTRY_STATUS="present"
+  if command -v jq >/dev/null 2>&1; then
+    if ! jq empty "$REGISTRY" 2>/dev/null; then
+      ERRORS+=("registry_invalid_json: registry.json is not valid JSON")
+      REGISTRY_STATUS="invalid"
+    else
+      REGISTRY_COUNT=$(jq '.projects | length' "$REGISTRY" 2>/dev/null || echo 0)
+    fi
+  fi
+else
+  WARNINGS+=("registry_missing: registry.json not found at $OPS_DATA_DIR/registry.json — run /ops:setup to create")
+fi
+
+# --- 7. Preferences ---
+PREFS_STATUS="missing"
+if [ -f "$PREFS" ]; then
+  PREFS_STATUS="present"
+  if command -v jq >/dev/null 2>&1 && ! jq empty "$PREFS" 2>/dev/null; then
+    ERRORS+=("preferences_invalid_json: preferences.json is not valid JSON")
+    PREFS_STATUS="invalid"
+  fi
+fi
+
+# --- 8. CLI tools ---
+TOOLS_JSON=$(cat <<TOOLS
+{
+  "jq": $(has jq),
+  "git": $(has git),
+  "gh": $(has gh),
+  "aws": $(has aws),
+  "node": $(has node),
+  "whatsapp-bridge": $(lsof -i :8080 2>/dev/null | grep -q LISTEN && echo true || echo false),
+  "gog": $(has gog),
+  "sentry-cli": $(has sentry-cli),
+  "doppler": $(has doppler)
+}
+TOOLS
+)
+
+# --- 9. Env vars ---
+ENV_JSON=$(cat <<ENV
+{
+  "CLAUDE_PLUGIN_ROOT": $(has_env CLAUDE_PLUGIN_ROOT),
+  "CLAUDE_PLUGIN_DATA_DIR": $(has_env CLAUDE_PLUGIN_DATA_DIR),
+  "TELEGRAM_BOT_TOKEN": $(has_env TELEGRAM_BOT_TOKEN),
+  "TELEGRAM_OWNER_ID": $(has_env TELEGRAM_OWNER_ID),
+  "AWS_PROFILE": $(has_env AWS_PROFILE),
+  "GH_TOKEN": $(has_env GH_TOKEN)
+}
+ENV
+)
+
+# --- 10. Daemon services health ---
+DAEMON_SERVICES_FILE="${CLAUDE_PLUGIN_ROOT:-$SCRIPT_DIR}/scripts/daemon-services.default.json"
+DAEMON_HEALTH=()
+if [ ! -f "$DAEMON_SERVICES_FILE" ]; then
+  WARNINGS+=("daemon_services_missing: daemon-services.default.json not found at $DAEMON_SERVICES_FILE")
+elif ! command -v jq >/dev/null 2>&1; then
+  WARNINGS+=("daemon_services_no_jq: cannot check daemon health without jq")
+else
+  NOW_EPOCH=$(date +%s)
+  SERVICE_NAMES=$(jq -r '.services | keys[]' "$DAEMON_SERVICES_FILE" 2>/dev/null || true)
+  for svc in $SERVICE_NAMES; do
+    ENABLED=$(jq -r ".services[\"$svc\"].enabled" "$DAEMON_SERVICES_FILE" 2>/dev/null || echo "false")
+    [ "$ENABLED" = "true" ] || continue
+
+    HEALTH_FILE_RAW=$(jq -r ".services[\"$svc\"].health_file // empty" "$DAEMON_SERVICES_FILE" 2>/dev/null || true)
+    if [ -z "$HEALTH_FILE_RAW" ]; then
+      DAEMON_HEALTH+=("?  $svc: no health file declared")
+      continue
+    fi
+
+    # Expand ~ to $HOME
+    HEALTH_FILE="${HEALTH_FILE_RAW/#\~/$HOME}"
+
+    if [ ! -f "$HEALTH_FILE" ]; then
+      DAEMON_HEALTH+=("⚠  $svc: health file missing ($HEALTH_FILE_RAW)")
+      WARNINGS+=("daemon_health_missing_${svc}: service '$svc' health file not found at $HEALTH_FILE_RAW")
+      continue
+    fi
+
+    # Parse status and last_run from JSON health file
+    SVC_STATUS=$(jq -r '.status // "unknown"' "$HEALTH_FILE" 2>/dev/null || echo "parse_error")
+    LAST_RUN_RAW=$(jq -r '.last_run // empty' "$HEALTH_FILE" 2>/dev/null || true)
+
+    if [ -z "$LAST_RUN_RAW" ]; then
+      DAEMON_HEALTH+=("⚠  $svc: status=$SVC_STATUS last_run=unknown")
+      WARNINGS+=("daemon_health_no_last_run_${svc}: service '$svc' health file has no last_run field")
+      continue
+    fi
+
+    # Compute age in seconds; handle both epoch integers and ISO-8601 strings
+    if echo "$LAST_RUN_RAW" | grep -qE '^[0-9]+$'; then
+      LAST_RUN_EPOCH="$LAST_RUN_RAW"
+    else
+      LAST_RUN_TRIM="${LAST_RUN_RAW%Z}"
+      LAST_RUN_TRIM="${LAST_RUN_TRIM%%.*}"
+      # GNU date first; on macOS, date -jf treats bare timestamps as local time — force UTC to match Z-stripped ISO instants.
+      LAST_RUN_EPOCH=$(date -d "$LAST_RUN_RAW" +%s 2>/dev/null || TZ=UTC date -jf "%Y-%m-%dT%H:%M:%S" "$LAST_RUN_TRIM" +%s 2>/dev/null || echo "0")
+    fi
+
+    AGE_SEC=$(( NOW_EPOCH - LAST_RUN_EPOCH ))
+    AGE_MIN=$(( AGE_SEC / 60 ))
+
+    # Staleness threshold: */N with N<=10 → 5m; larger N → N minutes (one cycle) so mid-cycle gaps are not false positives.
+    # Non-*/N minute patterns need hour/day/month/dow-aware bounds (e.g. 0 17 * * * is daily, not "15m").
+    CRON_EXPR=$(jq -r ".services[\"$svc\"].cron // empty" "$DAEMON_SERVICES_FILE" 2>/dev/null || true)
+    if [ -z "$CRON_EXPR" ]; then
+      # continuous / no cron — use 15m threshold
+      STALE_THRESHOLD=15
+    else
+      MINUTE_FIELD=$(echo "$CRON_EXPR" | awk '{print $1}')
+      HOUR_FIELD=$(echo "$CRON_EXPR" | awk '{print $2}')
+      DOM_FIELD=$(echo "$CRON_EXPR" | awk '{if (NF>=3) print $3; else print "*"}')
+      MONTH_FIELD=$(echo "$CRON_EXPR" | awk '{if (NF>=4) print $4; else print "*"}')
+      DOW_FIELD=$(echo "$CRON_EXPR" | awk '{if (NF>=5) print $5; else print "*"}')
+      if echo "$MINUTE_FIELD" | grep -qE '^\*/([0-9]+)$'; then
+        CRON_INTERVAL=$(echo "$MINUTE_FIELD" | grep -oE '[0-9]+')
+        # Alert only after a full cycle is genuinely missed (2x interval) so scheduler
+        # jitter or a brief daemon restart delaying one run isn't a false positive.
+        if [ "$CRON_INTERVAL" -le 10 ]; then
+          STALE_THRESHOLD=10
+        else
+          STALE_THRESHOLD=$(( CRON_INTERVAL * 2 ))
+        fi
+      elif echo "$HOUR_FIELD" | grep -qE '^\*/([0-9]+)$'; then
+        CRON_HOURS=$(echo "$HOUR_FIELD" | grep -oE '[0-9]+')
+        STALE_THRESHOLD=$(( CRON_HOURS * 60 ))
+      elif [ "$DOW_FIELD" != "*" ]; then
+        # Weekday-specific (e.g. weekly): allow a full week between runs plus slack
+        STALE_THRESHOLD=$(( 7 * 24 * 60 + 120 ))
+      elif [ "$DOM_FIELD" != "*" ] || [ "$MONTH_FIELD" != "*" ]; then
+        STALE_THRESHOLD=$(( 35 * 24 * 60 ))
+      elif [ "$HOUR_FIELD" = "*" ]; then
+        # e.g. `0 * * * *` — at least hourly
+        STALE_THRESHOLD=120
+      elif echo "$HOUR_FIELD" | grep -qE '^[0-9]+(,[0-9]+)*$'; then
+        STALE_THRESHOLD=$(echo "$HOUR_FIELD" | tr ',' '\n' | sort -n | awk '
+          { n++; a[n] = $1 }
+          END {
+            if (n < 1) { print 1500; exit }
+            if (n == 1) { print 25 * 60; exit }
+            max = 0
+            for (i = 2; i <= n; i++) {
+              d = a[i] - a[i - 1]
+              if (d > max) max = d
+            }
+            wrap = (24 - a[n]) + a[1]
+            if (wrap > max) max = wrap
+            print max * 60 + 60
+          }
+        ')
+      else
+        STALE_THRESHOLD=1500
+      fi
+    fi
+
+    if [ "$SVC_STATUS" = "ok" ] && [ "$AGE_MIN" -le "$STALE_THRESHOLD" ]; then
+      DAEMON_HEALTH+=("✓  $svc: status=ok last_run=${AGE_MIN}m ago")
+    elif [ "$AGE_MIN" -gt "$STALE_THRESHOLD" ]; then
+      DAEMON_HEALTH+=("✗  $svc: stale (last_run=${AGE_MIN}m ago, threshold=${STALE_THRESHOLD}m)")
+      WARNINGS+=("daemon_health_stale_${svc}: service '$svc' last ran ${AGE_MIN}m ago (threshold ${STALE_THRESHOLD}m)")
+    else
+      DAEMON_HEALTH+=("⚠  $svc: status=$SVC_STATUS last_run=${AGE_MIN}m ago")
+      WARNINGS+=("daemon_health_status_${svc}: service '$svc' reported status='$SVC_STATUS'")
+    fi
+  done
+fi
+
+# --- 10c. Claude Code background-server supervisor ---
+# Probes `claude agents --json` to detect the persistent bg-session supervisor.
+# Ephemeral (no live bg sessions) is healthy. We only warn if the supervisor
+# is unreachable AND a live bg session is claimed in roster.json.
+CC_BG_SUPERVISOR_STATUS="unknown"
+CC_BG_SESSION_COUNT=0
+CC_INTERACTIVE_SESSION_COUNT=0
+if command -v claude >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+  CC_AGENTS_JSON=$(claude agents --json 2>/dev/null || echo "")
+  if [ -n "$CC_AGENTS_JSON" ] && echo "$CC_AGENTS_JSON" | jq empty 2>/dev/null; then
+    CC_BG_SESSION_COUNT=$(echo "$CC_AGENTS_JSON" | jq '[.[] | select(.kind == "background")] | length' 2>/dev/null || echo 0)
+    CC_INTERACTIVE_SESSION_COUNT=$(echo "$CC_AGENTS_JSON" | jq '[.[] | select(.kind == "interactive")] | length' 2>/dev/null || echo 0)
+    if [ "$CC_BG_SESSION_COUNT" -gt 0 ]; then
+      CC_BG_SUPERVISOR_STATUS="running"
+    else
+      CC_BG_SUPERVISOR_STATUS="idle"
+    fi
+  else
+    # Fall back to `claude daemon status` to distinguish unreachable from idle.
+    CC_DAEMON_RAW=$(claude daemon status 2>&1 || true)
+    if echo "$CC_DAEMON_RAW" | head -1 | grep -qi "^not running"; then
+      CC_BG_SUPERVISOR_STATUS="idle"
+    elif echo "$CC_DAEMON_RAW" | grep -qi "unreachable"; then
+      # Roster claims sessions but socket is dead — real bug.
+      ROSTER_WORKERS=$(echo "$CC_DAEMON_RAW" | grep -oE 'bg workers:[[:space:]]+[0-9]+' | grep -oE '[0-9]+' || echo 0)
+      if [ "${ROSTER_WORKERS:-0}" -gt 0 ]; then
+        CC_BG_SUPERVISOR_STATUS="unreachable"
+        WARNINGS+=("claude_supervisor_unreachable: $ROSTER_WORKERS bg session(s) in roster but control.sock unreachable. Run: claude respawn --all")
+      else
+        CC_BG_SUPERVISOR_STATUS="idle"
+      fi
+    else
+      CC_BG_SUPERVISOR_STATUS="unknown"
+      INFO+=("claude_supervisor_probe_failed: could not parse 'claude agents --json' or 'claude daemon status' output")
+    fi
+  fi
+fi
+
+# --- 10b. Cache copies vs source ---
+CACHE_DIR="$HOME/.claude/plugins/cache/ops-marketplace/ops"
+CACHE_VERSIONS=()
+if [ -d "$CACHE_DIR" ]; then
+  for ver_dir in "$CACHE_DIR"/*/; do
+    [ -d "$ver_dir" ] || continue
+    CACHE_VERSIONS+=("$(basename "$ver_dir")")
+  done
+fi
+
+# Build errors/warnings/info JSON arrays
+err_json="[]"
+warn_json="[]"
+info_json="[]"
+cache_json="[]"
+daemon_json="[]"
+if command -v jq >/dev/null 2>&1; then
+  if [ ${#ERRORS[@]} -gt 0 ]; then
+    err_json=$(printf '%s\n' "${ERRORS[@]}" | jq -R . | jq -s . 2>/dev/null || echo "[]")
+  fi
+  if [ ${#WARNINGS[@]} -gt 0 ]; then
+    warn_json=$(printf '%s\n' "${WARNINGS[@]}" | jq -R . | jq -s . 2>/dev/null || echo "[]")
+  fi
+  if [ ${#INFO[@]} -gt 0 ]; then
+    info_json=$(printf '%s\n' "${INFO[@]}" | jq -R . | jq -s . 2>/dev/null || echo "[]")
+  fi
+  if [ ${#CACHE_VERSIONS[@]} -gt 0 ]; then
+    cache_json=$(printf '%s\n' "${CACHE_VERSIONS[@]}" | jq -R . | jq -s . 2>/dev/null || echo "[]")
+  fi
+  if [ ${#DAEMON_HEALTH[@]} -gt 0 ]; then
+    daemon_json=$(printf '%s\n' "${DAEMON_HEALTH[@]}" | jq -R . | jq -s . 2>/dev/null || echo "[]")
+  fi
+fi
+
+cat <<EOF
+{
+  "plugin_root": "$SCRIPT_DIR",
+  "version": "${VERSION:-unknown}",
+  "errors": $err_json,
+  "warnings": $warn_json,
+  "info": $info_json,
+  "tools": $TOOLS_JSON,
+  "env_vars": $ENV_JSON,
+  "registry": {
+    "status": "$REGISTRY_STATUS",
+    "project_count": $REGISTRY_COUNT,
+    "path": "$REGISTRY"
+  },
+  "preferences": {
+    "status": "$PREFS_STATUS",
+    "path": "$PREFS"
+  },
+  "cache_versions": $cache_json,
+  "daemon_services_health": $daemon_json,
+  "claude_background_server": {
+    "supervisor_status": "$CC_BG_SUPERVISOR_STATUS",
+    "bg_sessions": $CC_BG_SESSION_COUNT,
+    "interactive_sessions": $CC_INTERACTIVE_SESSION_COUNT
+  },
+  "skill_count": $(find "$SCRIPT_DIR/skills" -name "SKILL.md" 2>/dev/null | wc -l | tr -d ' '),
+  "agent_count": $(find "$SCRIPT_DIR/agents" -name "*.md" 2>/dev/null | wc -l | tr -d ' '),
+  "bin_count": $(find "$SCRIPT_DIR/bin" -name "ops-*" 2>/dev/null | wc -l | tr -d ' ')
+}
+EOF
+
+# --- 11. Auto-fix pass (silent, best-effort) ---
+# Run autofix for known issues. This is non-interactive and safe to run every time.
+if [ -x "$SCRIPT_DIR/bin/ops-autofix" ]; then
+  AUTOFIX_RESULT=$("$SCRIPT_DIR/bin/ops-autofix" --json 2>/dev/null || echo '{"applied":[],"failed":[],"skipped":[]}')
+  AUTOFIX_APPLIED=$(echo "$AUTOFIX_RESULT" | jq -r '.applied | length' 2>/dev/null || echo "0")
+  if [ "$AUTOFIX_APPLIED" -gt 0 ]; then
+    echo ""
+    echo "── Auto-fixes applied ──"
+    echo "$AUTOFIX_RESULT" | jq -r '.applied[]' 2>/dev/null | while read -r fix; do
+      echo "  ✓ $fix"
+    done
+  fi
+fi

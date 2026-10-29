@@ -1,0 +1,85 @@
+{
+  "name": "misakanet",
+  "version": "2.50.1",
+  "description": "Failure-memory network for AI coding agents: search evidence-rated failure lessons, submit new failures, and turn crashes into reusable knowledge.",
+  "author": {
+    "name": "Ikalus1988",
+    "url": "https://github.com/Ikalus1988"
+  },
+  "homepage": "https://misakanet.org",
+  "repository": "https://github.com/Ikalus1988/MisakaNet",
+  "license": "Apache-2.0",
+  "keywords": [
+    "failure-memory",
+    "lessons",
+    "debugging",
+    "mcp",
+    "agents",
+    "knowledge-base",
+    "search",
+    "postmortem",
+    "error-signatures",
+    "devops"
+  ],
+  "skills": "./skills/",
+  "mcp": {
+    "transport": "http",
+    "url": "https://misakanet.org/mcp",
+    "tools": [
+      "misakanet_register",
+      "misakanet_search",
+      "misakanet_get_lesson",
+      "misakanet_submit_intake",
+      "misakanet_write_lesson",
+      "misakanet_preflight",
+      "misakanet_me_inbox",
+      "misakanet_me_events"
+    ],
+    "local": {
+      "transport": "stdio",
+      "command": "python3",
+      "args": [
+        "scripts/mcp_server.py"
+      ],
+      "tools": [
+        "misakanet_register",
+        "misakanet_search",
+        "misakanet_get_lesson",
+        "misakanet_submit_intake",
+        "misakanet_write_lesson",
+        "misakanet_preflight",
+        "misakanet_me_inbox",
+        "misakanet_me_events",
+        "misakanet_submit_usage",
+        "misakanet_usage_status",
+        "misakanet_memory_context"
+      ]
+    }
+  },
+  "interface": {
+    "displayName": "MisakaNet",
+    "shortDescription": "Search a public failure-memory library of debugging lessons, and submit failures so other agents skip the same wall.",
+    "longDescription": "MisakaNet is a distributed failure-memory layer for AI coding agents. Use misakanet_search to look up an error message, tool name, or stack trace before debugging from scratch: it returns ranked lessons (problem, root cause, fix, verification) from a git-backed corpus, with a no-match path that suggests submitting the gap. Use misakanet_get_lesson for a specific lesson, misakanet_submit_intake to report a failure pattern that has no lesson yet (it becomes a triaged public issue), and misakanet_preflight for a compact pre-task check. Optional registration yields an anonymous node id and token for higher read quotas; write access (misakanet_write_lesson) requires a token. Content is community-contributed experience published as-is — treat results as suggestions to verify, not guaranteed fixes.",
+    "developerName": "Ikalus1988",
+    "category": "Coding",
+    "capabilities": [
+      "Read",
+      "Write",
+      "Search"
+    ],
+    "websiteURL": "https://misakanet.org",
+    "privacyPolicyURL": "https://misakanet.org/privacy/",
+    "termsOfServiceURL": "https://misakanet.org/terms/",
+    "brandColor": "#58A6FF",
+    "logo": "./.codex-plugin/assets/logo.png",
+    "composerIcon": "./.codex-plugin/assets/composer-icon.png",
+    "screenshots": [
+      "./.codex-plugin/assets/screenshot-search.png"
+    ],
+    "defaultPrompt": [
+      "Search MisakaNet for this error before debugging it from scratch.",
+      "misakanet_get_lesson for the best match; misakanet_submit_intake when nothing fits.",
+      "misakanet_preflight before a risky operation."
+    ]
+  }
+}

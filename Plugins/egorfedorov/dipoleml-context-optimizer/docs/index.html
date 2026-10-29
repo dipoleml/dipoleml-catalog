@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>context-optimizer — cut what Claude Code sessions cost</title>
+<meta name="description" content="A Claude plugin that shows what Claude costs you and spends less of it: handoffs, document digests and Project setup in chat; Haiku 5.5 subagents and /cco audit in Claude Code.">
+<meta property="og:title" content="context-optimizer — cut what Claude Code sessions cost">
+<meta property="og:description" content="Haiku subagents that do the reading for 1/40 of the price; skills that keep long chats cheap. Local, open source, no telemetry.">
+<meta property="og:type" content="website">
+<meta name="color-scheme" content="dark light">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23111418'/><path d='M8 22V10h4v12zM14 22v-8h4v8zM20 22v-4h4v4z' fill='%23FFB224'/></svg>">
+<style>
+  :root {
+    --bg: #0b0d10;
+    --surface: #12161b;
+    --surface-2: #171c22;
+    --border: #232a33;
+    --text: #e8ebef;
+    --dim: #9aa3ae;
+    --faint: #6b7480;
+    --accent: #ffb224;
+    --accent-ink: #1a1203;
+    --green: #3dd68c;
+    --blue: #6cb6ff;
+    --red: #ff7b72;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Inter", "Segoe UI", Roboto, sans-serif;
+    --radius: 12px;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --bg: #fafaf7;
+      --surface: #ffffff;
+      --surface-2: #f3f3ef;
+      --border: #e3e4df;
+      --text: #121417;
+      --dim: #555e69;
+      --faint: #858c95;
+      --accent: #b86e00;
+      --accent-ink: #ffffff;
+      --green: #0d8a52;
+      --blue: #1f6feb;
+      --red: #cf3a32;
+    }
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg); color: var(--text);
+    font: 16px/1.6 var(--sans);
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: inherit; }
+  code, pre, .mono { font-family: var(--mono); }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 16px; }
+  @media (min-width: 640px) { .wrap { padding: 0 24px; } }
+
+  /* nav */
+  nav { position: sticky; top: 0; z-index: 10; backdrop-filter: blur(12px);
+        background: color-mix(in srgb, var(--bg) 82%, transparent);
+        border-bottom: 1px solid var(--border); }
+  nav .wrap { display: flex; align-items: center; justify-content: space-between; height: 56px; gap: 16px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; text-decoration: none; letter-spacing: -0.01em; }
+  .brand svg { flex: none; }
+  .nav-links { display: flex; gap: 22px; font-size: 0.9rem; color: var(--dim); }
+  .nav-links a { text-decoration: none; }
+  .nav-links a:hover { color: var(--text); }
+  .nav-links .gh { color: var(--text); }
+  @media (max-width: 720px) { .nav-links a:not(.gh) { display: none; } }
+
+  /* hero */
+  .hero { padding: 72px 0 56px; }
+  .hero-grid { display: grid; gap: 48px; align-items: center; }
+  @media (min-width: 900px) { .hero-grid { grid-template-columns: 1.05fr 0.95fr; } }
+  .eyebrow { display: inline-flex; gap: 8px; align-items: center; font: 500 0.78rem/1 var(--mono);
+             color: var(--dim); border: 1px solid var(--border); border-radius: 999px; padding: 7px 12px; }
+  .eyebrow b { color: var(--accent); font-weight: 600; white-space: nowrap; }
+  @media (max-width: 520px) { .eyebrow { flex-wrap: wrap; row-gap: 4px; border-radius: 12px; } }
+  h1 { font-size: clamp(2.1rem, 5.2vw, 3.5rem); line-height: 1.06; letter-spacing: -0.035em;
+       margin: 22px 0 20px; font-weight: 750; }
+  h1 em { font-style: normal; color: var(--accent); }
+  .lede { color: var(--dim); font-size: 1.12rem; max-width: 34em; }
+  .lede strong { color: var(--text); font-weight: 600; }
+  .meter-line { margin: 18px 0 0; padding: 10px 14px; font: 500 0.8rem/1.4 var(--mono); color: var(--dim);
+                background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+                white-space: pre; overflow-x: auto; max-width: 100%; }
+  .cta { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 30px; }
+  .btn { display: inline-flex; align-items: center; gap: 8px; font-weight: 600; font-size: 0.95rem;
+         padding: 12px 18px; border-radius: 10px; text-decoration: none; border: 1px solid var(--border);
+         background: var(--surface); transition: border-color .15s, transform .15s; }
+  .btn:hover { border-color: var(--faint); transform: translateY(-1px); }
+  .btn.primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; }
+
+  /* receipt card */
+  .receipt { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+             padding: 22px; font-family: var(--mono); font-size: 0.84rem; box-shadow: 0 30px 60px -30px rgba(0,0,0,.45); }
+  .receipt-head { display: flex; flex-wrap: wrap; gap: 4px 12px; justify-content: space-between; color: var(--faint); font-size: 0.72rem;
+                  text-transform: uppercase; letter-spacing: .08em; margin-bottom: 14px; }
+  .total { font-size: 2.3rem; font-weight: 700; letter-spacing: -0.03em; font-family: var(--sans); }
+  .total small { font-size: 0.9rem; color: var(--dim); font-weight: 500; margin-left: 6px; letter-spacing: 0; }
+  .stack { display: flex; height: 14px; border-radius: 5px; overflow: hidden; margin: 16px 0 12px; gap: 2px; }
+  .stack span { display: block; }
+  .legend { display: grid; gap: 7px; }
+  .legend div { display: flex; justify-content: space-between; gap: 12px; color: var(--dim); }
+  .legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 8px; vertical-align: 0; }
+  .legend b { color: var(--text); font-weight: 600; }
+  .rule { border: 0; border-top: 1px dashed var(--border); margin: 16px 0; }
+  .receipt-foot { color: var(--faint); font-size: 0.74rem; line-height: 1.5; }
+
+  /* sections */
+  section { padding: 76px 0; border-top: 1px solid var(--border); }
+  .label { font: 600 0.74rem/1 var(--mono); color: var(--accent); letter-spacing: .1em; text-transform: uppercase; }
+  h2 { font-size: clamp(1.6rem, 3.4vw, 2.35rem); line-height: 1.15; letter-spacing: -0.025em; margin: 14px 0 14px; font-weight: 720; }
+  .sub { color: var(--dim); font-size: 1.05rem; max-width: 40em; }
+  .grid-3 { display: grid; gap: 16px; margin-top: 36px; }
+  @media (min-width: 760px) { .grid-3 { grid-template-columns: repeat(3, 1fr); } }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 22px; }
+  .stat { font: 700 2.2rem/1 var(--sans); letter-spacing: -0.03em; }
+  .stat.green { color: var(--green); } .stat.accent { color: var(--accent); } .stat.blue { color: var(--blue); }
+  .card h3 { font-size: 1rem; margin: 12px 0 6px; letter-spacing: -0.01em; }
+  .card p { color: var(--dim); font-size: 0.93rem; }
+
+  /* orchestrator */
+  .orch { display: grid; gap: 28px; margin-top: 40px; align-items: start; }
+  @media (min-width: 900px) { .orch { grid-template-columns: 1.1fr 0.9fr; } }
+  .flow { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 22px; }
+  .node { border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; background: var(--surface-2); }
+  .node .name { font-family: var(--mono); font-weight: 600; font-size: 0.9rem; }
+  .node .meta { color: var(--dim); font-size: 0.85rem; margin-top: 4px; }
+  .node.main { border-color: color-mix(in srgb, var(--blue) 55%, var(--border)); }
+  .node.main .name { color: var(--blue); }
+  .node.sub { border-color: color-mix(in srgb, var(--green) 55%, var(--border)); }
+  .node.sub .name { color: var(--green); }
+  .tag { float: right; font: 600 0.72rem/1 var(--mono); padding: 5px 8px; border-radius: 6px; border: 1px solid var(--border); color: var(--dim); }
+  .arrows { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 10px 0; }
+  .arrow { font: 0.76rem/1.4 var(--mono); color: var(--faint); text-align: center; padding: 6px 0; }
+  .arrow::before { content: ""; display: block; height: 18px; width: 1px; background: var(--border); margin: 0 auto 6px; }
+  .subs { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .price { margin-top: 22px; }
+  .price-row { display: grid; grid-template-columns: 92px 1fr 64px; gap: 12px; align-items: center; font-size: 0.86rem; margin: 9px 0; }
+  .price-row .who { font-family: var(--mono); color: var(--dim); }
+  .price-row .val { font-family: var(--mono); text-align: right; }
+  .bar { height: 10px; border-radius: 3px; background: var(--surface-2); overflow: hidden; }
+  .bar span { display: block; height: 100%; border-radius: 3px; }
+  .points { display: grid; gap: 14px; }
+  .point { display: grid; grid-template-columns: 28px 1fr; gap: 12px; }
+  .point .n { font: 600 0.78rem/28px var(--mono); width: 28px; height: 28px; text-align: center; border-radius: 8px;
+              background: var(--surface); border: 1px solid var(--border); color: var(--accent); }
+  .point h3 { font-size: 0.98rem; margin-top: 3px; }
+  .point p { color: var(--dim); font-size: 0.92rem; margin-top: 2px; }
+  .proof { margin-top: 22px; font: 0.82rem/1.55 var(--mono); color: var(--dim); background: var(--surface);
+           border: 1px solid var(--border); border-left: 3px solid var(--green); border-radius: 8px; padding: 12px 14px; }
+  .proof b { color: var(--green); font-weight: 600; }
+
+  /* terminal */
+  .term { margin-top: 36px; background: #0a0c0f; color: #d7dce2; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+  @media (prefers-color-scheme: light) { .term { background: #111418; border-color: #111418; } }
+  .term-bar { display: flex; align-items: center; gap: 7px; padding: 11px 14px; border-bottom: 1px solid #1f252d; }
+  .term-bar i { width: 10px; height: 10px; border-radius: 50%; background: #2a313a; }
+  .term-bar span { margin-left: 8px; font: 0.76rem var(--mono); color: #7d8692; }
+  .term pre { padding: 18px 20px; overflow-x: auto; font-size: 0.8rem; line-height: 1.55; }
+  .t-h { color: #ffb224; } .t-g { color: #3dd68c; } .t-d { color: #7d8692; } .t-b { color: #e8ebef; font-weight: 600; }
+  .caption { color: var(--faint); font-size: 0.85rem; margin-top: 12px; }
+
+  /* features */
+  .features { display: grid; gap: 1px; margin-top: 36px; background: var(--border); border: 1px solid var(--border);
+              border-radius: var(--radius); overflow: hidden; }
+  @media (min-width: 640px) { .features { grid-template-columns: 1fr 1fr; } }
+  @media (min-width: 960px) { .features { grid-template-columns: repeat(3, 1fr); } }
+  .feature { background: var(--surface); padding: 22px; }
+  .feature code { font-size: 0.8rem; color: var(--accent); }
+  .feature h3 { font-size: 0.98rem; margin: 6px 0 6px; }
+  .feature p { color: var(--dim); font-size: 0.9rem; }
+
+  /* principles */
+  .principles { display: grid; gap: 12px; margin-top: 32px; }
+  @media (min-width: 760px) { .principles { grid-template-columns: 1fr 1fr; } }
+  .principle { display: flex; gap: 12px; padding: 16px 18px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+  .principle .ok { color: var(--green); font-weight: 700; }
+  .principle p { color: var(--dim); font-size: 0.92rem; }
+  .principle b { color: var(--text); }
+
+  /* install */
+  .install { display: grid; gap: 16px; margin-top: 32px; }
+  @media (min-width: 860px) { .install { grid-template-columns: 1fr 1fr; } }
+  /* Grid items default to min-width:auto; long <pre> lines would widen the page. */
+  .hero-grid > *, .orch > *, .install > * { min-width: 0; }
+  .code { position: relative; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; }
+  .code .h { font: 600 0.74rem/1 var(--mono); color: var(--faint); padding: 12px 14px 0; text-transform: uppercase; letter-spacing: .08em; }
+  .code pre { padding: 10px 14px 14px; overflow-x: auto; font-size: 0.84rem; line-height: 1.7; }
+  .code pre .c { color: var(--faint); }
+  .copy { position: absolute; top: 8px; right: 8px; font: 600 0.72rem var(--mono); color: var(--dim); background: var(--surface-2);
+          border: 1px solid var(--border); border-radius: 6px; padding: 5px 9px; cursor: pointer; }
+  .copy:hover { color: var(--text); }
+  .note { color: var(--dim); font-size: 0.9rem; margin-top: 16px; }
+
+  /* donate */
+  .donate { display: grid; gap: 10px; margin-top: 28px; max-width: 640px; }
+  .addr { display: flex; justify-content: space-between; align-items: center; gap: 12px; text-align: left; width: 100%;
+          background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; cursor: pointer;
+          color: var(--text); font: inherit; transition: border-color .15s; }
+  .addr:hover { border-color: var(--accent); }
+  .addr .coin { font-weight: 600; font-size: 0.85rem; }
+  .addr code { display: block; font-size: 0.76rem; color: var(--dim); word-break: break-all; margin-top: 3px; }
+  .addr .hint { color: var(--faint); font: 0.72rem var(--mono); white-space: nowrap; }
+
+  footer { border-top: 1px solid var(--border); padding: 36px 0 48px; color: var(--faint); font-size: 0.88rem; }
+  footer .wrap { display: flex; flex-wrap: wrap; gap: 14px 28px; justify-content: space-between; }
+  footer nav { all: unset; display: flex; gap: 20px; flex-wrap: wrap; }
+  footer a { text-decoration: none; color: var(--dim); }
+  footer a:hover { color: var(--text); }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <a class="brand" href="#">
+      <svg width="24" height="24" viewBox="0 0 32 32" aria-hidden="true"><rect width="32" height="32" rx="7" fill="currentColor" opacity=".08"/><path d="M8 22V10h4v12zM14 22v-8h4v8zM20 22v-4h4v4z" fill="var(--accent)"/></svg>
+      context-optimizer
+    </a>
+    <div class="nav-links">
+      <a href="#money">Where it goes</a>
+      <a href="#orchestrator">Orchestrator</a>
+      <a href="#surfaces">Chat &amp; Cowork</a>
+      <a href="#audit">Audit</a>
+      <a href="#install">Install</a>
+      <a class="gh" href="https://github.com/egorfedorov/claude-context-optimizer">GitHub ↗</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap hero-grid">
+    <div>
+      <span class="eyebrow"><b>v5.1.1 &middot;</b> Claude plugin &middot; MIT &middot; no telemetry</span>
+      <h1>In a long session, most of the bill is <em>re&#8209;reading</em>.</h1>
+      <p class="lede">Every request re-reads the whole context. <strong>context-optimizer keeps it small and shows you the numbers:</strong> Haiku&nbsp;5.5 subagents that do the reading for 1/40 of the price; and skills that keep long chats cheap on claude.ai too.</p>
+      <div class="cta">
+        <a class="btn primary" href="#install">Install the plugin</a>
+        <a class="btn" href="#audit">See a real audit</a>
+      </div>
+    </div>
+
+    <div class="receipt" role="img" aria-label="Cost split of a real Opus 5.5 session: cache reads 62 percent, cache writes 23 percent, output 17 percent">
+      <div class="receipt-head"><span>One real session</span><span>Opus 5.5 · 293 requests</span></div>
+      <div class="total">$26.16<small>total</small></div>
+      <div class="stack">
+        <span style="width:62%;background:var(--accent)"></span>
+        <span style="width:23%;background:var(--blue)"></span>
+        <span style="width:15%;background:var(--green)"></span>
+      </div>
+      <div class="legend">
+        <div><span><i style="background:var(--accent)"></i>cache reads — context re-read per request</span><b>62%</b></div>
+        <div><span><i style="background:var(--blue)"></i>cache writes — new context</span><b>23%</b></div>
+        <div><span><i style="background:var(--green)"></i>output — what Claude wrote</span><b>17%</b></div>
+      </div>
+      <hr class="rule">
+      <div class="legend">
+        <div><span>average context per request</span><b>282K</b></div>
+        <div><span>repeated reads of unchanged files</span><b>≈ 0</b></div>
+      </div>
+      <hr class="rule">
+      <p class="receipt-foot">Measured with <code>/cco audit</code> on the session that built this release. Your numbers will differ — that's the point of the audit.</p>
+    </div>
+  </div>
+</header>
+
+<section id="money">
+  <div class="wrap">
+    <div class="label">Where the money goes</div>
+    <h2>We measured before building more features.</h2>
+    <p class="sub">We expected read dedup to be the big win. On real transcripts, Claude almost never re-reads an unchanged file. The cost is the context itself, paid again on every request.</p>
+    <div class="grid-3">
+      <div class="card">
+        <div class="stat accent">~60%</div>
+        <h3>of a long session is cache reads</h3>
+        <p>Cache reads are cheap per token, but every token in context is read again on every later request. 280K of context × 300 requests adds up.</p>
+      </div>
+      <div class="card">
+        <div class="stat blue">40×</div>
+        <h3>Opus 5.5 vs Haiku 5.5 per token</h3>
+        <p>$4.00 against $0.10 per million input tokens. Reading files and test logs doesn't need the expensive model.</p>
+      </div>
+      <div class="card">
+        <div class="stat green">1×</div>
+        <h3>a subagent's reading is paid once</h3>
+        <p>Its context is thrown away when it returns. Only the short answer enters yours, and only that gets re-read.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="orchestrator">
+  <div class="wrap">
+    <div class="label">The orchestrator</div>
+    <h2>The expensive model decides. Haiku does the reading.</h2>
+    <p class="sub">The plugin ships two subagents on Haiku 5.5. Claude hands them work on its own; a 90-token policy at session start says when.</p>
+
+    <div class="orch">
+      <div class="flow">
+        <div class="node main">
+          <span class="tag">plans · edits · decides</span>
+          <div class="name">main model</div>
+          <div class="meta">Opus 5.5 — $4.00 / M input</div>
+        </div>
+        <div class="arrows">
+          <div class="arrow">question →<br>← 250-word answer</div>
+          <div class="arrow">commands →<br>← pass / failures</div>
+        </div>
+        <div class="subs">
+          <div class="node sub">
+            <div class="name">scout</div>
+            <div class="meta">Haiku 5.5 · read-only<br>files and search</div>
+          </div>
+          <div class="node sub">
+            <div class="name">runner</div>
+            <div class="meta">Haiku 5.5<br>tests, builds, linters</div>
+          </div>
+        </div>
+        <div class="price" aria-label="Price per million input tokens">
+          <div class="price-row"><span class="who">Opus 5.5</span><div class="bar"><span style="width:100%;background:var(--blue)"></span></div><span class="val">$4.00</span></div>
+          <div class="price-row"><span class="who">Sonnet 5.5</span><div class="bar"><span style="width:50%;background:var(--faint)"></span></div><span class="val">$2.00</span></div>
+          <div class="price-row"><span class="who">Haiku 5.5</span><div class="bar"><span style="width:2.5%;min-width:3px;background:var(--green)"></span></div><span class="val">$0.10</span></div>
+        </div>
+      </div>
+
+      <div>
+        <div class="points">
+          <div class="point"><span class="n">1</span><div><h3>Scouts explore</h3><p>"Where is X defined, what calls Y, which tests cover Z" goes to <code>context-optimizer:scout</code>, several in parallel. Each answer comes back with <code>path:line</code> evidence.</p></div></div>
+          <div class="point"><span class="n">2</span><div><h3>The main model plans and edits</h3><p>It reads only the line ranges it's about to change. Design calls and edits never leave it.</p></div></div>
+          <div class="point"><span class="n">3</span><div><h3>The runner verifies</h3><p>Test suites and builds run in <code>context-optimizer:runner</code>. Thousands of log lines stay there; you get pass/fail and the failures.</p></div></div>
+          <div class="point"><span class="n">4</span><div><h3>Or ask for it outright</h3><p><code>/cco orchestrate &lt;task&gt;</code> runs a whole task this way.</p></div></div>
+        </div>
+        <p class="proof">Checked live in Claude Code 2.1.302: the scout ran on <b>claude-haiku-5-5</b>, did one Grep and a 25-line Read, and found <code>readEnd</code> at <code>src/read-cache.js:212</code>. The whole session cost <b>$0.005</b>.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="surfaces">
+  <div class="wrap">
+    <div class="label">Works where you work</div>
+    <h2>Chat, Cowork and Claude Code each get something useful.</h2>
+    <p class="sub">Most installs come from claude.ai chat, where a plugin loads its skills but not hooks or local scripts. So the plugin ships skills that work everywhere, and the heavy machinery where it can run.</p>
+    <div class="grid-3">
+      <div class="card">
+        <div class="stat green">Chat</div>
+        <h3>claude.ai, desktop and mobile</h3>
+        <p><code>fresh-start</code> hands a long conversation over to a new one. <code>doc-digest</code> turns a long document into a working digest. <code>project-context</code> turns background you keep retyping into Project instructions. <code>token-check</code> and <code>sharpen-prompt</code> size and tighten.</p>
+      </div>
+      <div class="card">
+        <div class="stat blue">Cowork</div>
+        <h3>Desktop tasks</h3>
+        <p>The same skills, plus the <code>scout</code> and <code>runner</code> subagents on Haiku 5.5 for reading and checks.</p>
+      </div>
+      <div class="card">
+        <div class="stat accent">Code</div>
+        <h3>Claude Code</h3>
+        <p>Everything: Haiku subagents, one <code>/cco</code> command for the board, the audit and task state across <code>/compact</code>, read dedup, budget and cache warnings.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="audit">
+  <div class="wrap">
+    <div class="label">/cco audit</div>
+    <h2>Does it save you anything? Ask your transcripts.</h2>
+    <p class="sub">Claude Code keeps every session in <code>~/.claude/projects/</code>. The audit prices them with each session's real model and cache TTL, counts every refusal CCO made, and ranks the levers that would save you the most. Nothing leaves your machine.</p>
+    <div class="term">
+      <div class="term-bar"><i></i><i></i><i></i><span>/cco audit --days 2</span></div>
+<pre><span class="t-b">  SAVINGS AUDIT — 3 sessions + 2 subagent runs, last 2 days</span>
+<span class="t-d">  ──────────────────────────────────────────────────────────────────</span>
+  Spend      <span class="t-b">$26.16</span> over 293 requests  (subagents $2.04)
+             cache reads 62% · cache writes 23% · output 17%
+  Subagents  opus-5.5 $2.04 (1 run) · <span class="t-g">haiku-5.5 $0.001 (1 run)</span>
+  Context    avg 282.2K per request, peak 564.8K; fixed overhead is 22% of it
+
+<span class="t-h">  WHAT CCO DID</span>
+  Read dedup refused 1 re-read (1.2K tokens) → saved ~$0.00 (0% of spend)
+  Repeated reads that went through: 2 via Read, 0 via Bash cat/sed
+
+<span class="t-h">  BIGGER LEVERS (estimates on these sessions)</span>
+  ~   <span class="t-g">$7.49</span>   29%  Compact at 200K instead of letting context grow
+  ~   <span class="t-g">$1.71</span>    7%  Delegate exploration (Read/Grep/web) to Haiku subagents
+  ~   <span class="t-g">$0.70</span>    3%  Every 10K less of fixed overhead (MCP tools, CLAUDE.md, skills)
+
+<span class="t-h">  VERDICT</span>
+  Read dedup saved $0.00. The biggest saving available here is
+  "compact at 200K instead of letting context grow" — about $7.49 (29% of spend).</pre>
+    </div>
+    <p class="caption">Real output, on the sessions that built this release. Yes, it says read dedup saved nothing there. That's why v4.22 ships the orchestrator.</p>
+  </div>
+</section>
+
+<section id="features">
+  <div class="wrap">
+    <div class="label">Everything else it does</div>
+    <h2>Quiet by default. Every message actually arrives.</h2>
+    <p class="sub">Since v4.20 the hooks answer in the JSON Claude Code reads: advice for Claude as context, notes for you as a system message that costs no tokens.</p>
+    <div class="features">
+      <div class="feature"><code>read-cache</code><h3>Read dedup with file maps</h3><p>An unchanged re-read is skipped and replaced by a map of the file. Per subagent, and it steps aside if Claude asks again.</p></div>
+      <div class="feature"><code>budget</code><h3>Budget and cache-break warnings</h3><p>Real context size from the transcript, the cost of a cold cache after a pause, and a nudge to <code>/compact</code> before quality drops.</p></div>
+      <div class="feature"><code>/cco</code><h3>One command for the rest</h3><p><code>/cco</code> is the session board; <code>/cco help</code> lists audit, task, pack, orchestrate, config and the others.</p></div>
+      <div class="feature"><code>/cco task</code><h3>Task state that survives /compact</h3><p>A small JSON state per task, put back into context after compaction or resume.</p></div>
+      <div class="feature"><code>/cco overhead</code><h3>Fixed overhead audit</h3><p>What every session pays before you type: system prompt, MCP tools, CLAUDE.md. Lists MCP servers you never call.</p></div>
+      <div class="feature"><code>.contextignore</code><h3>Files you never need</h3><p>Block lock files and build output from Read. ContextShield proposes rules from your own waste history.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="honest">
+  <div class="wrap">
+    <div class="label">How we keep it honest</div>
+    <h2>Numbers we can defend.</h2>
+    <div class="principles">
+      <div class="principle"><span class="ok">✓</span><p><b>Transcripts over estimates.</b> Cost comes from the API usage Claude Code records, priced per model, cache TTL and fast mode.</p></div>
+      <div class="principle"><span class="ok">✓</span><p><b>NET savings.</b> Everything CCO injects into context is subtracted from what it claims to save.</p></div>
+      <div class="principle"><span class="ok">✓</span><p><b>Tested the way Claude Code runs it.</b> End-to-end tests drive the real hooks through <code>sh -c</code> on Linux and macOS; <code>/cco doctor</code> does the same on your machine.</p></div>
+      <div class="principle"><span class="ok">✓</span><p><b>Local only.</b> The plugin's code makes no network calls. Data lives in <code>~/.claude-context-optimizer/</code> and is pruned automatically.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="install">
+  <div class="wrap">
+    <div class="label">Install</div>
+    <h2>Two commands. Then restart Claude Code.</h2>
+    <div class="install">
+      <div class="code">
+        <div class="h">Install</div>
+        <button class="copy" data-copy="claude plugin marketplace add egorfedorov/claude-context-optimizer&#10;claude plugin install context-optimizer@cco">copy</button>
+<pre>claude plugin marketplace add egorfedorov/claude-context-optimizer
+claude plugin install context-optimizer@cco</pre>
+      </div>
+      <div class="code">
+        <div class="h">Check it, then see your numbers</div>
+        <button class="copy" data-copy="/cco doctor&#10;/cco audit">copy</button>
+<pre><span class="c"># in Claude Code</span>
+/cco doctor
+/cco audit</pre>
+      </div>
+    </div>
+    <p class="note">On claude.ai, the desktop app or Cowork: open the Directory and add <b>Context Optimizer</b>. Upgrading from 4.x: commands moved under <code>/cco</code> (<code>/cco-audit</code> is now <code>/cco audit</code>). Turn the delegation policy off with <code>"orchestrate": false</code> in <code>~/.claude-context-optimizer/config.json</code>.</p>
+  </div>
+</section>
+
+<section id="donate">
+  <div class="wrap">
+    <div class="label">Support</div>
+    <h2>Saved tokens? Help keep this alive.</h2>
+    <p class="sub">context-optimizer is free, open source and has no telemetry. If it saved you money, consider supporting development.</p>
+    <div class="donate">
+      <button class="addr" data-copy="bc1q428exz5t2h9rzk7z5ya70madh0j3rs6h4gfgyd"><span><span class="coin">Bitcoin (BTC)</span><code>bc1q428exz5t2h9rzk7z5ya70madh0j3rs6h4gfgyd</code></span><span class="hint">copy</span></button>
+      <button class="addr" data-copy="0xB3f0C8e42B7cA9d65920cEfe82e3fef1B5C9d0C9"><span><span class="coin">Ethereum (ETH / ERC-20)</span><code>0xB3f0C8e42B7cA9d65920cEfe82e3fef1B5C9d0C9</code></span><span class="hint">copy</span></button>
+      <button class="addr" data-copy="8ctK8nt3CBkPZGfWQXX8TsnqUYUy4JAbT1EMhr8rsQxm"><span><span class="coin">Solana (SOL)</span><code>8ctK8nt3CBkPZGfWQXX8TsnqUYUy4JAbT1EMhr8rsQxm</code></span><span class="hint">copy</span></button>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>context-optimizer &middot; MIT &middot; made for people who read their Claude bill</span>
+    <nav>
+      <a href="https://github.com/egorfedorov/claude-context-optimizer">GitHub</a>
+      <a href="https://github.com/egorfedorov/claude-context-optimizer/blob/main/CHANGELOG.md">Changelog</a>
+      <a href="https://github.com/egorfedorov/claude-context-optimizer/issues">Issues</a>
+      <a href="https://github.com/egorfedorov/claude-context-optimizer/blob/main/LICENSE">License</a>
+    </nav>
+  </div>
+</footer>
+
+<script>
+  document.querySelectorAll('[data-copy]').forEach((el) => {
+    el.addEventListener('click', async () => {
+      const hint = el.classList.contains('copy') ? el : el.querySelector('.hint');
+      try {
+        await navigator.clipboard.writeText(el.dataset.copy);
+        hint.textContent = 'copied';
+      } catch {
+        hint.textContent = 'select & copy';
+      }
+      setTimeout(() => { hint.textContent = 'copy'; }, 1500);
+    });
+  });
+</script>
+</body>
+</html>

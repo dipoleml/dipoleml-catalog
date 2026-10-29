@@ -1,0 +1,46 @@
+{
+  "knip.ts": [
+    "// Workflow-invoked scripts are declared in `entry` above; the plugin would",
+    "// re-claim them as dev-only entries and hide their imports from --production."
+  ],
+  "scripts/build-runtime.ts": [
+    "// Bun 1.4.0 intermittently drops the tsconfig `@/*` mapping inside `bun test` (f9671a17).",
+    "// Node caches bytecode only for modules compiled after `enableCompileCache` runs, so the module",
+    "// that calls it cannot be the bundle."
+  ],
+  "scripts/gui-assets.ts": [
+    "// `args.path` is native, so the separator is a backslash on Windows."
+  ],
+  "src/core/io/safe-read.ts": [
+    "// Canonicalize through the parent: a directory has one path, while macOS reports a",
+    "// hard-linked file by whichever of its names was looked up last."
+  ],
+  "src/core/shell/heredoc.ts": [
+    "// A carriage return is an ordinary delimiter character in a shell, so `<<EOF\\r\\n` declares",
+    "// `EOF\\r` and only an `EOF\\r` line can end the body."
+  ],
+  "src/gate/analyzer/git/rules.ts": [
+    "// Refnames cannot contain glob characters, so a glob operand is always a pathspec."
+  ],
+  "src/gate/analyzer/git/temp-root-relaxation.ts": [
+    "/**\n * git accepts a unique trailing path component of any registered worktree as `<worktree>`, and\n * removes the registered worktree a symlinked operand resolves to.\n */"
+  ],
+  "src/gate/analyzer/xargs.ts": [
+    "// A case arm's `)` also opens a command word, but a substitution's `)` does not."
+  ],
+  "src/gate/secret/secret-protection.ts": [
+    "// `-am` is `-a -m`; only letters that take no value may precede the `m`.",
+    "// `-files0-from FILE` reads FILE, which may sit before the start points."
+  ],
+  "src/hosts/hook/pre-tool-use.ts": [
+    "// Only a host that prompts on `ask` may use it; Codex rejects it and runs the tool."
+  ],
+  "src/hosts/opencode/v2.ts": ["// The tool event does not expose the resolved executable."],
+  "tests/core/io/safe-read.test.ts": [
+    "// macOS resolves a file's canonical path from the vnode's last-looked-up name, so while",
+    "// another process touches a hard link the same file reports either of its paths."
+  ],
+  "tests/helpers/fake-bin.ts": [
+    "/**\n * @internal Called from the run-wide afterAll in tests/setup.ts: bun evaluates this module once per\n * process, so a module-scope afterAll would fire after the first file that imported it and delete\n * the stub every later file links to.\n */"
+  ]
+}

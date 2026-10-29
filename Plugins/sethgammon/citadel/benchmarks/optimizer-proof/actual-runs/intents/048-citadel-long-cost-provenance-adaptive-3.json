@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "kind": "citadel_optimizer_matrix_intent",
+  "authorization_digest": "sha256:b17292a5a08b6ea705f82d5c265e047aa65bb9f774d2fc5ea085648e0fdab1eb",
+  "ordinal": 48,
+  "run_key": "citadel-long-cost-provenance/adaptive/3",
+  "scenario_id": "citadel-long-cost-provenance",
+  "policy_id": "adaptive",
+  "repetition": 3,
+  "state": "completed",
+  "started_at": "2026-07-31T00:21:57.138Z",
+  "completed_at": "2026-07-31T00:32:12.015Z",
+  "output_file": "records/048-citadel-long-cost-provenance-adaptive-3.json",
+  "error": null
+}

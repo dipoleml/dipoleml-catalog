@@ -1,0 +1,254 @@
+#!/usr/bin/env bash
+# ops-setup-detect — Emit current configuration state as JSON
+# Used by /ops:setup wizard to decide what still needs configuring.
+# Reads from /tmp/ops-preflight/ cache when available (populated by ops-setup-preflight).
+set -euo pipefail
+
+has() { command -v "$1" >/dev/null 2>&1 && echo true || echo false; }
+has_env() { [ -n "${!1:-}" ] && echo true || echo false; }
+
+PREFLIGHT="/tmp/ops-preflight"
+USE_CACHE=false
+if [ -f "$PREFLIGHT/.complete" ]; then
+  USE_CACHE=true
+fi
+
+SCRIPT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+OPS_PLUGIN_ROOT_FALLBACK="$SCRIPT_DIR" . "$SCRIPT_DIR/lib/registry-path.sh"
+
+LIB_OS_DETECT="$SCRIPT_DIR/lib/os-detect.sh"
+[ -r "$LIB_OS_DETECT" ] && . "$LIB_OS_DETECT"
+
+# Preferences live in Claude Code's per-plugin data dir so they survive plugin
+# reinstalls/version bumps. Falls back to the plugin source dir for users who
+# run bin/ops-setup-detect directly outside a Claude Code plugin context.
+PREFS_DIR="${CLAUDE_PLUGIN_DATA_DIR:-$HOME/.claude/plugins/data/ops-ops-marketplace}"
+PREFS="$PREFS_DIR/preferences.json"
+if [ ! -f "$PREFS" ] && [ -f "$SCRIPT_DIR/scripts/preferences.json" ]; then
+  # Legacy location — still honor it so old installs keep working until migrated.
+  PREFS="$SCRIPT_DIR/scripts/preferences.json"
+fi
+
+PROJECT_COUNT=0
+# Prefer cached registry from preflight
+CACHED_REGISTRY="$PREFLIGHT/existing-registry.json"
+if [ "$USE_CACHE" = true ] && [ -f "$CACHED_REGISTRY" ] && command -v jq >/dev/null 2>&1; then
+  PROJECT_COUNT=$(jq '.projects | length' "$CACHED_REGISTRY" 2>/dev/null || echo 0)
+elif [ -f "$REGISTRY" ] && command -v jq >/dev/null 2>&1; then
+  PROJECT_COUNT=$(jq '.projects | length' "$REGISTRY" 2>/dev/null || echo 0)
+fi
+
+SHELL_NAME="$(basename "${SHELL:-zsh}")"
+case "$SHELL_NAME" in
+  zsh)  PROFILE_FILE="$HOME/.zshrc" ;;
+  bash) PROFILE_FILE="$HOME/.bashrc" ;;
+  fish) PROFILE_FILE="$HOME/.config/fish/config.fish" ;;
+  *)    PROFILE_FILE="$HOME/.profile" ;;
+esac
+
+PLATFORM="$(uname -s | tr '[:upper:]' '[:lower:]')"
+
+# Detect configured MCP servers — use preflight cache if available
+MCP_CONFIGURED=()
+if [ "$USE_CACHE" = true ] && [ -f "$PREFLIGHT/mcp-servers.txt" ]; then
+  while IFS= read -r name; do
+    [ -n "$name" ] && MCP_CONFIGURED+=("$name")
+  done < "$PREFLIGHT/mcp-servers.txt"
+else
+  for f in "$SCRIPT_DIR/.mcp.json" "$HOME/.claude/.mcp.json" "$HOME/.claude.json"; do
+    [ -f "$f" ] || continue
+    if command -v jq >/dev/null 2>&1; then
+      while IFS= read -r name; do
+        [ -n "$name" ] && MCP_CONFIGURED+=("$name")
+      done < <(jq -r '(.mcpServers // {}) | keys[]' "$f" 2>/dev/null || true)
+    fi
+  done
+fi
+
+# Deduplicate
+MCP_JSON="[]"
+if [ ${#MCP_CONFIGURED[@]} -gt 0 ] && command -v jq >/dev/null 2>&1; then
+  MCP_JSON=$(printf '%s\n' "${MCP_CONFIGURED[@]}" | sort -u | jq -R . | jq -s .)
+fi
+
+# Helper: check cache or live for a tool
+tool_status() {
+  local tool="$1"
+  if [ "$USE_CACHE" = true ] && [ -f "$PREFLIGHT/clis.txt" ]; then
+    local cached
+    cached=$(grep "^${tool}=" "$PREFLIGHT/clis.txt" 2>/dev/null | head -1 || echo "")
+    if [ -n "$cached" ]; then
+      if echo "$cached" | grep -q "=missing$"; then echo false; else echo true; fi
+      return
+    fi
+  fi
+  has "$tool"
+}
+
+# host — OS/arch/pkg-mgr/keyring context from lib/os-detect.sh (used by channel installers)
+if declare -F ops_os_json >/dev/null 2>&1; then
+  if command -v jq >/dev/null 2>&1; then
+    HOST_JSON="$(ops_os_json | jq '.' 2>/dev/null || echo '{}')"
+  else
+    HOST_JSON="$(ops_os_json)"
+  fi
+else
+  HOST_JSON="{}"
+fi
+
+# ── Slack status ─────────────────────────────────────────────────────────────
+# Resolution order:
+#   1. Preflight cache (ops-setup-preflight already ran full probe)
+#   2. SSE-router pattern in ~/.claude.json (.type == "sse" → probe URL)
+#   3. Keychain tokens (xoxc + xoxd)
+SLACK_STATUS="unconfigured"
+SLACK_SOURCE="none"
+
+if [ "$USE_CACHE" = true ] && [ -f "$PREFLIGHT/slack.json" ] && command -v jq >/dev/null 2>&1; then
+  slack_ok=$(jq -r '.ok // false' "$PREFLIGHT/slack.json" 2>/dev/null)
+  slack_src=$(jq -r '.source // ""' "$PREFLIGHT/slack.json" 2>/dev/null)
+  if [ "$slack_ok" = "true" ]; then
+    SLACK_STATUS="configured"
+    SLACK_SOURCE="${slack_src:-keychain}"
+  fi
+elif [ -f "$HOME/.claude.json" ] && command -v jq >/dev/null 2>&1; then
+  slack_type=$(jq -r '.mcpServers.slack.type // ""' "$HOME/.claude.json" 2>/dev/null)
+  if [ "$slack_type" = "sse" ]; then
+    slack_url=$(jq -r '.mcpServers.slack.url // ""' "$HOME/.claude.json" 2>/dev/null)
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 "$slack_url" 2>/dev/null || echo "000")
+    if [ "$http_code" = "200" ]; then
+      SLACK_STATUS="configured"
+      SLACK_SOURCE="sse_router"
+    else
+      SLACK_STATUS="sse_router_unreachable"
+      SLACK_SOURCE="sse_router"
+    fi
+  fi
+fi
+
+# ── Telegram status ───────────────────────────────────────────────────────────
+# Resolution order:
+#   1. Preflight cache
+#   2. SSE-router pattern in ~/.claude.json
+#   3. user-config.json (telegram_api_id, telegram_api_hash, telegram_phone, telegram_session)
+#   4. Keychain
+TELEGRAM_STATUS="unconfigured"
+TELEGRAM_SOURCE="none"
+TELEGRAM_KEYS_FOUND=0
+
+if [ "$USE_CACHE" = true ] && [ -f "$PREFLIGHT/telegram.txt" ]; then
+  tg_src=$(grep '^source=' "$PREFLIGHT/telegram.txt" 2>/dev/null | cut -d= -f2 || echo "")
+  if [ "$tg_src" = "sse_router" ]; then
+    TELEGRAM_STATUS="configured"
+    TELEGRAM_SOURCE="sse_router"
+    TELEGRAM_KEYS_FOUND=4
+  else
+    # Count keys with "found" in their value.
+    # NOTE: never chain `grep -c` with `|| echo 0` — on zero matches grep prints
+    # "0" AND exits 1, so the `||` ALSO fires, yielding "0\n0" which corrupts the
+    # integer test below and the emitted JSON. Split assignment + default instead.
+    TELEGRAM_KEYS_FOUND=$(grep -c '=found' "$PREFLIGHT/telegram.txt" 2>/dev/null || true)
+    TELEGRAM_KEYS_FOUND=${TELEGRAM_KEYS_FOUND:-0}
+    if [ "$TELEGRAM_KEYS_FOUND" -eq 4 ]; then
+      TELEGRAM_STATUS="configured"
+      # Determine the dominant source
+      if grep -q 'found(keychain)' "$PREFLIGHT/telegram.txt" 2>/dev/null; then
+        TELEGRAM_SOURCE="keychain"
+      else
+        TELEGRAM_SOURCE="user_config"
+      fi
+    elif [ "$TELEGRAM_KEYS_FOUND" -gt 0 ]; then
+      TELEGRAM_STATUS="partial"
+      TELEGRAM_SOURCE="mixed"
+    fi
+  fi
+else
+  # Live detection without preflight cache
+  USER_CONFIG_FILE="${CLAUDE_PLUGIN_DATA_DIR:-$HOME/.claude/plugins/data/ops-ops-marketplace}/user-config.json"
+
+  # Check SSE router first
+  if [ -f "$HOME/.claude.json" ] && command -v jq >/dev/null 2>&1; then
+    tg_type=$(jq -r '.mcpServers.telegram.type // ""' "$HOME/.claude.json" 2>/dev/null)
+    if [ "$tg_type" = "sse" ]; then
+      tg_url=$(jq -r '.mcpServers.telegram.url // ""' "$HOME/.claude.json" 2>/dev/null)
+      http_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 "$tg_url" 2>/dev/null || echo "000")
+      if [ "$http_code" = "200" ]; then
+        TELEGRAM_STATUS="configured"
+        TELEGRAM_SOURCE="sse_router"
+        TELEGRAM_KEYS_FOUND=4
+      fi
+    fi
+  fi
+
+  # Check user-config.json if not already found via SSE
+  if [ "$TELEGRAM_STATUS" = "unconfigured" ] && [ -f "$USER_CONFIG_FILE" ] && command -v jq >/dev/null 2>&1; then
+    tg_api_id=$(jq -r '.telegram_api_id // ""' "$USER_CONFIG_FILE" 2>/dev/null)
+    tg_api_hash=$(jq -r '.telegram_api_hash // ""' "$USER_CONFIG_FILE" 2>/dev/null)
+    tg_phone=$(jq -r '.telegram_phone // ""' "$USER_CONFIG_FILE" 2>/dev/null)
+    tg_session=$(jq -r '.telegram_session // ""' "$USER_CONFIG_FILE" 2>/dev/null)
+    count=0
+    [ -n "$tg_api_id" ]   && count=$((count+1))
+    [ -n "$tg_api_hash" ] && count=$((count+1))
+    [ -n "$tg_phone" ]    && count=$((count+1))
+    [ -n "$tg_session" ]  && count=$((count+1))
+    TELEGRAM_KEYS_FOUND=$count
+    if [ "$count" -eq 4 ]; then
+      TELEGRAM_STATUS="configured"
+      TELEGRAM_SOURCE="user_config"
+    elif [ "$count" -gt 0 ]; then
+      TELEGRAM_STATUS="partial"
+      TELEGRAM_SOURCE="user_config"
+    fi
+  fi
+fi
+
+cat <<EOF
+{
+  "host": $HOST_JSON,
+  "platform": "$PLATFORM",
+  "shell": "$SHELL_NAME",
+  "profile_file": "$PROFILE_FILE",
+  "plugin_root": "$SCRIPT_DIR",
+  "preflight_cache": $USE_CACHE,
+  "tools": {
+    "jq": $(tool_status jq),
+    "git": $(tool_status git),
+    "gh": $(tool_status gh),
+    "aws": $(tool_status aws),
+    "node": $(tool_status node),
+    "brew": $(tool_status brew),
+    "doppler": $(tool_status doppler),
+    "wacli": $(tool_status wacli),
+    "gog": $(tool_status gog),
+    "sentry-cli": $(tool_status sentry-cli)
+  },
+  "env_vars": {
+    "CLAUDE_PLUGIN_ROOT": $(has_env CLAUDE_PLUGIN_ROOT),
+    "TELEGRAM_BOT_TOKEN": $(has_env TELEGRAM_BOT_TOKEN),
+    "TELEGRAM_OWNER_ID": $(has_env TELEGRAM_OWNER_ID),
+    "AWS_PROFILE": $(has_env AWS_PROFILE),
+    "GH_TOKEN": $(has_env GH_TOKEN)
+  },
+  "mcp_configured": $MCP_JSON,
+  "channels": {
+    "slack": {
+      "status": "$SLACK_STATUS",
+      "source": "$SLACK_SOURCE"
+    },
+    "telegram": {
+      "status": "$TELEGRAM_STATUS",
+      "source": "$TELEGRAM_SOURCE",
+      "keys_found": $TELEGRAM_KEYS_FOUND
+    }
+  },
+  "registry": {
+    "exists": $([ -f "$REGISTRY" ] && echo true || echo false),
+    "project_count": $PROJECT_COUNT,
+    "path": "$REGISTRY"
+  },
+  "preferences": {
+    "exists": $([ -f "$PREFS" ] && echo true || echo false),
+    "path": "$PREFS"
+  }
+}
+EOF

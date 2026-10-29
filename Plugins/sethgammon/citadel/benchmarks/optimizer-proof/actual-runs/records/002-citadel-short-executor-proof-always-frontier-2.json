@@ -1,0 +1,68 @@
+{
+  "schema": 1,
+  "evidence_kind": "actual-run",
+  "scenario_set_id": "optimizer-scenarios-sha256:602e496906f3a293203750602234ba88a55a86b9e4f54f32239264098dcebe5b",
+  "metric_set_id": "optimizer-metrics-sha256:bedffbda2b18d725610b0f294a8273ef908237fd957bf9e51a5af4885b123e4f",
+  "scenario_id": "citadel-short-executor-proof",
+  "category": "short_control",
+  "holdout": true,
+  "policy_id": "always-frontier",
+  "repetition": 2,
+  "decision_id": "sha256:cdea674c7c53af57f274599b59a8152ae15bf784d7a5b3fc574f486798345924",
+  "selected_profile_id": "claude-frontier",
+  "observed_profile_id": "claude-frontier",
+  "requested_model": "claude-opus-5",
+  "observed_model": "claude-opus-5",
+  "model_proof_status": "passed",
+  "started_at": "2026-07-30T21:02:37.323Z",
+  "duration_ms": 158901,
+  "outcome": "passed",
+  "verified": true,
+  "attempts": 1,
+  "human_interventions": 0,
+  "topology": "single",
+  "cost": {
+    "status": "known",
+    "amount_usd": 0.56702,
+    "provenance": "tool_reported",
+    "source": "citadel_optimizer_runner",
+    "source_ref": "summed_attempts:1",
+    "pricing_snapshot_digest": null,
+    "components": [
+      {
+        "kind": "model",
+        "amount_usd": 0.5670204999999999,
+        "source": "attempt_1:claude total_cost_usd"
+      }
+    ]
+  },
+  "artifact_paths": [
+    "scripts/test-executor-profiles.js"
+  ],
+  "verification_receipts": [
+    {
+      "attempt": 1,
+      "profile_id": "claude-frontier",
+      "status": "passed",
+      "exit_code": 0,
+      "timed_out": false,
+      "output_digest": "sha256:cfbcb5eb561d7757d10e054de15d8c886ab07285c428bc508c3dfec194eea343",
+      "output_excerpt": "[stdout]\nExecutor profiles passed: strict profiles, canonical digests, literal invocations, bound receipts, and honest model proof.\n\n[stderr]\n",
+      "output_truncated": false,
+      "patch_exit_code": 0,
+      "patch_digest": "sha256:08f7352c7273f49763501e3a326ce6cdd71ce9e1246f5e21797458237c4df5b9",
+      "patch_excerpt": "diff --git a/scripts/test-executor-profiles.js b/scripts/test-executor-profiles.js\nindex 3178834..3dcdad0 100644\n--- a/scripts/test-executor-profiles.js\n+++ b/scripts/test-executor-profiles.js\n@@ -185,4 +185,54 @@ for (const forbidden of ['signature', 'private', 'raw_output', 'env', 'command',\n }\n assert.equal(replay.model_status, 'unknown');\n \n+// Regression: an executor profile whose observed-model telemetry is missing stays\n+// unknown at every layer. Neither a trusted observation, a verified receipt, nor a\n+// profile that pins no model may promote an absent observation into a match.\n+const modelBlind = [\n+  undefined,\n+  {},\n+  { trusted: true },\n+  { model: '', trusted: true },\n+  { model: null, trusted: true },\n+  { model: 42, trusted: true },\n+];\n+const unpinned = legacy[0];\n+for (const observation of modelBlind) {\n+  for (const profile of [local, unpinned]) {\n+    const label = `${profile.profile_id} / ${JSON.stringify(observation) || 'undefined'}`;\n+    const missing = profiles.evaluateModelProof(profile, observation);\n+    assert.equal(missing.status, 'unknown', label);\n+    assert.equal(missing.observed_model, null, label);\n+    assert.equal(missing.reason_code, 'MODEL_OBSERVATION_MISSING', label);\n+  }\n+}\n+\n+const modelBlindTelemetry = Object.freeze({\n+  trusted: true,\n+  cost: Object.freeze({ amount: 0.5, unit: 'usd', source: 'adapter' }),\n+  duration_ms: 1200,\n+  tokens: 4096,\n+});\n+const verification = profiles.verifyForkReceiptWrapper(wrapper, { publicKey, expected: wrapperInput });\n+assert.equal(verification.status, 'verified');\n+const blindState = profiles.missionControlExecutorState({\n+  profile: local, observation: modelBlindTelemetry, wrapper, verification,\n+});\n+assert.equal(blindState.receipt_status, 'verified');\n+assert.equal(blindState.cost_status, 'known');\n+assert.equal(blindState.duration_status, 'known');\n+assert.equal(blindState.tokens_status, 'known');\n+assert.equal(blindState.requested_model, local.model);\n+assert.equal(blindState.observed_model, null);\n+assert.equal(blindState.model_status, 'unknown');\n+assert.equal(blindState.model_reason_code, 'MODEL_OBSERVATION_MISSING');\n+\n+const blindReplay = profiles.publicExecutorReplay({\n+  profile: local, observation: modelBlindTelemetry, wrapper, verification,\n+});\n+assert.equal(blindReplay.receipt_status, 'verified');\n+assert.equal(blindReplay.observed_model, null);\n+assert.equal(blindReplay.model_status, 'unknown');\n+assert.equal(blindReplay.model_reason_code, 'MODEL_OBSERVATION_MISSING');\n+\n process.stdout.write('Executor profiles passed: strict profiles, canonical digests, literal invocations, bound receipts, and honest model proof.\\n');\n",
+      "patch_truncated": false,
+      "changed_paths": [
+        "scripts/test-executor-profiles.js"
+      ]
+    }
+  ],
+  "receipt_status": "verified",
+  "adversarial_result": null,
+  "failure_code": null,
+  "attestation": {
+    "algorithm": "ed25519",
+    "signature_base64": "rMH6kPu/lxFHvlIsFFKrEFI4GLM/mW1PN0ZOKH0hicalUpIgkgiVPzXfV+YxrGE4Ddj1FbiReSMdyno0M5IECw=="
+  }
+}

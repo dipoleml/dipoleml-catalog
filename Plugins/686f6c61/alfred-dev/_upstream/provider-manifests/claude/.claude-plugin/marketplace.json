@@ -1,0 +1,20 @@
+{
+  "name": "alfred-dev",
+  "description": "Marketplace no oficial de Alfred Dev para Claude Code.",
+  "owner": {
+    "name": "686f6c61"
+  },
+  "plugins": [
+    {
+      "name": "alfred-dev",
+      "displayName": "Alfred Dev",
+      "description": "Plugin de ingeniería de software: 10 agentes, 11 skills planas, memoria persistente y flujos con quality gates.",
+      "source": "./",
+      "author": {
+        "name": "686f6c61"
+      },
+      "category": "development",
+      "homepage": "https://alfred-dev.com/"
+    }
+  ]
+}

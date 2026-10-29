@@ -1,0 +1,16 @@
+{
+  "name": "okf-skills",
+  "displayName": "Okf Skills",
+  "version": "0.12.0",
+  "description": "Author, maintain, backfill, validate, visualize and serve (MCP) Open Knowledge Format (OKF) bundles: portable markdown knowledge for humans and agents.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Scaccogatto"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/scaccogatto/okf-skills",
+  "repository": "https://github.com/scaccogatto/okf-skills",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

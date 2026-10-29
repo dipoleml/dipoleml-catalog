@@ -1,0 +1,16 @@
+{
+  "name": "motiscope",
+  "displayName": "Motiscope",
+  "version": "1.0.0",
+  "description": "Recreate any web animation from a screen recording. Drop a video of an animation you like, motiscope measures its timing and curates keyframes, and your agent rebuilds it as GSAP, CSS, Framer Motion, or Lottie code. Works in DipoleML, Codex, and Cursor.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Kumarsashank"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/KumarSashank/motiscope",
+  "repository": "https://github.com/KumarSashank/motiscope",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,175 @@
+{
+  "schema": 1,
+  "cell_id": "006-bug-zero-concurrency--citadel-calibrated-support-route",
+  "order": 6,
+  "scenario_id": "bug-zero-concurrency",
+  "task_class": "bug-fix",
+  "risk": "moderate",
+  "policy_id": "citadel-calibrated-support-route",
+  "repetition": 1,
+  "route": {
+    "initial_tier": "local",
+    "escalation_tier": "cloud",
+    "reason_code": "CALIBRATED_SUPPORTED_LOCAL_THEN_VERIFY"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "local",
+      "started_at": "2026-08-02T01:10:10.798Z",
+      "duration_ms": 5462,
+      "output_text": "{\n  \"files\": {\n    \"src/concurrency.js\": \"'use strict';\\nfunction effectiveConcurrency(value){return value===0?value:value||4;}\\nmodule.exports={effectiveConcurrency};\"\n  }\n}",
+      "output_digest": "sha256:7b033466e65828633f41f4a3a7594be43bb07ad3749b595fc535245f6de3c4b3",
+      "verification": {
+        "status": "failed",
+        "code": "REPOSITORY_VERIFIER_FAILED",
+        "changed_paths": [
+          "src/concurrency.js"
+        ],
+        "applied_file_digests": {
+          "src/concurrency.js": "sha256:f2b40a0bfd67d8c0e0d6527ec62fa5f37bd182155b44ecdee08b8cfadfb51d5d"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 1,
+          "signal": null,
+          "stdout": "",
+          "stderr": "node:assert:95\r\n  throw new AssertionError(obj);\r\n  ^\r\n\r\nAssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\r\n\r\n4 !== false\r\n\r\n    at Object.<anonymous> (<ISOLATED_WORKSPACE>\\verifier.js:3:54)\r\n    at Module._compile (node:internal/modules/cjs/loader:1730:14)\r\n    at Object..js (node:internal/modules/cjs/loader:1895:10)\r\n    at Module.load (node:internal/modules/cjs/loader:1465:32)\r\n    at Function._load (node:internal/modules/cjs/loader:1282:12)\r\n    at TracingChannel.traceSync (node:diagnostics_channel:322:14)\r\n    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)\r\n    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:171:5)\r\n    at node:internal/main/run_main_module:36:49 {\r\n  generatedMessage: true,\r\n  code: 'ERR_ASSERTION',\r\n  actual: 4,\r\n  expected: false,\r\n  operator: 'strictEqual'\r\n}\r\n\r\nNode.js v22.17.1\r\n",
+          "error": null
+        },
+        "patch_digest": "sha256:7f15b38cbd3f8ed38ba213afac85a347f176c7fe0b8f1494f268678fa44c3781"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "ollama-chat",
+        "requested_model": "qwen2.5-coder:3b",
+        "canonical_model": "qwen2.5-coder:3b",
+        "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+        "response_digest": "sha256:44b56957ca7344af516f09b2342c6a93a09a793b936901b49d82742863f6d238",
+        "error": null
+      },
+      "usage": {
+        "input_tokens": 180,
+        "output_tokens": 47,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0
+      },
+      "economics": {
+        "comparison_cost": {
+          "status": "derived-comparison",
+          "total_usd": 0.000034125,
+          "source": "measured_gpu_energy_plus_frozen_residual_amortization"
+        },
+        "provider_reported_equivalent_cost": {
+          "status": "known",
+          "amount_usd": 0,
+          "source": "self_hosted_ollama"
+        },
+        "local_gpu_energy": {
+          "status": "measured",
+          "energy_kwh": 0.000094762,
+          "samples": 11,
+          "average_watts": 62.457273
+        },
+        "actual_subscription_cash": {
+          "status": "not-applicable",
+          "amount_usd": 0
+        }
+      }
+    },
+    {
+      "attempt": 2,
+      "tier": "cloud",
+      "started_at": "2026-08-02T01:10:16.474Z",
+      "duration_ms": 3972,
+      "output_text": "{\"files\":{\"src/concurrency.js\":\"'use strict';\\nfunction effectiveConcurrency(value){return value===null||value===undefined?4:value;}\\nmodule.exports={effectiveConcurrency};\\n\"}}",
+      "output_digest": "sha256:92bd5a62d28004b59cb406cafdbf1f5cbc96a750be7987cc3fc987bf465cbf13",
+      "verification": {
+        "status": "passed",
+        "code": null,
+        "changed_paths": [
+          "src/concurrency.js"
+        ],
+        "applied_file_digests": {
+          "src/concurrency.js": "sha256:e9e31d1487aba5153744d2c78a96f73c040fa793665234501a14eecd581c595f"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 0,
+          "signal": null,
+          "stdout": "",
+          "stderr": "",
+          "error": null
+        },
+        "patch_digest": "sha256:a77428fc9e03044ba0b2438d99786edbbd91ecfd6f7f3d64c0f25683797af94c"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "claude-code-print",
+        "requested_model": "sonnet",
+        "canonical_model": "claude-sonnet-5",
+        "cli_version": "2.1.219",
+        "response_digest": "sha256:7de933b7581f61a48add541dad0f0880f0597d6eb014c1dd6ca32ecd47194dfc",
+        "exit_status": 0,
+        "terminal_reason": "completed",
+        "error": null
+      },
+      "usage": {
+        "input_tokens": 492,
+        "output_tokens": 80,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0
+      },
+      "economics": {
+        "comparison_cost": {
+          "status": "provider-reported-equivalent",
+          "total_usd": 0.002676,
+          "source": "claude_code_total_cost_usd"
+        },
+        "provider_reported_equivalent_cost": {
+          "status": "provider-reported-equivalent",
+          "amount_usd": 0.002676,
+          "source": "claude_code_total_cost_usd"
+        },
+        "local_gpu_energy": {
+          "status": "not-applicable",
+          "energy_kwh": 0,
+          "samples": 0,
+          "average_watts": null
+        },
+        "actual_subscription_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "pro_subscription_cost_not_allocated_per_request"
+        }
+      }
+    }
+  ],
+  "status": "passed",
+  "final_verification": {
+    "status": "passed",
+    "code": null,
+    "changed_paths": [
+      "src/concurrency.js"
+    ],
+    "applied_file_digests": {
+      "src/concurrency.js": "sha256:e9e31d1487aba5153744d2c78a96f73c040fa793665234501a14eecd581c595f"
+    },
+    "verifier": {
+      "command": "node verifier.js",
+      "status": 0,
+      "signal": null,
+      "stdout": "",
+      "stderr": "",
+      "error": null
+    },
+    "patch_digest": "sha256:a77428fc9e03044ba0b2438d99786edbbd91ecfd6f7f3d64c0f25683797af94c"
+  },
+  "previous_cell_digest": "sha256:5f94f5042e89a9f70c110874b4d6ba4e1f054689591f4aa605be4001004b7dc0",
+  "receipt_digest": "sha256:a5293df7412cc88e8bb56cf932fb500f7458d23371a9d2ad60d5e8296f095654",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:25c43d7fa25a8068c60c68b83e49df78cd440c2367c738365a93394d8395f799",
+    "signature": "TZKV6JF6obc0CuztegFKuv2tldlaBjiF0IDytHNWQkejSRC+2ilD4P1iHCgEYtaoc09kSZw8hNM8haBWs6wDBw=="
+  }
+}

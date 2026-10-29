@@ -1,0 +1,105 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.anthropic.github",
+  "type": "plugin",
+  "name": "GitHub",
+  "slug": "github",
+  "vendor": "anthropic",
+  "description": "Official, Anthropic-managed directory of high quality DipoleML Plugins.",
+  "version": "0.0.0",
+  "homepage": "https://github.com/anthropics/claude-plugins-official",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "skills"
+  ],
+  "tags": [
+    "claude-code",
+    "mcp",
+    "skills"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "anthropic",
+    "brandName": "anthropic",
+    "source": "https://cdn.simpleicons.org/anthropic",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:12:13Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "anthropics/claude-plugins-official",
+    "url": "https://github.com/anthropics/claude-plugins-official",
+    "commit": "f8c5e7a1dcb71b10cb74586224b5401f3de5db28",
+    "path": "external_plugins/github",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 45130,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:48:19Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "GitHub | Official, Anthropic-managed directory of high quality Claude Code Plugins.",
+        "after": "GitHub | Official, Anthropic-managed directory of high quality DipoleML Plugins.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Official GitHub MCP server for repository management. Create issues, manage pull requests, review code, search repositories, and interact with GitHub's full API directly from Claude Code.",
+        "after": "Official GitHub MCP server for repository management. Create issues, manage pull requests, review code, search repositories, and interact with GitHub's full API directly from DipoleML.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "asana",
+  "displayName": "Asana",
+  "version": "0.0.0",
+  "description": "Asana project management integration. Connects DipoleML to Asana's V2 MCP server (https://mcp.asana.com/v2/mcp) to create and manage tasks, search projects, update assignments, and track progress. Requires a one-time setup of your own Asana OAuth app — run /asana-setup after installing.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Anthropic"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/anthropics/claude-plugins-official",
+  "repository": "https://github.com/anthropics/claude-plugins-official",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

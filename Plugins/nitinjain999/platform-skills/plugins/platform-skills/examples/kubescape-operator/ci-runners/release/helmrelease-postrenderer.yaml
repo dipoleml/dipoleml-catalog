@@ -1,0 +1,20 @@
+# Appends ci-runners to the NotIn list of the chart's default binding, so the
+# anomaly rules stop there and only ../runtime-rule-binding.yaml applies. The
+# default binding uses NotIn <excludeNamespaces> when includeNamespaces is empty;
+# with includeNamespaces set it uses In, and this patch would be wrong.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: kubescape
+  namespace: kubescape
+spec:
+  postRenderers:
+    - kustomize:
+        patches:
+          - target:
+              kind: RuntimeRuleAlertBinding
+              name: all-rules-all-pods
+            patch: |
+              - op: add
+                path: /spec/namespaceSelector/matchExpressions/0/values/-
+                value: ci-runners

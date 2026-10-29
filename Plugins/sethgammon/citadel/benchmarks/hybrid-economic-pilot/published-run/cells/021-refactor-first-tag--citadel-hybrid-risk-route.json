@@ -1,0 +1,175 @@
+{
+  "schema": 1,
+  "cell_id": "021-refactor-first-tag--citadel-hybrid-risk-route",
+  "order": 21,
+  "scenario_id": "refactor-first-tag",
+  "task_class": "behavior-preserving-refactor",
+  "risk": "moderate",
+  "policy_id": "citadel-hybrid-risk-route",
+  "repetition": 1,
+  "route": {
+    "initial_tier": "local",
+    "escalation_tier": "cloud",
+    "reason_code": "FROZEN_BOUNDED_LOCAL_THEN_VERIFY"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "local",
+      "started_at": "2026-08-02T00:57:56.530Z",
+      "duration_ms": 6305,
+      "output_text": "{\n  \"files\": {\n    \"src/tags.js\": \"'use strict';\\nfunction uniqueTags(tags) {\\n  return [...new Set(tags.map(tag => tag.toLowerCase()))].sort();\\n}\\nmodule.exports = { uniqueTags };\"\n  }\n}",
+      "output_digest": "sha256:aa0d342ced4dd61acff47182f31c2b1457e19cd90c19075adbd622373bfa4324",
+      "verification": {
+        "status": "failed",
+        "code": "REPOSITORY_VERIFIER_FAILED",
+        "changed_paths": [
+          "src/tags.js"
+        ],
+        "applied_file_digests": {
+          "src/tags.js": "sha256:a82fa68b8547e866bba24a0763c6f82eb5ec177e0542f764e218bc9add924a55"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 1,
+          "signal": null,
+          "stdout": "",
+          "stderr": "node:assert:95\r\n  throw new AssertionError(obj);\r\n  ^\r\n\r\nAssertionError [ERR_ASSERTION]: Expected values to be strictly deep-equal:\r\n+ actual - expected\r\n\r\n  [\r\n+   'alpha',\r\n+   'beta',\r\n+   'gamma'\r\n-   'Alpha',\r\n-   'BETA',\r\n-   'Gamma'\r\n  ]\r\n\r\n    at Object.<anonymous> (<ISOLATED_WORKSPACE>\\verifier.js:5:8)\r\n    at Module._compile (node:internal/modules/cjs/loader:1730:14)\r\n    at Object..js (node:internal/modules/cjs/loader:1895:10)\r\n    at Module.load (node:internal/modules/cjs/loader:1465:32)\r\n    at Function._load (node:internal/modules/cjs/loader:1282:12)\r\n    at TracingChannel.traceSync (node:diagnostics_channel:322:14)\r\n    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)\r\n    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:171:5)\r\n    at node:internal/main/run_main_module:36:49 {\r\n  generatedMessage: true,\r\n  code: 'ERR_ASSERTION',\r\n  actual: [ 'alpha', 'beta', 'gamma' ],\r\n  expected: [ 'Alpha', 'BETA', 'Gamma' ],\r\n  operator: 'deepStrictEqual'\r\n}\r\n\r\nNode.js v22.17.1\r\n",
+          "error": null
+        },
+        "patch_digest": "sha256:5a51777abb5ce38d7f86a6a4db77c0b0a6df8e07ab4f85f246ba3c9a31b9a575"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "ollama-chat",
+        "requested_model": "qwen2.5-coder:3b",
+        "canonical_model": "qwen2.5-coder:3b",
+        "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+        "response_digest": "sha256:fb98fd8178dd20cf4baf9aacbfbc5231f38e3a18ff39a95958973987c9c7f9ab",
+        "error": null
+      },
+      "usage": {
+        "input_tokens": 177,
+        "output_tokens": 56,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0
+      },
+      "economics": {
+        "comparison_cost": {
+          "status": "derived-comparison",
+          "total_usd": 0.000039021,
+          "source": "measured_gpu_energy_plus_frozen_residual_amortization"
+        },
+        "provider_reported_equivalent_cost": {
+          "status": "known",
+          "amount_usd": 0,
+          "source": "self_hosted_ollama"
+        },
+        "local_gpu_energy": {
+          "status": "measured",
+          "energy_kwh": 0.000107537,
+          "samples": 13,
+          "average_watts": 61.400769
+        },
+        "actual_subscription_cash": {
+          "status": "not-applicable",
+          "amount_usd": 0
+        }
+      }
+    },
+    {
+      "attempt": 2,
+      "tier": "cloud",
+      "started_at": "2026-08-02T00:58:03.058Z",
+      "duration_ms": 6173,
+      "output_text": "{\"files\":{\"src/tags.js\":\"'use strict';\\nfunction uniqueTags(tags) {\\n  const seen = new Set();\\n  const result = [];\\n  for (const tag of tags) {\\n    const key = String(tag).toLowerCase();\\n    if (!seen.has(key)) {\\n      seen.add(key);\\n      result.push(tag);\\n    }\\n  }\\n  return result;\\n}\\nmodule.exports = { uniqueTags };\\n\"}}",
+      "output_digest": "sha256:994159e2ee0e1ca1604f168c754fdea0820b5871dfe325ff335f3ae20b37154f",
+      "verification": {
+        "status": "passed",
+        "code": null,
+        "changed_paths": [
+          "src/tags.js"
+        ],
+        "applied_file_digests": {
+          "src/tags.js": "sha256:cbf2d934144919f7672afe888c33c4c7a1aef67111cad05185da593c318cad01"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 0,
+          "signal": null,
+          "stdout": "",
+          "stderr": "",
+          "error": null
+        },
+        "patch_digest": "sha256:9d8e159e4a03372a79033b1c643f9d65ca74b0426394383c778a639b9be97e1e"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "claude-code-print",
+        "requested_model": "sonnet",
+        "canonical_model": "claude-sonnet-5",
+        "cli_version": "2.1.219",
+        "response_digest": "sha256:ff44ddcd979468dac22823bc1aea3834d0604e76a6546a5320eabfc43a3bcd9f",
+        "exit_status": 0,
+        "terminal_reason": "completed",
+        "error": null
+      },
+      "usage": {
+        "input_tokens": 471,
+        "output_tokens": 161,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0
+      },
+      "economics": {
+        "comparison_cost": {
+          "status": "provider-reported-equivalent",
+          "total_usd": 0.004629,
+          "source": "claude_code_total_cost_usd"
+        },
+        "provider_reported_equivalent_cost": {
+          "status": "provider-reported-equivalent",
+          "amount_usd": 0.004629,
+          "source": "claude_code_total_cost_usd"
+        },
+        "local_gpu_energy": {
+          "status": "not-applicable",
+          "energy_kwh": 0,
+          "samples": 0,
+          "average_watts": null
+        },
+        "actual_subscription_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "pro_subscription_cost_not_allocated_per_request"
+        }
+      }
+    }
+  ],
+  "status": "passed",
+  "final_verification": {
+    "status": "passed",
+    "code": null,
+    "changed_paths": [
+      "src/tags.js"
+    ],
+    "applied_file_digests": {
+      "src/tags.js": "sha256:cbf2d934144919f7672afe888c33c4c7a1aef67111cad05185da593c318cad01"
+    },
+    "verifier": {
+      "command": "node verifier.js",
+      "status": 0,
+      "signal": null,
+      "stdout": "",
+      "stderr": "",
+      "error": null
+    },
+    "patch_digest": "sha256:9d8e159e4a03372a79033b1c643f9d65ca74b0426394383c778a639b9be97e1e"
+  },
+  "previous_cell_digest": "sha256:ee5b6857c6594c8156dcdca58844933ed00855d998c8e0c0136f30abdce42a62",
+  "receipt_digest": "sha256:2b58deca8e6e6f4ded65a71a3692ce2f8ebd514276c523b2be8c9824aad65f8c",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:7d6f4ed3a453e621da13995e5819b1a8c1ffa923787dd105b9172ea14b74f9ce",
+    "signature": "qB/p374kQLuoCDcEJYYFd1AlAaUETirvq/efPqE0z+U6krD3somy1anGeQKv/kIuhRNkXA/WilyUEsD99jIfCw=="
+  }
+}

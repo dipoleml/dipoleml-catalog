@@ -1,0 +1,4 @@
+interface:
+  display_name: "Detection Engineering"
+  short_description: "Sigma/YARA/KQL/SPL detections with tests and ATT&CK coverage"
+  default_prompt: "Use $detection-engineering to author, test, and tune durable behavior-based detections."

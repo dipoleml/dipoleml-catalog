@@ -1,0 +1,16 @@
+{
+  "name": "ai-psychiatry",
+  "displayName": "Ai Psychiatry",
+  "version": "0.7.0",
+  "description": "Semantic executive control for loopholes, underthinking, overthinking, evidence, recursion, context, memory, and reliable delivery.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Ihabkhaled"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/ihabkhaled/AI-Psychiatry",
+  "repository": "https://github.com/ihabkhaled/AI-Psychiatry",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

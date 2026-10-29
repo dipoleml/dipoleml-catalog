@@ -1,0 +1,16 @@
+{
+  "name": "gws-dipoleml-plugin",
+  "displayName": "Gws DipoleML Plugin",
+  "version": "0.16.0",
+  "description": "Google Workspace CLI — Drive, Gmail, Calendar, Sheets, Docs, Chat, Admin, and more",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Wadewarren"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/WadeWarren/gws-claude-plugin",
+  "repository": "https://github.com/WadeWarren/gws-claude-plugin",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

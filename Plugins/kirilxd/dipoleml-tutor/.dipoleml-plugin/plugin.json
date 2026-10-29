@@ -1,0 +1,16 @@
+{
+  "name": "dipoleml-tutor",
+  "displayName": "DipoleML Tutor",
+  "version": "1.0.0",
+  "description": "Interactive learning companion — creates personalized learning plans, quizzes with adaptive difficulty, and tracks progress across sessions",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Kirilxd"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/kirilxd/claude-tutor",
+  "repository": "https://github.com/kirilxd/claude-tutor",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

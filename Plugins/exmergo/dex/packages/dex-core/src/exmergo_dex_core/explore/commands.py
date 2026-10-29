@@ -1,0 +1,5260 @@
+"""Explore orchestration, in two layers.
+
+The lower layer is the run functions (``inventory``, ``profile``, ``map``, and so
+on): they take an :class:`~..engine.DexEngine` and plain arguments, drive the explore
+engine, and return a record from :mod:`.results`. They are what
+``DexEngine.profile()`` and friends call, so a library caller and the CLI execute
+exactly the same code.
+
+The upper layer is the ``cmd_*`` shims: argparse in, envelope out, nothing else.
+Keeping ``map``'s composition (it runs inventory, profile, and relationships
+together) down here rather than in ``cli.py`` is what keeps dispatch thin.
+
+``map``, ``profile``, and ``relationships`` all persist what they learned, and
+only to the exploration cache, so a scan is never paid for twice.
+"""
+
+from __future__ import annotations
+
+import argparse
+import contextlib
+import fnmatch
+import json
+import re
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
+from decimal import Decimal
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+import sqlglot
+from sqlglot import expressions as exp
+
+from .. import command_args, dbt_project
+from .. import envelope as env
+from ..adapters import get_dialect
+from ..adapters.base import Adapter, ObjectMeta, name_list
+
+# Aliased: `QueryResult` here is the explore record, and the adapter's
+# same-named row carrier is only a type hint on one shaping helper.
+from ..adapters.base import QueryResult as AdapterQueryResult
+from ..cache import (
+    CACHE_SCHEMA_VERSION,
+    ColumnProfile,
+    Dataset,
+    DatasetDeclaration,
+    DeclaredColumn,
+    DeclaredFilter,
+    DeclaredRows,
+    DexCache,
+    Relationship,
+    RelationshipKind,
+    mask_overridden,
+    match_identifier,
+    relation_verdict,
+)
+from ..config import (
+    DexConfig,
+    PIIOverride,
+    QueryLimits,
+    blob_override_paths,
+    pii_override_paths,
+)
+from ..engine_version import state_version_warning
+from ..errors import (
+    DexError,
+    PrerequisiteError,
+    RequestError,
+    WarehouseQueryError,
+)
+from ..guards.cost_guard import (
+    ConfirmationRequiredError,
+    CostGuardError,
+    OverCeilingError,
+)
+from ..guards.query_firewall import (
+    InspectedQuery,
+    QueryRefusedError,
+    assert_query_shape,
+    inspect_query,
+)
+from ..guards.sql_guard import referenced_relations, split_statements
+from ..guards.values_free_shape import assert_values_free_shape
+from ..progress import ProgressReporter
+from ..reserved_words import reserved_column_names
+from ..results import BudgetExhaustedError, ConfirmationRequest, to_envelope
+from ..semantic_catalog import (
+    EntityInfo,
+    SemanticCatalogView,
+    derive_entity_type,
+    entity_joins,
+)
+from ..storage import (
+    CacheUnreadableError,
+    Document,
+    ExploreStore,
+    MaintainStore,
+    readable_cache,
+)
+from ..values_free import (
+    ResultMode,
+    ValuesFreeCode,
+    ValuesFreeError,
+    error_code,
+    withheld_copy,
+    withhold_error,
+    withhold_values,
+)
+from . import cluster as cluster_mod
+from . import cumulative as cumulative_mod
+from . import diagram as diagram_mod
+from . import inventory as inventory_mod
+from . import profile as profile_mod
+from . import rank as rank_mod
+from . import relationships as rel_mod
+from .results import (
+    ClusterResult,
+    ConflictingRelationshipDeclaration,
+    DeclaredRelationshipConflict,
+    DiagramResult,
+    InventoryEntry,
+    InventoryResult,
+    MapResult,
+    ProfileResult,
+    QueryBatchResult,
+    QueryResult,
+    QueryStatementResult,
+    RankedObject,
+    RelationshipsResult,
+)
+from .summary import MAX_DECLARED_COLUMNS, summarize_map, summarize_skipped
+
+if TYPE_CHECKING:
+    from ..engine import DexEngine
+
+# Below this many objects, profile everything: enumeration is cheap and complete.
+# Above it, profile only the top-ranked unless --full is passed.
+_AUTO_PROFILE_ALL = 50
+
+
+class CacheRequiredError(PrerequisiteError):
+    """A command needs profiled objects and the exploration cache has none.
+
+    The message names the command that fills the gap rather than a filename,
+    because where the cache lives is the store's business: on the filesystem
+    backend it is a file, in a hosted deployment it is a row, and the fix
+    ("run `explore map` first") is the same either way.
+    """
+
+
+def _override_notes(datasets: list[Dataset]) -> list[str]:
+    cleared = sum(1 for d in datasets for c in d.columns if c.pii_overridden)
+    if not cleared:
+        return []
+    return [
+        f"{cleared} column(s) cleared by pii_overrides in .dex/config.yml "
+        "(recorded as overridden in the cache)"
+    ]
+
+
+def _override_mismatches(
+    datasets: list[Dataset], overrides: list[PIIOverride]
+) -> list[str]:
+    """Warn when an override entry can't possibly do anything: an exact entry
+    names a profiled table but no column of it, or a pattern entry's scope
+    matches profiled tables but none carries the named column. Almost
+    certainly a typo, and silence would read as the override working.
+
+    A pattern matching zero tables stays silent, same escape hatch as an exact
+    entry on a not-yet-profiled table: new entities landing later under the
+    same scope are the whole point of the pattern form."""
+
+    warnings = []
+    for entry in overrides:
+        if entry.column:
+            path = entry.column.strip().lower()
+            table, _, column = path.rpartition(".")
+            for dataset in datasets:
+                if dataset.identifier.lower() != table:
+                    continue
+                if not any(c.name.lower() == column for c in dataset.columns):
+                    warnings.append(
+                        f"pii_overrides entry '{path}' matches no column of "
+                        f"{dataset.identifier}"
+                    )
+                break
+        else:
+            column_name = entry.column_name.strip().lower()  # type: ignore[union-attr]
+            scope = entry.scope.strip().lower()  # type: ignore[union-attr]
+            matched = [
+                d for d in datasets if fnmatch.fnmatchcase(d.identifier.lower(), scope)
+            ]
+            if matched and not any(
+                c.name.lower() == column_name for d in matched for c in d.columns
+            ):
+                warnings.append(
+                    f"pii_overrides pattern entry (column_name='{entry.column_name}', "
+                    f"scope='{entry.scope}') matches no column named "
+                    f"'{entry.column_name}' in {len(matched)} matched dataset(s)"
+                )
+    return warnings
+
+
+def _profile_estimate(
+    adapter: Adapter, identifiers: list[str], *, include_blobs: set[str] | None = None
+) -> tuple[float, dict[str, float]]:
+    estimate = getattr(adapter, "profile_estimate", None)
+    if estimate is None:
+        return 0.0, {}
+    return estimate(identifiers, include_blobs=include_blobs or set())
+
+
+def _verify_estimate(
+    adapter: Adapter, relationships: list[Relationship]
+) -> tuple[float, int, int]:
+    """Free dry-run pricing of the overlap probes verify would run, plus the
+    candidate/object counts for the checkpoint payload; zero-cost on free
+    adapters or when nothing qualifies to probe.
+
+    Selects through `probe_candidates`, the same function `verify_relationships`
+    iterates, so the priced set and the run set are the same set by
+    construction rather than by two filters agreeing."""
+
+    candidates = rel_mod.probe_candidates(relationships)
+    objects = {r.from_dataset for r in candidates} | {r.to_dataset for r in candidates}
+    query_estimate = getattr(adapter, "query_estimate", None)
+    if query_estimate is None or not candidates:
+        return 0.0, len(candidates), len(objects)
+    total = sum(
+        query_estimate(sql)
+        for sql in rel_mod.probe_statements(candidates, adapter.dialect)
+    )
+    return total, len(candidates), len(objects)
+
+
+def _overlap_estimate(
+    adapter: Adapter, candidates: list[Relationship]
+) -> tuple[float, int, int]:
+    """Free dry-run pricing of the probes ``--infer-by-overlap`` would run
+    against ``candidates`` (already capped by :func:`rel_mod.overlap_sweep_candidates`),
+    plus the candidate/object counts for the checkpoint payload; zero-cost on
+    free adapters or when nothing qualifies to probe.
+
+    Mirrors :func:`_verify_estimate`'s shape; unlike that one, ``candidates``
+    is already the exact priced-and-run set (the cap already applied), so
+    there is no analogue of `probe_candidates` to select through here."""
+
+    objects = {r.from_dataset for r in candidates} | {r.to_dataset for r in candidates}
+    query_estimate = getattr(adapter, "query_estimate", None)
+    if query_estimate is None or not candidates:
+        return 0.0, len(candidates), len(objects)
+    total = sum(
+        query_estimate(sql)
+        for sql in rel_mod.overlap_sweep_statements(candidates, adapter.dialect)
+    )
+    return total, len(candidates), len(objects)
+
+
+def _cumulative_candidates(
+    datasets: list[Dataset],
+) -> tuple[list[tuple[Dataset, cumulative_mod.CumulativeCandidate]], list[str]]:
+    """Every dataset with an eligible entity/temporal/measure shape, paired
+    with the one candidate :func:`cumulative.find_candidate` chose for it, plus
+    the notes (skips, untested alternatives) each dataset contributed."""
+
+    candidates: list[tuple[Dataset, cumulative_mod.CumulativeCandidate]] = []
+    notes: list[str] = []
+    for dataset in datasets:
+        candidate, dataset_notes = cumulative_mod.find_candidate(dataset)
+        notes.extend(f"{dataset.identifier}: {note}" for note in dataset_notes)
+        if candidate is not None:
+            candidates.append((dataset, candidate))
+    return candidates, notes
+
+
+def _cumulative_estimate(
+    adapter: Adapter,
+    candidates: list[tuple[Dataset, cumulative_mod.CumulativeCandidate]],
+) -> tuple[float, int, int]:
+    """Free dry-run pricing of the window-function probes ``--check-cumulative``
+    would run, plus the candidate/object counts for the checkpoint payload;
+    zero-cost on free adapters or when nothing qualifies to probe.
+
+    Mirrors :func:`_verify_estimate`'s shape so the two opt-in probe phases
+    report cost the same way."""
+
+    objects = {dataset.identifier for dataset, _ in candidates}
+    query_estimate = getattr(adapter, "query_estimate", None)
+    if query_estimate is None or not candidates:
+        return 0.0, len(candidates), len(objects)
+    total = sum(
+        query_estimate(sql)
+        for sql in cumulative_mod.probe_statements(candidates, adapter.dialect)
+    )
+    return total, len(candidates), len(objects)
+
+
+def _reporter(total: int, label: str, noun: str) -> ProgressReporter:
+    """A stderr progress reporter for one long explore loop.
+
+    Constructed at the call site after the billed handshake's early return, so an
+    unconfirmed preflight never even builds one. Construction emits nothing (no
+    "starting..." line), so a 0/1-object run stays silent by the reporter's own
+    gating.
+    """
+
+    return ProgressReporter(total, label, noun)
+
+
+def _dev_schemas(config: DexConfig) -> frozenset[str]:
+    """Dev/replica namespaces declared per connector (where dbt dev builds write)."""
+    return frozenset(
+        name
+        for name in [
+            config.bigquery.dev_dataset if config.bigquery else None,
+            config.snowflake.dev_schema if config.snowflake else None,
+            config.databricks.dev_schema if config.databricks else None,
+            config.postgres.dev_schema if config.postgres else None,
+            config.redshift.dev_schema if config.redshift else None,
+            config.clickhouse.dev_database if config.clickhouse else None,
+            config.trino.dev_schema if config.trino else None,
+        ]
+        if name
+    )
+
+
+# A ranked call's default cap (#289): a full catalog dump sorted by score is
+# not a shortlist, and on a warehouse of thousands of objects the rank is the
+# one part a caller never reads (every real invocation observed piping this
+# through `head` is the evidence). In the 20-50 range the issue asked for;
+# `--limit` widens it and `--all` lifts it, both no-ops without `--rank`.
+_INVENTORY_RANK_DEFAULT_LIMIT = 30
+
+
+def inventory(
+    engine: DexEngine,
+    *,
+    rank: bool = False,
+    limit: int | None = None,
+    show_all: bool = False,
+    result_mode: ResultMode | None = None,
+) -> InventoryResult:
+    """Every object the connection can see, metadata only.
+
+    Free on every connector (catalog reads, not scans), so it never needs the
+    confirm handshake and is the cheapest way to find out what is out there.
+    ``rank`` orders by the same signals ``map`` uses, minus connectivity: there
+    is no relationship pass here, so only naming, size, and shape contribute.
+
+    ``limit``/``show_all`` only act on a ranked call: an unranked list carries
+    no order to cut a shortlist from, so it is returned whole either way, the
+    same as it always has been.
+    """
+
+    mode = engine.resolve_result_mode(result_mode)
+    adapter = engine._adapter("explore inventory")
+    metas = inventory_mod.inventory(adapter)
+    cost = command_args.preflight_cost(adapter)
+
+    notes: list[str] = []
+    elided = 0
+    if rank:
+        # Honor the same configured ranking_hints as `map`; without them, a
+        # ranked inventory would silently ignore the user's bias.
+        scores = rank_mod.rank(metas, None, engine.config.ranking_hints)
+        metas = sorted(metas, key=lambda m: scores.get(m.identifier, 0.0), reverse=True)
+        # Size only orders what reported a count (#717): on Trino no
+        # `information_schema` carries one, so every object ties on that signal
+        # and the order is the catalog's, which a note claiming a size order
+        # would describe wrongly.
+        counted = sum(1 for m in metas if m.row_count is not None)
+        if counted:
+            notes.append(
+                "ranked by size (row count), naming convention (fct/dim/stg-style "
+                "prefixes score higher, tmp/scratch-style lower), and shape (column "
+                "count); connectivity (how many objects it joins to) is not part of "
+                "this score, because inventory runs no relationship pass. `explore "
+                "map` ranks with connectivity included"
+            )
+        else:
+            notes.append(
+                "ranked by naming convention (fct/dim/stg-style prefixes score "
+                "higher, tmp/scratch-style lower) and shape (column count); size "
+                "(row count) contributed nothing, because no object reported a "
+                "count, and objects that tie keep the order the catalog returned. "
+                "Connectivity (how many objects it joins to) is not part of this "
+                "score, because inventory runs no relationship pass. `explore map` "
+                "ranks with connectivity included"
+            )
+        if counted and counted < len(metas):
+            notes.append(
+                f"{len(metas) - counted} of {len(metas)} object(s) reported no row "
+                "count, so size ranked only the rest"
+            )
+        if not show_all:
+            cap = limit if limit is not None else _INVENTORY_RANK_DEFAULT_LIMIT
+            elided = max(0, len(metas) - cap)
+            metas = metas[:cap]
+            if elided:
+                notes.append(
+                    f"{elided} more ranked object(s) are not shown: capped at "
+                    f"{cap}, kept by rank. Pass --limit to widen it, or --all "
+                    "for the complete ranking"
+                )
+    else:
+        scores = {}
+
+    return InventoryResult(
+        objects=[
+            InventoryEntry(
+                identifier=m.identifier,
+                object_type=m.object_type,
+                row_estimate=m.row_count,
+                column_count=m.column_count,
+                rank_score=scores.get(m.identifier) if rank else None,
+            )
+            for m in metas
+        ],
+        ranked=rank,
+        elided_object_count=elided,
+        notes=notes,
+        cost=cost,
+        result_mode=mode,
+    )
+
+
+def cmd_inventory(args: argparse.Namespace, engine: DexEngine) -> env.Envelope:
+    return to_envelope(
+        inventory(
+            engine,
+            rank=getattr(args, "rank", False),
+            limit=getattr(args, "limit", None),
+            show_all=getattr(args, "all", False),
+        )
+    )
+
+
+class _ObjectGap:
+    """What the exploration cache cannot yet say about the objects a command names.
+
+    ``to_profile`` are real warehouse objects the cache cannot adjudicate: never
+    profiled, inventoried without column detail, or profiled against a column
+    signature the warehouse has since moved away from. ``absent`` are names the
+    connection does not have at all, each paired with the reason the live listing
+    settled on. ``resolved`` maps every name as written to the identifier it
+    turned out to mean.
+
+    Empty on both counts is the ordinary case and means the caller can proceed
+    exactly as it did before any of this existed.
+    """
+
+    def __init__(
+        self,
+        to_profile: list[str],
+        absent: list[tuple[str, str]],
+        resolved: dict[str, str],
+    ) -> None:
+        self.to_profile = to_profile
+        self.absent = absent
+        self.resolved = resolved
+
+    def refusal(self) -> str:
+        """The message for names this connection does not have.
+
+        Separated by verdict because they are different problems with different
+        fixes: a namespace the connection cannot reach at all is a wiring mistake,
+        while a name absent from a namespace that *was* listed is a typo or a model
+        nobody built yet. Naming the exploration cache here would be the wrong fix
+        entirely, since no amount of profiling puts an absent object into it.
+        """
+
+        by_verdict = {
+            verdict: sorted({n for n, v in self.absent if v == verdict})
+            for verdict in ("foreign", "missing", "unlisted")
+        }
+        if by_verdict["foreign"]:
+            named = ", ".join(by_verdict["foreign"])
+            return (
+                f"'{named}' is in a namespace this connection does not reach; "
+                "point dex at the connection that carries it, or qualify the name "
+                "against the one you are connected to"
+            )
+        if by_verdict["missing"]:
+            named = ", ".join(by_verdict["missing"])
+            return (
+                f"'{named}' is not in this connection: its namespace was listed "
+                "and the relation was not in it. Check the name, or build it into "
+                "the target you are querying"
+            )
+        named = ", ".join(by_verdict["unlisted"])
+        return (
+            f"no object named '{named}' in this connection; check the name, build "
+            "it into the target you are querying, or qualify it if it lives "
+            "outside the scoped namespaces"
+        )
+
+
+def _object_gap(
+    adapter: Adapter, prior: DexCache | None, named: list[str]
+) -> _ObjectGap:
+    """Ask what would have to be profiled before a cache-resolved guard can run.
+
+    Free on every connector and it executes no SQL: object listing and per-object
+    column metadata are catalog reads everywhere, and on Databricks they come from
+    the REST catalog rather than the SQL warehouse, so this never wakes one.
+
+    The cache is a fast path and the *connection* is the authority. That ordering
+    is the whole point: an object built minutes ago is in the warehouse and cannot
+    be in a cache written before it existed, so concluding "no such object" from a
+    cache miss would refuse exactly the relations an agent most wants to probe
+    right after building them. The live listing is only consulted for what the
+    cache could not resolve, so the ordinary case never reaches it.
+
+    Deliberately *not* :func:`_split_fresh_stale`, which gates a profile the caller
+    asked for and therefore also asks how old it is and which connector wrote it.
+    The question here is narrower and it is the guard's question, not profiling's:
+    can this cache entry decide what the guard is about to decide? Two things say
+    no. An entry with no column detail cannot, and neither can one whose columns no
+    longer match the warehouse, since flags describing a shape the object has moved
+    away from are not flags for that object. Age says nothing about either, and
+    re-scanning on it would bill a probe for statistics nothing is about to read.
+
+    Anything unsettled is left alone rather than guessed at: a listing that cannot
+    be read, a metadata call that fails, an ambiguous name, and a name
+    :func:`~..cache.relation_verdict` has no opinion on all fall through to
+    whatever the guard would have said anyway. Nothing here invents a refusal, and
+    nothing here bills for a doubt.
+    """
+
+    resolved: dict[str, str] = {}
+    unresolved: list[str] = []
+    cached = {d.identifier: d for d in prior.datasets} if prior is not None else {}
+    for name in named:
+        matches = match_identifier(name, list(cached))
+        if len(matches) == 1:
+            resolved[name] = matches[0]
+        else:
+            unresolved.append(name)
+
+    absent: list[tuple[str, str]] = []
+    if unresolved:
+        try:
+            live = [meta.identifier for meta in adapter.list_objects()]
+        except Exception:
+            live = None
+        if live is not None:
+            for name in unresolved:
+                matches = match_identifier(name, live)
+                if len(matches) == 1:
+                    resolved[name] = matches[0]
+                elif not matches:
+                    # An unqualified name is one dex resolves by suffix across
+                    # everything it can see, so nothing matching means nothing it
+                    # can see matches, which is the answer `explore profile`
+                    # already gives for an unknown argument. A *qualified* name in
+                    # a namespace the listing never covered stays unadjudicated:
+                    # refusing it would answer a question dex never asked.
+                    verdict = relation_verdict(name, live)
+                    if verdict is None and "." not in name:
+                        verdict = "unlisted"
+                    if verdict is not None:
+                        absent.append((name, verdict))
+
+    to_profile: list[str] = []
+    for identifier in sorted(set(resolved.values())):
+        entry = cached.get(identifier)
+        if entry is None or not entry.columns:
+            to_profile.append(identifier)
+            continue
+        try:
+            _meta, columns = adapter.table_metadata(identifier)
+        except Exception:  # noqa: S112 -- an unreadable signature settles nothing
+            continue
+        if _column_signature(columns) != _column_signature(entry.columns):
+            to_profile.append(identifier)
+    return _ObjectGap(to_profile, absent, resolved)
+
+
+def _profile_into_cache(
+    store: ExploreStore,
+    adapter: Adapter,
+    config: DexConfig,
+    defs,
+    identifiers: list[str],
+    prior: DexCache | None,
+    now: datetime,
+    *,
+    withhold: bool = False,
+) -> tuple[list[Dataset], DexCache, str, str]:
+    """Scan the named objects and fold the profiles into the cache.
+
+    The billed half of profiling, shared by every command that profiles: the
+    deliberate one, and the two that profile on demand so a guard has flags to
+    read. Call it only after the cost handshake has admitted the work; it prices
+    nothing itself.
+
+    Returns the fresh profiles, the merged cache as written, its locator, and the
+    one sentence saying what the write did. The cache is saved before the caller
+    does anything else with it, because a scan the caller paid for must survive
+    whatever happens next, including a refusal.
+
+    Per-object checkpointing runs only on billed connectors: a free connector can
+    never exhaust a budget mid-scan and its re-runs cost nothing, so the extra
+    full-document writes would buy nothing.
+
+    ``withhold`` is values-free mode (#591): every profile has its values dropped
+    before anything is written, the per-object checkpoints included.
+    """
+
+    checkpoint = None
+    accumulated: list[Dataset] = []
+    if command_args.cost_gate(adapter) is not None:
+        checkpoint, accumulated = _profile_checkpointer(
+            store, prior, adapter.name, now, withhold=withhold
+        )
+    reporter = _reporter(len(identifiers), "profiled", "objects")
+    try:
+        profiled = profile_mod.profile(
+            adapter,
+            identifiers,
+            progress=reporter,
+            on_complete=checkpoint,
+            pii_overrides=pii_override_paths(config.pii_overrides),
+            include_blobs=blob_override_paths(config.blob_overrides),
+        )
+        reporter.done()
+    except OverCeilingError:
+        raise _budget_exhausted(store, adapter, accumulated, len(identifiers)) from None
+
+    _annotate_grain(
+        profiled,
+        defs,
+        high_null_fraction=config.profile_high_null_fraction,
+        dialect=adapter.dialect,
+    )
+    if withhold:
+        for dataset in profiled:
+            withhold_values(dataset)
+    cache, stats = _merge_profiles(prior, profiled, adapter.name, now)
+    locator = store.save_cache(cache, now=now)
+    note = _persist_note(stats, len(profiled), keeps_relationships=True)
+    return profiled, cache, locator, note
+
+
+def profile(
+    engine: DexEngine,
+    objects: list[str],
+    *,
+    refresh: bool = False,
+    use_project: bool = False,
+    check_cumulative: bool = False,
+    show_all_columns: bool = False,
+    result_mode: ResultMode | None = None,
+) -> ProfileResult:
+    """Profile the named objects, reusing fresh cached profiles where they exist.
+
+    Raises :class:`~..results.ConfirmationRequired` on a billed connector before
+    anything is scanned. ``refresh`` forces a re-scan of objects the cache would
+    otherwise serve; ``use_project`` folds the dbt project's declared joins,
+    grain, and metric lineage into the result. With ``check_cumulative``, every
+    profiled dataset with an eligible entity/temporal shape is probed for
+    measures that look like a running total or point-in-time snapshot; this
+    probe is priced only after profiling knows what to test, which is why it
+    can come back as ``pending_confirmation`` rather than raising.
+
+    ``show_all_columns`` answers ``--columns all`` (#288): the default
+    summarizes each dataset's payload to the columns carrying a finding (see
+    :meth:`~..cache.Dataset.columns_with_findings`), so the verdict a caller
+    asked for -- grain, keys, data quality -- is not the part a truncating
+    harness cuts off on a wide table.
+
+    In values-free mode (#591) every dataset returned has its column values
+    withheld, whether it was scanned now or served from the cache, and a scan
+    writes its profile to the cache without them.
+    """
+
+    mode = engine.resolve_result_mode(result_mode)
+    values_free = mode is ResultMode.VALUES_FREE
+    store = engine.store
+    config = engine.config
+    defs = _project_definitions(engine, use_project)
+    blob_paths = blob_override_paths(config.blob_overrides)
+    adapter = engine._adapter("explore profile")
+    # Capture pre-run cache state before any checkpoint write, so the success-path
+    # compose reads the pre-run cache rather than a checkpoint this run wrote.
+    now = datetime.now(UTC)
+    prior = readable_cache(store)
+
+    identifiers = _resolve_identifiers(adapter, objects)
+    connector = adapter.name
+    # Skip re-scanning a requested object whose cached profile is still fresh
+    # (same connector, schema unchanged, within the freshness window); only the
+    # stale remainder is estimated, confirmed, and profiled below. A profile
+    # written seconds earlier by `explore map` is served free, the same reuse
+    # `map` and `relationships` already honor.
+    stale, fresh_reused = _split_fresh_stale(
+        identifiers,
+        prior,
+        connector,
+        adapter,
+        timedelta(hours=config.profile_freshness_hours),
+        now,
+        refresh=refresh,
+        values_free=values_free,
+    )
+    estimate, per_table = _profile_estimate(adapter, stale, include_blobs=blob_paths)
+    handshake_notes = None
+    if fresh_reused:
+        handshake_notes = [
+            f"{len(fresh_reused)} object(s) excluded from this estimate as "
+            "fresh-cached (schema unchanged, profiled within the freshness "
+            "window); pass --refresh to re-profile them"
+        ]
+    # Nothing stale means nothing to price or confirm: skip the handshake and
+    # serve the cached profiles wholesale. The cache write below still happens,
+    # so a no-op profile refreshes provenance rather than looking like a failure.
+    if stale:
+        command_args.billed_handshake(
+            "explore profile",
+            adapter,
+            estimate,
+            per_table=per_table,
+            notes=handshake_notes,
+        )
+    # Persist what the scan already paid for: after profiling a table, `explore
+    # query` on that table must work without a second warehouse scan. Only the
+    # freshly profiled are merged; the reused already live in the cache untouched,
+    # and prior relationships are preserved because profile runs no inference pass.
+    profiled, cache, locator, persist_note = _profile_into_cache(
+        store, adapter, config, defs, stale, prior, now, withhold=values_free
+    )
+
+    # Freshly profiled plus fresh-cached: the full requested set, whether scanned
+    # this run or served from the cache. Only the freshly profiled needed
+    # annotation; the fresh-cached carry their keys and grain from the write that
+    # stored them.
+    datasets = profiled + list(fresh_reused.values())
+
+    notes = [persist_note]
+    notes.extend(_override_notes(datasets))
+    if fresh_reused:
+        window = config.profile_freshness_hours
+        notes.append(
+            f"reused {len(fresh_reused)} fresh cached profile(s) (schema "
+            f"unchanged, profiled within {window:g}h); pass --refresh to force "
+            "re-profiling"
+        )
+
+    # Cumulative-measure check: opt-in and priced only once profiling knows
+    # what to test, so it runs after the base profile is already saved and can
+    # come back pending rather than discarding it.
+    cumulative_pending: ConfirmationRequest | None = None
+    if check_cumulative:
+        candidates, candidate_notes = _cumulative_candidates(datasets)
+        notes.extend(candidate_notes)
+        if candidates:
+            probe_cost, candidate_count, object_count = _cumulative_estimate(
+                adapter, candidates
+            )
+            cumulative_pending = command_args.cumulative_handshake(
+                "explore profile",
+                adapter,
+                probe_cost,
+                candidate_count=candidate_count,
+                object_count=object_count,
+            )
+            if cumulative_pending is None:
+                # A fresh-cached dataset here is `_split_fresh_stale`'s deep
+                # copy, not the object `cache.datasets` carries forward, so a
+                # note appended only to `dataset` would show in this result
+                # but never reach the save below. Resolve the cache's own
+                # object by identifier and append there too, guarding against
+                # a double append on the freshly profiled path, where they are
+                # the same object.
+                cache_by_id = {d.identifier: d for d in cache.datasets}
+                measured = 0
+                try:
+                    for dataset, candidate in candidates:
+                        fractions = cumulative_mod.measure_fractions(
+                            adapter,
+                            dataset.identifier,
+                            candidate,
+                            timeout_seconds=config.query.timeout_seconds,
+                        )
+                        cache_entry = cache_by_id.get(dataset.identifier)
+                        for text in cumulative_mod.cumulative_measure_notes(
+                            candidate, fractions
+                        ):
+                            # Idempotent: re-running the check on a dataset a
+                            # prior run already flagged must not pile up the
+                            # same sentence again.
+                            if text not in dataset.data_quality:
+                                dataset.data_quality.append(text)
+                            if (
+                                cache_entry is not None
+                                and cache_entry is not dataset
+                                and text not in cache_entry.data_quality
+                            ):
+                                cache_entry.data_quality.append(text)
+                            notes.append(f"{dataset.identifier}: {text}")
+                        measured += 1
+                except OverCeilingError:
+                    notes.append(
+                        f"budget exhausted after checking {measured} of "
+                        f"{len(candidates)} candidate(s) for cumulative "
+                        "measures; checked results are saved; raise --budget "
+                        "and re-run to finish (a re-run re-profiles first)"
+                    )
+                finally:
+                    locator = store.save_cache(cache, now=now)
+            else:
+                notes.append(
+                    "cumulative-measure check saved unverified; the check "
+                    "awaits confirmation (see hint)"
+                )
+
+    if use_project:
+        datasets, declaration_notes = _apply_declarations(
+            datasets,
+            defs,
+            high_null_fraction=config.profile_high_null_fraction,
+            values_free=values_free,
+        )
+        notes.extend(declaration_notes)
+        if not show_all_columns:
+            notes.extend(_declared_column_cap_notes(datasets, "--columns all"))
+    if values_free:
+        # A fresh full entry was served as it is cached; the scanned ones are
+        # already withheld. Copies, so the cache document is not touched.
+        datasets = [withheld_copy(d) for d in datasets]
+    result = ProfileResult(
+        datasets=datasets,
+        profiled_count=len(profiled),
+        cache_hit_count=len(fresh_reused),
+        cache_path=locator,
+        updated_at=now.isoformat(),
+        show_all_columns=show_all_columns,
+        value_domain_cap=config.profile_value_domain_cap,
+        notes=notes,
+        warnings=[
+            *_prior_cache_warnings(prior),
+            *_override_mismatches(datasets, config.pii_overrides),
+        ],
+        pending_confirmation=cumulative_pending,
+        result_mode=mode,
+    )
+    return command_args.stamp_spend(result, adapter)
+
+
+def cmd_profile(args: argparse.Namespace, engine: DexEngine) -> env.Envelope:
+    return to_envelope(
+        profile(
+            engine,
+            args.objects,
+            refresh=getattr(args, "refresh", False),
+            show_all_columns=getattr(args, "columns", None) == "all",
+            use_project=getattr(args, "use_project", False),
+            check_cumulative=getattr(args, "check_cumulative", False),
+        )
+    )
+
+
+def relationships(
+    engine: DexEngine,
+    *,
+    verify: bool = False,
+    infer_by_overlap: bool = False,
+    refresh: bool = False,
+    use_project: bool = False,
+    use_hosted_semantic_layer: bool = False,
+    result_mode: ResultMode | None = None,
+) -> RelationshipsResult:
+    """Infer joins across every object in scope, optionally probing them.
+
+    Inference needs uniqueness signals, so this profiles the full inventory
+    first; on a metered connector ``map`` (top-ranked objects only) is usually
+    the cheaper way in. With ``verify``, candidate joins are probed for real
+    overlap, priced only after inference knows what the candidates are, which is
+    why that phase can come back as ``pending_confirmation`` rather than raising.
+    With ``infer_by_overlap``, key-shaped columns no name-based rule matched are
+    swept for measured value containment (issue #220), a second and
+    independent opt-in phase with the same priced-after-the-fact shape,
+    which runs after ``verify`` so at most one checkpoint is ever pending at
+    once.
+
+    In values-free mode the profiles it scans are written without their values;
+    the relationships it reports never carried any.
+    """
+
+    mode = engine.resolve_result_mode(result_mode)
+    values_free = mode is ResultMode.VALUES_FREE
+    store = engine.store
+    config = engine.config
+    defs = _project_definitions(engine, use_project)
+    catalog = _semantic_catalog(
+        engine, use_project, use_hosted_semantic_layer=use_hosted_semantic_layer
+    )
+
+    adapter = engine._adapter("explore relationships")
+    # Capture pre-run cache state before any checkpoint write, so the success-path
+    # compose reads the pre-run cache rather than a checkpoint this run wrote.
+    now = datetime.now(UTC)
+    prior = readable_cache(store)
+    accumulated: list[Dataset] = []
+    over_ceiling = False
+    verify_pending: ConfirmationRequest | None = None
+    verify_warning: str | None = None
+    overlap_pending: ConfirmationRequest | None = None
+    overlap_warning: str | None = None
+    warnings: list[str] = _prior_cache_warnings(prior)
+
+    # Relationship inference needs uniqueness signals, so profile every object
+    # first (free and local on DuckDB), then infer across the full set.
+    metas = inventory_mod.inventory(adapter)
+    connector = adapter.name
+    # See map()'s identical computation: tells carry-forward "out of this
+    # run's scope" apart from "gone from the warehouse" (issue #149).
+    observed_namespaces = {
+        m.identifier.rpartition(".")[0].lower() for m in metas if "." in m.identifier
+    }
+    # Skip re-scanning objects whose cached profile is still fresh (same
+    # connector, schema unchanged, within the freshness window); only the stale
+    # remainder is estimated, confirmed, and profiled below.
+    stale, fresh_reused = _split_fresh_stale(
+        [m.identifier for m in metas],
+        prior,
+        connector,
+        adapter,
+        timedelta(hours=config.profile_freshness_hours),
+        now,
+        refresh=refresh,
+        values_free=values_free,
+    )
+    blob_paths = blob_override_paths(config.blob_overrides)
+    estimate, per_table = _profile_estimate(adapter, stale, include_blobs=blob_paths)
+    handshake_notes = [
+        "relationship inference profiles every object; on a metered "
+        "connector `explore map` (top-ranked objects only) is usually the "
+        "cheaper way in"
+    ]
+    if verify:
+        handshake_notes.append(
+            "--verify overlap probes depend on what inference finds; they "
+            "are priced after profiling, and if their estimate exceeds "
+            "what remains of this budget a second confirmation checkpoint "
+            "appears before any probe runs"
+        )
+    if fresh_reused:
+        handshake_notes.append(
+            f"{len(fresh_reused)} object(s) excluded from this estimate as "
+            "fresh-cached (schema unchanged, profiled within the freshness "
+            "window); pass --refresh to re-profile them"
+        )
+    profiled: list[Dataset] = []
+    # Nothing stale means nothing to price or confirm: skip the handshake and
+    # the scan entirely, and reuse the cached profiles wholesale.
+    if stale:
+        command_args.billed_handshake(
+            "explore relationships",
+            adapter,
+            estimate,
+            per_table=per_table,
+            notes=handshake_notes,
+        )
+
+        # Billed-connector-gated per-object checkpointing (see profile).
+        checkpoint = None
+        if command_args.cost_gate(adapter) is not None:
+            checkpoint, accumulated = _profile_checkpointer(
+                store, prior, connector, now, withhold=values_free
+            )
+
+        profile_reporter = _reporter(len(stale), "profiled", "objects")
+        try:
+            profiled = profile_mod.profile(
+                adapter,
+                stale,
+                progress=profile_reporter,
+                on_complete=checkpoint,
+                pii_overrides=pii_override_paths(config.pii_overrides),
+                include_blobs=blob_paths,
+            )
+            profile_reporter.done()
+        except OverCeilingError:
+            over_ceiling = True
+
+    if over_ceiling:
+        raise _budget_exhausted(store, adapter, accumulated, len(stale))
+
+    # Freshly profiled plus fresh-cached: the full inventory, whether scanned
+    # this run or reused. Inference and merge fold by identifier over the union.
+    datasets = profiled + list(fresh_reused.values())
+    suppressed: list[rel_mod.SuppressedMatch] = []
+    affix_matches: list[rel_mod.AffixMatch] = []
+    inferred = rel_mod.infer_relationships(
+        datasets,
+        suppressed=suppressed,
+        affixes=config.entity_affixes,
+        affix_matches=affix_matches,
+    )
+
+    # Annotate before persisting so cached datasets carry candidate_keys and
+    # grain, the same shape a `map`-written cache has. Only the freshly profiled
+    # need it; the fresh-cached already carry theirs from the cache write.
+    _annotate_grain(
+        profiled,
+        defs,
+        high_null_fraction=config.profile_high_null_fraction,
+        dialect=adapter.dialect,
+    )
+
+    # Fold same-lineage duplicates before the merge, as `map` does, so the folded
+    # set flows into both the cache and the result. Relationships profiles the
+    # full inventory, so it is even more likely than map to pull a dev/replica
+    # schema into scope alongside its source.
+    inferred, folded_edges, mirrored_objects = rel_mod.fold_replica_relationships(
+        datasets, inferred, _dev_schemas(config)
+    )
+
+    identifiers = [d.identifier for d in datasets]
+    declared, declared_notes = rel_mod.declared_relationships(defs, identifiers)
+    declaration_edges, declaration_edge_notes = rel_mod.declaration_relationships(
+        defs, identifiers
+    )
+    declared, declaration_already_declared = _fold_semantic_edges(
+        declared, declaration_edges, adopt_declared_by=True
+    )
+    declared_notes.extend(declaration_edge_notes)
+    declared_notes.extend(
+        _declaration_join_notes(declaration_edges, declaration_already_declared)
+    )
+    native_edges, native_edge_notes = _native_semantic_edges(
+        engine,
+        use_project,
+        identifiers,
+        use_hosted_semantic_layer=use_hosted_semantic_layer,
+    )
+    declared, _native_already_declared = _fold_semantic_edges(declared, native_edges)
+    semantic_edges, semantic_edge_notes = _semantic_edges(catalog, identifiers)
+    declared, semantic_already_declared = _fold_semantic_edges(declared, semantic_edges)
+    relationship_conflicts = _declared_relationship_conflicts(declared)
+    rels, confirmed = _merge_relationships(declared, inferred)
+
+    # A prior overlap-derived edge (issue #220) is never rediscovered by
+    # plain inference, so unlike everything else here it must be carried
+    # forward unconditionally rather than only when out of scope; see
+    # `_carry_forward_overlap_edges`. Before --verify, so a re-confirmed edge
+    # is eligible for re-verification too, and before the sweep below, so it
+    # never re-probes (and re-pays for) a pair already confirmed.
+    rels, overlap_carried = _carry_forward_overlap_edges(
+        prior, connector, {d.identifier for d in datasets}, rels
+    )
+
+    # Verify the *merged* set, not the inferred one. Declared joins are probe
+    # candidates now (issue #163) and are only born at the merge above, so
+    # verifying earlier would price and measure a set that excludes exactly the
+    # joins a cooperative project cares most about. Merging first also means no
+    # measurement can be lost to the "declared wins over the same inferred edge"
+    # rule: at merge time nothing has been measured yet.
+    if verify:
+        probe_cost, candidates, objects = _verify_estimate(adapter, rels)
+        verify_pending = command_args.verify_handshake(
+            "explore relationships",
+            adapter,
+            probe_cost,
+            candidate_count=candidates,
+            object_count=objects,
+        )
+        if verify_pending is None:
+            probed = rel_mod.probe_candidates(rels)
+            verify_reporter = _reporter(len(probed), "verified", "joins")
+            try:
+                rel_mod.verify_relationships(
+                    adapter,
+                    rels,
+                    timeout_seconds=config.query.timeout_seconds,
+                    progress=verify_reporter,
+                )
+                verify_reporter.done()
+            except OverCeilingError:
+                # Estimate drift mid-loop; the relationship set itself is
+                # complete, so finish with a warning (see map).
+                done = sum(1 for r in probed if r.verified)
+                verify_warning = (
+                    f"budget exhausted after verifying {done} of "
+                    f"{len(probed)} candidate join(s); verified "
+                    "results are saved; raise --budget and re-run to "
+                    "finish verification"
+                )
+
+    # The overlap sweep (issue #220): key-shaped columns no name-based rule
+    # matched, probed for real value containment. Runs after --verify, on the
+    # same merged set (`rels` now also carries anything --verify measured),
+    # so at most one of the two phases is ever pending confirmation at once
+    # -- a verify checkpoint the caller hasn't resolved yet defers the sweep
+    # rather than pricing a second, simultaneous ask.
+    overlap_proposed = 0
+    overlap_rejected = 0
+    overlap_elided = 0
+    overlap_deferred = infer_by_overlap and verify_pending is not None
+    if infer_by_overlap and verify_pending is None:
+        matched = {
+            (rel.from_dataset.lower(), col.lower())
+            for rel in rels
+            for col in rel.from_columns
+        } | {
+            (rel.to_dataset.lower(), col.lower())
+            for rel in rels
+            for col in rel.to_columns
+        }
+        overlap_candidates, overlap_elided, overlap_cap = (
+            rel_mod.overlap_sweep_candidates(datasets, matched)
+        )
+        if overlap_candidates:
+            overlap_cost, candidate_count, object_count = _overlap_estimate(
+                adapter, overlap_candidates
+            )
+            overlap_pending = command_args.overlap_handshake(
+                "explore relationships",
+                adapter,
+                overlap_cost,
+                candidate_count=candidate_count,
+                object_count=object_count,
+                cap=overlap_cap,
+                elided=overlap_elided,
+            )
+            if overlap_pending is None:
+                overlap_reporter = _reporter(
+                    len(overlap_candidates), "swept", "candidates"
+                )
+                try:
+                    overlap_rejected = rel_mod.probe_overlap_candidates(
+                        adapter,
+                        overlap_candidates,
+                        timeout_seconds=config.query.timeout_seconds,
+                        progress=overlap_reporter,
+                    )
+                    overlap_reporter.done()
+                except OverCeilingError:
+                    # Mutation is in place (see probe_overlap_candidates), so
+                    # whatever it decided before the ceiling hit survives on
+                    # overlap_candidates regardless of this raise; only
+                    # candidates the ceiling cut off before they were probed
+                    # at all are simply absent from both counts below.
+                    overlap_warning = (
+                        "budget exhausted mid-sweep; a candidate not yet "
+                        "probed when the ceiling hit is neither proposed nor "
+                        "reported as rejected, since it was never measured. "
+                        "Relationships proposed before the ceiling are "
+                        "saved; raise --budget and re-run to finish the sweep"
+                    )
+                proposed = [rel for rel in overlap_candidates if rel.verified]
+                rels = rels + proposed
+                overlap_proposed = len(proposed)
+
+    # Prior relationships are only reusable when they came from the same
+    # connector, same as the profiles below.
+    reusable = prior if prior and prior.provenance.connector == connector else None
+    examined = {d.identifier for d in datasets}
+    rels, carried_relationships = _carry_forward_relationships(
+        reusable, examined, rels, observed_namespaces=observed_namespaces
+    )
+    notes = _relationship_notes(datasets, declared, inferred, defs)
+    notes.extend(declared_notes)
+    notes.extend(native_edge_notes)
+    notes.extend(semantic_edge_notes)
+    notes.extend(
+        _semantic_join_notes(semantic_edges, semantic_already_declared, inferred)
+    )
+    notes.extend(_relationship_conflict_notes(relationship_conflicts))
+    notes.extend(defs.notes)
+    if confirmed:
+        notes.append(
+            f"{confirmed} inferred join(s) match declared joins; kept as declared"
+        )
+    if verify and inferred and verify_pending is None and verify_warning is None:
+        notes.append(
+            f"verified {len(inferred)} inferred join(s) with aggregate overlap probes"
+        )
+    # A verified join at a catastrophic orphan rate is a finding, not just a
+    # demoted confidence (issue #207): named here so a caller reading only
+    # notes sees it, and mirrored onto the child dataset's data_quality so
+    # it survives into the cache for anything reading profiles later.
+    orphan_findings = rel_mod.orphan_findings(rels)
+    notes.extend(text for _rel, text in orphan_findings)
+    datasets_by_id = {d.identifier: d for d in datasets}
+    for rel, text in orphan_findings:
+        child = datasets_by_id.get(rel.from_dataset)
+        if child is not None:
+            child.data_quality.append(text)
+    if fresh_reused:
+        window = config.profile_freshness_hours
+        notes.append(
+            f"reused {len(fresh_reused)} fresh cached profile(s) (schema "
+            f"unchanged, profiled within {window:g}h); pass --refresh to force "
+            "re-profiling"
+        )
+    if verify_pending is not None:
+        notes.append(
+            "relationships saved unverified; verification awaits confirmation "
+            "(see hint)"
+        )
+    if verify_warning:
+        warnings.append(verify_warning)
+    if folded_edges > 0:
+        notes.append(
+            f"folded {folded_edges} same-lineage duplicate relationship(s); "
+            f"{mirrored_objects} object(s) mirror source lineage (a dev/replica "
+            "dataset mapped alongside its source), so each foreign key keeps its "
+            "join to the parent in its own schema and drops the same join to a "
+            "parent of that entity in another"
+        )
+    notes.extend(_generic_name_notes(suppressed))
+    notes.extend(_affix_match_notes(affix_matches))
+    if carried_relationships > 0:
+        notes.append(
+            f"carried forward {carried_relationships} prior relationship(s) "
+            "with an endpoint this run did not profile or reuse fresh (a "
+            "--scope/--dataset narrower than a prior run)"
+        )
+    notes.extend(
+        _overlap_sweep_notes(
+            infer_by_overlap=infer_by_overlap,
+            deferred=overlap_deferred,
+            pending=overlap_pending,
+            proposed=overlap_proposed,
+            rejected=overlap_rejected,
+            elided=overlap_elided,
+            carried=overlap_carried,
+        )
+    )
+    if overlap_warning:
+        warnings.append(overlap_warning)
+
+    # Persist the profiles this run already paid for. Relationships inventories
+    # and profiles the full set and infers across all of it, so its relationship
+    # set is authoritative for every identifier it examined; anything with an
+    # endpoint outside that (a narrower --scope/--dataset than a prior run) is
+    # carried forward above rather than dropped, same as the profiles are.
+    # Values come off here rather than straight after the scan, so inference saw
+    # the same profiles in either mode and reports the same confidences.
+    if values_free:
+        for dataset in profiled:
+            withhold_values(dataset)
+    cache, stats = _merge_profiles(
+        prior,
+        datasets,
+        connector,
+        now,
+        relationships=rels,
+        observed_namespaces=observed_namespaces,
+    )
+    if catalog is not None:
+        _annotate_semantic_exposure(cache.datasets, catalog)
+    locator = store.save_cache(cache, now=now)
+    notes.append(_persist_note(stats, len(datasets), keeps_relationships=False))
+
+    result = RelationshipsResult(
+        relationships=rels,
+        declared_count=len(declared),
+        semantic_join_count=len(semantic_edges),
+        profiled_count=len(profiled),
+        cache_hit_count=len(fresh_reused),
+        carried_relationship_count=carried_relationships,
+        conflicts=relationship_conflicts,
+        cache_path=locator,
+        updated_at=now.isoformat(),
+        notes=notes,
+        warnings=warnings,
+        # `verify`'s checkpoint always resolves first (the sweep defers
+        # behind it, see `overlap_deferred`), so at most one of the two is
+        # ever non-None at once; the ternary is defensive, not load-bearing.
+        pending_confirmation=verify_pending
+        if verify_pending is not None
+        else overlap_pending,
+        result_mode=mode,
+    )
+    return command_args.stamp_spend(result, adapter)
+
+
+def cmd_relationships(args: argparse.Namespace, engine: DexEngine) -> env.Envelope:
+    return to_envelope(
+        relationships(
+            engine,
+            verify=getattr(args, "verify", False),
+            infer_by_overlap=getattr(args, "infer_by_overlap", False),
+            refresh=getattr(args, "refresh", False),
+            use_project=getattr(args, "use_project", False),
+            use_hosted_semantic_layer=getattr(args, "use_hosted_semantic_layer", False),
+        )
+    )
+
+
+@dataclass
+class _Statement:
+    """One statement on its way through a call, and what became of it.
+
+    ``error`` holds the exception object rather than its message because the
+    single-statement door re-raises it: a rebuilt exception would lose the type
+    the caller branches on and the ``from`` chain a refusal carries.
+    """
+
+    index: int
+    sql: str
+    line: int | None = None
+    status: str = "ok"
+    inspected: InspectedQuery | None = None
+    result: QueryResult | None = None
+    error: Exception | None = None
+
+    @property
+    def live(self) -> bool:
+        return self.error is None and self.status == "ok"
+
+    def stop(self, exc: Exception, status: str) -> None:
+        self.error = exc
+        self.status = status
+
+
+@dataclass
+class _Batch:
+    """What the statements of one call share: a connection, a scan, a spend."""
+
+    adapter: Adapter | None = None
+    profiled: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
+
+
+def query(
+    engine: DexEngine,
+    sql: str,
+    *,
+    auto_profile: bool | None = None,
+    result_mode: ResultMode | None = None,
+) -> QueryResult:
+    """Run one caller-authored SELECT through the query firewall.
+
+    The single-statement door onto :func:`query_batch`'s runner, and it stays a
+    door rather than a second implementation so the envelope a lone statement
+    produces cannot drift from the one it produced before batching existed. A
+    refusal is raised here rather than reported, because with one statement there
+    is no surviving neighbor for a status field to protect.
+    """
+
+    mode = engine.resolve_result_mode(result_mode)
+    batch, shared = _run_statements(
+        engine, [(sql, None)], auto_profile=auto_profile, result_mode=mode
+    )
+    statement = batch[0]
+    if statement.error is not None:
+        raise statement.error
+
+    record = statement.result
+    record.result_mode = mode
+    command_args.stamp_spend(record, shared.adapter)
+    if shared.profiled and command_args.cost_gate(shared.adapter) is not None:
+        record.notes.append(
+            f"the spend reported here covers profiling {len(shared.profiled)} "
+            "object(s) and running the query"
+        )
+    return record
+
+
+def query_batch(
+    engine: DexEngine,
+    statements: list[tuple[str, int | None]] | list[str],
+    *,
+    auto_profile: bool | None = None,
+    result_mode: ResultMode | None = None,
+) -> QueryBatchResult:
+    """Run several caller-authored SELECTs through the query firewall, in order.
+
+    An agent asking a chain of small questions is the common case, and each call
+    it spends on dex is one it did not spend on the task. What batching buys is
+    call count and nothing else: every statement is parsed, adjudicated, and
+    ledgered on its own, and statements are never joined into one string, so a
+    batch has exactly the reach a sequence of single calls had.
+
+    What it does share is the expensive part. The objects the whole call needs
+    profiled are resolved as one set and scanned once, and the spend is quoted
+    once, so two statements over the same cold table pay for one scan and one
+    handshake rather than two of each.
+
+    A statement's own refusal is reported against that statement rather than
+    raised, because raising would discard results the caller has already been
+    billed for. Whole-call refusals (an unconfirmed spend, an absent cache) still
+    raise: nothing ran, so there is nothing to protect.
+    """
+
+    mode = engine.resolve_result_mode(result_mode)
+    prepared = [s if isinstance(s, tuple) else (s, None) for s in statements]
+    batch, shared = _run_statements(
+        engine, prepared, auto_profile=auto_profile, result_mode=mode
+    )
+    result = QueryBatchResult(
+        results=[
+            QueryStatementResult(
+                index=statement.index,
+                status=statement.status,
+                line=statement.line,
+                error=(
+                    None
+                    if statement.error is None
+                    else env.redact(str(statement.error))
+                ),
+                reason=(
+                    None
+                    if statement.error is None
+                    else env.reason_for(statement.error).value
+                ),
+                stage=(
+                    None if statement.error is None else env.stage_for(statement.error)
+                ),
+                code=(None if statement.error is None else error_code(statement.error)),
+                **(
+                    {}
+                    if statement.result is None
+                    else {
+                        "columns": statement.result.columns,
+                        "types": statement.result.types,
+                        "cells": statement.result.cells,
+                        "row_count": statement.result.row_count,
+                        "truncated": statement.result.truncated,
+                        "tables": statement.result.tables,
+                        "column_notes": statement.result.column_notes,
+                        "query_notes": statement.result.query_notes,
+                        "notes": statement.result.notes,
+                        "warnings": statement.result.warnings,
+                    }
+                ),
+            )
+            for statement in batch
+        ],
+        profiled_on_demand=shared.profiled,
+        warnings=shared.warnings,
+        result_mode=mode,
+    )
+    if shared.adapter is not None:
+        command_args.stamp_spend(result, shared.adapter)
+        if shared.profiled and command_args.cost_gate(shared.adapter) is not None:
+            result.notes.append(
+                f"the spend reported here covers profiling {len(shared.profiled)} "
+                f"object(s) and running {len(batch)} statement(s)"
+            )
+    return result
+
+
+def _run_statements(
+    engine: DexEngine,
+    statements: list[tuple[str, int | None]],
+    *,
+    auto_profile: bool | None = None,
+    result_mode: ResultMode = ResultMode.FULL,
+) -> tuple[list[_Statement], _Batch]:
+    """Drive every statement of one call through the firewall and the warehouse.
+
+    The firewall adjudicates against the exploration cache, and that is not a
+    formality: the PII policy it applies is computed from what profiling flagged,
+    so a query cannot be judged against a warehouse nobody has profiled. What used
+    to follow from that, sending the caller away to run a command whose exact
+    argument this function was already holding, does not. An object the connection
+    has but the cache cannot speak for is profiled here and now, and the statement
+    proceeds under the flags that scan produced.
+
+    Profiling costs money on a metered connector, so it is priced, not implied:
+    the estimate covers the profiles and the statements together and one handshake
+    admits them all. ``auto_profile=False`` (``--no-auto-profile``, or
+    ``auto_profile: false`` in config) restores the strict prerequisite, and on
+    that path nothing here touches the connection before the firewall has spoken.
+
+    Every decision, allowed or refused, lands in the query ledger, one entry per
+    statement whatever the call carried.
+
+    In values-free mode (#591) each statement must also have the aggregate-only
+    shape :func:`~..guards.values_free_shape.assert_values_free_shape` accepts,
+    checked first, before anything is opened, priced or profiled. What comes back
+    is held to that shape again (one row of numbers, untruncated), every error a
+    statement ends with carries a code in place of anyone else's words, and the
+    ledger records that code rather than the words.
+    """
+
+    store = engine.store
+    config = engine.config
+    limits = config.query
+    now = datetime.now(UTC)
+    at = now.isoformat()
+    cache = readable_cache(store)
+    # The firewall parses in the active connector's dialect, so BigQuery SQL
+    # (backticks, COUNTIF) is inspected as BigQuery, not as DuckDB.
+    dialect = get_dialect(engine.connector or config.connector)
+    auto = config.auto_profile if auto_profile is None else auto_profile
+
+    values_free = result_mode is ResultMode.VALUES_FREE
+
+    batch = [_Statement(i, sql, line) for i, (sql, line) in enumerate(statements)]
+    size = len(batch)
+    shared = _Batch()
+
+    def ledger(statement: _Statement, entry: dict) -> None:
+        if values_free and "reason" in entry:
+            # The ledger is an audit file a host may hand on, so it is held to
+            # the mode like everything else: the code, never the words.
+            entry = {**entry, "reason": _withheld_reason(statement)}
+        store.append_query_log({"at": at, **entry, **_batch_marks(statement, size)})
+
+    if values_free:
+        # The mode's own gate, before every other: it reads only the parsed
+        # statement, so a shape the mode refuses never opens a connection,
+        # prices a scan, or profiles a table on its way to being refused.
+        for statement in batch:
+            try:
+                assert_values_free_shape(
+                    assert_query_shape(statement.sql, dialect=dialect)
+                )
+            except (QueryRefusedError, ValuesFreeError) as exc:
+                statement.stop(exc, "refused")
+                ledger(
+                    statement,
+                    {"sql": statement.sql, "decision": "refused", "reason": ""},
+                )
+
+    if auto:
+        # Read-only first, before anything reaches the warehouse. Resolving a
+        # relation introspects the live connection, and no agent-authored
+        # statement earns that until it is proven to be a single SELECT.
+        reads: dict[int, list[str]] = {}
+        for statement in batch:
+            if not statement.live:
+                continue
+            try:
+                assert_query_shape(statement.sql, dialect=dialect)
+            except QueryRefusedError as exc:
+                statement.stop(exc, "refused")
+                ledger(
+                    statement,
+                    {
+                        "sql": statement.sql,
+                        "decision": "refused",
+                        "reason": str(exc),
+                    },
+                )
+                continue
+            reads[statement.index] = referenced_relations(
+                statement.sql, dialect=dialect
+            )
+
+        named = list(dict.fromkeys(name for names in reads.values() for name in names))
+        if named:
+            try:
+                shared.adapter = engine._adapter("explore query")
+            except DexError:
+                # No connection settles nothing, exactly as an unreadable column
+                # signature settles nothing inside `_object_gap`. That tolerance
+                # already exists one level down; it was missing here, at the
+                # acquisition, and the difference is not cosmetic: the guard below
+                # decides from cached PII flags and needs no warehouse at all, so
+                # letting an absent connector stop it turns a policy decision into
+                # a connectivity one and closes the firewall in exactly the
+                # offline environments that cannot bill for a mistake.
+                #
+                # Nothing is swallowed. A statement that PASSES the guard reaches
+                # the same opener below and raises there, which is where a caller
+                # who is about to run SQL wants to hear that the warehouse is
+                # unreachable. Only a refusal now returns without it.
+                shared.adapter = None
+        if shared.adapter is not None:
+            gap = _object_gap(shared.adapter, cache, named)
+            if gap.absent:
+                # Only the statements that named a missing object are refused; a
+                # neighbor that reads a table this connection has is unaffected by
+                # one that does not.
+                missing = {name for name, _ in gap.absent}
+                for statement in batch:
+                    if not statement.live or missing.isdisjoint(reads[statement.index]):
+                        continue
+                    exc = QueryRefusedError(gap.refusal())
+                    statement.stop(exc, "refused")
+                    ledger(
+                        statement,
+                        {
+                            "sql": statement.sql,
+                            "decision": "refused",
+                            "reason": str(exc),
+                        },
+                    )
+            live = [statement for statement in batch if statement.live]
+            # Never scan for a statement that is already refused: the objects worth
+            # profiling are the ones a statement that can still run will read.
+            wanted = {name for s in live for name in reads[s.index]}
+            to_profile = [
+                identifier
+                for identifier in gap.to_profile
+                if not wanted.isdisjoint(_names_for(identifier, gap.resolved))
+            ]
+            if to_profile and live:
+                cache, shared.profiled, shared.warnings = _profile_for_statements(
+                    engine,
+                    shared.adapter,
+                    live,
+                    to_profile,
+                    cache,
+                    now,
+                    at,
+                    size,
+                    withhold=values_free,
+                )
+
+    if cache is None and any(statement.live for statement in batch):
+        raise CacheRequiredError(
+            "no exploration cache yet; run `explore map` first so the query "
+            "firewall knows the schema and the PII flags"
+        )
+
+    if cache is not None:
+        # After the cache write, never before: mask_overridden edits the datasets
+        # in place, and masking first would persist an in-memory override onto
+        # objects this run never re-profiled.
+        cache = mask_overridden(cache, pii_override_paths(config.pii_overrides))
+    for statement in batch:
+        if not statement.live:
+            continue
+        try:
+            statement.inspected = inspect_query(
+                statement.sql, cache, limits, dialect=dialect
+            )
+        except QueryRefusedError as exc:
+            entry = {
+                "sql": statement.sql,
+                "decision": "refused",
+                "reason": str(exc),
+            }
+            if shared.profiled:
+                entry["profiled_on_demand"] = shared.profiled
+            ledger(statement, entry)
+            # A caller who paid for a scan is told what they got, even when the
+            # guard then refuses: the profile is cached and the next attempt
+            # reuses it.
+            if shared.profiled:
+                wrapped = QueryRefusedError(
+                    f"{exc}. {_profiled_names_phrase(shared.profiled)} profiled "
+                    "before this refusal; the profile is cached, so a corrected "
+                    "query does not pay for it again"
+                )
+                # `raise ... from exc` in one line, split because the exception is
+                # stored and re-raised by the caller rather than raised here.
+                wrapped.__cause__ = exc
+                exc = wrapped
+            statement.stop(exc, "refused")
+
+    live = [statement for statement in batch if statement.live]
+    if live:
+        shared.adapter = shared.adapter or engine._adapter("explore query")
+        # Priced once, above, when a profile was needed: `preflight_command` sets
+        # the reservation rather than adding to it, so a second handshake here
+        # would release the profile's booking. Every statement still passes the
+        # per-statement gate and the server-side cap on its way out.
+        if not shared.profiled:
+            _price_statements(shared.adapter, live, size, ledger)
+
+        _execute(
+            engine,
+            shared,
+            batch,
+            limits,
+            ledger,
+            cache,
+            dialect,
+            values_free=values_free,
+        )
+    if values_free:
+        for statement in batch:
+            if statement.error is not None:
+                statement.error = withhold_error(statement.error)
+    return batch, shared
+
+
+def _withheld_reason(statement: _Statement) -> str:
+    """What a values-free ledger row says in place of an error's words: its code,
+    or, on the paths that ledger before the statement is stopped, only that the
+    words were withheld."""
+
+    if statement.error is None:
+        return "withheld in values-free mode"
+    return (
+        f"withheld in values-free mode ({error_code(withhold_error(statement.error))})"
+    )
+
+
+def _price_statements(
+    adapter: Adapter,
+    live: list[_Statement],
+    size: int,
+    ledger: Callable[[_Statement, dict], None],
+) -> None:
+    """One handshake for the whole call, itemized per statement.
+
+    Summed rather than charged one at a time so the ceiling binds on what the call
+    will actually spend: a caller confirming a batch is confirming all of it, and
+    a sequence of per-statement asks would let the third statement discover a
+    budget the first two had already eaten.
+    """
+
+    query_estimate = getattr(adapter, "query_estimate", None)
+    per_statement = {
+        _statement_label(statement, size): (
+            query_estimate(statement.inspected.sql) if query_estimate else 0.0
+        )
+        for statement in live
+    }
+    estimate = sum(per_statement.values())
+    try:
+        command_args.billed_handshake(
+            "explore query",
+            adapter,
+            estimate,
+            per_table=per_statement if size > 1 else None,
+        )
+    except ConfirmationRequiredError:
+        for statement in live:
+            ledger(
+                statement,
+                {
+                    "sql": statement.inspected.sql,
+                    "decision": "needs_confirmation",
+                    "estimated_bytes": per_statement[_statement_label(statement, size)]
+                    if size > 1
+                    else estimate,
+                },
+            )
+        raise
+
+
+def _execute(
+    engine: DexEngine,
+    shared: _Batch,
+    batch: list[_Statement],
+    limits: QueryLimits,
+    ledger: Callable[[_Statement, dict], None],
+    cache: DexCache,
+    dialect: str,
+    *,
+    values_free: bool = False,
+) -> None:
+    """Run each approved statement in order, against one shared payload budget.
+
+    The byte cap exists to keep a result from flooding agent context, so it is the
+    call's budget rather than each statement's: ten statements under a per-statement
+    cap would emit ten times what one is allowed. It is spent in statement order and
+    what one statement leaves unspent the next may use, which is why a lone
+    statement still sees the whole of it and behaves exactly as it always did.
+
+    A cost-guard refusal partway through stops the call rather than being retried
+    per statement: the budget is gone, so every statement after it would meet the
+    same wall. What already ran is kept and reported, because it has been paid for.
+
+    In values-free mode a result that is not one untruncated row of numbers is
+    discarded and its statement refused: the shape rule promised that shape, and
+    a dialect that returned something else (DuckDB's AVG over a timestamp is a
+    timestamp) gets a refusal rather than a result.
+    """
+
+    budget = limits.max_payload_bytes
+    stopped: Exception | None = None
+    for statement in batch:
+        if not statement.live:
+            continue
+        if stopped is not None:
+            statement.stop(stopped, "skipped")
+            continue
+        try:
+            rows = shared.adapter.run_query(
+                statement.inspected.sql,
+                max_rows=statement.inspected.row_cap,
+                timeout_seconds=limits.timeout_seconds,
+            )
+        except ConfirmationRequiredError:
+            raise
+        except Exception as exc:
+            if isinstance(exc, WarehouseQueryError):
+                exc = exc.caller_authored()
+            if isinstance(exc, OverCeilingError):
+                exc = _with_batch_shortfall(exc, shared.adapter, batch, statement)
+            entry = {
+                "sql": statement.inspected.sql,
+                "decision": "failed",
+                "reason": env.redact(str(exc)),
+            }
+            if shared.profiled:
+                entry["profiled_on_demand"] = shared.profiled
+            statement.stop(exc, "failed")
+            ledger(statement, entry)
+            if isinstance(exc, (CostGuardError, BudgetExhaustedError)):
+                stopped = exc
+            continue
+
+        payload = _shape_query_payload(
+            rows,
+            statement.inspected,
+            limits,
+            budget_bytes=None if len(batch) == 1 else budget,
+            cache=cache,
+            dialect=dialect,
+        )
+        budget -= payload.pop("payload_bytes")
+        if values_free:
+            broken = _values_free_result_check(payload)
+            if broken is not None:
+                exc = ValuesFreeError(broken)
+                statement.stop(exc, "refused")
+                ledger(
+                    statement,
+                    {
+                        "sql": statement.inspected.sql,
+                        "decision": "refused",
+                        "reason": "",
+                    },
+                )
+                continue
+        notes = payload.pop("notes")
+        column_notes = payload.pop("column_notes", None)
+        query_notes = payload.pop("query_notes", None)
+        statement.result = QueryResult(
+            **payload,
+            profiled_on_demand=shared.profiled,
+            column_notes=column_notes,
+            query_notes=query_notes,
+            notes=notes,
+            # A lone statement carries the call's own warnings, because there is no
+            # batch record above it to hold them.
+            warnings=[
+                *(shared.warnings if len(batch) == 1 else []),
+                *statement.inspected.warnings,
+            ],
+        )
+        entry = {
+            "sql": statement.inspected.sql,
+            "decision": "allowed",
+            "tables": statement.result.tables,
+            "row_count": statement.result.row_count,
+            "truncated": statement.result.truncated,
+        }
+        if shared.profiled:
+            entry["profiled_on_demand"] = shared.profiled
+        # The audit trail records which allowed queries projected sub-threshold
+        # PII-flagged columns, so a later review can find every such projection.
+        if statement.inspected.warnings:
+            entry["pii_warnings"] = statement.inspected.warnings
+        ledger(statement, entry)
+
+
+def _with_batch_shortfall(
+    exc: OverCeilingError,
+    adapter: Adapter,
+    batch: list[_Statement],
+    statement: _Statement,
+) -> OverCeilingError:
+    """Name exactly how much more this batch needs to finish, not just why
+    this one statement hit the wall (issue #321).
+
+    BigQuery bills at least its per-query floor no matter how little a
+    statement reads, so an N-statement call needs at least ``N x`` that floor
+    of headroom; that arithmetic is fully knowable the moment inference finds
+    the remaining statements, which is exactly what this recomputes. A caller
+    who otherwise has to raise ``--budget`` and guess again now sees the
+    number the first guess would have needed. Already-completed statements
+    are unaffected: their results are kept exactly as :func:`_execute`
+    already keeps them, so a wider budget on re-run does not re-pay for them.
+
+    A no-op (returns ``exc`` unchanged) for a lone, non-batch statement,
+    where "the remaining budget is below the floor" already says everything
+    there is to say, and when the adapter cannot price a dry run at all.
+    """
+
+    if len(batch) == 1:
+        return exc
+    remaining = [s for s in batch if s.index >= statement.index and s.live]
+    query_estimate = getattr(adapter, "query_estimate", None)
+    if query_estimate is None or not remaining:
+        return exc
+    extra = sum(query_estimate(s.inspected.sql) for s in remaining)
+    gate = command_args.cost_gate(adapter)
+    unit = gate.paradigm.value if gate is not None else "bytes"
+    wrapped = OverCeilingError(
+        f"{exc}. Completing the remaining {len(remaining)} statement(s) in "
+        f"this batch needs at least {extra:,.0f} more {unit}; the "
+        "statement(s) already run above are saved, so a wider --budget on "
+        "re-run does not re-pay for them",
+        cost=exc.cost,
+    )
+    wrapped.__cause__ = exc
+    return wrapped
+
+
+def _batch_marks(statement: _Statement, size: int) -> dict:
+    """Where a ledger line sat in its call, when the call carried more than one.
+
+    Absent for a lone statement, so a single-statement ledger line is byte for
+    byte what it always was; present otherwise, so an auditor can see that six
+    statements were one authorization event rather than six.
+    """
+
+    if size == 1:
+        return {}
+    return {"batch_index": statement.index, "batch_size": size}
+
+
+def _statement_label(statement: _Statement, size: int) -> str:
+    if size == 1:
+        return "(the statement itself)"
+    return f"(statement {statement.index + 1})"
+
+
+def _names_for(identifier: str, resolved: dict[str, str]) -> set[str]:
+    """Every name a caller could have written for one resolved identifier."""
+
+    return {
+        identifier,
+        *(name for name, target in resolved.items() if target == identifier),
+    }
+
+
+def _profiled_names_phrase(names: list[str]) -> str:
+    if len(names) == 1:
+        return f"'{names[0]}' was"
+    return f"{len(names)} object(s) ({', '.join(names)}) were"
+
+
+def _profile_for_statements(
+    engine: DexEngine,
+    adapter: Adapter,
+    live: list[_Statement],
+    to_profile: list[str],
+    prior: DexCache | None,
+    now: datetime,
+    at: str,
+    size: int,
+    *,
+    withhold: bool = False,
+) -> tuple[DexCache, list[str], list[str]]:
+    """Price and run the profiles a call needs, then hand back the new cache.
+
+    One handshake covers the profile scans and the statements themselves, because
+    the caller made one request and should be quoted one number for it. Statements
+    are priced as written rather than as the firewall will rewrite them: the
+    rewrite needs a cache that can resolve these very objects, which is what this
+    call is about to create. Nothing is lost by it, since a row cap does not
+    reduce the bytes a scan reads or the seconds a warehouse runs.
+
+    Returns the merged cache, the objects profiled, and the disclosure the result
+    carries. Every refusal on the way out is ledgered first, so an unconfirmed ask
+    is as findable in the audit trail as a spend.
+    """
+
+    store = engine.store
+    config = engine.config
+    profile_estimate, per_table = _profile_estimate(
+        adapter, to_profile, include_blobs=blob_override_paths(config.blob_overrides)
+    )
+    query_estimate = getattr(adapter, "query_estimate", None)
+    per_statement = {
+        _statement_label(statement, size): (
+            query_estimate(statement.sql) if query_estimate else 0.0
+        )
+        for statement in live
+    }
+    statement_estimate = sum(per_statement.values())
+    subject = "this statement reads" if size == 1 else "these statements read"
+    try:
+        command_args.billed_handshake(
+            "explore query",
+            adapter,
+            profile_estimate + statement_estimate,
+            per_table={**per_table, **per_statement},
+            notes=[
+                f"{len(to_profile)} object(s) {subject} have no usable "
+                "profile, and the firewall reads PII flags from the cache; this "
+                "estimate covers profiling them and then running the statement. "
+                "Pass --no-auto-profile to be refused instead of profiling"
+            ],
+        )
+    except ConfirmationRequiredError:
+        for statement in live:
+            store.append_query_log(
+                {
+                    "at": at,
+                    "sql": statement.sql,
+                    "decision": "needs_confirmation",
+                    "estimated_bytes": profile_estimate + statement_estimate,
+                    "profile_planned": to_profile,
+                    **_batch_marks(statement, size),
+                }
+            )
+        raise
+
+    _profiled, cache, _locator, _note = _profile_into_cache(
+        store,
+        adapter,
+        config,
+        _project_definitions(engine, False),
+        to_profile,
+        prior,
+        now,
+        withhold=withhold,
+    )
+    return cache, to_profile, _auto_profile_warning(to_profile, adapter)
+
+
+def _auto_profile_warning(names: list[str], adapter: Adapter) -> list[str]:
+    """The disclosure that a scan happened which the caller did not ask for.
+
+    A warning rather than a note: this is a spend and an authorization event, not
+    a remark about the shape of the answer. It says what the profile is worth,
+    because the whole reason the guard can proceed is that this profile is the one
+    a deliberate ``explore profile`` would have written, not a weaker stand-in.
+    """
+
+    if not names:
+        return []
+    billed = (
+        " The scan is included in this command's spend."
+        if command_args.cost_gate(adapter) is not None
+        else ""
+    )
+    return [
+        f"profiled {len(names)} object(s) on demand: {', '.join(names)}. They are "
+        "in the warehouse but the .dex/ cache could not speak for them, and the "
+        "firewall reads PII flags from that cache. These are full profiles (same "
+        "detection, same overrides, same cache write) and they are saved, so the "
+        f"next statement over them profiles nothing.{billed} Pass "
+        "--no-auto-profile to be refused instead of profiled"
+    ]
+
+
+#: The placeholder a `--across` template names the target with.
+ACROSS_PLACEHOLDER = "{ds}"
+
+# A target is substituted into SQL text before the firewall reads it, so it is
+# held to a dataset name's own characters: letters, digits, underscores and
+# hyphens (BigQuery project ids carry them), dot-separated for a qualified
+# `project.dataset` or `database.schema`. No quote, space, semicolon or comment
+# marker can ride in, so a target can only ever change which relation a
+# statement names, never what the statement does.
+_ACROSS_TARGET = re.compile(r"[A-Za-z0-9_][A-Za-z0-9_-]*(?:\.[A-Za-z0-9_-]+)*")
+
+
+def query_across(
+    engine: DexEngine,
+    templates: list[tuple[str, int | None]] | list[str],
+    targets: list[str],
+    *,
+    auto_profile: bool | None = None,
+    result_mode: ResultMode | None = None,
+) -> QueryBatchResult:
+    """Run each template once per target, as one call under one handshake (#545).
+
+    Mirrored environments (dev, qa and prod copies of the same datasets) prompt
+    the same question again and again: is this pattern a fixture artefact or is
+    it real in prod? Each template names its dataset as ``{ds}``; each variant is
+    the template with one target substituted in.
+
+    Nothing new is trusted here. The variants are ordinary statements handed to
+    :func:`query_batch`, so each is adjudicated by the firewall on its own, against
+    its own relation's profile and PII flags, and the objects the whole call needs
+    are priced in one handshake and profiled once. What this adds is the
+    expansion and the labels: every result carries the ``target`` it ran against
+    and the ``template`` it came from, in template-major order, so the variants of
+    one probe sit next to each other and a refusal names the target that failed.
+    """
+
+    prepared = [t if isinstance(t, tuple) else (t, None) for t in templates]
+    if not targets:
+        raise RequestError("--across needs at least one target dataset")
+    seen: set[str] = set()
+    for target in targets:
+        if not _ACROSS_TARGET.fullmatch(target):
+            raise RequestError(
+                f"--across target '{target}' is not a dataset name; use letters, "
+                "digits, underscores and hyphens, dot-separated for a qualified "
+                "project.dataset"
+            )
+        if target.lower() in seen:
+            raise RequestError(f"--across names '{target}' more than once")
+        seen.add(target.lower())
+    for number, (sql, line) in enumerate(prepared, start=1):
+        if ACROSS_PLACEHOLDER not in sql:
+            where = f"line {line}" if line is not None else f"statement {number}"
+            # A refusal message quoting an example, never SQL that runs.
+            raise RequestError(
+                f"{where} names no {ACROSS_PLACEHOLDER}, so it would run "  # noqa: S608
+                "identically against every --across target; write the dataset as "
+                f"{ACROSS_PLACEHOLDER}, for example "
+                f"select count(*) from {ACROSS_PLACEHOLDER}.orders"
+            )
+
+    limit = engine.config.query.max_statements
+    expanded_count = len(prepared) * len(targets)
+    if expanded_count > limit:
+        raise RequestError(
+            f"{len(prepared)} statement(s) across {len(targets)} target(s) is "
+            f"{expanded_count} statements, which exceeds the query.max_statements "
+            f"limit of {limit}; name fewer targets or statements, or raise the "
+            "limit in .dex/config.yml"
+        )
+
+    expanded: list[tuple[str, int | None]] = []
+    labels: list[tuple[int, str]] = []
+    for template_index, (sql, line) in enumerate(prepared):
+        for target in targets:
+            expanded.append((sql.replace(ACROSS_PLACEHOLDER, target), line))
+            labels.append((template_index, target))
+
+    result = query_batch(
+        engine, expanded, auto_profile=auto_profile, result_mode=result_mode
+    )
+    for statement, (template_index, target) in zip(result.results, labels, strict=True):
+        statement.template = template_index
+        statement.target = target
+    result.across = list(targets)
+    return result
+
+
+def _across_targets(args: argparse.Namespace) -> list[str] | None:
+    """The `--across` targets, comma-separated and repeatable, or None if unset."""
+
+    raw = getattr(args, "across", None)
+    if raw is None:
+        return None
+    values = [raw] if isinstance(raw, str) else list(raw)
+    return [
+        part.strip() for value in values for part in value.split(",") if part.strip()
+    ]
+
+
+def cmd_query(args: argparse.Namespace, engine: DexEngine) -> env.Envelope:
+    statements = _statements_from(args, engine)
+    targets = _across_targets(args)
+    if targets is not None:
+        return _batch_envelope(
+            query_across(engine, statements, targets, auto_profile=_auto_profile(args))
+        )
+    if len(statements) == 1:
+        try:
+            return to_envelope(
+                query(engine, statements[0][0], auto_profile=_auto_profile(args))
+            )
+        except (QueryRefusedError, ValuesFreeError) as exc:
+            return env.error_for(exc, f"query refused: {exc}")
+    return _batch_envelope(
+        query_batch(engine, statements, auto_profile=_auto_profile(args))
+    )
+
+
+def _statements_from(
+    args: argparse.Namespace, engine: DexEngine
+) -> list[tuple[str, int | None]]:
+    """Where this call's statements came from: argv, or a file, never both.
+
+    Refusing the overlap rather than concatenating keeps the numbering a refusal
+    reports against unambiguous, and there is no question a caller can only ask by
+    mixing the two.
+    """
+
+    # A bare string is one statement, not a list of characters. argparse always
+    # hands over a list, but a namespace built by an embedding host need not, and
+    # the failure mode of getting this wrong is silent and absurd.
+    named = getattr(args, "sql", None)
+    positional = [named] if isinstance(named, str) else list(named or [])
+    path = getattr(args, "sql_file", None)
+    if positional and path:
+        raise RequestError(
+            "pass statements as arguments or as --sql-file, not both; the file "
+            "and the arguments would have no defined order"
+        )
+    if not positional and not path:
+        raise RequestError(
+            'name at least one statement: dex explore query "<SELECT ...>" '
+            "[more...], or --sql-file <path>"
+        )
+
+    if path:
+        source = Path(path)
+        try:
+            text = source.read_text(encoding="utf-8")
+        except OSError as exc:
+            raise RequestError(f"could not read --sql-file {path}: {exc}") from exc
+        dialect = get_dialect(engine.connector or engine.config.connector)
+        statements = split_statements(text, dialect=dialect)
+    else:
+        # Never comma-split, the way `explore profile` splits object names: SQL
+        # carries commas of its own and one argument is one statement.
+        statements = [(sql, None) for sql in positional]
+
+    limit = engine.config.query.max_statements
+    if len(statements) > limit:
+        raise RequestError(
+            f"{len(statements)} statements in one call exceeds the "
+            f"query.max_statements limit of {limit}; split the call, or raise the "
+            "limit in .dex/config.yml"
+        )
+    return statements
+
+
+def _batch_envelope(result: QueryBatchResult) -> env.Envelope:
+    """One envelope for a call that answered several statements.
+
+    A statement that failed makes the envelope's own status ``error`` even when
+    its neighbors answered, and every answer stays in ``data``. Reporting ``ok``
+    over a guard refusal would be the weaker claim, and dropping the answers to
+    report the refusal would discard work already paid for; `transform build`
+    resolves the same tension the same way.
+    """
+
+    envelope = to_envelope(result)
+    failures = [statement for statement in result.results if statement.status != "ok"]
+    if not failures:
+        return envelope
+    return env.Envelope(
+        status=env.Status.ERROR,
+        data=envelope.data,
+        cost=envelope.cost,
+        warnings=envelope.warnings,
+        errors=[
+            f"statement {statement.index + 1}"
+            + (f" (target {statement.target})" if statement.target else "")
+            + f" {statement.status}: {statement.error}"
+            for statement in failures
+        ],
+        reason=env.Reason(failures[0].reason) if failures[0].reason else None,
+    )
+
+
+def _auto_profile(args: argparse.Namespace) -> bool | None:
+    """``False`` when --no-auto-profile was passed, else None to defer to config.
+
+    None rather than True so an absent flag cannot override a repo that turned the
+    behavior off; the flag is an off switch, never an on switch.
+    """
+
+    return False if getattr(args, "no_auto_profile", False) else None
+
+
+def map(
+    engine: DexEngine,
+    *,
+    full: bool = False,
+    detail: bool = False,
+    verify: bool = False,
+    infer_by_overlap: bool = False,
+    refresh: bool = False,
+    use_project: bool = False,
+    use_hosted_semantic_layer: bool = False,
+    result_mode: ResultMode | None = None,
+) -> MapResult:
+    """The whole landscape in one pass: inventory, ranked profiling, and joins.
+
+    Note this shadows the builtin ``map`` for the rest of this module, which is
+    the price of every run function being named for its subcommand. Use a
+    comprehension rather than the builtin below this line.
+
+    The default is selective: on a warehouse above the auto-profile threshold
+    only the top-ranked objects are deep-profiled and the rest stay
+    inventory-only, because profiling everything on a metered connector is how a
+    first look becomes an expensive one. ``full`` overrides that.
+
+    With ``infer_by_overlap``, key-shaped columns no name-based rule matched
+    are swept for measured value containment (issue #220), the same opt-in,
+    priced-after-the-fact phase :func:`relationships` runs, in the same slot
+    after ``verify``.
+
+    In values-free mode the profiles it scans are written without their values,
+    and the cache handed back on the result is a copy with every value withheld.
+    The payload itself never carries a value in either mode.
+    """
+
+    mode = engine.resolve_result_mode(result_mode)
+    values_free = mode is ResultMode.VALUES_FREE
+    store = engine.store
+    config = engine.config
+    defs = _project_definitions(engine, use_project)
+    catalog = _semantic_catalog(
+        engine, use_project, use_hosted_semantic_layer=use_hosted_semantic_layer
+    )
+    hints = _merged_hints(config.ranking_hints, defs.metric_models)
+
+    adapter = engine._adapter("explore map")
+    # Capture pre-run cache state before any checkpoint write, so the success-path
+    # compose reads the pre-run cache rather than a checkpoint this run wrote.
+    now = datetime.now(UTC)
+    prior = readable_cache(store)
+    accumulated: list[Dataset] = []
+    over_ceiling = False
+    verify_pending: ConfirmationRequest | None = None
+    verify_warning: str | None = None
+    overlap_pending: ConfirmationRequest | None = None
+    overlap_warning: str | None = None
+    warnings: list[str] = _prior_cache_warnings(prior)
+
+    metas = inventory_mod.inventory(adapter)
+    orphaned = _orphan_candidates(metas, defs)
+    baselined = _baselined_identifiers(store) if orphaned else set()
+    # The schema/dataset namespaces this run's inventory actually saw, so
+    # carry-forward can tell "out of this run's scope" from "gone from the
+    # warehouse" (issue #149) -- an identifier whose own namespace is here but
+    # who is itself absent from metas was looked at and is not there.
+    observed_namespaces = {
+        m.identifier.rpartition(".")[0].lower() for m in metas if "." in m.identifier
+    }
+    # First-pass rank on cheap signals (no connectivity yet) to choose what to
+    # profile; re-ranked with connectivity once relationships are known.
+    first_pass = rank_mod.rank(metas, None, hints, orphaned)
+    selected = _select_for_profiling(metas, first_pass, config, full)
+    # Skip re-scanning a selected object whose cached profile is still fresh
+    # (same connector, schema unchanged, within the freshness window); only
+    # the stale remainder is estimated, confirmed, and profiled below.
+    stale, fresh_reused = _split_fresh_stale(
+        [m.identifier for m in selected],
+        prior,
+        adapter.name,
+        adapter,
+        timedelta(hours=config.profile_freshness_hours),
+        now,
+        refresh=refresh,
+        values_free=values_free,
+    )
+    # Inventory and ranking are free, so an unconfirmed billed run repeats
+    # them on re-issue; only the profiling scans below need the handshake.
+    blob_paths = blob_override_paths(config.blob_overrides)
+    estimate, per_table = _profile_estimate(adapter, stale, include_blobs=blob_paths)
+    handshake_notes: list[str] = []
+    if verify:
+        handshake_notes.append(
+            "--verify overlap probes depend on what inference finds; they "
+            "are priced after profiling, and if their estimate exceeds "
+            "what remains of this budget a second confirmation checkpoint "
+            "appears before any probe runs"
+        )
+    if fresh_reused:
+        handshake_notes.append(
+            f"{len(fresh_reused)} object(s) excluded from this estimate as "
+            "fresh-cached (schema unchanged, profiled within the freshness "
+            "window); pass --refresh to re-profile them"
+        )
+    profiled: list[Dataset] = []
+    # Nothing stale means nothing to price or confirm: skip the handshake and
+    # the scan entirely, and reuse the cached profiles wholesale.
+    if stale:
+        command_args.billed_handshake(
+            "explore map",
+            adapter,
+            estimate,
+            per_table=per_table,
+            notes=handshake_notes or None,
+        )
+        # Billed-connector-gated per-object checkpointing (see profile).
+        checkpoint = None
+        if command_args.cost_gate(adapter) is not None:
+            checkpoint, accumulated = _profile_checkpointer(
+                store, prior, adapter.name, now, withhold=values_free
+            )
+
+        profile_reporter = _reporter(len(stale), "profiled", "objects")
+        try:
+            profiled = profile_mod.profile(
+                adapter,
+                stale,
+                progress=profile_reporter,
+                on_complete=checkpoint,
+                pii_overrides=pii_override_paths(config.pii_overrides),
+                include_blobs=blob_paths,
+            )
+            profile_reporter.done()
+        except OverCeilingError:
+            over_ceiling = True
+
+    if over_ceiling:
+        raise _budget_exhausted(store, adapter, accumulated, len(stale))
+
+    # Freshly profiled plus fresh-cached: the full selected set, whether
+    # scanned this run or reused. Only the freshly profiled need annotation;
+    # the reused already carry theirs from the cache write that stored them.
+    all_selected = profiled + list(fresh_reused.values())
+    _annotate_grain(
+        profiled,
+        defs,
+        orphaned=orphaned,
+        baselined=baselined,
+        high_null_fraction=config.profile_high_null_fraction,
+        dialect=adapter.dialect,
+    )
+    suppressed: list[rel_mod.SuppressedMatch] = []
+    affix_matches: list[rel_mod.AffixMatch] = []
+    inferred = rel_mod.infer_relationships(
+        all_selected,
+        suppressed=suppressed,
+        affixes=config.entity_affixes,
+        affix_matches=affix_matches,
+    )
+
+    # Fold same-lineage duplicates before they reach the cache: a dev/replica
+    # dataset mapped alongside its source otherwise inflates one real foreign key
+    # into source, replica, and cross-dataset lookalike edges.
+    inferred, folded_edges, mirrored_objects = rel_mod.fold_replica_relationships(
+        all_selected, inferred, _dev_schemas(config)
+    )
+
+    # Resolved against the full live inventory rather than the profiled subset:
+    # a declared join between two objects the rank cutoff skipped is still a fact
+    # about this warehouse, and both channels are read on the same terms.
+    identifiers = [m.identifier for m in metas]
+    declared, declared_notes = rel_mod.declared_relationships(defs, identifiers)
+    declaration_edges, declaration_edge_notes = rel_mod.declaration_relationships(
+        defs, identifiers
+    )
+    declared, declaration_already_declared = _fold_semantic_edges(
+        declared, declaration_edges, adopt_declared_by=True
+    )
+    declared_notes.extend(declaration_edge_notes)
+    declared_notes.extend(
+        _declaration_join_notes(declaration_edges, declaration_already_declared)
+    )
+    native_edges, native_edge_notes = _native_semantic_edges(
+        engine,
+        use_project,
+        identifiers,
+        use_hosted_semantic_layer=use_hosted_semantic_layer,
+    )
+    declared, _native_already_declared = _fold_semantic_edges(declared, native_edges)
+    semantic_edges, semantic_edge_notes = _semantic_edges(catalog, identifiers)
+    declared, semantic_already_declared = _fold_semantic_edges(declared, semantic_edges)
+    relationship_conflicts = _declared_relationship_conflicts(declared)
+    relationship_set, confirmed = _merge_relationships(declared, inferred)
+
+    # A prior overlap-derived edge (issue #220) is never rediscovered by
+    # plain inference, so it is carried forward unconditionally rather than
+    # only when out of scope; see `_carry_forward_overlap_edges` and the
+    # identical call in `relationships`. Checked against the full live
+    # inventory (`metas`), not just `all_selected`, so an object merely
+    # skipped by this run's rank cutoff still counts as known.
+    relationship_set, overlap_carried = _carry_forward_overlap_edges(
+        prior, adapter.name, {m.identifier for m in metas}, relationship_set
+    )
+
+    # Verify the merged set: declared joins are probe candidates (issue #163)
+    # and only exist from the merge above. Same ordering as `relationships`.
+    if verify:
+        probe_cost, candidates, objects = _verify_estimate(adapter, relationship_set)
+        verify_pending = command_args.verify_handshake(
+            "explore map",
+            adapter,
+            probe_cost,
+            candidate_count=candidates,
+            object_count=objects,
+        )
+        if verify_pending is None:
+            probed = rel_mod.probe_candidates(relationship_set)
+            verify_reporter = _reporter(len(probed), "verified", "joins")
+            try:
+                rel_mod.verify_relationships(
+                    adapter,
+                    relationship_set,
+                    timeout_seconds=config.query.timeout_seconds,
+                    progress=verify_reporter,
+                )
+                verify_reporter.done()
+            except OverCeilingError:
+                # The upfront probe pricing fit, but per-statement estimates
+                # drifted past the ceiling mid-loop. The map itself is
+                # complete, so finish with a warning instead of the profiling
+                # phase's partial-completion error.
+                done = sum(1 for r in probed if r.verified)
+                verify_warning = (
+                    f"budget exhausted after verifying {done} of "
+                    f"{len(probed)} candidate join(s); verified "
+                    "results are saved; raise --budget and re-run to "
+                    "finish verification"
+                )
+
+    # The overlap sweep (issue #220), same slot and same deferral rule as in
+    # `relationships`: it runs after --verify, on the merged set, and defers
+    # entirely behind a still-pending verify checkpoint so at most one of the
+    # two phases is ever pending confirmation at once.
+    overlap_proposed = 0
+    overlap_rejected = 0
+    overlap_elided = 0
+    overlap_deferred = infer_by_overlap and verify_pending is not None
+    if infer_by_overlap and verify_pending is None:
+        matched = {
+            (rel.from_dataset.lower(), col.lower())
+            for rel in relationship_set
+            for col in rel.from_columns
+        } | {
+            (rel.to_dataset.lower(), col.lower())
+            for rel in relationship_set
+            for col in rel.to_columns
+        }
+        overlap_candidates, overlap_elided, overlap_cap = (
+            rel_mod.overlap_sweep_candidates(all_selected, matched)
+        )
+        if overlap_candidates:
+            overlap_cost, candidate_count, object_count = _overlap_estimate(
+                adapter, overlap_candidates
+            )
+            overlap_pending = command_args.overlap_handshake(
+                "explore map",
+                adapter,
+                overlap_cost,
+                candidate_count=candidate_count,
+                object_count=object_count,
+                cap=overlap_cap,
+                elided=overlap_elided,
+            )
+            if overlap_pending is None:
+                overlap_reporter = _reporter(
+                    len(overlap_candidates), "swept", "candidates"
+                )
+                try:
+                    overlap_rejected = rel_mod.probe_overlap_candidates(
+                        adapter,
+                        overlap_candidates,
+                        timeout_seconds=config.query.timeout_seconds,
+                        progress=overlap_reporter,
+                    )
+                    overlap_reporter.done()
+                except OverCeilingError:
+                    overlap_warning = (
+                        "budget exhausted mid-sweep; a candidate not yet "
+                        "probed when the ceiling hit is neither proposed nor "
+                        "reported as rejected, since it was never measured. "
+                        "Relationships proposed before the ceiling are "
+                        "saved; raise --budget and re-run to finish the sweep"
+                    )
+                proposed = [rel for rel in overlap_candidates if rel.verified]
+                relationship_set = relationship_set + proposed
+                overlap_proposed = len(proposed)
+
+    # Prior profiles are only reusable when they came from the same connector.
+    reusable = prior if prior and prior.provenance.connector == adapter.name else None
+    examined = {d.identifier for d in all_selected}
+    relationship_set, carried_relationships = _carry_forward_relationships(
+        reusable, examined, relationship_set, observed_namespaces=observed_namespaces
+    )
+    final_scores = rank_mod.rank(metas, relationship_set, hints, orphaned)
+    # After inference, so it saw the same profiles in either mode.
+    if values_free:
+        for dataset in profiled:
+            withhold_values(dataset)
+    datasets, carried, out_of_scope, dropped = _compose_datasets(
+        metas,
+        all_selected,
+        final_scores,
+        reusable,
+        observed_namespaces=observed_namespaces,
+    )
+
+    # A verified join at a catastrophic orphan rate is a finding, not just a
+    # demoted confidence (issue #207): mirrored onto the child dataset's
+    # data_quality (persisted below) and surfaced in notes further down.
+    orphan_findings = rel_mod.orphan_findings(relationship_set)
+    datasets_by_id = {d.identifier: d for d in datasets}
+    for rel, text in orphan_findings:
+        child = datasets_by_id.get(rel.from_dataset)
+        if child is not None:
+            child.data_quality.append(text)
+
+    # After `_compose_datasets` rather than beside `_annotate_grain`, and over the
+    # composed set rather than this run's profiles: the link is derived from the
+    # project, not from a scan, so an object this run declined to re-profile is
+    # marked as accurately as one it just read.
+    semantic_exposed = (
+        _annotate_semantic_exposure(datasets, catalog) if catalog is not None else 0
+    )
+
+    cache = DexCache(datasets=datasets, relationships=relationship_set)
+    cache.provenance.connector = adapter.name
+    cache.provenance.inventory_namespaces = sorted(
+        {
+            *(reusable.provenance.inventory_namespaces if reusable else []),
+            *observed_namespaces,
+        }
+    )
+    cache.provenance.created_at = (
+        prior.provenance.created_at
+        if prior and prior.provenance.created_at
+        else now.isoformat()
+    )
+    locator = store.save_cache(cache, now=now)
+
+    notes = _relationship_notes(all_selected, declared, inferred, defs)
+    notes.extend(declared_notes)
+    notes.extend(native_edge_notes)
+    notes.extend(semantic_edge_notes)
+    notes.extend(
+        _semantic_join_notes(semantic_edges, semantic_already_declared, inferred)
+    )
+    notes.extend(_relationship_conflict_notes(relationship_conflicts))
+    if semantic_exposed:
+        notes.append(
+            f"{semantic_exposed} object(s) are exposed through the project's "
+            "semantic layer (see semantic_models on each); the rest back no "
+            "metric, which is what separates a load-bearing table from a large one"
+        )
+    notes.extend(defs.notes)
+    notes.extend(text for _rel, text in orphan_findings)
+    if confirmed:
+        notes.append(
+            f"{confirmed} inferred join(s) match declared joins; kept as declared"
+        )
+    metric_hint_count = len(hints) - len(config.ranking_hints)
+    if metric_hint_count > 0:
+        notes.append(
+            f"{metric_hint_count} model(s) back metric definitions; ranking "
+            "favors them alongside configured hints"
+        )
+    # Rank-cutoff skip is an axis of its own: objects not selected for profiling.
+    # It is decoupled from len(profiled), which no longer equals len(selected)
+    # once some selected objects are served from cache.
+    skipped = len(metas) - len(selected)
+    # Named, not only counted (#540): in the first-pass rank order that chose
+    # what to profile, so the head of the list is what only just missed the cut
+    # and is the first worth a targeted `explore profile`.
+    chosen = {m.identifier for m in selected}
+    skipped_ranked = [
+        m.identifier
+        for m in sorted(
+            metas, key=lambda m: (-first_pass.get(m.identifier, 0.0), m.identifier)
+        )
+        if m.identifier not in chosen
+    ]
+    skipped_block = summarize_skipped(skipped_ranked)
+    if skipped > 0:
+        lead = ", ".join(skipped_ranked[:3])
+        notes.append(
+            f"profiled top {len(selected)} of {len(metas)} objects by rank "
+            f"(profile_top_n={config.profile_top_n}; all objects are profiled "
+            f"automatically at {_AUTO_PROFILE_ALL} or fewer); data.skipped names "
+            f"the {skipped} not profiled. Profile the ones you need with "
+            f"`explore profile {lead}`, or pass --full to profile everything"
+        )
+        if skipped_block.elided:
+            notes.append(
+                f"data.skipped.objects names the top {len(skipped_block.objects)} "
+                f"of {skipped} skipped objects by rank; {skipped_block.elided} "
+                "more are counted in data.skipped.elided and grouped in "
+                "data.skipped.by_namespace"
+            )
+        if skipped_block.elided_namespaces:
+            notes.append(
+                f"data.skipped.by_namespace lists the "
+                f"{len(skipped_block.by_namespace)} namespaces holding the most "
+                f"skipped objects; {skipped_block.elided_namespaces} more are "
+                "counted in data.skipped.elided_namespaces"
+            )
+    if fresh_reused:
+        window = config.profile_freshness_hours
+        notes.append(
+            f"reused {len(fresh_reused)} fresh cached profile(s) for selected "
+            f"object(s) (schema unchanged, profiled within {window:g}h); pass "
+            "--refresh to force re-profiling"
+        )
+    if carried > 0:
+        notes.append(
+            f"carried forward {carried} prior profile(s) for objects not "
+            "re-profiled this run; per-dataset profiled_at marks their age"
+        )
+    if out_of_scope > 0:
+        notes.append(
+            f"carried forward {out_of_scope} prior profile(s) for object(s) "
+            "outside this run's --scope/--dataset; the cache stays complete "
+            "across every scope it has ever been mapped with, not just this one"
+        )
+    if carried_relationships > 0:
+        notes.append(
+            f"carried forward {carried_relationships} prior relationship(s) "
+            "with an endpoint this run did not profile or reuse fresh"
+        )
+    if dropped:
+        warnings.append(
+            f"{len(dropped)} object(s) no longer in the warehouse were dropped "
+            "from the cache rather than resurrected as carried-forward "
+            f"profiles: {name_list(dropped)}"
+        )
+    if folded_edges > 0:
+        notes.append(
+            f"folded {folded_edges} same-lineage duplicate relationship(s); "
+            f"{mirrored_objects} object(s) mirror source lineage (a dev/replica "
+            "dataset mapped alongside its source), so each foreign key keeps its "
+            "join to the parent in its own schema and drops the same join to a "
+            "parent of that entity in another"
+        )
+    notes.extend(_generic_name_notes(suppressed))
+    notes.extend(_affix_match_notes(affix_matches))
+    if verify_pending is not None:
+        notes.append(
+            "relationships saved unverified; verification awaits confirmation "
+            "(see hint)"
+        )
+    if verify_warning:
+        warnings.append(verify_warning)
+    notes.extend(
+        _overlap_sweep_notes(
+            infer_by_overlap=infer_by_overlap,
+            deferred=overlap_deferred,
+            pending=overlap_pending,
+            proposed=overlap_proposed,
+            rejected=overlap_rejected,
+            elided=overlap_elided,
+            carried=overlap_carried,
+        )
+    )
+    if overlap_warning:
+        warnings.append(overlap_warning)
+    # The same sentence `profile` emits when a `pii_overrides` entry names a
+    # column the profiled table does not have (issue #448). `map` is the
+    # command a host schedules, so this is where a rename that orphaned an
+    # override gets seen; over the composed set, fresh and carried alike, so
+    # a cache hit does not hide it.
+    warnings.extend(_override_mismatches(datasets, config.pii_overrides))
+
+    # Same ordering the payload's own selection uses: rank first, identifier
+    # second. Two orderings derived from one cache inside one envelope would be a
+    # bug, and rank alone does not break ties.
+    top = sorted(datasets, key=lambda d: (-(d.rank_score or 0.0), d.identifier))[:5]
+    # The declaration overlay (#498) reads the repository, not the warehouse, so
+    # it runs over the composed set on a copy after the cache is saved: an object
+    # served from the cache is annotated as accurately as one just profiled, and
+    # nothing a declaration says is ever written into the cache.
+    displayed = cache
+    if use_project and defs.model_declarations:
+        displayed = cache.model_copy(deep=True)
+        displayed.datasets, declaration_notes = _apply_declarations(
+            displayed.datasets,
+            defs,
+            high_null_fraction=config.profile_high_null_fraction,
+            values_free=values_free,
+        )
+        notes.extend(declaration_notes)
+    view = summarize_map(displayed, detail=detail)
+    notes.extend(view.notes)
+    if values_free:
+        handed_back = displayed.model_copy(deep=True)
+        for dataset in handed_back.datasets:
+            withhold_values(dataset)
+    else:
+        handed_back = displayed
+    result = MapResult(
+        cache=handed_back,
+        cache_path=locator,
+        object_count=len(metas),
+        profiled_count=len(profiled),
+        cache_hit_count=len(fresh_reused),
+        skipped_count=skipped,
+        skipped=skipped_block,
+        carried_forward_count=carried,
+        out_of_scope_carried_count=out_of_scope,
+        dropped_count=len(dropped),
+        carried_relationship_count=carried_relationships,
+        relationship_count=len(relationship_set),
+        pii_column_count=sum(
+            1 for d in all_selected for c in d.columns if c.pii is not None
+        ),
+        data_quality_note_count=sum(len(d.data_quality) for d in all_selected),
+        top_objects=[
+            RankedObject(identifier=d.identifier, rank_score=d.rank_score) for d in top
+        ],
+        objects=view.objects,
+        edges=view.edges,
+        conflicts=relationship_conflicts,
+        elided_object_count=view.elided_object_count,
+        elided_column_count=view.elided_column_count,
+        elided_edge_count=view.elided_edge_count,
+        updated_at=now.isoformat(),
+        notes=notes,
+        warnings=warnings,
+        pending_confirmation=verify_pending
+        if verify_pending is not None
+        else overlap_pending,
+        result_mode=mode,
+    )
+    return command_args.stamp_spend(result, adapter)
+
+
+def cmd_map(args: argparse.Namespace, engine: DexEngine) -> env.Envelope:
+    return to_envelope(
+        map(
+            engine,
+            full=getattr(args, "full", False),
+            detail=getattr(args, "detail", False),
+            verify=getattr(args, "verify", False),
+            infer_by_overlap=getattr(args, "infer_by_overlap", False),
+            refresh=getattr(args, "refresh", False),
+            use_project=getattr(args, "use_project", False),
+            use_hosted_semantic_layer=getattr(args, "use_hosted_semantic_layer", False),
+        )
+    )
+
+
+def cluster(
+    engine: DexEngine,
+    obj: str,
+    *,
+    features: list[str] | None = None,
+    k: int | None = None,
+    auto_profile: bool | None = None,
+) -> ClusterResult:
+    """k-means over a bounded sample of one object's numeric columns.
+
+    Cache-gated like :func:`query`, and for the same reason: profiling is what
+    says which columns are numeric and which are PII. Like ``query``, an object
+    the connection has but the cache cannot speak for is profiled here rather than
+    refused, and ``auto_profile=False`` restores the strict prerequisite.
+
+    The pricing shape differs from ``query``'s and the difference is forced rather
+    than chosen. A caller-authored statement can be priced before anything is
+    profiled, so ``query`` quotes one number for the profile and the statement
+    together. Clustering's sample statement does not exist until the profile does,
+    because the feature columns are chosen from the column types, the PII flags,
+    and the inferred keys. So the profile is priced first and the sample passes the
+    mid-command gate afterward, which asks for a bigger budget rather than
+    refusing; the re-run is cheap, since the profile it already paid for is cached.
+
+    Only the feature columns are scanned, only a bounded sample is fetched into
+    the process for scikit-learn, and only aggregates (cluster sizes and
+    centroids) come back.
+    """
+
+    store = engine.store
+    config = engine.config
+    cache = readable_cache(store)
+    now = datetime.now(UTC)
+    auto = config.auto_profile if auto_profile is None else auto_profile
+
+    # Fail fast if the [cluster] extra is missing: no connection, no spend.
+    cluster_mod.ensure_available()
+
+    adapter = None
+    warnings: list[str] = []
+    profiled_names: list[str] = []
+    if auto:
+        try:
+            adapter = engine._adapter("explore cluster")
+        except DexError:
+            # The same tolerance the query path applies, at the second site the
+            # object-gap probe was added to. `cluster` decides two things from
+            # the cache alone -- "there is no cache" and "that object is not in
+            # it" -- and both refusals sit below this acquisition, so gating it
+            # here made them unreachable wherever no connector is installed.
+            #
+            # `auto_profile` defaults to True, so this is the ordinary path and
+            # not an opt-in one; `--no-auto-profile` was the only way left to
+            # reach either refusal offline. Nothing is swallowed: an object that
+            # IS profiled still needs a connection to build its sample, reaches
+            # the opener at the bottom of this function, and raises there.
+            adapter = None
+    if adapter is not None:
+        gap = _object_gap(adapter, cache, [obj])
+        if gap.absent:
+            raise RequestError(gap.refusal())
+        if gap.to_profile:
+            profile_estimate, per_table = _profile_estimate(
+                adapter,
+                gap.to_profile,
+                include_blobs=blob_override_paths(config.blob_overrides),
+            )
+            command_args.billed_handshake(
+                "explore cluster",
+                adapter,
+                profile_estimate,
+                per_table=per_table,
+                notes=[
+                    f"'{obj}' has no usable profile, and clustering picks its "
+                    "features from the column types, the PII flags, and the keys "
+                    "profiling finds; this estimate covers profiling it. The "
+                    "sample scan is priced once the features are known, and asks "
+                    "again only if it does not fit the confirmed budget. Pass "
+                    "--no-auto-profile to be refused instead of profiling"
+                ],
+            )
+            _profiled, cache, _locator, _note = _profile_into_cache(
+                store,
+                adapter,
+                config,
+                _project_definitions(engine, False),
+                gap.to_profile,
+                cache,
+                now,
+            )
+            profiled_names = gap.to_profile
+            warnings = _auto_profile_warning(profiled_names, adapter)
+
+    if cache is None:
+        raise CacheRequiredError(
+            "no exploration cache yet; run `explore map` (or `explore profile "
+            "<object>`) first so clustering knows which columns are numeric and "
+            "which are PII"
+        )
+
+    limits = config.cluster
+    known = [d.identifier for d in cache.datasets if d.columns]
+    matches = match_identifier(obj, known)
+    if not matches:
+        raise CacheRequiredError(
+            f"'{obj}' is not a profiled object in the exploration cache; run "
+            f"`explore profile {obj}` (or `explore map`) first"
+        )
+    if len(matches) > 1:
+        raise RequestError(f"'{obj}' is ambiguous: {', '.join(matches)}; qualify it")
+    dataset = next(d for d in cache.datasets if d.identifier == matches[0])
+
+    feature_names, selection_notes = _select_cluster_features(
+        dataset, features, limits.max_features, cache.relationships
+    )
+
+    adapter = adapter or engine._adapter("explore cluster")
+    sample_sql, sample_method = cluster_mod.build_sample_sql(
+        dataset.identifier,
+        feature_names,
+        dialect=adapter.dialect,
+        sample_rows=limits.sample_rows,
+        row_count=dataset.row_count,
+        seed=limits.sample_seed,
+    )
+    null_count_sql = cluster_mod.build_null_count_sql(
+        dataset.identifier,
+        feature_names,
+        dialect=adapter.dialect,
+        sample_rows=limits.sample_rows,
+        row_count=dataset.row_count,
+        seed=limits.sample_seed,
+    )
+    repeatable = cluster_mod.sample_is_repeatable(adapter.dialect, limits.sample_seed)
+    if sample_method == cluster_mod.UNRECOGNIZED_DIALECT_NOTE:
+        # #313: a connector with no sampling entry silently scanned the whole
+        # table, with the cost showing up only as a bigger bill. An informational
+        # note is easy to miss; a warning is not.
+        warnings.append(
+            f"'{adapter.dialect}' has no sampling clause registered; this reads "
+            "the whole table, bounded only by the cost gate"
+        )
+    adapter_name = adapter.name
+    query_estimate = getattr(adapter, "query_estimate", None)
+    sample_estimate = query_estimate(sample_sql) if query_estimate else 0.0
+    null_count_estimate = query_estimate(null_count_sql) if query_estimate else 0.0
+    sample_notes = [
+        f"clusters a sample of up to {limits.sample_rows} rows over "
+        f"{len(feature_names)} feature column(s); sampling: {sample_method}; "
+        "a companion count query measures how many rows the null filter "
+        "excludes, over the same table and sample scope"
+    ]
+    if profiled_names:
+        # The profile already went through this command's one handshake, so the
+        # sample is a phase whose price only became knowable after that spend.
+        # A phase gate asks for more budget instead of refusing, and the profile
+        # it already paid for is cached, so the re-run only runs the sample.
+        pending = command_args.sample_handshake(
+            "explore cluster",
+            adapter,
+            sample_estimate + null_count_estimate,
+            notes=sample_notes,
+        )
+        if pending is not None:
+            return ClusterResult(
+                object=dataset.identifier,
+                total_rows=dataset.row_count,
+                notes=selection_notes,
+                warnings=warnings,
+                pending_confirmation=pending,
+            )
+    else:
+        command_args.billed_handshake(
+            "explore cluster",
+            adapter,
+            sample_estimate + null_count_estimate,
+            notes=sample_notes,
+        )
+    sample = adapter.run_query(
+        sample_sql,
+        max_rows=limits.sample_rows,
+        timeout_seconds=limits.timeout_seconds,
+    )
+    null_counts = adapter.run_query(
+        null_count_sql, max_rows=1, timeout_seconds=limits.timeout_seconds
+    )
+
+    clustering = cluster_mod.cluster_features(
+        feature_names,
+        sample.cells,
+        k=k,
+        k_min=limits.k_min,
+        k_max=limits.k_max,
+        silhouette_sample=limits.silhouette_sample,
+        random_state=limits.random_state,
+    ).to_data()
+    notes = [*selection_notes, *clustering.pop("notes", [])]
+    if sample.truncated:
+        notes.append(
+            f"the sample hit the {limits.sample_rows}-row cap (the table has more "
+            "rows); raise cluster.sample_rows in .dex/config.yml to widen it"
+        )
+    if not repeatable and dataset.row_count and dataset.row_count > limits.sample_rows:
+        notes.append(
+            f"this sample is not reproducible on {adapter_name}: re-running can "
+            "draw different rows and reach a different k. Compare runs only with "
+            "an identical sample"
+        )
+    dropped_null_rows, drop_note = _null_drop_note(feature_names, null_counts.cells)
+    if drop_note:
+        notes.append(drop_note)
+    result = ClusterResult(
+        object=dataset.identifier,
+        total_rows=dataset.row_count,
+        dropped_null_rows=dropped_null_rows,
+        sample_method=sample_method,
+        sample_repeatable=repeatable,
+        clustering=clustering,
+        profiled_on_demand=profiled_names,
+        notes=notes,
+        warnings=warnings,
+    )
+    return command_args.stamp_spend(result, adapter)
+
+
+def _null_drop_note(
+    feature_names: list[str], cells: list[list]
+) -> tuple[int | None, str | None]:
+    """Turn the null-count query's one row into a count and, when anything was
+    actually dropped, an attributed note (which feature(s) caused it) plus the
+    reminder that ``total_rows`` is cache-derived, not this run's live count --
+    the only two numbers a reader could otherwise subtract come from different
+    moments."""
+
+    if not cells:
+        return None, None
+    sampled, dropped, *per_feature = cells[0]
+    dropped = int(dropped or 0)
+    if dropped == 0:
+        return 0, None
+    sampled = int(sampled or 0)
+    contributors = sorted(
+        (
+            (name, int(count or 0))
+            for name, count in zip(feature_names, per_feature, strict=True)
+            if count
+        ),
+        key=lambda kv: -kv[1],
+    )
+    breakdown = ", ".join(f"{name}: {count}" for name, count in contributors)
+    fraction = f" ({dropped / sampled:.1%})" if sampled else ""
+    return dropped, (
+        f"the null filter excluded {dropped} row(s){fraction} of this scan's "
+        f"scope, missing at least one feature; by column: {breakdown}. "
+        "total_rows above is cache-derived (from the last explore map/profile), "
+        "a different moment than this live count"
+    )
+
+
+def diagram(
+    engine: DexEngine, *, full: bool = False, result_mode: ResultMode | None = None
+) -> DiagramResult:
+    """Serialize the cached map as a Mermaid ER diagram.
+
+    Free everywhere and on every connector: it reads the exploration cache and
+    nothing else, so it opens no connection, needs no credential, and cannot
+    spend. That is what makes it safe to re-run while iterating on a diagram,
+    and it is why there is no confirm handshake here.
+
+    Cache-gated like :func:`query` and :func:`cluster`, for a different reason:
+    those need the cache to know what is safe to touch, this one needs it
+    because the cache *is* the subject. An empty cache is a prerequisite
+    failure naming `explore map`, never an empty diagram, because a diagram of
+    nothing and a diagram of an unexplored warehouse look identical.
+
+    It draws no column value in any mode (see :mod:`.diagram`), so values-free
+    mode changes nothing here but the stamp on the result.
+    """
+
+    mode = engine.resolve_result_mode(result_mode)
+    cache = readable_cache(engine.store)
+    if cache is None:
+        raise CacheRequiredError(
+            "no exploration cache yet; run `explore map` first so there is a "
+            "map to draw"
+        )
+
+    rendered = diagram_mod.render_er_mermaid(cache, full=full)
+    if not rendered.entity_count:
+        if not full and cache.ranked_datasets(profiled_only=True, connected_only=False):
+            raise CacheRequiredError(
+                "the exploration cache holds profiled objects but no edges: "
+                "run `explore diagram --full` to draw the unjoined objects"
+            )
+        raise CacheRequiredError(
+            "the exploration cache holds no object that can be drawn: run "
+            "`explore map` (or `explore profile <object>`) so objects carry "
+            "profiles and inferred joins"
+        )
+    return DiagramResult(
+        mermaid=rendered.mermaid,
+        entities=rendered.entities,
+        entity_count=rendered.entity_count,
+        edge_count=rendered.edge_count,
+        elided_entity_count=rendered.elided_entity_count,
+        elided_column_count=rendered.elided_column_count,
+        elided_edge_count=rendered.elided_edge_count,
+        full=full,
+        updated_at=cache.provenance.updated_at or "",
+        notes=rendered.notes,
+        result_mode=mode,
+    )
+
+
+def cmd_diagram(args: argparse.Namespace, engine: DexEngine) -> env.Envelope:
+    try:
+        return to_envelope(diagram(engine, full=getattr(args, "full", False)))
+    except (CacheRequiredError, CacheUnreadableError, ValueError) as exc:
+        return env.error_for(exc)
+
+
+def cmd_cluster(args: argparse.Namespace, engine: DexEngine) -> env.Envelope:
+    try:
+        return to_envelope(
+            cluster(
+                engine,
+                args.object,
+                features=_split_features(getattr(args, "features", None)),
+                k=getattr(args, "k", None),
+                auto_profile=_auto_profile(args),
+            )
+        )
+    except (
+        CacheRequiredError,
+        CacheUnreadableError,
+        ValueError,
+        cluster_mod.ClusterError,
+        cluster_mod.ClusterDependencyError,
+    ) as exc:
+        return env.error_for(exc)
+
+
+# --- helpers -----------------------------------------------------------------
+
+
+def _split_features(raw: list[str] | None) -> list[str] | None:
+    """Flatten repeated/comma-joined --features into a clean name list. Both
+    `--features a,b --features c` and `--features "a, b, c"` are natural."""
+
+    if not raw:
+        return None
+    names = [part.strip() for entry in raw for part in entry.split(",")]
+    return [name for name in names if name] or None
+
+
+def _is_constant_column(col) -> bool:
+    """A column proven to hold a single value contributes nothing to a distance
+    and only dilutes the standardization; an unknown distinct count is kept."""
+
+    return col.distinct_count is not None and col.distinct_count <= 1
+
+
+_KEY_WORDS = ("id", "uuid", "guid", "key")
+_ID_NAME_RE = re.compile(
+    "|".join(
+        (
+            rf"(?:^|_)(?:{'|'.join(_KEY_WORDS)})$",
+            rf"[a-z0-9](?:{'|'.join(w.capitalize() for w in _KEY_WORDS)})$",
+            rf"(?:^|_)(?:{'|'.join(w.upper() for w in _KEY_WORDS)})$",
+        )
+    ),
+    re.ASCII,
+)
+
+
+def _is_id_shaped(name: str) -> bool:
+    """Whether a column name looks like a key, on word boundaries only."""
+
+    return bool(_ID_NAME_RE.search(name))
+
+
+def _foreign_key_columns(
+    dataset: Dataset, relationships: list[Relationship]
+) -> set[str]:
+    """Lower-cased columns of ``dataset`` that join out to another object.
+
+    Only the ``from`` side is a foreign key; the ``to`` side is the referenced
+    key, which auto-selection already drops via its own uniqueness. Joins are
+    what `explore map` inferred, so this costs no extra scan.
+    """
+
+    identifier = dataset.identifier.lower()
+    return {
+        col.lower()
+        for rel in relationships
+        if rel.from_dataset.lower() == identifier
+        for col in rel.from_columns
+    }
+
+
+def _select_cluster_features(
+    dataset: Dataset,
+    requested: list[str] | None,
+    max_features: int,
+    relationships: list[Relationship] | None = None,
+) -> tuple[list[str], list[str]]:
+    """Resolve the feature columns for clustering plus notes explaining the set.
+
+    Explicit ``--features`` are honored as given (validated numeric); a PII
+    column may be named deliberately, and only its per-cluster mean, an
+    aggregate, is ever reported. Auto-selection is conservative: numeric columns
+    that are not PII-flagged, not a key, and not constant. A key is any of a
+    proven unique column (the primary key), a column joining out to another
+    object (a foreign key, per the joins `explore map` inferred), or a column
+    named like one. A fact table is mostly foreign keys and a handful of
+    measures, and clustering on the keys just partitions surrogate ranges.
+    Raises ``ValueError`` with an actionable message when the request cannot be
+    satisfied.
+    """
+
+    by_lower = {col.name.lower(): col for col in dataset.columns}
+    notes: list[str] = []
+
+    if requested is not None:
+        chosen = []
+        for name in requested:
+            col = by_lower.get(name.lower())
+            if col is None:
+                raise RequestError(
+                    f"column '{name}' is not among the profiled columns of "
+                    f"{dataset.identifier}"
+                )
+            if not profile_mod.is_numeric_type(col.data_type):
+                raise RequestError(
+                    f"column '{name}' is {col.data_type}, not numeric; k-means "
+                    "clusters numeric features only"
+                )
+            chosen.append(col)
+        pii_named = [c.name for c in chosen if c.pii is not None]
+        if pii_named:
+            notes.append(
+                f"included {len(pii_named)} PII-flagged feature(s) "
+                f"({', '.join(pii_named)}) at your request; only each cluster's "
+                "mean (an aggregate) is reported, never a row value"
+            )
+        features = [c.name for c in chosen]
+    else:
+        rels = relationships or []
+        fk_columns = _foreign_key_columns(dataset, rels)
+        numeric = [
+            c for c in dataset.columns if profile_mod.is_numeric_type(c.data_type)
+        ]
+        excluded_pii = [c.name for c in numeric if c.pii is not None]
+        remaining = [c for c in numeric if c.pii is None]
+        excluded_id = [c.name for c in remaining if c.is_unique is True]
+        remaining = [c for c in remaining if c.is_unique is not True]
+        excluded_fk = [c.name for c in remaining if c.name.lower() in fk_columns]
+        remaining = [c for c in remaining if c.name.lower() not in fk_columns]
+        excluded_named = [c.name for c in remaining if _is_id_shaped(c.name)]
+        remaining = [c for c in remaining if not _is_id_shaped(c.name)]
+        excluded_const = [c.name for c in remaining if _is_constant_column(c)]
+        candidates = [c for c in remaining if not _is_constant_column(c)]
+        features = [c.name for c in candidates]
+        if excluded_pii:
+            notes.append(
+                f"excluded {len(excluded_pii)} PII-flagged numeric column(s) from "
+                f"auto-selection ({', '.join(excluded_pii)}); name one in "
+                "--features to include it (its centroid is a mean)"
+            )
+        if excluded_id:
+            notes.append(
+                f"excluded {len(excluded_id)} unique-key column(s) "
+                f"({', '.join(excluded_id)}); an identifier is not a feature"
+            )
+        if excluded_fk:
+            notes.append(
+                f"excluded {len(excluded_fk)} foreign-key column(s) "
+                f"({', '.join(excluded_fk)}) that join out to another object; a "
+                "key is not a feature. Name one in --features to include it"
+            )
+        if excluded_named:
+            notes.append(
+                f"excluded {len(excluded_named)} column(s) named like a key "
+                f"({', '.join(excluded_named)}); name one in --features to "
+                "include it"
+            )
+        if not rels and (excluded_named or features):
+            notes.append(
+                "no relationships in the exploration cache, so key detection fell back "
+                "to column names; run `explore relationships` (or `explore map`) "
+                "for join-based detection"
+            )
+        if excluded_const:
+            notes.append(f"excluded {len(excluded_const)} constant column(s)")
+
+    if len(features) > max_features:
+        dropped = len(features) - max_features
+        features = features[:max_features]
+        notes.append(
+            f"using the first {max_features} feature(s); {dropped} more available "
+            "(raise cluster.max_features or pass --features)"
+        )
+    if len(features) < 2:
+        why = f" ({'; '.join(notes)})" if notes else ""
+        raise RequestError(
+            f"found {len(features)} usable numeric feature column(s) for "
+            f"{dataset.identifier}; k-means needs at least 2. Pass --features to "
+            f"choose columns, or profile a table with more numeric columns{why}"
+        )
+    return features, notes
+
+
+def _values_free_result_check(payload: dict) -> ValuesFreeCode | None:
+    """Why a shaped result cannot be returned in values-free mode, if it cannot.
+
+    The shape rule guarantees one row of aggregates in every dialect it can parse;
+    this holds the warehouse to that rather than trusting the parse. A truncated
+    result is refused rather than cut, since a host relies on a refusal being a
+    refusal. A boolean is a number here (BOOL_AND/BOOL_OR return one).
+    """
+
+    if payload["truncated"]:
+        return ValuesFreeCode.WOULD_TRUNCATE
+    if len(payload["cells"]) > 1:
+        return ValuesFreeCode.MULTI_ROW_RESULT
+    for row in payload["cells"]:
+        for value in row:
+            if value is not None and not isinstance(value, (int, float, Decimal)):
+                return ValuesFreeCode.NON_NUMERIC_RESULT
+    return None
+
+
+def _shape_query_payload(
+    result: AdapterQueryResult,
+    inspected: InspectedQuery,
+    limits: QueryLimits,
+    *,
+    budget_bytes: int | None = None,
+    cache: DexCache | None = None,
+    dialect: str = "duckdb",
+) -> dict:
+    """Cap the result for agent context: row-major cells, cell-width truncation,
+    and a payload byte cap, each announced in `notes` so a cut result is never
+    mistaken for a complete one.
+
+    ``budget_bytes`` is what remains of a multi-statement call's shared budget,
+    and None means this statement is the whole call and owns the configured cap.
+    The distinction is in the note as well as the arithmetic, because "this
+    result was too big" and "the statements before it had already spent the
+    budget" are different problems with different fixes."""
+
+    notes: list[str] = []
+
+    clipped = 0
+    cells: list[list] = []
+    for row in result.cells:
+        shaped: list = []
+        for value in row:
+            if isinstance(value, str) and len(value) > limits.max_cell_chars:
+                shaped.append(value[: limits.max_cell_chars] + "...")
+                clipped += 1
+            else:
+                shaped.append(value)
+        cells.append(shaped)
+    if clipped:
+        notes.append(f"{clipped} cell(s) truncated to {limits.max_cell_chars} chars")
+
+    budget = limits.max_payload_bytes if budget_bytes is None else max(budget_bytes, 0)
+    dropped = 0
+    while cells and len(json.dumps(cells)) > budget:
+        cells.pop()
+        dropped += 1
+    if dropped and budget_bytes is None:
+        notes.append(
+            f"dropped {dropped} row(s) to fit the {limits.max_payload_bytes}-byte "
+            "payload cap; aggregate further or select fewer columns"
+        )
+    elif dropped:
+        notes.append(
+            f"dropped {dropped} row(s) to fit the {budget} bytes left of this "
+            f"call's {limits.max_payload_bytes}-byte payload budget, which the "
+            "statements before this one had already drawn on; aggregate further, "
+            "select fewer columns, or ask fewer statements at once"
+        )
+
+    truncated = (result.truncated and inspected.capped_by_engine) or dropped > 0
+    if result.truncated and inspected.capped_by_engine:
+        notes.append(
+            f"result truncated to {inspected.row_cap} rows (engine cap); refine "
+            "the query, or raise query.max_rows in .dex/config.yml"
+        )
+
+    payload = {
+        "columns": result.columns,
+        "types": result.types,
+        "cells": cells,
+        "row_count": len(cells),
+        "truncated": truncated,
+        "tables": inspected.tables,
+        "notes": notes,
+        "payload_bytes": len(json.dumps(cells)),
+    }
+    if cache is not None:
+        annotations = _query_annotations(result.columns, inspected, cache, dialect)
+        payload.update(annotations)
+    return payload
+
+
+def _query_annotations(
+    output_columns: list[str],
+    inspected: InspectedQuery,
+    cache: DexCache,
+    dialect: str,
+) -> dict[str, dict]:
+    """Attach cache-backed judgment to a successful query result.
+
+    The helper is deliberately conservative: it emits only facts already in the
+    exploration cache and only when a query expression resolves directly to a
+    physical cached column or to a cached verified relationship.
+    """
+
+    try:
+        root = sqlglot.parse_one(inspected.sql, dialect=dialect)
+    except sqlglot.errors.ParseError:
+        return {}
+    if not isinstance(root, exp.Select):
+        return {}
+
+    sources = _query_annotation_sources(root, inspected.tables, cache)
+    if not sources:
+        return {}
+
+    projected = _projected_physical_columns(root, output_columns, sources)
+    column_notes = _column_notes(projected)
+    grouping = _grouping_notes(root, sources)
+    joins = _join_notes(root, sources, cache.relationships)
+
+    payload: dict[str, dict] = {}
+    if column_notes:
+        payload["column_notes"] = column_notes
+    query_notes = {}
+    if grouping:
+        query_notes["grouping"] = grouping
+    if joins:
+        query_notes["joins"] = joins
+    if query_notes:
+        payload["query_notes"] = query_notes
+    return payload
+
+
+def _query_annotation_sources(
+    root: exp.Select, tables: list[str], cache: DexCache
+) -> dict[str, Dataset]:
+    datasets = {d.identifier: d for d in cache.datasets}
+    sources: dict[str, Dataset] = {}
+    for table in root.find_all(exp.Table):
+        matches = match_identifier(table.name, tables)
+        if len(matches) != 1:
+            continue
+        dataset = datasets.get(matches[0])
+        if dataset is None:
+            continue
+        sources[table.alias_or_name.lower()] = dataset
+        sources[table.name.lower()] = dataset
+    return sources
+
+
+def _projected_physical_columns(
+    root: exp.Select,
+    output_columns: list[str],
+    sources: dict[str, Dataset],
+) -> list[tuple[str, Dataset, str]]:
+    projected: list[tuple[str, Dataset, str]] = []
+    for index, projection in enumerate(root.expressions):
+        if index >= len(output_columns):
+            break
+        column = projection
+        if isinstance(projection, exp.Alias):
+            column = projection.this
+        if not isinstance(column, exp.Column):
+            continue
+        resolved = _resolve_query_column(column, sources)
+        if resolved is None:
+            continue
+        dataset, source_column = resolved
+        projected.append((output_columns[index], dataset, source_column.name))
+    return projected
+
+
+def _column_notes(
+    projected: list[tuple[str, Dataset, str]],
+) -> dict[str, list[dict]] | None:
+    notes: list[dict] = []
+    selected_by_dataset: dict[str, tuple[Dataset, list[str]]] = {}
+    for output, dataset, source_name in projected:
+        column = _cached_column(dataset, source_name)
+        if column is None:
+            continue
+        selected_by_dataset.setdefault(dataset.identifier, (dataset, []))[1].append(
+            source_name
+        )
+        note = {
+            "column": output,
+            "table": dataset.identifier,
+            "source_column": column.name,
+        }
+        has_note = False
+        if column.null_fraction:
+            note["null_fraction"] = column.null_fraction
+            has_note = True
+        if column.pii is not None:
+            note["pii"] = column.pii.model_dump(mode="json")
+            has_note = True
+        if has_note:
+            notes.append(note)
+
+    grain_notes: list[dict] = []
+    for dataset, selected in selected_by_dataset.values():
+        if not dataset.grain:
+            continue
+        selected_lower = {c.lower() for c in selected}
+        grain_lower = {c.lower() for c in dataset.grain}
+        if not grain_lower <= selected_lower:
+            continue
+        grain_notes.append(
+            {
+                "table": dataset.identifier,
+                "columns": dataset.grain,
+                "selected_columns": selected,
+                "covered": True,
+            }
+        )
+
+    if not notes and not grain_notes:
+        return None
+    payload: dict[str, list[dict]] = {}
+    if notes:
+        payload["columns"] = notes
+    if grain_notes:
+        payload["grain"] = grain_notes
+    return payload
+
+
+def _grouping_notes(root: exp.Select, sources: dict[str, Dataset]) -> list[dict]:
+    group = root.args.get("group")
+    if group is None:
+        return []
+    grouped: dict[str, tuple[Dataset, list[str]]] = {}
+    for expression in group.expressions:
+        if not isinstance(expression, exp.Column):
+            continue
+        resolved = _resolve_query_column(expression, sources)
+        if resolved is None:
+            continue
+        dataset, column = resolved
+        grouped.setdefault(dataset.identifier, (dataset, []))[1].append(column.name)
+
+    notes = []
+    for dataset, columns in grouped.values():
+        if not dataset.grain:
+            continue
+        grouped_lower = {c.lower() for c in columns}
+        grain_lower = {c.lower() for c in dataset.grain}
+        if grouped_lower == grain_lower:
+            match = "matches_grain"
+        elif grain_lower <= grouped_lower:
+            match = "covers_grain"
+        else:
+            match = "misses_grain"
+        notes.append(
+            {
+                "table": dataset.identifier,
+                "columns": columns,
+                "grain": dataset.grain,
+                "match": match,
+            }
+        )
+    return notes
+
+
+def _join_notes(
+    root: exp.Select,
+    sources: dict[str, Dataset],
+    relationships: list[Relationship],
+) -> list[dict]:
+    notes: list[dict] = []
+    seen: set[tuple[str, tuple[str, ...], str, tuple[str, ...]]] = set()
+    for join in root.find_all(exp.Join):
+        predicate = join.args.get("on")
+        if predicate is None:
+            continue
+        for eq in predicate.find_all(exp.EQ):
+            if not isinstance(eq.left, exp.Column) or not isinstance(
+                eq.right, exp.Column
+            ):
+                continue
+            left = _resolve_query_column(eq.left, sources)
+            right = _resolve_query_column(eq.right, sources)
+            if left is None or right is None:
+                continue
+            left_dataset, left_column = left
+            right_dataset, right_column = right
+            if left_dataset.identifier == right_dataset.identifier:
+                continue
+            relationship = _matching_verified_relationship(
+                relationships,
+                left_dataset.identifier,
+                left_column.name,
+                right_dataset.identifier,
+                right_column.name,
+            )
+            if relationship is None:
+                continue
+            key = (
+                relationship.from_dataset,
+                tuple(relationship.from_columns),
+                relationship.to_dataset,
+                tuple(relationship.to_columns),
+            )
+            if key in seen:
+                continue
+            seen.add(key)
+            note = {
+                "from_table": relationship.from_dataset,
+                "from_columns": relationship.from_columns,
+                "to_table": relationship.to_dataset,
+                "to_columns": relationship.to_columns,
+                "verified": True,
+            }
+            if relationship.orphan_fraction is not None:
+                note["orphan_fraction"] = relationship.orphan_fraction
+            notes.append(note)
+    return notes
+
+
+def _resolve_query_column(
+    column: exp.Column, sources: dict[str, Dataset]
+) -> tuple[Dataset, ColumnProfile] | None:
+    if column.table:
+        dataset = sources.get(column.table.lower())
+        if dataset is None:
+            return None
+    else:
+        unique_sources = {d.identifier: d for d in sources.values()}
+        if len(unique_sources) != 1:
+            return None
+        dataset = next(iter(unique_sources.values()))
+    cached = _cached_column(dataset, column.name)
+    if cached is None:
+        return None
+    return dataset, cached
+
+
+def _cached_column(dataset: Dataset, name: str) -> ColumnProfile | None:
+    lowered = name.lower()
+    for column in dataset.columns:
+        if column.name.lower() == lowered:
+            return column
+    return None
+
+
+def _matching_verified_relationship(
+    relationships: list[Relationship],
+    left_dataset: str,
+    left_column: str,
+    right_dataset: str,
+    right_column: str,
+) -> Relationship | None:
+    for relationship in relationships:
+        if not relationship.verified:
+            continue
+        if _relationship_matches(
+            relationship, left_dataset, left_column, right_dataset, right_column
+        ) or _relationship_matches(
+            relationship, right_dataset, right_column, left_dataset, left_column
+        ):
+            return relationship
+    return None
+
+
+def _relationship_matches(
+    relationship: Relationship,
+    from_dataset: str,
+    from_column: str,
+    to_dataset: str,
+    to_column: str,
+) -> bool:
+    return (
+        relationship.from_dataset.lower() == from_dataset.lower()
+        and relationship.to_dataset.lower() == to_dataset.lower()
+        and [c.lower() for c in relationship.from_columns] == [from_column.lower()]
+        and [c.lower() for c in relationship.to_columns] == [to_column.lower()]
+    )
+
+
+def _project_definitions(
+    engine: DexEngine, use_project: bool
+) -> dbt_project.ProjectDefinitions:
+    """The project's declared definitions, read through the tier-1 seam.
+
+    Exploration starts bare: warehouse observations stay independent of
+    whatever repo dex happens to run from, so the declared definitions fold in
+    only when ``use_project`` asks for them. Without it, a present project earns
+    a discovery note instead of influence. With it, a repo without a project (or
+    with an ambiguous choice) degrades to the empty view, so explore keeps
+    working on raw warehouses, and an engine with no repo root at all does the
+    same rather than refusing.
+
+    The discovery note is dbt-shaped and stays gated on the dbt format being the
+    one selected. It looks for a ``dbt_project.yml`` on disk, which tells a host
+    whose format is a graph in memory nothing true; a format asked whether it is
+    "present but unused" would have to be read to answer, and reading it is
+    precisely what this branch exists not to do.
+    """
+
+    repo_root = engine.repo_root
+    if repo_root is None or not use_project:
+        defs = dbt_project.ProjectDefinitions()
+        discovered = (
+            dbt_project.discover_projects(repo_root)
+            if repo_root is not None and engine.config.project.format == "dbt"
+            else []
+        )
+        if discovered:
+            # project_dir marks "found but unused" so the empty-declared note
+            # can say so instead of claiming there is no project.
+            defs.project_dir = str(discovered[0])
+            defs.notes.append(
+                "a dbt project is present but unused; pass --use-project to "
+                "fold its declared joins, grain, and metric definitions into "
+                "exploration"
+            )
+        return defs
+    # Through the seam rather than the module: this is the one project read on the
+    # explore path, and `definitions()` is the channel declared keys and joins
+    # reach dex through at all. Whichever format configuration named answers here.
+    defs = engine.project_format().definitions()
+    return _fold_semantic_layer_keys(engine, defs)
+
+
+def _fold_semantic_layer_keys(
+    engine: DexEngine, defs: dbt_project.ProjectDefinitions
+) -> dbt_project.ProjectDefinitions:
+    """A semantic layer's own declared dataset keys, folded into the grain
+    channel (#408), through the same capability every format already answers
+    rather than a name check on which one is configured.
+
+    Empty for a layer whose keys already reach grain through the transformation
+    project's own `definitions()` (dbt); non-empty only for a layer that is
+    itself the sole declaration channel for its repository (native Ossie
+    documents, never a transformation project). A repo may have both, and both
+    are additive, not a choice between them.
+    """
+
+    if engine.repo_root is None:
+        return defs
+    try:
+        from .semantic import resolve_semantic_layer
+
+        keys, composite_keys = resolve_semantic_layer(
+            engine, local=True
+        ).declared_keys()
+    except (DexError, ValueError, OSError):
+        return defs
+    if not keys and not composite_keys:
+        return defs
+    return defs.model_copy(
+        update={
+            "present": True,
+            "declared_keys": [*defs.declared_keys, *keys],
+            "declared_composite_keys": [*defs.declared_composite_keys, *composite_keys],
+        }
+    )
+
+
+def _semantic_catalog(
+    engine: DexEngine, use_project: bool, *, use_hosted_semantic_layer: bool = False
+):
+    """The repository-local semantic layer as a read catalog, or None.
+
+    The optional channel beside tier 2, read the way :func:`_project_definitions`
+    reads tier 1, and gated the same way: exploration starts bare, so a project's
+    declared join graph and its physical exposure fold in only when
+    ``--use-project`` asks for them. Without the flag the default map's payload is
+    byte-identical to what it was.
+
+    With both flags, both sources are read and composed (#408) rather than one
+    winning by accidental precedence: the local read and the hosted read answer
+    different questions (a repository's own declarations versus a service's own
+    metadata) and neither subsumes the other. Composition is additive, local
+    first, so a name both declare keeps the local entry, the one with physical
+    relations.
+
+    **None on every declinable condition, and it never raises**, which is the
+    difference between this and calling ``semantic_catalog()`` directly. There is
+    no repo, or the configured format does not read a semantic layer, or the
+    project has no compiled semantic manifest yet: every one of those is an
+    ordinary state on the explore path, where the warehouse is the subject and a
+    project is a bonus. ``explore semantic list`` is the command whose whole
+    subject *is* the layer, and it is the one that refuses by name instead.
+    """
+
+    from .semantic import resolve_semantic_layer
+
+    if not use_project and not use_hosted_semantic_layer:
+        return None
+
+    # Each side is read and caught on its own (rather than one shared try) so
+    # that a hosted read this vendor has no deployment for (Ossie has no dbt
+    # Cloud counterpart, for instance) degrades to the local view instead of
+    # discarding a local read that already succeeded.
+    local_view = None
+    if use_project:
+        try:
+            # The local override is intentional: --use-project is a free,
+            # repository-only enrichment read even when semantic execution
+            # defaults to dbt Cloud. SemanticLayer owns the catalog rather
+            # than Project.
+            layer = resolve_semantic_layer(engine, local=True)
+            local_view = layer.list_definitions().view
+        except (DexError, ValueError, OSError):
+            local_view = None
+
+    if not use_hosted_semantic_layer:
+        return local_view
+
+    hosted_view = None
+    try:
+        hosted_view = resolve_semantic_layer(engine, api=True).list_definitions().view
+        hosted_view.notes.append(
+            "hosted semantic metadata was read by --use-hosted-semantic-layer; "
+            "this backend does not expose physical relations, so it cannot add "
+            "map exposure annotations or relationship edges on its own"
+        )
+    except (DexError, ValueError, OSError):
+        hosted_view = None
+
+    if local_view is not None and hosted_view is not None:
+        return _compose_semantic_catalogs(local_view, hosted_view)
+    return local_view if local_view is not None else hosted_view
+
+
+def _compose_semantic_catalogs(
+    local_view: SemanticCatalogView, hosted_view: SemanticCatalogView
+) -> SemanticCatalogView:
+    """Both sources folded into one read catalog (#408).
+
+    Additive, never a choice between them: a repository's own declarations and
+    a service's own metadata answer different questions, so a caller asking for
+    both gets the union. Identity is by name within each collection, local
+    first, since the local read is the one with physical relations
+    (``--use-project``'s own contract); a name both declare keeps the local
+    entry rather than whichever iteration order happened to reach it. Entities
+    are the one collection already merged across models by construction (see
+    :class:`~..semantic_catalog.EntityInfo`), so composing two sources means
+    combining their roles the same way and re-deriving the summary type from
+    the wider set, not picking one side's entity over the other's.
+    """
+
+    def _merge(local_items: list, hosted_items: list, key) -> list:
+        seen = {key(item) for item in local_items}
+        return list(local_items) + [
+            item for item in hosted_items if key(item) not in seen
+        ]
+
+    entities_by_name = {e.name: e for e in local_view.entities}
+    for hosted_entity in hosted_view.entities:
+        existing = entities_by_name.get(hosted_entity.name)
+        if existing is None:
+            entities_by_name[hosted_entity.name] = hosted_entity
+            continue
+        roles = list(existing.roles)
+        seen_roles = {(r.semantic_model, r.type, r.column) for r in roles}
+        roles.extend(
+            role
+            for role in hosted_entity.roles
+            if (role.semantic_model, role.type, role.column) not in seen_roles
+        )
+        entities_by_name[hosted_entity.name] = EntityInfo(
+            name=existing.name,
+            type=derive_entity_type(roles),
+            label=existing.label or hosted_entity.label,
+            description=existing.description or hosted_entity.description,
+            roles=roles,
+        )
+
+    return SemanticCatalogView(
+        semantic_models=_merge(
+            local_view.semantic_models, hosted_view.semantic_models, lambda m: m.name
+        ),
+        metrics=_merge(local_view.metrics, hosted_view.metrics, lambda m: m.name),
+        dimensions=_merge(
+            local_view.dimensions,
+            hosted_view.dimensions,
+            lambda d: (d.semantic_model, d.name),
+        ),
+        entities=list(entities_by_name.values()),
+        measures=_merge(
+            local_view.measures,
+            hosted_view.measures,
+            lambda m: (m.semantic_model, m.name),
+        ),
+        dimension_scope=local_view.dimension_scope,
+        notes=[*local_view.notes, *hosted_view.notes],
+        # Local wins a token both resolve, the same precedence every other
+        # collection here gives the source that has physical relations at all.
+        physical_columns={
+            **hosted_view.physical_columns,
+            **local_view.physical_columns,
+        },
+        computed_columns={
+            **hosted_view.computed_columns,
+            **local_view.computed_columns,
+        },
+    )
+
+
+def _apply_declarations(
+    datasets: list[Dataset],
+    defs: dbt_project.ProjectDefinitions,
+    *,
+    high_null_fraction: float,
+    values_free: bool,
+) -> tuple[list[Dataset], list[str]]:
+    """Copies of ``datasets`` carrying the declaration of the model on each (#498).
+
+    The model's declaration (#491) is the richest statement the project makes
+    about its own relations: what one row is, which rows are in, what each
+    column means. Under ``--use-project`` each dataset a declared model resolves
+    to gets it as ``declaration``, and the declared grain becomes the reported
+    ``grain``, ahead of a semantic primary entity or a composite test, because
+    it is the model's own statement of what one row is. ``candidate_keys`` stays
+    measurement-only, so the claim and the evidence sit side by side, and
+    ``grain_status`` says how they compare. A data-quality note states where the
+    grain came from whenever it differs from the measured one.
+
+    Applied at output time to copies and never written to the cache, unlike
+    :func:`_annotate_grain`'s refinements. A profile is served from the cache for
+    hours, a declaration is edited in the repository at any moment, and a
+    declaration baked into a cached profile would outlive its removal. Reading
+    it again on every run is free: it is the repository, not the warehouse.
+
+    Population values are repository text, but they are column values all the
+    same: in values-free mode, and for a filter on a column profiling flagged as
+    personal data, the values and the free-text rule are withheld and named in
+    ``withheld_fields``.
+    """
+
+    if not defs.model_declarations:
+        return datasets, []
+    identifiers = [d.identifier for d in datasets]
+    by_identifier: dict[str, Any] = {}
+    for model, declaration in sorted(defs.model_declarations.items()):
+        ident, _ambiguous = rel_mod.resolve_declared(
+            declaration.relation, model, identifiers
+        )
+        if ident is not None:
+            by_identifier.setdefault(ident.lower(), declaration)
+
+    out: list[Dataset] = []
+    applied = 0
+    for dataset in datasets:
+        declaration = by_identifier.get(dataset.identifier.lower())
+        if declaration is None:
+            out.append(dataset)
+            continue
+        copy = dataset.model_copy(deep=True)
+        copy.declaration = _dataset_declaration(copy, declaration, values_free)
+        if copy.columns:
+            copy.findings = rel_mod.profile_findings(
+                copy, high_null_fraction=high_null_fraction
+            )
+        out.append(copy)
+        applied += 1
+
+    notes: list[str] = []
+    if applied:
+        notes.append(
+            f"{applied} object(s) carry their model's declaration from the project "
+            "(see declaration on each); a declared grain is reported as grain, with "
+            "candidate_keys still measured and grain_status comparing the two"
+        )
+    return out, notes
+
+
+def _declared_column_cap_notes(datasets: list[Dataset], lift: str) -> list[str]:
+    """The note counting declared columns the payload's per-object cap cuts."""
+
+    cut = sum(
+        max(0, len(d.declaration.columns) - MAX_DECLARED_COLUMNS)
+        for d in datasets
+        if d.declaration is not None
+    )
+    if not cut:
+        return []
+    return [
+        f"{cut} declared column(s) are not listed: each declaration reports at most "
+        f"{MAX_DECLARED_COLUMNS} columns, with the rest counted in its "
+        f"elided_column_count; {lift} lists every one"
+    ]
+
+
+def _dataset_declaration(
+    dataset: Dataset, declaration: Any, values_free: bool
+) -> DatasetDeclaration:
+    """``declaration`` as reported on ``dataset``, with its grain applied to it."""
+
+    live = {c.name.lower(): c for c in dataset.columns}
+    withheld: list[str] = []
+    population = None
+    if declaration.population is not None:
+        flagged = {c.name.lower() for c in dataset.columns if c.pii is not None}
+        rule = declaration.population.rule
+        if rule is not None and values_free:
+            rule = None
+            withheld.append("population.rule")
+        filters: list[DeclaredFilter] = []
+        for item in declaration.population.filters:
+            hide = values_free or item.column.lower() in flagged
+            if hide and "population.filters[].values" not in withheld:
+                withheld.append("population.filters[].values")
+            filters.append(
+                DeclaredFilter(
+                    column=item.column,
+                    includes=None if hide else item.includes,
+                    excludes=None if hide else item.excludes,
+                )
+            )
+        population = DeclaredRows(rule=rule, filters=filters)
+
+    grain = declaration.grain
+    status = None
+    if grain:
+        status = _apply_declared_grain(dataset, grain, live)
+
+    return DatasetDeclaration(
+        model=declaration.model,
+        source=declaration.source,
+        grain=list(grain) if grain else None,
+        grain_status=status,
+        population=population,
+        columns=[
+            DeclaredColumn(name=name, **meaning.model_dump())
+            for name, meaning in declaration.columns.items()
+        ],
+        withheld_fields=withheld,
+    )
+
+
+def _apply_declared_grain(
+    dataset: Dataset, grain: list[str], live: dict[str, ColumnProfile]
+) -> str:
+    """Report ``grain`` as ``dataset``'s grain where its columns exist; how it
+    compares with measurement."""
+
+    if not dataset.columns:
+        return "unprofiled"
+    missing = [c for c in grain if c.lower() not in live]
+    if missing:
+        dataset.data_quality.append(
+            f"declared grain ({', '.join(grain)}) names column(s) not in this "
+            f"relation ({', '.join(missing)}); not applied"
+        )
+        return "missing_columns"
+    resolved = [live[c.lower()].name for c in grain]
+    wanted = {c.lower() for c in resolved}
+    measured = [*dataset.composite_keys, *dataset.candidate_keys]
+    if any({c.lower() for c in key} == wanted for key in measured):
+        status = "proven"
+    elif len(resolved) == 1 and live[resolved[0].lower()].is_unique is False:
+        status = "contradicted"
+        dataset.data_quality.append(
+            f"{resolved[0]} is the model's declared grain but profiling found "
+            "duplicates"
+        )
+    else:
+        status = "unmeasured"
+    if [c.lower() for c in dataset.grain or []] != [c.lower() for c in resolved]:
+        origin = (
+            f"measured grain was {', '.join(dataset.grain)}"
+            if dataset.grain
+            else "measurement found no key of its own"
+        )
+        dataset.data_quality.append(
+            f"grain {', '.join(resolved)} comes from the model's declaration ({origin})"
+        )
+    dataset.grain = resolved
+    return status
+
+
+def _annotate_semantic_exposure(datasets: list[Dataset], catalog) -> int:
+    """Mark each dataset with the semantic models that sit on it. Returns how many
+    were exposed.
+
+    Runs over the **composed** set rather than this run's profiles, unlike
+    :func:`_annotate_grain`: the link is derived from the project rather than from
+    a scan, so it costs nothing to apply to a carried-forward object, and leaving
+    those unmarked would make the annotation read as "not exposed" for exactly the
+    objects a narrower run declined to re-profile.
+
+    Every dataset in view is written, empty list included, so a model dropped from
+    the layer clears on the next run instead of persisting as a stale claim. That
+    is only correct because the caller reaches this at all only when a catalog was
+    actually read; with no catalog nothing here runs and the prior values stand.
+    """
+
+    known = [d.identifier for d in datasets]
+    by_identifier: dict[str, set[str]] = {}
+    for model in catalog.semantic_models:
+        if not model.relation:
+            continue
+        # The same resolution a declared join's endpoints go through, and for the
+        # same reason: a compiled manifest spells the database component the way
+        # dbt was configured while the adapter normalizes it per connector, so an
+        # exact compare would expose nothing on a project that works. A relation
+        # matching several objects here resolves to none of them rather than to a
+        # guess.
+        identifier, _ambiguous = rel_mod.resolve_declared(
+            model.relation, model.name, known
+        )
+        if identifier is not None:
+            by_identifier.setdefault(identifier, set()).add(model.name)
+    exposed = 0
+    for dataset in datasets:
+        models = sorted(by_identifier.get(dataset.identifier, ()))
+        dataset.semantic_models = models
+        exposed += bool(models)
+    return exposed
+
+
+def _semantic_edges(
+    catalog, identifiers: list[str]
+) -> tuple[list[Relationship], list[str]]:
+    """The layer's declared entity graph as join edges, or nothing without one."""
+
+    if catalog is None:
+        return [], []
+    return rel_mod.semantic_relationships(entity_joins(catalog), identifiers)
+
+
+def _native_semantic_edges(
+    engine: DexEngine,
+    use_project: bool,
+    identifiers: list[str],
+    *,
+    use_hosted_semantic_layer: bool = False,
+) -> tuple[list[Relationship], list[str]]:
+    """Native layer declarations, including composite pairs, as cached edges.
+
+    Reads both sources when both flags ask for one, the same composition
+    :func:`_semantic_catalog` gives the rest of the catalog (#408): a hosted
+    backend that ever starts returning direct physical relations gets folded in
+    beside the local read rather than silently ignored because a local project
+    happened to be configured too. Today no shipped hosted backend returns
+    anything here (dbt Cloud has no physical relation to name), so this is a
+    no-op in practice and every edge still comes from the local layer.
+    """
+
+    if engine.repo_root is None or not (use_project or use_hosted_semantic_layer):
+        return [], []
+    from .semantic import resolve_semantic_layer
+
+    declarations: list[Any] = []
+    if use_project:
+        with contextlib.suppress(DexError, ValueError, OSError):
+            declarations.extend(
+                resolve_semantic_layer(engine, local=True).declared_relationships()
+            )
+    if use_hosted_semantic_layer:
+        with contextlib.suppress(DexError, ValueError, OSError):
+            declarations.extend(
+                resolve_semantic_layer(engine, api=True).declared_relationships()
+            )
+    if not declarations:
+        return [], []
+    return rel_mod.declared_relationships(
+        dbt_project.ProjectDefinitions(declared_relationships=declarations), identifiers
+    )
+
+
+def _fold_semantic_edges(
+    declared: list[Relationship],
+    semantic: list[Relationship],
+    *,
+    adopt_declared_by: bool = False,
+) -> tuple[list[Relationship], int]:
+    """Semantic edges added to the declared set, deduped against it.
+
+    Returns the widened declared set and how many semantic edges the project's
+    ``relationships`` tests already stated. Both channels are declarations of the
+    same tier, so an edge in both is one edge; which of the two named it first is
+    not a fact about the warehouse, and doubling it would inflate the connectivity
+    ranking the same way a doubled declared/inferred pair would.
+
+    ``adopt_declared_by`` is for a model declaration's joins (#498): the #491
+    writer renders a ``relationships`` test for every ``references`` it writes,
+    so the usual case is a test edge with no ``declared_by`` of its own, and the
+    declaration's name is the provenance worth keeping on the one edge left.
+    """
+
+    known = {_relationship_edge_key(rel) for rel in declared}
+    merged = list(declared)
+    already = 0
+    for rel in semantic:
+        if _relationship_edge_key(rel) in known:
+            already += 1
+            existing = next(
+                item
+                for item in merged
+                if _relationship_edge_key(item) == _relationship_edge_key(rel)
+            )
+            sources = sorted(
+                set(existing.declaration_sources) | set(rel.declaration_sources)
+            )
+            existing.declaration_sources = sources
+            if adopt_declared_by and existing.declared_by is None:
+                existing.declared_by = rel.declared_by
+            continue
+        known.add(_relationship_edge_key(rel))
+        merged.append(rel)
+    return merged, already
+
+
+def _declaration_join_notes(
+    edges: list[Relationship], already_declared: int
+) -> list[str]:
+    """What model declarations (#498) added to the declared joins."""
+
+    if not edges:
+        return []
+    notes = [
+        f"{len(edges)} declared join(s) come from model declarations "
+        "(a column's `references`); see declared_by on each"
+    ]
+    if already_declared:
+        notes.append(
+            f"{already_declared} of them are also declared by a relationships "
+            "test; counted once, with both sources in declaration_sources"
+        )
+    return notes
+
+
+def _semantic_join_notes(
+    semantic: list[Relationship], already_declared: int, inferred: list[Relationship]
+) -> list[str]:
+    """What the declared entity graph added, and specifically what it rescued.
+
+    The count alone is not the interesting number. An edge the semantic layer
+    declares and name-based inference did not find is a join that would otherwise
+    be missing from the map entirely, with a key no naming rule could have matched,
+    and that is the case worth naming out loud: it is the whole argument for
+    reading the graph rather than scanning for it.
+    """
+
+    if not semantic:
+        return []
+    inferred_keys = {_relationship_edge_key(rel) for rel in inferred}
+    missed = [
+        rel for rel in semantic if _relationship_edge_key(rel) not in inferred_keys
+    ]
+    notes = [
+        f"{len(semantic)} join(s) come from the semantic layer's declared entity "
+        "graph, at the declared tier: the layer states the join and names its key "
+        "per model, so these are read rather than inferred"
+    ]
+    if missed:
+        named = ", ".join(
+            sorted({rel.declared_by for rel in missed if rel.declared_by})[:5]
+        )
+        notes.append(
+            f"{len(missed)} of them were not found by name-based inference and "
+            f"would otherwise be missing from this map ({named})"
+        )
+    if already_declared:
+        notes.append(
+            f"{already_declared} of them are also declared by a relationships "
+            "test; counted once"
+        )
+    return notes
+
+
+def _relationship_edge_key(rel: Relationship) -> tuple:
+    return (
+        rel.from_dataset.lower(),
+        tuple(c.lower() for c in rel.from_columns),
+        rel.to_dataset.lower(),
+        tuple(c.lower() for c in rel.to_columns),
+    )
+
+
+def _declared_relationship_conflicts(
+    declared: list[Relationship],
+) -> list[DeclaredRelationshipConflict]:
+    """Declarations that join the same two datasets with different columns
+    (#408): a project's own ``relationships`` test, a semantic layer's shared
+    entity, and a native declaration are three channels that can each state a
+    join between one pair of datasets, and nothing before this point notices
+    when two of them disagree about which columns it runs on.
+
+    Both edges still survive in the merged set (:func:`_fold_semantic_edges`
+    only folds an exact match); this only names the disagreement, since which
+    columns actually join is a fact about the warehouse only one declaration
+    can be right about, and picking a winner or merging one column set into
+    the other would be inventing evidence no declaration offered.
+    """
+
+    by_endpoint: dict[tuple[str, str], dict[tuple, Relationship]] = {}
+    for rel in declared:
+        if rel.kind is not RelationshipKind.DECLARED:
+            continue
+        endpoint = (rel.from_dataset.lower(), rel.to_dataset.lower())
+        by_endpoint.setdefault(endpoint, {})[_relationship_edge_key(rel)] = rel
+
+    conflicts: list[DeclaredRelationshipConflict] = []
+    for edges in by_endpoint.values():
+        if len(edges) < 2:
+            continue
+        first = next(iter(edges.values()))
+        conflicts.append(
+            DeclaredRelationshipConflict(
+                from_dataset=first.from_dataset,
+                to_dataset=first.to_dataset,
+                declarations=[
+                    ConflictingRelationshipDeclaration(
+                        column_pairs=[
+                            [frm, to]
+                            for frm, to in zip(
+                                rel.from_columns, rel.to_columns, strict=False
+                            )
+                        ],
+                        source=", ".join(rel.declaration_sources)
+                        or rel.declared_by
+                        or "unknown",
+                    )
+                    for rel in edges.values()
+                ],
+            )
+        )
+    return conflicts
+
+
+def _relationship_conflict_notes(
+    conflicts: list[DeclaredRelationshipConflict],
+) -> list[str]:
+    if not conflicts:
+        return []
+    named = ", ".join(f"{c.from_dataset} -> {c.to_dataset}" for c in conflicts[:5])
+    return [
+        f"{len(conflicts)} declared relationship(s) disagree on which columns "
+        f"join the same two datasets ({named}); every declaration is kept as "
+        "its own edge rather than dex picking a winner, see data.conflicts"
+    ]
+
+
+def _merge_relationships(
+    declared: list[Relationship], inferred: list[Relationship]
+) -> tuple[list[Relationship], int]:
+    """Declared joins win over the same inferred edge.
+
+    Returns the merged list plus how many inferred edges the declared set
+    absorbed: inference independently agreeing with a declared test is worth a
+    note, and double-reporting the edge would inflate connectivity ranking.
+    """
+
+    declared_keys = {_relationship_edge_key(rel) for rel in declared}
+    merged = list(declared)
+    confirmed = 0
+    for rel in inferred:
+        if _relationship_edge_key(rel) in declared_keys:
+            confirmed += 1
+            continue
+        merged.append(rel)
+    return merged, confirmed
+
+
+def _carry_forward_relationships(
+    prior: DexCache | None,
+    examined: set[str],
+    relationships: list[Relationship],
+    *,
+    observed_namespaces: set[str] | None = None,
+) -> tuple[list[Relationship], int]:
+    """Union back in any prior relationship this run could not possibly have
+    regenerated or superseded: one with an endpoint outside ``examined`` (the
+    identifiers this run actually profiled or reused fresh, not merely
+    inventoried -- a `--scope`/`--dataset` narrower than what built the prior
+    cache, or a rank-cutoff skip on a large `explore map`).
+
+    Without this, a narrower run silently drops every cross-scope edge the
+    prior cache held, the same loss `_compose_datasets` guards against for
+    datasets (issue #111). Deduped against the newly built set by the same
+    edge key `_merge_relationships` uses, so an edge both runs agree on is
+    never doubled.
+
+    ``observed_namespaces`` (see `_compose_datasets`) excludes an edge whose
+    endpoint is gone from the warehouse rather than merely out of scope, so a
+    deleted relation's join does not resurrect either (issue #149).
+    """
+
+    if prior is None or not prior.relationships:
+        return relationships, 0
+    existing = {_relationship_edge_key(rel) for rel in relationships}
+
+    def dropped(identifier: str) -> bool:
+        return (
+            observed_namespaces is not None
+            and identifier not in examined
+            and identifier.rpartition(".")[0].lower() in observed_namespaces
+        )
+
+    carried = [
+        rel
+        for rel in prior.relationships
+        if (rel.from_dataset not in examined or rel.to_dataset not in examined)
+        and _relationship_edge_key(rel) not in existing
+        and not dropped(rel.from_dataset)
+        and not dropped(rel.to_dataset)
+    ]
+    if not carried:
+        return relationships, 0
+    return relationships + carried, len(carried)
+
+
+def _carry_forward_overlap_edges(
+    prior: DexCache | None,
+    connector: str,
+    known_identifiers: set[str],
+    relationships: list[Relationship],
+) -> tuple[list[Relationship], int]:
+    """Union back in every prior ``OVERLAP_INFERRED`` edge whose endpoints
+    are both still known objects on this connector (issue #220).
+
+    The general :func:`_carry_forward_relationships` above only reaches back
+    for an edge outside this run's examined scope, on the premise that
+    anything in scope would be re-found this run if it still holds -- true
+    for a declared join (re-read from the dbt project every run) and a
+    name-inferred one (re-derived from cheap metadata every run), but false
+    for an overlap-derived one: nothing rediscovers it except the opt-in,
+    priced ``--infer-by-overlap`` sweep. Without this, an edge only that
+    sweep can find would vanish the moment a caller runs a plain
+    ``explore relationships``/``explore map``, which is a worse loss than
+    the general function guards against, since here there is no cheaper path
+    back to the same fact.
+
+    Called before the sweep builds its own "already matched" exclusion set,
+    so a pair this already covers is never re-probed (and re-paid for) on a
+    later ``--infer-by-overlap`` run that finds the same edge again.
+    Deduped the same way the general carry-forward is, so a --infer-by-overlap
+    run that reconfirms an edge this run doesn't double it.
+    """
+
+    if prior is None or prior.provenance.connector != connector:
+        return relationships, 0
+    existing = {_relationship_edge_key(rel) for rel in relationships}
+    carried = [
+        rel
+        for rel in prior.relationships
+        if rel.kind is RelationshipKind.OVERLAP_INFERRED
+        and rel.from_dataset in known_identifiers
+        and rel.to_dataset in known_identifiers
+        and _relationship_edge_key(rel) not in existing
+    ]
+    if not carried:
+        return relationships, 0
+    return relationships + carried, len(carried)
+
+
+def _orphan_candidates(
+    metas: list[ObjectMeta], defs: dbt_project.ProjectDefinitions
+) -> set[str]:
+    """Identifiers no current model/source builds or sources, restricted to
+    schemas the project *does* build/source at least one other object into, so
+    a raw, never dbt-modeled schema is never miscast as full of orphans. A
+    candidate is not necessarily residue: a table the loader just added is one
+    too. :func:`_baselined_identifiers` tells the two apart for the note."""
+
+    if not defs.present or not defs.built_relation_names:
+        return set()
+    backed = {name.lower() for name in defs.built_relation_names}
+    owned_schemas = {
+        meta.identifier.rpartition(".")[0].lower()
+        for meta in metas
+        if "." in meta.identifier
+        and meta.identifier.rpartition(".")[2].lower() in backed
+    }
+    if not owned_schemas:
+        return set()
+    return {
+        meta.identifier
+        for meta in metas
+        if "." in meta.identifier
+        and meta.identifier.rpartition(".")[0].lower() in owned_schemas
+        and meta.identifier.rpartition(".")[2].lower() not in backed
+    }
+
+
+def _baselined_identifiers(store: ExploreStore) -> set[str]:
+    """Lowercased identifiers the accepted baseline (``.dex/snapshot.json``)
+    knew. Empty when there is none, the store keeps none, or it cannot be read:
+    the note it selects is advisory, and `maintain` reports a corrupt one."""
+
+    if not isinstance(store, MaintainStore):
+        return set()
+    try:
+        snap = store.load_snapshot()
+    except ValueError:
+        return set()
+    if snap is None:
+        return set()
+    return {d.identifier.lower() for d in snap.warehouse.datasets}
+
+
+def _merged_hints(user_hints: list[str], metric_models: list[str]) -> list[str]:
+    """User-configured ranking hints plus the models metric definitions ground
+    in. User hints come first and are never displaced; metric-backed models are
+    appended so the naming signal favors what the project measures."""
+
+    merged = list(user_hints)
+    seen = {h.strip().lower() for h in user_hints if isinstance(h, str)}
+    for model in metric_models:
+        if model.lower() not in seen:
+            merged.append(model)
+            seen.add(model.lower())
+    return merged
+
+
+def _annotate_grain(
+    datasets: list[Dataset],
+    defs: dbt_project.ProjectDefinitions | None = None,
+    *,
+    orphaned: set[str] | None = None,
+    baselined: set[str] | None = None,
+    high_null_fraction: float = 0.95,
+    dialect: str | None = None,
+) -> None:
+    """Attach the interpretation layer to raw profiles: candidate keys, the likely
+    grain, the data-quality warnings an analyst would write (non-unique own
+    key, unknown grain), and the severity-ordered column findings (#291,
+    ``high_null_fraction`` is ``profile_high_null_fraction`` in
+    ``.dex/config.yml``). Shared by profile and map so a single-table profile
+    surfaces a broken grain without requiring a full map.
+
+    With project definitions, the declared truth refines the heuristics: a
+    semantic model's primary entity overrides the detected grain (noting any
+    disagreement), and a profiled column contradicting its declared ``unique``
+    test gets a data-quality note. A declared composite key (a model-level
+    ``unique_combination_of_columns`` test -- the one grain shape measurement
+    alone can miss or a column-level test cannot express at all) overrides the
+    detected grain too, unless the detected grain is already a measurement-
+    proven single column, in which case the proven single wins and the
+    composite is only noted. ``candidate_keys`` stays measurement-only: an
+    unmeasured declared key is a claim, and the cache is a drift baseline.
+    ``orphaned`` (map only) badges a relation no current model/source builds:
+    as likely residue when ``baselined`` (the snapshot's identifiers) knew it,
+    and otherwise as a new relation no source declares yet. ``dialect`` (the
+    connector's) notes columns whose names it reserves (#651).
+    """
+
+    declared_grain: dict[str, str] = {}
+    declared_unique: dict[str, set[str]] = {}
+    declared_composite: dict[str, list[list[str]]] = {}
+    if defs is not None and (
+        defs.primary_entities or defs.declared_keys or defs.declared_composite_keys
+    ):
+        identifiers = [d.identifier for d in datasets]
+        for model, column in defs.primary_entities.items():
+            ident, _ambiguous = rel_mod.resolve_declared(
+                defs.model_relations.get(model), model, identifiers
+            )
+            if ident is not None:
+                declared_grain[ident.lower()] = column
+        for key in defs.declared_keys:
+            if not key.unique:
+                continue
+            ident, _ambiguous = rel_mod.resolve_declared(
+                key.relation, key.model, identifiers
+            )
+            if ident is not None:
+                declared_unique.setdefault(ident.lower(), set()).add(key.column.lower())
+        for composite in defs.declared_composite_keys:
+            ident, _ambiguous = rel_mod.resolve_declared(
+                composite.relation, composite.model, identifiers
+            )
+            if ident is None:
+                continue
+            bucket = declared_composite.setdefault(ident.lower(), [])
+            normalized = {c.lower() for c in composite.columns}
+            if not any({c.lower() for c in cols} == normalized for cols in bucket):
+                bucket.append(list(composite.columns))
+
+    for ds in datasets:
+        ds.candidate_keys = rel_mod.candidate_keys(ds)
+        ds.grain = rel_mod.detect_grain(ds)
+        # After candidate_keys, because the reported half has to come back in
+        # exactly its order; the probe's suppressed entries ride through.
+        ds.key_evidence = rel_mod.key_evidence(ds)
+        ds.data_quality.extend(rel_mod.data_quality_notes(ds))
+        if dialect is not None:
+            reserved = reserved_column_names(dialect, [c.name for c in ds.columns])
+            if reserved:
+                ds.data_quality.append(
+                    f"column(s) {', '.join(reserved)} are reserved words in "
+                    f"{dialect}; declare them with `quote: true` in dbt, or its "
+                    "generic tests on them fail to compile"
+                )
+        if orphaned and ds.identifier in orphaned:
+            if baselined and ds.identifier.lower() in baselined:
+                ds.data_quality.append(
+                    "no current dbt model or source builds this relation, though "
+                    "the project builds/sources others in this schema; likely "
+                    "orphaned residue of a rename or removal"
+                )
+            else:
+                ds.data_quality.append(
+                    "no dbt source declares this relation yet; add it to the "
+                    "sources file before modelling it"
+                )
+
+        grain_column = declared_grain.get(ds.identifier.lower())
+        if grain_column is not None:
+            profiled = next(
+                (c for c in ds.columns if c.name.lower() == grain_column.lower()),
+                None,
+            )
+            if profiled is not None:
+                declared = [profiled.name]
+                if ds.grain != declared:
+                    # Says where the grain came from either way. "Measurement
+                    # found none" is as much worth stating as a disagreement:
+                    # it is the case where the declaration is carrying the
+                    # answer on its own, and a reader who cannot tell that
+                    # apart from a confirmed guess does not know how much the
+                    # grain rests on.
+                    origin = (
+                        f"heuristic suggested {', '.join(ds.grain)}"
+                        if ds.grain
+                        else "measurement found no key of its own"
+                    )
+                    ds.data_quality.append(
+                        f"grain {profiled.name} comes from the project's declared "
+                        f"primary entity ({origin})"
+                    )
+                ds.grain = declared
+        for col in ds.columns:
+            if (
+                col.name.lower() in declared_unique.get(ds.identifier.lower(), set())
+                and col.is_unique is False
+            ):
+                ds.data_quality.append(
+                    f"{col.name} is declared unique in the dbt project but "
+                    "profiling found duplicates"
+                )
+
+        composite_candidates = declared_composite.get(ds.identifier.lower())
+        if composite_candidates:
+            live = {c.name.lower(): c.name for c in ds.columns}
+            valid: list[list[str]] = []
+            for cols in composite_candidates:
+                resolved = [live.get(c.lower()) for c in cols]
+                if all(resolved):
+                    valid.append(resolved)
+                else:
+                    missing = [
+                        c for c, r in zip(cols, resolved, strict=True) if r is None
+                    ]
+                    ds.data_quality.append(
+                        f"declared composite key ({', '.join(cols)}) names "
+                        f"column(s) not in this profile ({', '.join(missing)}); "
+                        "not applied"
+                    )
+            if valid:
+                # detect_grain() only ever returns a single column drawn from
+                # candidate_keys()'s proven singles, EXCEPT the primary_entities
+                # override just above can also force ds.grain to an unproven
+                # single column -- this membership check catches both cases
+                # correctly: a freshly measured proven single passes it, an
+                # unproven declared one does not, and only the former should
+                # block a composite override.
+                proven_single = bool(
+                    ds.grain and len(ds.grain) == 1 and ds.grain in ds.candidate_keys
+                )
+                if proven_single:
+                    names = "; ".join(", ".join(c) for c in valid)
+                    ds.data_quality.append(
+                        f"a composite key ({names}) is also declared for this "
+                        f"table; the measured single-column grain {ds.grain[0]} "
+                        "took precedence"
+                    )
+                else:
+                    chosen = valid[0]
+                    if len(valid) > 1:
+                        others = "; ".join(", ".join(c) for c in valid[1:])
+                        ds.data_quality.append(
+                            f"{len(valid)} composite keys are declared for this "
+                            f"table; using {', '.join(chosen)} (also declared: "
+                            f"{others})"
+                        )
+                    if ds.grain != chosen:
+                        origin = (
+                            f"heuristic suggested {', '.join(ds.grain)}"
+                            if ds.grain
+                            else "measurement found no key of its own"
+                        )
+                        ds.data_quality.append(
+                            f"grain {', '.join(chosen)} comes from the project's "
+                            f"declared composite key ({origin})"
+                        )
+                    ds.grain = chosen
+
+        # After every grain refinement above (heuristic, declared single,
+        # declared composite): the nullable-grain-column check has to read the
+        # grain this dataset ends up with, not the heuristic one a declaration
+        # might still override.
+        ds.findings = rel_mod.profile_findings(
+            ds, high_null_fraction=high_null_fraction
+        )
+
+
+def _relationship_notes(
+    datasets: list[Dataset],
+    declared: list,
+    inferred: list,
+    defs: dbt_project.ProjectDefinitions | None = None,
+) -> list[str]:
+    """Explain the inference result so an empty array is distinguishable from
+    'no relationships exist': what was examined and why nothing survived."""
+
+    fk_columns = rel_mod.fk_candidate_count(datasets)
+    notes = [
+        f"inference examined {fk_columns} id-shaped column(s) "
+        f"across {len(datasets)} profiled object(s)"
+    ]
+    # A model declaration's `references` (#498) states a foreign key as surely
+    # as a relationships test does.
+    declares_keys = defs is not None and (
+        bool(defs.foreign_keys)
+        or any(
+            meaning.references
+            for declaration in defs.model_declarations.values()
+            for meaning in declaration.columns.values()
+        )
+    )
+    if not declared:
+        if defs is not None and defs.present and declares_keys:
+            # The project declares foreign keys, but none resolved here; the
+            # per-join notes from resolution say which and why.
+            notes.append("no declared relationships resolved against this connection")
+        elif defs is not None and not defs.present and defs.project_dir:
+            notes.append("no declared relationships (dbt project present but unused)")
+        elif defs is not None and defs.present and not declares_keys:
+            notes.append(
+                "no declared relationships (dbt project declares no foreign keys)"
+            )
+        else:
+            notes.append("no declared relationships (no dbt project)")
+    if fk_columns and not inferred:
+        notes.append(
+            "no id-shaped column matched a parent table by name; joins may exist "
+            "that name-based inference cannot see"
+        )
+    if not fk_columns:
+        notes.append("no id-shaped columns found, so there was nothing to infer from")
+    return notes
+
+
+def _generic_name_notes(suppressed: list[rel_mod.SuppressedMatch]) -> list[str]:
+    """Explain what a generic shared id-column name cost inference, so the
+    withheld count doesn't read as "nothing more to find" when it's really
+    "found, and declined to trust".
+
+    Empty when nothing was withheld: the common case on warehouses without a
+    CDC-style universal id column.
+    """
+
+    if not suppressed:
+        return []
+    names = sorted({s.shared_name for s in suppressed})
+    max_hosts = max(s.host_count for s in suppressed)
+    shown = ", ".join(names[:5])
+    more = f", +{len(names) - 5} more" if len(names) > 5 else ""
+    return [
+        f"declined to infer {len(suppressed)} candidate join(s) that matched only "
+        f"on a column name shared as a key by {max_hosts} unrelated object(s) "
+        f"({shown}{more}); a name shared this widely (the norm for Firestore/"
+        "Mongo/DynamoDB-style CDC exports) is a naming convention, not evidence "
+        "of a relationship, so these never reached --verify"
+    ]
+
+
+def _affix_match_notes(affix_matches: list[rel_mod.AffixMatch]) -> list[str]:
+    """Explain when a join matched only after stripping a configured entity
+    affix (see `EntityAffixes`), so the lower confidence these joins carry
+    doesn't read as an unexplained demotion (issue #208)."""
+
+    if not affix_matches:
+        return []
+    examples = ", ".join(
+        f"{m.child_column} -> {m.parent} (stripped to {m.stripped_to})"
+        for m in affix_matches[:5]
+    )
+    more = f", +{len(affix_matches) - 5} more" if len(affix_matches) > 5 else ""
+    return [
+        f"matched {len(affix_matches)} join(s) to a parent name only after "
+        f"stripping a configured prefix/suffix ({examples}{more}); scored below "
+        "an exact entity-name match to the same key"
+    ]
+
+
+def _overlap_sweep_notes(
+    *,
+    infer_by_overlap: bool,
+    deferred: bool,
+    pending: ConfirmationRequest | None,
+    proposed: int,
+    rejected: int,
+    elided: int,
+    carried: int,
+) -> list[str]:
+    """Notes for the ``--infer-by-overlap`` sweep phase (issue #220).
+
+    Named even when the sweep did not run, off by default, deferred behind a
+    still-pending ``--verify`` checkpoint, or pending its own, per the
+    issue's acceptance criterion that the flag is discoverable from notes
+    alone rather than only from ``--help``. ``carried`` is reported
+    unconditionally, since a prior overlap-derived edge survives into this
+    run's set regardless of whether the sweep itself ran again (see
+    :func:`_carry_forward_overlap_edges`).
+    """
+
+    notes: list[str] = []
+    if carried:
+        notes.append(
+            f"carried forward {carried} previously discovered value-overlap "
+            "join(s); an overlap-derived edge is never rediscovered by "
+            "plain inference, so it persists once found rather than "
+            "needing --infer-by-overlap again on every call"
+        )
+    if not infer_by_overlap:
+        notes.append(
+            "value-overlap join inference not run; pass --infer-by-overlap "
+            "to probe key-shaped columns whose names matched nothing for "
+            "measured value containment"
+        )
+        return notes
+    if deferred:
+        notes.append(
+            "value-overlap sweep deferred: --verify's own checkpoint is "
+            "still pending confirmation; confirm and re-run to also run "
+            "the sweep in the same pass"
+        )
+        return notes
+    if pending is not None:
+        notes.append(
+            "value-overlap sweep saved unswept; confirmation awaits (see hint)"
+        )
+        return notes
+    if proposed or rejected:
+        notes.append(
+            f"overlap sweep proposed {proposed} join(s) from measured value "
+            f"containment alone (no column name matched); {rejected} probed "
+            "candidate(s) did not show enough containment to propose"
+        )
+    else:
+        notes.append("overlap sweep found no unmatched key-shaped column pair to probe")
+    if elided:
+        notes.append(
+            f"{elided} additional unmatched key-shaped column pair(s) "
+            "exceeded the overlap-sweep cap and were not probed"
+        )
+    return notes
+
+
+def _select_for_profiling(
+    metas: list[ObjectMeta],
+    scores: dict[str, float],
+    config: DexConfig,
+    full: bool,
+) -> list[ObjectMeta]:
+    if full or len(metas) <= _AUTO_PROFILE_ALL:
+        return metas
+    ranked = sorted(metas, key=lambda m: scores.get(m.identifier, 0.0), reverse=True)
+    return ranked[: config.profile_top_n]
+
+
+def _column_signature(columns) -> list[tuple[str, str, bool]]:
+    """The (name, data_type, nullable) shape of a column set, sorted so two
+    profiles compare independent of column order. Shared shape as
+    ``maintain/drift.py``'s schema diff, applied here pre-profile against cheap
+    metadata instead of post-profile against two cached snapshots."""
+
+    return sorted((c.name, c.data_type, c.nullable) for c in columns)
+
+
+def _split_fresh_stale(
+    identifiers: list[str],
+    prior: DexCache | None,
+    connector: str,
+    adapter: Adapter,
+    max_age: timedelta,
+    now: datetime,
+    *,
+    refresh: bool,
+    values_free: bool = False,
+) -> tuple[list[str], dict[str, Dataset]]:
+    """Split requested identifiers into (still need profiling, reusable-fresh
+    datasets).
+
+    An object is *fresh* (skip the re-scan) only when its cached profile came
+    from this same connector, was actually profiled before (has columns and a
+    ``profiled_at``), was profiled within ``max_age``, and its column signature
+    still matches the warehouse's cheap metadata. Anything else is *stale* and
+    goes back through the billed profiling scan. ``refresh`` forces every object
+    stale (the pre-fix, unconditional-reprofile behavior), and so does a
+    mismatched-connector or absent prior — mirroring ``cmd_map``'s reuse gate.
+
+    Freshness is fail-closed: a missing or unparseable ``profiled_at``, or any
+    doubt, re-profiles rather than trusting a stale scan. A cache written before
+    the current ``CACHE_SCHEMA_VERSION`` is stale for the same reason: an older
+    profile can carry verdicts this version would no longer reach (a composite
+    key later recognized as an artifact of a near-unique column, say), and
+    reusing one would keep a superseded answer alive and keep charging a metered
+    connector to re-check it. One scan per table per upgrade, and no caller has
+    to know to pass ``--refresh``.
+
+    This is the gate for a *deliberate* profile, which is why the age window
+    belongs in it. The on-demand path asks a narrower question (see
+    :func:`_object_gap`) and deliberately does not reuse it: re-scanning a probe's
+    table because a day passed would bill a caller for statistics nothing is about
+    to read.
+
+    The profiling commands share this gate but arrive holding identifiers at
+    different points — ``map``/``relationships`` from inventory metas, ``profile``
+    from resolved arguments — so it works on the identifier strings they have in
+    common, not on ``ObjectMeta``.
+
+    A profile written in values-free mode (#591) kept no column values, so it is
+    stale to every caller outside that mode, who would otherwise be served an
+    incomplete profile as a complete one. A caller in the mode can reuse either
+    kind, since it projects the values away before anything leaves.
+    """
+
+    if (
+        refresh
+        or prior is None
+        or prior.provenance.connector != connector
+        or prior.schema_version < CACHE_SCHEMA_VERSION
+    ):
+        return list(identifiers), {}
+
+    prior_by_id = {d.identifier: d for d in prior.datasets if d.columns}
+    stale: list[str] = []
+    fresh: dict[str, Dataset] = {}
+    for identifier in identifiers:
+        prior_ds = prior_by_id.get(identifier)
+        if prior_ds is None or prior_ds.profiled_at is None:
+            stale.append(identifier)
+            continue
+        if prior_ds.values_withheld and not values_free:
+            stale.append(identifier)
+            continue
+        try:
+            profiled_at = datetime.fromisoformat(prior_ds.profiled_at)
+        except ValueError:
+            stale.append(identifier)
+            continue
+        if now - profiled_at > max_age:
+            stale.append(identifier)
+            continue
+        # The same free, no-scan metadata call profile() makes first: confirms
+        # the schema has not drifted since the cached profile was written.
+        _meta, columns = adapter.table_metadata(identifier)
+        if _column_signature(columns) != _column_signature(prior_ds.columns):
+            stale.append(identifier)
+            continue
+        fresh[identifier] = prior_ds.model_copy(deep=True)
+    return stale, fresh
+
+
+def _compose_datasets(
+    metas: list[ObjectMeta],
+    profiled: list[Dataset],
+    scores: dict[str, float],
+    prior: DexCache | None,
+    *,
+    observed_namespaces: set[str] | None = None,
+) -> tuple[list[Dataset], int, int, list[str]]:
+    """Merge this run's profiles over the full inventory. Returns the composed
+    datasets, how many prior profiles were carried forward within this run's
+    inventory, how many were carried forward from entirely outside it, and
+    which prior identifiers were dropped as gone rather than carried.
+
+    An object not profiled this run reuses its prior profile wholesale (columns,
+    keys, grain, notes, and its original ``profiled_at``, which marks the age)
+    rather than silently degrading to an inventory-only entry; only the rank
+    score is refreshed. ``row_count`` stays the prior one so the carried record
+    is internally consistent with its own notes and counts. Carried profiles do
+    not feed relationship inference, which runs on this run's profiles only.
+
+    A prior dataset absent from ``metas`` entirely is either out of this run's
+    scope or gone from the warehouse, and ``observed_namespaces`` (the
+    schema/dataset prefixes this run's inventory actually saw, lowered) is
+    what tells the two apart: if the identifier's own namespace was never
+    observed, this run's inventory never looked there at all (a
+    ``--scope``/``--dataset`` narrower than what built the prior cache), so it
+    is carried forward untouched, rank score included, same as before (issue
+    #111) -- not stale, not superseded, not this run's to drop. If its
+    namespace WAS observed but the object itself is not in ``metas``, this
+    run did look and it is not there: dropped, not carried, so a deleted
+    relation cannot resurrect itself into the next baseline as a false
+    ``table_dropped`` (issue #149). ``observed_namespaces=None`` (no scope
+    information available) preserves the pre-#149 behavior of carrying
+    everything unexamined forward.
+    """
+
+    by_id = {d.identifier: d for d in profiled}
+    prior_by_id = (
+        {d.identifier: d for d in prior.datasets if d.columns} if prior else {}
+    )
+    seen = {meta.identifier for meta in metas}
+    datasets: list[Dataset] = []
+    carried = 0
+    for meta in metas:
+        ds = by_id.get(meta.identifier)
+        if ds is None:
+            previous = prior_by_id.get(meta.identifier)
+            if previous is not None:
+                ds = previous.model_copy(deep=True)
+                carried += 1
+            else:
+                # Never profiled: an inventory-only entry keeps the landscape
+                # complete without scanning every object.
+                ds = Dataset(
+                    identifier=meta.identifier,
+                    object_type=meta.object_type,
+                    row_count=meta.row_count,
+                    byte_size=meta.byte_size,
+                )
+        ds.rank_score = scores.get(meta.identifier)
+        datasets.append(ds)
+
+    out_of_scope = 0
+    dropped: list[str] = []
+    for identifier, previous in prior_by_id.items():
+        if identifier in seen:
+            continue
+        namespace = identifier.rpartition(".")[0].lower()
+        if observed_namespaces is not None and namespace in observed_namespaces:
+            dropped.append(identifier)
+            continue
+        datasets.append(previous.model_copy(deep=True))
+        out_of_scope += 1
+    return datasets, carried, out_of_scope, dropped
+
+
+# Sentinel: preserve the prior cache's relationships (profile has no inference
+# pass, so it has no business touching them).
+def _profile_checkpointer(
+    store: ExploreStore,
+    prior: DexCache | None,
+    connector: str,
+    now: datetime,
+    *,
+    withhold: bool = False,
+) -> tuple[Callable[[Dataset], None], list[Dataset]]:
+    """Persist each profiled dataset as it completes, so a budget-exhaustion
+    failure mid-run still leaves the objects already paid for in the cache.
+
+    Reuses ``_merge_profiles`` (KEEP_RELATIONSHIPS), so a partial write is exactly
+    a ``cmd_profile``-shaped result: fresh profiles folded over the same-connector
+    prior, prior relationships preserved, no fabricated stubs. ``accumulated`` is
+    returned so the failure handler can report "N of M".
+    """
+
+    accumulated: list[Dataset] = []
+
+    def checkpoint(ds: Dataset) -> None:
+        if withhold:
+            # In place, so the dataset the scan goes on to return is the
+            # withheld one too, and nothing later writes its values back.
+            withhold_values(ds)
+        accumulated.append(ds)
+        cache, _ = _merge_profiles(prior, accumulated, connector, now)
+        store.save_cache(cache, now=now)
+
+    return checkpoint, accumulated
+
+
+def _budget_exhausted(
+    store: ExploreStore, adapter: Adapter, accumulated: list[Dataset], selected: int
+) -> BudgetExhaustedError:
+    """The partial-completion refusal for a mid-run budget exhaustion.
+
+    Because ``charge()`` fires before an object's ``Dataset`` is appended,
+    ``accumulated`` holds only fully-profiled objects, so the "N of M" is
+    truthful. The spend rides along because a caller deciding how much to raise
+    the budget by needs to know what the attempt already cost, so it is the
+    settled figure, with whatever the warehouse bills for the command as a
+    whole and the connector's translation, exactly as a finished command
+    reports it.
+    """
+
+    gate = command_args.cost_gate(adapter)
+    spend = command_args.settled_spend(adapter)
+    cost = gate.cost() if gate is not None else None
+    n = len(accumulated)
+    if n == 0:
+        return BudgetExhaustedError(
+            f"budget exhausted before the first of {selected} object(s) finished "
+            "profiling; no partial profiles were saved. Raise --budget or narrow "
+            "scope, then re-run",
+            spend=spend,
+            cost=cost,
+        )
+    cache_locator = store.locator(Document.CACHE)
+    return BudgetExhaustedError(
+        f"budget exhausted after profiling {n} of {selected} object(s); partial "
+        f"profiles saved to {cache_locator}. Raise --budget or narrow scope, then "
+        "re-run",
+        spend=spend,
+        cost=cost,
+    )
+
+
+def _prior_cache_warnings(prior: DexCache | None) -> list[str]:
+    """Say so when the cache this run reads was written by another engine (#731).
+
+    A run folds the profiles it does not re-scan in from that cache, so they
+    reach this run's answer as another release computed them. The write that
+    follows stamps this engine, so the warning appears once per switch rather
+    than on every run.
+    """
+
+    if prior is None:
+        return []
+    warning = state_version_warning(
+        "the exploration cache",
+        prior.provenance.tool_version,
+        "a profile this run reuses rather than re-scans was computed by that "
+        "engine, and `explore profile <object> --refresh` recomputes it with "
+        "this one",
+    )
+    return [warning] if warning else []
+
+
+_KEEP_RELATIONSHIPS = object()
+
+
+def _merge_profiles(
+    prior: DexCache | None,
+    profiled: list[Dataset],
+    connector: str,
+    now: datetime,
+    *,
+    relationships=_KEEP_RELATIONSHIPS,
+    observed_namespaces: set[str] | None = None,
+) -> tuple[DexCache, dict]:
+    """Fold freshly profiled datasets into a prior cache, keyed by identifier.
+
+    Unlike ``_compose_datasets`` (inventory-driven: it iterates metas and
+    manufactures inventory-only stubs), this merges over prior datasets plus
+    the freshly profiled set and never fabricates stubs or drops prior entries.
+
+    A same-connector prior is reusable; a mismatched-connector prior is dropped
+    wholesale (mirrors ``cmd_map``'s reuse gate: mixing connectors would poison
+    the PII policy and the maintain baseline, and `.dex/` is non-canonical
+    scratch that one `explore map` rebuilds). A refreshed dataset carries
+    forward the prior ``rank_score``, because profile and relationships do not
+    compute rank. Relationships are preserved by default (profile) or replaced
+    with the passed set (relationships, whose full-inventory inference is
+    authoritative for its run).
+    """
+
+    reusable = prior if prior and prior.provenance.connector == connector else None
+    by_id = {d.identifier: d for d in profiled}
+    datasets: list[Dataset] = []
+    consumed: set[str] = set()
+    if reusable is not None:
+        for old in reusable.datasets:
+            fresh = by_id.get(old.identifier)
+            if fresh is not None:
+                fresh.rank_score = old.rank_score  # keep map's connectivity ranking
+                datasets.append(fresh)
+                consumed.add(old.identifier)
+            else:
+                datasets.append(old)  # untouched; keeps its older profiled_at
+    # Anything left over is newly profiled and inserted; rank_score stays None.
+    datasets.extend(ds for ds in profiled if ds.identifier not in consumed)
+    if relationships is _KEEP_RELATIONSHIPS:
+        rels = list(reusable.relationships) if reusable else []
+    else:
+        rels = relationships
+    cache = DexCache(datasets=datasets, relationships=rels)
+    cache.provenance.connector = connector
+    cache.provenance.inventory_namespaces = sorted(
+        {
+            *(reusable.provenance.inventory_namespaces if reusable else []),
+            *(observed_namespaces or set()),
+        }
+    )
+    cache.provenance.created_at = (
+        reusable.provenance.created_at
+        if reusable and reusable.provenance.created_at
+        else now.isoformat()
+    )
+    stats = {
+        "connector": connector,
+        "merged": reusable is not None,
+        "refreshed": len(consumed),
+        "added": len(profiled) - len(consumed),
+        "replaced_connector": (
+            prior.provenance.connector if prior and reusable is None else None
+        ),
+    }
+    return cache, stats
+
+
+def _persist_note(stats: dict, count: int, *, keeps_relationships: bool) -> str:
+    """One sentence saying what the cache write did, driven by merge stats."""
+
+    if stats["replaced_connector"]:
+        return (
+            f"prior cache was built for connector '{stats['replaced_connector']}'; "
+            f"profiling on '{stats['connector']}' replaced it with a fresh cache "
+            f"of the {count} profiled object(s); run `explore map` to rebuild "
+            "the full landscape"
+        )
+    if stats["merged"]:
+        preserved = (
+            "other datasets and relationships preserved"
+            if keeps_relationships
+            else "other datasets preserved"
+        )
+        return (
+            f"merged {count} profiled object(s) into the existing cache "
+            f"({stats['refreshed']} refreshed, {stats['added']} added); {preserved}"
+        )
+    return (
+        f"created the exploration cache with {count} profiled object(s); run "
+        "`explore map` to add the full inventory and relationships"
+    )
+
+
+def _resolve_identifiers(adapter: Adapter, requested: list[str]) -> list[str]:
+    """Map user-supplied object names (possibly bare) to full identifiers.
+
+    Accepts an exact identifier, a ``schema.name`` suffix, or a bare object name,
+    and fails cleanly on an unknown or ambiguous name rather than guessing.
+    Comma-joined lists (``profile a,b,c``) are as natural a first guess as
+    space-separated ones, so both are accepted.
+    """
+
+    known = [m.identifier for m in adapter.list_objects()]
+    names = [part.strip() for raw in requested for part in raw.split(",")]
+    resolved: list[str] = []
+    for name in (n for n in names if n):
+        unique = match_identifier(name, known)
+        if not unique:
+            raise RequestError(f"no object named '{name}' in this connection")
+        if len(unique) > 1:
+            raise RequestError(
+                f"'{name}' is ambiguous: {', '.join(unique)}; qualify it"
+            )
+        resolved.append(unique[0])
+    return resolved

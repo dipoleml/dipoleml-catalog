@@ -1,0 +1,30 @@
+{
+  "name": "devops",
+  "displayName": "Devops",
+  "version": "1.0.0",
+  "description": "CI/CD pipelines, automated testing, build systems, deployment, and infrastructure for game development",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Sponticelli"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/sponticelli/gamedev-claude-plugins",
+  "repository": "https://github.com/sponticelli/gamedev-claude-plugins",
+  "skills": [],
+  "commands": [
+    "./commands/pipeline-spec.md",
+    "./commands/build-audit.md",
+    "./commands/test-strategy.md",
+    "./commands/infra-plan.md",
+    "./commands/deploy-checklist.md",
+    "./commands/incident-response.md"
+  ],
+  "agents": [
+    "./agents/pipeline-architect.md",
+    "./agents/build-engineer.md",
+    "./agents/test-automation-lead.md",
+    "./agents/infrastructure-planner.md",
+    "./agents/deployment-coordinator.md",
+    "./agents/verify-pipeline.md"
+  ]
+}

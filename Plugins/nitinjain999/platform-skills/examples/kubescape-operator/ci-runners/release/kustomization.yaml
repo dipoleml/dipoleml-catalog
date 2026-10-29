@@ -1,0 +1,11 @@
+# Step 2 of narrowing runtime rules for ci-runners (opt-in): the base install
+# plus a post-renderer that takes ci-runners out of the chart's default
+# all-rules-all-pods binding. Switch the Kustomization that reconciles ../../flux
+# to this path only once step 1 (../) is applied; applied first, ci-runners would
+# have no runtime rules at all.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../flux
+patches:
+  - path: helmrelease-postrenderer.yaml

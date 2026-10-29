@@ -1,0 +1,29 @@
+{
+  "name": "anidoodle",
+  "displayName": "anidoodle",
+  "description": "Code-drawn stills, drawing timelapses, films, explainers and interactive web animations in 32 styles, with scores composed in code.",
+  "version": "0.9.6",
+  "icon": "./assets/icon.png",
+  "author": {
+    "name": "Alex Greenshpun",
+    "url": "https://linkedin.com/in/alexgreensh"
+  },
+  "homepage": "https://github.com/alexgreensh/anidoodle",
+  "repository": "https://github.com/alexgreensh/anidoodle",
+  "documentationUrl": "https://github.com/alexgreensh/anidoodle#readme",
+  "supportUrl": "https://github.com/alexgreensh/anidoodle/issues",
+  "privacyPolicyUrl": "https://github.com/alexgreensh/anidoodle/blob/main/PRIVACY.md",
+  "termsOfServiceUrl": "https://github.com/alexgreensh/anidoodle/blob/main/LICENSE",
+  "license": "Apache-2.0",
+  "keywords": [
+    "illustration",
+    "animation",
+    "film",
+    "drawing",
+    "art",
+    "music",
+    "explainer",
+    "generative",
+    "deterministic"
+  ]
+}

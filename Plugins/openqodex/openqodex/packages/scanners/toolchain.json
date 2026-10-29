@@ -1,0 +1,655 @@
+{
+  "schema": 1,
+  "tools": {
+    "gitleaks": {
+      "version": "8.21.2",
+      "method": "github-release",
+      "repo": "gitleaks/gitleaks",
+      "tag": "v8.21.2",
+      "binary": "gitleaks",
+      "assets": {
+        "darwin-arm64": {
+          "name": "gitleaks_8.21.2_darwin_arm64.tar.gz",
+          "url": "https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_darwin_arm64.tar.gz",
+          "sha256": "cad3de5dc9a4d5447d967a70a4d49499c557f04db028274cc324f9ff983f6502",
+          "archive": "tar.gz",
+          "binaryPath": "gitleaks"
+        },
+        "darwin-x64": {
+          "name": "gitleaks_8.21.2_darwin_x64.tar.gz",
+          "url": "https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_darwin_x64.tar.gz",
+          "sha256": "5b42c6e4b1fd693eaeb2b5b7faa5f17a1434299d4deb2de63d4b2efd7c753128",
+          "archive": "tar.gz",
+          "binaryPath": "gitleaks"
+        },
+        "linux-x64": {
+          "name": "gitleaks_8.21.2_linux_x64.tar.gz",
+          "url": "https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_x64.tar.gz",
+          "sha256": "5bc41815076e6ed6ef8fbecc9d9b75bcae31f39029ceb55da08086315316e3ba",
+          "archive": "tar.gz",
+          "binaryPath": "gitleaks"
+        },
+        "linux-arm64": {
+          "name": "gitleaks_8.21.2_linux_arm64.tar.gz",
+          "url": "https://github.com/gitleaks/gitleaks/releases/download/v8.21.2/gitleaks_8.21.2_linux_arm64.tar.gz",
+          "sha256": "654c935542c89f565aabe7bf7c6c500830f116c114f0aeb509d2460c1ac2e6da",
+          "archive": "tar.gz",
+          "binaryPath": "gitleaks"
+        }
+      }
+    },
+    "osv-scanner": {
+      "version": "2.6.0",
+      "method": "github-release",
+      "repo": "google/osv-scanner",
+      "tag": "v2.6.0",
+      "binary": "osv-scanner",
+      "assets": {
+        "darwin-arm64": {
+          "name": "osv-scanner_darwin_arm64",
+          "url": "https://github.com/google/osv-scanner/releases/download/v2.6.0/osv-scanner_darwin_arm64",
+          "sha256": "98c460dcd37de25819babd757d04542045b6243113e209edcd4d89fedb0256b4",
+          "archive": "none",
+          "binaryPath": "osv-scanner_darwin_arm64"
+        },
+        "darwin-x64": {
+          "name": "osv-scanner_darwin_amd64",
+          "url": "https://github.com/google/osv-scanner/releases/download/v2.6.0/osv-scanner_darwin_amd64",
+          "sha256": "60c5296637e977b28eeda5c7f13573e447659a632922737f94d11fa7e30ad6ca",
+          "archive": "none",
+          "binaryPath": "osv-scanner_darwin_amd64"
+        },
+        "linux-x64": {
+          "name": "osv-scanner_linux_amd64",
+          "url": "https://github.com/google/osv-scanner/releases/download/v2.6.0/osv-scanner_linux_amd64",
+          "sha256": "ca69b3d3cd08f889a49dc0a383122f71cc528b83803671df5fd874d97485b108",
+          "archive": "none",
+          "binaryPath": "osv-scanner_linux_amd64"
+        },
+        "linux-arm64": {
+          "name": "osv-scanner_linux_arm64",
+          "url": "https://github.com/google/osv-scanner/releases/download/v2.6.0/osv-scanner_linux_arm64",
+          "sha256": "2c71403eb443d05891c4f268c3ad771cf4f16e5443463fd7851ef8f454d3c7e4",
+          "archive": "none",
+          "binaryPath": "osv-scanner_linux_arm64"
+        }
+      }
+    },
+    "actionlint": {
+      "version": "1.7.7",
+      "method": "github-release",
+      "repo": "rhysd/actionlint",
+      "tag": "v1.7.7",
+      "binary": "actionlint",
+      "assets": {
+        "darwin-arm64": {
+          "name": "actionlint_1.7.7_darwin_arm64.tar.gz",
+          "url": "https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_darwin_arm64.tar.gz",
+          "sha256": "2693315b9093aeacb4ebd91a993fea54fc215057bf0da2659056b4bc033873db",
+          "archive": "tar.gz",
+          "binaryPath": "actionlint"
+        },
+        "darwin-x64": {
+          "name": "actionlint_1.7.7_darwin_amd64.tar.gz",
+          "url": "https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_darwin_amd64.tar.gz",
+          "sha256": "28e5de5a05fc558474f638323d736d822fff183d2d492f0aecb2b73cc44584f5",
+          "archive": "tar.gz",
+          "binaryPath": "actionlint"
+        },
+        "linux-x64": {
+          "name": "actionlint_1.7.7_linux_amd64.tar.gz",
+          "url": "https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_amd64.tar.gz",
+          "sha256": "023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757",
+          "archive": "tar.gz",
+          "binaryPath": "actionlint"
+        },
+        "linux-arm64": {
+          "name": "actionlint_1.7.7_linux_arm64.tar.gz",
+          "url": "https://github.com/rhysd/actionlint/releases/download/v1.7.7/actionlint_1.7.7_linux_arm64.tar.gz",
+          "sha256": "401942f9c24ed71e4fe71b76c7d638f66d8633575c4016efd2977ce7c28317d0",
+          "archive": "tar.gz",
+          "binaryPath": "actionlint"
+        }
+      }
+    },
+    "hadolint": {
+      "version": "2.15.1",
+      "method": "github-release",
+      "repo": "hadolint/hadolint",
+      "tag": "v2.15.1",
+      "binary": "hadolint",
+      "assets": {
+        "darwin-arm64": {
+          "name": "hadolint-macos-arm64",
+          "url": "https://github.com/hadolint/hadolint/releases/download/v2.15.1/hadolint-macos-arm64",
+          "sha256": "5c09f3213f8e40406abe048233d985eebef336d4a6a20021be47fadb6cf480a2",
+          "archive": "none",
+          "binaryPath": "hadolint-macos-arm64"
+        },
+        "darwin-x64": {
+          "name": "hadolint-macos-x86_64",
+          "url": "https://github.com/hadolint/hadolint/releases/download/v2.15.1/hadolint-macos-x86_64",
+          "sha256": "ffe9bb18b23d5ed1eae50237aecdbb523d016e96da0bd4e7aa432040acfc3fde",
+          "archive": "none",
+          "binaryPath": "hadolint-macos-x86_64"
+        },
+        "linux-x64": {
+          "name": "hadolint-linux-x86_64",
+          "url": "https://github.com/hadolint/hadolint/releases/download/v2.15.1/hadolint-linux-x86_64",
+          "sha256": "c7187db94eeeeca956519a6af171adc31453941a1e777961f6e680f697c8c507",
+          "archive": "none",
+          "binaryPath": "hadolint-linux-x86_64"
+        },
+        "linux-arm64": {
+          "name": "hadolint-linux-arm64",
+          "url": "https://github.com/hadolint/hadolint/releases/download/v2.15.1/hadolint-linux-arm64",
+          "sha256": "f6198ef8090f404dbb771abfee086eb8c48ac177f30da7fd3510aca35b344b5d",
+          "archive": "none",
+          "binaryPath": "hadolint-linux-arm64"
+        }
+      }
+    },
+    "shellcheck": {
+      "version": "0.10.0",
+      "method": "github-release",
+      "repo": "koalaman/shellcheck",
+      "tag": "v0.10.0",
+      "binary": "shellcheck",
+      "assets": {
+        "darwin-arm64": {
+          "name": "shellcheck-v0.10.0.darwin.aarch64.tar.xz",
+          "url": "https://github.com/koalaman/shellcheck/releases/download/v0.10.0/shellcheck-v0.10.0.darwin.aarch64.tar.xz",
+          "sha256": "bbd2f14826328eee7679da7221f2bc3afb011f6a928b848c80c321f6046ddf81",
+          "archive": "tar.xz",
+          "binaryPath": "shellcheck-v0.10.0/shellcheck"
+        },
+        "darwin-x64": {
+          "name": "shellcheck-v0.10.0.darwin.x86_64.tar.xz",
+          "url": "https://github.com/koalaman/shellcheck/releases/download/v0.10.0/shellcheck-v0.10.0.darwin.x86_64.tar.xz",
+          "sha256": "ef27684f23279d112d8ad84e0823642e43f838993bbb8c0963db9b58a90464c2",
+          "archive": "tar.xz",
+          "binaryPath": "shellcheck-v0.10.0/shellcheck"
+        },
+        "linux-x64": {
+          "name": "shellcheck-v0.10.0.linux.x86_64.tar.xz",
+          "url": "https://github.com/koalaman/shellcheck/releases/download/v0.10.0/shellcheck-v0.10.0.linux.x86_64.tar.xz",
+          "sha256": "6c881ab0698e4e6ea235245f22832860544f17ba386442fe7e9d629f8cbedf87",
+          "archive": "tar.xz",
+          "binaryPath": "shellcheck-v0.10.0/shellcheck"
+        },
+        "linux-arm64": {
+          "name": "shellcheck-v0.10.0.linux.aarch64.tar.xz",
+          "url": "https://github.com/koalaman/shellcheck/releases/download/v0.10.0/shellcheck-v0.10.0.linux.aarch64.tar.xz",
+          "sha256": "324a7e89de8fa2aed0d0c28f3dab59cf84c6d74264022c00c22af665ed1a09bb",
+          "archive": "tar.xz",
+          "binaryPath": "shellcheck-v0.10.0/shellcheck"
+        }
+      }
+    },
+    "ruff": {
+      "version": "0.8.4",
+      "method": "github-release",
+      "repo": "astral-sh/ruff",
+      "tag": "0.8.4",
+      "binary": "ruff",
+      "assets": {
+        "darwin-arm64": {
+          "name": "ruff-aarch64-apple-darwin.tar.gz",
+          "url": "https://github.com/astral-sh/ruff/releases/download/0.8.4/ruff-aarch64-apple-darwin.tar.gz",
+          "sha256": "8893f3ede33a73740f69b10ee9356e5cf2933c0afe146f00176be12ef91bf9d9",
+          "archive": "tar.gz",
+          "binaryPath": "ruff-aarch64-apple-darwin/ruff"
+        },
+        "darwin-x64": {
+          "name": "ruff-x86_64-apple-darwin.tar.gz",
+          "url": "https://github.com/astral-sh/ruff/releases/download/0.8.4/ruff-x86_64-apple-darwin.tar.gz",
+          "sha256": "b47e45fe5bf128eaaeaf9f477388934586d00c2c16469034c770d93ceb655a16",
+          "archive": "tar.gz",
+          "binaryPath": "ruff-x86_64-apple-darwin/ruff"
+        },
+        "linux-x64": {
+          "name": "ruff-x86_64-unknown-linux-gnu.tar.gz",
+          "url": "https://github.com/astral-sh/ruff/releases/download/0.8.4/ruff-x86_64-unknown-linux-gnu.tar.gz",
+          "sha256": "c4e6591ae1bb4f15c09c9022b7bfc57e1c3a567acdc9cd76021cd1304b5868c3",
+          "archive": "tar.gz",
+          "binaryPath": "ruff-x86_64-unknown-linux-gnu/ruff"
+        },
+        "linux-arm64": {
+          "name": "ruff-aarch64-unknown-linux-gnu.tar.gz",
+          "url": "https://github.com/astral-sh/ruff/releases/download/0.8.4/ruff-aarch64-unknown-linux-gnu.tar.gz",
+          "sha256": "0dfe36fabb817638863375e0140ce03bf26ccc9a7fd9d2c8e8337b1a21697ed4",
+          "archive": "tar.gz",
+          "binaryPath": "ruff-aarch64-unknown-linux-gnu/ruff"
+        }
+      }
+    },
+    "golangci": {
+      "version": "2.14.0",
+      "method": "github-release",
+      "repo": "golangci/golangci-lint",
+      "tag": "v2.14.0",
+      "binary": "golangci-lint",
+      "assets": {
+        "darwin-arm64": {
+          "name": "golangci-lint-2.14.0-darwin-arm64.tar.gz",
+          "url": "https://github.com/golangci/golangci-lint/releases/download/v2.14.0/golangci-lint-2.14.0-darwin-arm64.tar.gz",
+          "sha256": "5ef5f36a7147e91dc58ef9ef4d11bb7bad5ead0c76eb6c01327a73c641d1dcc3",
+          "archive": "tar.gz",
+          "binaryPath": "golangci-lint-2.14.0-darwin-arm64/golangci-lint"
+        },
+        "darwin-x64": {
+          "name": "golangci-lint-2.14.0-darwin-amd64.tar.gz",
+          "url": "https://github.com/golangci/golangci-lint/releases/download/v2.14.0/golangci-lint-2.14.0-darwin-amd64.tar.gz",
+          "sha256": "a5667c1c3536be1740133213e1e822bfb8f0d98ea12903174d6d5f635e4ed68d",
+          "archive": "tar.gz",
+          "binaryPath": "golangci-lint-2.14.0-darwin-amd64/golangci-lint"
+        },
+        "linux-x64": {
+          "name": "golangci-lint-2.14.0-linux-amd64.tar.gz",
+          "url": "https://github.com/golangci/golangci-lint/releases/download/v2.14.0/golangci-lint-2.14.0-linux-amd64.tar.gz",
+          "sha256": "ab90aeb7b066f92a33415b638a50fe5344bbb75a0d32ad30cc248d88f81032ab",
+          "archive": "tar.gz",
+          "binaryPath": "golangci-lint-2.14.0-linux-amd64/golangci-lint"
+        },
+        "linux-arm64": {
+          "name": "golangci-lint-2.14.0-linux-arm64.tar.gz",
+          "url": "https://github.com/golangci/golangci-lint/releases/download/v2.14.0/golangci-lint-2.14.0-linux-arm64.tar.gz",
+          "sha256": "ee7ec5f3453d15ddf106fae5a4d6c71737712348a979d1fe9cd52ec7ea299bae",
+          "archive": "tar.gz",
+          "binaryPath": "golangci-lint-2.14.0-linux-arm64/golangci-lint"
+        }
+      },
+      "needs": "go"
+    },
+    "uv": {
+      "version": "0.12.22",
+      "method": "github-release",
+      "repo": "astral-sh/uv",
+      "tag": "0.12.22",
+      "binary": "uv",
+      "assets": {
+        "darwin-arm64": {
+          "name": "uv-aarch64-apple-darwin.tar.gz",
+          "url": "https://github.com/astral-sh/uv/releases/download/0.12.22/uv-aarch64-apple-darwin.tar.gz",
+          "sha256": "5d714de09501a59393ceca78f4bc232a50478729640d251907160299b2a93ddd",
+          "archive": "tar.gz",
+          "binaryPath": "uv-aarch64-apple-darwin/uv"
+        },
+        "darwin-x64": {
+          "name": "uv-x86_64-apple-darwin.tar.gz",
+          "url": "https://github.com/astral-sh/uv/releases/download/0.12.22/uv-x86_64-apple-darwin.tar.gz",
+          "sha256": "1b8a5b316883df2daf20fb9a446e5b230e01d947d57aba2694977c5ac5a7e98c",
+          "archive": "tar.gz",
+          "binaryPath": "uv-x86_64-apple-darwin/uv"
+        },
+        "linux-x64": {
+          "name": "uv-x86_64-unknown-linux-gnu.tar.gz",
+          "url": "https://github.com/astral-sh/uv/releases/download/0.12.22/uv-x86_64-unknown-linux-gnu.tar.gz",
+          "sha256": "b9980552309f09c15172b8be828555e375097f16deb459795ce7bfd200380f0b",
+          "archive": "tar.gz",
+          "binaryPath": "uv-x86_64-unknown-linux-gnu/uv"
+        },
+        "linux-arm64": {
+          "name": "uv-aarch64-unknown-linux-gnu.tar.gz",
+          "url": "https://github.com/astral-sh/uv/releases/download/0.12.22/uv-aarch64-unknown-linux-gnu.tar.gz",
+          "sha256": "6f66a14e8239871fb477f9746c941fedfa77e8fe28a8bc7c07e1dc7f53a66712",
+          "archive": "tar.gz",
+          "binaryPath": "uv-aarch64-unknown-linux-gnu/uv"
+        }
+      }
+    },
+    "oxlint": {
+      "version": "1.86.0",
+      "method": "github-release",
+      "repo": "oxc-project/oxc",
+      "tag": "oxlint_v1.86.0",
+      "binary": "oxlint",
+      "assets": {
+        "darwin-arm64": {
+          "name": "oxlint-aarch64-apple-darwin.tar.gz",
+          "url": "https://github.com/oxc-project/oxc/releases/download/oxlint_v1.86.0/oxlint-aarch64-apple-darwin.tar.gz",
+          "sha256": "53b0cdbf1696b88293db648901a76785d5a3a4f98aeeb0a2be2b8d2eb8c44642",
+          "archive": "tar.gz",
+          "binaryPath": "oxlint-aarch64-apple-darwin"
+        },
+        "darwin-x64": {
+          "name": "oxlint-x86_64-apple-darwin.tar.gz",
+          "url": "https://github.com/oxc-project/oxc/releases/download/oxlint_v1.86.0/oxlint-x86_64-apple-darwin.tar.gz",
+          "sha256": "7cadde791a93b921429115594e71e47ab444ccdcbcbaae5a9a498cb52955aa3e",
+          "archive": "tar.gz",
+          "binaryPath": "oxlint-x86_64-apple-darwin"
+        },
+        "linux-x64": {
+          "name": "oxlint-x86_64-unknown-linux-gnu.tar.gz",
+          "url": "https://github.com/oxc-project/oxc/releases/download/oxlint_v1.86.0/oxlint-x86_64-unknown-linux-gnu.tar.gz",
+          "sha256": "8ac22aebac95651eb64eff44d4abafeeee5bf606e6c943e3c6648de530c73255",
+          "archive": "tar.gz",
+          "binaryPath": "oxlint-x86_64-unknown-linux-gnu"
+        },
+        "linux-arm64": {
+          "name": "oxlint-aarch64-unknown-linux-gnu.tar.gz",
+          "url": "https://github.com/oxc-project/oxc/releases/download/oxlint_v1.86.0/oxlint-aarch64-unknown-linux-gnu.tar.gz",
+          "sha256": "c31f8b8b7e61924a3ac2a8d1223e34fe249baa4e0e7ba6a4984b96a946371aa2",
+          "archive": "tar.gz",
+          "binaryPath": "oxlint-aarch64-unknown-linux-gnu"
+        }
+      }
+    },
+    "semgrep": {
+      "version": "1.94.0",
+      "method": "uv",
+      "package": "semgrep",
+      "python": "3.11",
+      "with": [
+        "setuptools==80.10.2"
+      ],
+      "binary": "semgrep"
+    },
+    "bandit": {
+      "version": "1.9.4",
+      "method": "uv",
+      "package": "bandit",
+      "python": "3.11",
+      "binary": "bandit"
+    },
+    "brakeman": {
+      "version": "6.2.1",
+      "method": "gem",
+      "gems": [
+        "brakeman:6.2.1"
+      ],
+      "needs": "ruby>=3.0",
+      "binary": "brakeman"
+    },
+    "rubocop": {
+      "version": "1.69.2",
+      "method": "gem",
+      "gems": [
+        "rubocop:1.69.2",
+        "rubocop-rails:2.28.0",
+        "rubocop-performance:1.23.0"
+      ],
+      "needs": "ruby>=2.7",
+      "binary": "rubocop"
+    },
+    "zizmor": {
+      "version": "1.30.1",
+      "method": "github-release",
+      "repo": "zizmorcore/zizmor",
+      "tag": "v1.30.1",
+      "binary": "zizmor",
+      "assets": {
+        "darwin-arm64": {
+          "name": "zizmor-aarch64-apple-darwin.tar.gz",
+          "url": "https://github.com/zizmorcore/zizmor/releases/download/v1.30.1/zizmor-aarch64-apple-darwin.tar.gz",
+          "sha256": "e28d22b087f9ebb8d99da6e740d348c930f559961c7c3f12badda54f882195a2",
+          "archive": "tar.gz",
+          "binaryPath": "zizmor"
+        },
+        "darwin-x64": {
+          "name": "zizmor-x86_64-apple-darwin.tar.gz",
+          "url": "https://github.com/zizmorcore/zizmor/releases/download/v1.30.1/zizmor-x86_64-apple-darwin.tar.gz",
+          "sha256": "10e6b18b11ea07e515a16f0f0518c7b07527bc9977c1fd5698181ce7f3554202",
+          "archive": "tar.gz",
+          "binaryPath": "zizmor"
+        },
+        "linux-x64": {
+          "name": "zizmor-x86_64-unknown-linux-gnu.tar.gz",
+          "url": "https://github.com/zizmorcore/zizmor/releases/download/v1.30.1/zizmor-x86_64-unknown-linux-gnu.tar.gz",
+          "sha256": "e65324f4430c2717591937edcec90ccbefaf14c174f8ec9415e03ca875b46e1a",
+          "archive": "tar.gz",
+          "binaryPath": "zizmor"
+        },
+        "linux-arm64": {
+          "name": "zizmor-aarch64-unknown-linux-gnu.tar.gz",
+          "url": "https://github.com/zizmorcore/zizmor/releases/download/v1.30.1/zizmor-aarch64-unknown-linux-gnu.tar.gz",
+          "sha256": "7ff1dce33bdd18fd2a4affe63bdd47efcccca97b2cec1c1863ec26e9e2647540",
+          "archive": "tar.gz",
+          "binaryPath": "zizmor"
+        }
+      }
+    },
+    "squawk": {
+      "version": "2.66.0",
+      "method": "github-release",
+      "repo": "sbdchd/squawk",
+      "tag": "v2.66.0",
+      "binary": "squawk",
+      "assets": {
+        "darwin-arm64": {
+          "name": "squawk-darwin-arm64",
+          "url": "https://github.com/sbdchd/squawk/releases/download/v2.66.0/squawk-darwin-arm64",
+          "sha256": "d273f3a234b81b8d540b2cdf1b07ed84f719a3ab11b47d6f3efe96baaf21b40b",
+          "archive": "none",
+          "binaryPath": "squawk-darwin-arm64"
+        },
+        "darwin-x64": {
+          "name": "squawk-darwin-x64",
+          "url": "https://github.com/sbdchd/squawk/releases/download/v2.66.0/squawk-darwin-x64",
+          "sha256": "e361365762a6bf11abbef746d29ff46ac0b4feba43df2f0570595f06c67d7daf",
+          "archive": "none",
+          "binaryPath": "squawk-darwin-x64"
+        },
+        "linux-x64": {
+          "name": "squawk-linux-x64",
+          "url": "https://github.com/sbdchd/squawk/releases/download/v2.66.0/squawk-linux-x64",
+          "sha256": "e7965f8146b53cfa7a4625ceecfea5c6aeb35add39132210aa60b11ae180b9f4",
+          "archive": "none",
+          "binaryPath": "squawk-linux-x64"
+        },
+        "linux-arm64": {
+          "name": "squawk-linux-arm64",
+          "url": "https://github.com/sbdchd/squawk/releases/download/v2.66.0/squawk-linux-arm64",
+          "sha256": "04455267bb895de1568dc24e52eb062b311096ad614c3e15a77cf8a7b3483c2a",
+          "archive": "none",
+          "binaryPath": "squawk-linux-arm64"
+        }
+      }
+    },
+    "sqlfluff": {
+      "version": "4.3.0",
+      "method": "uv",
+      "package": "sqlfluff",
+      "python": "3.11",
+      "binary": "sqlfluff"
+    },
+    "trivy": {
+      "version": "0.75.0",
+      "method": "github-release",
+      "repo": "aquasecurity/trivy",
+      "tag": "v0.75.0",
+      "binary": "trivy",
+      "assets": {
+        "darwin-arm64": {
+          "name": "trivy_0.75.0_macOS-ARM64.tar.gz",
+          "url": "https://github.com/aquasecurity/trivy/releases/download/v0.75.0/trivy_0.75.0_macOS-ARM64.tar.gz",
+          "sha256": "4a77108cccf8e55c8d6823e1e759939a622277e66cd0daa3c1fc621ed69e4568",
+          "archive": "tar.gz",
+          "binaryPath": "trivy"
+        },
+        "darwin-x64": {
+          "name": "trivy_0.75.0_macOS-64bit.tar.gz",
+          "url": "https://github.com/aquasecurity/trivy/releases/download/v0.75.0/trivy_0.75.0_macOS-64bit.tar.gz",
+          "sha256": "291edaa9778acbe4693d067b5ad60ee11570e5ac68296e85595417528ca641e4",
+          "archive": "tar.gz",
+          "binaryPath": "trivy"
+        },
+        "linux-x64": {
+          "name": "trivy_0.75.0_Linux-64bit.tar.gz",
+          "url": "https://github.com/aquasecurity/trivy/releases/download/v0.75.0/trivy_0.75.0_Linux-64bit.tar.gz",
+          "sha256": "c6e65abddb348e25f10549df887045629cf28cc72453cd1c63acb717316b3f3f",
+          "archive": "tar.gz",
+          "binaryPath": "trivy"
+        },
+        "linux-arm64": {
+          "name": "trivy_0.75.0_Linux-ARM64.tar.gz",
+          "url": "https://github.com/aquasecurity/trivy/releases/download/v0.75.0/trivy_0.75.0_Linux-ARM64.tar.gz",
+          "sha256": "a1ee9f6ffb7d112b64ff726a2a0717c21175c1114361391f4a132956751a13b3",
+          "archive": "tar.gz",
+          "binaryPath": "trivy"
+        }
+      }
+    },
+    "tflint": {
+      "version": "0.64.0",
+      "method": "github-release",
+      "repo": "terraform-linters/tflint",
+      "tag": "v0.64.0",
+      "binary": "tflint",
+      "assets": {
+        "darwin-arm64": {
+          "name": "tflint_darwin_arm64.zip",
+          "url": "https://github.com/terraform-linters/tflint/releases/download/v0.64.0/tflint_darwin_arm64.zip",
+          "sha256": "2496e9cb3d24992d553b45e7c87a0fdc9449ca975233876247a9bfeda857e6c0",
+          "archive": "zip",
+          "binaryPath": "tflint"
+        },
+        "darwin-x64": {
+          "name": "tflint_darwin_amd64.zip",
+          "url": "https://github.com/terraform-linters/tflint/releases/download/v0.64.0/tflint_darwin_amd64.zip",
+          "sha256": "0f3a9fd17526014646a2dfc3f9122f7b4161abe3d6b0f0f03f9014483ddf4d19",
+          "archive": "zip",
+          "binaryPath": "tflint"
+        },
+        "linux-x64": {
+          "name": "tflint_linux_amd64.zip",
+          "url": "https://github.com/terraform-linters/tflint/releases/download/v0.64.0/tflint_linux_amd64.zip",
+          "sha256": "cca9d13e2e1d7a2c627af60ff899a3c9b74212899416aeb96ec764d2ef954537",
+          "archive": "zip",
+          "binaryPath": "tflint"
+        },
+        "linux-arm64": {
+          "name": "tflint_linux_arm64.zip",
+          "url": "https://github.com/terraform-linters/tflint/releases/download/v0.64.0/tflint_linux_arm64.zip",
+          "sha256": "560da89aacf59389d4eb029730dd5b109b7288096c32f2726a0d9e783a5ea8eb",
+          "archive": "zip",
+          "binaryPath": "tflint"
+        }
+      }
+    },
+    "checkov": {
+      "version": "3.3.22",
+      "method": "uv",
+      "package": "checkov",
+      "python": "3.11",
+      "binary": "checkov"
+    },
+    "kube-linter": {
+      "version": "0.8.3",
+      "method": "github-release",
+      "repo": "stackrox/kube-linter",
+      "tag": "v0.8.3",
+      "binary": "kube-linter",
+      "assets": {
+        "darwin-arm64": {
+          "name": "kube-linter-darwin_arm64.tar.gz",
+          "url": "https://github.com/stackrox/kube-linter/releases/download/v0.8.3/kube-linter-darwin_arm64.tar.gz",
+          "sha256": "6e3443a8ff8625a9fc31a38682c783988d7559018f7ff707a4f8c77c18c92f14",
+          "archive": "tar.gz",
+          "binaryPath": "kube-linter"
+        },
+        "darwin-x64": {
+          "name": "kube-linter-darwin.tar.gz",
+          "url": "https://github.com/stackrox/kube-linter/releases/download/v0.8.3/kube-linter-darwin.tar.gz",
+          "sha256": "c62e8af3c9df2557c7a3922119ea1b35597794737d1ccad493f63a0d66e7b8fc",
+          "archive": "tar.gz",
+          "binaryPath": "kube-linter"
+        },
+        "linux-x64": {
+          "name": "kube-linter-linux.tar.gz",
+          "url": "https://github.com/stackrox/kube-linter/releases/download/v0.8.3/kube-linter-linux.tar.gz",
+          "sha256": "1a6d8419b11971372971fdbc22682b684ebfb7cf1c39591662d1b6ca736c41df",
+          "archive": "tar.gz",
+          "binaryPath": "kube-linter"
+        },
+        "linux-arm64": {
+          "name": "kube-linter-linux_arm64.tar.gz",
+          "url": "https://github.com/stackrox/kube-linter/releases/download/v0.8.3/kube-linter-linux_arm64.tar.gz",
+          "sha256": "802e1b09eabd08f6f0a060a6b8ab2bf7bc7e6bf4f673bb2692303704c84b3e22",
+          "archive": "tar.gz",
+          "binaryPath": "kube-linter"
+        }
+      }
+    },
+    "kubeconform": {
+      "version": "0.8.0",
+      "method": "github-release",
+      "repo": "yannh/kubeconform",
+      "tag": "v0.8.0",
+      "binary": "kubeconform",
+      "schemas": {
+        "repo": "yannh/kubernetes-json-schema",
+        "commit": "8df8a883b68a24a104b4a9e43c1288090ae60b3b",
+        "kubernetes": "1.37.1"
+      },
+      "assets": {
+        "darwin-arm64": {
+          "name": "kubeconform-darwin-arm64.tar.gz",
+          "url": "https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-darwin-arm64.tar.gz",
+          "sha256": "f84f4dfbebf4a6b0b230385fa065a39ea35e02608c2b50d025dcf64775a69d67",
+          "archive": "tar.gz",
+          "binaryPath": "kubeconform"
+        },
+        "darwin-x64": {
+          "name": "kubeconform-darwin-amd64.tar.gz",
+          "url": "https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-darwin-amd64.tar.gz",
+          "sha256": "71dbc87ac9f24099a62b93570e65aa06312ba6ac8aea63b7f86e9d999edf5a92",
+          "archive": "tar.gz",
+          "binaryPath": "kubeconform"
+        },
+        "linux-x64": {
+          "name": "kubeconform-linux-amd64.tar.gz",
+          "url": "https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-amd64.tar.gz",
+          "sha256": "9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883",
+          "archive": "tar.gz",
+          "binaryPath": "kubeconform"
+        },
+        "linux-arm64": {
+          "name": "kubeconform-linux-arm64.tar.gz",
+          "url": "https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-arm64.tar.gz",
+          "sha256": "1f53fc8e81258197a35e8603054162a5af1de8c5af13746c71ab680d9534ed87",
+          "archive": "tar.gz",
+          "binaryPath": "kubeconform"
+        }
+      }
+    },
+    "cargo-deny": {
+      "version": "0.20.2",
+      "method": "github-release",
+      "repo": "EmbarkStudios/cargo-deny",
+      "tag": "0.20.2",
+      "binary": "cargo-deny",
+      "needs": "cargo",
+      "assets": {
+        "darwin-arm64": {
+          "name": "cargo-deny-0.20.2-aarch64-apple-darwin.tar.gz",
+          "url": "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.20.2/cargo-deny-0.20.2-aarch64-apple-darwin.tar.gz",
+          "sha256": "fe67d82a10d8597a3549364cb733a3f9cc1bfff9031b7ae46384a9f2a72090c3",
+          "archive": "tar.gz",
+          "binaryPath": "cargo-deny-0.20.2-aarch64-apple-darwin/cargo-deny"
+        },
+        "darwin-x64": {
+          "name": "cargo-deny-0.20.2-x86_64-apple-darwin.tar.gz",
+          "url": "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.20.2/cargo-deny-0.20.2-x86_64-apple-darwin.tar.gz",
+          "sha256": "248da7f581724e470071990c088ffc55c811981715f4cbdb258621fb79f8b7a6",
+          "archive": "tar.gz",
+          "binaryPath": "cargo-deny-0.20.2-x86_64-apple-darwin/cargo-deny"
+        },
+        "linux-x64": {
+          "name": "cargo-deny-0.20.2-x86_64-unknown-linux-musl.tar.gz",
+          "url": "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.20.2/cargo-deny-0.20.2-x86_64-unknown-linux-musl.tar.gz",
+          "sha256": "9f12ed4c49936e09b48bf862b595cde2fe64fcbd9d74dfacac6131ca824c8d5f",
+          "archive": "tar.gz",
+          "binaryPath": "cargo-deny-0.20.2-x86_64-unknown-linux-musl/cargo-deny"
+        },
+        "linux-arm64": {
+          "name": "cargo-deny-0.20.2-aarch64-unknown-linux-musl.tar.gz",
+          "url": "https://github.com/EmbarkStudios/cargo-deny/releases/download/0.20.2/cargo-deny-0.20.2-aarch64-unknown-linux-musl.tar.gz",
+          "sha256": "995c82be0defc7a025cae49a2aa2644ce8245c9a3318fc4103907c6a285e8c7d",
+          "archive": "tar.gz",
+          "binaryPath": "cargo-deny-0.20.2-aarch64-unknown-linux-musl/cargo-deny"
+        }
+      }
+    }
+  }
+}

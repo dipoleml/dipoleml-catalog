@@ -1,0 +1,18 @@
+{
+  "name": "commit-message-generator",
+  "displayName": "Commit Message Generator",
+  "version": "1.0.0",
+  "description": "name: commit-message-generator",
+  "provider": "DipoleML",
+  "author": {
+    "name": "A Ariff"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/a-ariff/ariff-claude-plugins",
+  "repository": "https://github.com/a-ariff/ariff-claude-plugins",
+  "skills": [
+    "skills/commit-message-generator.skill.md"
+  ],
+  "commands": [],
+  "agents": []
+}

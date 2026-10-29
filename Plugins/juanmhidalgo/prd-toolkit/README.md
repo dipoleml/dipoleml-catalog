@@ -1,0 +1,118 @@
+# PRD Toolkit
+
+Create and manage Product Requirements Documents (PRDs) with AI assistance.
+
+## Installation
+
+```bash
+# Add marketplace (if not already added)
+/plugin marketplace add juanmhidalgo/claude-plugins
+
+# Install plugin
+/plugin install prd-toolkit@juanmhidalgo-plugins
+```
+
+## Commands
+
+| Command | Description |
+|---------|-------------|
+| `/prd:refine [file \| issue-url]` | Improve existing PRD or convert vague issue to PRD |
+| `/prd:analyze [file \| issue-url \| text]` | Identify gaps, edge cases, and ambiguities before implementation |
+| `/prd:validate [file \| issue-url]` | Verify implementation matches PRD criteria |
+
+> Creating a new spec from scratch? Use [`/feature-dev:spec`](../feature-dev/README.md) — it produces a structured `SPEC-*.md` artifact (kept in `.feature-dev/features/<slug>/`) with a gated review workflow that this toolkit's PRD validators can read.
+
+## Usage
+
+### Refine or convert to PRD
+
+```
+/prd:refine ./docs/prd-auth.md
+/prd:refine https://github.com/owner/repo/issues/123
+/prd:refine paste
+```
+
+The agent will:
+1. Detect if input is already a PRD or a vague issue
+2. If PRD: analyze and suggest improvements
+3. If vague issue: convert to structured PRD format
+4. Apply changes to file or GitHub issue
+
+### Validate implementation
+
+```
+/prd:validate ./docs/prd-auth.md
+/prd:validate https://github.com/owner/repo/issues/123
+```
+
+The agent will:
+1. Extract acceptance criteria from PRD
+2. Search codebase for implementations
+3. Generate validation report with ✅/⚠️/❌ status
+4. Offer to create issues for missing items
+
+## PRD Format
+
+```markdown
+# Feature Name
+
+## Overview
+[Problem + solution in 2-3 sentences]
+
+## Goals
+- [Business/user objective]
+
+## User Stories
+- As a [role], I want [action] so that [benefit]
+
+## Acceptance Criteria
+- [ ] [Observable behavior from user perspective]
+
+## Out of Scope
+- [What this version does NOT include]
+
+## QA Checklist
+- [ ] [User scenario to validate]
+```
+
+## Workflow
+
+```
+/feature-dev:spec [feature] → Generate structured spec
+    ↓
+/prd:analyze                → Find gaps before implementation
+    ↓
+/discuss:feature            → Critically analyze the spec
+    ↓
+/feature-dev:explore-plan   → Explore codebase and plan
+    ↓
+... implement ...
+    ↓
+/prd:validate               → Verify implementation matches PRD
+    ↓
+/code-review:branch         → Review code quality
+```
+
+Each command suggests the next step via Stop hooks, including cross-plugin suggestions.
+
+## Philosophy
+
+PRDs focus on **observable behavior**, not implementation details:
+
+| Good ✅ | Bad ❌ |
+|---------|--------|
+| User can sign in with Google | Implement OAuth 2.0 with PKCE |
+| Session stays active for 24 hours | Store JWT in Redis with 24h TTL |
+| Error shows retry option | Use exponential backoff retry |
+
+## Needs
+
+- `gh`, installed and authenticated (for GitHub features)
+- Optional, for ClickUp publishing: `CLICKUP_API_TOKEN` (used with `curl`), or a ClickUp MCP server (see below)
+- No browser
+
+## Optional: ClickUp MCP integration
+
+`/prd:refine` can publish PRDs to ClickUp. By default it uses raw `curl` against the ClickUp REST API with `CLICKUP_API_TOKEN` from your environment. If you prefer an MCP server (cleaner tool calls, no shell quoting), copy [`.mcp.json.example`](.mcp.json.example) to `.mcp.json` and edit `command`/`args` to point to your installed ClickUp MCP server.
+
+The example sets `CLICKUP_API_TOKEN` from your shell environment, so it never lands in the file.

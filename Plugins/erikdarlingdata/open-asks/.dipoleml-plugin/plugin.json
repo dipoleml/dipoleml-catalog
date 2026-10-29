@@ -1,0 +1,16 @@
+{
+  "name": "open-asks",
+  "displayName": "Open Asks",
+  "version": "1.0.0",
+  "description": "A band above the prompt listing each question the session is waiting on from the person, with the recommended answer, trimmed as each is answered; ask_add / ask_resolve / ask_list tools for the model and an /asks command",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Erikdarlingdata"
+  },
+  "license": "MIT",
+  "homepage": "https://erikdarling.com",
+  "repository": "https://github.com/erikdarlingdata/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,1542 @@
+#!/usr/bin/env python3
+"""chamnan-report — measure this repo's context cost per turn, before and after the workspace existed.
+
+Claude Code already writes every request's token usage to ~/.claude/projects/<encoded-cwd>/. This
+reads that, groups by week, and marks the week the workspace was created, so the user sees the effect
+on their OWN repository instead of taking a number from someone's README on faith.
+
+Three details decide whether the figures are right, each learned the hard way (2026-08-19):
+
+  1. READ EVERY TRANSCRIPT. Subagent runs live in <session>/subagents/ and workflow runs in
+     <session>/wf_*/. A one-level glob missed 112 of 138 files and 3,203 requestIds here.
+  2. DEDUP BY requestId, KEEPING THE FULLEST RECORD. A streamed response is rewritten as it grows
+     and its usage block is cumulative, so the same id appears many times; the LAST is complete.
+     Keeping the first silently under-counts, skipping dedup roughly doubles everything.
+  3. CONTEXT PER CALL IS THE METRIC, NOT COST. Cost moves when the user changes model, which has
+     nothing to do with this tool. Tokens carried per turn is what a workspace can actually change.
+
+Usage:
+
+    chamnan-report            the tables at a terminal, the summary alone anywhere else
+    chamnan-report --full     the tables even when the output is a pipe or a file
+    chamnan-report --short    the summary even at a terminal
+
+The tables cost about 3,850 tokens, which a person can skim and a dispatched agent pays for on every
+turn afterwards, so the default follows the reader rather than a flag. Both flags override it.
+"""
+import ast
+import json
+import os
+import re
+import shlex
+import sys
+import time
+from collections import defaultdict
+from datetime import datetime
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent / "lib"))
+import aging  # noqa: E402
+import blocklog  # noqa: E402
+import fit  # noqa: E402
+import environments  # noqa: E402
+import ledger  # noqa: E402
+# 🐛 `print = redact.emit` scrubs CREDENTIALS and says nothing about control characters, and
+# neither of these two commands imported mdblock at all. Every value below is repository-
+# authored — an environment heading, a promoted tool name, a path the pointer hook recorded —
+# and this is stdout, which is a terminal or an agent's Bash output that becomes transcript.
+# The same path value is already wrapped in `one_line` where lib/pointer.py speaks to the
+# model; these readers of the same data were missed because four rounds of this sweep named
+# `lib/`, `hooks/` and two bin commands by example, and these two were never in the examples
+# (R13 agent 3).
+import mdblock  # noqa: E402
+import candidates  # noqa: E402
+import rulecheck  # noqa: E402
+import schedule  # noqa: E402
+import skill_overlap  # noqa: E402
+import memory  # noqa: E402
+import tools_index  # noqa: E402
+import tokens as tokens_mod  # noqa: E402
+
+
+def _hook_list_cap():
+    """The cap the SessionStart hook puts on the skills and tools lists, read from the hook itself.
+
+    Not a 12 typed here. Two copies of a limit drift, and this file exists to report what a session
+    actually receives — a report whose number disagrees with the hook is worse than no report. Read
+    with `ast` rather than imported: the hook runs as a script with its own side effects.
+    """
+    try:
+        src = (HERE.parent / "hooks" / "chamnan_session_start.py").read_text(encoding="utf-8")
+        for node in ast.walk(ast.parse(src)):
+            if (isinstance(node, ast.Assign) and getattr(node.targets[0], "id", "") == "MAX_TOOLS"
+                    and isinstance(node.value, ast.Constant)):
+                return int(node.value.value)
+    except Exception:
+        pass
+    return 0          # unknown cap: report nothing rather than a number that might be wrong
+
+
+_HOOK_LIST_CAP = _hook_list_cap()
+import workflows  # noqa: E402
+import workspace as ws  # noqa: E402
+import redact  # noqa: E402
+import state as state_mod  # noqa: E402
+import host  # noqa: E402
+
+# Every `bin/` command shadows print with the scrubbing emitter, whether or not its output looks
+# like it could carry a secret today. Five findings running came from one store having a guarded
+# reader and an unguarded one, and the case-by-case judgement about which commands "only print
+# numbers" is exactly the judgement that was wrong each time. Uniform is cheaper to keep true than
+# correct-per-file. See redact.emit.
+print = redact.emit  # noqa: A001
+
+def _home_or_none():
+    """`Path.home()`, or None when it cannot be resolved.
+
+    🐛 This was `Path.home()` at MODULE level, so on a machine where neither $HOME nor a passwd
+    entry resolves, importing this file raised — and the command died with a raw traceback before
+    argument parsing, taking `--help` with it. A command that reports on a workspace should not
+    need a home directory to explain itself (R20 agent 1).
+    """
+    try:
+        return Path.home()
+    except (RuntimeError, OSError):
+        return None
+
+
+_HOME = _home_or_none()
+PROJECT_ROOT = (_HOME / ".claude" / "projects") if _HOME else None
+
+
+def _project_roots():
+    """Every directory Claude Code might be keeping this machine's transcripts in.
+
+    🐛 This was a single hardcoded `~/.claude/projects`. Two things break it, and both are live on
+    the developer's own machine:
+
+    `CLAUDE_CONFIG_DIR` moves the whole config tree, which is how anyone runs two accounts at once
+    — measured here: 299 transcripts under `~/.claude` and 33 under the configured directory, with
+    the second set invisible. Somebody had hand-made a symlink to paper over it, and a workaround
+    is evidence the bug is live.
+
+    `CLAUDE_CODE_PROJECT_DIR_NAME` (2.1.234) lets a host choose the per-project directory NAME, at
+    which point `encoded_dir`'s path-derived match cannot work at all — neither the exact form nor
+    the shared-tail fallback — and the fallback's tie rule then reports nothing without saying why.
+
+    Both are read, newest-first is left to the caller, and the ordinary single-account machine is
+    unchanged because the environment variable is simply absent there.
+    """
+    roots, seen = [], set()
+    cfg = os.environ.get("CLAUDE_CONFIG_DIR")
+    # PROJECT_ROOT stays the default and the single seam a test can move; the environment variable
+    # adds the second tree rather than replacing it, because a machine running two accounts has
+    # work in both and the question "how much context did this repo cost" spans them.
+    # PROJECT_ROOT is None where no home directory resolves; the CLAUDE_CONFIG_DIR tree may still
+    # be there, and a report over that alone is a real answer rather than a crash.
+    for d in ([Path(cfg) / "projects"] if cfg else []) + ([PROJECT_ROOT] if PROJECT_ROOT else []):
+        if d.is_dir() and str(d) not in seen:
+            seen.add(str(d))
+            roots.append(d)
+    return roots
+# day -> set of file paths opened that day; folded to weeks in main().
+touched_by_week = __import__("collections").defaultdict(set)
+
+SNAPSHOT = re.compile(r"-\d{8}$")
+
+
+def encoded_dir(repo_root):
+    """Claude Code encodes the working directory by replacing separators with dashes.
+
+    The encoding is lossy — a directory whose own name contains a dash is indistinguishable from a
+    separator — so an exact match is tried first and a suffix match is the fallback."""
+    # 🐛 `str(repo_root).replace("/", "-")` did nothing on Windows, where `str(Path)` yields
+    # backslashes -- so the exact match never fired there and every lookup fell through to the
+    # suffix fallback below. Both separators are handled now, and the drive colon is dropped
+    # because a colon cannot appear in a directory name on that platform.
+    #
+    # UNVERIFIED, and stated as such: no Windows install of Claude Code was available to confirm
+    # the exact name it writes. What IS certain is that the old form could not have been right,
+    # and that the fallback below is what carries the answer when this guess is wrong.
+    want = str(repo_root).replace("\\", "-").replace("/", "-").replace(":", "")
+    for root in _project_roots():
+        exact = root / want
+        if exact.is_dir():
+            return exact
+    # The fallback used to accept any directory whose name ended with this repo's basename, and
+    # return the first in sort order. `~/work/Lumin-App` and `~/Documents/Lumin-App` both end that
+    # way, so a checkout of the same project elsewhere -- or an unrelated repo that happens to
+    # share a basename -- had its token spend reported as this one's, with nothing on screen
+    # saying which had been read. Rank by how much of the path actually agrees, and when two
+    # candidates agree equally there is no honest answer: say nothing rather than guess.
+    best, best_score, tied = None, 0, False
+    for cand in sorted(c for root in _project_roots() for c in root.glob("*")):
+        if not cand.is_dir():
+            continue
+        # 🐛 Any shared trailing word was enough. `/Users/alice/Documents/rancher` — a path with no
+        # transcript directory of its own — resolved on that ONE word to a different, unrelated
+        # checkout that merely ended in the same name, and every figure the command prints would
+        # then be somebody else's usage presented as yours: call counts, context per turn, the
+        # before/after table the README points at.
+        #
+        # A fuzzy match has to agree on the repository's WHOLE leaf name, not a fragment of it. Two
+        # components minimum, so a single generic word can never carry a match on its own.
+        score = _shared_tail(want, cand.name)
+        if score < min(max(2, len(_leaf_tokens(repo_root))), len(want.split("-"))):
+            continue
+        if score > best_score:
+            best, best_score, tied = cand, score, False
+        elif score and score == best_score:
+            tied = True
+    return None if tied else best
+
+
+def _leaf_tokens(repo_root):
+    """The encoded components of the repository's own directory name — what a fuzzy match must
+    agree on in full before it is allowed to stand in for an exact one."""
+    return [t for t in str(Path(repo_root).name).replace("_", "-").split("-") if t]
+
+
+def _shared_tail(want, have):
+    """How many trailing encoded components the two names agree on, anchored on the dash so `-app`
+    is not counted as a match for `-my-app`. Both sides are split the same lossy way, so the
+    comparison stays consistent even where a directory name contains its own dash."""
+    a, b = want.split("-"), have.split("-")
+    n = 0
+    while n < len(a) and n < len(b) and a[-1 - n] == b[-1 - n]:
+        n += 1
+    return n
+
+
+def _local_day(ts):
+    """The LOCAL calendar date of a transcript timestamp, as `YYYY-MM-DD`.
+
+    One conversion, used everywhere a record is filed under a day, because two calendars in one
+    function is how a percentage gets compared against a marker built on a different grid. Falls
+    back to the raw prefix when the stamp is not parseable -- an unreadable timestamp is not a
+    reason to drop a record, and the old behaviour is the right thing to degrade to.
+    """
+    try:
+        return datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone().strftime("%Y-%m-%d")
+    except (ValueError, TypeError):
+        return ts[:10]
+
+
+def collect(project_dir, want_opened=False, root=None):
+    """Read every transcript line once.
+
+    🐛 `root` is not optional in spirit. A transcript records every file a session touched, and a
+    session rooted here routinely dispatches subagents into other directories — measured on this
+    repository's own transcripts, 902 of 7,801 counted touches were files OUTSIDE it, including
+    `~/.claude/settings.json` and paths under another repository entirely. They were all being
+    counted as work done on this repository.
+
+    That contaminates the headline: scoping the touches to the root moves "repeat work" from 13.5%
+    to 23.4% overall, and the most recent week from 7% to 35%. The comment below claiming recent
+    weeks are "the least repetitive in the whole corpus" was reading the contaminated number.
+
+    🎯 [perf] This used to be read twice — once here for usage stats, once more in
+    print_pointer() for which `.chamnan` files got opened. Both scans open the same 300+ files
+    and decode the same lines; on a repo with hundreds of MB of transcripts that is the whole
+    cost of `chamnan-report` twice over for no reason. `want_opened` lets the caller ask this
+    single pass to also build the pointer's "opened" set, so the second scan is never needed at
+    all — it costs nothing extra in file I/O, only a couple of cheap string checks per line that
+    was already being read.
+    """
+    best = {}
+    opened = set() if want_opened else None
+    _root_prefix = f"{root}/" if root is not None else ""
+    for path in project_dir.rglob("*.jsonl"):
+        try:
+            # 🎯 [perf] Binary, not text. 62% of these lines fail the prefilter below and are
+            # thrown away, and in text mode every one of them was decoded first. Measured
+            # end-to-end over the real 332-file corpus, six interleaved pairs: −4.0%, with the
+            # printed report byte-identical across twelve full runs.
+            #
+            # Two alternatives were measured and are NOT here: `str.find() != -1` instead of `in`
+            # is 3% SLOWER, and a bulk `read_bytes().split(b"\n")` instead of streaming is 12%
+            # slower on allocation. Skipping whole files is a dead end — only 9 of 332 files
+            # (0.16% of bytes) contain no matching line at all, and finding them needs reading them.
+            fh = path.open("rb")
+        except OSError:
+            continue
+        with fh:
+            for line in fh:
+                has_usage = b'"usage"' in line
+                # Same prefilter print_pointer() used to apply in its own separate pass.
+                is_pointer_candidate = (want_opened and b'"tool_use"' in line
+                                        and b".chamnan" in line)
+                if not has_usage and not is_pointer_candidate:
+                    continue
+                try:
+                    # Only the lines that passed the prefilter pay for a decode. `errors="replace"`
+                    # is what `path.open(errors="replace")` gave before: invalid bytes become
+                    # U+FFFD rather than raising UnicodeDecodeError, which the `except ValueError`
+                    # below would not have caught.
+                    rec = json.loads(line.decode("utf-8", errors="replace"))
+                except (json.JSONDecodeError, RecursionError):
+                    continue
+                msg = rec.get("message") or {}
+                usage, rid, model = msg.get("usage"), rec.get("requestId"), msg.get("model")
+                ts = rec.get("timestamp")
+                # 🎯 Which FILES a week touched, gathered in the pass that is already reading every
+                # line. It answers the question the before/after cannot answer on its own: was this
+                # week the same work as last week, or new work? See _confound() below.
+                content = msg.get("content")
+                # `has_usage` here, not just `ts`. Before the merge this block was unreachable
+                # unless the line contained `"usage"`, because the prefilter above had already
+                # skipped it; a line now also reaches here for being a pointer candidate. Measured
+                # on a 60-file sample: every line carrying `tool_use` AND `.chamnan` also carried
+                # `"usage"`, none carried it without — so on today's format the two conditions
+                # coincide, which is why the before/after was byte-identical. Keeping the condition
+                # explicit means that stays true if the format ever stops coinciding, rather than
+                # `touched_by_week` silently gaining rows and moving _confound().
+                #
+                # That sample says nothing about the prefilter's selectivity, and an earlier
+                # version of this comment quoted its raw count in a way that read as if it did.
+                # Profiled over the whole corpus — 330 files, 770 MB, 238K lines — the prefilter
+                # admits **38.1%** of lines, because it is an OR of two conditions rather than the
+                # AND that sample measured. It costs ~25% of the scan's 4.78s and is the one part
+                # of it with headroom left; the read itself is ~40% and is a floor.
+                if isinstance(content, list):
+                    for _c in content:
+                        if not (isinstance(_c, dict) and _c.get("type") == "tool_use"):
+                            continue
+                        _fp = (_c.get("input") or {}).get("file_path")
+                        if not _fp:
+                            continue
+                        # Two consumers of the same block, and they do NOT share a condition.
+                        # `touched_by_week` keeps `has_usage`, which is what gated it before the
+                        # merge — the prefilter above used to skip a usage-less line outright, so
+                        # widening the prefilter must not widen this. `opened` is the reason the
+                        # line was let through at all, so it takes no such gate.
+                        # Only files under the repository being reported on. See collect()'s
+                        # docstring: a subagent sent elsewhere writes its paths into this
+                        # repository's transcript, and they are not work on this repository.
+                        if has_usage and ts and (root is None or _fp.startswith(_root_prefix)):
+                            # 🐛 [2026-09-10] This was `ts[:10]` — the first ten characters of the
+                            # RAW timestamp, which Claude Code writes in UTC. Fifteen lines down,
+                            # the same loop over the same records converts the same `ts` to LOCAL
+                            # for `marker_week`, and `_workspace_created` is local too. So the
+                            # repeat-work line — the caveat that decides whether the headline
+                            # percentage means anything — bucketed its days on one calendar and
+                            # compared them against a marker built on another. Measured on this
+                            # machine's real transcripts: 87,945 usage records, 14.0% landing on a
+                            # different day and 1.9% on a different ISO week, with seven of eight
+                            # weekly totals differing. In UTC+7 every call between local midnight
+                            # and 07:00 was filed under the previous day (R4 agent 3, 2026-09-10, finding 2).
+                            #
+                            # Silent, unlike the two composition artefacts this function's own
+                            # comments already record: both numbers looked plausible.
+                            touched_by_week[_local_day(ts)].add(_fp)
+                        # 🐛 Same contamination as touched_by_week above, one screen down, missed
+                        # by that fix: `opened` stripped everything up to the LAST ".chamnan/" in
+                        # the path with no root check at all, so a subagent sent to a DIFFERENT
+                        # chamnan-enabled repository (or a fixture copy of one — this project keeps
+                        # several under a scratchpad while researching itself) folds its relative
+                        # path onto this repo's set. Reproduced on this machine's own transcripts:
+                        # of 11 distinct outside-root `.chamnan` paths opened, one — a rules file —
+                        # already lands inside `memory/rules/`, the exact namespace `pointer.named`
+                        # draws from. A minimal fixture makes the effect concrete: a session that
+                        # never opens repoA's own named file, but opens repoB's file of the same
+                        # relative name, was reported as "later opened 1 of those 1" — a perfect
+                        # pointer-follow rate for a pointer nobody followed. Root-scoped the same
+                        # way touched_by_week is, so both consumers of this block share the guard.
+                        if (want_opened and ".chamnan" in _fp
+                                and (root is None or _fp.startswith(_root_prefix))):
+                            opened.add(_fp.split(".chamnan/")[-1])
+                if not has_usage or not (isinstance(usage, dict) and rid and model and ts):
+                    continue
+                try:
+                    when = datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone()
+                except (ValueError, RecursionError):
+                    continue
+                entry = (
+                    when, SNAPSHOT.sub("", model),
+                    usage.get("input_tokens") or 0, usage.get("output_tokens") or 0,
+                    usage.get("cache_read_input_tokens") or 0,
+                    usage.get("cache_creation_input_tokens") or 0,
+                    # 🐛 A subagent step and a conversation turn were averaged together, and the
+                    # headline was the artefact. See the split in main().
+                    bool(rec.get("isSidechain")),
+                    # 🎯 Which transcript this call came from — one file is one session. The
+                    # before/after comparison is only meaningful across MANY sessions; main()
+                    # warns when either side of the window holds one session or fewer.
+                    path.stem,
+                )
+                prior = best.get(rid)
+                # 🐛 `entry[2:]` summed the whole tail, so adding a non-numeric field to the tuple
+                # raised TypeError on the first duplicate requestId. Bounded to the four usage
+                # counters it was always meant to compare, so the tuple can grow again without this
+                # breaking a second time.
+                if prior is None or sum(entry[2:6]) > sum(prior[2:6]):
+                    best[rid] = entry
+    return list(best.values()), opened
+
+
+# 🐛 [2026-09-27] (R169 acc4, 2026-09-27) Four environment variables override or replace a
+# `.chamnan/config.json` setting for this session, and none of them showed up anywhere this command
+# prints: `CHAMNAN_OUTPUT_CEILING=5000` exported once, then forgotten, halved every session's block
+# with `config.json` reading exactly as shipped -- the "Settings this repository has changed" section
+# below is blind to it by construction, because it only diffs the file. Named here so it stays out of
+# the config diff itself (an env override is not a file setting, and conflating them would say a
+# config value changed when nothing on disk did).
+_ENV_OVERRIDES = (
+    ("CHAMNAN_OUTPUT_CEILING", "the session's output byte ceiling"),
+    (ws.READ_ONLY_ENV, "every write this session makes becomes a no-op"),
+    ("CHAMNAN_CONTEXT_PROFILE", "which budget profile sizes the injected block"),
+    ("CHAMNAN_CONTEXT_AGENT", "which agent the injected block is written for"),
+    ("CHAMNAN_SNAPSHOT", "sessions resend what AGENTS.md already delivered (meant only for "
+                         "chamnan-context's own snapshot runs)"),
+)
+
+
+def _ceiling_env_status(raw):
+    """Whether `CHAMNAN_OUTPUT_CEILING`'s value is honoured or ignored. Body moved to
+    `ws.ceiling_env_status` — `chamnan-doctor` carried an identical copy, and one home means the
+    two readings can no longer drift apart.
+    """
+    return ws.ceiling_env_status(raw)
+
+
+def print_inventory(root):
+    """What actually exists in this workspace: store / entries / last written, zeros printed
+    plainly, plus the two heuristic checks that gauge whether what is written here is really about
+    THIS repository. This is the visibility half of the ledger's own finding -- Stage 1's line is
+    budget-constrained to one sentence at SessionStart; this is the same numbers, read on demand,
+    with room to say more.
+    """
+    rows = ledger.inventory(root)
+    print("Knowledge inventory")
+    width = max(len(label) for label, _, _, _ in rows)
+    for label, count, last_ts, _stamped in rows:
+        noun = "entry" if count == 1 else "entries"
+        # "as of" for a date a person stamped, "last write" for a time the filesystem recorded.
+        # One heading over both was printing "last write" over a date that is not one.
+        _when = "as of     " if _stamped else "last write"
+        print(f"  {label:<{width}}   {count:>3} {noun:<8}   {_when} {ledger.humanize_age(last_ts)}")
+
+    # 🐛 [2026-09-06] Nothing anywhere showed which settings this repository had actually changed.
+    # Two config defects found today were both invisible for the same reason: `context_profile` set
+    # in the file did nothing at all, and `log_retention_days: 0` deleted every log while the three
+    # settings beside it read 0 as "keep everything". In each case a person could read their own
+    # config.json and still not know what chamnan was doing with it (R9 agent 5, 2026-09-06).
+    #
+    # Only the DIFFERENCES, and only here rather than in the injected block: a list of 23 defaults
+    # nobody changed is the kind of always-true output that stops being read, and on an untouched
+    # workspace this says one short line and moves on.
+    _cfg = ws.load_config(root)
+    _changed = sorted(k for k, v in _cfg.items()
+                      if k in ws.DEFAULT_CONFIG and v != ws.DEFAULT_CONFIG[k])
+    print("\nSettings this repository has changed")
+    if not _changed:
+        print(f"  none — all {len(ws.DEFAULT_CONFIG)} settings are at their shipped defaults")
+    else:
+        _w = max(len(k) for k in _changed)
+        for _k in _changed:
+            print(f"  {_k:<{_w}}   {_cfg[_k]!r}   (default {ws.DEFAULT_CONFIG[_k]!r})")
+
+    # 🐛 [2026-09-27] (R169 acc4, 2026-09-27) See `_ENV_OVERRIDES` above -- these four bypass or
+    # override the file entirely, so they get their own lines rather than joining the diff above.
+    # Nothing printed here when none is set, same rule as the diff: an always-empty section is the
+    # kind of output that stops being read.
+    _env_set = [(_var, _what) for _var, _what in _ENV_OVERRIDES if os.environ.get(_var)]
+    if _env_set:
+        print("\nEnvironment overrides in effect")
+        _ew = max(len(_var) for _var, _ in _env_set)
+        for _var, _what in _env_set:
+            _val = os.environ[_var]
+            _line = f"  {_var:<{_ew}}   {_val!r}   ({_what}"
+            if _var == "CHAMNAN_OUTPUT_CEILING":
+                _line += f" — {_ceiling_env_status(_val)}"
+            print(_line + ")")
+
+    # 🐛 "1 of 2 decision has no Rejected". The noun agrees with the TOTAL and the verb with the
+    # count — `plural` was keyed to the count for both, so one decision out of two made the noun
+    # singular. The line above it had the opposite half of the same bug: `lessons name` is fixed
+    # plural, so one lesson out of one read "1 of 1 lessons name". Two adjacent sentences, one
+    # helper wrong and one missing, which is this repository's own recurring shape (R2 agent 4).
+    def _agree(count, total, singular, plural, verb_singular, verb_plural):
+        return f"{total} {singular if total == 1 else plural} {verb_singular if count == 1 else verb_plural}"
+
+    naming_none, lessons_total = ledger.entries_naming_no_file(root, "lessons")
+    if lessons_total:
+        print(f"\n  {naming_none} of "
+              f"{_agree(naming_none, lessons_total, 'lesson', 'lessons', 'names', 'name')} "
+              f"no file in this repository")
+
+    without, decisions_total = ledger.decisions_without_rejected(root)
+    if decisions_total:
+        print(f"  {without} of "
+              f"{_agree(without, decisions_total, 'decision', 'decisions', 'has', 'have')} "
+              f"no `Rejected:` — a trade-off nobody wrote down")
+
+    # 🐛 [2026-09-06] The ledger counts `candidates/` as a directory and stops there. What it never
+    # said is where those candidates are in the pipeline `lib/candidates.py`'s own docstring
+    # describes — evidence, candidate, human confirm, memory — so a workspace whose candidates are
+    # all machine-detected and never reviewed reports the same "4" as one where four were confirmed
+    # and promoted. Measured on this repository: 4 candidates, all `ai-inferred`, none ever promoted
+    # (R14 agent 5, 2026-09-06). That is the fact somebody deciding whether the workflow is worth using needs,
+    # and a raw count actively hides it.
+    #
+    # Said only when there is something to say: a workspace where every candidate has been looked at
+    # gets no line, like every other signal here.
+    try:
+        _cd = candidates.entries(root)
+    except Exception:
+        _cd = []
+    if _cd:
+        _cd_prov = {}
+        for _c in _cd:
+            try:
+                _f = candidates._fields(_c.read_text(encoding="utf-8-sig", errors="replace"))
+            except OSError:
+                continue
+            _cd_prov[_f.get("provenance", "unstated")] = \
+                _cd_prov.get(_f.get("provenance", "unstated"), 0) + 1
+        # "Nobody has looked at these yet" is exactly the machine-written provenances with none of
+        # the human ones beside them. `imported` and `deprecated` are somebody's decision either way.
+        _cd_unseen = _cd_prov.get("ai-inferred", 0) + _cd_prov.get("ai-drafted", 0)
+        _cd_seen = sum(v for k, v in _cd_prov.items() if k in ("user", "ai-confirmed"))
+        try:
+            _cd_gone = tools_index.missing_files(root)
+            _cd_promoted = len({str(e.get("origin", "")) for e in tools_index.load(root)
+                                if e.get("name") not in _cd_gone
+                                if str(e.get("origin", "")).startswith("candidate:")})
+        except Exception:
+            _cd_promoted = 0
+        if _cd_unseen and not _cd_seen and not _cd_promoted:
+            print(f"\n  {_cd_unseen} of {len(_cd)} candidate(s) were detected by chamnan and none "
+                  f"has been reviewed")
+            print("    `chamnan-candidates` lists them; confirming or rejecting one is what moves "
+                  "it out of\n    the queue. Nothing here is acted on until a person says so.")
+
+    # 🐛 [2026-09-06] Nothing ever asked whether the pre-commit hook that keeps MAP.md fresh is
+    # actually installed. Only `chamnan-map --install-git-hook` could answer it, because the
+    # detection lived inside that command as a private function — so a repository whose index goes
+    # quietly stale on every commit looks exactly like one whose hook is working, and this
+    # repository turned out to be the former (R14 agent 5, 2026-09-06).
+    #
+    # Someone else's pre-commit hook is reported as a fact and NOT as a problem: chamnan does not
+    # edit a hook it did not write, and its own installer refuses to, so the advice differs.
+    _hook_state = ws.git_hook_state(root)
+    if _hook_state == "absent":
+        print("\n  the index is not refreshed on commit — no pre-commit hook is installed")
+        print("    `chamnan-map --install-git-hook` adds one; it rebuilds the index when a file "
+              "is added,\n    deleted or renamed, which is about one commit in six.")
+    elif _hook_state == "theirs":
+        print("\n  a pre-commit hook is installed and is not chamnan's — left alone, as it should "
+              "be.\n    The index is refreshed only when `chamnan-map` is run by hand.")
+
+    # 🐛 [2026-09-06] `rulecheck.line()` is SILENT by design when every check holds — "a line that
+    # always says all good stops being read before the day it says something else" — and it reports
+    # only BROKEN, malformed and contradictions. So "unverifiable" reaches nobody at all: a glob
+    # that matches no file, a pattern the guards refuse, or a check past MAX_CHECKS looks exactly
+    # like a rule with no check trailer, which is the silent-failure class this whole module exists
+    # to close, one layer up (R12 agent 5, 2026-09-06).
+    #
+    # Here, where a person is asking about workspace health, the count that is silent in a session
+    # is the one worth saying — including how many DO hold, because that is the number that makes
+    # "3 unverifiable" mean something.
+    # 🐛 [2026-09-09] A person adding a tenth rule has no reason to suspect that four of their
+    # earlier ones stopped arriving in full. The budget was set when this repository had ONE rule
+    # and never moved; by nine, five were reaching sessions as a name and nothing said so anywhere a
+    # person looks. Counting bytes against a ceiling is the tool's job, not theirs — and when the
+    # answer is "they no longer fit", the useful thing is not a warning but the two moves that fix
+    # it, named against the rules that are actually the candidates.
+    try:
+        _rp_fit, _rp_title, _rp_chars, _rp_budget = memory.rules_pressure(root)
+    except Exception:
+        _rp_fit, _rp_title, _rp_chars, _rp_budget = [], [], 0, 0
+    # 🐛 [2026-09-09] Three things this tool knew and never told the person who owns the workspace,
+    # all found in one evening by somebody USING it rather than reading it:
+    #
+    #   · rules that outgrew their budget and now arrive as a title;
+    #   · a STATE.md that outgrew its own budget — measured on a second real workspace at 13,474
+    #     bytes on disk delivering 4,003, so 70% of what its owner wrote never reached a session;
+    #   · a workspace with no session records at all, where "where the last session stopped" is
+    #     empty every time by construction and the morning's work is gone by the evening.
+    #
+    # Each is invisible from every number a person would think to check: that second workspace's
+    # block was 7,997 bytes against a 9,000 ceiling with no section dropped. Nobody can be asked to
+    # count bytes against a budget they have never seen.
+    #
+    # One paragraph, assembled as a list and printed once. This screen is opened to answer one
+    # question, and the suite holds it under eighty print calls for that reason.
+    _short = []
+    if _rp_title:
+        _short.append(
+            f"{len(_rp_title)} of {len(_rp_fit) + len(_rp_title)} rule(s) reach a session as a "
+            f"title only ({_rp_chars:,} characters against a {_rp_budget:,} budget): "
+            + ", ".join(mdblock.as_quoted(_t, 40) for _t in _rp_title[:3])
+            + (f" +{len(_rp_title) - 3} more" if len(_rp_title) > 3 else "")
+            + ". A rule about a KIND of work belongs in `.chamnan/skills/`, read when that work "
+              "starts; one that applies with no task in progress stays here, and "
+              "`rules_char_budget` is what gives it room.")
+        # 🐛 [2026-09-10] The line above states the overflow and stops there, which leaves the only
+        # question it raises — "so should I raise the budget?" — answerable solely by guessing. A
+        # round proposed answering it with a SUGGESTED number, and its own argument against that is
+        # right: "what would make today's rules fit" optimises for the wrong quantity and says
+        # nothing about whether more rules SHOULD arrive in full. A large rule may deserve to stay a
+        # title (R3 agent 5, 2026-09-10, idea 7).
+        #
+        # So this prints the CONSTRAINT rather than a recommendation. The judgement stays with the
+        # person; what they were missing is that on this repository the judgement is mostly already
+        # made for them — fitting even a third of the rules costs more than half of everything
+        # chamnan is allowed to say, and fitting all of them costs three times the whole block.
+        # That is a fact about the ceiling, not an opinion about the rules.
+        try:
+            _rb_sizes = sorted(len(_b) for _n, _b in memory.rules_with_titles(root))
+            _rb_run, _rb_steps = 0, []
+            for _rb_i, _rb_s in enumerate(_rb_sizes, 1):
+                _rb_run += _rb_s
+                if _rb_i in (max(1, len(_rb_sizes) // 3), max(2, len(_rb_sizes) * 2 // 3),
+                             len(_rb_sizes)):
+                    _rb_steps.append(f"{_rb_i} of {len(_rb_sizes)} would need {_rb_run:,}c")
+            _short.append(
+                "What raising it would cost: " + "; ".join(_rb_steps)
+                + f". The whole session block is capped at {_configured_ceiling(root):,} bytes — rules, the "
+                  f"architecture index, work in flight and everything else together — so a budget "
+                  f"much past half of that cannot be spent whatever it is set to.")
+        except Exception:      # noqa: BLE001 — a report line must not take the command down
+            pass
+    try:
+        _st_file = ws.workspace(root) / "STATE.md"
+        _st_raw = _st_file.read_text(encoding="utf-8-sig", errors="replace") if _st_file.is_file() else ""
+        # Rendered the way the hook renders it, with the same budget, so this cannot drift from what
+        # a session is handed. `age_out` is deliberately not applied: it removes sections somebody
+        # let go stale, which is a different question from what the budget cut.
+        _st_sent = len(state_mod.render(
+            _st_raw, ws.load_config(root).get("state_token_budget", 1700), "STATE.md")[0].encode()
+        ) if _st_raw else 0
+        _st_disk = len(_st_raw.encode())
+    except Exception:
+        _st_disk = _st_sent = 0
+    if _st_disk and _st_sent and _st_sent < _st_disk * 0.8:
+        _short.append(
+            f"STATE.md is {_st_disk:,} bytes and {_st_sent:,} of them reach a session "
+            f"({_st_sent * 100 // _st_disk}%). The rest is named at the end of that section and "
+            f"nothing fetches it. What belongs there is what is OPEN — settled decisions, "
+            f"boundaries and how-to belong in `memory/` and `skills/`, read when they apply.")
+    # 🐛 [2026-09-09] The drop-tracker below answers "did a whole section stop arriving", and it
+    # works. Nothing answered the other half: a section that still arrives with its heading intact
+    # while most of its CONTENTS are cut. Skills and the tools index are both capped at twelve
+    # names, and a workspace can go from 12-of-14 to 12-of-30 without the header ever moving —
+    # the report built to say whether this workspace is healthy would call that unchanged.
+    # `rules_pressure` above was the only per-item completeness check in the whole report, and it
+    # is specific to rules (R5 agent2, 2026-09-09).
+    _trunc = []
+    try:
+        _sk_n = len(list((ws.workspace(root) / "skills").glob("*.md")))
+        if _sk_n > _HOOK_LIST_CAP:
+            _trunc.append(f"{_sk_n - _HOOK_LIST_CAP} of {_sk_n} skill(s)")
+    except OSError:
+        pass
+    try:
+        _tl_n = len(tools_index.load(root)) - len(tools_index.missing_files(root))
+        if _tl_n > _HOOK_LIST_CAP:
+            _trunc.append(f"{_tl_n - _HOOK_LIST_CAP} of {_tl_n} registered tool(s)")
+    except Exception:
+        pass
+    # Two skills answering to one name, or one skill that exists twice with different contents.
+    # A person who is not an engineer has no way to see this: nothing errors, both files look
+    # authoritative, and the only symptom is the assistant behaving inconsistently on the kind of
+    # work the skill covers. So the report says it in plain words rather than leaving it on disk.
+    try:
+        _ov = skill_overlap.overlaps(root)
+    except Exception:
+        _ov = []
+    if _ov:
+        _kinds = defaultdict(list)
+        for _o in _ov:
+            _kinds[_o["kind"]].append(_o["name"])
+        _said = []
+        if _kinds["divergent"]:
+            _said.append(f"{len(_kinds['divergent'])} skill(s) exist in two places with DIFFERENT "
+                         f"contents ({', '.join(sorted(_kinds['divergent'])[:4])}) — which copy "
+                         f"gets read depends on which one the host resolves first")
+        if _kinds["shadowed"]:
+            # "more than one plugin" was true while a group could be all-plugin. Every group
+            # reported now contains this repository's own workspace file, so the sentence has to
+            # name the two sides the reader can actually go and look at.
+            _said.append(f"{len(_kinds['shadowed'])} skill name(s) exist both in this workspace and "
+                         f"in an installed plugin ({', '.join(sorted(_kinds['shadowed'])[:4])})")
+        if _kinds["restates"]:
+            _said.append(f"{len(_kinds['restates'])} workspace skill(s) repeat a plugin skill's own "
+                         f"text ({', '.join(sorted(_kinds['restates'])[:4])})")
+        for _s in _said:
+            _short.append("skills disagree with each other — " + _s)
+
+    if _trunc:
+        _short.append(
+            " and ".join(_trunc) + f" are never named in a session: both lists stop at "
+            f"{_HOOK_LIST_CAP}. The section still arrives with its heading, so nothing else here "
+            f"reports it. A skill or tool the session cannot see is one it will write again.")
+
+    try:
+        _sess_n = len(list((ws.workspace(root) / "sessions").glob("*.md")))
+    except OSError:
+        _sess_n = 0
+    if not _sess_n:
+        _short.append(
+            "No session records at all, so \"where the last session stopped\" is empty every time "
+            "and yesterday's work reaches today only if somebody typed it into STATE.md. "
+            "`/chamnan:resume` at the end of a session is what fills it.")
+    if _short:
+        print("\nWhat this workspace is not delivering\n  " + "\n  ".join(_short))
+
+    try:
+        # Skills too, and for the same reason the session hook now reads them: a `**Check:**`
+        # trailer is the same claim wherever it is written, and wiring the checker to one store was
+        # how four skills' worth of trailers sat unevaluated. Both callers changed together — one
+        # of the two would have been this repository's own commonest defect (R1 agent 5, 2026-09-10).
+        # Derived from the stores rather than named here — see memory.checkable_with_titles.
+        _rc_titled = memory.checkable_with_titles(root)
+        _rc_results = rulecheck.run(root, _rc_titled) if _rc_titled else []
+    except Exception:
+        _rc_results = []
+    if _rc_results:
+        _rc_hold = sum(1 for r in _rc_results if r[1] == "holds")
+        _rc_broken = sum(1 for r in _rc_results if r[1] == "BROKEN")
+        _rc_unver = sum(1 for r in _rc_results if r[1] == "unverifiable")
+        _rc_bad = sum(1 for r in _rc_results if r[1] == "malformed")
+        print(f"\n  {len(_rc_results)} mechanical rule check(s): {_rc_hold} hold"
+              + (f", {_rc_broken} BROKEN" if _rc_broken else "")
+              + (f", {_rc_bad} malformed" if _rc_bad else "")
+              + (f", {_rc_unver} could not run" if _rc_unver else ""))
+        if _rc_unver or _rc_bad:
+            # Named, not counted: a check that cannot run is indistinguishable from a rule nobody
+            # meant to check mechanically, and the name is what tells the two apart.
+            for _t, _st, _d in _rc_results:
+                if _st in ("unverifiable", "malformed"):
+                    print(f"    `{mdblock.as_quoted(_t, 60)}` — {mdblock.as_quoted(_d, 110)}")
+
+    # 🐛 [2026-09-06] `aging.check()` was reachable from `chamnan-age` and from nowhere else, so a
+    # stored lesson naming a version no environment declares was visible in one command and
+    # invisible in the one people actually run to ask "is this workspace healthy". Every other
+    # health signal in this section is here for exactly that reason (R12 agent 5, 2026-09-06).
+    #
+    # A COUNT and a pointer, not the findings themselves: `chamnan-age` exists, prints them in
+    # full, and this section is a list of one-line signals. Duplicating its output here would make
+    # the report longer than the thing it summarises.
+    if ws.enabled("environments", root):
+        try:
+            _age_found, _age_unver, _age_refusal = aging.check(root)
+        except Exception:
+            _age_found, _age_unver, _age_refusal = [], [], None
+        # The refusal is reported as a refusal, never as an empty result -- the distinction this
+        # whole module exists to keep. A workspace with no environments.md at all is not a finding
+        # and not a refusal worth a line; it is the common case.
+        if _age_refusal and environments.path(root).is_file():
+            print(f"\n  version aging not checked — {mdblock.as_quoted(_age_refusal, 120)}")
+        elif _age_found or _age_unver:
+            if _age_found:
+                _n = len(_age_found)
+                print(f"\n  {_n} stored entr{'y' if _n == 1 else 'ies'} name"
+                      f"{'s' if _n == 1 else ''} a version no fresh environment declares")
+            if _age_unver:
+                _u = len(_age_unver)
+                print(f"  {_u} more can{'' if _u == 1 else 'not'} be checked at all — the only "
+                      f"environment declaring that version has gone cold")
+            print("    `chamnan-age` names them, with what is declared beside each claim.")
+
+    # A pointer to knowledge that was never written. Same shape as a MAP.md entry naming a file that
+    # is gone, and reported in the same spirit: here, where a person looks at workspace health,
+    # rather than injected into every session. Measured on the four real workspaces: 3 on one work
+    # repository whose memory directories are all empty, 0 on the other three.
+    dangling = memory.dangling_citations(root)
+    if dangling:
+        noun = "entry" if len(dangling) == 1 else "entries"
+        print(f"\n  {len(dangling)} memory {noun} cited but never written:")
+        for slug, places in dangling[:5]:
+            at = ", ".join(f"{f}:{n}" for f, n in places[:3])
+            more = f" +{len(places) - 3}" if len(places) > 3 else ""
+            print(f"    `{slug}`  at {at}{more}")
+        if len(dangling) > 5:
+            print(f"    …and {len(dangling) - 5} more")
+        print("    `/chamnan:remember` writes it, or drop the reference.")
+
+    # 🎯 [2026-09-28] (R62 #1 acc2, 2026-09-28) A reboot or logout kills the detached waiter a
+    # `chamnan-schedule` appointment depends on, and the record stays `status: pending` forever —
+    # before this, only `chamnan-schedule list` ever said so. Reported here beside the other
+    # workspace-health signals rather than only on `list`, for the same reason `dangling` above is.
+    try:
+        _lost_sched = schedule.lost(root)
+    except Exception:
+        _lost_sched = []
+    if _lost_sched:
+        noun = "appointment" if len(_lost_sched) == 1 else "appointments"
+        print(f"\n  {len(_lost_sched)} scheduled {noun} will not fire — the waiting process is gone:")
+        for r in _lost_sched[:5]:
+            print(f"    `{r.get('id')}` due {r.get('when')}")
+        if len(_lost_sched) > 5:
+            print(f"    …and {len(_lost_sched) - 5} more")
+        print("    `chamnan-schedule list` shows them, `chamnan-schedule cancel <id>` clears one.")
+
+    # 🎯 [2026-09-07] The file beside the block, which chamnan had never mentioned.
+    #
+    # chamnan budgets itself to the byte and enforces it section by section; the agent context file
+    # next to it is loaded whole, every session, with no budget at all. On this repository the day
+    # this was written that was 8,925 bytes of chamnan against a 9,000 ceiling, and 17,116 bytes of
+    # CLAUDE.md against nothing -- nearly twice the size, same context window, never counted. A tool
+    # arguing for context economy should not have a blind spot shaped like its own subject.
+    #
+    # Reported HERE and not injected: it is a fact about the repository's setup that changes when
+    # someone edits it, not something a session needs told every time. And it is stated as a
+    # measurement, never as advice -- CLAUDE.md is the owner's file, a long one is often correct,
+    # and chamnan has no standing to say how long it should be.
+    beside = host.context_files(root)
+    if beside:
+        ceiling = ws.load_config(root).get("output_byte_ceiling",
+                                           ws.DEFAULT_CONFIG["output_byte_ceiling"])
+        print("\n  Loaded into the same context as this block, and not budgeted by chamnan:")
+        width = max([len(n) for n, _ in beside] + [len("chamnan block")])
+        for name, size in beside:
+            times = f"  {size / ceiling:.1f}x chamnan's own ceiling" if ceiling else ""
+            print(f"    {name:<{width}}   {size:>7,} bytes{times}")
+        print(f"    {'chamnan block':<{width}}   {'<= ' + format(ceiling, ',') :>7} bytes  "
+              f"(`output_byte_ceiling`, enforced per section)")
+    print()
+
+
+def print_persistence(root):
+    """What survives this working copy: on disk, tracked, and current bytes committed."""
+    state = ledger.persistence(root)
+    if state is None:
+        sys.stdout.write(
+            "Repository persistence\n  not checked — git could not answer for this repository\n\n")
+        return
+    total = len(state["durable"])
+    lines = [
+        "Repository persistence",
+        f"  {total} durable chamnan file(s) on disk",
+        f"  {len(state['tracked'])} of {total} tracked",
+        f"  {len(state['committed'])} of {total} have their current bytes committed",
+    ]
+    if state["untracked"]:
+        lines.append("  untracked:")
+        lines.extend(f"    {mdblock.as_quoted(path, mdblock.PATH_AS_KEY)}"
+                     for path in state["untracked"])
+    changed_tracked = sorted(set(state["uncommitted"]) - set(state["untracked"]))
+    if changed_tracked:
+        lines.append("  tracked, but current bytes are not committed:")
+        lines.extend(f"    {mdblock.as_quoted(path, mdblock.PATH_AS_KEY)}"
+                     for path in changed_tracked)
+    if state["uncommitted"]:
+        command = "git add -- " + " ".join(shlex.quote(path)
+                                             for path in state["uncommitted"])
+        lines.append(f"  stage exactly these copies with: {command}")
+        lines.append("  a later commit is what makes those current bytes survive a fresh clone")
+    sys.stdout.write("\n".join(lines) + "\n\n")
+
+
+def known_commands():
+    """Every `chamnan-*` script in `bin/` alongside this one, sorted. Read from the directory
+    rather than a hand-kept list, so a new CLI command is picked up here the day it is added,
+    with nothing else to update.
+
+    🐛 Extensionless only. When the Windows `.cmd` shims landed beside the commands, every one of
+    them matched `startswith("chamnan-")` — so the Usage table listed `chamnan-map` and
+    `chamnan-map.cmd` as two commands, the second with no docstring to explain itself, on every
+    platform. A shim is the Windows spelling of a command, not a command."""
+    return sorted(p.name for p in HERE.iterdir()
+                  if p.is_file() and p.name.startswith("chamnan-") and not p.suffix)
+
+
+def command_summaries():
+    """{name: what it does} — the half of its own docstring each command writes after the dash.
+
+    🐛 The Usage table printed nine names and nine counts and explained none of them. Every other
+    section of this report justifies its own numbers and says what to do next; this one asked the
+    reader to already know what `chamnan-age` and `chamnan-peek` are. That matters most on the rows
+    it exists to show — a zero beside a name you have never heard of is noise, and a zero beside
+    "which stored knowledge names a version no environment declares" is a suggestion.
+
+    Read from each script's own docstring rather than a table kept here, for the same reason
+    `known_commands` reads the directory: a new command explains itself the day it is added.
+    """
+    out = {}
+    for name in known_commands():
+        try:
+            head = (HERE / name).read_text(encoding="utf-8-sig", errors="replace")[:400]
+        except OSError:
+            continue
+        for line in head.splitlines():
+            line = line.strip().lstrip('"')
+            if line.startswith(name) and "—" in line:
+                out[name] = line.split("—", 1)[1].strip().rstrip(".")
+                break
+    return out
+
+
+def print_block_trend(root):
+    """What the injected block has cost lately, and whether it is up against its ceiling.
+
+    🐛 [2026-09-08] `blocklog.record()` has written one line per session start since Stage 10, and
+    `blocklog.trend()`'s own docstring says "For `chamnan-report`, and for a person asking 'did
+    something change?'" -- a function that names its consumer, and that consumer never called it.
+    Forty-two real records sat unread in this repository, and what they said mattered: the block
+    had been sitting at 8,947 bytes against a 9,000-byte ceiling for six sessions running, which
+    means sections were being dropped to fit, every session, with nothing anywhere saying so
+    (R7 agent 5, 2026-09-08, selected over its sibling proposal after the measurement).
+
+    The ceiling is not chamnan's own preference. Claude Code truncates a SessionStart hook's stdout
+    at around ten thousand bytes -- still open, filed today as anthropics/claude-code#91614 -- so a
+    block that grows past it does not get shortened, it gets CUT, mid-sentence, and everything
+    after is gone. Which is why "how close am I" is a question worth answering out loud.
+    """
+    records = blocklog.trend(root, last=10)
+    if not records:
+        return
+    sizes = [r.get("bytes", 0) for r in records if isinstance(r.get("bytes"), int)]
+    if not sizes:
+        return
+    # 🐛 [2026-09-15] `fit.CEILING` is the SHIPPED DEFAULT, 9,000, and this repository runs at the
+    # 9,500 its config asks for — so the one line a person reads to answer "how close am I" said
+    # "9,493 bytes of 9,000 (105% of the ceiling)" about a block that was comfortably inside its
+    # own. The persistence section forty lines up already reads the config; this did not, and
+    # neither did the sentence in the rules-pressure paragraph. One rule, three places, honoured in
+    # one of them.
+    #
+    # The recorded ceiling is better than either: `blocklog` writes the value each block was
+    # actually built against, so a config changed since then cannot make an old measurement lie.
+    _recorded = records[-1].get("ceiling")
+    if not isinstance(_recorded, int) or _recorded <= 0:
+        _recorded = _configured_ceiling(root)
+    now, ceiling = sizes[-1], _recorded
+    print("\nWhat each session was handed")
+    share = now * 100 // max(ceiling, 1)
+    print(f"  last block          {now:,} bytes of {ceiling:,}  ({share}% of the ceiling)")
+    if len(sizes) > 1:
+        low, high = min(sizes), max(sizes)
+        moved = sizes[-1] - sizes[0]
+        way = "grown" if moved > 0 else "shrunk" if moved < 0 else "not moved"
+        print(f"  over {len(sizes)} sessions    {low:,}-{high:,} bytes, {way}"
+              + (f" by {abs(moved):,}" if moved else ""))
+    # Said only when it is true, and said with the number rather than as advice: a warning that
+    # fires on every ordinary run is one people stop reading, and this one is meant to be rare.
+    if share >= 90:
+        print(f"  ⚠ within {ceiling - now:,} bytes of the ceiling. Sections are being dropped to")
+        print("    fit — `chamnan-map --explain` names which, and `.chamnan/config.json` turns off")
+        print("    the ones this repository does not need.")
+    # 🐛 [2026-09-08] The lines above answer "is the block too big", which is one of four questions
+    # this log can answer and the only one that was being asked. The other three are the defects
+    # `blocklog.py`'s own docstring was written around — a cut block, a byte collapse, a section
+    # gone — and each of them went unnoticed for hours when it really happened (R7 agent 5, 2026-09-08).
+    for _finding in blocklog.check(root):
+        print(f"  ⚠ {_finding}")
+
+
+def print_followed(root):
+    """Did today follow the procedures, or go round them — from logs that already exist.
+
+    🎯 [owner, 2026-09-18] Three notices fired at me that day and I walked past all three, and what
+    actually stopped the drift was the owner noticing and saying so — at the cost of them policing
+    it by hand all day. A refusing hook was considered here before and rejected on record: the
+    documented `permissionDecision` enum has no `ask`, and whether `escalate` reaches a prompt under
+    auto mode is undocumented, so a guard that might silently not fire is worse than none.
+
+    What is left is making the deviation visible without anyone having to catch it. Every number
+    below is already being written by something else; none of it is new instrumentation.
+    """
+    import collections as _c
+    import json as _j
+    import time as _t
+    wsdir = ws.workspace(root)
+    today = _t.strftime("%Y-%m-%d")
+
+    def _rows(name):
+        p = wsdir / "logs" / name
+        if not p.is_file():
+            return []
+        out = []
+        # 🐛 [2026-09-28] (R123 acc2, 2026-09-28) `str.splitlines()` breaks on U+2028/U+2029/U+0085
+        # too, which JSON does not escape -- see `ws.jsonl_lines`'s docstring.
+        for line in ws.jsonl_lines(p.read_text(encoding="utf-8", errors="replace")):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                r = _j.loads(line)
+            except ValueError:
+                continue
+            if str(r.get("at") or r.get("t") or "").startswith(today):
+                out.append(r)
+        return out
+
+    cmds = _rows("commands.jsonl")
+    if not cmds:
+        return
+    sigs = _c.Counter(str(r.get("sig") or "") for r in cmds)
+    gates = sum(1 for r in _rows("gate_runs.jsonl") if r)
+    recalls = sigs.get("chamnan-recall", 0)
+    promotes = sigs.get("chamnan-promote", 0)
+    print("\nWhat today did with the procedures")
+    print("  %-34s %d" % ("commands run", len(cmds)))
+    print("  %-34s %d" % ("chamnan-recall (asked what exists)", recalls))
+    print("  %-34s %d" % ("chamnan-promote (new tools kept)", promotes))
+    print("  %-34s %d of 2 in the cadence" % ("full gate runs", gates))
+    if promotes and not recalls:
+        print("  ⚠ %d tool(s) kept today and `chamnan-recall` was never asked — the 292-entry store "
+              "answers\n    \"does this exist already\" in under a second, and it is the step that was "
+              "skipped." % promotes)
+    if gates > 2:
+        print("  ⚠ the gate ran %d times; the cadence is ~100 checks to one run plus at most one to "
+              "confirm." % gates)
+
+
+def print_usage(root):
+    """Counts, never a savings figure — a tokens-saved number would be invented, and this project
+    already retired an "Engineer Scoreboard" for measuring what is easy instead of what matters.
+    Two sources, both already being written before this function existed to read them: chamnan's
+    own commands come from `commands.jsonl`'s signatures (the same log the workflow detector
+    already keeps), and promoted tools come from `tools/index.json`'s `runs` counter (incremented
+    by every matched Bash call since Stage 10).
+    """
+    log = ws.workspace(root) / "logs" / "commands.jsonl"
+    counts, oldest, newest = workflows.usage_counts(log, known_commands())
+    print("Usage")
+    width = max(len(name) for name in counts)
+    summaries = command_summaries()
+    for name in sorted(counts):
+        n = counts[name]
+        # The description is what turns an unfamiliar zero into something the reader can act on.
+        # Truncated rather than wrapped: this is a table, and a row that wraps stops being one.
+        what = summaries.get(name, "")
+        if what:
+            what = f"  — {what[:58]}" + ("…" if len(what) > 58 else "")
+        print(f"  {name:<{width}}   {n:>3} time{'s' if n != 1 else ''}{what}")
+    if oldest and newest:
+        # 🐛 "exact" was printed whatever the log held. A line a killed process tore in half is
+        # skipped by `workflows.read` — correctly — and the count of those was thrown away, so the
+        # sentence claimed a precision the number did not have (R1 agent 4).
+        _torn = len(workflows.LAST_SKIPPED)
+        _exact = (f"so these counts are exact for that window" if not _torn
+                  else f"and {_torn} unreadable line{'s' if _torn != 1 else ''} "
+                       f"{'were' if _torn != 1 else 'was'} skipped, so these counts are a floor")
+        print(f"  (from the calls currently logged, {oldest[:10]} to {newest[:10]} — "
+              f"commands.jsonl keeps {workflows.KEEP_DAYS} days; chamnan's own commands are never "
+              f"evicted, {_exact})")
+    else:
+        print("  (nothing logged yet)")
+
+    # 🐛 [2026-09-10] Three readers of `tools/index.json` answer a person and only two filtered out
+    # entries whose FILE is gone — the SessionStart hook drops them and `chamnan-promote --list`
+    # prints `← no such file in tools/`. This one printed them as ordinary rows at `0 runs`,
+    # indistinguishable from a real tool nobody uses and therefore worth demoting; and the two
+    # counters above had the same gap. The root CLAUDE.md names this command as how to answer "is
+    # chamnan worth keeping", so a phantom row here is the expensive kind of wrong (R1 agent 5, 2026-09-10).
+    #
+    # Said, not silently dropped: an entry pointing at nothing is a thing to fix, and hiding it
+    # would make the registry quietly wrong instead of visibly wrong.
+    _tl_gone = tools_index.missing_files(root)
+    tools = [(n, r) for n, r in tools_index.usage(root) if n not in _tl_gone]
+    if tools or _tl_gone:
+        print("\nPromoted tools")
+        twidth = max([len(name) for name, _ in tools] or [1])
+        # 🐛 [2026-09-08] `runs` was the only field printed, and two more were being written on
+        # every call. `stderr_seen` is a WEAK signal by this module's own account -- plenty of
+        # correct commands write progress there -- so it is said only when it is every run and
+        # there have been enough runs to mean something, the same high bar `workflows.REPEAT_AT`
+        # keeps for its own noisy signal. `interrupted` needs no threshold: a command the user
+        # stopped is an unambiguous fact, and what it MEANS is still theirs to decide (R7 agent 5, 2026-09-08).
+        _signals = tools_index.signals(root)
+        for name, runs in tools:
+            _r, _int, _err = _signals.get(name, (runs, 0, 0))
+            _note = ""
+            if _int:
+                _note += f" · {_int} interrupted"
+            if runs >= 3 and _err == runs:
+                _note += " · wrote to stderr every run"
+            print(f"  {mdblock.as_quoted(name, 60):<{twidth}}   "
+                  f"{runs:>3} run{'s' if runs != 1 else ''}{_note}")
+        if _tl_gone:
+            print(f"  {len(_tl_gone)} registered entr"
+                  f"{'y has' if len(_tl_gone) == 1 else 'ies have'} no file in tools/ and "
+                  f"{'is' if len(_tl_gone) == 1 else 'are'} read by nothing: "
+                  + ", ".join(mdblock.as_quoted(n, 40) for n in sorted(_tl_gone)[:4])
+                  + (f" +{len(_tl_gone) - 4} more" if len(_tl_gone) > 4 else ""))
+            print("  `chamnan-candidates demote <name>` removes the registration too.")
+    # 🐛 [2026-09-08] `runs` is incremented by `record_call`, which only ever fires for a name in
+    # `tools/index.json`, and the only two writers of that file are `chamnan-promote` and
+    # `chamnan-candidates promote`. A script a person DROPPED INTO `tools/` -- which this project's
+    # own README documents as normal use -- is invisible to every mechanism here for asking whether
+    # a tool still earns its place. Measured on this repository: 43 files in `tools/`, 3 registered,
+    # and the 40 include `preflight.py`, `run_tests.py` and `map_claim_check.py` (R11 agent 1, 2026-09-08).
+    #
+    # A fact, not a verdict: a repository that deliberately keeps hand-written scripts there is not
+    # doing anything wrong, and a line reading "N need fixing" would be one more notice that fires
+    # on everything and gets skipped. Silent when the two agree.
+    _tdir = ws.workspace(root) / "tools"
+    if _tdir.is_dir():
+        # `__init__.py` is package scaffolding, not a tool anybody promotes; naming it would be
+        # the same "advice they cannot act on" chamnan-map already refuses to give.
+        _files = [p for p in _tdir.iterdir()
+                  if p.is_file() and p.suffix in (".py", ".sh", ".js") and p.name != "__init__.py"]
+        _registered = {name for name, _ in tools}
+        _untracked = [p for p in _files if p.name not in _registered]
+        if _untracked:
+            print(f"\n  {len(_untracked)} of {len(_files)} file(s) in tools/ are not registered, "
+                  f"so nothing above can say whether they are still used:")
+            # Most recently touched first. An alphabetical slice reads as a ranking while being
+            # arbitrary -- the exact trap `scan_env`'s own comment records paying for once.
+            _shown = sorted(_untracked, key=lambda p: p.stat().st_mtime, reverse=True)[:4]
+            print("    " + ", ".join(mdblock.as_quoted(p.name, 40) for p in _shown)
+                  + (f" +{len(_untracked) - len(_shown)} more" if len(_untracked) > len(_shown)
+                     else "") + "  (most recently changed first)")
+            print("    `chamnan-promote <file> --desc \"...\"` registers one; a script placed here "
+                  "by hand works either way.")
+    print()
+
+
+def _workspace_created(wsdir):
+    """When the workspace was created, as well as this machine can know.
+
+    🐛 This read `st_ctime`, which on Unix is INODE-CHANGE time, not creation time. It moves every
+    time an entry is created directly under `.chamnan/` — a `/chamnan:resume`, the first session
+    record — and a clone, a `cp -R`, a restore or a machine move resets it to now. Measured on the
+    two workspaces this project is developed in: ctime 13.0 and 4.2 days after their real birth,
+    both landing in the current week, so `any(week > marker_week)` was false and the before/after
+    table — which is what `/chamnan:report` exists to produce, and what the README's whole "is this
+    worth keeping" argument rests on — was permanently suppressed. The user was told to come back
+    in a week or two, forever.
+
+    Three sources, best first: `st_birthtime` where the platform has it (macOS, and FreeBSD); the
+    oldest session record's own date, which is content rather than filesystem metadata and survives
+    a clone; then ctime, which is at least an upper bound on this copy.
+    """
+    if not wsdir.exists():
+        return None
+    stat = wsdir.stat()
+    born = getattr(stat, "st_birthtime", None)
+    oldest = None
+    sessions = wsdir / "sessions"
+    if sessions.is_dir():
+        dates = sorted(f.name[:10] for f in sessions.glob("[0-9][0-9][0-9][0-9]-*.md"))
+        if dates:
+            try:
+                oldest = datetime.strptime(dates[0], "%Y-%m-%d").astimezone().timestamp()
+            except (ValueError, RecursionError):
+                oldest = None
+    candidates = [t for t in (born, oldest, stat.st_ctime) if t]
+    return datetime.fromtimestamp(min(candidates)).astimezone() if candidates else None
+
+
+def _read_pointer_log(root):
+    """logs/pointer.jsonl only — cheap regardless of transcript size, so read it before deciding
+    whether the (potentially hundreds-of-MB) transcript scan for `opened` is even worth doing."""
+    log = ws.workspace(root) / "logs" / "pointer.jsonl"
+    if not log.is_file():
+        return 0, {}
+    fired, named = 0, {}
+    try:
+        # 🐛 [2026-09-28] (R123 acc2, 2026-09-28) `str.splitlines()` breaks on U+2028/U+2029/U+0085
+        # too, which JSON does not escape -- see `ws.jsonl_lines`'s docstring.
+        for line in ws.jsonl_lines(log.read_text(encoding="utf-8-sig")):
+            try:
+                rec = json.loads(line)
+            except (ValueError, RecursionError):
+                continue
+            if not isinstance(rec, dict):
+                continue
+            # [2026-09-13] `pointer.jsonl` carries two event classes now. `note_opened` appends a
+            # record when a session READS one of chamnan's own store files, and counting those as
+            # firings would inflate "fired N time(s)" by the successes -- the metric would climb
+            # fastest exactly when the pointer was working, which is the opposite of what it reads
+            # as. Selected by the field rather than by the absence of `named`: three offered
+            # records already carry an empty `named` for unrelated reasons.
+            if rec.get("event") == "opened":
+                continue
+            fired += 1
+            for path in rec.get("named") or []:
+                named.setdefault(path, set()).add(rec.get("session"))
+    except (OSError, UnicodeDecodeError):
+        return 0, {}
+    return fired, named
+
+
+def print_pointer(fired, named, opened, root=None):
+    """Did the session open what it was pointed at?
+
+    The measurement `hooks/chamnan_file_pointer.py` was built to allow, and it is deliberately NOT "how
+    often did it match". A pointer that fires on 39 of 42 files and names the wrong entry scores
+    identically to one that names the right entry, so a match rate measures the pointer's
+    enthusiasm, not its usefulness. What can be checked is whether the thing it named was then
+    opened — and both halves of that are already written down: logs/pointer.jsonl records what was
+    named, and Claude Code's own transcripts record every file the session read.
+
+    Still an observation, not proof. A session may act on knowledge without opening the file, and a
+    file may be opened for an unrelated reason. Reported as a count, never as a score.
+
+    🎯 [perf] `opened` now arrives precomputed from collect()'s single pass over the transcripts —
+    this function used to do its OWN full rglob-and-read of every transcript file, duplicating the
+    exact same I/O and JSON decoding collect() was already doing. See collect()'s docstring.
+    """
+    if not fired:
+        return
+
+    followed = sorted(p for p in named if p in opened)
+    print("Pointer — knowledge named when a file was opened")
+    print(f"  fired                {fired:>4} time(s), naming {len(named)} distinct entr(ies)")
+    print(f"  later opened         {len(followed):>4} of those {len(named)}")
+    for path in followed[:6]:
+        print(f"      {mdblock.as_quoted(path, 100)}")
+    if len(followed) > 6:
+        print(f"      …and {len(followed) - 6} more")
+    print("  (an observation, not a score: knowledge can be acted on without the file being\n"
+          "   opened, and a file can be opened for a reason that has nothing to do with this)")
+
+    # 🐛 [2026-09-10] This reported what WAS named and never the inverse, and the inverse is the
+    # question somebody actually has about a growing `skills/`: which of these is pulling its
+    # weight? A round proposed building a second usage store to answer it — a `record_call` for
+    # skills, a sibling index, its own lock and atomic write. None of that is needed: the pointer
+    # log already records every entry it named, and the store on disk says what exists. The answer
+    # is a set difference over two things already written down (R3 agent 5, 2026-09-10, idea 3).
+    #
+    # Measured before it was built, which is what decided it: 18 of 27 skills named at least once
+    # over 9.8 days and 93 firings, 9 never. Lopsided is the outcome the idea itself said would
+    # make this worth having; a flat distribution would have meant it added nothing.
+    #
+    # AGE is printed beside each one and is not decoration. A skill written yesterday has had no
+    # chance to be named, and calling it unused is how a store loses something that was working.
+    # This repository produced that exact case on the day the check was written: a rule moved into
+    # `skills/` that morning was in the never-named list by the afternoon.
+    if root is not None:
+        _sk_dir = ws.workspace(root) / "skills"
+        try:
+            _sk_all = {f"skills/{f.name}": f for f in _sk_dir.glob("*.md")
+                       if f.is_file() and f.name != "README.md"}
+        except OSError:
+            _sk_all = {}
+        _sk_never = sorted(set(_sk_all) - set(named))
+        if _sk_all and _sk_never:
+            # One block, assembled and printed once — the same economy the rules paragraph above
+            # uses, and for the same reason: this command is capped at 80 print calls on purpose so
+            # the screen stays short enough to act on, and a per-item print is how that cap goes.
+            _now = time.time()
+            _sk_rows = []
+            for _sk in _sk_never[:8]:
+                try:
+                    _age = (_now - _sk_all[_sk].stat().st_mtime) / 86400
+                    _when = f"{_age:.0f}d old" if _age >= 1 else "written today"
+                except OSError:
+                    _when = "age unknown"
+                _sk_rows.append(f"      {mdblock.as_quoted(_sk, 90)}  ({_when})")
+            if len(_sk_never) > 8:
+                _sk_rows.append(f"      …and {len(_sk_never) - 8} more")
+            print("\n  {} of {} recorded skills were never named\n{}\n  A new one has had no "
+                  "chance to be named; an old one is the question.".format(
+                      len(_sk_never), len(_sk_all), "\n".join(_sk_rows)))
+    print()
+
+
+KNOWN_FLAGS = ("--full", "--short")
+
+
+def _configured_ceiling(root):
+    """The ceiling this workspace actually runs at, not the one the package ships with.
+
+    Three places asked this question and one of them read the config. `fit.CEILING` is the default
+    a workspace gets before anybody changes it, and quoting it at somebody who has changed it turns
+    every percentage in this report into a wrong number in the confident direction.
+    """
+    try:
+        value = ws.load_config(root).get("output_byte_ceiling",
+                                         ws.DEFAULT_CONFIG["output_byte_ceiling"])
+        return value if isinstance(value, int) and value > 0 else fit.CEILING
+    except Exception:                        # noqa: BLE001 — a report must not fail on a bad config
+        return fit.CEILING
+
+
+def main(argv):
+    # 🐛 argv was never read, so `chamnan-report --help` ran the full report — and because this is
+    # the one command that prunes, it also deleted session records older than 30 days. Every
+    # sibling command handles -h/--help; this one answered a question about itself by mutating the
+    # workspace.
+    # Before help, and before anything is parsed: "which build is this" must be
+    # answerable from any command, including one that would otherwise refuse the
+    # arguments beside it. See workspace.wants_version.
+    if ws.wants_version(argv):
+        print(ws.version_line())
+        return 0
+    if ws.wants_help(argv):
+        print(__doc__.strip())
+        return 0
+    # 🐛 [2026-09-07] Any unrecognised flag was accepted in silence and the full report ran — and
+    # this is the command that PRUNES, so a misspelt flag did not merely do the wrong thing, it
+    # deleted session records past the retention window while appearing to answer a question about
+    # itself. The paragraph above records the same shape for `--help` and this half was left
+    # (R6, 2026-09-07). `chamnan-map` has refused unknown flags all along.
+    _bad = ws.unknown_flags(argv, KNOWN_FLAGS)
+    if _bad:
+        print(f"chamnan: unknown option {_bad[0]!r} — this command takes no options",
+              file=sys.stderr)
+        return 2
+    root = ws.find_root()
+    # 🐛 The one of nine `bin/` commands that reported on a directory with no workspace in it.
+    # `find_root` returns the directory it was given when nothing above it is a repository, so
+    # running this anywhere printed a complete inventory reading "0 entries, last write never" —
+    # which is exactly what a real workspace nobody has written to yet also prints. The reader
+    # cannot tell "you are in the wrong directory" from "your workspace is empty", and those call
+    # for opposite next steps (R21 agent 5, 2026-09-06).
+    if not ws.workspace(root).is_dir():
+        # 🐛 [2026-09-06] A dead end in six of ten commands. `chamnan-context` was given the way
+        # out on 2026-09-05 and its siblings were not, and `chamnan-impact` carried BOTH — this
+        # sentence, and the actionable one 46 lines below it for a near-identical condition — so
+        # which of the two a user got depended on whether `.chamnan/` happened to exist yet, an
+        # ordering accident rather than anything they controlled. No test ran any of the six
+        # against a directory that genuinely has no workspace (R15 agent 3, 2026-09-06).
+        print(f"chamnan: no .chamnan/ workspace at {root}. Run `chamnan-map` there first — it "
+              f"creates the workspace and builds the index. (Inside Claude Code, "
+              f"`/chamnan:bootstrap` does that and records a baseline.)", file=sys.stderr)
+        return 1
+    if not ws.enabled("report", root):
+        print("chamnan: report is disabled in .chamnan/config.json")
+        return 0
+    # 🎯 [R5, 2026-09-18] Measured at about 3,850 tokens — more than the whole session-start block,
+    # whose ceiling is 9,500 BYTES — against under 400 for every other command here. A person at a
+    # terminal wants the tables; a dispatched agent is never a TTY, pays for them on every turn
+    # afterwards and cannot skim. `gh` switches its output on the same test with no flag, which is
+    # the property that matters: a flag only helps the caller who already knew to pass it.
+    #
+    # The human path is byte-identical to what it was. `--full` forces the tables into a pipe (which
+    # is what a person redirecting to a file wants) and `--short` forces the summary at a terminal.
+    # The pruning below runs either way — it is this command's other job and skipping it in one mode
+    # would be the defect this repository records most often.
+    _short = "--short" in argv or (not ws.reader_is_a_terminal() and "--full" not in argv)
+    if _short:
+        print_block_trend(root)
+        print("\n  Summary only, because this output is not going to a terminal.")
+        print("  `chamnan-report --full` prints the knowledge inventory, the settings this "
+              "repository has changed,")
+        print("  what the workspace is not delivering, and per-command usage.")
+    else:
+        print_inventory(root)
+        print_persistence(root)
+        print_block_trend(root)
+        print_usage(root)
+        print_followed(root)
+    project_dir = encoded_dir(root)
+    entries = []
+    if project_dir:
+        # 🎯 [perf] One pass over the transcripts serves both the pointer report and the weekly
+        # table below — collect() used to be called a second time, later in this function, and
+        # print_pointer() used to run its own independent scan before that. Both re-read every
+        # transcript file this repo has (300+ files, hundreds of MB on a well-used repo); reading
+        # logs/pointer.jsonl first (cheap) tells us whether the `opened` set is worth building at
+        # all before paying for the scan.
+        fired, named = _read_pointer_log(root)
+        entries, opened = collect(project_dir, want_opened=bool(fired), root=root)
+        print_pointer(fired, named, opened, root)
+    if not project_dir:
+        # 🐛 [2026-08-28] Returned 1. A repository nobody has worked on in Claude Code yet has no
+        # transcripts, which is the ordinary state on the day the plugin is installed — not a
+        # failure, and the inventory above was printed in full regardless. Reporting it as an error
+        # made the very first `chamnan-report` a new user runs look broken. Same for the case
+        # below: transcripts exist but hold nothing yet.
+        print(f"chamnan: no Claude Code transcripts found for {root}")
+        print("  (nothing to measure until this repo has been worked on in Claude Code)")
+        return 0
+    # 🐛 These ran BEFORE _workspace_created() reads the session filenames to date the workspace,
+    # and prune_sessions deletes by that same filename date at 30 days. So on any repository whose
+    # first session record is older than a month — any repository chamnan has actually lived in —
+    # the before/after comparison was permanently suppressed, and the tool blamed the user's
+    # history for its own housekeeping. The inventory printed at the top of the same run counted
+    # the records that the marker computation, 170 lines later, could no longer see.
+    marker_early = _workspace_created(ws.workspace(root))
+    ws.prune_logs(root)
+    ws.prune_orphaned_temps(root)
+    ws.prune_sessions(root)
+    if not entries:
+        print("chamnan: transcripts found but no usage records yet")
+        return 0
+
+    marker = marker_early or _workspace_created(ws.workspace(root))
+
+    weeks = defaultdict(lambda: {"calls": 0, "cread": 0, "cwrite": 0, "out": 0})
+    per_model = defaultdict(lambda: {"calls": 0, "cread": 0})
+    for when, model, inp, out, cread, cwrite, sidechain, _sess in entries:
+        key = when.isocalendar()[:2]
+        w = weeks[key]
+        # `inp` is input the model read that was NOT served from cache -- the whole prompt on a
+        # cache miss, which is every session's first call and every call after the cache expires.
+        # It was unpacked here and then dropped, so those calls reported a context of zero and
+        # dragged the per-call average down by exactly the calls that cost the most.
+        w["calls"] += 1; w["cread"] += cread + inp; w["cwrite"] += cwrite; w["out"] += out
+        if sidechain:
+            w["subcalls"] = w.get("subcalls", 0) + 1
+            w["subcread"] = w.get("subcread", 0) + cread + inp
+        pm = per_model[model]
+        pm["calls"] += 1; pm["cread"] += cread + inp
+
+    print(f"chamnan-report — {root.name}   ({len(entries):,} calls across {len(weeks)} week(s))\n")
+    print(f"  {'week':<10}{'calls':>8}{'context/call':>15}{'new-read/call':>16}{'out/call':>11}")
+    marker_week = marker.isocalendar()[:2] if marker else None
+    for key in sorted(weeks):
+        w = weeks[key]
+        c = max(w["calls"], 1)
+        tag = "  <- .chamnan created" if key == marker_week else ""
+        print(f"  {key[0]}-w{key[1]:<5}{w['calls']:>8,}{w['cread']/c:>15,.0f}{w['cwrite']/c:>16,.0f}{w['out']/c:>11,.0f}{tag}")
+
+    if marker_week and any(k < marker_week for k in weeks) and any(k > marker_week for k in weeks):
+        # 🐛 A SUBAGENT STEP AND A CONVERSATION TURN WERE AVERAGED TOGETHER, and on this machine
+        # the headline was entirely that artefact. Subagents carry about a fifth of a main-thread
+        # context each and they appeared for the first time in the very week the workspace was
+        # created, so the "after" side filled with cheap calls. Measured here, independently, by
+        # week:
+        #
+        #     all calls      467k 516k 507k 432k 421k 452k 231k   -> printed as -27.5%
+        #     main thread    467k 516k 507k 432k 481k 495k 470k   -> flat, no trend
+        #
+        # The context a real conversation turn carries did not fall at all. This command is the one
+        # the README points at to answer "is chamnan worth keeping", so a composition artefact here
+        # is the most expensive kind of wrong this project can be.
+        #
+        # Reported as two populations rather than one corrected average, because "user turns" is
+        # not reliably derivable from these records and inventing a denominator is how the first
+        # number went wrong. The main-thread row is the one to read; the subagent row is shown so
+        # nobody has to wonder where the rest went.
+        def side(pred, main_only=False):
+            calls = cread = cwrite = 0
+            for key, w in weeks.items():
+                if not pred(key):
+                    continue
+                sc, scr = w.get("subcalls", 0), w.get("subcread", 0)
+                calls += w["calls"] - (sc if main_only else 0)
+                cread += w["cread"] - (scr if main_only else 0)
+                cwrite += w["cwrite"] if not main_only else 0
+            return calls, cread / max(calls, 1), cwrite / max(calls, 1)
+        bc, bcr, bcw = side(lambda k: k < marker_week)
+        ac, acr, acw = side(lambda k: k > marker_week)
+        bmc, bmr, _ = side(lambda k: k < marker_week, main_only=True)
+        amc, amr, _ = side(lambda k: k > marker_week, main_only=True)
+        # 🎯 The confound the before/after cannot see, and the owner named it before this measured
+        # it: the comparison assumes the two sides are the SAME KIND of work. On this repository
+        # they are not — the weeks after the workspace was created revisit less code than the weeks
+        # before. Returning to code you already know is where an index pays; opening new code every
+        # week is not. So a flat result is not evidence the tool does not help, and a falling one
+        # would not have been evidence that it does. Saying which of those applies is worth more
+        # than the percentage above it.
+        #
+        # 🐛 The figures this comment used to quote — "8%, 7%, 12% against 27% and 36%" — were
+        # read off the contaminated count, before `collect()` scoped touches to the repository.
+        # Measured again with the scoping in place, the whole report reads 28% before / 20% after
+        # rather than 20% / 7%: the gap is real but a third of what it looked like. The direction
+        # of the confound is unchanged, which is why the reasoning above stands; the numbers are
+        # left out rather than restated, because a figure quoted in a comment is the thing this
+        # project keeps finding stale.
+        def _revisit(pred):
+            weeks_seen, cur, prior = {}, set(), set()
+            for day in sorted(touched_by_week):
+                try:
+                    wk = datetime.fromisoformat(day).isocalendar()[:2]
+                except (ValueError, RecursionError):
+                    continue
+                weeks_seen.setdefault(wk, set()).update(touched_by_week[day])
+            # The earliest week is skipped, not counted as 0%: it has no earlier week to revisit
+            # by construction, and including it drags the "before" side down for a reason that has
+            # nothing to do with the work. Measured here, that one correction moves before from
+            # 17% to 20% and is the difference between the two sides looking similar and looking
+            # as different as they are.
+            for n, wk in enumerate(sorted(weeks_seen)):
+                files = weeks_seen[wk]
+                if pred(wk) and n > 0:
+                    cur.add((len(files & prior), len(files)))
+                prior |= files
+            rev = sum(a for a, _ in cur)
+            tot = sum(b for _, b in cur)
+            return (100 * rev / tot) if tot else None
+        # Short on purpose. Three blocks of caveats that half-contradict each other leave a reader
+        # less able to decide than one clear line does, and this is the screen somebody opens to
+        # answer one question. The reasoning lives in these comments, not in the output.
+        print(f"\n  context per turn   before {bmr:>10,.0f}   after {amr:>10,.0f}   "
+              f"{(amr-bmr)/max(bmr,1)*100:+.1f}%")
+        # 🐛 [2026-09-18] (R20.3) The report never said how much of the context per turn was
+        # chamnan's own injected block, leaving a reader unable to tell how much of the "after"
+        # figure above was the tool's own overhead rather than the conversation it was measuring.
+        #
+        # The "after" figure above is the whole session's context per turn, and chamnan's own
+        # injected block is PART of it -- nothing above says so. `blocklog` records one row per
+        # session start (`bytes`, and since this change `tok`), over the same trailing window
+        # `print_block_trend` already reads (`blocklog.trend(root, last=10)`), so the median of
+        # those rows is the going size of the thing being measured. Rows written since `tok` was
+        # added carry the real script-weighted estimate; older rows have no `tok` field, so each
+        # row falls back to its own `bytes * tokens.weight("a")` -- pricing a byte as one plain-Latin
+        # character, same as before -- only when it has to. A row is converted to tokens on its own
+        # before the median is taken, so a window that is all old rows reduces to exactly the old
+        # calculation (median(bytes) * weight, since every row is scaled by the same constant).
+        _block_tok = []
+        for _r in blocklog.trend(root, last=10):
+            if isinstance(_r.get("tok"), (int, float)):
+                _block_tok.append(_r["tok"])
+            elif isinstance(_r.get("bytes"), int):
+                _block_tok.append(_r["bytes"] * tokens_mod.weight("a"))
+        if _block_tok:
+            _ordered = sorted(_block_tok)
+            _mid = len(_ordered) // 2
+            _block_tokens = (_ordered[_mid] if len(_ordered) % 2
+                              else (_ordered[_mid - 1] + _ordered[_mid]) / 2)
+            print(f"  of which chamnan's own block   ~{_block_tokens:,.0f} tokens  "
+                  f"({_block_tokens * 100 / amr:.1f}% of the after figure)")
+        if ac != amc:
+            # Subagent steps carry about a fifth of a turn's context, so a period with more of
+            # them looks cheaper per call while no turn got cheaper. Counted out, never averaged
+            # in — that average is what this command used to print as its headline.
+            print(f"  ({ac - amc:,} subagent steps excluded — they carry a fraction of a turn "
+                  f"and would flatter the result)")
+        _b, _a = _revisit(lambda k: k < marker_week), _revisit(lambda k: k > marker_week)
+        if _b is not None and _a is not None:
+            print(f"\n  repeat work        before {_b:>4.0f}%      after {_a:>4.0f}%   "
+                  f"of files opened again from an earlier week")
+            if _a + 8 < _b:
+                print("  An index pays when you come back to the same code. Most of the work since")
+                print("  then was new files, so this period could not show the effect either way.")
+        # 🐛 The confound that mattered most, and it was not named at all. On one work repository
+        # this command reported +114.1% context per turn after the workspace was created. The whole
+        # four-week window turned out to be ONE continuously-resumed session — one transcript, no
+        # restart in nineteen days — with the creation marker seven days into it. "Before" was that
+        # session's only genuinely fresh hours; "after" was seven post-compaction cycles, whose
+        # floor is structurally higher whatever plugin is installed.
+        #
+        # The arithmetic settles it independently: chamnan's whole injected payload on that repo is
+        # about 3,200-4,300 tokens, 60 to 80 times too small to account for the +265,203 per call it
+        # was being blamed for. And the repository that uses chamnan an order of magnitude more, with
+        # eighteen separate sessions, reads +0.7%.
+        #
+        # So the number is reported either way — hiding it would be its own dishonesty — but a
+        # window that is one session on either side gets told what it is looking at.
+        _bs = {e[7] for e in entries if e[0].isocalendar()[:2] < marker_week}
+        _as = {e[7] for e in entries if e[0].isocalendar()[:2] > marker_week}
+        if len(_bs) <= 1 or len(_as) <= 1:
+            print(f"\n  ⚠ {len(_bs)} session(s) before and {len(_as)} after. A window that is one"
+                  f" resumed session is\n    comparing its own fresh hours against its own"
+                  f" post-compaction ones, and the difference\n    above is mostly that, not this"
+                  f" workspace. Compare again once there are several\n    separate sessions on"
+                  f" both sides.")
+        print("\n  Read this as an observation, not an experiment: your model, your task mix and")
+        print("  Claude Code itself all changed over the same period. It is your repo's number,")
+        print("  which is the point — but it is not a controlled trial.")
+    else:
+        print("\n  Not enough history on both sides of the workspace's creation date to compare yet.")
+        print("  Run this again after a week or two of normal work.")
+
+    # 🐛 This tip printed on every single run, forever, whenever `language` was unset -- which is
+    # the default, so for most repositories that is every run there will ever be. Measured at 103
+    # tokens, and this repository's own command log shows seven reruns in one window. The token cost
+    # is the smaller half: a tip pinned to the end of the report trains a reader to stop reading the
+    # end of the report, and that is where the "read this as an observation, not an experiment"
+    # caveat directly above it lives.
+    #
+    # Every comparable notice in chamnan already stops itself -- pointer.already_pointed, the
+    # scratch-watch nudge's three strikes. This one did not because it had no state to stop against.
+    lang = ws.load_config(root).get("language", "en")
+    if lang == "en" and ws.notice_due(root, "report_language_tip"):
+        print("\n  Tip: chamnan writes generated comments and recorded procedures in English by")
+        print("  default — they are re-read every session, and English carries the same meaning in")
+        print("  fewer tokens. Set \"language\" in .chamnan/config.json if your team needs another.")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

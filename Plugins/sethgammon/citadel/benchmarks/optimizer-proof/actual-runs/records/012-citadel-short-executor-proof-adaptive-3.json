@@ -1,0 +1,68 @@
+{
+  "schema": 1,
+  "evidence_kind": "actual-run",
+  "scenario_set_id": "optimizer-scenarios-sha256:602e496906f3a293203750602234ba88a55a86b9e4f54f32239264098dcebe5b",
+  "metric_set_id": "optimizer-metrics-sha256:bedffbda2b18d725610b0f294a8273ef908237fd957bf9e51a5af4885b123e4f",
+  "scenario_id": "citadel-short-executor-proof",
+  "category": "short_control",
+  "holdout": true,
+  "policy_id": "adaptive",
+  "repetition": 3,
+  "decision_id": "sha256:305a89d6dd327674b5b550b43f5b806fc025734c818076338fa211d170a431e6",
+  "selected_profile_id": "claude-frontier",
+  "observed_profile_id": "claude-frontier",
+  "requested_model": "claude-opus-5",
+  "observed_model": "claude-opus-5",
+  "model_proof_status": "passed",
+  "started_at": "2026-07-30T21:31:00.318Z",
+  "duration_ms": 398572,
+  "outcome": "passed",
+  "verified": true,
+  "attempts": 1,
+  "human_interventions": 0,
+  "topology": "single",
+  "cost": {
+    "status": "known",
+    "amount_usd": 1.251168,
+    "provenance": "tool_reported",
+    "source": "citadel_optimizer_runner",
+    "source_ref": "summed_attempts:1",
+    "pricing_snapshot_digest": null,
+    "components": [
+      {
+        "kind": "model",
+        "amount_usd": 1.2511679999999998,
+        "source": "attempt_1:claude total_cost_usd"
+      }
+    ]
+  },
+  "artifact_paths": [
+    "scripts/test-executor-profiles.js"
+  ],
+  "verification_receipts": [
+    {
+      "attempt": 1,
+      "profile_id": "claude-frontier",
+      "status": "passed",
+      "exit_code": 0,
+      "timed_out": false,
+      "output_digest": "sha256:cfbcb5eb561d7757d10e054de15d8c886ab07285c428bc508c3dfec194eea343",
+      "output_excerpt": "[stdout]\nExecutor profiles passed: strict profiles, canonical digests, literal invocations, bound receipts, and honest model proof.\n\n[stderr]\n",
+      "output_truncated": false,
+      "patch_exit_code": 0,
+      "patch_digest": "sha256:04b7800b64c1ee4de40d4c9e474118831c63cae5ff6d5e5de58f3a655c7cdaac",
+      "patch_excerpt": "diff --git a/scripts/test-executor-profiles.js b/scripts/test-executor-profiles.js\nindex 3178834..6e0daba 100644\n--- a/scripts/test-executor-profiles.js\n+++ b/scripts/test-executor-profiles.js\n@@ -185,4 +185,40 @@ for (const forbidden of ['signature', 'private', 'raw_output', 'env', 'command',\n }\n assert.equal(replay.model_status, 'unknown');\n \n+// Regression: telemetry that arrives with every other fact but no observed model\n+// stays unknown on every surface. A verified receipt and trusted cost, duration,\n+// and token counts are facts about the run, not about model identity, so they\n+// must never promote a missing observation into a reported match.\n+const verification = profiles.verifyForkReceiptWrapper(wrapper, { publicKey, expected: wrapperInput });\n+assert.equal(verification.status, 'verified');\n+const telemetry = { trusted: true, source: 'codex-jsonl', duration_ms: 1000, tokens: 900,\n+  cost: { amount: 0.42, unit: 'usd', source: 'codex-jsonl' } };\n+// A null-model profile is the only shape that can pass on observation alone, so\n+// missing telemetry must be rejected before that branch is ever reached.\n+const nullModel = legacy.find((entry) => entry.model === null);\n+for (const absent of [{}, { model: null }, { model: '' }, { model: { id: 'qwen3-coder:30b' } }]) {\n+  const observation = { ...telemetry, ...absent };\n+  const label = JSON.stringify(absent);\n+  assert.deepEqual(profiles.evaluateModelProof(local, observation), {\n+    requested_model: local.model, observed_model: null,\n+    status: 'unknown', reason_code: 'MODEL_OBSERVATION_MISSING',\n+  }, label);\n+  const state = profiles.missionControlExecutorState({ profile: local, observation, wrapper, verification });\n+  assert.equal(state.observed_model, null, label);\n+  assert.equal(state.model_status, 'unknown', label);\n+  assert.equal(state.model_reason_code, 'MODEL_OBSERVATION_MISSING', label);\n+  // The surrounding facts are known, so 'unknown' is a claim about the model alone.\n+  assert.equal(state.receipt_status, 'verified', label);\n+  assert.equal(state.cost_status, 'known', label);\n+  assert.equal(state.duration_status, 'known', label);\n+  assert.equal(state.tokens_status, 'known', label);\n+  const missingReplay = profiles.publicExecutorReplay({ profile: local, observation, wrapper, verification });\n+  assert.equal(missingReplay.observed_model, null, label);\n+  assert.equal(missingReplay.model_status, 'unknown', label);\n+  assert.deepEqual(profiles.evaluateModelProof(nullModel, observation), {\n+    requested_model: 'default', observed_model: null,\n+    status: 'unknown', reason_code: 'MODEL_OBSERVATION_MISSING',\n+  }, label);\n+}\n+\n process.stdout.write('Executor profiles passed: strict profiles, canonical digests, literal invocations, bound receipts, and honest model proof.\\n');\n",
+      "patch_truncated": false,
+      "changed_paths": [
+        "scripts/test-executor-profiles.js"
+      ]
+    }
+  ],
+  "receipt_status": "verified",
+  "adversarial_result": null,
+  "failure_code": null,
+  "attestation": {
+    "algorithm": "ed25519",
+    "signature_base64": "2VX7bLRBfriQGYWu0L1bVq+HBZBO8MO36Y/J2LuNid7dXtRzxlwku4+DMOJe0O2fY5HZjKRKnyLgjmT1dSXsCw=="
+  }
+}

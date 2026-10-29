@@ -1,0 +1,711 @@
+#!/usr/bin/env bash
+# ops-marketing-dash — pre-gathers data from all configured marketing channels
+# Output: JSON object with data from each channel (null for unconfigured)
+# v1.6: project-aware — reads preferences.json marketing.{default_project,projects.<name>.<channel>}
+#       and resolves cred refs (env:VAR | doppler:project/config/SECRET | inline)
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+OPS_PLUGIN_ROOT_FALLBACK="${SCRIPT_DIR}/.." . "${SCRIPT_DIR}/../lib/registry-path.sh"
+# resolve_cred, ga4_resolve, gsc_resolve, marketing_channels_status
+# shellcheck disable=SC1091
+. "${SCRIPT_DIR}/../scripts/lib/ga4-resolve.sh"
+# ga4_auth_token + ga4_run_report (shared with ops-marketing-autopilot)
+# shellcheck disable=SC1091
+. "${SCRIPT_DIR}/../scripts/lib/ga4-data-api.sh"
+PREFS="${OPS_DATA_DIR}/preferences.json"
+
+# Pull a value from preferences.json marketing.projects.<project>.<channel>.<field>.
+# $1 project, $2 channel, $3 field. Echoes nothing if missing or prefs absent.
+# Read a value the owner saved into preferences.json .user_config.<key>.
+#
+# This replaces `claude plugin config get <key>`, which never worked: Claude
+# Code has no `plugin config` subcommand (it errors with "unknown command
+# 'config'" and the 2>/dev/null swallowed it), so that tier silently returned
+# empty on every call. Every value /ops:setup wrote into .user_config was
+# therefore unreachable, and the settings screen looked configured while the
+# resolver saw nothing. Verified against Claude Code 2.1.269.
+# Persist a value into preferences.json .user_config.<key>.
+#
+# Replaces `claude plugin config set`, which does not exist either: it failed
+# silently, so a discovered id was thrown away and rediscovered on every run.
+# Writes via temp + atomic rename so a concurrent reader never sees a partial
+# file, and preserves the file mode because preferences.json holds credentials.
+user_config_set() {
+  local key="$1" value="$2" tmp
+  [ -n "$key" ] || return 0
+  [ -f "$PREFS" ] || return 0
+  tmp="$(mktemp "${PREFS}.XXXXXX")" || return 0
+  if jq --arg k "$key" --arg v "$value" '.user_config[$k] = $v' "$PREFS" >"$tmp" 2>/dev/null; then
+    chmod --reference="$PREFS" "$tmp" 2>/dev/null || chmod 600 "$tmp"
+    mv -f "$tmp" "$PREFS"
+  else
+    rm -f "$tmp"
+  fi
+}
+
+user_config_get() {
+  local key="$1"
+  [ -n "$key" ] || return 0
+  [ -f "$PREFS" ] || return 0
+  jq -r --arg k "$key" '.user_config[$k] // empty' "$PREFS" 2>/dev/null || true
+}
+
+prefs_get() {
+  [ -f "$PREFS" ] || return 0
+  jq -r --arg p "$1" --arg c "$2" --arg f "$3" \
+    '.marketing.projects[$p][$c][$f] // empty' "$PREFS" 2>/dev/null
+}
+
+# Project selection: --project <name> arg, OPS_MARKETING_PROJECT env, or
+# marketing.default_project from prefs. Empty if no project context.
+#
+# PROJECT_ISOLATED=1 when the caller named a project that is not the owner
+# default. Env / plugin-config / bare-Doppler / channels.marketing fallbacks
+# belong to the default brand. Using them for another --project paints that
+# brand with the owner's Amplitude, AppsFlyer, RevenueCat, IG, and Klaviyo.
+PROJECT_FROM_ARG=""
+for ((i=1; i<=$#; i++)); do
+  if [ "${!i}" = "--project" ]; then
+    j=$((i+1))
+    PROJECT_FROM_ARG="${!j:-}"
+    break
+  fi
+done
+EXPLICIT_PROJECT="${PROJECT_FROM_ARG:-${OPS_MARKETING_PROJECT:-}}"
+DEFAULT_PROJECT=""
+if [ -f "$PREFS" ]; then
+  DEFAULT_PROJECT="$(jq -r '.marketing.default_project // empty' "$PREFS" 2>/dev/null || true)"
+fi
+PROJECT="${EXPLICIT_PROJECT:-$DEFAULT_PROJECT}"
+PROJECT_ISOLATED=0
+if [ -n "$EXPLICIT_PROJECT" ] && [ "$EXPLICIT_PROJECT" != "${DEFAULT_PROJECT:-}" ]; then
+  PROJECT_ISOLATED=1
+fi
+
+# Read a Doppler-ref from preferences.json channels.marketing.<channel>.<key_field>.
+# This is the OWNER-LEVEL marketing schema (channels.marketing.*) — distinct from
+# the project-scoped marketing.projects.<project>.* schema that prefs_get reads.
+# The channel block names a Doppler SECRET via a *_key field plus doppler_project
+# + config, e.g.:
+#   channels.marketing.klaviyo = {doppler_project, config, key: "BRIGHT_KLAVIYO_TOKEN"}
+#   channels.marketing.meta    = {doppler_project, config, system_user_token_key: "..."}
+# Key names may carry a @project suffix (e.g. "VITE_GA4_MEASUREMENT_ID@my-project-web")
+# which overrides doppler_project for that single secret.
+# $1=channel  $2=key_field  -> resolved secret value (empty if unresolvable).
+prefs_marketing_cred() {
+  [ -f "$PREFS" ] || return 0
+  local channel="$1" key_field="$2" keyname dproj dcfg realkey suffixproj
+  keyname="$(jq -r --arg c "$channel" --arg f "$key_field" \
+    '.channels.marketing[$c][$f] // empty' "$PREFS" 2>/dev/null)"
+  [ -z "$keyname" ] && return 0
+  dproj="$(jq -r --arg c "$channel" '.channels.marketing[$c].doppler_project // empty' "$PREFS" 2>/dev/null)"
+  dcfg="$(jq -r --arg c "$channel" '.channels.marketing[$c].config // empty' "$PREFS" 2>/dev/null)"
+  realkey="${keyname%@*}"
+  suffixproj="${keyname#*@}"
+  [ "$suffixproj" != "$keyname" ] && dproj="$suffixproj"
+  [ -z "$dproj" ] || [ -z "$realkey" ] && return 0
+  doppler secrets get "$realkey" --project "$dproj" --config "${dcfg:-prd}" --plain 2>/dev/null || true
+}
+
+# Credential resolution — four-tier:
+#   1. Project config in preferences.json marketing.projects.<p>.<c>.<f> (project mode)
+#   2. Flat env / preferences.json .user_config (legacy)
+#   3. Doppler with bare key name (legacy)
+#   4. channels.marketing.<channel>.<key_field> owner-level Doppler-ref (NEW) —
+#      this tier is what lets the morning briefing resolve creds that live in
+#      Doppler under the owner-level schema. Pass it via the 5th/6th args.
+#
+# When PROJECT_ISOLATED=1, stop after tier 1. Missing project keys must
+# surface as unconfigured (null gatherers), not another brand's numbers.
+get_cred() {
+  local proj_channel="$1"  # e.g. "klaviyo.private_key"
+  local env_var="$2"
+  local plugin_key="$3"
+  local doppler_key="${4:-}"
+  local cm_channel="${5:-}"   # channels.marketing.<channel>
+  local cm_keyfield="${6:-}"  # .<key_field> naming the Doppler secret
+
+  local val=""
+  if [ -n "$PROJECT" ]; then
+    local channel="${proj_channel%%.*}"
+    local field="${proj_channel#*.}"
+    val="$(resolve_cred "$(prefs_get "$PROJECT" "$channel" "$field")")"
+    if [ -n "$val" ] || [ "${PROJECT_ISOLATED:-0}" = "1" ]; then
+      printf '%s' "$val"
+      return 0
+    fi
+  fi
+  if [ -z "$val" ]; then val="${!env_var:-}"; fi
+  if [ -z "$val" ]; then val="$(user_config_get "$plugin_key")"; fi
+  if [ -z "$val" ] && [ -n "$doppler_key" ]; then
+    val="$(doppler secrets get "$doppler_key" --plain 2>/dev/null || echo "")"
+  fi
+  if [ -z "$val" ] && [ -n "$cm_channel" ] && [ -n "$cm_keyfield" ]; then
+    val="$(prefs_marketing_cred "$cm_channel" "$cm_keyfield")"
+  fi
+  printf '%s' "$val"
+}
+
+# The 5th/6th args add the owner-level channels.marketing.<channel>.<key_field>
+# Doppler-ref fallback (see get_cred). This is the tier the morning briefing
+# relies on — My-Project's marketing creds live in Doppler under channels.marketing.
+KLAVIYO_KEY="$(get_cred 'klaviyo.private_key' KLAVIYO_PRIVATE_KEY klaviyo_private_key KLAVIYO_PRIVATE_KEY klaviyo key)"
+META_TOKEN="$(get_cred 'meta.access_token' META_ADS_TOKEN meta_ads_token META_ADS_TOKEN meta system_user_token_key)"
+# meta fallback_env names an env-resident token (META_MY-PROJECT_ACCESS_TOKEN) — try it last.
+# Owner-level only: an isolated --project must not inherit the default brand's token.
+if [ -z "$META_TOKEN" ] && [ "${PROJECT_ISOLATED:-0}" != "1" ]; then
+  _meta_fb="$(jq -r '.channels.marketing.meta.fallback_env // empty' "$PREFS" 2>/dev/null)"
+  [ -n "$_meta_fb" ] && META_TOKEN="${!_meta_fb:-}"
+fi
+META_ACCOUNT="$(get_cred 'meta.ad_account_id' META_AD_ACCOUNT_ID meta_ad_account_id META_AD_ACCOUNT_ID meta ad_account_id_key)"
+# GA4 property id: prefer the project-scoped tier, then the owner-level
+# channels.marketing.ga4.property_id (a literal id, not a Doppler ref).
+GA4_PROPERTY="$(get_cred 'ga4.property_id' GA4_PROPERTY_ID ga4_property_id)"
+if [ -z "$GA4_PROPERTY" ] && [ -f "$PREFS" ] && [ "${PROJECT_ISOLATED:-0}" != "1" ]; then
+  GA4_PROPERTY="$(jq -r '.channels.marketing.ga4.property_id // empty' "$PREFS" 2>/dev/null)"
+fi
+# GA4 read auth uses an SA key file (analytics.readonly). prefs names it under
+# channels.marketing.ga4.sa_json; export it so ga4_auth_token (ga4-data-api.sh)
+# picks it up. Expand a leading ~ to $HOME.
+if [ -z "${GA4_SERVICE_ACCOUNT_KEY_FILE:-}" ] && [ -f "$PREFS" ]; then
+  # Project tier first: marketing.projects.<key>.ga4.sa_key_file_ref is what
+  # ops-marketing-provision actually writes (and what the autopilot reads).
+  # The owner-level channels.marketing.ga4.sa_json below is the legacy name and
+  # is absent on provisioned installs — reading only that made every GA4 pull
+  # fall through to gcloud ADC, and return null the moment ADC expired.
+  _ga4_sa="$(get_cred 'ga4.sa_key_file_ref' GA4_SERVICE_ACCOUNT_KEY_FILE ga4_sa_key_file 2>/dev/null || true)"
+  [ -z "$_ga4_sa" ] && _ga4_sa="$(jq -r '.channels.marketing.ga4.sa_json // empty' "$PREFS" 2>/dev/null)"
+  _ga4_sa="${_ga4_sa#file:}"
+  [ -n "$_ga4_sa" ] && GA4_SERVICE_ACCOUNT_KEY_FILE="${_ga4_sa/#\~/$HOME}"
+  export GA4_SERVICE_ACCOUNT_KEY_FILE
+fi
+GSC_SITE="$(get_cred 'gsc.site_url' GOOGLE_SEARCH_CONSOLE_SITE google_search_console_site)"
+GADS_DEV_TOKEN="$(get_cred 'google_ads.developer_token' GOOGLE_ADS_DEVELOPER_TOKEN google_ads_developer_token GOOGLE_ADS_DEVELOPER_TOKEN google_ads dev_token_key)"
+GADS_CLIENT_ID="${GOOGLE_ADS_CLIENT_ID:-$(user_config_get google_ads_client_id)}"
+GADS_CLIENT_SECRET="${GOOGLE_ADS_CLIENT_SECRET:-$(user_config_get google_ads_client_secret)}"
+GADS_REFRESH_TOKEN="$(get_cred 'google_ads.refresh_token' GOOGLE_ADS_REFRESH_TOKEN google_ads_refresh_token GOOGLE_ADS_REFRESH_TOKEN google_ads refresh_token_key)"
+GADS_CUSTOMER_ID="$(get_cred 'google_ads.customer_id' GOOGLE_ADS_CUSTOMER_ID google_ads_customer_id)"
+GADS_LOGIN_CUSTOMER_ID="${GOOGLE_ADS_LOGIN_CUSTOMER_ID:-$(user_config_get google_ads_login_customer_id)}"
+INSTAGRAM_ACCOUNT_ID="$(get_cred 'instagram.account_id' INSTAGRAM_ACCOUNT_ID instagram_account_id)"
+# Meta app secret enables appsecret_proof (required for system-user tokens).
+# prefs stores it under channels.marketing.meta.app_secret_key (Doppler ref);
+# also accept a bare META_MY-PROJECT_APP_SECRET @ claude-ops/prd as a known location.
+META_APP_SECRET="$(get_cred 'meta.app_secret' META_APP_SECRET meta_app_secret META_APP_SECRET meta app_secret_key)"
+if [ -z "$META_APP_SECRET" ] && [ "${PROJECT_ISOLATED:-0}" != "1" ]; then
+  META_APP_SECRET="$(doppler secrets get META_MY-PROJECT_APP_SECRET --project claude-ops --config prd --plain 2>/dev/null || echo "")"
+fi
+
+# Amplitude (product analytics: signups / new + active users). Dashboard REST API
+# uses HTTP Basic (api_key:secret_key). EU data-residency projects MUST hit
+# analytics.eu.amplitude.com; US hits amplitude.com (server_zone selects host).
+# Creds resolve from the project-scoped prefs tier first (doppler:<project>/prd/…),
+# then env, then owner-level channels.marketing.amplitude.*_key Doppler refs.
+AMPLITUDE_API_KEY="$(get_cred 'amplitude.api_key' AMPLITUDE_API_KEY amplitude_api_key AMPLITUDE_API_KEY amplitude api_key_key)"
+AMPLITUDE_SECRET_KEY="$(get_cred 'amplitude.secret_key' AMPLITUDE_SECRET_KEY amplitude_secret_key AMPLITUDE_SECRET_KEY amplitude secret_key_key)"
+AMPLITUDE_ZONE="$(get_cred 'amplitude.server_zone' AMPLITUDE_SERVER_ZONE amplitude_server_zone AMPLITUDE_SERVER_ZONE amplitude server_zone_key)"
+[ -z "$AMPLITUDE_ZONE" ] && AMPLITUDE_ZONE="US"
+case "$AMPLITUDE_ZONE" in
+  [Ee][Uu]) AMPLITUDE_HOST="https://analytics.eu.amplitude.com" ;;
+  *)        AMPLITUDE_HOST="https://amplitude.com" ;;
+esac
+
+# AppsFlyer (app installs / downloads / install conversion rate). Aggregate Pull
+# API (daily_report v5) returns per-day Installs + Conversion Rate as CSV, auth via
+# Bearer V2 token. app_id is the store id (iOS: idNNNNNNNN, Android: package name).
+APPSFLYER_TOKEN="$(get_cred 'appsflyer.api_token' APPSFLYER_API_V2_TOKEN appsflyer_api_token APPSFLYER_API_V2_TOKEN appsflyer api_token_key)"
+APPSFLYER_APP_ID="$(get_cred 'appsflyer.app_id' APPSFLYER_APP_ID appsflyer_app_id APPSFLYER_APP_ID appsflyer app_id_key)"
+
+# RevenueCat (GROUND-TRUTH real app users: customers/subscriptions/MRR). v2 secret
+# key (sk_…) + project id. This is the authoritative "real people" source — it
+# counts actual app identities with store receipts, unlike Amplitude event counts.
+REVENUECAT_KEY="$(get_cred 'revenuecat.api_key' REVENUECAT_API_KEY revenuecat_api_key REVENUECAT_API_KEY revenuecat api_key_key)"
+REVENUECAT_PROJECT="$(get_cred 'revenuecat.project_id' REVENUECAT_PROJECT_ID revenuecat_project_id)"
+
+# Test hook: presence-only JSON (never values), then exit before any network call.
+# Used by tests/test-ops-marketing-dash-brand-isolation.sh.
+if [ "${OPS_MARKETING_DUMP_CRED_PRESENCE:-}" = "1" ]; then
+  jq -n \
+    --arg project "$PROJECT" \
+    --argjson isolated "$PROJECT_ISOLATED" \
+    --argjson amplitude "$([ -n "${AMPLITUDE_API_KEY:-}" ] && echo true || echo false)" \
+    --argjson appsflyer "$([ -n "${APPSFLYER_TOKEN:-}" ] && [ -n "${APPSFLYER_APP_ID:-}" ] && echo true || echo false)" \
+    --argjson revenuecat "$([ -n "${REVENUECAT_KEY:-}" ] && [ -n "${REVENUECAT_PROJECT:-}" ] && echo true || echo false)" \
+    --argjson klaviyo "$([ -n "${KLAVIYO_KEY:-}" ] && echo true || echo false)" \
+    --argjson instagram "$([ -n "${INSTAGRAM_ACCOUNT_ID:-}" ] && echo true || echo false)" \
+    '{project:$project, isolated:($isolated==1), amplitude:$amplitude, appsflyer:$appsflyer, revenuecat:$revenuecat, klaviyo:$klaviyo, instagram:$instagram}'
+  exit 0
+fi
+
+# Meta ad-account id: prefs carries only the Business Manager id (bm_id_key), not
+# an act_ id. If we have a token+secret but no ad account, resolve the first owned
+# ad account via the BM. Leaves META_ACCOUNT empty (meta insights null) on failure
+# — never fabricated.
+if [ -z "$META_ACCOUNT" ] && [ -n "$META_TOKEN" ] && [ -n "$META_APP_SECRET" ] && [ -f "$PREFS" ] && [ "${PROJECT_ISOLATED:-0}" != "1" ]; then
+  _bm_keyname="$(jq -r '.channels.marketing.meta.bm_id_key // empty' "$PREFS" 2>/dev/null)"
+  _bm_id=""
+  if [ -n "$_bm_keyname" ]; then
+    _bm_dproj="$(jq -r '.channels.marketing.meta.doppler_project // empty' "$PREFS" 2>/dev/null)"
+    _bm_dcfg="$(jq -r '.channels.marketing.meta.config // "prd"' "$PREFS" 2>/dev/null)"
+    _bm_id="$(doppler secrets get "$_bm_keyname" --project "${_bm_dproj:-my-project-marketing}" --config "${_bm_dcfg:-prd}" --plain 2>/dev/null || echo "")"
+  fi
+  if [ -n "$_bm_id" ]; then
+    _bm_proof="$(printf '%s' "$META_TOKEN" | openssl dgst -sha256 -hmac "$META_APP_SECRET" -hex 2>/dev/null | awk '{print $NF}')"
+    META_ACCOUNT="$(curl -gsS --max-time 8 "https://graph.facebook.com/v21.0/${_bm_id}/owned_ad_accounts?fields=id&limit=1&appsecret_proof=${_bm_proof}" \
+      -H "Authorization: Bearer ${META_TOKEN}" 2>/dev/null | jq -r '.data[0].id // empty' 2>/dev/null || echo "")"
+  fi
+fi
+
+# Compute appsecret_proof for projects that require it (Meta system-user tokens
+# and any project with app_secret configured). Empty string when no secret.
+META_PROOF=""
+if [ -n "$META_TOKEN" ] && [ -n "$META_APP_SECRET" ]; then
+  META_PROOF=$(printf '%s' "$META_TOKEN" | openssl dgst -sha256 -hmac "$META_APP_SECRET" -hex 2>/dev/null | awk '{print $NF}')
+fi
+
+# Build query-string fragment to append. Empty when no proof.
+META_PROOF_QS=""
+[ -n "$META_PROOF" ] && META_PROOF_QS="&appsecret_proof=${META_PROOF}"
+
+# Strip dashes from customer ID (API requires no dashes)
+GADS_CUSTOMER_ID="${GADS_CUSTOMER_ID//-/}"
+
+# NOTE on remaining gaps (intentional, not bugs):
+#   GSC — needs a one-time SA grant on the Search Console property
+#         (gap gsc_api: AUTH_READY_GRANT_PENDING). Stays null until granted.
+#   Google Ads — resolves dev+refresh tokens but also needs client_id/secret +
+#         customer_id; if any are absent the channel returns null (expected).
+
+TODAY=$(date +%Y-%m-%d)
+
+# --- Klaviyo ---
+gather_klaviyo() {
+  if [ -z "$KLAVIYO_KEY" ]; then
+    echo "null"
+    return
+  fi
+
+  # Get total subscriber count across all lists
+  LISTS=$(curl -gsS --max-time 5 "https://a.klaviyo.com/api/lists/?fields[list]=name,id,profile_count" \
+    -H "Authorization: Klaviyo-API-Key ${KLAVIYO_KEY}" \
+    -H "revision: 2024-10-15" 2>/dev/null)
+
+  TOTAL_SUBS=$(echo "$LISTS" | jq '[.data[].attributes.profile_count // 0] | add // 0' 2>/dev/null || echo "0")
+
+  # Get last campaign stats
+  CAMPAIGNS=$(curl -gsS --max-time 5 "https://a.klaviyo.com/api/campaigns/?filter=equals(messages.channel,'email')&sort=-created_at&page[size]=1&fields[campaign]=name,status,send_time" \
+    -H "Authorization: Klaviyo-API-Key ${KLAVIYO_KEY}" \
+    -H "revision: 2024-10-15" 2>/dev/null)
+
+  LAST_CAMPAIGN_NAME=$(echo "$CAMPAIGNS" | jq -r '.data[0].attributes.name // "none"' 2>/dev/null || echo "none")
+  LAST_CAMPAIGN_STATUS=$(echo "$CAMPAIGNS" | jq -r '.data[0].attributes.status // "none"' 2>/dev/null || echo "none")
+  LAST_CAMPAIGN_ID=$(echo "$CAMPAIGNS" | jq -r '.data[0].id // empty' 2>/dev/null || echo "")
+
+  # Open rate (0.0-1.0) for last campaign — feeds marketing health score email component.
+  OPEN_RATE="0"
+  if [ -n "$LAST_CAMPAIGN_ID" ]; then
+    VALUES=$(curl -gsS --max-time 5 -X POST "https://a.klaviyo.com/api/campaign-values-reports/" \
+      -H "Authorization: Klaviyo-API-Key ${KLAVIYO_KEY}" \
+      -H "revision: 2024-10-15" \
+      -H "Content-Type: application/json" \
+      -d "{\"data\":{\"type\":\"campaign-values-report\",\"attributes\":{\"statistics\":[\"open_rate\"],\"timeframe\":{\"key\":\"last_30_days\"},\"filter\":\"equals(campaign_id,\\\"${LAST_CAMPAIGN_ID}\\\")\"}}}" 2>/dev/null)
+    OPEN_RATE=$(echo "$VALUES" | jq -r '.data.attributes.results[0].statistics.open_rate // 0' 2>/dev/null || echo "0")
+  fi
+
+  jq -n \
+    --argjson subs "$TOTAL_SUBS" \
+    --arg last_campaign "$LAST_CAMPAIGN_NAME" \
+    --arg last_status "$LAST_CAMPAIGN_STATUS" \
+    --argjson open_rate "${OPEN_RATE:-0}" \
+    '{subscribers: $subs, last_campaign: $last_campaign, last_campaign_status: $last_status, open_rate: $open_rate}'
+}
+
+# --- Meta Ads ---
+gather_meta() {
+  if [ -z "$META_TOKEN" ] || [ -z "$META_ACCOUNT" ]; then
+    echo "null"
+    return
+  fi
+
+  INSIGHTS=$(curl -gsS --max-time 5 "https://graph.facebook.com/v18.0/${META_ACCOUNT}/insights?fields=spend,impressions,clicks,ctr,cpc,actions,action_values&date_preset=last_7d&level=account${META_PROOF_QS}" \
+    -H "Authorization: Bearer ${META_TOKEN}" 2>/dev/null)
+
+  SPEND=$(echo "$INSIGHTS" | jq -r '.data[0].spend // "0"' 2>/dev/null || echo "0")
+  IMPRESSIONS=$(echo "$INSIGHTS" | jq -r '.data[0].impressions // "0"' 2>/dev/null || echo "0")
+  CLICKS=$(echo "$INSIGHTS" | jq -r '.data[0].clicks // "0"' 2>/dev/null || echo "0")
+  CTR=$(echo "$INSIGHTS" | jq -r '.data[0].ctr // "0"' 2>/dev/null || echo "0")
+
+  # Extract purchase count and revenue from actions/action_values
+  PURCHASES=$(echo "$INSIGHTS" | jq -r '[.data[0].actions[]? | select(.action_type == "purchase") | .value] | first // "0"' 2>/dev/null || echo "0")
+  PURCHASE_VALUE=$(echo "$INSIGHTS" | jq -r '[.data[0].action_values[]? | select(.action_type == "purchase") | .value] | first // "0"' 2>/dev/null || echo "0")
+  # Paid-funnel actions Meta directly attributes to this spend: link clicks that
+  # leave the platform, app installs, and registrations (signups). These are the
+  # ONLY downloads/signups truly caused by the ad — everything else is organic.
+  LINK_CLICKS=$(echo "$INSIGHTS" | jq -r '[.data[0].actions[]? | select(.action_type == "link_click") | .value] | first // "0"' 2>/dev/null || echo "0")
+  APP_INSTALLS=$(echo "$INSIGHTS" | jq -r '[.data[0].actions[]? | select(.action_type | test("mobile_app_install|app_install|omni_app_install")) | .value] | map(tonumber) | add // 0 | tostring' 2>/dev/null || echo "0")
+  REGISTRATIONS=$(echo "$INSIGHTS" | jq -r '[.data[0].actions[]? | select(.action_type | test("complete_registration")) | .value] | map(tonumber) | add // 0 | tostring' 2>/dev/null || echo "0")
+
+  # Account currency — Meta reports spend in the ad-account currency, which is not
+  # always the owner's local currency. Fetch once so the statusline labels spend with
+  # the real symbol instead of assuming one. Cheap single call; falls back to empty
+  # (renderer omits symbol).
+  CURRENCY=$(curl -gsS --max-time 5 "https://graph.facebook.com/v21.0/${META_ACCOUNT}?fields=currency${META_PROOF_QS}" \
+    -H "Authorization: Bearer ${META_TOKEN}" 2>/dev/null | jq -r '.currency // ""' 2>/dev/null || echo "")
+
+  # ROAS = purchase_value / spend
+  ROAS=$(awk "BEGIN {s=$SPEND+0; v=$PURCHASE_VALUE+0; if (s>0) printf \"%.2f\", v/s; else print \"0\"}")
+
+  jq -n \
+    --arg spend "$SPEND" \
+    --arg impressions "$IMPRESSIONS" \
+    --arg clicks "$CLICKS" \
+    --arg link_clicks "$LINK_CLICKS" \
+    --arg ctr "$CTR" \
+    --arg purchases "$PURCHASES" \
+    --arg app_installs "$APP_INSTALLS" \
+    --arg registrations "$REGISTRATIONS" \
+    --arg purchase_value "$PURCHASE_VALUE" \
+    --arg currency "$CURRENCY" \
+    --arg roas "$ROAS" \
+    '{spend: $spend, currency: $currency, impressions: $impressions, clicks: $clicks, link_clicks: $link_clicks, ctr: $ctr, purchases: $purchases, app_installs: $app_installs, registrations: $registrations, purchase_value: $purchase_value, roas: $roas}'
+}
+
+# --- GA4 ---
+# Auth + transport now live in scripts/lib/ga4-data-api.sh (shared with autopilot).
+# Local wrapper kept as a thin shim for backward compatibility with prior callers.
+_ga4_auth_token() { ga4_auth_token; }
+
+gather_ga4() {
+  if [ -z "$GA4_PROPERTY" ] || [ "$GA4_PROPERTY" = "0" ]; then
+    echo "null"
+    return
+  fi
+
+  local REPORT
+  REPORT=$(ga4_run_report "$GA4_PROPERTY" '{
+      "dateRanges": [{"startDate": "7daysAgo", "endDate": "today"}],
+      "metrics": [
+        {"name": "sessions"},
+        {"name": "totalUsers"},
+        {"name": "conversions"},
+        {"name": "screenPageViews"},
+        {"name": "totalRevenue"}
+      ]
+    }')
+  if [ -z "$REPORT" ] || [ "$REPORT" = "{}" ]; then
+    echo "null"
+    return
+  fi
+
+  local SESSIONS USERS CONVERSIONS PAGEVIEWS REVENUE CVR
+  SESSIONS=$(printf '%s' "$REPORT" | jq -r '.rows[0].metricValues[0].value // "0"' 2>/dev/null || echo "0")
+  USERS=$(printf '%s' "$REPORT" | jq -r '.rows[0].metricValues[1].value // "0"' 2>/dev/null || echo "0")
+  CONVERSIONS=$(printf '%s' "$REPORT" | jq -r '.rows[0].metricValues[2].value // "0"' 2>/dev/null || echo "0")
+  PAGEVIEWS=$(printf '%s' "$REPORT" | jq -r '.rows[0].metricValues[3].value // "0"' 2>/dev/null || echo "0")
+  REVENUE=$(printf '%s' "$REPORT" | jq -r '.rows[0].metricValues[4].value // "0"' 2>/dev/null || echo "0")
+
+  CVR=$(awk "BEGIN {s=$SESSIONS+0; c=$CONVERSIONS+0; if (s>0) printf \"%.2f\", (c/s)*100; else print \"0\"}")
+
+  jq -n \
+    --arg sessions "$SESSIONS" \
+    --arg users "$USERS" \
+    --arg conversions "$CONVERSIONS" \
+    --arg pageviews "$PAGEVIEWS" \
+    --arg revenue "$REVENUE" \
+    --arg cvr "$CVR" \
+    '{sessions: $sessions, users: $users, conversions: $conversions, pageviews: $pageviews, revenue: $revenue, cvr: $cvr}'
+}
+
+# --- Google Search Console ---
+gather_gsc() {
+  if [ -z "$GSC_SITE" ]; then
+    echo "null"
+    return
+  fi
+
+  # ga4_auth_token, not raw ADC: the service-account key is the credential that
+  # is actually provisioned and it now carries webmasters.readonly. ADC remains
+  # the last-resort fallback inside that helper.
+  GSC_TOKEN=$(ga4_auth_token 2>/dev/null || echo "")
+  if [ -z "$GSC_TOKEN" ]; then
+    echo "null"
+    return
+  fi
+
+  GSC_SITE_ENCODED=$(python3 -c "import urllib.parse; print(urllib.parse.quote('${GSC_SITE}', safe=''))" 2>/dev/null \
+    || echo "${GSC_SITE}" | sed 's|:|%3A|g; s|/|%2F|g')
+
+  START_DATE=$(date -v-28d +%Y-%m-%d 2>/dev/null || date -d '28 days ago' +%Y-%m-%d 2>/dev/null || echo "")
+  if [ -z "$START_DATE" ]; then
+    echo "null"
+    return
+  fi
+
+  REPORT=$(curl -gsS --max-time 5 -X POST "https://searchconsole.googleapis.com/webmasters/v3/sites/${GSC_SITE_ENCODED}/searchAnalytics/query" \
+    -H "Authorization: Bearer ${GSC_TOKEN}" \
+    -H "Content-Type: application/json" \
+    -d "{\"startDate\": \"${START_DATE}\", \"endDate\": \"${TODAY}\", \"dimensions\": [], \"rowLimit\": 1}" 2>/dev/null)
+
+  CLICKS=$(echo "$REPORT" | jq -r '.rows[0].clicks // 0' 2>/dev/null || echo "0")
+  IMPRESSIONS=$(echo "$REPORT" | jq -r '.rows[0].impressions // 0' 2>/dev/null || echo "0")
+  CTR=$(echo "$REPORT" | jq -r '.rows[0].ctr // 0' 2>/dev/null || echo "0")
+  POSITION=$(echo "$REPORT" | jq -r '.rows[0].position // 0' 2>/dev/null || echo "0")
+
+  jq -n \
+    --argjson clicks "$CLICKS" \
+    --argjson impressions "$IMPRESSIONS" \
+    --argjson ctr "$CTR" \
+    --argjson position "$POSITION" \
+    '{clicks: $clicks, impressions: $impressions, ctr: $ctr, avg_position: $position}'
+}
+
+# --- Instagram ---
+gather_instagram() {
+  if [ -z "$META_TOKEN" ]; then
+    echo "null"
+    return
+  fi
+
+  # Resolve IG account ID if not cached
+  IG_ID="$INSTAGRAM_ACCOUNT_ID"
+  if [ -z "$IG_ID" ]; then
+    IG_ID=$(curl -gsS --max-time 5 "https://graph.facebook.com/v21.0/me/accounts?fields=instagram_business_account${META_PROOF_QS}" \
+      -H "Authorization: Bearer ${META_TOKEN}" 2>/dev/null | jq -r '.data[0].instagram_business_account.id // empty')
+    [ -n "$IG_ID" ] && user_config_set instagram_account_id "$IG_ID"
+  fi
+
+  if [ -z "$IG_ID" ]; then
+    echo "null"
+    return
+  fi
+
+  # Account stats
+  ACCOUNT=$(curl -gsS --max-time 5 "https://graph.facebook.com/v21.0/${IG_ID}?fields=followers_count,media_count${META_PROOF_QS}" \
+    -H "Authorization: Bearer ${META_TOKEN}" 2>/dev/null)
+  FOLLOWERS=$(echo "$ACCOUNT" | jq -r '.followers_count // 0')
+  MEDIA_COUNT=$(echo "$ACCOUNT" | jq -r '.media_count // 0')
+
+  # Reach last 7d
+  END_DATE=$(date +%Y-%m-%d)
+  START_DATE=$(date -v-7d +%Y-%m-%d 2>/dev/null || date -d '7 days ago' +%Y-%m-%d 2>/dev/null || echo "")
+  REACH=0
+  if [ -n "$START_DATE" ]; then
+    INSIGHTS=$(curl -gsS --max-time 5 "https://graph.facebook.com/v21.0/${IG_ID}/insights?metric=reach&period=day&since=${START_DATE}&until=${END_DATE}${META_PROOF_QS}" \
+      -H "Authorization: Bearer ${META_TOKEN}" 2>/dev/null)
+    REACH=$(echo "$INSIGHTS" | jq '[.data[]?.values[]?.value | tonumber] | add // 0' 2>/dev/null || echo "0")
+  fi
+
+  jq -n \
+    --argjson followers "$FOLLOWERS" \
+    --argjson media_count "$MEDIA_COUNT" \
+    --argjson reach_7d "$REACH" \
+    '{followers: $followers, media_count: $media_count, reach_7d: $reach_7d}'
+}
+
+# --- Google Ads ---
+gather_google_ads() {
+  if [ -z "$GADS_REFRESH_TOKEN" ] || [ -z "$GADS_DEV_TOKEN" ]; then
+    echo "null"
+    return
+  fi
+
+  # Refresh access token
+  GADS_ACCESS_TOKEN=$(curl -gsS --max-time 5 -X POST https://oauth2.googleapis.com/token \
+    --data "client_id=${GADS_CLIENT_ID}&client_secret=${GADS_CLIENT_SECRET}&refresh_token=${GADS_REFRESH_TOKEN}&grant_type=refresh_token" \
+    | jq -r '.access_token // empty')
+  if [ -z "$GADS_ACCESS_TOKEN" ]; then
+    echo "null"
+    return
+  fi
+
+  # Campaign summary (last 7 days)
+  curl -gsS --max-time 5 -X POST \
+    "https://googleads.googleapis.com/v23/customers/${GADS_CUSTOMER_ID}/googleAds:searchStream" \
+    -H "Content-Type: application/json" \
+    -H "Authorization: Bearer ${GADS_ACCESS_TOKEN}" \
+    -H "developer-token: ${GADS_DEV_TOKEN}" \
+    ${GADS_LOGIN_CUSTOMER_ID:+-H "login-customer-id: ${GADS_LOGIN_CUSTOMER_ID}"} \
+    --data-binary '{"query": "SELECT campaign.id, campaign.name, campaign.status, metrics.cost_micros, metrics.impressions, metrics.clicks, metrics.conversions, metrics.conversions_value FROM campaign WHERE segments.date DURING LAST_7_DAYS AND campaign.status != REMOVED ORDER BY metrics.cost_micros DESC LIMIT 20"}' \
+    2>/dev/null || echo "null"
+}
+
+# --- Amplitude (signups = new users; weekly active users; signup rate) ---
+# Dashboard REST API /api/2/users with m=new / m=active. i=30 over a 7-day window
+# collapses to ONE bucket so the series is a single total (no per-day double-count).
+gather_amplitude() {
+  if [ -z "$AMPLITUDE_API_KEY" ] || [ -z "$AMPLITUDE_SECRET_KEY" ]; then
+    echo "null"; return
+  fi
+  local S E NEW ACT SR NEW_RESP ACT_RESP
+  S=$(date -v-7d +%Y%m%d 2>/dev/null || date -d '7 days ago' +%Y%m%d 2>/dev/null || echo "")
+  E=$(date +%Y%m%d)
+  [ -z "$S" ] && { echo "null"; return; }
+  NEW_RESP=$(curl -gsS --max-time 8 -u "${AMPLITUDE_API_KEY}:${AMPLITUDE_SECRET_KEY}" \
+    "${AMPLITUDE_HOST}/api/2/users?start=${S}&end=${E}&m=new&i=30" 2>/dev/null)
+  ACT_RESP=$(curl -gsS --max-time 8 -u "${AMPLITUDE_API_KEY}:${AMPLITUDE_SECRET_KEY}" \
+    "${AMPLITUDE_HOST}/api/2/users?start=${S}&end=${E}&m=active&i=30" 2>/dev/null)
+  case "$NEW_RESP" in ''|'<'*) echo "null"; return;; esac
+  case "$ACT_RESP" in ''|'<'*) echo "null"; return;; esac
+  printf '%s' "$NEW_RESP" | jq -e '.data.series' >/dev/null 2>&1 || { echo "null"; return; }
+  printf '%s' "$ACT_RESP" | jq -e '.data.series' >/dev/null 2>&1 || { echo "null"; return; }
+  NEW=$(printf '%s' "$NEW_RESP" | jq -r '[.data.series[]?[]? // 0] | add // 0' 2>/dev/null)
+  ACT=$(printf '%s' "$ACT_RESP" | jq -r '[.data.series[]?[]? // 0] | add // 0' 2>/dev/null)
+  case "$NEW" in ''|*[!0-9]*) NEW=0;; esac
+  case "$ACT" in ''|*[!0-9]*) ACT=0;; esac
+  # signup_rate = share of weekly actives that are brand-new users.
+  SR=$(awk "BEGIN{a=$ACT+0;n=$NEW+0; if(a>0) printf \"%.1f\", (n/a)*100; else print \"0\"}")
+  jq -n --argjson new "$NEW" --argjson active "$ACT" --arg signup_rate "$SR" \
+    '{new_users:$new, active_users:$active, signup_rate:$signup_rate}'
+}
+
+# --- AppsFlyer (app downloads = installs; install conversion rate) ---
+# Aggregate Pull API daily_report v5 → CSV: Date,Agency,MediaSource,Campaign,
+# Impressions,Clicks,CTR,Installs,ConversionRate,Sessions,… Sum Installs (col 8)
+# and Clicks (col 6) over rows whose field count matches the header (skips rows
+# with embedded commas). install_cvr = installs/clicks (paid-attributed clicks).
+gather_appsflyer() {
+  if [ -z "$APPSFLYER_TOKEN" ] || [ -z "$APPSFLYER_APP_ID" ]; then
+    echo "null"; return
+  fi
+  local FROM TO CSV INSTALLS CLICKS PAID_CLICKS CVR
+  FROM=$(date -v-7d +%Y-%m-%d 2>/dev/null || date -d '7 days ago' +%Y-%m-%d 2>/dev/null || echo "")
+  TO=$(date +%Y-%m-%d)
+  [ -z "$FROM" ] && { echo "null"; return; }
+  CSV=$(curl -gsS --max-time 18 -H "Authorization: Bearer ${APPSFLYER_TOKEN}" -H "accept: text/csv" \
+    "https://hq1.appsflyer.com/api/agg-data/export/app/${APPSFLYER_APP_ID}/daily_report/v5?from=${FROM}&to=${TO}" 2>/dev/null)
+  case "$CSV" in ''|'{'*|'<'*) echo "null"; return;; esac   # empty / JSON error / HTML
+  # Columns: 1 Date,2 Agency,3 Media Source(pid),4 Campaign,5 Impr,6 Clicks,7 CTR,
+  # 8 Installs,9 Conversion Rate,10 Sessions. Media Source "Organic" = not ad-driven.
+  INSTALLS=$(printf '%s' "$CSV" | awk -F, 'NR==1{n=NF;next} NF==n{v=$8; if(v=="N/A"||v=="")v=0; s+=v} END{print s+0}')
+  ORGANIC=$(printf '%s' "$CSV"  | awk -F, 'NR==1{n=NF;next} NF==n && $3=="Organic"{v=$8; if(v=="N/A"||v=="")v=0; s+=v} END{print s+0}')
+  PAID=$(printf '%s' "$CSV"     | awk -F, 'NR==1{n=NF;next} NF==n && $3!="Organic" && $3!="None"{v=$8; if(v=="N/A"||v=="")v=0; s+=v} END{print s+0}')
+  CLICKS=$(printf '%s' "$CSV"   | awk -F, 'NR==1{n=NF;next} NF==n{v=$6; if(v=="N/A"||v=="")v=0; s+=v} END{print s+0}')
+  PAID_CLICKS=$(printf '%s' "$CSV" | awk -F, 'NR==1{n=NF;next} NF==n && $3!="Organic" && $3!="None"{v=$6; if(v=="N/A"||v=="")v=0; s+=v} END{print s+0}')
+  case "$INSTALLS" in ''|*[!0-9]*) INSTALLS=0;; esac
+  case "$ORGANIC" in ''|*[!0-9]*) ORGANIC=0;; esac
+  case "$PAID" in ''|*[!0-9]*) PAID=0;; esac
+  case "$CLICKS" in ''|*[!0-9]*) CLICKS=0;; esac
+  case "$PAID_CLICKS" in ''|*[!0-9]*) PAID_CLICKS=0;; esac
+  # install_cvr = paid click→install rate. Only meaningful when there are enough
+  # attributed clicks to exceed installs; a near-all-organic app has paid_clicks≈0 which
+  # makes installs/clicks explode (>100%, nonsensical). Suppress to "0" in that case
+  # so the statusline omits it rather than showing a bogus 1000%+ figure.
+  CVR=$(awk "BEGIN{c=$PAID_CLICKS+0;i=$PAID+0; r=(c>0)?(i/c)*100:0; if(c>0 && r<=100) printf \"%.2f\", r; else print \"0\"}")
+  jq -n --argjson installs "$INSTALLS" --argjson organic_installs "$ORGANIC" \
+        --argjson paid_installs "$PAID" --argjson clicks "$CLICKS" --arg install_cvr "$CVR" \
+    '{installs:$installs, organic_installs:$organic_installs, paid_installs:$paid_installs, clicks:$clicks, install_cvr:$install_cvr}'
+}
+
+# --- RevenueCat (ground-truth real app users / subscriptions / MRR) ---
+# v2 overview metrics: active_subscriptions, active_trials, mrr, revenue,
+# new_customers, active_users. This is the canonical "real people" signal.
+gather_revenuecat() {
+  if [ -z "$REVENUECAT_KEY" ] || [ -z "$REVENUECAT_PROJECT" ]; then
+    echo "null"; return
+  fi
+  local OV
+  OV=$(curl -gsS --max-time 12 -H "Authorization: Bearer ${REVENUECAT_KEY}" \
+    "https://api.revenuecat.com/v2/projects/${REVENUECAT_PROJECT}/metrics/overview" 2>/dev/null)
+  case "$OV" in ''|'{"items"'*) ;; esac
+  printf '%s' "$OV" | jq -e '.metrics' >/dev/null 2>&1 || { echo "null"; return; }
+  # Pull each metric by id into a flat object (values are numbers).
+  printf '%s' "$OV" | jq '
+    (.metrics // []) | map({(.id): .value}) | add // {} |
+    {
+      new_customers:        (.new_customers // 0),
+      active_users:         (.active_users // 0),
+      active_subscriptions: (.active_subscriptions // 0),
+      active_trials:        (.active_trials // 0),
+      mrr:                  (.mrr // 0),
+      revenue:              (.revenue // 0)
+    }' 2>/dev/null || echo "null"
+}
+
+# Run all in parallel. VAR=$(fn) & does NOT propagate assignments to the parent
+# shell after `wait` (the assignment happens in the backgrounded subshell only),
+# so write each gatherer's stdout to a tempfile and read them back post-wait.
+# This mirrors the pattern already used in bin/ops-external and bin/ops-discover-external.
+TMPDIR_MD=$(mktemp -d)
+trap 'rm -rf "$TMPDIR_MD"' EXIT
+
+( gather_klaviyo     > "$TMPDIR_MD/klaviyo.json"   ) &
+( gather_meta        > "$TMPDIR_MD/meta.json"      ) &
+( gather_ga4         > "$TMPDIR_MD/ga4.json"       ) &
+( gather_gsc         > "$TMPDIR_MD/gsc.json"       ) &
+( gather_google_ads  > "$TMPDIR_MD/google_ads.json") &
+( gather_instagram   > "$TMPDIR_MD/instagram.json" ) &
+( gather_amplitude   > "$TMPDIR_MD/amplitude.json" ) &
+( gather_appsflyer   > "$TMPDIR_MD/appsflyer.json" ) &
+( gather_revenuecat  > "$TMPDIR_MD/revenuecat.json") &
+wait
+
+KLAVIYO_DATA=$(cat "$TMPDIR_MD/klaviyo.json"    2>/dev/null); KLAVIYO_DATA=${KLAVIYO_DATA:-null}
+META_DATA=$(cat "$TMPDIR_MD/meta.json"          2>/dev/null); META_DATA=${META_DATA:-null}
+GA4_DATA=$(cat "$TMPDIR_MD/ga4.json"            2>/dev/null); GA4_DATA=${GA4_DATA:-null}
+GSC_DATA=$(cat "$TMPDIR_MD/gsc.json"            2>/dev/null); GSC_DATA=${GSC_DATA:-null}
+GADS_DATA=$(cat "$TMPDIR_MD/google_ads.json"    2>/dev/null); GADS_DATA=${GADS_DATA:-null}
+INSTAGRAM_DATA=$(cat "$TMPDIR_MD/instagram.json" 2>/dev/null); INSTAGRAM_DATA=${INSTAGRAM_DATA:-null}
+AMPLITUDE_DATA=$(cat "$TMPDIR_MD/amplitude.json" 2>/dev/null); AMPLITUDE_DATA=${AMPLITUDE_DATA:-null}
+APPSFLYER_DATA=$(cat "$TMPDIR_MD/appsflyer.json" 2>/dev/null); APPSFLYER_DATA=${APPSFLYER_DATA:-null}
+REVENUECAT_DATA=$(cat "$TMPDIR_MD/revenuecat.json" 2>/dev/null); REVENUECAT_DATA=${REVENUECAT_DATA:-null}
+
+# Compute blended ROAS across Meta + Google Ads
+META_SPEND=$(echo "$META_DATA" | jq -r '.spend // "0"' 2>/dev/null || echo "0")
+META_REV=$(echo "$META_DATA" | jq -r '.purchase_value // "0"' 2>/dev/null || echo "0")
+GADS_SPEND_RAW=$(echo "$GADS_DATA" | jq '[.[].results[]?.metrics.costMicros // "0" | tonumber] | add / 1000000 // 0' 2>/dev/null || echo "0")
+GADS_REV_RAW=$(echo "$GADS_DATA" | jq '[.[].results[]?.metrics.conversionsValue // "0" | tonumber] | add // 0' 2>/dev/null || echo "0")
+TOTAL_SPEND=$(awk "BEGIN { printf \"%.2f\", ${META_SPEND:-0} + ${GADS_SPEND_RAW:-0} }")
+TOTAL_REV=$(awk "BEGIN { printf \"%.2f\", ${META_REV:-0} + ${GADS_REV_RAW:-0} }")
+BLENDED_ROAS=$(awk -v s="${TOTAL_SPEND:-0}" -v v="${TOTAL_REV:-0}" 'BEGIN { s=s+0; v=v+0; if (s > 0) printf "%.2f", v/s; else print "0" }')
+
+# Compute marketing health score (0-100)
+# ROAS score (0-30)
+ROAS_SCORE=$(awk "BEGIN { r = ${BLENDED_ROAS:-0}; if (r >= 3) print 30; else if (r >= 1) print 15; else print 0 }")
+# Email open rate score (0-20) — derived from Klaviyo last-campaign open rate
+# when available; falls back to 0 when we have no campaign data. Thresholds
+# come from SKILL.md §Marketing Health Score: >=20% → 20pt, 10-20% → 10pt.
+KLAVIYO_OPEN_RATE=$(echo "$KLAVIYO_DATA" | jq -r '.open_rate // "0"' 2>/dev/null || echo "0")
+EMAIL_SCORE=$(awk "BEGIN { r = ${KLAVIYO_OPEN_RATE:-0}; if (r >= 0.20) print 20; else if (r >= 0.10) print 10; else print 0 }")
+# Channel diversification (0-20): count active platforms.
+# Compare numerically — after the tempfile fix these fields can be JSON null or
+# numeric strings like "0.00", neither of which a literal != "0" string test
+# handles correctly.
+ACTIVE_CHANNELS=0
+is_positive() { awk -v v="${1:-0}" 'BEGIN { v = v + 0; exit !(v > 0) }'; }
+META_SPEND_CHECK=$(echo "$META_DATA" | jq -r '.spend // 0' 2>/dev/null || echo 0)
+KLAVIYO_SUBS_CHECK=$(echo "$KLAVIYO_DATA" | jq -r '.subscribers // 0' 2>/dev/null || echo 0)
+INSTAGRAM_FOLLOWERS_CHECK=$(echo "$INSTAGRAM_DATA" | jq -r '.followers // 0' 2>/dev/null || echo 0)
+is_positive "$META_SPEND_CHECK"          && ACTIVE_CHANNELS=$((ACTIVE_CHANNELS + 1))
+is_positive "$GADS_SPEND_RAW"            && ACTIVE_CHANNELS=$((ACTIVE_CHANNELS + 1))
+is_positive "$KLAVIYO_SUBS_CHECK"        && ACTIVE_CHANNELS=$((ACTIVE_CHANNELS + 1))
+is_positive "$INSTAGRAM_FOLLOWERS_CHECK" && ACTIVE_CHANNELS=$((ACTIVE_CHANNELS + 1))
+DIV_SCORE=$([ $ACTIVE_CHANNELS -ge 3 ] && echo 20 || ([ $ACTIVE_CHANNELS -ge 2 ] && echo 10 || echo 0))
+# GA4 CVR score (0-20)
+GA4_CVR=$(echo "$GA4_DATA" | jq -r '.cvr // "0"' 2>/dev/null || echo "0")
+CVR_SCORE=$(awk "BEGIN { c = ${GA4_CVR:-0}; if (c >= 2) print 20; else if (c >= 1) print 10; else print 0 }")
+# SEO clicks score (0-10)
+GSC_CLICKS=$(echo "$GSC_DATA" | jq -r '.clicks // 0' 2>/dev/null || echo "0")
+SEO_SCORE=$(awk "BEGIN { c = ${GSC_CLICKS:-0}; if (c >= 1000) print 10; else if (c >= 100) print 5; else print 0 }")
+HEALTH_SCORE=$((ROAS_SCORE + EMAIL_SCORE + DIV_SCORE + CVR_SCORE + SEO_SCORE))
+HEALTH_STATUS="Critical"
+[ $HEALTH_SCORE -ge 40 ] && HEALTH_STATUS="Warning"
+[ $HEALTH_SCORE -ge 70 ] && HEALTH_STATUS="Healthy"
+
+# Emit unified JSON
+jq -n \
+  --arg project "$PROJECT" \
+  --argjson klaviyo "$KLAVIYO_DATA" \
+  --argjson meta "$META_DATA" \
+  --argjson ga4 "$GA4_DATA" \
+  --argjson gsc "$GSC_DATA" \
+  --argjson google_ads "$GADS_DATA" \
+  --argjson instagram "$INSTAGRAM_DATA" \
+  --argjson amplitude "$AMPLITUDE_DATA" \
+  --argjson appsflyer "$APPSFLYER_DATA" \
+  --argjson revenuecat "$REVENUECAT_DATA" \
+  --arg blended_roas "$BLENDED_ROAS" \
+  --argjson health_score "$HEALTH_SCORE" \
+  --arg health_status "$HEALTH_STATUS" \
+  --arg date "$TODAY" \
+  '{date: $date, project: (if $project == "" then null else $project end), klaviyo: $klaviyo, meta: $meta, ga4: $ga4, gsc: $gsc, google_ads: $google_ads, instagram: $instagram, amplitude: $amplitude, appsflyer: $appsflyer, revenuecat: $revenuecat, blended_roas: $blended_roas, health_score: $health_score, health_status: $health_status}'

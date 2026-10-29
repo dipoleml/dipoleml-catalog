@@ -1,0 +1,16 @@
+{
+  "name": "dipoleml-music",
+  "displayName": "DipoleML Music",
+  "version": "1.0.3",
+  "description": "Background music for your coding sessions — lofi, jazz, classical, ambient, electronic, and more",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Kennethleungty"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/kennethleungty/claude-music",
+  "repository": "https://github.com/kennethleungty/claude-music",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

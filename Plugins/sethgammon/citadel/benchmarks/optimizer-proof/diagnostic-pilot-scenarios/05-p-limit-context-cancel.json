@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "id": "p-limit-context-cancel",
+  "category": "context_reset",
+  "repository": "https://github.com/sindresorhus/p-limit.git",
+  "pinned_ref": "df476048d023ff868cd45b35ee47f5fb0ca2b25a",
+  "task": "Implement queued-task cancellation with an AbortSignal, record a concise continuation before a forced context reset, then resume to finish runtime, type, test, and documentation parity.",
+  "setup_command": ["npm", "install", "--ignore-scripts"],
+  "verification_command": ["npm", "test"],
+  "expected_artifacts": ["index.js", "index.d.ts", "test.js", "readme.md"],
+  "allowed_tools": ["read", "search", "edit", "test", "git"],
+  "timeout_minutes": 55,
+  "probe_budget": {
+    "max_files": 250,
+    "max_bytes": 1572864,
+    "max_duration_ms": 2000
+  },
+  "max_attempts": 3,
+  "max_agents": 1,
+  "candidate_executors": ["codex-utility", "claude-workhorse", "claude-frontier", "codex-frontier"],
+  "holdout": false,
+  "adversarial_case": null
+}

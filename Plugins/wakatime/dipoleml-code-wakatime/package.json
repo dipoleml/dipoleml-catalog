@@ -1,0 +1,51 @@
+{
+  "name": "claude-code-wakatime",
+  "version": "4.1.2",
+  "description": "WakaTime plugin for Claude Code",
+  "bin": {
+    "claude-code-wakatime": "dist/index.js"
+  },
+  "scripts": {
+    "test": "node --test tests/*.test.cjs",
+    "prebuild": "node scripts/generate-version.js",
+    "build": "esbuild src/index.ts --bundle --platform=node --outfile=dist/index.js",
+    "watch": "npm run prebuild && tsc --watch",
+    "version": "npm run build && git add src/version.ts .claude-plugin/plugin.json .claude-plugin/marketplace.json dist/index.js",
+    "release:major": "npm version major && git push && git push --tags",
+    "release:minor": "npm version minor && git push && git push --tags",
+    "release:patch": "npm version patch && git push && git push --tags"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wakatime/claude-code-wakatime.git"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "time-tracking",
+    "ai"
+  ],
+  "devDependencies": {
+    "@types/adm-zip": "^0.5.7",
+    "@types/eslint": "^8.44.7",
+    "@types/node": "^20.9.2",
+    "@types/prettier": "^2.7.3",
+    "@types/semver": "^7.7.0",
+    "@types/which": "^3.0.4",
+    "@typescript-eslint/eslint-plugin": "6.11.0",
+    "@typescript-eslint/parser": "6.11.0",
+    "adm-zip": "0.5.16",
+    "esbuild": "^0.25.12",
+    "eslint": "^8.54.0",
+    "prettier": "^3.1.0",
+    "semver": "^7.7.2",
+    "typescript": "^5.2.2",
+    "which": "^5.0.0"
+  },
+  "author": "WakaTime",
+  "license": "BSD-3-Clause",
+  "bugs": {
+    "url": "https://github.com/wakatime/claude-code-wakatime/issues"
+  },
+  "homepage": "https://github.com/wakatime/claude-code-wakatime#readme"
+}

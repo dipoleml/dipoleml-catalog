@@ -1,0 +1,281 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/SethGammon/Citadel/v2.0.0/schemas/harness-config-v2.schema.json",
+  "title": "Citadel Harness Configuration v2",
+  "description": "Authoritative project selection of an immutable execution profile and progressively activated product bundles.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schemaVersion",
+    "execution",
+    "activation"
+  ],
+  "properties": {
+    "$schema": {
+      "const": "https://raw.githubusercontent.com/SethGammon/Citadel/v2.0.0/schemas/harness-config-v2.schema.json"
+    },
+    "schemaVersion": {
+      "const": 2
+    },
+    "execution": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profile"
+      ],
+      "properties": {
+        "profile": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "id",
+            "version"
+          ],
+          "properties": {
+            "id": {
+              "enum": [
+                "strict-supervised",
+                "standard",
+                "experimental"
+              ]
+            },
+            "version": {
+              "const": "1.0.0"
+            }
+          }
+        }
+      }
+    },
+    "activation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "bundles",
+        "onDemand",
+        "allowDegradedRuntime"
+      ],
+      "properties": {
+        "bundles": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {
+            "enum": [
+              "core",
+              "persistence",
+              "parallel",
+              "operations",
+              "delivery"
+            ]
+          },
+          "contains": {
+            "const": "core"
+          },
+          "minContains": 1
+        },
+        "onDemand": {
+          "enum": [
+            "prompt",
+            "deny",
+            "auto-safe"
+          ]
+        },
+        "allowDegradedRuntime": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "language": {
+      "type": "string"
+    },
+    "framework": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "packageManager": {
+      "type": "string"
+    },
+    "typecheck": {
+      "type": "object"
+    },
+    "test": {
+      "type": "object"
+    },
+    "qualityRules": {
+      "type": "object"
+    },
+    "protectedFiles": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true
+    },
+    "features": {
+      "type": "object",
+      "description": "Deprecated compatibility field; product activation is controlled by activation.bundles."
+    },
+    "registeredSkills": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "uniqueItems": true,
+      "description": "Deprecated derived field retained for the v2 compatibility window."
+    },
+    "registeredSkillCount": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Deprecated derived field retained for the v2 compatibility window."
+    },
+    "agentTimeouts": {
+      "type": "object"
+    },
+    "trust": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sessionsCompleted": {
+          "$ref": "#/$defs/nonnegativeInteger"
+        },
+        "campaignsCompleted": {
+          "$ref": "#/$defs/nonnegativeInteger"
+        },
+        "campaignsReverted": {
+          "$ref": "#/$defs/nonnegativeInteger"
+        },
+        "fleetCleanMerges": {
+          "$ref": "#/$defs/nonnegativeInteger"
+        },
+        "improveLoopsAccepted": {
+          "$ref": "#/$defs/nonnegativeInteger"
+        },
+        "daemonRuns": {
+          "$ref": "#/$defs/nonnegativeInteger"
+        },
+        "override": {
+          "enum": [
+            null,
+            "novice",
+            "familiar",
+            "trusted"
+          ]
+        }
+      }
+    },
+    "consent": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "externalActions": {
+          "$ref": "#/$defs/consent"
+        },
+        "daemonSpend": {
+          "$ref": "#/$defs/consent"
+        },
+        "fleetSpawn": {
+          "$ref": "#/$defs/consent"
+        }
+      }
+    },
+    "storage": {
+      "type": "object"
+    },
+    "policy": {
+      "type": "object",
+      "properties": {
+        "operating": {
+          "$ref": "#/$defs/operatingPolicy"
+        }
+      }
+    },
+    "dependencyPatterns": {
+      "type": [
+        "array",
+        "object"
+      ]
+    },
+    "organization": {
+      "type": "object"
+    },
+    "telemetry": {
+      "type": "object"
+    },
+    "cost": {
+      "type": "object"
+    },
+    "verification": {
+      "type": "object"
+    },
+    "preCompact": {
+      "type": "object"
+    },
+    "worktreeReadiness": {
+      "type": "object"
+    },
+    "docs": {
+      "type": "object"
+    },
+    "allowEnvWrites": {
+      "type": "boolean"
+    },
+    "extensions": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9-]*(?:\\.[A-Za-z0-9][A-Za-z0-9-]*)+$"
+      },
+      "additionalProperties": true
+    }
+  },
+  "$defs": {
+    "nonnegativeInteger": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "consent": {
+      "enum": [
+        "always-ask",
+        "session-allow",
+        "auto-allow"
+      ]
+    },
+    "operatingPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "maxParallelAgents": {
+          "$ref": "#/$defs/nonnegativeInteger"
+        },
+        "maxBudgetUnits": {
+          "$ref": "#/$defs/nonnegativeInteger"
+        },
+        "verifierRetryLimit": {
+          "$ref": "#/$defs/nonnegativeInteger"
+        },
+        "checkpointMinimum": {
+          "enum": [
+            "destructive-only",
+            "risk-boundaries",
+            "every-mutation"
+          ]
+        },
+        "allowIndependentOnUnknown": {
+          "type": "boolean"
+        },
+        "allowAutoWorktreeIntegration": {
+          "type": "boolean"
+        },
+        "allowConsentGatedExternalMerge": {
+          "type": "boolean"
+        },
+        "requireArchitectureApproval": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

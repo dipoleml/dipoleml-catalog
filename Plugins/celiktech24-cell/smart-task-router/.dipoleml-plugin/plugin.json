@@ -1,0 +1,16 @@
+{
+  "name": "smart-task-router",
+  "displayName": "Smart Task Router",
+  "version": "1.0.0",
+  "description": "Strong model plans, cheap models build, real checks decide. Routes every task and subtask to the cheapest DipoleML model + effort that can succeed, verifies, and escalates only on failure.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Celiktech24 Cell"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/celiktech24-cell/smart-task-router",
+  "repository": "https://github.com/celiktech24-cell/smart-task-router",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,16 @@
+{
+  "name": "mnemonic",
+  "displayName": "Mnemonic",
+  "version": "0.7.0",
+  "description": "Pure filesystem-based memory system for DipoleML with custom ontology support",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Modeled Information Format"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/modeled-information-format/mnemonic",
+  "repository": "https://github.com/modeled-information-format/mnemonic",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,16 @@
+{
+  "name": "buy-me-a-car",
+  "displayName": "Buy Me A Car",
+  "version": "0.2.2",
+  "description": "Sixteen skills for US car research, verified OTD calculations, constrained dealer drafts, durable inbox imports and evidence-backed dossiers. Real records require a private companion. External mail, scheduling and bookings depend on authorized host integrations.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Daizedong"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/DaizeDong/buy-me-a-car",
+  "repository": "https://github.com/DaizeDong/buy-me-a-car",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,122 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.nowork-studio.notfair-plugin",
+  "type": "plugin",
+  "name": "Notfair Plugin",
+  "slug": "notfair-plugin",
+  "vendor": "nowork-studio",
+  "description": "Open-source SEO, GEO, and marketing skills for AI agents.",
+  "version": "0.27.17",
+  "homepage": "https://github.com/nowork-studio/notfair-plugin",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "claude-code-plugin",
+    "claude-skills",
+    "gemini-cli-extension",
+    "geo",
+    "googleads",
+    "googleadsmcp",
+    "metaads",
+    "seo"
+  ],
+  "tags": [
+    "agents",
+    "claude-code-plugin",
+    "claude-skills",
+    "gemini-cli-extension",
+    "geo",
+    "googleads",
+    "googleadsmcp",
+    "mcp",
+    "metaads",
+    "seo"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "nowork-studio",
+    "brandName": "nowork-studio",
+    "source": "https://github.com/nowork-studio.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-28T23:04:26Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "nowork-studio/notfair-plugin",
+    "url": "https://github.com/nowork-studio/notfair-plugin",
+    "commit": "ed835f273dce03a451c13fa0cb67305ae58ecb05",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 4077,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:04:07Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude,cursor",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".cursor-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/cursor/.cursor-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-http",
+      "url": "https://notfair.co/api/mcp/notfair",
+      "transport": "http",
+      "command": "NotFair"
+    },
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude",
+      "cursor"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,1572 @@
+// REVISION: flow-v192-roadster
+//
+// Flow for Claude Code, by Rob Macrae: ambient scenes (a fire, the surf, a ski run,
+// rockets, a hot-air balloon and more) drawn as one terminal `Raster` in the
+// band above the prompt (5 rows) or in a tall pane docked beside the
+// transcript (the spine), and repainted with `$.ui.blit`: ~14 fps while busy,
+// 8 fps when calm, not at all while off screen or a frame comes out unchanged.
+// Claude desktop has no Raster: there each frame is drawn as one `Svg` holding
+// the scene as a small image (svg.ts), redrawn up to 10 times a second.
+//
+// Auto mode (the default) moves with the work Claude is doing: idle it sits
+// at a low glow (or dark); a turn lifts it by effort, streamed output keeps
+// it going, edits push it by lines written, commands spark, reads and any
+// other tool (an MCP server's) spark a little, subagents add to
+// the scene and stoke it, a failed command or a compaction shows as smoke,
+// and a nearly-full context as blue (each scene shows these its own way).
+// While Claude waits on you (a permission dialog, its question, a plan to
+// approve) the scene settles, holds and breathes in sepia (waiting.ts), and
+// with sound on a soft chime marks the wait's start.
+// Each subagent is followed on its own too (agents.ts: polled, and heard
+// from by its `agentId`): the scenes with companions give it one that
+// arrives, works, rests and leaves with it, and on desktop the pointer over
+// a companion shows that agent's task (a hover card: no hook runs for it).
+//
+// Settings are per session. The `userConfig` rows in /config (mode, style,
+// idle, level, layout, time, sound, volume) are the defaults every session starts
+// from; `/flow` changes only the session it runs in, at once (a /config
+// write would reload the module and restart the scene), and keeps the change
+// in the store under the session's id, so a reload or a resume brings it
+// back. `/flow save` writes the session's settings to /config, the default
+// for new sessions; `/flow reset` puts the session back on it. A change made
+// in /config itself is a default, and shows in that session at once. The
+// defaults are read afresh before anything compares with them (another
+// session may have saved since): a running session keeps what it shows, and
+// `/flow save` saves exactly that. Only a scene's own name is ever written
+// to /config; a row left holding one Flow no longer takes (a scene since
+// renamed or dropped) is written back as the one it stands for. `/flow help`
+// lists the command's forms (see settings.ts, sessions.ts).
+//
+// `/flow pick` opens a second pane, the picker: every scene as a live
+// thumbnail (picker.ts), a Button under each that the focus ring walks
+// (arrows, Tab), Enter or a click or its number to pick (as `/flow <scene>`
+// does, this session alone), Esc to close.
+
+import { atom, update } from 'claude-code'
+import type { BoxProps, CommandRunInput, CommandRunResult, ElementConstructor, Elements, EngineInterface, Register, RenderElement, TextProps, Timer } from 'claude-code'
+
+import { Balloon } from './balloon'
+import { Activity, linesWritten } from './activity'
+import { agentLine, type AgentDial } from './agents'
+import type { AgentMark } from './crew'
+import { FRAME_MS, SceneDriver } from './scene'
+import {
+  CLAUDE_CODE,
+  clockAt,
+  firstTips,
+  ownHint,
+  parseFlowArgs,
+  readConfig,
+  replyTo,
+  resetText,
+  savedText,
+  type FlowCommand,
+  type FlowConfig,
+  type FlowLayout,
+  tipChance,
+  versionNote,
+  staleRows,
+  type StoredRow,
+} from './settings'
+import {
+  differences,
+  type Own,
+  ownAfterSwitch,
+  pinShown,
+  readRecord,
+  SESSION_PREFIX,
+  type SessionRecord,
+  sessionKey,
+  staleSessions,
+  storedOwn,
+  storedRecord,
+  withOwn,
+} from './sessions'
+import { SCENES, type SceneName } from './styles'
+import { frameSvg } from './svg'
+import { MAX_PLAYS } from './sound'
+import { Soundscape } from './soundscape'
+import {
+  hiddenNote,
+  hotkeyFor,
+  PICK_COLUMNS,
+  PICK_MS,
+  PICK_NO_PANE,
+  PICK_OPENED,
+  pickBlurb,
+  pickHint,
+  pickKey,
+  pickLabel,
+  pickLayout,
+  pickRows,
+  sceneOfKey,
+  thumbKey,
+  Thumbnails,
+  tileKey,
+} from './picker'
+
+
+const FLOW_REVISION = 'flow-v192-roadster'
+const PLUGIN = 'flow-scenes'
+const KEY = 'flow'
+/** The command. */
+const COMMAND = 'flow'
+/** How often the local clock is read, for day and night. */
+const CLOCK_POLL_MS = 60_000
+const HIDDEN_MS = 350 // off screen: only the activity keeps cooling
+const AGENT_POLL_MS = 1000 // while anything is working
+const AGENT_IDLE_POLL_MS = 5000 // otherwise: subagents can run on after a turn, or a reload
+/** How often the session's id is read: a /clear or a resume from inside the session moves it on under this load. */
+const SESSION_POLL_MS = 5000
+/** After a session ends with the process going on (a /clear, a resume), the id is read every second this many times. */
+const SESSION_WATCH_CHECKS = 10
+/** How often the defaults are read afresh: another session may have saved, with no reload here. */
+const DEFAULTS_POLL_MS = 30_000
+/** A blit unanswered for this many ticks is presumed lost, not in flight. */
+const BLIT_STALE_TICKS = 15
+const MAX_ROWS = 5
+/** ...and for a scene with a taller view of its own (`Scene.taller`: doom3d), as many as the prompt leaves up to this. */
+const TALL_ROWS = 14
+/** A desktop site redraws at most 10 times a second (`$.ui.invalidate`'s limit there). */
+const DESKTOP_MS = 100
+/** A desktop site that hasn't rendered for this many ticks (about 3 s) is gone. */
+const DESKTOP_STALE_TICKS = 45
+/** A desktop cell in CSS pixels (its text's column and line), to size the frame's image. */
+const DESKTOP_CELL_W = 8
+const DESKTOP_CELL_H = 19
+/** The spine: a pane docked beside the fullscreen transcript, floor to ceiling. */
+const SPINE = 'flow'
+/** The width the spine asks for; the dock seats it no narrower than its minimum. */
+const SPINE_COLUMNS = 13
+const SPINE_INLINE_ROWS = 12 // when not fullscreen, it sits above the prompt
+/** The most a pane's body is taken as, in cells: a Raster's (or desktop image's) sensible bounds. */
+const MOST_COLUMNS = 512
+const MOST_ROWS = 256
+/** The picker (`/flow pick`): a pane of every scene's thumbnail. */
+const PICKER = 'flow-pick'
+/** A desktop picker that hasn't rendered for this many of the picker's steps (3 s) is gone. */
+const PICK_DESKTOP_STALE = 30
+/** A thumbnail blit refused (the pane behind another, mid-resize): try again this many steps on. */
+const PICK_BLIT_PAUSE = 10
+const READ_TOOLS = new Set(['Read', 'Grep', 'Glob', 'LSP', 'WebFetch', 'WebSearch'])
+/** Tools that are the person's to answer: Claude's question, a plan to approve. The turn's clock stops while one is open. */
+const PERSON_TOOLS = new Set(['AskUserQuestion', 'ExitPlanMode'])
+
+/**
+ * The balloon's altitude, kept in session state: a setting change reloads
+ * the module and rebuilds the balloon, which should resume, not take off again.
+ */
+const altitudeAtom = atom({ plugin: 'flow-scenes', key: 'altitude' } as const, 0)
+
+async function keepAltitude($: EngineInterface, altitude: number): Promise<void> {
+  await update($, altitudeAtom, () => altitude).catch(() => {})
+}
+
+async function savedAltitude($: EngineInterface): Promise<number> {
+  const { value } = await $.state.get({ plugin: 'flow-scenes', key: 'altitude' } as const)
+  return typeof value === 'number' ? value : 0
+}
+
+/**
+ * Whether someone has been seen at this session (a key in the prompt, a turn, a `/flow`), kept in session
+ * state so a reload (a /config change) doesn't silence it till the next key. Claude Code warms spare
+ * sessions in the background, with a terminal no one sees: until someone's there, nothing is heard.
+ */
+const presentAtom = atom({ plugin: 'flow-scenes', key: 'present' } as const, false)
+
+async function keepPresent($: EngineInterface): Promise<void> {
+  await update($, presentAtom, () => true).catch(() => {})
+}
+
+/** Someone's at the session (a key in the prompt, a turn, a `/flow`): the soundscape may play from the next frame, and after a reload too. */
+function markPresent($: EngineInterface, sound: { present: boolean }): void {
+  if (sound.present) return
+  sound.present = true
+  void keepPresent($)
+}
+
+async function wasPresent($: EngineInterface): Promise<boolean> {
+  const { value } = await $.state.get({ plugin: 'flow-scenes', key: 'present' } as const)
+  return value === true
+}
+
+/** The /config rows, each with its value as stored (none where the host can't list them). */
+async function storedRows($: EngineInterface): Promise<readonly StoredRow[]> {
+  try {
+    return await $.config.list()
+  } catch {
+    return []
+  }
+}
+
+/**
+ * This load's session: its id, the defaults (the /config rows) and its own
+ * settings over them, kept in the store under the id (sessions.ts). Terminal
+ * and desktop views of one session are one load, so they share all of it.
+ */
+export type Session = {
+  /** `$.session.id()`: undefined where the host can't say, and then nothing is kept. */
+  id: string | undefined
+  defaults: FlowConfig
+  own: Own
+  /** Why this process's last session ended (`clear`, `resume`), until the next one's id shows. */
+  ended: string | undefined
+  /** Reads of the id left at the quick pace, after a session ended with the process going on. */
+  watch: number
+  /** A move to another session under way (one at a time). */
+  moving?: Promise<boolean>
+}
+
+/** The session's id, or undefined where the host can't say. */
+async function sessionId($: EngineInterface): Promise<string | undefined> {
+  try {
+    const id = await $.session.id()
+    return typeof id === 'string' && id ? id : undefined
+  } catch {
+    return undefined
+  }
+}
+
+async function loadRecord($: EngineInterface, id: string): Promise<SessionRecord | undefined> {
+  try {
+    return readRecord(await $.store.get(sessionKey(id)))
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Keep the session's own settings under its id, marked used now (none: its
+ * record goes, and it follows the defaults); answers whether it kept them.
+ * Each session writes only its own key, so two sessions never race on one.
+ */
+async function keepOwn($: EngineInterface, s: Pick<Session, 'id' | 'own'>): Promise<boolean> {
+  if (!s.id) return false
+  try {
+    const at = await $.clock.now()
+    // (Its own as they are now, after the wait: a change made meanwhile is kept too.)
+    if (Object.keys(s.own).length) await $.store.set(sessionKey(s.id), storedRecord(s.own, at))
+    else await $.store.delete(sessionKey(s.id))
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The defaults as /config holds them now (a row it doesn't list keeps
+ * `fallback`'s value), or undefined where it can't say. Not the options this
+ * module loaded with: another session may have saved since, and whether a
+ * settings change reloads the module in every running session is the host's
+ * business.
+ */
+async function readDefaults($: EngineInterface, fallback: FlowConfig): Promise<FlowConfig | undefined> {
+  try {
+    const rows: Record<string, unknown> = storedOwn(fallback)
+    for (const row of await $.config.list()) {
+      if (row.key.startsWith(`${PLUGIN}.`)) rows[row.key.slice(PLUGIN.length + 1)] = row.value
+    }
+    return readConfig(rows)
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Read the defaults afresh: what the session shows that they no longer hold
+ * changed under it, and becomes its own (sessions.ts: pinShown), so it goes on
+ * showing it, a resume brings it back, and what's compared with the defaults
+ * (the status, `/flow save`, `/flow reset`) compares with them as they are.
+ */
+export async function refreshDefaults($: EngineInterface, ctx: SceneCtx): Promise<void> {
+  const s = ctx.session
+  const fresh = await readDefaults($, s.defaults)
+  if (!fresh) return
+  const { own, pinned } = pinShown(ctx.driver.cfg, s.own, fresh)
+  s.defaults = fresh
+  if (!pinned) return
+  s.own = own
+  await keepOwn($, s)
+}
+
+/**
+ * Open the session this load is in: the defaults as /config holds them
+ * (`fallback`, the options this module loaded with and anything just written
+ * to /config, where it can't say), its own settings over them. A new session
+ * has none, and shows the defaults.
+ */
+export async function openSession($: EngineInterface, ctx: SceneCtx, fallback: FlowConfig): Promise<void> {
+  const s = ctx.session
+  s.defaults = (await readDefaults($, fallback)) ?? fallback
+  s.id = await sessionId($)
+  s.ended = undefined
+  s.watch = 0
+  const record = s.id === undefined ? undefined : await loadRecord($, s.id)
+  s.own = record?.own ?? {}
+  if (record) await keepOwn($, s) // (marked used: the sessions used last are the ones kept)
+  ctx.applyLocal(withOwn(s.defaults, s.own))
+}
+
+/** Forget the sessions unused longest, past those kept (sessions.ts: staleSessions); never this one. */
+async function pruneSessions($: EngineInterface, keep: string | undefined): Promise<void> {
+  try {
+    const keys = (await $.store.keys()).filter(k => k.startsWith(SESSION_PREFIX))
+    if (!keys.length) return
+    const now = await $.clock.now()
+    const records = await Promise.all(keys.map(async key => ({ key, at: readRecord(await $.store.get(key))?.at ?? 0 })))
+    for (const key of staleSessions(records, now, keep === undefined ? undefined : sessionKey(keep))) await $.store.delete(key)
+  } catch {
+    // Pruned next time.
+  }
+}
+
+/** A pane's body width, in the bounds a scene is drawn at. */
+const bodyColumns = (columns: number) => Math.max(1, Math.min(MOST_COLUMNS, columns))
+/** A pane's body height, at least `least` rows. */
+const bodyRows = (rows: number, least: number) => Math.max(least, Math.min(MOST_ROWS, rows))
+
+/** Ask for the spine's pane: opened, or (open already) its own size asked for again (a width the person dragged still wins). */
+function openSpine($: EngineInterface) {
+  return $.ui.open({ id: SPINE, title: 'flow', columns: SPINE_COLUMNS, rows: SPINE_INLINE_ROWS })
+}
+
+/**
+ * Close the spine's pane from here, the scene no longer drawn there first:
+ * a plugin's own `$.ui.close` doesn't come back through its `ui.close` hooks.
+ */
+async function closeSpine($: EngineInterface, ctx: SceneCtx): Promise<void> {
+  ctx.leftSpine()
+  await $.ui.close({ id: SPINE })
+}
+
+/**
+ * Whether the spine's pane is up (a pane outlives a reload of the module).
+ * Where the host can't say (no panes there), none is: this check must never
+ * cost `session.start` the frame loop, the clock or the subagent polling.
+ */
+async function spineIsUp($: EngineInterface): Promise<boolean> {
+  try {
+    return (await $.ui.panes()).some(pane => pane.id === SPINE)
+  } catch {
+    return false
+  }
+}
+
+/** Desktop's hover card colors: a dark card, light text, over any scene. */
+const CARD_BG = '#1d2026'
+const CARD_FG = '#e8eaee'
+
+/**
+ * Desktop: over each companion a keyed Box the size of it, and in it, hidden,
+ * a card with its agent's task and what it's doing, revealed while the
+ * pointer is on the companion (a hover reveal: the surface applies it, no
+ * hook runs). The card sits on the band's top row (its bottom row, for a
+ * companion up there), or just above the companion in a tall pane, wrapping
+ * to the pane's width.
+ */
+function agentCards(
+  els: { Box: ElementConstructor<BoxProps>; Text: ElementConstructor<TextProps> },
+  marks: readonly AgentMark[],
+  dials: readonly AgentDial[],
+  columns: number,
+  rows: number,
+) {
+  const { Box, Text } = els
+  const tall = rows > 8
+  return marks.flatMap(m => {
+    const d = dials.find(a => a.id === m.id)
+    if (!d) return []
+    const line = agentLine(d)
+    const width = Math.max(1, Math.min(columns, line.length + 2))
+    const lines = tall ? Math.min(4, Math.ceil(line.length / Math.max(1, width - 2))) : 1
+    const left = Math.max(0, Math.min(columns - width, m.col - 1))
+    const top = tall
+      ? m.row >= lines + 1 ? m.row - lines - 1 : Math.min(rows - lines, m.row + m.h)
+      : m.row >= 2 ? 0 : rows - 1
+    return [
+      <Box key={`agent:${m.id}`} position="absolute" top={m.row} left={m.col} width={m.w} height={m.h}>
+        <Box
+          position="absolute"
+          top={top - m.row}
+          left={left - m.col}
+          width={width}
+          paddingX={1}
+          backgroundColor={CARD_BG}
+          display="none"
+          hover={{ display: 'flex' }}
+        >
+          <Text color={CARD_FG} wrap={tall ? 'wrap' : 'truncate'}>
+            {line}
+          </Text>
+        </Box>
+      </Box>,
+    ]
+  })
+}
+
+/** A desktop site's frame: its Svg, where its companions are, and their agents (for the hover cards). */
+type DesktopFrame = { svg: { source: string; alt: string; width: number; height: number }; marks: readonly AgentMark[] | undefined; dials: readonly AgentDial[] }
+
+/** What `/flow` needs of the loaded module. */
+export type SceneCtx = {
+  driver: SceneDriver
+  session: Session
+  /** Apply a change here at once (the caller invalidates). */
+  applyLocal: (changes: Partial<FlowConfig>) => void
+  /** The scene no longer draws in the spine. */
+  leftSpine: () => void
+  /** The picker is opening: its focus starts on the scene on show, its thumbnails run. */
+  openingPicker: () => void
+  /** The picker is closing: its thumbnails stop and go. Answers whether it was docked. */
+  closingPicker: () => boolean
+}
+
+/**
+ * Put the spine's pane where the settings now want it, `layout` being a
+ * layout just asked for (or moved to): answers a note for the reply.
+ */
+async function placeScene($: EngineInterface, ctx: SceneCtx, layout: FlowLayout | undefined): Promise<string> {
+  try {
+    return await placePane($, ctx, layout)
+  } catch {
+    // (No panes here, or the host refused: the setting stands, and the pane follows it at the next change.)
+    return ''
+  }
+}
+
+async function placePane($: EngineInterface, ctx: SceneCtx, layout: FlowLayout | undefined): Promise<string> {
+  const { driver } = ctx
+  if (layout === 'band') {
+    await closeSpine($, ctx)
+    return ''
+  }
+  if (driver.cfg.layout !== 'spine') return ''
+  // The pane shows while the scene does, as the band does: off (or dark idle) closes it, back on opens it.
+  // Asked for, it's placed at any width: docked in fullscreen, else inline.
+  const shown = driver.isShown()
+  if (shown && (layout === 'spine' || !(await spineIsUp($)))) {
+    const opened = await openSpine($)
+    return opened.isPlaced ? '' : '  (no room for the pane yet: widen the terminal)'
+  }
+  if (!shown && (await spineIsUp($))) await closeSpine($, ctx)
+  return ''
+}
+
+/** Show these settings in the session at once, the pane following its layout. */
+async function showSettings($: EngineInterface, ctx: SceneCtx, cfg: FlowConfig): Promise<void> {
+  const layout = ctx.driver.cfg.layout
+  ctx.applyLocal(cfg)
+  $.ui.invalidate('ui.render')
+  if (cfg.layout !== layout) await placeScene($, ctx, cfg.layout)
+}
+
+/**
+ * Follow the session's id: a /clear, a resume from inside the session or a
+ * fork moves it on under this load, with no `session.start`. The session it
+ * moved to shows its own settings (sessions.ts: ownAfterSwitch). Answers
+ * whether it moved; one move at a time.
+ */
+function followSession($: EngineInterface, ctx: SceneCtx): Promise<boolean> {
+  const s = ctx.session
+  s.moving ??= moveSession($, ctx).finally(() => {
+    s.moving = undefined
+  })
+  return s.moving
+}
+
+async function moveSession($: EngineInterface, ctx: SceneCtx): Promise<boolean> {
+  const s = ctx.session
+  const id = await sessionId($)
+  if (!id || id === s.id) {
+    if (s.watch > 0) s.watch--
+    return false
+  }
+  // (What the session it leaves showed is kept as it was, against the defaults as they are now.)
+  await refreshDefaults($, ctx)
+  const record = await loadRecord($, id)
+  const { own, carried } = ownAfterSwitch(record, s.own, s.ended)
+  s.id = id
+  s.own = own
+  s.ended = undefined
+  s.watch = 0
+  // Kept under the new id: its own (marked used), or what a /clear carried on.
+  if (record || carried) await keepOwn($, s)
+  await showSettings($, ctx, withOwn(s.defaults, own))
+  return true
+}
+
+/** `/flow save`'s rows to write: the settings the session shows that its defaults (as they are now) don't, each as stored. */
+type SavePlan = { before: FlowConfig; changes: Partial<FlowConfig>; rows: [keyof FlowConfig, string | number][] }
+
+/**
+ * `/flow save`, before its writes: the session it is now, on the defaults as
+ * they are now (another session may have saved since), and what differs.
+ */
+export async function planSave($: EngineInterface, ctx: SceneCtx): Promise<SavePlan> {
+  await followSession($, ctx)
+  await refreshDefaults($, ctx)
+  const s = ctx.session
+  const changes = differences(ctx.driver.cfg, s.defaults)
+  const rows = Object.entries(storedOwn(changes)) as [keyof FlowConfig, string | number][]
+  return { before: { ...s.defaults }, changes, rows }
+}
+
+/**
+ * `/flow save`, once its rows are written (`refused`: those /config would not
+ * take): they're the default now, and forgotten from the session's own (written
+ * first: a reload the write may cause finds them in one or the other).
+ */
+export async function finishSave($: EngineInterface, ctx: SceneCtx, plan: SavePlan, refused: (keyof FlowConfig)[]): Promise<string> {
+  const s = ctx.session
+  const cfg = ctx.driver.cfg
+  const { before, changes } = plan
+  for (const k of Object.keys(changes) as (keyof FlowConfig)[]) {
+    if (!refused.includes(k)) (s.defaults as Record<string, unknown>)[k] = cfg[k]
+  }
+  // What's still its own: what /config refused (the rest is the default now).
+  const own: Own = {}
+  for (const k of refused) (own as Record<string, unknown>)[k] = cfg[k]
+  s.own = own
+  await keepOwn($, s)
+  return savedText(cfg, before, refused.length < Object.keys(changes).length, refused)
+}
+
+/** `/flow reset`: the session back on the default. */
+async function resetSession($: EngineInterface, ctx: SceneCtx): Promise<string> {
+  const s = ctx.session
+  const before = { ...ctx.driver.cfg }
+  s.own = {}
+  const note = (await keepOwn($, s)) || !s.id ? '' : '  (not saved)'
+  await showSettings($, ctx, s.defaults)
+  return `${resetText(before, s.defaults)}${note}`
+}
+
+/** A `/flow` change: shown at once (the scene carries on: 6 → 8 eases up from 6), this session's alone, kept under its id. Answers the reply's note. */
+async function changeSession($: EngineInterface, ctx: SceneCtx, changes: Partial<FlowConfig>): Promise<string> {
+  const { driver, session } = ctx
+  const before = { ...driver.cfg }
+  $.ui.invalidate('ui.render')
+  ctx.applyLocal(changes)
+  session.own = { ...session.own, ...changes }
+  let note = (await keepOwn($, session)) ? '' : '  (not saved)'
+  note += await placeScene($, ctx, changes.layout)
+  return `${note}${ownHint(before, driver.cfg, session.defaults)}`
+}
+
+const TIPS = 'tips'
+
+/**
+ * Start keeping tips, where none are kept yet (see firstTips): from a
+ * session's start, before its `/flow` stores anything, so anything else in
+ * the store (a session's own settings, old overrides, the older settings,
+ * whatever Flow keeps there next) is from before, as is a `usedBefore` the
+ * caller saw. Tips are the person's, not a session's: one record for all.
+ */
+async function seedTips($: EngineInterface, usedBefore: boolean, settings: FlowConfig): Promise<void> {
+  try {
+    const keys = await $.store.keys()
+    if (!keys.includes(TIPS)) await $.store.set(TIPS, firstTips(usedBefore || keys.length > 0, settings))
+  } catch {
+    // Unread: the tips start from nothing, as for someone new.
+  }
+}
+
+/**
+ * A chance for a one-time tip (see tipChance), the store keeping which have been given: the tip, if one's due.
+ * `noteOnly`: no chance (no prompt to toast over), but what's on is noted all the same.
+ */
+async function takeTip($: EngineInterface, cfg: FlowConfig, noteOnly = false): Promise<string | undefined> {
+  try {
+    const { tip, tips, changed } = tipChance(await $.store.get(TIPS), cfg, noteOnly)
+    if (changed) await $.store.set(TIPS, tips)
+    return tip
+  } catch {
+    return undefined
+  }
+}
+
+const WARNED = 'warned'
+
+/**
+ * On a Claude Code older than Flow is built against (see versionNote), the note to give: once for that
+ * version, the store keeping which it was said for. None where it can't tell (a Claude Code too old to say
+ * its version), or on any failure: it never stands in the way.
+ */
+async function versionWarning($: EngineInterface): Promise<string | undefined> {
+  try {
+    const { version, base } = await $.session.version()
+    const note = versionNote('Claude Code', base ?? version)
+    if (!note || (await $.store.get(WARNED)) === version) return undefined
+    await $.store.set(WARNED, version)
+    return note
+  } catch {
+    return undefined
+  }
+}
+
+/** `/flow`: show, help, or apply a change, keep it, and answer. */
+export async function runScene($: EngineInterface, e: CommandRunInput, ctx: SceneCtx): Promise<CommandRunResult> {
+  return withTip($, ctx, await sceneReply($, e, ctx))
+}
+
+/** A one-time tip goes under a `/flow` reply (the other scenes, or the sound). */
+async function withTip($: EngineInterface, ctx: SceneCtx, reply: CommandRunResult): Promise<CommandRunResult> {
+  const tip = await takeTip($, ctx.driver.cfg)
+  return tip ? { ...reply, text: `${reply.text ?? ''}\n\n${tip}` } : reply
+}
+
+async function sceneReply($: EngineInterface, e: CommandRunInput, ctx: SceneCtx): Promise<CommandRunResult> {
+  const cmd = parseFlowArgs(e.args)
+  if (cmd.kind !== 'pick') return { text: await flowReply($, ctx, cmd) }
+  // (The session it is now, on the defaults as they are: the picker marks the scene it shows.)
+  await followSession($, ctx)
+  await refreshDefaults($, ctx)
+  return openPicker($, e, ctx)
+}
+
+/** `/flow <cmd>` in this session (and a scene chosen in the picker, as `/flow <scene>`): its reply. */
+async function flowReply($: EngineInterface, ctx: SceneCtx, cmd: FlowCommand): Promise<string> {
+  const { driver, session } = ctx
+  // (A /clear or a resume since the last look: the session it is now. And the
+  // defaults as they are now: what follows compares with them.)
+  await followSession($, ctx)
+  await refreshDefaults($, ctx)
+  const reply = await replyTo(cmd, {
+    host: CLAUDE_CODE,
+    agent: "Claude's",
+    cfg: driver.cfg,
+    get clock() {
+      return driver.clock
+    },
+    get defaults() {
+      return session.defaults
+    },
+    level: () => driver.level(),
+    tint: () => driver.tint(),
+    // (`/flow save` is answered in its hook, where its /config writes are: never here.)
+    save: async () => ({ text: '' }),
+    reset: () => resetSession($, ctx),
+    change: changes => changeSession($, ctx, changes),
+  })
+  return reply.text
+}
+
+/**
+ * `/flow pick`: open the picker as a dialog. It asks for the keys (granted
+ * over an empty prompt, as after a command), Esc closes it, and toasts wait
+ * behind it. Docked it asks for two thumbnails' width; inline, the rows its
+ * grid needs at this terminal's width.
+ */
+async function openPicker($: EngineInterface, e: CommandRunInput, ctx: SceneCtx): Promise<CommandRunResult> {
+  ctx.openingPicker()
+  const opened = await $.ui.open({
+    id: PICKER,
+    title: 'flow: pick a scene',
+    focus: true,
+    closeOnEscape: true,
+    holdToasts: true,
+    columns: PICK_COLUMNS,
+    rows: pickRows(e.presentation.columns),
+  })
+  if (opened.isPlaced) return { text: PICK_OPENED }
+  // Nowhere places panes (an older desktop): don't leave one waiting to pop up later.
+  await closePickerPane($, ctx)
+  return { text: PICK_NO_PANE }
+}
+
+/**
+ * Close the picker from here (a pick, desktop's close). Its own `$.ui.close`
+ * doesn't come back through this plugin's `ui.close` hooks, so it stops
+ * the thumbnails itself first; the person's Esc goes through the hook.
+ */
+async function closePickerPane($: EngineInterface, ctx: SceneCtx): Promise<void> {
+  const docked = ctx.closingPicker()
+  await $.ui.close({ id: PICKER }).catch(() => {})
+  await restoreSpine($, ctx, docked)
+}
+
+/**
+ * The picker docked shares the dock with the spine, and asks for it wider:
+ * once it's gone, ask for the spine's own width again (an open of an open
+ * pane only re-asks; a width the person dragged still wins).
+ */
+async function restoreSpine($: EngineInterface, ctx: SceneCtx, docked: boolean): Promise<void> {
+  const { driver } = ctx
+  if (!docked || driver.cfg.layout !== 'spine' || !driver.isShown() || !(await spineIsUp($))) return
+  await openSpine($).catch(() => {})
+}
+
+/**
+ * A scene chosen in the picker: `/flow <scene>` exactly (this session's own,
+ * kept under its id), then the picker closes and the reply shows as a toast
+ * (toasts wait while the picker shows), with a word if nothing's on screen.
+ */
+async function pickScene($: EngineInterface, name: SceneName, ctx: SceneCtx): Promise<void> {
+  const reply = await flowReply($, ctx, { kind: 'style', name })
+  await closePickerPane($, ctx)
+  const hidden = ctx.driver.isShown() ? '' : `\n${hiddenNote(ctx.driver.cfg.mode)}`
+  $.ui.toast(`${reply}${hidden}`, { timeoutMs: 8000 })
+}
+
+export const register: Register = (on, options) => {
+  // The defaults arrive as `options` (a /config change reloads the module);
+  // the session's own settings sit over them (read at `session.start`).
+  // Module-level on purpose: the scenes and the activity are cosmetic, so a
+  // reload simply relights them.
+  const activity = new Activity()
+  const driver = new SceneDriver(readConfig(options), activity)
+  const cfg = driver.cfg
+  const session: Session = { id: undefined, defaults: readConfig(options), own: {}, ended: undefined, watch: 0 }
+  /**
+   * Desktop's own scenes, on the same settings: a session open in the
+   * terminal and on desktop at once draws each at its own size, and resizing
+   * one shared scene back and forth every frame would rebuild it every frame.
+   */
+  const desktopDriver = new SceneDriver(cfg, activity)
+  /**
+   * The balloon's altitude as the last load left it (read at `session.start`): a balloon built in this load
+   * (either driver, whenever the scene is first shown) resumes there.
+   */
+  let altitudeSeed = 0
+  driver.onMake = desktopDriver.onMake = (_style, scene) => {
+    if (scene instanceof Balloon) scene.seed(altitudeSeed)
+  }
+  /** Where the scene is drawn now (band or spine). Other surfaces never touch it. */
+  let mounted: { requestId: string; columns: number; rows: number } | null = null
+  let ticks = 0
+  /** A subagent's step or tool call arrived: count the running ones at the next poll. */
+  let subagentSeen = false
+  /**
+   * The soundscape (soundscape.ts): its player comes with the session's engine (session.start). Silent till
+   * someone's at the session (`present`: a spare session Claude Code warms in the background has a terminal and
+   * shows its scene, but no one hears it), and for good once the session has ended (`over`: the frames still
+   * running till the process goes start nothing, as a clip begun then outlives it and plays out in full).
+   */
+  const sound = new Soundscape(cfg)
+  /** The tick a blit went out on, -1 when none is in flight. */
+  let blitAt = -1
+  let lastCells = ''
+  /**
+   * The desktop sites drawing the scene (band, spine), their size in cells
+   * and the tick each last rendered: the newest steps it. A desktop window
+   * closing sends nothing, so a site that stops rendering though it's asked
+   * to every frame is forgotten (it comes back if it renders again).
+   */
+  const desktopSites = new Map<string, { columns: number; rows: number; at: number }>()
+  const desktopSite = () => {
+    let newest: { columns: number; rows: number; at: number } | undefined
+    for (const [id, site] of desktopSites) {
+      if (ticks - site.at > DESKTOP_STALE_TICKS) desktopSites.delete(id)
+      else newest = site
+    }
+    return newest
+  }
+  /**
+   * Desktop's redraws: the frame loop steps desktop's scene (`steps`), and a
+   * redraw is asked for once something has stepped (`dirty`: the scene, or the
+   * picker's thumbnails), at most once a DESKTOP_MS (`wait`: ms since the last).
+   * Each site's frame is drawn once a step, and kept for every render till the next.
+   */
+  const desk = {
+    steps: 0,
+    dirty: false,
+    wait: 0,
+    frames: new Map<string, { key: string; frame: DesktopFrame }>(),
+  }
+  /**
+   * A desktop site's frame: the scene at its size, as one Svg sized to its
+   * cells, and where its companions are (for their agents' hover cards).
+   */
+  const desktopSvg = (requestId: string, columns: number, rows: number): DesktopFrame => {
+    desktopSites.delete(requestId) // re-added last: the newest site steps the scene
+    desktopSites.set(requestId, { columns, rows, at: ticks })
+    // (Drawn and encoded once a step: a render asked for by anything else reuses it.)
+    const key = `${columns}x${rows}@${desk.steps}:${cfg.style}`
+    const kept = desk.frames.get(requestId)
+    if (kept?.key === key) return kept.frame
+    const scene = desktopDriver.dial()
+    scene.ensure(columns, rows)
+    const svg = {
+      source: frameSvg(scene.grid()),
+      alt: `flow: ${cfg.style}`,
+      width: columns * DESKTOP_CELL_W,
+      height: rows * DESKTOP_CELL_H,
+    }
+    // A scene with companions is always drawn under a Box (so one arriving doesn't remount the Svg).
+    const marks = scene.agentMarks?.()
+    const frame = { svg, marks, dials: marks?.length ? (scene.agents ?? []) : [] }
+    desk.frames.set(requestId, { key, frame })
+    return frame
+  }
+  /** A desktop site's element: the scene's Svg, and over it (a scene with companions) their agents' hover cards. */
+  const desktopView = (els: Pick<Elements['desktop'], 'Box' | 'Svg' | 'Text'>, requestId: string, columns: number, rows: number) => {
+    const { Box, Svg } = els
+    const { svg, marks, dials } = desktopSvg(requestId, columns, rows)
+    if (!marks) return <Svg {...svg} />
+    return (
+      <Box>
+        <Svg {...svg} />
+        {agentCards(els, marks, dials, columns, rows)}
+      </Box>
+    )
+  }
+
+  /**
+   * The picker (`/flow pick`): whether it's open, the scene its focus ring is
+   * on, each surface's thumbnails (the terminal's and desktop's, each at its
+   * own size), and its own timer, which runs only while it's open. The
+   * terminal's thumbnails are blitted, each its own Raster (mounted: drawn
+   * there, and not paused after a refused blit); desktop's Svgs are redrawn
+   * while a desktop has drawn the picker lately (`deskAt`, in its steps).
+   */
+  const pick = {
+    open: false,
+    /** Closed since it was last opened: a late redraw (one asked for as it closed) doesn't start it again. */
+    closed: false,
+    selected: cfg.style as SceneName,
+    term: new Thumbnails(101),
+    desk: new Thumbnails(201),
+    mounted: false,
+    pausedUntil: 0,
+    /** The step the last thumbnails' blits went out on, -1 once they're all in. */
+    blitAt: -1,
+    deskAt: -1,
+    /** How many times desktop's thumbnails have stepped, and each one's Svg source as last drawn (at which step and size). */
+    deskSteps: 0,
+    svgs: new Map<SceneName, { key: string; source: string }>(),
+    /** Seated beside the transcript (sharing the dock with the spine) when last drawn in the terminal. */
+    docked: false,
+    steps: 0,
+    timer: undefined as Timer | undefined,
+  }
+  /** Start the picker's timer (session.start, holding `$`, sets it). */
+  let startPicker = () => {}
+  /** Stop the picker and let its thumbnails go, answering whether it was docked. */
+  const closePicker = (): boolean => {
+    const docked = pick.docked
+    pick.open = false
+    pick.closed = true
+    pick.mounted = false
+    pick.pausedUntil = 0
+    pick.blitAt = -1
+    pick.deskAt = -1
+    pick.docked = false
+    pick.timer?.cancel()
+    pick.timer = undefined
+    pick.term.clear()
+    pick.desk.clear()
+    pick.svgs.clear()
+    return docked
+  }
+  /** Whether the picker's timer is redrawing desktop's thumbnails (it asks for desktop's redraws then, the scene's with them). */
+  const pickerDrawsDesktop = () => pick.timer !== undefined && pick.deskAt >= 0 && pick.steps - pick.deskAt <= PICK_DESKTOP_STALE && pick.desk.isBuilt
+
+  /** Apply a change here at once and redraw from scratch (the caller invalidates). */
+  const applyLocal = (changes: Partial<FlowConfig>) => {
+    driver.apply(changes)
+    lastCells = ''
+  }
+  const setClock = (ms: number) => {
+    driver.clock = desktopDriver.clock = clockAt(ms)
+  }
+  /** The scene no longer draws in the spine (its pane closed, or showing the band's note). */
+  const leftSpine = () => {
+    if (mounted?.requestId === SPINE) mounted = null
+    desktopSites.delete(SPINE)
+  }
+  /** What `/flow` (and following the session) needs of this load. */
+  const sceneCtx: SceneCtx = {
+    driver,
+    session,
+    applyLocal,
+    leftSpine,
+    openingPicker: () => {
+      pick.open = true
+      pick.closed = false
+      pick.selected = cfg.style
+      startPicker()
+    },
+    closingPicker: closePicker,
+  }
+
+  on('session.start', async ($, e, next) => {
+    const now = await $.clock.now()
+    setClock(now)
+    // Each session's scenes start their own way: seeded from when it started.
+    driver.seedBase = (now % 2147483647) || 1
+    desktopDriver.seedBase = ((now + 104729) % 2147483647) || 1
+    const at = new Date(now)
+    $.ui.log(
+      `[flow] REVISION: ${FLOW_REVISION} loaded at ${at.toISOString()} (local ${at.getHours()}:${at.getMinutes()}, UTC offset ${-at.getTimezoneOffset()} min)`,
+      { to: 'debug' },
+    )
+    // Each step below may fail on its own (a host without a noun, a store that won't answer): none of them
+    // may cost the session its frame loop, its clock or the subagent polling, which start after them all.
+    try {
+      await $.command.register({
+        name: COMMAND,
+        description: 'An ambient scene that moves with the work: fire, surf, ski, rockets and more',
+        argumentHint: '[<scene> | pick | next | day | night | clock | auto | 1-10 | off | band | spine | save | reset | help]',
+      })
+    } catch {
+      // No command here: the scene still shows.
+    }
+
+    // What's left of Flow from before this load, read before anything below writes: /config's rows as stored,
+    // the balloon's altitude (this session's), the store (seedTips). Someone new starts on the tips; someone
+    // who had Flow before they were kept is taken as having had them.
+    const stale = staleRows(await storedRows($), PLUGIN)
+    const altitude = await savedAltitude($).catch(() => 0)
+    sound.present = sound.present || (await wasPresent($).catch(() => false))
+    await seedTips($, stale.length > 0 || altitude > 0, readConfig(options))
+
+    // This session's own settings over the defaults: kept under its id, so a
+    // reload (a /config change, an update) or a resume brings them back. A
+    // new session has none, and starts on the defaults.
+    const fallback = readConfig(options)
+    try {
+      await openSession($, sceneCtx, fallback)
+    } catch {
+      // Unopened: this load shows the defaults it has.
+      applyLocal(fallback)
+    }
+    $.ui.invalidate('ui.render')
+    void pruneSessions($, session.id)
+
+    // Resume the balloon where the last load left it (one built from here on starts there: onMake).
+    altitudeSeed = altitude
+    for (const d of [driver, desktopDriver]) {
+      const balloon = d.built('balloon')
+      if (balloon instanceof Balloon) balloon.seed(altitude)
+    }
+
+    // A one-time tip, the settings now in: the other scenes, or the sound. With no prompt to toast over, what's on is noted.
+    const tip = await takeTip($, cfg, !e.isInteractive)
+    if (tip) $.ui.toast(tip, { timeoutMs: 12_000 })
+    // On a Claude Code older than Flow is built against: said once for that version (it runs all the same).
+    const warning = e.isInteractive ? await versionWarning($) : undefined
+    if (warning) $.ui.toast(warning, { timeoutMs: 12_000 })
+
+    // Claude Code's player: at most MAX_PLAYS clips at once for a plugin, a fifth refused ("4 plays are going
+    // at once"). No player (a Linux or Windows terminal): every clip refused, just silence.
+    sound.player = {
+      maxPlays: MAX_PLAYS,
+      play: (clip, gain, signal) => $.audio.play(clip, { gain, signal }),
+      full: err => String(err).includes('at once'),
+      after: (ms, fn) => {
+        $.clock.after(ms, fn)
+      },
+    }
+
+    // The frame loop: its own pace, rescheduled each tick.
+    let wasShown = driver.isShown()
+    let keptAltitude = altitude
+    const frame = (elapsed: number): number => {
+      ticks++
+      activity.tick(elapsed / FRAME_MS)
+      const site = mounted
+      const deskSite = desktopSite()
+      // The soundscape, while the scene is on screen: beds crossfading one
+      // into the next, and what happens on screen heard as it happens.
+      sound.step(elapsed, {
+        heard: (site !== null || deskSite !== undefined) && driver.isShown(),
+        shown: site ? driver.scene : deskSite ? desktopDriver.scene : undefined,
+        scenes: [driver.scene, desktopDriver.scene],
+        waiting: driver.waiting(),
+        tint: driver.tint(),
+        night: driver.isNight(),
+      })
+      // Every second or so, while it's the balloon, note its altitude if it moved, so a /config change made
+      // from the menu (a reload) resumes it too.
+      if (ticks % 15 === 0 && cfg.style === 'balloon') {
+        const b = (site || !deskSite ? driver : desktopDriver).scene
+        if (b instanceof Balloon && Math.abs(b.altitude - keptAltitude) > 0.5) {
+          keptAltitude = b.altitude
+          void keepAltitude($, b.altitude)
+        }
+      }
+      // Auto + dark idle: mount the band when work starts, drop it once the
+      // scene has wound down, so an idle session gives the rows back.
+      const shown = driver.isShown()
+      if (shown !== wasShown) {
+        wasShown = shown
+        $.ui.invalidate('ui.render')
+        // The spine's pane, likewise: up while the scene shows, closed (unasked: a plugin's close) when not.
+        if (cfg.layout === 'spine') void (shown ? openSpine($) : closeSpine($, sceneCtx)).catch(() => {})
+      }
+      if (deskSite) {
+        // Desktop steps its own scene here; its render draws the Svg, once a step.
+        const scene = desktopDriver.dial()
+        scene.ensure(deskSite.columns, deskSite.rows)
+        scene.step()
+        desk.steps++
+        desk.dirty = true
+      }
+      // A redraw once a DESKTOP_MS on the average, not every frame (the picker's timer asks for them while it
+      // draws there). (Due within half a frame: frames that don't divide it evenly still keep the pace.)
+      desk.wait = Math.min(desk.wait + elapsed, 2 * DESKTOP_MS)
+      if (desk.dirty && desk.wait >= DESKTOP_MS - FRAME_MS / 2 && !pickerDrawsDesktop()) {
+        desk.dirty = false
+        desk.wait -= DESKTOP_MS
+        $.ui.invalidate('ui.render')
+      }
+      if (deskSite && !site) return Math.max(DESKTOP_MS, desktopDriver.pace())
+      if (!site) return HIDDEN_MS
+      const scene = driver.dial()
+      const pace = driver.pace()
+      if (blitAt >= 0 && ticks - blitAt < BLIT_STALE_TICKS) return pace
+      scene.ensure(site.columns, site.rows)
+      scene.step()
+      const cells = scene.frame()
+      if (cells === lastCells) return pace
+      lastCells = cells
+      const at = ticks
+      blitAt = at
+      void $.ui
+        .blit({ requestId: site.requestId, key: KEY, cells })
+        .then(
+          r => {
+            // Nothing of ours there any more (or not at this size): no band on screen till it's drawn again
+            // (asked for, should it still be there), so nothing is heard for one that's gone.
+            if (r.deny && mounted === site) {
+              mounted = null
+              $.ui.invalidate('ui.render')
+            }
+          },
+          () => {},
+        )
+        .finally(() => {
+          if (blitAt === at) blitAt = -1
+        })
+      return pace
+    }
+    // (A frame that throws, a scene's bug, still reschedules: the next may not, and one never stops it all.)
+    const loop = (ms: number) => {
+      $.clock.after(ms, () => {
+        let after = FRAME_MS
+        try {
+          after = frame(ms)
+        } catch (err) {
+          $.ui.log(`[flow] a frame failed: ${String(err)}`, { to: 'debug' })
+        }
+        loop(after)
+      })
+    }
+    loop(FRAME_MS)
+
+    // The picker's thumbnails: their own pace, only while it's open.
+    startPicker = () => {
+      if (pick.timer) return
+      pick.timer = $.clock.every(PICK_MS, () => {
+        if (!pick.open) {
+          pick.timer?.cancel()
+          pick.timer = undefined
+          return
+        }
+        pick.steps++
+        const night = driver.isNight()
+        // The terminal's: each thumbnail a blit to its own Raster, the next lot only once the last are in
+        // (or presumed lost).
+        if (pick.mounted && pick.steps >= pick.pausedUntil && pick.term.isBuilt) {
+          pick.term.night = night
+          pick.term.step()
+          if (pick.blitAt < 0 || pick.steps - pick.blitAt > BLIT_STALE_TICKS) {
+            const at = pick.steps
+            pick.blitAt = at
+            let left = SCENES.length
+            const pause = () => {
+              pick.pausedUntil = pick.steps + PICK_BLIT_PAUSE
+            }
+            for (const { name } of SCENES) {
+              void $.ui
+                .blit({ requestId: PICKER, key: thumbKey(name), cells: pick.term.frame(name) })
+                .then(r => r.deny && pause(), pause)
+                .finally(() => {
+                  if (--left === 0 && pick.blitAt === at) pick.blitAt = -1
+                })
+            }
+          }
+        }
+        // Desktop's: stepped here, redrawn as Svgs by its render (one redraw a step: the scene's with it).
+        if (pickerDrawsDesktop()) {
+          pick.desk.night = night
+          pick.desk.step()
+          pick.deskSteps++
+          desk.dirty = false
+          desk.wait = 0
+          $.ui.invalidate('ui.render')
+        }
+      })
+    }
+
+    // The pane outlives a reload: one left up from a spine layout that /config
+    // has since changed to the band would otherwise draw beside it.
+    if (cfg.layout === 'spine' && driver.isShown()) {
+      // Unasked, a pane docks only from 144 columns; below that it waits.
+      void openSpine($).catch(() => {})
+    } else if (await spineIsUp($)) {
+      await closeSpine($, sceneCtx).catch(() => {})
+    }
+
+    // Day and night by the local clock: read it every minute.
+    const readClock = () => {
+      $.clock.after(CLOCK_POLL_MS, () => {
+        $.clock.now().then(setClock, () => {})
+        readClock()
+      })
+    }
+    readClock()
+
+    // Subagents: always polled (never gated on what this load remembers: a
+    // reload mid-run starts from nothing), every second while anything works
+    // or a subagent's activity has shown up since the last poll, every 5 s otherwise.
+    let lastPoll = 0
+    const countAgents = () => {
+      $.agent.list().then(
+        agents => {
+          const subagents = agents.filter(a => a.type !== 'teammate')
+          activity.runningAgents = subagents.filter(a => a.status === 'running').length
+          activity.roster.listed(subagents)
+        },
+        () => {
+          activity.runningAgents = 0
+        },
+      )
+    }
+    countAgents()
+    // The session's id, on the same clock: every 5 s, and every second for a
+    // while after a session ends with the process going on (a /clear, a resume).
+    // And the defaults, every 30 s: another session's save shows here as this
+    // one's own, kept for a resume, even if no /flow is run here again.
+    let lastIdRead = 0
+    let lastDefaultsRead = 0
+    const pollAgents = () => {
+      $.clock.after(AGENT_POLL_MS, () => {
+        lastPoll += AGENT_POLL_MS
+        lastIdRead += AGENT_POLL_MS
+        lastDefaultsRead += AGENT_POLL_MS
+        const busy = activity.isWorking || subagentSeen
+        if (busy || lastPoll >= AGENT_IDLE_POLL_MS) {
+          lastPoll = 0
+          subagentSeen = false
+          countAgents()
+        }
+        if (session.watch > 0 || lastIdRead >= SESSION_POLL_MS) {
+          lastIdRead = 0
+          followSession($, sceneCtx).catch(() => {})
+        }
+        if (lastDefaultsRead >= DEFAULTS_POLL_MS) {
+          lastDefaultsRead = 0
+          refreshDefaults($, sceneCtx).catch(() => {})
+        }
+        pollAgents()
+      })
+    }
+    pollAgents()
+
+    return next(e)
+  })
+
+  on('turn.start', ($, e, next) => {
+    markPresent($, sound)
+    activity.turnStarted() // raised by the main loop only
+    return next(e)
+  })
+
+  on('turn.complete', ($, e, next) => {
+    // Subagents' runs complete too; only the main loop's ends the turn. A subagent's: it's done (its companion leaves).
+    if (e.agentId === undefined) activity.turnEnded()
+    else activity.roster.finished(e.agentId, e.reason === 'answer')
+    return next(e)
+  })
+
+  on('turn.step', async function* ($, e, next) {
+    const agentId = e.agentId
+    const isSubagent = agentId !== undefined
+    if (isSubagent) {
+      subagentSeen = true
+      activity.roster.heard(agentId)
+    }
+    activity.modelStep(e.effort, isSubagent)
+    for await (const chunk of next(e)) {
+      if (chunk.kind === 'text' || chunk.kind === 'thinking') {
+        activity.streamed(chunk.text.length, chunk.kind, isSubagent)
+        // A subagent streaming (a long thinking block included) is working, not quiet.
+        if (agentId !== undefined) activity.roster.heard(agentId)
+      }
+      yield chunk
+    }
+  })
+
+  on('tool.call', async ($, e, next) => {
+    const agentId = e.agentId
+    const isSubagent = agentId !== undefined
+    if (isSubagent) subagentSeen = true
+    const lines = linesWritten(e.tool, e)
+    if (lines !== undefined) activity.edited(lines, isSubagent)
+    else if (e.tool === 'Bash') activity.ranCommand(isSubagent)
+    else if (e.tool === 'Agent') activity.spawnedAgent()
+    else if (READ_TOOLS.has(e.tool)) activity.read(isSubagent)
+    // Any other (an MCP server's `mcp__…`, a tool added since) is work too; a question or a plan put to the person isn't.
+    else if (!PERSON_TOOLS.has(e.tool)) activity.usedTool(isSubagent)
+
+    activity.toolsInFlight++
+    const id = e.tool_use_id
+    // Noted: a permission dialog for it (classic.PermissionRequest) waits on the person till it ends or runs.
+    if (id) activity.called(id, e.tool, agentId, e)
+    // A subagent's tool: it's working for as long as the tool runs.
+    if (agentId !== undefined) activity.roster.toolStarted(agentId)
+    // Claude's question, a plan to approve: put to the person from the start (a subagent's too: its companion waits).
+    if (id && PERSON_TOOLS.has(e.tool)) activity.waitingOn(id, true, e.tool, agentId)
+    try {
+      const result = await next(e)
+      if (e.tool === 'Bash' && 'isError' in result && result.isError) activity.failed()
+      return result
+    } finally {
+      activity.toolsInFlight--
+      if (agentId !== undefined) activity.roster.toolEnded(agentId)
+      // (Answered, or over: a permission dialog for it ends here too, allowed or refused, as the
+      // permission prompt runs beneath this hook.)
+      if (id) activity.answered(id, e.tool, agentId)
+    }
+  })
+
+  // A permission dialog is about to show (auto mode's classifier settled the rest alone): the scene
+  // settles and breathes until the call is answered (tool.call's finally, or its progress pill). A
+  // subagent's: its companion waits on you too. Only watched: the check passes on unchanged, as the
+  // plugin directory asks of a permission hook, so a hook beneath that answers it still shows as a wait,
+  // until its call ends.
+  // (Its parameters' names are its own, used nowhere else in the file: so the plugin directory can see
+  // the event it passes on is the one it was given.)
+  on('classic.PermissionRequest', (permissionEngine, permissionAsk, passPermission) => {
+    activity.prompted(permissionAsk.tool_name, permissionAsk.agent_id, permissionAsk.tool_input)
+    return passPermission(permissionAsk)
+  })
+
+  on('ui.render', { component: 'ToolProgress' }, ($, e, next) => {
+    // A call showing progress is running (a long command's background hint): whatever it waited on is answered.
+    activity.answered(e.props.tool_use_id)
+    return next(e)
+  })
+
+  on('session.compact', async ($, e, next) => {
+    // `precompute` installs nothing, and a skipped compaction kept everything.
+    if (e.trigger === 'precompute') return next(e)
+    const result = await next(e)
+    if (!('skip' in result && result.skip)) activity.compacted()
+    return result
+  })
+
+  on('session.measure', ($, e, next) => {
+    if (e.context.percent !== undefined) activity.contextPercent = e.context.percent
+    return next(e)
+  })
+
+
+  // \`/flow\`. Its parameters' names are its own, used nowhere else in the file, and \`/flow save\`'s
+  // /config writes are made here on its engine, each with its row's key as fixed text: as the plugin
+  // directory reads a settings call (it can't tell what a call made elsewhere might write).
+  on('command.run', { command: COMMAND }, async (flowEngine, flowRun) => {
+    markPresent(flowEngine, sound)
+    if (parseFlowArgs(flowRun.args).kind !== 'save') return runScene(flowEngine, flowRun, sceneCtx)
+    const plan = await planSave(flowEngine, sceneCtx)
+    const refused: (keyof FlowConfig)[] = []
+    for (const [field, stored] of plan.rows) {
+      let written: { deny?: string } = { deny: 'not written' }
+      try {
+        switch (field) {
+          case 'mode':
+            written = await flowEngine.config.set({ key: 'flow-scenes.mode', value: stored })
+            break
+          case 'style':
+            written = await flowEngine.config.set({ key: 'flow-scenes.style', value: stored })
+            break
+          case 'idle':
+            written = await flowEngine.config.set({ key: 'flow-scenes.idle', value: stored })
+            break
+          case 'level':
+            written = await flowEngine.config.set({ key: 'flow-scenes.level', value: stored })
+            break
+          case 'layout':
+            written = await flowEngine.config.set({ key: 'flow-scenes.layout', value: stored })
+            break
+          case 'time':
+            written = await flowEngine.config.set({ key: 'flow-scenes.time', value: stored })
+            break
+          case 'sound':
+            written = await flowEngine.config.set({ key: 'flow-scenes.sound', value: stored })
+            break
+          case 'volume':
+            written = await flowEngine.config.set({ key: 'flow-scenes.volume', value: stored })
+            break
+        }
+      } catch {
+        // No such row: not written.
+      }
+      if (written.deny !== undefined) refused.push(field)
+    }
+    return withTip(flowEngine, sceneCtx, { text: await finishSave(flowEngine, sceneCtx, plan, refused) })
+  })
+
+  // Someone at the session (a key in the prompt, a turn, a /flow): the soundscape may play from the next frame.
+  // A key in the prompt: the first one is all it takes.
+  on('prompt.edit', ($, e, next) => {
+    markPresent($, sound)
+    return next(e)
+  })
+
+  on('session.end', async ($, e, next) => {
+    // The soundscape stops with the session, for good unless the process goes
+    // on (a /clear, a resume). Its settings were kept as they changed: nothing
+    // is written to /config (only `/flow save` does that).
+    const goesOn = e.reason === 'clear' || e.reason === 'resume'
+    if (!goesOn) sound.over = true
+    sound.stop()
+    // What it waited on you for was its own: none carries over to the session the process moves to.
+    activity.forgetWaits()
+    // A /clear or a resume from inside the session: the process goes on under another id, with no
+    // `session.start`, so watch for it. (Before the wait below: a poll reading the new id meanwhile must
+    // know a resume from a /clear.) And a new conversation starts with its context empty: no blue, no smoke.
+    if (goesOn) {
+      session.ended = e.reason
+      session.watch = SESSION_WATCH_CHECKS
+      activity.contextPercent = 0
+      activity.smokeFrames = 0
+    }
+    // The defaults may have changed since the last look (another session's
+    // save): what this one showed is kept for a resume.
+    try {
+      await refreshDefaults($, sceneCtx)
+    } catch {
+      // Kept as it last was.
+    }
+    return next(e)
+  })
+
+  // (Its parameters' names are its own, used nowhere else in the file: so the plugin directory can see
+  // it passes on, unchanged, the change it was given.)
+  on('config.set', async (configEngine, configChange, passChange) => {
+    const field = configChange.key.startsWith(`${PLUGIN}.`) ? (configChange.key.slice(PLUGIN.length + 1) as keyof FlowConfig) : undefined
+    if (!field || !(field in cfg) || configChange.origin.kind === 'plugin') return passChange(configChange)
+    // A change made in /config (the menu, or `/config key=value` from here or
+    // over Remote Control) is a default, and this session's too: it no longer
+    // keeps that row's own value, gone before the write (and the reload it
+    // brings, which reads what is kept)...
+    const had = session.own[field]
+    if (had !== undefined) {
+      delete session.own[field]
+      await keepOwn(configEngine, session)
+    }
+    const result = await passChange(configChange)
+    if (result.deny !== undefined) {
+      if (had !== undefined) {
+        ;(session.own as Record<string, unknown>)[field] = had
+        await keepOwn(configEngine, session)
+      }
+      return result
+    }
+    // ...and shows at once, even when it picks the value the row already
+    // held (no options change, so no reload).
+    const value = readConfig({ [field]: result.value })[field]
+    session.defaults = { ...session.defaults, [field]: value }
+    // (A read of the defaults that landed before the write kept the old value as the session's own: not so.)
+    if (session.own[field] !== undefined) {
+      delete session.own[field]
+      await keepOwn(configEngine, session)
+    }
+    // As /flow shows a change: the spine's pane following a new layout too.
+    await showSettings(configEngine, sceneCtx, withOwn(session.defaults, session.own))
+    return result
+  })
+
+  on('ui.close', async ($, e, next) => {
+    if (e.id !== SPINE) return next(e)
+    leftSpine()
+    // Closing the spine yourself means you'd rather have the band (in this session).
+    if (e.origin.kind === 'person' && cfg.layout === 'spine') {
+      applyLocal({ layout: 'band' })
+      $.ui.invalidate('ui.render')
+      session.own = { ...session.own, layout: 'band' }
+      await keepOwn($, session)
+    }
+    return next(e)
+  })
+
+  on('ui.render', { component: 'Pane', requestId: SPINE }, ($, e) => {
+    const { Text } = $.ui.resolve(e)
+    if (cfg.layout !== 'spine') {
+      leftSpine()
+      return <Text dimColor>Flow is in the band above the prompt: `/flow spine` brings it here.</Text>
+    }
+    // The scene fills the whole pane, whatever width the dock gave it.
+    const columns = bodyColumns(e.props.bodyColumns)
+    const rows = bodyRows(e.props.scroll.bodyRows, 2)
+    if (e.surface === 'desktop') return desktopView($.ui.resolve(e), e.requestId, columns, rows)
+    if (e.surface !== 'terminal') return <Text dimColor>The scene draws in the terminal and on desktop.</Text>
+    mounted = { requestId: e.requestId, columns, rows }
+    const scene = driver.dial()
+    scene.ensure(columns, rows)
+    lastCells = scene.frame()
+    const { Raster } = $.ui.resolve(e)
+    return <Raster key={KEY} columns={columns} rows={rows} cells={lastCells} />
+  })
+
+  on('ui.render', { component: 'AbovePrompt' }, ($, e, next) => {
+    const most = cfg.layout !== 'spine' && driver.isShown() && driver.dial().taller ? TALL_ROWS : MAX_ROWS
+    const rows = Math.min(most, e.props.maxRows - 1)
+    const hidden = cfg.layout === 'spine' || e.props.hasSurvey || !driver.isShown() || rows < 2
+    if (e.surface === 'desktop') {
+      // No Raster here: the frame is one Svg, redrawn by the frame loop.
+      if (hidden) {
+        desktopSites.delete(e.requestId)
+        return next(e)
+      }
+      return desktopView($.ui.resolve(e), e.requestId, bodyColumns(e.props.bodyColumns), rows)
+    }
+    // Raster is terminal-only; any other surface's band never touches ours.
+    if (e.surface !== 'terminal') return next(e)
+    if (hidden) {
+      if (mounted?.requestId === e.requestId) mounted = null
+      return next(e)
+    }
+    const columns = bodyColumns(e.props.bodyColumns)
+    mounted = { requestId: e.requestId, columns, rows }
+    const scene = driver.dial()
+    scene.ensure(columns, rows)
+    lastCells = scene.frame()
+
+    // The engine keeps one blank spacer row between the band and the prompt;
+    // it is outside the band, so the scene's base sits one row above the input.
+    const { Raster } = $.ui.resolve(e)
+    return <Raster key={KEY} columns={columns} rows={rows} cells={lastCells} />
+  })
+
+  // ── The picker (`/flow pick`) ────────────────────────────────────────────
+
+  // The focus ring moving (the arrows, Tab, a click, the autoFocus on the scene on show): light that tile.
+  on('ui.focus', { requestId: PICKER }, ($, e, next) => {
+    const name = sceneOfKey(e.element)
+    if (name && name !== pick.selected) {
+      pick.selected = name
+      $.ui.invalidate('ui.render')
+    }
+    return next(e)
+  })
+
+  // Closed by the person (Esc, its close mark) or an unload: the thumbnails stop and go. (A pick closes it
+  // through closePickerPane, which does the same.)
+  on('ui.close', { id: PICKER }, async ($, e, next) => {
+    const docked = closePicker()
+    const result = await next(e)
+    if (e.origin.kind !== 'unload') await restoreSpine($, sceneCtx, docked)
+    return result
+  })
+
+  on('ui.render', { component: 'Pane', requestId: PICKER }, ($, e) => {
+    const { Box, Text, Button } = $.ui.resolve(e)
+    // A redraw asked for as it closed (a pick redraws everything): it's going, so nothing more starts.
+    if (pick.closed) return <Text dimColor>{SCENES.map(d => d.name).join(' · ')}</Text>
+    // Drawn: opened by /flow pick, or still up across a reload (a pane outlives one). Its thumbnails run while it's open.
+    pick.open = true
+    if (e.surface === 'terminal') pick.docked = e.props.placement === 'dock'
+    startPicker()
+    // The scene this session shows: its own over the defaults.
+    const current = cfg.style
+    const columns = bodyColumns(e.props.bodyColumns)
+    const rows = bodyRows(e.props.scroll.bodyRows, 1)
+    // (Desktop draws a close Button under the grid: a row more.)
+    const layout = e.surface === 'terminal' || e.surface === 'desktop' ? pickLayout(columns, rows, SCENES.length, undefined, e.surface === 'desktop' ? 1 : 0) : undefined
+    // Each scene's picture: a Raster in the terminal (blitted by the picker's timer), an Svg on desktop (drawn anew).
+    let picture: (name: SceneName) => RenderElement | null = () => null
+    if (layout && e.surface === 'terminal') {
+      pick.term.night = driver.isNight()
+      pick.term.ensure(layout.columns, layout.rows)
+      pick.mounted = true
+      pick.pausedUntil = 0
+      const { Raster } = $.ui.resolve(e)
+      picture = name => <Raster key={thumbKey(name)} columns={layout.columns} rows={layout.rows} cells={pick.term.frame(name)} />
+    } else if (layout && e.surface === 'desktop') {
+      pick.desk.night = driver.isNight()
+      pick.desk.ensure(layout.columns, layout.rows)
+      pick.deskAt = pick.steps
+      const { Svg } = $.ui.resolve(e)
+      // (Each thumbnail drawn and encoded once a step: a render asked for by anything else reuses it.)
+      const key = `${layout.columns}x${layout.rows}@${pick.deskSteps}:${pick.desk.night}`
+      picture = name => {
+        let kept = pick.svgs.get(name)
+        if (kept?.key !== key) {
+          const grid = pick.desk.grid(name)
+          if (!grid) return null
+          pick.svgs.set(name, (kept = { key, source: frameSvg(grid) }))
+        }
+        return <Svg source={kept.source} alt={`flow: ${name}`} width={layout.columns * DESKTOP_CELL_W} height={layout.rows * DESKTOP_CELL_H} />
+      }
+    } else if (e.surface === 'terminal') pick.mounted = false
+
+    // Each scene's Button: what the focus ring walks, Enter (or a click, or its number) picks. The ring starts on the scene on show.
+    const button = (name: SceneName, i: number) => {
+      const hotkey = hotkeyFor(i)
+      return (
+        <Button
+          key={pickKey(name)}
+          label={pickLabel(name, name === current)}
+          plain
+          {...(hotkey ? { hotkey } : {})}
+          {...(name === current ? { autoFocus: true as const } : {})}
+          onPress={() => void pickScene($, name, sceneCtx)}
+        />
+      )
+    }
+    const hint = <Text dimColor wrap="truncate-end">{pickHint(e.surface === 'terminal')}</Text>
+    // Esc closes it in the terminal; a desktop draws its own close control for this.
+    const close = e.surface !== 'terminal' && <Button key="close" role="dismiss" label="Close" onPress={() => void closePickerPane($, sceneCtx)} />
+
+    if (!layout) {
+      // A plain list: too narrow for thumbnails (a spine-width dock), or a surface that draws none.
+      return (
+        <Box flexDirection="column">
+          {hint}
+          {SCENES.map((d, i) => (
+            <Box key={`row:${d.name}`} flexDirection="row" gap={1}>
+              {button(d.name, i)}
+              <Text dimColor wrap="truncate-end">
+                {d.blurb}
+              </Text>
+            </Box>
+          ))}
+          {close}
+        </Box>
+      )
+    }
+
+    // The grid: rows of tiles, each its thumbnail over its Button, the focused one's frame lit (and any under the pointer).
+    const tile = (name: SceneName, i: number) => {
+      const lit = name === pick.selected
+      const frame = layout.framed
+        ? { borderStyle: lit ? 'bold' : 'round', borderColor: lit ? 'claude' : 'subtle', hover: { borderColor: 'claude' } }
+        : {}
+      return (
+        <Box key={tileKey(name)} flexDirection="column" width={layout.columns + (layout.framed ? 2 : 0)} {...frame}>
+          {picture(name)}
+          {button(name, i)}
+        </Box>
+      )
+    }
+    const grid: RenderElement[] = []
+    for (let at = 0; at < SCENES.length; at += layout.across) {
+      grid.push(
+        <Box key={`row:${at}`} flexDirection="row" columnGap={1}>
+          {SCENES.slice(at, at + layout.across).map((d, k) => tile(d.name, at + k))}
+        </Box>,
+      )
+    }
+    return (
+      <Box flexDirection="column">
+        {layout.lines && hint}
+        {grid}
+        {layout.lines && <Text wrap="truncate-end">{pickBlurb(pick.selected, current)}</Text>}
+        {close}
+      </Box>
+    )
+  })
+}

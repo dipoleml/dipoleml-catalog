@@ -1,0 +1,6 @@
+external/
+.vibe-worktrees/
+.eval-worktrees/
+/docs/*
+/evals/results
+/dist/

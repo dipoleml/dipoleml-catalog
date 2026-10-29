@@ -1,0 +1,119 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.shinpr.dev-workflows",
+  "type": "plugin",
+  "name": "Dev Workflows",
+  "slug": "dev-workflows",
+  "vendor": "shinpr",
+  "description": "Development workflows for DipoleML that keep broad exploration focused on the outcome you approved.",
+  "version": "0.29.3",
+  "homepage": "https://github.com/shinpr/claude-code-workflows",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agent-skills",
+    "agentic-ai",
+    "agentic-coding",
+    "anthropic",
+    "claude-code-plugin",
+    "claude-code-skill",
+    "code-quality",
+    "code-review",
+    "developer-tools"
+  ],
+  "tags": [
+    "agent-skills",
+    "agentic-ai",
+    "agentic-coding",
+    "ai-agents",
+    "anthropic",
+    "claude-code",
+    "claude-code-plugin",
+    "claude-code-skill",
+    "code-quality",
+    "code-review",
+    "developer-tools",
+    "development-workflow",
+    "llm-orchestration",
+    "productivity",
+    "subagents"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "shinpr",
+    "brandName": "shinpr",
+    "source": "https://github.com/shinpr.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:14:49Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "shinpr/claude-code-workflows",
+    "url": "https://github.com/shinpr/claude-code-workflows",
+    "commit": "869c43d3521716c24ecabed5a85cda96c0ee6305",
+    "path": "dev-workflows",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 705,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:59:39Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Dev Workflows | Development workflows for Claude Code that keep broad exploration focused on the outcome you approved.",
+        "after": "Dev Workflows | Development workflows for DipoleML that keep broad exploration focused on the outcome you approved.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

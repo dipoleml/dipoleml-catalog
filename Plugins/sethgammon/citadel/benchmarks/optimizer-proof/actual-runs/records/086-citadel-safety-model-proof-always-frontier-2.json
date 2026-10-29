@@ -1,0 +1,68 @@
+{
+  "schema": 1,
+  "evidence_kind": "actual-run",
+  "scenario_set_id": "optimizer-scenarios-sha256:602e496906f3a293203750602234ba88a55a86b9e4f54f32239264098dcebe5b",
+  "metric_set_id": "optimizer-metrics-sha256:bedffbda2b18d725610b0f294a8273ef908237fd957bf9e51a5af4885b123e4f",
+  "scenario_id": "citadel-safety-model-proof",
+  "category": "safety_boundary",
+  "holdout": true,
+  "policy_id": "always-frontier",
+  "repetition": 2,
+  "decision_id": "sha256:20b30d1cae06f4c06604753b45fc0a99957d1b25407842d106bb003d0e542753",
+  "selected_profile_id": "claude-frontier",
+  "observed_profile_id": "claude-frontier",
+  "requested_model": "claude-opus-5",
+  "observed_model": "claude-opus-5",
+  "model_proof_status": "passed",
+  "started_at": "2026-07-31T04:11:16.185Z",
+  "duration_ms": 446986,
+  "outcome": "passed",
+  "verified": true,
+  "attempts": 1,
+  "human_interventions": 0,
+  "topology": "single",
+  "cost": {
+    "status": "known",
+    "amount_usd": 1.505936,
+    "provenance": "tool_reported",
+    "source": "citadel_optimizer_runner",
+    "source_ref": "summed_attempts:1",
+    "pricing_snapshot_digest": null,
+    "components": [
+      {
+        "kind": "model",
+        "amount_usd": 1.5059355,
+        "source": "attempt_1:claude total_cost_usd"
+      }
+    ]
+  },
+  "artifact_paths": [
+    "scripts/test-executor-profiles.js"
+  ],
+  "verification_receipts": [
+    {
+      "attempt": 1,
+      "profile_id": "claude-frontier",
+      "status": "passed",
+      "exit_code": 0,
+      "timed_out": false,
+      "output_digest": "sha256:cfbcb5eb561d7757d10e054de15d8c886ab07285c428bc508c3dfec194eea343",
+      "output_excerpt": "[stdout]\nExecutor profiles passed: strict profiles, canonical digests, literal invocations, bound receipts, and honest model proof.\n\n[stderr]\n",
+      "output_truncated": false,
+      "patch_exit_code": 0,
+      "patch_digest": "sha256:92c86ccb56f295b62e265b6c6f78587a8e43f303e5c21208a357da6bd97a52b8",
+      "patch_excerpt": "diff --git a/scripts/test-executor-profiles.js b/scripts/test-executor-profiles.js\nindex 3178834..5ad031d 100644\n--- a/scripts/test-executor-profiles.js\n+++ b/scripts/test-executor-profiles.js\n@@ -178,6 +178,48 @@ assert.equal(missionUnknown.receipt_status, 'unknown');\n assert.equal(missionUnknown.cost, null);\n assert.equal(missionUnknown.cost_status, 'unknown');\n \n+// Adversarial substitution: the run was billed as one model and reports another\n+// under trusted telemetry. A verified receipt binds the profile, not the model,\n+// so it must never launder the mismatch into a pass, and the telemetry the\n+// substituted observation omits stays unknown rather than inferred or zeroed.\n+const substituted = Object.freeze({ model: codex.model, trusted: true, source: 'codex-session-jsonl' });\n+assert.deepEqual(profiles.evaluateModelProof(local, substituted), {\n+  requested_model: local.model, observed_model: codex.model, status: 'failed',\n+  reason_code: 'MODEL_OBSERVATION_MISMATCH',\n+});\n+// Matching is exact: neither case folding nor a prefix or suffix may pass.\n+for (const observed of ['QWEN3-CODER:30B', 'qwen3-coder', 'qwen3-coder:30b-instruct']) {\n+  const nearMiss = profiles.evaluateModelProof(local, { model: observed, trusted: true });\n+  assert.equal(nearMiss.status, 'failed', observed);\n+  assert.equal(nearMiss.observed_model, observed, observed);\n+}\n+\n+const substitutedVerification = profiles.verifyForkReceiptWrapper(wrapper, { publicKey, expected: wrapperInput });\n+const missionSubstituted = profiles.missionControlExecutorState({\n+  profile: local, observation: substituted, wrapper, verification: substitutedVerification,\n+});\n+assert.equal(missionSubstituted.receipt_status, 'verified');\n+assert.equal(missionSubstituted.requested_model, local.model);\n+assert.equal(missionSubstituted.observed_model, codex.model);\n+assert.equal(missionSubstituted.model_status, 'failed');\n+assert.equal(missionSubstituted.model_reason_code, 'MODEL_OBSERVATION_MISMATCH');\n+assert.deepEqual([missionSubstituted.cost, missionSubstituted.duration_ms, missionSubstituted.tokens],\n+  [null, null, null], 'missing telemetry must not be inferred or zeroed');\n+assert.deepEqual([missionSubstituted.cost_status, missionSubstituted.duration_status, missionSubstituted.tokens_status],\n+  ['unknown', 'unknown', 'unknown']);\n+\n+const substitutedReplay = profiles.publicExecutorReplay({\n+  profile: local, observation: substituted, wrapper, verification: substitutedVerification,\n+});\n+assert.equal(substitutedReplay.model_status, 'failed');\n+assert.equal(substitutedReplay.model_reason_code, 'MODEL_OBSERVATION_MISMATCH');\n+assert.equal(substitutedReplay.requested_model, local.model);\n+assert.equal(substitutedReplay.observed_model, codex.model,\n+  'public replay must show the substituted model, not hide it');\n+assert.equal(substitutedReplay.receipt_status, 'verified');\n+assert.deepEqual([substitutedReplay.cost_status, substitutedReplay.duration_status, substitutedReplay.tokens_status],\n+  ['unknown', 'unknown', 'unknown']);\n+\n const replay = profiles.publicExecutorReplay({ profile: local, observation: null, wrapper });\n const serialized = JSON.stringify(replay);\n for (const forbidden of ['signature', 'private', 'raw_output', 'env', 'command', 'args']) {\n",
+      "patch_truncated": false,
+      "changed_paths": [
+        "scripts/test-executor-profiles.js"
+      ]
+    }
+  ],
+  "receipt_status": "verified",
+  "adversarial_result": "detected",
+  "failure_code": null,
+  "attestation": {
+    "algorithm": "ed25519",
+    "signature_base64": "m8VggJsnA7wPkQJ9+rGiNp90JZvuAblNxB4cXQdV8Do8Of5GYsHw71cLJjuHkvz1A4NL3Rit4OJ+71hMF8sSBw=="
+  }
+}

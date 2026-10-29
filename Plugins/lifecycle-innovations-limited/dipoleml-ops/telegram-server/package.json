@@ -1,0 +1,37 @@
+{
+  "name": "claude-ops-telegram-server",
+  "version": "0.2.1",
+  "mcpName": "io.github.lifecycle-innovations-limited/claude-ops-telegram-server",
+  "description": "Telegram user-auth MCP server for claude-ops plugin (personal account via MTProto, not bots)",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Lifecycle-Innovations-Limited/claude-ops.git",
+    "directory": "claude-ops/telegram-server"
+  },
+  "homepage": "https://github.com/Lifecycle-Innovations-Limited/claude-ops/tree/main/claude-ops/telegram-server",
+  "keywords": [
+    "mcp",
+    "telegram",
+    "mtproto",
+    "claude-code",
+    "inbox"
+  ],
+  "type": "module",
+  "main": "index.js",
+  "bin": {
+    "claude-ops-telegram": "./index.js"
+  },
+  "scripts": {
+    "start": "node index.js",
+    "auth": "node index.js --auth"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "playwright": "^1.59.1",
+    "telegram": "^2.26.22"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

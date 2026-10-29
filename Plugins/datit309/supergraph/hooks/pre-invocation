@@ -1,0 +1,156 @@
+#!/usr/bin/env python3
+import sys
+import json
+import os
+import time
+import glob
+import re
+
+def main():
+    raw_input = sys.stdin.read().strip()
+    data = {}
+    if raw_input:
+        try:
+            data = json.loads(raw_input)
+        except Exception:
+            pass
+
+    invocation_num = data.get("invocationNum", 1)
+    workspace_paths = data.get("workspacePaths", [os.getcwd()])
+    transcript_path = data.get("transcriptPath", "")
+
+    # Resolve workspace dir
+    workspace_dir = workspace_paths[0] if workspace_paths else os.getcwd()
+
+    parts = []
+
+    # 1. Mandatory workflow on first invocation
+    if invocation_num <= 1:
+        workflow_msg = """<EXTREMELY_IMPORTANT>
+You have supergraph.
+
+Mandatory workflow:
+1. /supergraph:scan — load minimal graph context first
+2. /supergraph:analyze — assess ambiguity/risk, hub/bridge, select approach (required before plan for Standard/Full; skip only for Micro)
+3. /supergraph:sdd — software design document, data contracts, API specs & platform matrix (Full tier)
+4. /supergraph:plan — create machine-readable plan and get plan-reviewer approval
+5. /supergraph:execute — execute plan, parallel by default when tasks are independent
+6. /supergraph:fix — auto-fix with systematic debugging when needed
+7. /supergraph:integration — run integration/e2e when configured
+8. /supergraph:verify — no completion claims without fresh evidence
+9. /supergraph:review — independent code-reviewer + graph review before merge
+
+Tiered workflow — pick the right tier first:
+- Micro (< 20 lines, ≤2 files, no hub/bridge, complexity <10): /supergraph:tdd → /supergraph:verify (skip analyze/plan)
+- Standard (≤5 files, clear req, no cross-boundary): scan→analyze→plan→execute→fix→verify
+- Full (>5 files, ambiguous, hub/bridge, cross-boundary): scan→analyze→sdd→plan→execute→fix→integration→verify→review
+
+Hard rules:
+- Use get_minimal_context_tool() first for graph context (Full tier only).
+- No production code without verified RED test first.
+- Ask instead of guessing when requirements or failures are unclear.
+- Do not proceed on main/master without explicit approval.
+- Never claim done/ready/fixed without fresh verification evidence.
+- ALWAYS reply in the same language the user wrote in. Skill announce strings are templates — translate before output.
+
+New skills available:
+- /supergraph:sdd — software design document, data contracts, API schemas & platform matrix
+- /supergraph:diagnose — structured 6-phase debugging (use when bug cause is unknown)
+- /supergraph:handoff — compact session state before context runs out
+- /supergraph:zoom-out — get a domain-vocabulary module map fast
+- /supergraph:architecture — HTML+Mermaid architecture review report
+- /supergraph:prd — convert conversation → structured PRD → GitHub Issue
+- /supergraph:triage — classify issues with state machine → ready-for-agent
+- /supergraph:prototype — throwaway Logic/UI code to validate approach
+- /supergraph:caveman — ~75% token compression (always-on)
+</EXTREMELY_IMPORTANT>"""
+        parts.append(workflow_msg)
+
+        # 2. CONTEXT.md
+        context_file = os.path.join(workspace_dir, "CONTEXT.md")
+        if os.path.isfile(context_file) and os.path.getsize(context_file) > 0:
+            try:
+                with open(context_file, "r", encoding="utf-8") as f:
+                    lines = [f.readline() for _ in range(80)]
+                    content = "".join(lines).strip()
+                    if content:
+                        parts.append(f"<DOMAIN_VOCABULARY>\nProject CONTEXT.md loaded — use these terms in all task descriptions and analysis:\n{content}\n</DOMAIN_VOCABULARY>")
+            except Exception:
+                pass
+
+        # 3. Handoff reminder
+        tmp_dir = os.environ.get("TMPDIR", "/tmp")
+        handoff_files = sorted(glob.glob(os.path.join(tmp_dir, "supergraph-handoff-*.md")), key=os.path.getmtime, reverse=True)
+        if handoff_files:
+            latest_handoff = handoff_files[0]
+            try:
+                mtime = os.path.getmtime(latest_handoff)
+                age_hours = int((time.time() - mtime) / 3600)
+                if age_hours < 48:
+                    parts.append(f"📦 HANDOFF FILE FOUND: {latest_handoff} ({age_hours}h ago)\nRead this file BEFORE starting any work — it contains session state, remaining tasks, and resume instructions.")
+            except Exception:
+                pass
+
+        # 4. Zoom-out hint
+        plan_files = glob.glob(os.path.join(workspace_dir, "docs/supergraph/plans/*.md"))
+        if not plan_files:
+            parts.append("💡 No active plan found. If this is an unfamiliar codebase, run /supergraph:zoom-out to get oriented before planning.")
+
+    # Check transcript for latest user prompt if available
+    latest_user_prompt = ""
+    if transcript_path and os.path.isfile(transcript_path):
+        try:
+            with open(transcript_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    try:
+                        step = json.loads(line)
+                        if step.get("type") == "USER_INPUT" or step.get("source") == "USER_EXPLICIT":
+                            content = step.get("content", "")
+                            if isinstance(content, str):
+                                latest_user_prompt = content.lower()
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+
+    # Caveman always-on
+    caveman_rules = "🦴 caveman mode ON (always). Rules: Strip articles/filler/subject pronouns. Keep exact: code, numbers, paths, errors, URLs. Structure: bullet lists over prose, one clause per bullet. Auto-suspend for: safety warnings, destructive ops, error explanations, questions needing full answer — then resume. No toggle needed."
+    parts.append(caveman_rules)
+
+    # Keyword hints from latest user prompt
+    if latest_user_prompt:
+        if re.search(r'\b(triage|triaging|backlog|needs[- ]triage|issue queue|classify.*issue|issue.*classif)\b', latest_user_prompt):
+            parts.append("💡 Triage → /supergraph:triage: needs-triage→needs-info→ready-for-agent→ready-for-human→wontfix.")
+        if not re.search(r'\b(verify|verification|review|PR|pull request)\b', latest_user_prompt) and re.search(r'\b(bug|not working|broken|failing|crash|exception)\b', latest_user_prompt):
+            parts.append("💡 Bug detected — /supergraph:diagnose: 6-phase debugging.")
+        if re.search(r'\b(build.*(ui|page|component|dashboard|landing)|design.*(web|ui|page)|make.*look|style.*component|landing page|web ui|frontend)\b', latest_user_prompt):
+            parts.append("💡 Frontend → /supergraph:frontend-design.")
+        if re.search(r'\b(analyze|analysis|phân tích|risk|ambiguous|hub|bridge)\b', latest_user_prompt):
+            parts.append("💡 Analyze → /supergraph:analyze: frame problem, check graph risk, propose approaches before plan.")
+        if re.search(r'\b(sdd|design doc|software design|system design|data contract|api spec|interface contract|đặc tả thiết kế)\b', latest_user_prompt):
+            parts.append("💡 SDD → /supergraph:sdd: component architecture, data contracts, and platform matrix before plan.")
+        if re.search(r'\b(plan|plann?ing|lên kế hoạch|create plan)\b', latest_user_prompt):
+            parts.append("💡 Plan → /supergraph:plan: graph-informed tasks with TDD steps (run analyze first).")
+        if re.search(r'\b(implement|execute|thực thi|build feature)\b', latest_user_prompt):
+            parts.append("💡 Execute → /supergraph:execute (or /supergraph:tdd for single task) — ensure analyze→plan done.")
+        if re.search(r'\b(verify|verification|kiểm tra|xác minh|check done|ready to merge)\b', latest_user_prompt):
+            parts.append("💡 Verify → /supergraph:verify: fresh evidence before done.")
+        if re.search(r'\b(review|code review|merge|pull request|PR)\b', latest_user_prompt):
+            parts.append("💡 Review → /supergraph:review: independent reviewer + graph check.")
+
+    # Language hint
+    parts.append("🌐 Always reply in the same language the user wrote in.")
+
+    combined = "\n\n".join(parts)
+
+    output = {
+        "injectSteps": [
+            {
+                "ephemeralMessage": combined
+            }
+        ]
+    }
+    print(json.dumps(output))
+
+if __name__ == "__main__":
+    main()

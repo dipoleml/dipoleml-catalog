@@ -1,0 +1,36 @@
+node_modules
+dist/
+tmp/
+*.js.map
+*.d.ts.map
+.env
+.env.*
+# Personal per-directory Hivemind override (routing / opt-out). The committed
+# `.hivemind` is shared; `.hivemind.local` is yours alone — never commit it.
+.hivemind.local
+coverage/
+jscpd-report/
+bench/
+.claude/
+CLAUDE.md
+RESULTS-fast-path-all-commands.md
+PLAN-fast-path-all-commands.md
+# Local-only test artifacts (npm pack tarballs, Bun lockfile, ad-hoc scripts)
+*.tgz
+bun.lock
+deploy-to-cache.sh
+.followups-pr97.md
+.followups-pr98.md
+
+# esbuild outputs — built via `npm run build`, shipped via the npm tarball.
+# Release commits temporarily track them via `git add -f` so the
+# marketplace.json sha-pinned source can resolve to a bundle-containing
+# commit; the very next commit untracks them so main HEAD stays clean.
+bundle/
+harnesses/claude-code/bundle/
+harnesses/codex/bundle/
+harnesses/cursor/bundle/
+harnesses/hermes/bundle/
+mcp/bundle/
+harnesses/pi/bundle/
+evals/

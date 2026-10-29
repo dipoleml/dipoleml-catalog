@@ -1,0 +1,29 @@
+{
+  "name": "game-design",
+  "displayName": "Game Design",
+  "version": "1.2.0",
+  "description": "Core game design - mechanics, systems, balance, progression, and player experience",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Sponticelli"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/sponticelli/gamedev-claude-plugins",
+  "repository": "https://github.com/sponticelli/gamedev-claude-plugins",
+  "skills": [],
+  "commands": [
+    "./commands/gdd.md",
+    "./commands/one-page.md",
+    "./commands/loop-check.md"
+  ],
+  "agents": [
+    "./agents/mechanics-architect.md",
+    "./agents/systems-weaver.md",
+    "./agents/balance-oracle.md",
+    "./agents/player-psychologist.md",
+    "./agents/puzzle-architect.md",
+    "./agents/economy-designer.md",
+    "./agents/difficulty-tuner.md",
+    "./agents/verify-design.md"
+  ]
+}

@@ -1,0 +1,92 @@
+{
+  "skill_name": "specify",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Specify a real-time notification system with WebSocket support",
+      "expected_output": "Full specification workflow: requirements (WHY), solution (WHAT — design), plan (narrative plan.md plus slice and scenario tasks in the tracker).",
+      "expectations": [
+        "Invoked specify-meta to scaffold the spec directory",
+        "Created .start/specs/NNN-*/ directory structure",
+        "Ran the Clarify Intent phase before any document work: presented unknowns with stakes and an assumption ledger with defaults and impact-if-wrong",
+        "Asked the user only intent/priority/scope questions; routed researchable unknowns to research agents instead",
+        "Ran research phase with parallel agents",
+        "Presented research findings for user confirmation before folding them into any document",
+        "Invoked specify-requirements skill for requirements",
+        "Waited for user approval before proceeding to solution",
+        "Invoked specify-solution skill for solution",
+        "Waited for user approval before proceeding to the plan phase",
+        "Invoked specify-plan skill to author plan.md and the slice and scenario tasks in .tracker/",
+        "Wrote spec-report.md from templates/spec-report.md with no {{...}} placeholders remaining and the ledger, findings, and decisions included",
+        "Did NOT prescribe implementation steps (HOW belongs to /implement)"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Specify a feature, but skip requirements — start directly from solution design",
+      "expected_output": "Skip requirements phase, start from solution, continue to plan",
+      "expectations": [
+        "Offered user the choice to start from Requirements, Solution, or Plan",
+        "Accepted user's choice to skip requirements",
+        "Logged the skip decision in spec README.md",
+        "Proceeded directly to specify-solution",
+        "Continued to the Plan phase after solution"
+      ]
+    },
+    {
+      "id": 3,
+      "prompt": "Resume spec 002 which has requirements.md and solution.md completed but no plan.md",
+      "expected_output": "Detect existing state and suggest continuing to the Plan phase",
+      "expectations": [
+        "Invoked specify-meta to read spec status",
+        "Detected requirements and solution as completed",
+        "Detected no plan.md and no slice tasks in .tracker/",
+        "Suggested continuing to the Plan phase (specify-plan)",
+        "Did NOT re-run requirements or solution phases",
+        "Did NOT prescribe implementation steps"
+      ],
+      "files": [
+        "evals/files/saved-searches-no-plan/.start/specs/002-saved-searches/README.md",
+        "evals/files/saved-searches-no-plan/.start/specs/002-saved-searches/requirements.md",
+        "evals/files/saved-searches-no-plan/.start/specs/002-saved-searches/solution.md"
+      ]
+    },
+    {
+      "id": 5,
+      "prompt": "Specify: users should be able to share things with each other.",
+      "expected_output": "Clarification-first: ledger + targeted questions before any scaffolding of document content; no half-clarified draft",
+      "expectations": [
+        "Did NOT begin writing requirements from the vague brief",
+        "Presented what it needs to know to specify well — unknowns each carrying a stake (what changes downstream)",
+        "Surfaced the assumptions it would otherwise make, each with a default and impact-if-wrong",
+        "Batched at most four questions per call, ordered by leverage, with proposed defaults the user can accept in one action",
+        "Blocking unknowns resolved before any document phase started",
+        "Accepted defaults recorded as Standing and carried as visible [ASSUMPTION] entries, logged in the README ledger"
+      ]
+    },
+    {
+      "id": 6,
+      "prompt": "Specify a payments integration. When research reports the current provider, fold it in.",
+      "expected_output": "Research findings require explicit user disposition before entering documents",
+      "expectations": [
+        "Research findings presented as claims with evidence, not silently accepted",
+        "User dispositioned each material claim (confirm / correct / discard / defer) before it entered any document",
+        "A deferred finding became a Standing [ASSUMPTION] rather than an unstated fact",
+        "MECE gate verified on requirements and acceptance criteria before offering Continue to Solution"
+      ]
+    },
+    {
+      "id": 4,
+      "prompt": "Specify a multi-feature auth system, complete requirements and solution, then author the plan.",
+      "expected_output": "Plan phase produces a narrative plan.md plus dependency-ordered slice tasks with scenario child tasks, focused on outcomes, not implementation steps",
+      "expectations": [
+        "Invoked specify-plan after solution",
+        "plan.md describes the target state as outcomes, not implementation steps or sequencing",
+        "Each slice task carries Features (AC-N.M), Behavior (EARS) and Quality Gates (NFR-N)",
+        "Created holdout scenario child tasks under each slice, with at least one P0 per slice",
+        "Did NOT make layer-only slices or assign execution groups",
+        "Presented each slice and its scenarios for user approval before creating the tasks"
+      ]
+    }
+  ]
+}

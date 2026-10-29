@@ -1,0 +1,17 @@
+analyzer: {}
+
+documenter:
+  readme:
+    exclude_additional_documentation: false
+    exclude_api_documentation: true
+    exclude_architecture: false
+    exclude_c4_model: true
+    exclude_dependencies_and_integration: false
+    exclude_development_notes: true
+    exclude_known_issues_and_limitations: true
+    exclude_project_overview: false
+    exclude_repository_structure: false
+    exclude_table_of_contents: false
+
+cronjob:
+  analyze: {}

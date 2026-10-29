@@ -1,0 +1,108 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.ai-answer.contentrepurposesystem",
+  "type": "plugin",
+  "name": "Contentrepurposesystem",
+  "slug": "contentrepurposesystem",
+  "vendor": "ai-answer",
+  "description": "One YouTube video → blog, Twitter, LinkedIn, Skool guide, and short-form clips — a step-by-step DipoleML plugin. Onboard your channel + voice, then ideate, title, hook, outline, and repurpose.",
+  "version": "1.2.0",
+  "homepage": "https://github.com/AI-Answer/ContentRepurposeSystem",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "claude-plugin",
+    "content-repurposing",
+    "creator-tools",
+    "short-form",
+    "skills",
+    "youtube"
+  ],
+  "tags": [
+    "claude-code",
+    "claude-plugin",
+    "content-repurposing",
+    "creator-tools",
+    "short-form",
+    "skills",
+    "youtube"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "youtube",
+    "brandName": "youtube",
+    "source": "https://cdn.simpleicons.org/youtube",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:12:05Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "AI-Answer/ContentRepurposeSystem",
+    "url": "https://github.com/AI-Answer/ContentRepurposeSystem",
+    "commit": "e50d96189d3bd846c6698872fa57cfc8644bd01f",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 25,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:50:26Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Contentrepurposesystem | One YouTube video → blog, Twitter, LinkedIn, Skool guide, and short-form clips — a step-by-step Claude Code plugin. Onboard your channel + voice, then ideate, title, hook, outline, and repurpose.",
+        "after": "Contentrepurposesystem | One YouTube video → blog, Twitter, LinkedIn, Skool guide, and short-form clips — a step-by-step DipoleML plugin. Onboard your channel + voice, then ideate, title, hook, outline, and repurpose.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

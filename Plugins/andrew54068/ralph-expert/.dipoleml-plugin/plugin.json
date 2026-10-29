@@ -1,0 +1,16 @@
+{
+  "name": "ralph-expert",
+  "displayName": "Ralph Expert",
+  "version": "0.1.0",
+  "description": "Turn vague task ideas into well-structured Ralph Loop prompts. Generates completion criteria, suggests max iteration limits, builds the full prompt, previews it, then launches the ralph-loop with safety nets.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Andrew54068"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/andrew54068/claude-plugins",
+  "repository": "https://github.com/andrew54068/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

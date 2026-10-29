@@ -1,0 +1,16 @@
+{
+  "name": "cc-frontend-skills",
+  "displayName": "CC Frontend Skills",
+  "version": "1.0.0",
+  "description": "Distinctive frontend design skills and agents for professional UI implementation. Avoid generic AI aesthetics with thoughtful typography, colors, layouts, and animations.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Oikon48"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/oikon48/cc-frontend-skills",
+  "repository": "https://github.com/oikon48/cc-frontend-skills",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

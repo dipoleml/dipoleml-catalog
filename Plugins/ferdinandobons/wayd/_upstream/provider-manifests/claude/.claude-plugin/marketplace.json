@@ -1,0 +1,32 @@
+{
+  "name": "wayd",
+  "owner": {
+    "name": "Ferdinando Bonsegna",
+    "url": "https://github.com/ferdinandobons"
+  },
+  "description": "WAYD: a deliberately minimal social feed for devs using AI coding agents, built on GitHub Issues. The scroll break you take while your agent works, without leaving your console.",
+  "plugins": [
+    {
+      "name": "wayd",
+      "source": "./",
+      "description": "WAYD (What Are You Doing?). The scroll break you take while your agent works, without leaving your console. Post short vibes, scroll what other devs are losing their minds over, react and reply, then get straight back to the task.",
+      "author": {
+        "name": "Ferdinando Bonsegna",
+        "url": "https://github.com/ferdinandobons"
+      },
+      "homepage": "https://github.com/ferdinandobons/wayd",
+      "repository": "https://github.com/ferdinandobons/wayd",
+      "license": "MIT",
+      "keywords": [
+        "social",
+        "github-issues",
+        "developer-tools",
+        "programmer-humor",
+        "meme",
+        "focus",
+        "claude-code",
+        "agent-skill"
+      ]
+    }
+  ]
+}

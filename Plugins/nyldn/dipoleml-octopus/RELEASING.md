@@ -1,0 +1,191 @@
+# Releasing claude-octopus
+
+Ordered checklist for shipping a release. Every step exists because skipping it has already broken CI at least once (v9.50.0 shipped in three CI rounds; all three failures were steps on this list). Human and agent contributors follow the same list.
+
+## Maintainer automation design
+
+[Maintainer queue and release automation](docs/MAINTAINER-AUTOMATION.md) designs
+hourly checks at :17 UTC and one daily release batch at 05:43 UTC. It requires
+independent approval and tests for the exact proposed commits, then verifies
+main CI, tag, release, documentation, manifests, source archives and the shared
+Octopus marketplace entry together. The controller and timers are not deployed
+by this documentation. The proposed controller defaults to read-only audit;
+installing the plugin adds no scheduled GitHub writes. Existing host schedules
+stay unchanged until explicit activation and recovery testing.
+
+## 0. Preconditions
+
+- Work on a branch cut from current `main`. Branch protection is strict: the branch must be up to date with `main` at merge time, and the required checks are exactly **Smoke Tests**, **Unit Tests**, **Integration Tests**.
+- Never build a release on top of a dirty working tree you do not own. Use a separate worktree (`git worktree add <dir> -b release/<name> origin/main`).
+
+### Delivery contract for workflow methods
+
+README What's New and the plugin description must describe released benefits
+for end users. Keep CI changes, test-suite maintenance and internal development
+process in the changelog or developer documentation. The plugin description
+feeds generated README release summaries, so write it for plugin users.
+
+Octopus distributes a local plugin through the existing Claude Code and Codex
+marketplaces and source/package archives. Use the installation instructions in
+[README.md](README.md#quickstart) and the host requirements in
+[plugin compatibility](docs/PLUGIN-COMPATIBILITY.md). Keep development additions
+under Unreleased until the release process publishes them.
+
+For changes to workflow documentation, regenerate current facts and run the
+changed-file selector before pushing:
+
+```bash
+make sync
+make ci-changed
+make validate-plugin-assembly
+```
+
+During development, run the focused suites for the paths you changed. Do not
+repeat a suite already covered by the successful pre-push run:
+
+```bash
+bash tests/unit/test-workflow-method-contracts.sh
+bash tests/unit/test-routing-preview.sh
+bash tests/unit/test-setup-first-success.sh
+bash tests/unit/test-setup-state.sh
+```
+
+Before releasing setup or packaging changes, install the candidate in disposable
+Claude Code and Codex environments and verify discovery and the documented first
+use. Repeat setup, interrupt and resume it, and verify preference readback.
+Check update and removal behavior when those paths change. Preserve user
+preferences, provider credentials, and existing setup receipts. Record which
+host versions and platforms ran, along with any untested live provider paths.
+
+Package checks must confirm workflow references, preview/setup helpers, shared
+supervision, evaluation data, and third-party license notices in the extracted
+artifact. Installation, discovery, local readiness, and a live task are separate
+acceptance results. Follow the full release gates below before tagging or
+publishing; documentation edits alone do not publish a version.
+
+For method activation changes, the workflow contract suite checks prompt
+transport and phase boundaries. Keep the shared selection block and its runtime
+helper in the package. Inspect generated invocation metadata for unintended
+changes. The A01-A12 evaluation scenarios cover command-level method selection;
+record live cases as unrun until a host actually executes them. Static reference
+checks do not establish model compliance or an independent review contribution.
+
+## 1. Decide the version
+
+Minor (9.x+1.0) for additive changes: new providers, new commands/skills/hooks, new env vars with safe defaults. Precedent: grok (9.48.0) and atlascloud shipped as minors. Major only for: breaking an existing config or provider contract, incompatible plugin manifest schema changes, or removing a provider category.
+
+## 2. Bump every version location
+
+Run `scripts/release.sh <version> "<summary>"` — it bumps every location below plus README count surfaces. The table is the verification list, not a manual procedure; after the script, `grep -rn "<old-version>" --include="*.json" --include="*.md" .` to catch anything it missed (e.g. the `routines.json` `$comment` version):
+
+`scripts/orchestrate.sh release <version> "<summary>"` delegates to that same
+release process. It requires both arguments. Use `--dry-run` before `release`
+to preview the request without publishing. Its wrapper checks are covered by
+`bash tests/unit/test-orchestrator-review-regressions.sh`; run the existing
+release workflow suite when changing the underlying release process.
+
+| File | Field |
+|------|-------|
+| `package.json` | `version` |
+| `.claude-plugin/plugin.json` | `version`, `description` (starts with `vX.Y.Z - ...`) |
+| `.claude-plugin/marketplace.json` | GENERATED, see step 3 |
+| `.claude-plugin/plugin-manifest.json` | `version`, component counts |
+| `.codex-plugin/plugin.json` | `version` |
+| `.cursor-plugin/plugin.json` | `version` |
+| `.factory-plugin/plugin.json` | `version` |
+| `.factory-plugin/marketplace.json` | `metadata.version`, plugin entry `version` + `description` |
+| `README.md` | version badge, current-release highlight/table row, component counts, model defaults, Claude Code capability floor/ceiling |
+| `.claude-plugin/README.md` | public provider roster, minimum runtime, component counts |
+| `PRODUCT.md` | current release, provider/component counts, Claude Code capability count/ceiling |
+| `CHANGELOG.md` | new `## [X.Y.Z] - YYYY-MM-DD` section (fold Unreleased into it) |
+
+## 3. Regenerate derived artifacts (`make sync`)
+
+Do NOT hand-edit these; CI diffs them against their generators:
+
+| Generated artifact | Generator | CI check that fails if stale |
+|--------------------|-----------|------------------------------|
+| `README.md`, `.claude-plugin/README.md`, `PRODUCT.md`, `docs/AGENTS.md`, `docs/COMMAND-REFERENCE.md`, and `docs/README.md` mechanical release facts | `./scripts/sync-readme.py` | `tests/unit/test-readme-release-sync.sh` and `make sync-check` |
+| `.claude-plugin/plugin-manifest.json`, `.codex-plugin/plugin.json`, `.factory-plugin/plugin.json`, and `.factory-plugin/marketplace.json` component counts | `./scripts/sync-readme.py` | `tests/unit/test-readme-release-sync.sh` and `make sync-check` |
+| `.claude-plugin/marketplace.json` (octo entry description + counts) | `./scripts/sync-marketplace.sh` | Smoke job step "Verify marketplace.json is up to date" |
+
+Rules learned the hard way:
+- The marketplace generator derives the feature summary from `plugin.json`'s `description` and appends current persona, command, and skill counts. To change the marketplace blurb, edit `plugin.json`'s description and run `make sync` — never edit `marketplace.json` directly. Never hand-write counts into `plugin.json`'s description; the generator appends them and `--check` will fail on the collision (the v9.50 description did this and shipped doubled counts until v9.51).
+- The README generator derives the current release copy from `plugin.json`, model defaults from `scripts/lib/model-resolver.sh`, and Claude Code floor/ceiling facts from `scripts/orchestrate.sh` plus `scripts/lib/providers.sh`. Keep the `CURRENT RELEASE` and `CURRENT MODEL DEFAULTS` markers intact, plus exactly one version-table row marked `(new)`.
+- README body prose counts must match `plugin.json`: the "**N commands** ... **N skills**" sentence and the "[All N skills]" link are asserted by `tests/unit/test-docs-sync.sh`.
+
+`make sync` runs all generators; `make sync-check` runs every corresponding
+check mode.
+
+## 4. Validate locally with CI parity
+
+```bash
+make ci-local
+```
+
+This runs generated-file checks and the complete local smoke, unit, and
+integration suites, including docs sync and plugin expert review. Hosted CI
+separately checks Linux/macOS portability, ShellCheck,
+package artifacts, and symlink paths. Local success does not replace those
+checks on the exact release commit.
+
+Known scanner gotcha: `tests/integration/test-plugin-expert-review.sh` greps tracked non-md files for `(API_KEY|SECRET|PASSWORD)\s*=\s*['\"]<20+ chars>`. A shell line like `ANTHROPIC_API_KEY="${VAR}"` false-positives. Quote the whole env argument instead: `"ANTHROPIC_API_KEY=${VAR}"`.
+
+## 5. Check file modes
+
+```bash
+git diff origin/main...HEAD --summary | grep "mode change"
+```
+
+Must be empty. Shell scripts and Python helpers must stay `100755`; both contributor tooling and editor-based rewrites have silently dropped exec bits before (root cause of PR #579's "Permission denied" CI failures). CI enforces this via the executable-bit lint in the Portability Lint job; the `allow-mode-change` PR label bypasses it for intentional mode changes.
+
+## 6. PR and CI
+
+- Open the PR against `main`. Same-repo branches run CI immediately; **fork PRs stall at `action_required`** until approved: `gh api -X POST repos/nyldn/claude-octopus/actions/runs/<run-id>/approve` (needed after every push to the fork branch).
+- Known flake: macOS runner timing in `tests/unit/test-agent-lifecycle-events.sh` ("hook timeout did not return promptly"). If it hits, `gh run rerun <run-id> --failed` once before investigating.
+- Squash-merge is the repo convention.
+- `scripts/release.sh` waits up to 15 minutes by default so the macOS unit
+  matrix can finish. Override only when necessary with
+  `OCTO_RELEASE_CI_TIMEOUT_SECONDS=<seconds>`.
+- Automatic merge requires an explicit approved review and zero unresolved
+  review threads across every paginated result page.
+
+## 7. Tag AFTER the squash-merge
+
+The tag must point at the merge commit on `main`, not at the branch head (squash rewrites the SHA):
+
+`scripts/release.sh` creates and pushes this annotated tag automatically. If a
+release is being recovered manually, use:
+
+```bash
+sha=$(gh pr view <pr> --json mergeCommit --jq .mergeCommit.oid)
+git fetch origin main
+git tag -a vX.Y.Z "$sha" -m "vX.Y.Z: one-line summary"
+git push origin vX.Y.Z
+```
+
+## 8. GitHub Release
+
+```bash
+gh release create vX.Y.Z --verify-tag --title "vX.Y.Z" --notes-file <(awk '/^## \[X.Y.Z\]/{f=1;next} /^## \[/{f=0} f' CHANGELOG.md)
+```
+
+Marketplace consumers pin by release; a bare tag is not enough.
+
+## 9. Post-merge verification
+
+`scripts/release.sh` waits for the main-branch Test Suite on the exact squash
+commit before it creates the tag or GitHub release. For manual recovery, watch
+that run until `completed/success`. A release is not done while main is red.
+
+### Anthropic text-seat acceptance
+
+The `anthropic-api` provider ships with the plugin and needs Python 3, with no
+additional package installation. Before changing this adapter or the Sonnet
+host selection, run `bash tests/unit/test-anthropic-api-provider.sh` and
+`bash tests/unit/test-sonnet-55-routing.sh`. The API suite executes the actual
+isolated adapter against an inert transport and checks its outgoing Messages
+payload, credential isolation, response parsing, role restrictions, and
+unsupported thinking combinations. These checks do not establish live account
+access or billable provider success. Run the normal branch and release gates
+before publishing.

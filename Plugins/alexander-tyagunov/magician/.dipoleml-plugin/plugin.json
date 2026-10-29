@@ -1,0 +1,16 @@
+{
+  "name": "magician",
+  "displayName": "Magician",
+  "version": "4.16.1",
+  "description": "Skills and agents for the software lifecycle in DipoleML: research, design, planning, test-first building, code review, security checks and release. Includes a local code index, per-project workspace notes, stack-specific guidance at session start, and optional Jira and Confluence access.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Alexander Tyagunov"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/Alexander-Tyagunov/magician",
+  "repository": "https://github.com/Alexander-Tyagunov/magician",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

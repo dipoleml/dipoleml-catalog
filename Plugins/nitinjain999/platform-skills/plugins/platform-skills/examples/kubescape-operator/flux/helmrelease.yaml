@@ -1,0 +1,87 @@
+# Kubescape operator: continuous posture, relevancy-filtered vulnerabilities,
+# runtime detection, generated NetworkPolicies, in-cluster exceptions, metrics.
+# Capability-by-capability reasoning: references/kubescape-operator.md.
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: kubescape
+  namespace: kubescape
+spec:
+  interval: 30m
+  timeout: 10m            # first install pulls ~8 images and waits for the storage APIService
+  chart:
+    spec:
+      chart: kubescape-operator
+      version: "1.40.4"   # Pinned; upgrade is an explicit PR (autoUpgrading stays off)
+      sourceRef:
+        kind: HelmRepository
+        name: kubescape
+        namespace: kubescape
+      interval: 12h
+  install:
+    crds: CreateReplace
+    remediation:
+      retries: 3
+  upgrade:
+    crds: CreateReplace   # the chart ships SecurityException, Rules and OperatorCommand CRDs
+    cleanupOnFail: true
+    remediation:
+      retries: 3
+      remediateLastFailure: true
+  values:
+    clusterName: prod-eu-west-1   # shown in every report and metric; the default "cluster" makes clusters indistinguishable
+    ksNamespace: kubescape
+    global:
+      # Chart default true: the scanner and operator ClusterRoles get/list/watch
+      # Secrets in every namespace. false keeps Secret reads inside kubescape.
+      # Cost: C-0212 and C-0255 (the only controls reading Secret objects) see less
+      # in-cluster, and with nodeSbomGeneration off kubevuln cannot use workloads'
+      # imagePullSecrets (use imageScanning.privateRegistries.credentials).
+      # Turn on only with explicit security approval.
+      enableClusterWideSecretAccess: false
+    # Chart default plus flux-system. Overriding replaces the list, so keep the defaults.
+    excludeNamespaces: "kubescape,kube-system,kube-public,kube-node-lease,kubeconfig,gmp-system,gmp-public,flux-system"
+
+    capabilities:
+      # Posture
+      configurationScan: enable
+      continuousScan: enable       # re-evaluate on change instead of only on the schedule
+      nodeScan: enable             # host data for the node-level CIS controls
+      # Vulnerabilities
+      vulnerabilityScan: enable
+      relevancy: enable            # flag CVEs in packages the container actually loads
+      # Runtime (node-agent, eBPF)
+      runtimeObservability: enable # required by relevancy, network policies and detection
+      networkPolicyService: enable
+      runtimeDetection: enable     # set disable when Falco already alerts on these nodes
+      malwareDetection: disable    # ClamAV scanning: high CPU, enable deliberately
+      # Exceptions as SecurityException / ClusterSecurityException resources
+      riskAcceptance: enable
+      # Metrics for Prometheus
+      prometheusExporter: enable
+      # Mutating or self-managing: keep off. remediation grants cluster-wide
+      # patch on nodes; autoUpgrading bypasses GitOps.
+      remediation: disable
+      autoUpgrading: disable
+      manageWorkloads: disable
+
+    kubescape:
+      image:
+        # Chart 1.40.4 bundles scanner v4.0.13. Its "all" framework scans — every
+        # scheduled and operator-triggered scan — fail with
+        # "framework 'C-0042' not found" (fixed in v4.0.14, kubescape#3768).
+        # Keep this in step with the CLI version used in CI (Renovate groups them).
+        # renovate: datasource=docker depName=quay.io/kubescape/kubescape
+        tag: v4.0.16
+
+    alertCRD:
+      installDefault: true         # installs Rules/default-rules and the all-rules-all-pods binding
+
+    nodeAgent:
+      config:
+        maxLearningPeriod: 24h     # a container profile is complete after this; detection compares against it
+        stdoutExporter: true       # alerts in node-agent logs; add alertManagerExporterUrls for paging
+
+    prometheusExporter:
+      serviceMonitor:
+        enabled: false             # true when the Prometheus Operator (kube-prometheus-stack) is installed

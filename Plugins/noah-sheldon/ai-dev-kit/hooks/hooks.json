@@ -1,0 +1,4 @@
+{
+  "session-start": "./hooks/session-start.sh",
+  "session-end": "./hooks/session-end.sh"
+}

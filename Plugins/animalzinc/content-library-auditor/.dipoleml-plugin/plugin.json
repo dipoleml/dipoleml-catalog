@@ -1,0 +1,16 @@
+{
+  "name": "content-library-auditor",
+  "displayName": "Content Library Auditor",
+  "version": "1.0.0",
+  "description": "Analyze WordPress XML, CMS JSON, or CSV exports for content insights. Publishing trends, author breakdowns, topic analysis, and interactive HTML reports with charts.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Animalzinc"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/animalzinc/claude-plugins",
+  "repository": "https://github.com/animalzinc/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

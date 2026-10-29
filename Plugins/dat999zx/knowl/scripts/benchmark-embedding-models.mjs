@@ -1,0 +1,125 @@
+#!/usr/bin/env node
+/**
+ * Compares every embedding preset on `docs/evals/semantic-suite.json`.
+ *
+ * Deliberately not in CI: a first run downloads roughly 207MB of model weights.
+ *
+ * Usage:
+ *   npm run bench:embeddings                      # every preset, plus the BM25 floor
+ *   node scripts/benchmark-embedding-models.mjs bge-small-en minilm-l6-en
+ */
+
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const SUITE = path.join(ROOT, 'docs', 'evals', 'semantic-suite.json');
+const CLI = path.join(ROOT, 'dist', 'index.js');
+
+// Kept in step with PRESET_IDS in src/core/vector-profile.ts. A stale entry here fails
+// loudly rather than silently skipping: `config set` rejects an unknown preset id.
+//
+// `arctic-embed-m-v2` was missing until 2026-08-04, which made this script unable to measure
+// the preset it actually ships -- every table it printed compared four alternatives to each
+// other while the default sat outside the comparison. It is first because it is DEFAULT_PRESET_ID:
+// the incumbent belongs in its own bake-off.
+const ALL_PRESETS = ['arctic-embed-m-v2', 'granite-small-en-r2', 'granite-97m-multilingual', 'bge-small-en', 'minilm-l6-en'];
+
+/**
+ * One model cache for every run, outside the throwaway roots.
+ *
+ * Each preset needs its own project root so it can hold its own config, and those roots are
+ * deleted afterwards. Left at the default `<root>/.knowl/models` that would re-download all
+ * 207MB on every invocation.
+ */
+const MODEL_CACHE = path.join(ROOT, '.knowl', 'models');
+
+const requested = process.argv.slice(2);
+const presets = requested.length > 0 ? requested : ALL_PRESETS;
+
+/**
+ * A fresh store per preset. Sharing one would mean each run inherits the previous model's
+ * rows, and the fingerprint filter would silently hide them -- producing a plausible table
+ * built on an empty corpus.
+ */
+function runPreset(preset) {
+  const root = mkdtempSync(path.join(tmpdir(), `knowl-bench-${preset ?? 'bm25'}-`));
+  try {
+    // Init warms the *default* model, which is not necessarily the one under test.
+    execFileSync('node', [CLI, 'init'], {
+      cwd: root, stdio: 'inherit', env: { ...process.env, KNOWL_SKIP_MODEL_DOWNLOAD: '1' },
+    });
+    execFileSync('node', [CLI, 'config', 'set', 'search.vector.cacheDir', MODEL_CACHE], { cwd: root, stdio: 'inherit' });
+    if (preset) {
+      execFileSync('node', [CLI, 'config', 'set', 'search.vector.preset', preset], { cwd: root, stdio: 'inherit' });
+    }
+
+    const args = [CLI, 'eval', 'retrieval', '--dataset', SUITE, '--json'];
+    if (preset) args.push('--vector');
+    // maxBuffer raised: the JSON carries every failed case id.
+    return JSON.parse(execFileSync('node', args, { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+const rows = [];
+for (const preset of [...presets, null]) {
+  const label = preset ?? 'bm25 only (floor)';
+  console.error(`\n=== ${label} ===`);
+  try {
+    rows.push({ label, result: runPreset(preset) });
+  } catch (error) {
+    // One model failing to download must not throw away the runs that succeeded.
+    console.error(`${label} failed: ${error.message}`);
+    rows.push({ label, error: error.message });
+  }
+}
+
+const TIERS = ['basic', 'moderate', 'extreme'];
+const cell = value => String(value).padEnd(9);
+
+/**
+ * MRR leads, Recall@10 trails.
+ *
+ * This table reported Recall@10 alone and, on 2026-08-07, that stopped being able to rank
+ * anything: granite-small-en-r2 and minilm-l6-en both scored 0.9852 overall and 1.0000 on two of
+ * three tiers, while MemoryAgentBench separated the same two models by two points of top-1. The
+ * suite had not become useless -- the metric had saturated. Recall@10 asks "is the answer on the
+ * page", which every real model now satisfies; MRR asks where on the page, which is what an agent
+ * reading the top result actually experiences.
+ *
+ * Keep Recall@10 in view: a model can win MRR while dropping answers entirely, and that trade is
+ * one a reader has to be able to see.
+ */
+const primary = metrics => metrics?.mrr;
+const secondary = metrics => metrics?.recallAt10;
+
+console.log(`\n${['model'.padEnd(26), ...TIERS.map(tier => cell(`${tier} MRR`)), cell('MRR'), cell('R@10'), 'p50 ms'].join(' ')}`);
+console.log('-'.repeat(26 + 5 * 10 + 7));
+
+for (const row of rows) {
+  if (row.error) {
+    console.log(`${row.label.padEnd(26)} ${'FAILED'.padEnd(9)}`);
+    continue;
+  }
+  const cells = TIERS.map(tier => {
+    const value = primary(row.result.byTier?.[tier]);
+    return cell(value === undefined ? '-' : value.toFixed(4));
+  });
+  console.log([
+    row.label.padEnd(26),
+    ...cells,
+    cell(primary(row.result.metrics)?.toFixed(4) ?? '-'),
+    cell(secondary(row.result.metrics)?.toFixed(4) ?? '-'),
+    String(row.result.metrics?.p50LatencyMs ?? '-'),
+  ].join(' '));
+}
+
+console.log('\nMRR per tier, then overall MRR and Recall@10. Rank models on MRR: Recall@10 is');
+console.log('saturated on this suite and ties models that other benchmarks separate.');
+console.log('Extreme is a stress signal. A model that wins there while losing on basic is the wrong pick.');
+console.log('If bm25-only matches the models across every tier, the suite is not discriminating.');

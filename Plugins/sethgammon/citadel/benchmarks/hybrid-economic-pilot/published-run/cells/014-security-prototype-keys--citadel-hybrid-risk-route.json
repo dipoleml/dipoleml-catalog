@@ -1,0 +1,111 @@
+{
+  "schema": 1,
+  "cell_id": "014-security-prototype-keys--citadel-hybrid-risk-route",
+  "order": 14,
+  "scenario_id": "security-prototype-keys",
+  "task_class": "security-repair",
+  "risk": "high",
+  "policy_id": "citadel-hybrid-risk-route",
+  "repetition": 1,
+  "route": {
+    "initial_tier": "cloud",
+    "escalation_tier": null,
+    "reason_code": "FROZEN_HIGH_RISK_CLAUDE"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "cloud",
+      "started_at": "2026-08-02T00:57:08.211Z",
+      "duration_ms": 5312,
+      "output_text": "{\"files\":{\"src/copy.js\":\"'use strict';\\nfunction copySafeOwn(input) {\\n  var result = {};\\n  var blocked = ['__proto__', 'constructor', 'prototype'];\\n  if (input === null || input === undefined) {\\n    return result;\\n  }\\n  Object.keys(Object(input)).forEach(function (key) {\\n    if (blocked.indexOf(key) !== -1) {\\n      return;\\n    }\\n    if (!Object.prototype.hasOwnProperty.call(input, key)) {\\n      return;\\n    }\\n    result[key] = input[key];\\n  });\\n  return result;\\n}\\nmodule.exports = { copySafeOwn };\\n\"}}",
+      "output_digest": "sha256:aad621ada1ef432bf4792a5a22a5688bb9e65c9fdb5d9c5b21bda6f1e7d67e63",
+      "verification": {
+        "status": "passed",
+        "code": null,
+        "changed_paths": [
+          "src/copy.js"
+        ],
+        "applied_file_digests": {
+          "src/copy.js": "sha256:b7373917490f9741baf15b9cc67c5604f13ffeb1991cdaeba778980042a65f16"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 0,
+          "signal": null,
+          "stdout": "",
+          "stderr": "",
+          "error": null
+        },
+        "patch_digest": "sha256:e345fb830baff12e1c8de8fa3b5af0e709bf2930807386346d3b97dafa3dbb67"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "claude-code-print",
+        "requested_model": "sonnet",
+        "canonical_model": "claude-sonnet-5",
+        "cli_version": "2.1.219",
+        "response_digest": "sha256:a60d903c572aa49c6d227052961655218f370a88bf8c8bf86c186493fac10413",
+        "exit_status": 0,
+        "terminal_reason": "completed",
+        "error": null
+      },
+      "usage": {
+        "input_tokens": 472,
+        "output_tokens": 241,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0
+      },
+      "economics": {
+        "comparison_cost": {
+          "status": "provider-reported-equivalent",
+          "total_usd": 0.005854,
+          "source": "claude_code_total_cost_usd"
+        },
+        "provider_reported_equivalent_cost": {
+          "status": "provider-reported-equivalent",
+          "amount_usd": 0.005854,
+          "source": "claude_code_total_cost_usd"
+        },
+        "local_gpu_energy": {
+          "status": "not-applicable",
+          "energy_kwh": 0,
+          "samples": 0,
+          "average_watts": null
+        },
+        "actual_subscription_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "pro_subscription_cost_not_allocated_per_request"
+        }
+      }
+    }
+  ],
+  "status": "passed",
+  "final_verification": {
+    "status": "passed",
+    "code": null,
+    "changed_paths": [
+      "src/copy.js"
+    ],
+    "applied_file_digests": {
+      "src/copy.js": "sha256:b7373917490f9741baf15b9cc67c5604f13ffeb1991cdaeba778980042a65f16"
+    },
+    "verifier": {
+      "command": "node verifier.js",
+      "status": 0,
+      "signal": null,
+      "stdout": "",
+      "stderr": "",
+      "error": null
+    },
+    "patch_digest": "sha256:e345fb830baff12e1c8de8fa3b5af0e709bf2930807386346d3b97dafa3dbb67"
+  },
+  "previous_cell_digest": "sha256:5807b426e29f4dfff3078bf40ad5cddfbb53574095d01bf27dfd384c08c8e9b8",
+  "receipt_digest": "sha256:f4546d5e9b0e78852a0ddff231bd9b6b8d1ad349202395d38807230da67aca2a",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:ba8864c61cf6203ef8eb81103b8aafe05f562013609605f4235d3cc6d7f9441e",
+    "signature": "pygduKs5NbPBdn0154G3ZupTI/33rtEoACxpD0AR/1P2lGWh+4vC7H1uhBOXmnX8LYt9mehnajK/FIxi6/SVCQ=="
+  }
+}

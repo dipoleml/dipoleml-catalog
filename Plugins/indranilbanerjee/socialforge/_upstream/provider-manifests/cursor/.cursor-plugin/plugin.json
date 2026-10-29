@@ -1,0 +1,37 @@
+{
+  "name": "socialforge",
+  "displayName": "SocialForge",
+  "version": "1.30.2",
+  "description": "Open-source social media engine — 21 skills, asset-first compositing, AI image+video, 9-platform copy adaptation. Runs on Claude Code, Codex, Cursor, Antigravity.",
+  "author": {
+    "name": "Indranil Banerjee",
+    "email": "neel@neelverse.com"
+  },
+  "publisher": "indranilbanerjee",
+  "homepage": "https://indranil.in",
+  "repository": "https://github.com/indranilbanerjee/socialforge",
+  "license": "MIT",
+  "keywords": [
+    "social-media",
+    "content-calendar",
+    "image-generation",
+    "video-generation",
+    "vertex-ai",
+    "nano-banana-pro",
+    "kling-v3",
+    "c2pa",
+    "eu-ai-act",
+    "agent-skills"
+  ],
+  "category": "productivity",
+  "tags": [
+    "social-media",
+    "content",
+    "ai-image",
+    "ai-video",
+    "carousel"
+  ],
+  "skills": "./skills/",
+  "agents": "./agents/",
+  "commands": "./commands/"
+}

@@ -1,0 +1,13 @@
+{
+  "name": "claudikins-kernel",
+  "version": "1.2.0",
+  "description": "Core planning and workflow infrastructure for the Claudikins ecosystem",
+  "author": {
+    "name": "elb-pr",
+    "email": "elb.pr.contact@gmail.com"
+  },
+  "homepage": "https://github.com/elb-pr/claudikins-kernel",
+  "repository": "https://github.com/elb-pr/claudikins-kernel",
+  "license": "MIT",
+  "keywords": ["claude-code", "planning", "workflow", "agents", "claudikins"]
+}

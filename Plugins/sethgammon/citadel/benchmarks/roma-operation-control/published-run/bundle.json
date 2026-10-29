@@ -1,0 +1,194 @@
+{
+  "schema": 1,
+  "bundle_id": "sha256:95b49d26019296adcb5f05121d3faf0e43c9c91a349da63d737640277557b719",
+  "run_id": "sha256:daa2e179a7ed7347c532732e791862d36230a679b3eaad2f2732f627643562a4",
+  "freeze_id": "sha256:f1ecf932261ceac604978952c42cdb8ec14032b795bffd1848fae90e9572ded5",
+  "started_at": "2026-07-31T19:32:26.366Z",
+  "completed_at": "2026-07-31T19:51:35.146Z",
+  "machine": {
+    "platform": "win32",
+    "arch": "x64",
+    "hostname_digest": "sha256:76ad7b959234467904798f9c25069a2cf56a833f2282c4e8a4adfca9cf651540",
+    "cpu_count": 12,
+    "total_memory_bytes": 34266742784
+  },
+  "artifacts": [
+    {
+      "path": "cells/arithmetic-control--frontier-only.json",
+      "digest": "sha256:f12d8222809120458655f2b2c1bf9962cf4fb6311247948b81ae0a770c2b0a10"
+    },
+    {
+      "path": "cells/arithmetic-control--prompt-router.json",
+      "digest": "sha256:03964fb08c2eb741fc6976366e69e2514306b32a10af07a51175a277faa4a804"
+    },
+    {
+      "path": "cells/arithmetic-control--always-open-local.json",
+      "digest": "sha256:2eba22121a1981ec68cdb28b9bf7ddd2b2895b80634ab7cbb1cd37d6b1748301"
+    },
+    {
+      "path": "cells/arithmetic-control--citadel-whole-operation.json",
+      "digest": "sha256:042464192f36f54b21ab2ee574465dd03707bce5fde67326aacf2617e7601502"
+    },
+    {
+      "path": "cells/parallel-checksum--citadel-whole-operation.json",
+      "digest": "sha256:ff7fb67c2a208852c5a53da553b5326e7fac24e53ad660f530640e5a86464f21"
+    },
+    {
+      "path": "cells/parallel-checksum--prompt-router.json",
+      "digest": "sha256:c5a6b0f273df2e1a13b5d58b22af1db574d770651b8fe987692d88d494e24b64"
+    },
+    {
+      "path": "cells/parallel-checksum--always-open-local.json",
+      "digest": "sha256:7dd80b929bb6ac84676b9bfe07c17abe6778444e8988c5a6672e9a59f151df74"
+    },
+    {
+      "path": "cells/parallel-checksum--frontier-only.json",
+      "digest": "sha256:8bd11b38245f8e2cb7f967bb51f96be5dc6ffbedaf8d8792bb77162fd3f36ace"
+    },
+    {
+      "path": "cells/weighted-graph--always-open-local.json",
+      "digest": "sha256:200314c255360f145d94d10a134528603ea1b047407911c3848fa0e56f7b4e5f"
+    },
+    {
+      "path": "cells/weighted-graph--citadel-whole-operation.json",
+      "digest": "sha256:7a41c3a8a5cc26ee96aefb4f7de72ad864f348c637f6284f524a4b0be1fe652d"
+    },
+    {
+      "path": "cells/weighted-graph--frontier-only.json",
+      "digest": "sha256:5239c2ca7a8301d194345774ef405e118a4c4f722919148e75d6e6c76090a885"
+    },
+    {
+      "path": "cells/weighted-graph--prompt-router.json",
+      "digest": "sha256:348eda95901453b9803cb11848d28ec822a09d8d2562d8989cbe7b5cdec5aae8"
+    },
+    {
+      "path": "cells/constraint-elimination--citadel-whole-operation.json",
+      "digest": "sha256:7dfc13fb18c3954d6f27b4fb3ac6931ac22112eb3444cd091c964e81622c8e02"
+    },
+    {
+      "path": "cells/constraint-elimination--frontier-only.json",
+      "digest": "sha256:e4586549e1e20cdf09a33db42d0e04cd92003a9cda3f7eb3a5f319cef051d9e8"
+    },
+    {
+      "path": "cells/constraint-elimination--always-open-local.json",
+      "digest": "sha256:561c35338c4bba7a96b7fac05eecc99d130901aa0ce6fcee7d78ff5cd007c632"
+    },
+    {
+      "path": "cells/constraint-elimination--prompt-router.json",
+      "digest": "sha256:f522d888e562b5c8f14d2969d5fe9772cb7b6737c53e99ad6b7469de16c68b6b"
+    },
+    {
+      "path": "cells/critical-path--prompt-router.json",
+      "digest": "sha256:2c2ee34855d3ca6d5d917f277670bb89f2d846be6f5a65ccc42c2169c3246fd4"
+    },
+    {
+      "path": "cells/critical-path--citadel-whole-operation.json",
+      "digest": "sha256:83a956e2351efdded7af5069b060f411f99383fef9e3ce9ef147e136b8cbed84"
+    },
+    {
+      "path": "cells/critical-path--frontier-only.json",
+      "digest": "sha256:122df2b8ce06278e7e8f21d0d80f1b102d70d7be8c498d8606c91b75fd2d8f04"
+    },
+    {
+      "path": "cells/critical-path--always-open-local.json",
+      "digest": "sha256:887d7e59b699eea5f10e801216ae4c79be0aa0e11dd35038775700cd5eb9d466"
+    },
+    {
+      "path": "cells/adversarial-ledger--prompt-router.json",
+      "digest": "sha256:816ddc5b630791d6d7e4cdb2ad7f1134acd872edd7f641ce2254f0368c15d368"
+    },
+    {
+      "path": "cells/adversarial-ledger--citadel-whole-operation.json",
+      "digest": "sha256:1f85619c8d44f3b0bf32f0c645cdb02a4cb2576955c843b11b9cc68d6e4dacbb"
+    },
+    {
+      "path": "cells/adversarial-ledger--always-open-local.json",
+      "digest": "sha256:e0535d8fbebb7fef65fb49e35580f6878e773165acebce5935dfb1f14e7bc8ab"
+    },
+    {
+      "path": "cells/adversarial-ledger--frontier-only.json",
+      "digest": "sha256:947d5b2085e0898d790fdeb6d4f91ce2b9f827bd20fccef0bd7234d1d86c1f7c"
+    }
+  ],
+  "report_digest": "sha256:cbff46fd04752e8f2292663521f342b8aeddd86a9b1754860fa9dd91573e5e34",
+  "summary": {
+    "policies": [
+      {
+        "policy_id": "frontier-only",
+        "cells": 6,
+        "independently_verified_completions": 6,
+        "independently_verified_completion_rate": 1,
+        "total_duration_ms": 47710,
+        "prompt_tokens": 99411,
+        "completion_tokens": 294,
+        "frontier_calls": 6,
+        "local_3b_calls": 0,
+        "local_7b_calls": 0,
+        "strong_whole_operation_attempts": 0,
+        "escalations": 0,
+        "total_usd_status": "unknown"
+      },
+      {
+        "policy_id": "prompt-router",
+        "cells": 6,
+        "independently_verified_completions": 3,
+        "independently_verified_completion_rate": 0.5,
+        "total_duration_ms": 40776,
+        "prompt_tokens": 50133,
+        "completion_tokens": 825,
+        "frontier_calls": 3,
+        "local_3b_calls": 3,
+        "local_7b_calls": 0,
+        "strong_whole_operation_attempts": 0,
+        "escalations": 0,
+        "total_usd_status": "unknown"
+      },
+      {
+        "policy_id": "always-open-local",
+        "cells": 6,
+        "independently_verified_completions": 2,
+        "independently_verified_completion_rate": 0.333333,
+        "total_duration_ms": 13231,
+        "prompt_tokens": 857,
+        "completion_tokens": 72,
+        "frontier_calls": 0,
+        "local_3b_calls": 0,
+        "local_7b_calls": 6,
+        "strong_whole_operation_attempts": 6,
+        "escalations": 0,
+        "total_usd_status": "unknown"
+      },
+      {
+        "policy_id": "citadel-whole-operation",
+        "cells": 6,
+        "independently_verified_completions": 4,
+        "independently_verified_completion_rate": 0.666667,
+        "total_duration_ms": 1042825,
+        "prompt_tokens": 100004,
+        "completion_tokens": 21398,
+        "frontier_calls": 0,
+        "local_3b_calls": 55,
+        "local_7b_calls": 34,
+        "strong_whole_operation_attempts": 6,
+        "escalations": 3,
+        "total_usd_status": "unknown"
+      }
+    ],
+    "zero_false_passes": true,
+    "false_passes": 0,
+    "integrity_failures": 0,
+    "execution_control_failures": 0,
+    "evidence_result": "passed",
+    "performance_hypothesis": "failed",
+    "performance_gate": {
+      "citadel_rate": 0.666667,
+      "always_open_local_rate": 0.333333,
+      "strong_whole_operation_avoidance": 0
+    }
+  },
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:78fa168ce4ed0a800a435227bb51eed766452173de10b79bb291e84a4b64c885",
+    "signature": "0kgvYUaHTIpRQAK46VQ6HSOztILtLr1tj0evSqeOv53UHoSi28JZ2HPS7ylDe/+mejOzhV3W2u1SeIj2ZoslDQ=="
+  }
+}

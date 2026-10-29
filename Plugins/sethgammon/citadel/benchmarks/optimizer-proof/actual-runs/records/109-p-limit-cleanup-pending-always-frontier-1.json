@@ -1,0 +1,68 @@
+{
+  "schema": 1,
+  "evidence_kind": "actual-run",
+  "scenario_set_id": "optimizer-scenarios-sha256:602e496906f3a293203750602234ba88a55a86b9e4f54f32239264098dcebe5b",
+  "metric_set_id": "optimizer-metrics-sha256:bedffbda2b18d725610b0f294a8273ef908237fd957bf9e51a5af4885b123e4f",
+  "scenario_id": "p-limit-cleanup-pending",
+  "category": "cleanup",
+  "holdout": false,
+  "policy_id": "always-frontier",
+  "repetition": 1,
+  "decision_id": "sha256:f43893f4dc106d84fda4207f750cc76de903fb8ec63733dd5a9d8c6b61a435d1",
+  "selected_profile_id": "claude-frontier",
+  "observed_profile_id": "claude-frontier",
+  "requested_model": "claude-opus-5",
+  "observed_model": "claude-opus-5",
+  "model_proof_status": "passed",
+  "started_at": "2026-07-31T05:08:30.925Z",
+  "duration_ms": 501057,
+  "outcome": "passed",
+  "verified": true,
+  "attempts": 1,
+  "human_interventions": 0,
+  "topology": "sequential-recovery",
+  "cost": {
+    "status": "known",
+    "amount_usd": 1.113332,
+    "provenance": "tool_reported",
+    "source": "citadel_optimizer_runner",
+    "source_ref": "summed_attempts:1",
+    "pricing_snapshot_digest": null,
+    "components": [
+      {
+        "kind": "model",
+        "amount_usd": 1.1133319,
+        "source": "attempt_1:claude total_cost_usd"
+      }
+    ]
+  },
+  "artifact_paths": [
+    "index.js"
+  ],
+  "verification_receipts": [
+    {
+      "attempt": 1,
+      "profile_id": "claude-frontier",
+      "status": "passed",
+      "exit_code": 0,
+      "timed_out": false,
+      "output_digest": "sha256:cd6525c0833e859e51632e414a0b1226c06b301314e5526600cad88524812eb1",
+      "output_excerpt": "[stdout]\n\n  √ throws on invalid concurrency argument\n  √ clearQueue\n  √ accepts additional arguments\n  √ continues after sync throw\n  √ runs all tasks asynchronously\n  √ non-promise returning function\n  √ map accepts an iterable (set)\n  √ map accepts an iterable (array iterator)\n  √ map\n  √ propagates async execution context properly\n  √ shared context with a limited provider helper\n  √ map passes index and preserves order with concurrency\n  √ map works when detached from the limit\n  √ clearQueue rejects pending promises when enabled (112ms)\n  √ accepts options object (111ms)\n  √ does not ignore errors (129ms)\n  √ change concurrency to bigger value (172ms)\n  √ change concurrency to smaller value (227ms)\n  √ concurrency: 1 (638ms)\n  √ concurrency: 4 (2.3s)\n  √ limitFunction() (2.8s)\n  √ activeCount and pendingCount properties (3s)\n  ─\n\n  22 tests passed\n\n[stderr]\n",
+      "output_truncated": false,
+      "patch_exit_code": 0,
+      "patch_digest": "sha256:a82a9104812e37b8efabce7695cd95c96e3e7b5f924f2cf889928ed8c922d3b5",
+      "patch_excerpt": "diff --git a/index.js b/index.js\nindex 5ecd392..8b981ae 100644\n--- a/index.js\n+++ b/index.js\n@@ -81,10 +81,22 @@ export default function pLimit(concurrency) {\n \t\t\t\t\treturn;\n \t\t\t\t}\n \n-\t\t\t\tconst abortError = AbortSignal.abort().reason;\n-\n+\t\t\t\t// Detach every pending item before rejecting any of them, so the\n+\t\t\t\t// cleanup cannot be interrupted part-way: each item is removed\n+\t\t\t\t// exactly once and none are retained if a rejection throws.\n+\t\t\t\tconst pendingItems = [];\n \t\t\t\twhile (queue.size > 0) {\n-\t\t\t\t\tqueue.dequeue().reject(abortError);\n+\t\t\t\t\tpendingItems.push(queue.dequeue());\n+\t\t\t\t}\n+\n+\t\t\t\t// A plain `Error` rather than `AbortSignal.abort().reason`, as a\n+\t\t\t\t// `DOMException` is not recognized as an error by assertion\n+\t\t\t\t// libraries and other `Object.prototype.toString` based checks.\n+\t\t\t\tconst abortError = new Error('The queue was cleared');\n+\t\t\t\tabortError.name = 'AbortError';\n+\n+\t\t\t\tfor (const queueItem of pendingItems) {\n+\t\t\t\t\tqueueItem.reject(abortError);\n \t\t\t\t}\n \t\t\t},\n \t\t},\n",
+      "patch_truncated": false,
+      "changed_paths": [
+        "index.js"
+      ]
+    }
+  ],
+  "receipt_status": "verified",
+  "adversarial_result": "detected",
+  "failure_code": null,
+  "attestation": {
+    "algorithm": "ed25519",
+    "signature_base64": "09tdRFmmy1lnI0skeBHJDyBp61KqauJlOw+yFFfkoaaWIf9d9ZXWEiidmEZrMipRnKRhCJYlGj1jPoiEEdmfBw=="
+  }
+}

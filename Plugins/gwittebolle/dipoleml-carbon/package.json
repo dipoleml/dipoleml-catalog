@@ -1,0 +1,46 @@
+{
+  "name": "claude-carbon",
+  "version": "1.18.2",
+  "description": "Track the carbon footprint of your Claude Code sessions, in the terminal and the Claude desktop app",
+  "scripts": {
+    "diagram": "node docs/render-diagram.mjs",
+    "diagram:png": "node docs/render-diagram.mjs --png"
+  },
+  "bin": {
+    "claude-carbon": "bin/claude-carbon.js"
+  },
+  "files": [
+    "bin"
+  ],
+  "homepage": "https://github.com/gwittebolle/claude-carbon#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/gwittebolle/claude-carbon.git"
+  },
+  "bugs": "https://github.com/gwittebolle/claude-carbon/issues",
+  "author": "Gaëtan Wittebolle <gaetan.wittebolle@gmail.com> (https://gaetanwittebolle.com)",
+  "license": "MIT",
+  "keywords": [
+    "claude-carbon",
+    "carbon-footprint",
+    "carbon-emissions",
+    "co2",
+    "co2-tracker",
+    "energy",
+    "electricity",
+    "kwh",
+    "power-consumption",
+    "sustainability",
+    "green-it",
+    "green-ai",
+    "claude-code",
+    "claude-code-plugin",
+    "claude",
+    "anthropic",
+    "statusline",
+    "llm"
+  ],
+  "engines": {
+    "node": ">=18"
+  }
+}

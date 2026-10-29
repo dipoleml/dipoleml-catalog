@@ -1,0 +1,124 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.marazii.research-co-pilot",
+  "type": "plugin",
+  "name": "Research Co Pilot",
+  "slug": "research-co-pilot",
+  "vendor": "marazii",
+  "description": "Comprehensive research co-pilot for DipoleML and DipoleML.ai — 14 skills covering literature review, methodology, ethics review, data analysis, qualitative coding, brainstorming, manuscript drafting, replication design, grant writing, talk building, citations, survey design, and peer review. A peer collaborator, not a subservient assistant.",
+  "version": "0.11.4",
+  "homepage": "https://github.com/Marazii/research-co-pilot",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "academic",
+    "agent-skills",
+    "ai-research",
+    "claude-plugin",
+    "claude-skills",
+    "data-analysis",
+    "grant-writing",
+    "literature-review",
+    "methodology"
+  ],
+  "tags": [
+    "academic",
+    "agent-skills",
+    "ai-research",
+    "claude",
+    "claude-code",
+    "claude-plugin",
+    "claude-skills",
+    "data-analysis",
+    "grant-writing",
+    "literature-review",
+    "llm",
+    "methodology",
+    "open-science",
+    "peer-review",
+    "prompt-engineering",
+    "qualitative-research",
+    "reproducible-research",
+    "research",
+    "research-methods",
+    "scientific-writing"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "marazii",
+    "brandName": "marazii",
+    "source": "https://github.com/Marazii.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:13:59Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "Marazii/research-co-pilot",
+    "url": "https://github.com/Marazii/research-co-pilot",
+    "commit": "f824e6c1a7d243c5b6efa0765f302fc68a7e5ae8",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 13,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:06:52Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Research Co Pilot | Comprehensive research co-pilot for Claude Code and claude.ai — 14 skills covering literature review, methodology, ethics review, data analysis, qualitative coding, brainstorming, manuscript drafting, replication design, grant writing, talk building, citations, survey design, and peer review. A peer collaborator, not a subservient assistant.",
+        "after": "Research Co Pilot | Comprehensive research co-pilot for DipoleML and DipoleML.ai — 14 skills covering literature review, methodology, ethics review, data analysis, qualitative coding, brainstorming, manuscript drafting, replication design, grant writing, talk building, citations, survey design, and peer review. A peer collaborator, not a subservient assistant.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

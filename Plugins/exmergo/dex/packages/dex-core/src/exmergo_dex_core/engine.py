@@ -1,0 +1,1877 @@
+"""The programmatic API: one object that owns a connection, a config, and a store.
+
+``DexEngine`` is what a Python caller uses instead of shelling out to the CLI and
+parsing stdout. It returns domain objects and :class:`~.results.Result` records;
+the :class:`~.envelope.Envelope` never crosses this boundary. The CLI is the
+first consumer of this API rather than a parallel implementation of it, which is
+what keeps the two from drifting.
+
+    from exmergo_dex_core import DexEngine
+
+    with DexEngine(connector="duckdb", path="shop.duckdb") as eng:
+        mapped = eng.map()
+        rows = eng.query("select status, count(*) from orders group by status")
+
+Nothing is written to disk by that snippet: the default store is a
+:class:`~.storage.MemoryStore`, so importing this package into a project cannot
+leave a ``.dex/`` directory behind as a side effect. Pass ``store=`` for anything
+durable, and see :class:`~.storage.Store` for what a backend has to implement.
+:meth:`DexEngine.from_repo` is the other way in: it reads ``.dex/config.yml`` and
+builds whichever backend ``cache.backend`` names, which is how the CLI reaches a
+backend dex does not ship.
+
+Two boundaries are worth naming, because both are easy to blur:
+
+**Scratch state versus the project.** ``store`` holds the exploration cache, the
+reconcile baseline, the ledgers, and the transform plans. Delete all of it and
+nothing canonical is lost. ``repo_root`` locates the things that are files by
+nature and stay git-reviewable: the dbt project, ``profiles.yml``, a DuckDB file,
+the credential files a connector discovers. A backend choice moves the first and
+never the second. A host that would rather not have credentials discovered from
+its filesystem at all can supply the connection instead; see ``connection=`` and
+:class:`~.connect.ConnectionSource`.
+
+**One engine, one principal.** See the class docstring.
+"""
+
+from __future__ import annotations
+
+import functools
+from collections.abc import Mapping
+from pathlib import Path
+from typing import TYPE_CHECKING, Any
+
+from . import command_args, connect
+from .adapters.base import scope_within
+from .config import (
+    CacheConfig,
+    DexConfig,
+    ProjectConfig,
+    load_config,
+    record_session_ceiling_decision,
+)
+from .connect import ConnectionSource, SemanticSource
+from .envelope import Connection, Paradigm
+from .errors import RepoRootRequiredError, StoreRequiredError
+from .results import ConnectResult, Result
+from .session_cap import (
+    SessionCeilingCap,
+    format_magnitude,
+    moot_write_warning,
+    parse_session_ceiling_cap,
+)
+from .storage import ExploreStore, MemoryStore, Store, StoreContext, build_store
+from .values_free import (
+    ResultMode,
+    ValuesFreeCode,
+    ValuesFreeError,
+    call_withholding,
+    parse_result_mode,
+)
+
+if TYPE_CHECKING:
+    from .adapters.base import Adapter
+    from .adapters.project import (
+        EditableProject,
+        ExploreProject,
+        MaintainProject,
+        ProjectFactory,
+    )
+    from .explore.results import (
+        ClusterResult,
+        DiagramResult,
+        InventoryResult,
+        MapResult,
+        ProfileResult,
+        QueryBatchResult,
+        QueryResult,
+        RelationshipsResult,
+        SemanticListResult,
+        SemanticQueryResult,
+        SemanticValuesResult,
+    )
+    from .maintain.results import (
+        DriftResult,
+        ReconcileResult,
+        SnapshotResult,
+        VerifyResult,
+    )
+    from .references import ReferencesResult
+    from .semantic_source import SemanticCatalogSource
+    from .transform.plans import PlanEdit
+    from .transform.results import (
+        ApplyResult,
+        BuildResult,
+        ClassificationResult,
+        DeclareResult,
+        DepsResult,
+        GroundingResult,
+        InitResult,
+        MacroListResult,
+        MacroResult,
+        MutationCoverageResult,
+        PlacementResult,
+        PlanExportResult,
+        PlanListResult,
+        PlanResult,
+        PreflightResult,
+        PropagationResult,
+    )
+    from .transform.semantic import DefinitionEdit
+
+
+class DexEngine:
+    """A connection, a configuration, and a place to keep scratch state.
+
+    **Scope one engine to one principal and one session.** Never process-lived,
+    never module-scope. Two facts make a shared engine unsafe: the exploration
+    cache retains value ranges and exact counts for profiled columns, and the
+    query firewall resolves every table reference against that cache, so its
+    membership decides what a query is permitted to name and under whose PII
+    policy. An engine reused across principals therefore both discloses one
+    tenant's data shape to another and applies the wrong authorization surface.
+    Constructing one per request is cheap and is the intended usage; the default
+    ``MemoryStore`` makes that the safe default automatically. A host that wants
+    state to outlive a request should implement :class:`~.storage.Store` over its
+    own session or database, keyed by its own tenancy boundary, rather than
+    reaching for a longer-lived engine.
+
+    **An explicit config is never supplemented from disk.** Pass ``config=`` and
+    no ``.dex/config.yml`` is read, including one that happens to sit above the
+    working directory. Without that rule a container with a stray config anywhere
+    up its tree would silently inherit another project's connector, budget, and
+    PII overrides, which is a wrong-connection bug that presents as working
+    software. :meth:`from_repo` is the constructor that does read from disk, and
+    it says so in its name.
+
+    **Supplying a connection supplies identity.** By default dex discovers the
+    credential from process-ambient state, which is right for one person at a
+    terminal and cannot express per-end-user access control in a process serving
+    several: ambient is process-wide. Pass ``connection=`` (a
+    :class:`~.connect.ConnectionSource`) and the host owns authentication, so dex
+    knows the principal only as what ``capabilities()`` reports. Two things do not
+    move with it. dex still builds the cost gate from ``store``, so the per-command
+    ceiling and the cumulative session ceiling bind exactly as they do on a
+    discovered connection; handing that to an integrator would let a fumbled
+    ``session_spent`` silently disarm the brake in the deployment where a runaway
+    agent loop is most expensive. And dex closes nothing it reached through the
+    source, since the caller that opened a connection is the one still holding it.
+
+    The semantic layer is a second service with a credential of its own, so it has
+    its own parameter: ``semantic_source=`` (a
+    :class:`~.connect.SemanticSource`) supplies the hosted dbt Cloud Semantic Layer
+    token. A deployment may use one, the other, or both, and a hosted metric query
+    is the one surface that needs nothing on the filesystem at all: no project, no
+    store, no connector. Note the cost posture there is not dex's to set, because
+    dbt Cloud owns that warehouse connection and executes server-side.
+
+    The connection opens lazily on first use and is held until :meth:`close`,
+    because re-opening a Snowflake or Databricks session per call is expensive
+    and can wake a warehouse. Holding it is not an invitation to share the
+    engine; see above. With ``connection=`` that invariant sharpens rather than
+    changes: an engine outliving a request now outlives a credential too. Each
+    call still gets its own cost gate, because a gate is per-command state: it
+    accumulates what one command charged, remembers whether that command was
+    confirmed, and labels that command's ledger entries.
+
+    ``scopes`` narrows the source allowlist and belongs to the engine rather than
+    to a call, for the same reason the cache does: it is part of what this
+    principal may see, and changing it is a different visibility posture, so it
+    deserves a different engine.
+
+    ``result_mode="values_free"`` is the same kind of posture, for a host whose
+    model may see no value read from a table (#591; see :mod:`.values_free`). It
+    pins the engine: every call runs in the mode, a call that asks for
+    ``result_mode="full"`` is refused, and a method that was not reviewed for the
+    mode refuses before it opens anything. A full engine lets one call opt in
+    with ``result_mode="values_free"``. It is never read from ``config``.
+
+    ``session_ceiling_cap`` is a host's bound on the day's cumulative spend
+    (#787; see :mod:`.session_cap`), in the connector paradigm's unit. The
+    ceiling in force becomes the lower of it and ``budget.session_ceiling``, so
+    nothing the repository says, no ``session_ceiling`` or
+    ``decline_session_ceiling`` answer, and no config write lifts spend above
+    it. Like ``result_mode`` it is never read from ``config``, and every result
+    reports it as ``session_ceiling_cap``.
+    """
+
+    def __init__(
+        self,
+        *,
+        connector: str | None = None,
+        path: str | None = None,
+        config: DexConfig | None = None,
+        store: ExploreStore | None = None,
+        repo_root: str | Path | None = None,
+        scopes: list[str] | None = None,
+        project: str | None = None,
+        datasets: list[str] | None = None,
+        budget: float | None = None,
+        confirmed: bool = False,
+        session_ceiling: float | None = None,
+        decline_session_ceiling: bool = False,
+        connection: ConnectionSource | None = None,
+        semantic_source: SemanticSource | None = None,
+        project_format: ExploreProject | None = None,
+        result_mode: ResultMode | str = ResultMode.FULL,
+        session_ceiling_cap: float | SessionCeilingCap | None = None,
+    ) -> None:
+        # Two config attributes, deliberately. `config` is what commands read and
+        # is always a real object; `_declared` records whether one was actually
+        # resolved, which is what separates "this project selected duckdb" from
+        # "nothing selected anything" and keeps the no-silent-default refusal
+        # honest. DexConfig's own connector default is a real choice for a config
+        # that exists, never a fallback for one that does not.
+        self._declared = config
+        self.config: DexConfig = config if config is not None else DexConfig()
+        self.store: ExploreStore = store if store is not None else MemoryStore()
+        self.repo_root: str | None = None if repo_root is None else str(repo_root)
+        self.connector = connector
+        self.path = path
+        # Populated only by the run-directory DuckDB auto-detect (issue #199);
+        # empty otherwise. A caller must never miss a guess dex made on its
+        # behalf, so this is read back and folded into every envelope, not just
+        # the one that happened to trigger it (`_adapter` may be called once and
+        # cached, with later commands in the same process never re-resolving).
+        self.connection_warnings: list[str] = []
+        self._directory_inferred_connection = False
+        self.scopes = scopes
+        self.project = project
+        self.datasets = datasets
+        # Held, not consumed: the same source opens the held connection and the
+        # transform preflight's separate one, so both run as the same principal.
+        self.connection = connection
+        # The semantic layer is a second service with its own credential, so it
+        # gets its own source: a hosted dbt Cloud token is not what a warehouse
+        # read authenticates with, and a deployment may well use one and not the
+        # other. Read once per semantic command, never held.
+        self.semantic_source = semantic_source
+        # The values-free mode (#591), held by the engine because the host that
+        # built it is the only party that may choose it: an engine built in the
+        # mode is pinned to it, and nothing a call or the repository says can
+        # take it back out. Never read from `config`, which an agent may write.
+        self.result_mode: ResultMode = parse_result_mode(result_mode) or ResultMode.FULL
+        # Session defaults for the confirm handshake. Per-call arguments override
+        # them; a confirmed engine confirms every call it makes, which is the
+        # reason to prefer confirming the call.
+        self.budget = budget
+        self.confirmed = confirmed
+        # Config amendments dex performed on the caller's behalf, as reviewable
+        # diffs. Read back into every envelope for the reason
+        # `connection_warnings` is: a write must never be something a caller
+        # discovers later in `git status`.
+        self.config_diffs: list[dict[str, Any]] = []
+        # The host's cap on the daily ceiling (#787), parsed before the budget
+        # decision below so a moot answer can be warned about, and applied after
+        # it, because that decision replaces `config.budget` wholesale.
+        self.session_ceiling_cap: SessionCeilingCap | None = parse_session_ceiling_cap(
+            session_ceiling_cap, source="host"
+        )
+        # What the cap made of a write this engine performed, phrased for an
+        # envelope; read back into every one, as `config_diffs` is.
+        self.budget_warnings: list[str] = []
+        self._emitted_config_diffs: int = 0
+        self._emitted_budget_warnings: int = 0
+        self._emitted_connection_warnings: int = 0
+        self._adapter_instance: Adapter | None = None
+        self._last_spend: dict[str, Any] | None = None
+        # The dev namespace the last command's adapter was told to read, kept
+        # only so provenance can show it; `_adapter` is what sets and clears it.
+        self._dev_target_read: str | None = None
+        # The project seam, in its two shapes. `_project_format` is an instance a
+        # host handed us and always wins; `_project_factory` is what a configured
+        # name resolved to, called fresh per command. See `project_format()` for
+        # why one is held and the other is not. The private names are not
+        # squeamishness: `self.project` is the warehouse billing project, taken
+        # long before this seam existed.
+        self._project_format = project_format
+        self._project_name = "dbt"
+        self._project_factory: ProjectFactory | None = None
+        self._project_options: Mapping[str, Any] = {}
+        # Last, so it amends a config that is fully assembled. It is the one
+        # thing here that writes: see `_record_budget_decision`.
+        self._record_budget_decision(session_ceiling, decline_session_ceiling)
+        if self.session_ceiling_cap is not None:
+            self.config = self.config.with_session_ceiling_cap(self.session_ceiling_cap)
+
+    @classmethod
+    def from_repo(
+        cls,
+        repo_root: str | Path,
+        *,
+        cache_backend: str | None = None,
+        project_format_name: str | None = None,
+        **overrides: Any,
+    ) -> DexEngine:
+        """Build from a project on disk: config from ``.dex/``, store from config.
+
+        The CLI's constructor, and the only path that reads configuration from
+        the filesystem. When no config resolves, the engine stays unresolved
+        rather than defaulting, so the refusal fires on first connection attempt
+        instead of at construction (commands that need no warehouse still work
+        outside a project).
+
+        The store is whatever ``cache.backend`` selects, defaulting to the
+        filesystem backend, so a repo that configures nothing behaves exactly as
+        it did before the setting existed. A ``store=`` passed here wins over the
+        configuration: a caller holding an instance has already made the decision
+        that configuration exists to make for the callers who are not.
+
+        ``cache_backend`` overrides the configured name for one run, and takes
+        the configured ``cache.options`` with it only when it names the backend
+        those options were written for. Options are not namespaced by backend, so
+        carrying them onto a different one would hand a backend another backend's
+        coordinates; the most useful thing this override does is fall back to the
+        filesystem backend for one command, and that would refuse outright if a
+        custom backend's options came along.
+
+        The project format resolves the same way and takes the same override
+        rules, with one difference: what is held is the *factory*, not a built
+        project. A store is state with a lifetime and is built once; a project is
+        a read of an artifact a later command may rewrite, so it is built per
+        command. See :meth:`project_format`. ``project_format_name`` is the CLI's
+        ``--project-format``, and a ``project_format=`` instance passed here wins
+        over both, exactly as ``store=`` does.
+        """
+
+        root = str(repo_root)
+        overrides.setdefault("config", load_config(root))
+        if "store" not in overrides:
+            cache = getattr(overrides["config"], "cache", None) or CacheConfig()
+            selected = cache_backend or cache.backend
+            options = cache.options if selected == cache.backend else {}
+            overrides["store"] = build_store(
+                selected, StoreContext(repo_root=root, options=options)
+            )
+        engine = cls(repo_root=root, **overrides)
+        if engine._project_format is None:
+            from .adapters.project_resolver import resolve_project_factory
+
+            declared = getattr(overrides["config"], "project", None) or ProjectConfig()
+            chosen = project_format_name or declared.format
+            engine._project_name = chosen
+            engine._project_factory = resolve_project_factory(chosen)
+            engine._project_options = (
+                declared.options if chosen == declared.format else {}
+            )
+        return engine
+
+    # --- the values-free mode -------------------------------------------------
+
+    def resolve_result_mode(
+        self, requested: ResultMode | str | None = None
+    ) -> ResultMode:
+        """The mode one call runs in: what it asked for, within what the engine allows.
+
+        An engine built in values-free mode is pinned, so a call asking for full
+        results is refused rather than quietly granted or quietly downgraded: a
+        host that pinned the mode and sees a full result has a bug it needs to
+        hear about. A full engine lets a call opt in.
+        """
+
+        call = parse_result_mode(requested)
+        if self.result_mode is ResultMode.VALUES_FREE:
+            if call is ResultMode.FULL:
+                raise ValuesFreeError(ValuesFreeCode.RESULT_MODE_PINNED)
+            return ResultMode.VALUES_FREE
+        return call or ResultMode.FULL
+
+    # --- the single adapter funnel ------------------------------------------
+
+    def _adapter(
+        self,
+        command: str | None = None,
+        *,
+        budget: float | None = None,
+        confirmed: bool | None = None,
+        reads_dev_target: bool = False,
+    ) -> Adapter:
+        """The open adapter, opening it on first use. The only opener in the tree.
+
+        Everything that touches a warehouse comes through here, which is what
+        makes the connection seam a single place to reason about: one point where
+        the credential is established, discovered or host-supplied, and one point
+        where the cost gate is attached.
+
+        The gate is rebuilt per call even though the connection is not, because
+        the two have different lifetimes. Reusing a gate across commands would
+        let one command's confirmation stand in for the next one's, accumulate
+        estimates until an in-budget call is refused, and file every ledger entry
+        under whichever command opened the connection first.
+
+        On the *first* call there is nothing to rebuild: opening already builds a
+        gate for this command, so the settings are passed down instead. Building
+        a second one to replace it would re-read the whole spend ledger for the
+        same answer, and the CLI's one-command-per-process shape means that
+        wasted read would land on every single invocation.
+
+        A rebuild settles the outgoing gate first. It has normally settled
+        itself already, on its own way out; this covers the command that raised
+        past that point, so the headroom it booked is released by the next
+        command rather than held until the UTC rollover, and what the warehouse
+        billed it beyond its statements (Snowflake's resume minimum and idle
+        tail) is booked before the next command's gate starts afresh.
+
+        ``reads_dev_target`` is per call for the same reason the gate is. A
+        verified build judges the relations dbt writes into the dev namespace,
+        which every other command refuses as a source so exploration never
+        mistakes a built model for a source table. Reading it is not a
+        visibility choice the principal made, which is what ``scopes`` is and
+        why that one belongs to the engine: it is dex reading its own output
+        for one command, and the next command on a held engine must not
+        inherit it. Nor is it a ``--scope``, which may only narrow a committed
+        allowlist because that allowlist is a cost boundary; the spend the dev
+        namespace attracts is still bound by the budget and the handshake. It
+        is handed to the adapter rather than folded into ``config``, so the
+        committed entries keep their own rules (one that names nothing is still
+        refused) and the dev namespace keeps its (absent until dbt creates it).
+        """
+
+        budget = self.budget if budget is None else budget
+        confirmed = self.confirmed if confirmed is None else confirmed
+        self._last_spend = None
+
+        if self._adapter_instance is None:
+            # Resolved first, as its own statement: it may auto-detect a
+            # connector and path (issue #199), and `self.connector`/`self.path`
+            # below must see that resolution, not the pre-resolution values a
+            # single call's keyword arguments would read in write order.
+            resolved_config = self._config_for_open()
+            self._adapter_instance = connect.open_adapter(
+                connector=self.connector,
+                path=self.path,
+                project=self.project,
+                datasets=self.datasets,
+                scopes=self.scopes,
+                repo_root="." if self.repo_root is None else self.repo_root,
+                config=resolved_config,
+                store=self.store,
+                budget=budget,
+                confirmed=confirmed,
+                command=command,
+                connection=self.connection,
+            )
+            adapter = self._adapter_instance
+        else:
+            adapter = self._adapter_instance
+            outgoing = command_args.cost_gate(adapter)
+            if outgoing is not None:
+                outgoing.settle()
+                adapter.cost_gate = connect.new_cost_gate(
+                    adapter.name,
+                    self.config,
+                    self.store,
+                    budget=budget,
+                    confirmed=confirmed,
+                    command=command,
+                )
+
+        # After opening, because nothing resolves a scope at open time, and on
+        # every call, so a command that does not ask clears what the last one
+        # set. An adapter without the method reads no namespace to begin with.
+        read_dev_target = getattr(adapter, "read_dev_target", None)
+        entry = None
+        if read_dev_target is not None:
+            if reads_dev_target:
+                entry = connect.dev_target_scope(
+                    adapter.name, getattr(self.config, adapter.name, None)
+                )
+            read_dev_target(entry)
+        self._dev_target_read = entry
+        return adapter
+
+    def _record_budget_decision(
+        self, session_ceiling: float | None, declined: bool
+    ) -> None:
+        """Record a cumulative-ceiling answer in ``.dex/config.yml``.
+
+        The write half of the one-time ask (issue #283). ``session_ceiling`` and
+        ``decline_session_ceiling`` are answers to a question the guard asked, so
+        they are durable by construction: an answer that lived for one command
+        would leave the next command asking again, which is the repetition the
+        ask exists to end.
+
+        On construction, not on the first connection, because a flag that is
+        accepted and then quietly not applied is worse than one that is rejected:
+        a caller who believes they set the project's daily cap and in fact set
+        nothing has lost exactly the bound they came here for. Deferring to the
+        adapter funnel would make the write depend on whether the command that
+        carried the answer happened to reach a warehouse, so a free command or one
+        that failed first would swallow it. Nothing else here touches the repo,
+        and nothing here does either unless a caller passed an answer.
+
+        Refuses when the two contradict each other, and when there is no
+        committed config to write to, for the same reason and in the same voice
+        as the rest of the config layer.
+        """
+
+        if session_ceiling is None and not declined:
+            return
+        root = self.require_repo_root("recording a cumulative spend ceiling")
+        before = self.config.budget.session_ceiling
+        config, diff = record_session_ceiling_decision(
+            root, session_ceiling=session_ceiling, declined=declined
+        )
+        self.budget_warnings.extend(
+            moot_write_warning(
+                self.session_ceiling_cap,
+                before=before,
+                after=config.budget.session_ceiling,
+                what=(
+                    "--no-session-ceiling"
+                    if declined
+                    else f"--session-ceiling {format_magnitude(session_ceiling)}"
+                ),
+            )
+        )
+        # The budget alone, not the whole re-read config: this run may hold
+        # overrides (an injected config, `--connector`) that the file does not,
+        # and adopting the file wholesale here would quietly undo them.
+        self.config.budget = config.budget
+        self.config_diffs.append(diff)
+
+    def _config_for_open(self) -> DexConfig:
+        """The config handed to the opener, refusing when nothing selected one.
+
+        Always a real object, so the opener never falls back to reading a file.
+        The refusal that would otherwise live down there is raised here instead,
+        where the engine knows all three inputs that could have named a
+        connector.
+
+        Before refusing outright, one narrow exception (issue #199): with no
+        config anywhere and nothing explicit, a run directory holding exactly
+        one ``*.duckdb`` file is not a phantom target, it is the one thing the
+        caller almost certainly meant, and reading it is the first thirty
+        seconds of the zero-credential on-ramp. Two or more is exactly the
+        ambiguity this whole gate exists to refuse, so that still raises, now
+        naming both. The exception is deliberately this narrow: an explicit
+        ``--connector``/``--path`` or any config, even one naming a different
+        file, already took one of the three inputs above non-None and never
+        reaches this method at all. A ``repo_root`` of ``None`` is the other
+        spelling this method already had (a library caller holding no repo
+        concept at all, not merely one that defaults to "."), and has no run
+        directory to look in, so it keeps its original, unconditional refusal
+        rather than scanning whatever the process's own cwd happens to be.
+        """
+
+        if self._declared is None and self.connector is None and self.path is None:
+            if self.repo_root is None:
+                raise connect.no_connector_selected(None)
+            candidates = connect.duckdb_candidates(self.repo_root)
+            if len(candidates) > 1:
+                raise connect.no_connector_selected(
+                    self.repo_root, ambiguous_duckdb=candidates
+                )
+            if len(candidates) == 1:
+                found = candidates[0]
+                self.connector = "duckdb"
+                self.path = str(found)
+                self._directory_inferred_connection = True
+                self.connection_warnings.append(
+                    f"no connector configured; using the one DuckDB file in "
+                    f"this directory ({found.name}) since nothing else named a "
+                    "target. Make this explicit with --path "
+                    f"{found} or duckdb.path: {found} in .dex/config.yml"
+                )
+            else:
+                raise connect.no_connector_selected(self.repo_root)
+        return self.config
+
+    @property
+    def has_declared_config(self) -> bool:
+        """Whether a configuration was actually resolved, injected or loaded.
+
+        Distinct from ``config`` being truthy: ``DexConfig()`` has a connector
+        default, which is a real choice for a config that exists and never a
+        fallback for one that does not. ``transform init`` is the caller that
+        needs the difference, because it must refuse rather than guess.
+        """
+
+        return self._declared is not None
+
+    @property
+    def paradigm(self) -> Paradigm | None:
+        """The cost paradigm of the connector in play, ``None`` when nothing
+        selected one.
+
+        Resolved from the connector's name rather than from an open adapter,
+        which is what lets a refusal name the paradigm even when the refusal
+        *was* the connection failing, and after the adapter has been closed.
+
+        The three-input test is the same one :meth:`_config_for_open` refuses
+        on, and for the same reason: ``DexConfig.connector`` has a default, so
+        reading it when nothing declared a config would answer ``free_local``
+        for a project that never chose DuckDB.
+        """
+
+        if self._declared is None and self.connector is None and self.path is None:
+            return None
+        return connect.paradigm_for(
+            self.connector or self.config.connector, self.config
+        )
+
+    def connection_provenance(self) -> Connection:
+        """Return the compact, non-secret connection identity for an envelope.
+
+        This is deliberately observational: it reads the adapter and config
+        already resolved by the command and never opens a connection or runs an
+        extra metadata query merely to fill provenance.
+        """
+
+        adapter = self._adapter_instance
+        connector = (
+            getattr(adapter, "name", None)
+            or self.connector
+            or (self.config.connector if self._declared is not None else None)
+        )
+        if connector is None:
+            return Connection()
+
+        target = self._connection_target(connector, adapter)
+        if self._directory_inferred_connection:
+            source = "directory-local inference"
+        elif any(
+            value is not None
+            for value in (
+                self.connector,
+                self.path,
+                self.project,
+                self.datasets,
+                self.scopes,
+            )
+        ):
+            source = "flag"
+        elif self.connection is not None:
+            source = "host-supplied connection"
+        else:
+            source = self._ambient_target_source(connector, adapter)
+            if source is None and self._declared is not None:
+                source = ".dex/config.yml"
+
+        return Connection(connector=connector, target=target, source=source)
+
+    def _ambient_target_source(self, connector: str, adapter: Any) -> str | None:
+        """Name discovery only when ambient state supplied the target itself."""
+
+        if adapter is None:
+            return None
+        configured = {
+            "bigquery": lambda t: bool(t and t.project),
+            "snowflake": lambda t: bool(t and (t.account or t.connection_name)),
+            "databricks": lambda t: bool(t and (t.host or t.profile)),
+            "postgres": lambda t: bool(t and (t.service or t.host or t.dbname)),
+            "redshift": lambda t: bool(
+                t and (t.workgroup or t.cluster_identifier or t.host or t.dbname)
+            ),
+            "clickhouse": lambda t: bool(t and (t.host or t.database)),
+            "trino": lambda t: bool(t and t.host),
+        }
+        target = getattr(self.config, connector, None)
+        if configured.get(connector, lambda _t: False)(target):
+            return None
+
+        method = str(getattr(adapter, "auth_method", ""))
+        origin = method.split(":", 1)[0]
+        if origin in {"environment", "database_url"}:
+            return "environment variable"
+        if origin == "dbt_profile":
+            return "dbt profiles.yml"
+
+        # BigQuery carries principal type rather than auth_method. Its billing
+        # project may come directly from these two documented environment vars.
+        if connector == "bigquery":
+            import os
+
+            if os.environ.get("GOOGLE_CLOUD_PROJECT") or os.environ.get(
+                "GCLOUD_PROJECT"
+            ):
+                return "environment variable"
+        return None
+
+    def _connection_target(self, connector: str, adapter: Any) -> dict[str, Any]:
+        """Render only non-secret coordinates, omitting unknown empty fields."""
+
+        configured = getattr(self.config, connector, None)
+
+        def compact(**values: Any) -> dict[str, Any]:
+            return {
+                key: value
+                for key, value in values.items()
+                if value is not None and value != [] and value != ""
+            }
+
+        def shown(allowlist: list[str] | None) -> list[str] | None:
+            # The scope this command read, which for a verified build includes
+            # the dev namespace it judged. Not added to an empty allowlist, which
+            # already means everything, nor twice to one that covers it.
+            dev = self._dev_target_read
+            if not allowlist or not dev or scope_within(dev, allowlist):
+                return allowlist
+            return [*allowlist, dev]
+
+        if connector == "duckdb":
+            path = getattr(adapter, "path", None) or self.path
+            if path is None and configured is not None:
+                raw = Path(configured.path)
+                path = str(
+                    raw
+                    if raw.is_absolute() or self.repo_root is None
+                    else Path(self.repo_root) / raw
+                )
+            if path is not None:
+                path = str(Path(path).resolve())
+            return compact(path=path)
+        if connector == "bigquery":
+            return compact(
+                project=getattr(adapter, "project", None)
+                or self.project
+                or getattr(configured, "project", None),
+                datasets=shown(
+                    self.datasets
+                    or self.scopes
+                    or getattr(configured, "datasets", None)
+                ),
+            )
+        if connector == "snowflake":
+            return compact(
+                account=getattr(adapter, "account", None)
+                or getattr(configured, "account", None),
+                warehouse=getattr(configured, "warehouse", None),
+                databases=shown(self.scopes or getattr(configured, "databases", None)),
+            )
+        if connector == "databricks":
+            return compact(
+                host=getattr(adapter, "host", None)
+                or getattr(configured, "host", None),
+                warehouse=getattr(configured, "warehouse", None),
+                catalogs=shown(self.scopes or getattr(configured, "catalogs", None)),
+            )
+        if connector in {"postgres", "redshift"}:
+            return compact(
+                host=getattr(configured, "host", None),
+                database=getattr(adapter, "_database", None)
+                or getattr(configured, "dbname", None),
+                schemas=shown(self.scopes or getattr(configured, "schemas", None)),
+                workgroup=getattr(configured, "workgroup", None),
+                cluster=getattr(configured, "cluster_identifier", None),
+            )
+        if connector == "clickhouse":
+            return compact(
+                host=getattr(configured, "host", None),
+                database=getattr(adapter, "_database", None)
+                or getattr(configured, "database", None),
+                databases=shown(self.scopes or getattr(configured, "databases", None)),
+            )
+        if connector == "trino":
+            # The adapter's host is the bare hostname discovery resolved, never
+            # the URL it may have come from, which can carry a password.
+            return compact(
+                host=getattr(adapter, "host", None)
+                or getattr(configured, "host", None),
+                catalogs=shown(self.scopes or getattr(configured, "catalogs", None)),
+            )
+        return {}
+
+    def settled_spend(self) -> dict | None:
+        """What the command that just ran actually billed, settled and read
+        back from the gate, or ``None`` when nothing billed anything.
+
+        The success path reaches this through ``stamp_spend`` on the result;
+        this is the same number for a caller holding an exception instead,
+        which is why it lives on the engine rather than inside a command. An
+        adapter that was never opened has no gate and so no spend.
+        """
+
+        from .guards.cost_guard import spend_field
+
+        spend = self._last_spend
+        if spend is not None:
+            if spend.get("unknown_settlement") or spend.get("settled") is False:
+                return spend
+            paradigm = self.paradigm
+            field = spend_field(paradigm) if paradigm is not None else None
+            if field is not None and not spend.get(field):
+                return None
+            return spend
+
+        adapter = self._adapter_instance
+        gate = None if adapter is None else command_args.cost_gate(adapter)
+        if adapter is None or gate is None:
+            return None
+        spend = command_args.settled_spend(adapter)
+        # Nothing billed, nothing to report: a refusal that stopped before the
+        # first statement is free, and a spend block of zeroes on it would read
+        # as a claim about money where the honest answer is silence. The day's
+        # cumulative total rides along only when this command contributed to it.
+        if not spend:
+            return None
+        if spend.get("unknown_settlement") or spend.get("settled") is False:
+            return spend
+        if not spend.get(spend_field(gate.paradigm)):
+            return None
+        return spend
+
+    def project_dir(self) -> Path:
+        """The dbt project directory: the config pin wins, discovery is the default."""
+
+        from .dbt_project import find_project
+
+        root = self.require_repo_root("locating the dbt project")
+        # Absolute so downstream dbt subprocess calls (which pin cwd to this dir)
+        # never re-resolve a relative --project-dir against it and double the path.
+        if self.config.dbt_project_dir:
+            return (Path(root) / self.config.dbt_project_dir).resolve()
+        return find_project(root).resolve()
+
+    def project_format(self) -> ExploreProject:
+        """The project this engine reads, built from whatever named it.
+
+        The seam every command reads a project through. Three sources, in
+        precedence order: an instance the host passed as ``project_format=``, the
+        format ``project.format`` selected (or ``--project-format`` overrode), and
+        the shipped dbt format when nothing selected anything.
+
+        **A project dex built is not held across commands, and that is
+        deliberate.** ``self._adapter_instance`` is held because a warehouse
+        session is expensive to reopen and can wake a warehouse; a project is a
+        read of an artifact on disk that ``transform apply`` and ``transform
+        build`` rewrite, so holding one would serve a later command the project as
+        it was before the write, and a drift report computed against a stale
+        project is wrong rather than merely slow. Construction is cheap by
+        contract (see :class:`~.adapters.project.ProjectContext`) and the expensive
+        part, the load itself, is memoized inside the instance for the command
+        that holds it.
+
+        A host-supplied instance *is* held, because its lifetime is the host's to
+        decide: a host that reduced a project from a graph it owns knows when that
+        graph changed and dex does not.
+
+        The name says ``format`` because the plain one is taken: ``self.project``
+        is the warehouse billing project, and has been since before this seam
+        existed.
+        """
+
+        if self._project_format is not None:
+            return self._project_format
+
+        from .adapters.project import ProjectContext
+        from .adapters.project_resolver import SHIPPED, construct_project
+
+        # Through `construct_project` rather than calling the factory directly,
+        # so the tier floor is checked on what a configured name actually built.
+        # A factory that returns the wrong thing otherwise degrades into a project
+        # that answers nothing, and the first symptom is a command warning about a
+        # missing tier several frames from the config line that caused it.
+        return construct_project(
+            self._project_name,
+            self._project_factory or SHIPPED["dbt"],
+            ProjectContext(
+                repo_root=self.repo_root,
+                project_dir=self.config.dbt_project_dir,
+                connector=self.connector or self.config.connector,
+                options=self._project_options,
+            ),
+        )
+
+    def semantic_catalog_source(self) -> SemanticCatalogSource:
+        """The source that answers the semantic catalog.
+
+        Usually the configured project, and the reason this method exists is the
+        case where it is not. The semantic layer and the transformation project
+        are two axes: a repository can keep dbt for its models and author its
+        semantics as native Apache Ossie documents beside them, or have the
+        documents and no dbt at all. In either arrangement dbt keeps serving the
+        project tiers, or serves nothing, while a separate source answers the
+        catalog.
+
+        **A table lookup rather than a vendor branch, and that is the whole
+        point.** The alternative shape, an `if vendor == ...` at each call site,
+        was what this replaced: it put a vendor name inside two commands and the
+        backend resolver, and the next vendor would have added three more. Here
+        the vendor names a *factory*, the factory is resolved and checked through
+        :mod:`.semantic_source`, and every caller downstream keeps asking for a
+        catalog without knowing who answered.
+
+        **Not the project resolver, deliberately.** A semantic source owns no
+        model graph, no compilation, and no write surface, so routing it through
+        `build_project` would make it satisfy `ExploreProject` to get built, which
+        is a format claiming capabilities it does not have. The two seams check
+        different things because they promise different things.
+
+        Not to be confused with ``self.semantic_source``, which is a *credential*
+        for the hosted dbt Cloud Semantic Layer. This builds a *reader*.
+
+        The source is built per call for the same reason :meth:`project_format`
+        builds per command: it reads a file a later command may rewrite.
+        """
+
+        from .config import SEMANTIC_SOURCE_FACTORIES
+        from .semantic_source import SemanticSourceContext, build_semantic_source
+
+        vendor = (getattr(self.config.semantic, "vendor", None) or "dbt").lower()
+        named = SEMANTIC_SOURCE_FACTORIES.get(vendor)
+        if named is None:
+            return self.project_format()
+        # The vendor's own coordinates, read from the config section named after
+        # it (`semantic.ossie` for `vendor: ossie`) and passed through as the
+        # source's options. They live on the semantic axis because that is the
+        # axis the user is configuring.
+        section = getattr(self.config.semantic, vendor, None)
+        options = section.model_dump() if section is not None else {}
+        return build_semantic_source(
+            named,
+            SemanticSourceContext(
+                repo_root=self.repo_root,
+                connector=self.connector or self.config.connector,
+                options=options,
+            ),
+        )
+
+    def semantic_catalog_format(self) -> SemanticCatalogSource:
+        """Compatibility spelling of :meth:`semantic_catalog_source`.
+
+        Public since the release that introduced the second semantic axis, and
+        kept because an integration may hold it. The name is wrong now: what it
+        returns is a semantic source, and only in the dbt case is it also a
+        project format.
+        """
+
+        return self.semantic_catalog_source()
+
+    def maintain_project(self) -> MaintainProject | None:
+        """The project when it can serve as a drift baseline, else ``None``.
+
+        The project tiers are nested, and a format implementing only
+        :class:`~.adapters.project.ExploreProject` is complete rather than
+        partial: it contributes declared keys and joins to exploration and simply
+        cannot be a baseline. So ``None`` is an answer here rather than a failure,
+        the same way it is in :meth:`editable_project`, and the caller decides
+        whether its command can proceed without one.
+
+        What is *not* an answer is a format that could not be built at all. That
+        propagates, because it is a wiring mistake in a committed file: every
+        command will hit it, so degrading to a warning would hide the one thing
+        the operator needs to fix.
+        """
+
+        from .adapters.project import MaintainProject as _MaintainProject
+
+        project = self.project_format()
+        return project if isinstance(project, _MaintainProject) else None
+
+    def project_tier_note(self) -> str:
+        """Why the configured format cannot be a baseline, in one clause.
+
+        Folded into the warning each maintain command already emits when it has
+        no project, so a narrow format reads as a narrow format rather than as an
+        absent one. The tier is counted rather than named: telling someone whose
+        format implements nothing that it "implements only the explore tier"
+        sends them looking for the method they already have.
+        """
+
+        from .adapters.project import tier_of
+
+        project = self.project_format()
+        named = getattr(project, "name", type(project).__name__)
+        return (
+            f"the '{named}' project format reaches tier {tier_of(project)} of 3, "
+            "so it cannot produce the two snapshot layers a baseline is made of; "
+            "implement transform_layer() and semantic_layer() to reach "
+            "exmergo_dex_core.adapters.project.MaintainProject"
+        )
+
+    def editable_project(self) -> EditableProject | None:
+        """The project when it declares it can receive edits, else ``None``.
+
+        ``None`` is an answer rather than a failure, and the caller that asks is
+        ``maintain reconcile``: a format declining the write tier gets
+        proposal-only reconciliation, which is the correct behavior and the reason
+        the tiers exist instead of a ``writeback`` flag. Returning ``None`` rather
+        than raising is what lets the caller degrade instead of refusing.
+        """
+
+        from .adapters.project import EditableProject as _EditableProject
+
+        project = self.project_format()
+        return project if isinstance(project, _EditableProject) else None
+
+    def require_repo_root(self, what: str) -> str:
+        """The repo root, or a refusal naming what needed it.
+
+        The dbt project is a filesystem artifact by design and stays one, so the
+        commands that read or write it cannot run against an engine that was
+        never told where the project lives. Saying which operation needed it
+        beats a bare ``None`` several frames down.
+        """
+
+        if self.repo_root is None:
+            raise RepoRootRequiredError(
+                f"{what} needs a repo root: the dbt project is a git-reviewable "
+                "filesystem artifact, so build the engine with "
+                "DexEngine.from_repo(repo_root) or pass repo_root="
+            )
+        return self.repo_root
+
+    def require_full_store(self, what: str) -> Store:
+        """The store the transform surface needs, or a refusal naming what needed it.
+
+        The storage contract is tiered: a host that only explores implements
+        :class:`~.storage.ExploreStore` and stops there, which is a complete
+        implementation of a declared contract rather than a partial one. The plan
+        members it leaves out are exactly what transform stores its reviewable
+        diffs in, so this is the one boundary where the wider tier is required and
+        the one place the difference is worth a runtime check.
+        """
+
+        store = self.store
+        if not isinstance(store, Store):
+            missing = sorted(
+                name
+                for name in (
+                    "save_plan",
+                    "load_plan",
+                    "list_plans",
+                    "latest_plan",
+                    "plan_locator",
+                )
+                if not hasattr(store, name)
+            )
+            raise StoreRequiredError(
+                f"{what} needs a full store and this one implements the explore "
+                f"tier only (missing: {', '.join(missing)}). Transform keeps its "
+                "plans in the store, so a backend serving transform has to "
+                "implement exmergo_dex_core.storage.Store, not just ExploreStore"
+            )
+        return store
+
+    # --- connect --------------------------------------------------------------
+
+    def connect_test(
+        self, *, result_mode: ResultMode | str | None = None
+    ) -> ConnectResult:
+        """Open the connection and report what this connector can do.
+
+        Free on every connector, and the first thing worth running against a new
+        target: it proves credential discovery works and names the cost paradigm
+        that will govern everything after it.
+        """
+
+        mode = self.resolve_result_mode(result_mode)
+
+        def run() -> ConnectResult:
+            adapter = self._adapter("connect test")
+            return ConnectResult(
+                capabilities=adapter.capabilities(),
+                cost=command_args.preflight_cost(adapter),
+                result_mode=mode,
+            )
+
+        return call_withholding(mode, run)
+
+    # --- explore --------------------------------------------------------------
+    #
+    # Thin by design. The orchestration lives in the command modules next to the
+    # engines it drives, so this class stays a surface a caller can read top to
+    # bottom, and the CLI and a library call run identical code.
+
+    def inventory(
+        self,
+        *,
+        rank: bool = False,
+        limit: int | None = None,
+        show_all: bool = False,
+        result_mode: ResultMode | str | None = None,
+    ) -> InventoryResult:
+        from .explore import commands as explore
+
+        mode = self.resolve_result_mode(result_mode)
+        return call_withholding(
+            mode,
+            explore.inventory,
+            self,
+            rank=rank,
+            limit=limit,
+            show_all=show_all,
+            result_mode=mode,
+        )
+
+    def profile(
+        self,
+        *objects: str,
+        refresh: bool = False,
+        use_project: bool = False,
+        check_cumulative: bool = False,
+        show_all_columns: bool = False,
+        result_mode: ResultMode | str | None = None,
+    ) -> ProfileResult:
+        from .explore import commands as explore
+
+        mode = self.resolve_result_mode(result_mode)
+        return call_withholding(
+            mode,
+            explore.profile,
+            self,
+            list(objects),
+            refresh=refresh,
+            show_all_columns=show_all_columns,
+            use_project=use_project,
+            check_cumulative=check_cumulative,
+            result_mode=mode,
+        )
+
+    def relationships(
+        self,
+        *,
+        verify: bool = False,
+        infer_by_overlap: bool = False,
+        refresh: bool = False,
+        use_project: bool = False,
+        use_hosted_semantic_layer: bool = False,
+        result_mode: ResultMode | str | None = None,
+    ) -> RelationshipsResult:
+        from .explore import commands as explore
+
+        mode = self.resolve_result_mode(result_mode)
+        return call_withholding(
+            mode,
+            explore.relationships,
+            self,
+            verify=verify,
+            infer_by_overlap=infer_by_overlap,
+            refresh=refresh,
+            use_project=use_project,
+            use_hosted_semantic_layer=use_hosted_semantic_layer,
+            result_mode=mode,
+        )
+
+    def map(
+        self,
+        *,
+        full: bool = False,
+        detail: bool = False,
+        verify: bool = False,
+        infer_by_overlap: bool = False,
+        refresh: bool = False,
+        use_project: bool = False,
+        use_hosted_semantic_layer: bool = False,
+        result_mode: ResultMode | str | None = None,
+    ) -> MapResult:
+        from .explore import commands as explore
+
+        mode = self.resolve_result_mode(result_mode)
+        return call_withholding(
+            mode,
+            explore.map,
+            self,
+            full=full,
+            infer_by_overlap=infer_by_overlap,
+            detail=detail,
+            verify=verify,
+            refresh=refresh,
+            use_project=use_project,
+            use_hosted_semantic_layer=use_hosted_semantic_layer,
+            result_mode=mode,
+        )
+
+    def query(
+        self,
+        sql: str,
+        *,
+        auto_profile: bool | None = None,
+        result_mode: ResultMode | str | None = None,
+    ) -> QueryResult:
+        """One SELECT through the query firewall.
+
+        In values-free mode only an aggregate-only statement runs (see
+        :mod:`.guards.values_free_shape`); any other shape is refused with a
+        :class:`~.values_free.ValuesFreeError` naming the rule, and no cell.
+        """
+
+        from .explore import commands as explore
+
+        mode = self.resolve_result_mode(result_mode)
+        return call_withholding(
+            mode, explore.query, self, sql, auto_profile=auto_profile, result_mode=mode
+        )
+
+    def query_batch(
+        self,
+        *sql: str,
+        auto_profile: bool | None = None,
+        result_mode: ResultMode | str | None = None,
+    ) -> QueryBatchResult:
+        """Several statements in one call, each with its own verdict.
+
+        A separate method rather than an overload of :meth:`query`, because the
+        two differ in more than arity: a refusal raises there and is reported
+        here, so a caller that wanted one answer never has to check a status field
+        for it.
+        """
+
+        from .explore import commands as explore
+
+        mode = self.resolve_result_mode(result_mode)
+        return call_withholding(
+            mode,
+            explore.query_batch,
+            self,
+            list(sql),
+            auto_profile=auto_profile,
+            result_mode=mode,
+        )
+
+    def query_across(
+        self,
+        *sql: str,
+        targets: list[str],
+        auto_profile: bool | None = None,
+        result_mode: ResultMode | str | None = None,
+    ) -> QueryBatchResult:
+        """Each statement once per target dataset, in one call (#545).
+
+        Each statement names its dataset as ``{ds}``; every result carries the
+        ``target`` it ran against. See :func:`.explore.commands.query_across`.
+        """
+
+        from .explore import commands as explore
+
+        mode = self.resolve_result_mode(result_mode)
+        return call_withholding(
+            mode,
+            explore.query_across,
+            self,
+            list(sql),
+            targets,
+            auto_profile=auto_profile,
+            result_mode=mode,
+        )
+
+    def cluster(
+        self,
+        obj: str,
+        *,
+        features: list[str] | None = None,
+        k: int | None = None,
+        auto_profile: bool | None = None,
+    ) -> ClusterResult:
+        from .explore import commands as explore
+
+        return explore.cluster(
+            self, obj, features=features, k=k, auto_profile=auto_profile
+        )
+
+    def diagram(
+        self, *, full: bool = False, result_mode: ResultMode | str | None = None
+    ) -> DiagramResult:
+        """The cached map as a Mermaid ER diagram. Reads the store, nothing else.
+
+        Free on every connector and the one explore method that opens no
+        connection at all, so a host holding a populated store can call it with
+        no credential in play. See :mod:`~.explore.diagram` for what the
+        rendered cardinalities are and are not allowed to claim.
+        """
+
+        from .explore import commands as explore
+
+        mode = self.resolve_result_mode(result_mode)
+        return call_withholding(
+            mode, explore.diagram, self, full=full, result_mode=mode
+        )
+
+    # The two semantic methods import from `explore.semantic.commands`, not from
+    # `explore.commands`: on the hosted backend dbt Cloud renders and executes the
+    # SQL, so this is the one guarded surface that needs no dialect engine and no
+    # warehouse client. Together with a `SemanticSource`, that is what lets a host
+    # serve metric queries with nothing on the filesystem and only [semantic-api]
+    # installed. Reaching through the heavier module would quietly require both.
+    def semantic_list(
+        self,
+        *,
+        metrics: list[str] | None = None,
+        for_dimensions: list[str] | None = None,
+        search: list[str] | None = None,
+        full: bool = False,
+        api: bool = False,
+        local: bool = False,
+        result_mode: ResultMode | str | None = None,
+    ) -> SemanticListResult:
+        from .explore.semantic import commands as semantic_cmds
+
+        mode = self.resolve_result_mode(result_mode)
+        result = call_withholding(
+            mode,
+            semantic_cmds.semantic_list,
+            self,
+            metrics=metrics,
+            for_dimensions=for_dimensions,
+            search=search,
+            full=full,
+            api=api,
+            local=local,
+        )
+        result.result_mode = mode
+        return result
+
+    def semantic_values(
+        self,
+        dimension: str,
+        *,
+        metrics: list[str] | None = None,
+        api: bool = False,
+        local: bool = False,
+    ) -> SemanticValuesResult:
+        from .explore.semantic import commands as semantic_cmds
+
+        return semantic_cmds.semantic_values(
+            self, dimension, metrics=metrics, api=api, local=local
+        )
+
+    def semantic_query(
+        self,
+        *metrics: str,
+        group_by: list[str] | None = None,
+        where: list[str] | None = None,
+        order_by: list[str] | None = None,
+        grain: str | None = None,
+        limit: int | None = None,
+        api: bool = False,
+        local: bool = False,
+    ) -> SemanticQueryResult:
+        from .explore.semantic import commands as semantic_cmds
+
+        return semantic_cmds.semantic_query(
+            self,
+            list(metrics),
+            group_by=group_by,
+            where=where,
+            order_by=order_by,
+            grain=grain,
+            limit=limit,
+            api=api,
+            local=local,
+        )
+
+    # --- maintain -------------------------------------------------------------
+
+    def snapshot(self, *, project_only: bool = False) -> SnapshotResult:
+        from .maintain import commands as maintain
+
+        return maintain.snapshot(self, project_only=project_only)
+
+    def check(self, objects: list[str] | None = None) -> DriftResult:
+        from .maintain import commands as maintain
+
+        return maintain.check(self, objects)
+
+    def schema_drift(self, objects: list[str] | None = None) -> DriftResult:
+        from .maintain import commands as maintain
+
+        return maintain.schema_drift(self, objects)
+
+    def volume_drift(self, objects: list[str] | None = None) -> DriftResult:
+        from .maintain import commands as maintain
+
+        return maintain.volume_drift(self, objects)
+
+    def grain_drift(self, objects: list[str] | None = None) -> DriftResult:
+        from .maintain import commands as maintain
+
+        return maintain.grain_drift(self, objects)
+
+    def semantic_drift(self, objects: list[str] | None = None) -> DriftResult:
+        from .maintain import commands as maintain
+
+        return maintain.semantic_drift(self, objects)
+
+    def reconcile(self, drift_class: str | None = None) -> ReconcileResult:
+        from .maintain import commands as maintain
+
+        return maintain.reconcile(self, drift_class)
+
+    def verify(self, objects: list[str] | None = None) -> VerifyResult:
+        from .maintain import commands as maintain
+
+        return maintain.verify(self, objects)
+
+    # --- transform --------------------------------------------------------
+    #
+    # Every method here needs `repo_root`: the dbt project is the source of
+    # truth and stays a git-reviewable filesystem artifact, so an engine that
+    # was never told where the project lives refuses rather than inventing one.
+
+    def init_project(
+        self,
+        name: str,
+        *,
+        connector: str | None = None,
+        path: str | None = None,
+        layered_schemas: bool = False,
+        in_place: bool = False,
+    ) -> InitResult:
+        from .transform import commands as transform
+
+        return transform.init_project(
+            self,
+            name,
+            connector=connector,
+            path=path,
+            layered_schemas=layered_schemas,
+            in_place=in_place,
+        )
+
+    def plan(
+        self,
+        intent: str,
+        *,
+        edits: list[PlanEdit] | None = None,
+        declarations: list[Any] | None = None,
+        scaffold: list[str] | None = None,
+        attribute_rows: bool | None = None,
+    ) -> PlanResult:
+        from .transform import commands as transform
+
+        return transform.plan(
+            self,
+            intent,
+            edits=edits,
+            declarations=declarations,
+            scaffold=scaffold,
+            attribute_rows=attribute_rows,
+        )
+
+    def apply(self, plan_id: str | None = None) -> ApplyResult:
+        from .transform import commands as transform
+
+        return transform.apply(self, plan_id)
+
+    def plans(self) -> PlanListResult:
+        from .transform import commands as transform
+
+        return transform.plans(self)
+
+    def export_plan(self, plan_id: str | None = None) -> PlanExportResult:
+        """A stored plan as a portable, digest-covered document.
+
+        The host boundary's first half: what :meth:`plan` stored, complete enough
+        for a different process in a different checkout to check and apply. No id
+        exports the latest unapplied plan, matching :meth:`apply`.
+        """
+
+        from .transform import commands as transform
+
+        return transform.export_plan(self, plan_id)
+
+    def apply_plan_document(
+        self, document: Any, *, expect_digest: str | None = None
+    ) -> ApplyResult:
+        """Apply a plan document here, with no plan store and no connector.
+
+        The other half. ``expect_digest`` is where authenticity enters: the
+        document proves it is internally consistent on its own, and pinning the
+        digest the caller carried through a channel it trusts is what makes it
+        the plan that was authored rather than a plan.
+        """
+
+        from .transform import commands as transform
+
+        return transform.apply_document(self, document, expect_digest=expect_digest)
+
+    def ground(self, plan_id: str | None = None) -> GroundingResult:
+        """What a plan depends on, and how much of that dex established.
+
+        The evidence a host checks before it applies a change anywhere: the
+        relations and project nodes the plan reads, what could not be resolved,
+        what more than one thing could have meant, how fresh the artifacts behind
+        the answer are, and a fingerprint of everything it was computed from.
+        Repo-only and free on every connector.
+        """
+
+        from .transform import commands as transform
+
+        return transform.ground(self, plan_id)
+
+    def classify(
+        self, plan_id: str | None = None, *, edits: list[PlanEdit] | None = None
+    ) -> ClassificationResult:
+        """What each edit's content contains, read from the content itself.
+
+        Never from the caller-supplied ``kind`` or the filename: both say where a
+        file goes, and a host deciding whether a change may be applied offline is
+        asking what is in it.
+        """
+
+        from .transform import commands as transform
+
+        return transform.classify(self, plan_id, edits=edits)
+
+    def macro(self, name: str | None = None) -> MacroListResult | MacroResult:
+        from .transform import commands as transform
+
+        return transform.macro(self, name)
+
+    def references(
+        self,
+        names: list[str],
+        *,
+        kind: str | None = None,
+        full: bool = False,
+        usage: bool = False,
+    ) -> ReferencesResult:
+        # From `references` rather than `transform.commands`: this one reads the
+        # project's files and needs neither the plan store nor the dialect engine,
+        # and reaching it through the authoring module would require both.
+        from . import references as references_mod
+
+        return references_mod.run(self, names, kind=kind, full=full, usage=usage)
+
+    def rename(
+        self,
+        kind: str,
+        old: str,
+        new: str,
+        *,
+        edits_file: str | None = None,
+    ) -> PropagationResult:
+        from .transform import commands as transform
+
+        return transform.rename(self, kind, old, new, edits_file=edits_file)
+
+    def remove(
+        self, kind: str, name: str, *, edits_file: str | None = None
+    ) -> PropagationResult:
+        from .transform import commands as transform
+
+        return transform.remove(self, kind, name, edits_file=edits_file)
+
+    def place(
+        self,
+        column: str,
+        targets: list[str],
+        expression: str,
+        *,
+        explain: bool = False,
+    ) -> PlacementResult:
+        from .transform import commands as transform
+
+        return transform.place(self, column, targets, expression, explain=explain)
+
+    def declare(
+        self,
+        models: list[str] | None = None,
+        *,
+        declarations: list[Any] | None = None,
+        limit: int | None = None,
+        intent: str | None = None,
+    ) -> DeclareResult:
+        from .transform import commands as transform
+
+        return transform.declare(
+            self, models, declarations=declarations, limit=limit, intent=intent
+        )
+
+    def build(
+        self,
+        *,
+        target: str | None = None,
+        select: str | None = None,
+        verify: bool = False,
+        for_plan: str | None = None,
+        for_plan_document: Any = None,
+        dependencies: Any = None,
+    ) -> BuildResult:
+        """Run ``dbt build`` against the dev target, cost-surfaced first.
+
+        ``for_plan`` (a stored plan id) or ``for_plan_document`` (an exported
+        plan document) names the change this build is meant to validate, which is
+        what turns dbt's exit code into a verdict: the result's ``evidence`` then
+        reports which of the nodes the change required actually ran. The document
+        form is what a sandbox uses, since a sandbox holds the document and no
+        plan store.
+        ``dependencies`` takes a
+        :class:`~.transform.build.DependencyPolicy`; the default installs missing
+        packages as it always has, and ``REFUSE`` names them and stops, which is
+        the right outcome in a sandbox with no network.
+        """
+
+        from .transform import commands as transform
+        from .transform.build import DependencyPolicy
+
+        self._last_spend = None
+        return transform.build(
+            self,
+            target=target,
+            select=select,
+            verify=verify,
+            for_plan=for_plan,
+            for_plan_document=for_plan_document,
+            dependencies=dependencies or DependencyPolicy.INSTALL,
+        )
+
+    def test_mutations(
+        self,
+        model: str,
+        *,
+        max_mutants: int | None = None,
+        target: str | None = None,
+        check_equivalence: bool | None = None,
+        downstream: bool | None = None,
+    ) -> MutationCoverageResult:
+        """Measure a model's tests by planting defects and seeing what they catch.
+
+        Answers what a green suite cannot: whether the tests would notice if the
+        model were wrong. Each mutant is one standard analytics defect, built in
+        a throwaway copy as an ephemeral model, so nothing is written to the
+        project or materialized in the warehouse. Dev target only, and on a
+        billed connector the whole batch is priced and confirmed as one number.
+
+        ``max_mutants`` may only narrow the engine's ceiling, never raise it.
+
+        ``check_equivalence`` labels each survivor by whether its output differs
+        from the model's on the dev data: one that does not needs a fixture that
+        reaches the case, one that does needs an assertion. ``None`` checks where
+        it is free (DuckDB), ``True`` checks and prices the comparisons into the
+        same batch on a billed connector, ``False`` never checks.
+
+        ``downstream`` also runs the tests on the models downstream of this one
+        against each mutant, routed through them without materializing
+        anything, and reports a defect only those caught as
+        ``caught_downstream`` rather than ``killed``, so ``score`` still answers
+        for the model's own tests. Tri-state like ``check_equivalence``.
+        """
+
+        from .transform import commands as transform
+
+        return transform.test_mutations(
+            self,
+            model,
+            max_mutants=max_mutants,
+            target=target,
+            check_equivalence=check_equivalence,
+            downstream=downstream,
+        )
+
+    def deps(self) -> DepsResult:
+        from .transform import commands as transform
+
+        return transform.deps(self)
+
+    def preflight(self, target: str | None = None) -> PreflightResult:
+        """What the warehouse will enforce on this project's next guarded build.
+
+        Free and connectionless on every connector: it reads the project's
+        rendered profile and the connector's own declarations, and opens nothing.
+        Worth having separately from :meth:`connect_test`, which proves a
+        credential works and says nothing about what binds a dbt subprocess. On a
+        connector with no provider-side spend control it says so rather than
+        reporting a healthy preflight, because a target named ``dev`` is not by
+        itself evidence of anything.
+        """
+
+        from .transform import commands as transform
+
+        return transform.preflight(self, target)
+
+    def semantic_define(
+        self,
+        intent: str,
+        edits: list[PlanEdit],
+        *,
+        definitions: list[DefinitionEdit] | None = None,
+        no_parse: bool = False,
+    ) -> PlanResult:
+        from .transform import commands as transform
+
+        return transform.semantic_define(
+            self, intent, edits, definitions=definitions, no_parse=no_parse
+        )
+
+    def semantic_update(
+        self,
+        intent: str,
+        edits: list[PlanEdit],
+        *,
+        definitions: list[DefinitionEdit] | None = None,
+        no_parse: bool = False,
+    ) -> PlanResult:
+        from .transform import commands as transform
+
+        return transform.semantic_update(
+            self, intent, edits, definitions=definitions, no_parse=no_parse
+        )
+
+    def semantic_plan(
+        self,
+        intent: str,
+        edits: list[PlanEdit],
+        *,
+        definitions: list[DefinitionEdit] | None = None,
+        no_parse: bool = False,
+    ) -> PlanResult:
+        from .transform import commands as transform
+
+        return transform.semantic_plan(
+            self, intent, edits, definitions=definitions, no_parse=no_parse
+        )
+
+    def semantic_native(
+        self, vendor: str, mode: str, intent: str, edits: list[PlanEdit]
+    ) -> PlanResult:
+        """Plan native semantic-document edits on the semantic-layer axis.
+
+        ``vendor`` must be the configured ``semantic.vendor``, and its layer
+        validates the edits in its own format.
+        """
+
+        from .transform import native_semantic
+
+        return native_semantic.semantic_native(self, vendor, intent, edits, mode=mode)
+
+    def semantic_ossie(
+        self, mode: str, intent: str, edits: list[PlanEdit]
+    ) -> PlanResult:
+        """`semantic ossie`: :meth:`semantic_native` for a native Ossie layer."""
+
+        return self.semantic_native("ossie", mode, intent, edits)
+
+    def semantic_slayer(
+        self, mode: str, intent: str, edits: list[PlanEdit]
+    ) -> PlanResult:
+        """`semantic slayer`: :meth:`semantic_native` for SLayer model files."""
+
+        return self.semantic_native("slayer", mode, intent, edits)
+
+    # --- lifecycle ------------------------------------------------------------
+
+    def close(self) -> None:
+        """Close the held connection, releasing any held spend headroom first.
+
+        Idempotent. The CLI closes from a ``finally``, so this is the funnel that
+        catches a command interrupted partway: without it, a gate that had been
+        admitted but never settled would hold its estimate against the day's
+        cumulative ceiling until the UTC rollover, and the warehouse time it
+        settles beyond the statements would never reach the ledger. Releasing
+        must not be able to stop the connection closing, so a store that cannot
+        be reached at this point loses the release rather than leaking the
+        connection.
+        """
+
+        adapter = self._adapter_instance
+        self._adapter_instance = None
+        if adapter is None:
+            return
+        gate = command_args.cost_gate(adapter)
+        try:
+            if gate is not None:
+                gate.settle()
+        finally:
+            adapter.close()
+
+    def __enter__(self) -> DexEngine:
+        return self
+
+    def __exit__(self, *exc: object) -> None:
+        self.close()
+
+
+# Every public method of the engine not named here refuses in values-free mode
+# (#591). An allowlist rather than a denylist, so a command added later refuses
+# until someone has reviewed what it returns. The allowlisted commands take a
+# per-call `result_mode` and hold their own errors to it; the rest are the helpers
+# those commands call on the engine, which return no warehouse data of their own.
+_VALUES_FREE_METHODS = frozenset(
+    {
+        # The reviewed commands (see `values_free.ALLOWED_COMMANDS`).
+        "connect_test",
+        "inventory",
+        "profile",
+        "relationships",
+        "map",
+        "diagram",
+        "query",
+        "query_batch",
+        "query_across",
+        "semantic_list",
+        # The engine's own plumbing.
+        "resolve_result_mode",
+        "connection_provenance",
+        "settled_spend",
+        "project_dir",
+        "project_format",
+        "semantic_catalog_source",
+        "semantic_catalog_format",
+        "maintain_project",
+        "project_tier_note",
+        "editable_project",
+        "require_repo_root",
+        "require_full_store",
+        "close",
+    }
+)
+
+
+def _refused_in_values_free(name: str, method: Any) -> Any:
+    @functools.wraps(method)
+    def guarded(self: DexEngine, *args: Any, **kwargs: Any) -> Any:
+        if self.result_mode is ResultMode.VALUES_FREE:
+            raise ValuesFreeError(
+                ValuesFreeCode.COMMAND_NOT_VALUES_FREE, command=f"DexEngine.{name}"
+            )
+        return method(self, *args, **kwargs)
+
+    return guarded
+
+
+def _reports_session_cap(method: Any) -> Any:
+    """Stamp a host's cap and fold pending diffs and warnings onto every result
+    a public method returns (#787, #789), so a library caller receives them
+    on the first result that leaves the engine."""
+
+    @functools.wraps(method)
+    def stamped(self: DexEngine, *args: Any, **kwargs: Any) -> Any:
+        result = method(self, *args, **kwargs)
+        if isinstance(result, Result):
+            if self.session_ceiling_cap is not None:
+                result.session_ceiling_cap = self.session_ceiling_cap.payload(
+                    result.cost.unit
+                )
+            emitted_diffs = getattr(self, "_emitted_config_diffs", 0)
+            unemitted_diffs = self.config_diffs[emitted_diffs:]
+            if unemitted_diffs:
+                result.diffs = list(unemitted_diffs) + list(result.diffs)
+                self._emitted_config_diffs = len(self.config_diffs)
+
+            emitted_budget = getattr(self, "_emitted_budget_warnings", 0)
+            emitted_conn = getattr(self, "_emitted_connection_warnings", 0)
+            unemitted_warnings = (
+                self.budget_warnings[emitted_budget:]
+                + self.connection_warnings[emitted_conn:]
+            )
+            if unemitted_warnings:
+                result.warnings = list(unemitted_warnings) + list(result.warnings)
+                self._emitted_budget_warnings = len(self.budget_warnings)
+                self._emitted_connection_warnings = len(self.connection_warnings)
+        return result
+
+    return stamped
+
+
+for _name, _member in list(vars(DexEngine).items()):
+    if (
+        _name.startswith("_")
+        or not callable(_member)
+        or isinstance(_member, (classmethod, staticmethod, property))
+    ):
+        continue
+    setattr(DexEngine, _name, _reports_session_cap(_member))
+del _name, _member
+
+for _name, _member in list(vars(DexEngine).items()):
+    if (
+        _name.startswith("_")
+        or _name in _VALUES_FREE_METHODS
+        or not callable(_member)
+        or isinstance(_member, (classmethod, staticmethod))
+    ):
+        continue
+    setattr(DexEngine, _name, _refused_in_values_free(_name, _member))
+del _name, _member

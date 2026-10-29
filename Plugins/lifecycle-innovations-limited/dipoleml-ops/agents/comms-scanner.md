@@ -1,0 +1,154 @@
+---
+name: comms-scanner
+description: "OPS specialist: Scans all communication channels for FULL inbox state (not just unread)"
+effort: low
+maxTurns: 10
+tools:
+  - Bash
+  - Read
+disallowedTools:
+  - Write
+  - Edit
+  - Agent
+memory: user
+initialPrompt: 'Scan all configured channels and classify conversations. Return structured JSON.'
+---
+
+# COMMS SCANNER AGENT
+
+Scan all channels for FULL inbox state — not just unread, but all recent conversations classified by action needed.
+
+## Task
+
+Run all channel scans in parallel:
+
+```bash
+# WhatsApp — ALL non-archived chats (not just unread)
+# SERVER NAME: mcp__whatsapp__* is the single-account default. One bridge per account means one
+# server per account (whatsapp-personal, whatsapp-work, ...) and no plain mcp__whatsapp__*.
+# Resolve the real name from the available tools, scan every account, and label each result with
+# the account it came from. Pair each with its own WHATSAPP_BRIDGE_DB below. See CLAUDE.md Rule 8.
+# Step 1: list chats — the response includes last_is_from_me (int 0/1) and last_message_time (RFC3339+TZ string)
+mcp__whatsapp__list_chats sort_by=last_active
+
+# Step 2: for each chat active in last 7 days, resolve contact name and compute time_ago:
+#
+# NAME RESOLUTION — contacts.db is PRIMARY source; giga memory is fallback only.
+#   DB="${WHATSAPP_BRIDGE_DB:-$HOME/.local/share/whatsapp-mcp/whatsapp-bridge/store/messages.db}"
+#   sqlite3 "$DB" "SELECT name FROM contacts WHERE jid='$JID' LIMIT 1;"
+#   If empty → use the name field from list_chats response.
+#   Only consult giga memory (mcp__giga__evoke) when both DB lookup and list_chats name are empty.
+#
+# TIME_AGO — last_message_time is RFC3339 with timezone offset (e.g. "2026-05-24T14:55:06+02:00").
+#   Parse with full TZ awareness. In Python:
+#     from datetime import datetime, timezone
+#     dt = datetime.fromisoformat(last_message_time)   # preserves tz offset
+#     delta = datetime.now(timezone.utc) - dt.astimezone(timezone.utc)
+#   Never strip the timezone suffix before parsing — doing so causes wrong "now" delta.
+#
+# DIRECTION — use last_is_from_me from list_chats directly (do NOT re-derive from last message).
+#   last_is_from_me == 1  →  WAITING  (you sent last; no reply needed)
+#   last_is_from_me == 0  →  NEEDS_REPLY  (they sent last)
+#
+# For chats where last_is_from_me is absent or null, fall back to fetching the thread:
+#   mcp__whatsapp__list_messages chat_jid="<JID>" limit=5
+#   Check is_from_me on the LAST element of the returned array.
+```
+
+```bash
+# Email — FULL inbox (not just unread)
+# Read account from preferences.json (channels.email.account) or use gog's default
+EMAIL_ACCOUNT=$(jq -r '.channels.email.account // empty' "${CLAUDE_PLUGIN_DATA_DIR:-$HOME/.claude/plugins/data/ops-ops-marketplace}/preferences.json" 2>/dev/null)
+if [ -n "$EMAIL_ACCOUNT" ]; then
+  gog gmail search -a "$EMAIL_ACCOUNT" -j --results-only --no-input --max 30 "in:inbox" 2>/dev/null || echo '{"error": "gog not available"}'
+else
+  gog gmail search -j --results-only --no-input --max 30 "in:inbox" 2>/dev/null || echo '{"error": "gog not available or no default account"}'
+fi
+# For each thread, read last message to check if sender is you (WAITING) or them (NEEDS_REPLY)
+```
+
+```bash
+# Telegram — user-auth API (NOT bot), list recent dialogs
+# Use telegram user-auth MCP or tg-cli if available
+echo '{"error": "telegram user-auth not configured"}'
+```
+
+Combine results into:
+
+```json
+{
+  "timestamp": "[ISO8601]",
+  "whatsapp": {
+    "needs_reply": [
+      {
+        "contact": "[name]",
+        "preview": "[text]",
+        "timestamp": "[ISO8601]",
+        "jid": "[JID]",
+        "urgency": "high|medium|low"
+      }
+    ],
+    "waiting": [
+      {
+        "contact": "[name]",
+        "preview": "[your last msg]",
+        "timestamp": "[ISO8601]"
+      }
+    ],
+    "handled": []
+  },
+  "email": {
+    "needs_reply": [
+      {
+        "from": "[sender]",
+        "subject": "[subject]",
+        "preview": "[text]",
+        "timestamp": "[ISO8601]",
+        "urgency": "high|medium|low"
+      }
+    ],
+    "waiting": [
+      {
+        "from": "[recipient]",
+        "subject": "[subject]",
+        "timestamp": "[ISO8601]"
+      }
+    ],
+    "fyi": [
+      {
+        "from": "[sender]",
+        "subject": "[subject]",
+        "type": "newsletter|notification|receipt"
+      }
+    ]
+  },
+  "slack": {
+    "needs_reply": [],
+    "waiting": [],
+    "note": "fetch live via Slack MCP"
+  },
+  "telegram": {
+    "needs_reply": [],
+    "waiting": [],
+    "note": "user-auth not configured"
+  },
+  "summary": {
+    "total_needs_reply": 0,
+    "total_waiting": 0,
+    "total_fyi": 0,
+    "urgent": []
+  }
+}
+```
+
+## Urgency scoring
+
+Mark a message `high` if:
+
+- Sender is in contacts list with `vip: true`
+- Message contains: "urgent", "ASAP", "down", "broken", "help", "emergency", "critical"
+- Email subject starts with "Re: Re: Re:" (long chain needing response)
+
+## Output
+
+Print only the JSON to stdout. No preamble. No summary.

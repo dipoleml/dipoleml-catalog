@@ -1,0 +1,16 @@
+{
+  "name": "go-specialist",
+  "displayName": "Go Specialist",
+  "version": "0.23.0",
+  "description": "Master Go 1.25+ development with modern patterns, advanced concurrency, performance optimization, and production-ready microservices. Skills: gen-forgejo-dir, gen-github-dir, gen-gitlab-ci, gen-goreleaser, gen-linter, gen-taskfiles, go-blackbox, go-bulma, go-structure, go-tdd, go-tool. MCP: context7",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Sgaunet"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/sgaunet/claude-plugins#readme",
+  "repository": "https://github.com/sgaunet/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

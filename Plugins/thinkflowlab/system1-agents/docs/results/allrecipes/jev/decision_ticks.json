@@ -1,0 +1,222 @@
+{
+ "report": {
+  "elapsed_ms": 35024,
+  "decisions": 5,
+  "interactions": 4,
+  "waits": 0,
+  "median_decision_ms": 367,
+  "jev_input_tokens": 23654,
+  "median_probe_ms": 0,
+  "settle_probes": 0,
+  "settle_ms": 0,
+  "values": {
+   "cache": 0,
+   "prefetch": 1,
+   "llm": 0
+  },
+  "history": [
+   {
+    "action": "Search the site",
+    "kind": "fill",
+    "text": "vegetarian lasagna",
+    "page_changed": true
+   },
+   {
+    "action": "Click to search",
+    "kind": "click",
+    "text": null,
+    "page_changed": true
+   },
+   {
+    "action": "Save Recipe Easy Vegetarian Spinach Lasagna 117 Ratings",
+    "kind": "click",
+    "text": null,
+    "page_changed": true
+   },
+   {
+    "action": "Save Recipe Easy Vegetarian Spinach Lasagna 117 Ratings",
+    "kind": "click",
+    "text": null,
+    "page_changed": true
+   }
+  ]
+ },
+ "ticks": [
+  {
+   "tick": 1,
+   "probe_ms": 6077,
+   "settle_probes": 0,
+   "settle_ms": 0,
+   "action_settle_probes": 0,
+   "action_settle_ms": 0,
+   "decision_ms": 1123,
+   "input_tokens": 4654,
+   "output_tokens": 286,
+   "operation": "TYPE_TEXT",
+   "target": "Search the site",
+   "confidence": 0.96,
+   "elements": 25,
+   "elapsed_ms": 11428,
+   "probabilities": {
+    "2": 1.0
+   },
+   "candidates": {
+    "2": "Search the site"
+   },
+   "value_source": "prefetch",
+   "value_ms": 3053,
+   "value_error": null,
+   "text": "vegetarian lasagna"
+  },
+  {
+   "tick": 2,
+   "probe_ms": 0,
+   "settle_probes": 0,
+   "settle_ms": 0,
+   "action_settle_probes": 0,
+   "action_settle_ms": 0,
+   "decision_ms": 367,
+   "input_tokens": 4514,
+   "output_tokens": 277,
+   "operation": "CLICK",
+   "target": "Click to search",
+   "confidence": 0.95,
+   "elements": 24,
+   "elapsed_ms": 15484,
+   "probabilities": {
+    "3": 0.91,
+    "2": 0.09,
+    "11": 0.0,
+    "16": 0.0,
+    "13": 0.0,
+    "10": 0.0
+   },
+   "candidates": {
+    "3": "Click to search",
+    "2": "Search the site",
+    "11": "Cuisines",
+    "16": "About Us",
+    "13": "News",
+    "10": "Occasions"
+   },
+   "text": null
+  },
+  {
+   "tick": 3,
+   "probe_ms": 0,
+   "settle_probes": 0,
+   "settle_ms": 0,
+   "action_settle_probes": 0,
+   "action_settle_ms": 0,
+   "decision_ms": 495,
+   "input_tokens": 4972,
+   "output_tokens": 334,
+   "operation": "CLICK",
+   "target": "Save Recipe Easy Vegetarian Spinach Lasagna 117 Ratings",
+   "confidence": 0.71,
+   "elements": 30,
+   "elapsed_ms": 18022,
+   "probabilities": {
+    "20": 0.51,
+    "1": 0.19,
+    "3": 0.11,
+    "26": 0.1,
+    "24": 0.05,
+    "19": 0.02
+   },
+   "candidates": {
+    "20": "Save Recipe Easy Vegetarian Spinach Lasagna 117 Ratings",
+    "1": "Visit Allrecipes' homepage",
+    "3": "Click to search",
+    "26": "Save Recipe Vegetarian Four Cheese Lasagna 243 Ratings",
+    "24": "A serving of cheese lasagna being lifted from a baking dish with a serving utensil Save Recipe Cheese Lasagna 180 Ratings",
+    "19": "Search the site"
+   },
+   "text": null
+  },
+  {
+   "tick": 4,
+   "probe_ms": 0,
+   "settle_probes": 0,
+   "settle_ms": 0,
+   "action_settle_probes": 0,
+   "action_settle_ms": 0,
+   "decision_ms": 353,
+   "input_tokens": 5017,
+   "output_tokens": 335,
+   "operation": "CLICK",
+   "target": "Save Recipe Easy Vegetarian Spinach Lasagna 117 Ratings",
+   "confidence": 0.71,
+   "elements": 30,
+   "elapsed_ms": 20584,
+   "probabilities": {
+    "20": 0.57,
+    "1": 0.14,
+    "26": 0.12,
+    "24": 0.06,
+    "21": 0.05,
+    "3": 0.03
+   },
+   "candidates": {
+    "20": "Save Recipe Easy Vegetarian Spinach Lasagna 117 Ratings",
+    "1": "Visit Allrecipes' homepage",
+    "26": "Save Recipe Vegetarian Four Cheese Lasagna 243 Ratings",
+    "24": "A serving of cheese lasagna being lifted from a baking dish with a serving utensil Save Recipe Cheese Lasagna 180 Ratings",
+    "21": "Save Recipe",
+    "3": "Click to search"
+   },
+   "text": null
+  },
+  {
+   "tick": 5,
+   "probe_ms": 2848,
+   "settle_probes": 0,
+   "settle_ms": 0,
+   "action_settle_probes": 1,
+   "action_settle_ms": 250,
+   "decision_ms": 345,
+   "input_tokens": 4497,
+   "output_tokens": 286,
+   "operation": "DONE",
+   "target": null,
+   "confidence": 0.14,
+   "elements": 25,
+   "elapsed_ms": 24651,
+   "probabilities": {
+    "DONE": 0.28,
+    "WAIT": 0.27,
+    "CLICK": 0.22,
+    "SCROLL_DOWN": 0.2,
+    "BLOCKED": 0.03,
+    "TYPE_TEXT": 0.0
+   },
+   "candidates": {
+    "DONE": "The page shows every requirement of the task met.",
+    "WAIT": "Give the page time to finish updating.",
+    "CLICK": "Press a control on the page: a button, a link, a menu entry, an autocomplete suggestion or a calendar day.",
+    "SCROLL_DOWN": "Move the viewport down the page.",
+    "BLOCKED": "None of the offered operations can move the task forward.",
+    "TYPE_TEXT": "Type a value into an editable field, replacing what it holds."
+   }
+  }
+ ],
+ "final": {
+  "status": "DONE",
+  "reason": "",
+  "url": "https://www.allrecipes.com/recipe/229764/easy-vegetarian-spinach-lasagna/",
+  "title": "Easy Vegetarian Spinach Lasagna",
+  "steps": 4,
+  "elapsed_ms": 34617,
+  "page_text": "Allrecipes\nSearch the site\nNewsletters\nSweepstakes\nDinner Tonight\nRecipes\nIngredients\nOccasions\nCuisines\nIn the Kitchen\nNews\nCommunity\nVideo\nAbout Us\nGET THE MAGAZINE\nRecipes\nMain Dishes\nPasta\nLasagna Recipes\nEasy Vegetarian Spinach Lasagna\n4.6\n(117)\n85 Reviews\n34 Photos\nSatisfying layers of stretchy melted mozzarella, creamy ricotta, and spinach combine with sauce-coated lasagna noodles for the ultimate comfort food.\nSubmitted by\nMOTTSBELA\nUpdated on August 6, 2026\nSave\nRate\nPrint\nShare",
+  "answer": "The page shows \"Easy Vegetarian Spinach Lasagna\" (by MOTTSBELA), rated 4.6 stars with 117 ratings but only 85 written reviews, serving 6 (prep 20 min, cook 1 hr, total 1 hr 25 min; ingredients: 10 oz fresh spinach, 9 lasagna noodles, 8 oz ricotta, 1 cup mozzarella, 1 egg, pinch nutmeg, pinch basil, 1 cup pasta sauce, ¼ cup Parmesan, salt/pepper, cooking spray; layer noodles, spinach-ricotta mix, and sauce in a 1½-qt dish, top with mozzarella and Parmesan, bake covered at 400°F for 25 min then uncovered ~25 min more)."
+ },
+ "usage": {
+  "decisions": 5,
+  "chat_calls": 4,
+  "chat_input_tokens": 7946,
+  "chat_output_tokens": 454,
+  "chat_cache_tokens": 1210,
+  "jev_input_tokens": 23654,
+  "cost_usd": 0.091356
+ }
+}

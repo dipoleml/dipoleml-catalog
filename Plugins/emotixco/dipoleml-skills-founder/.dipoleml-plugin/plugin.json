@@ -1,0 +1,16 @@
+{
+  "name": "dipoleml-skills-founder",
+  "displayName": "DipoleML Skills Founder",
+  "version": "2.1.7",
+  "description": "13 skills for startup founders: idea validation, competitor research, pricing, MVP scope, go-to-market, pitch decks, and fundraising. Outputs are saved to founder/ so each skill builds on the last.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Emotixco"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/emotixco/claude-skills-founder",
+  "repository": "https://github.com/emotixco/claude-skills-founder",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

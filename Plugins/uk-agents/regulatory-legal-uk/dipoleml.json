@@ -1,0 +1,142 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.uk-agents.regulatory-legal-uk",
+  "type": "plugin",
+  "name": "Regulatory Legal Uk",
+  "slug": "regulatory-legal-uk",
+  "vendor": "uk-agents",
+  "description": "UK jurisdiction legal plugins for DipoleML and Cowork — employment, commercial, corporate, IP, privacy, regulatory, litigation, AI governance, and more",
+  "version": "1.0.0",
+  "homepage": "https://github.com/uk-agents/uk-legal-plugins",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agents-skills",
+    "claude-cowork",
+    "claude-cowork-plugin",
+    "claude-marketplace",
+    "claude-plugin",
+    "claude-plugins",
+    "cowork",
+    "legal-ai",
+    "legal-tech"
+  ],
+  "tags": [
+    "agents-skills",
+    "claude",
+    "claude-cowork",
+    "claude-cowork-plugin",
+    "claude-marketplace",
+    "claude-plugin",
+    "claude-plugins",
+    "cowork",
+    "legal-ai",
+    "legal-tech",
+    "skills",
+    "solicitors",
+    "uk",
+    "workflows"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "uk-agents",
+    "brandName": "uk-agents",
+    "source": "https://github.com/uk-agents.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:15:12Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "uk-agents/uk-legal-plugins",
+    "url": "https://github.com/uk-agents/uk-legal-plugins",
+    "commit": "ca3b870c3f469902458940f65986787de8a4a5b2",
+    "path": "regulatory-legal-uk",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 15,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:28:54Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Regulatory Legal Uk | UK jurisdiction legal plugins for Claude Code and Cowork — employment, commercial, corporate, IP, privacy, regulatory, litigation, AI governance, and more",
+        "after": "Regulatory Legal Uk | UK jurisdiction legal plugins for DipoleML and Cowork — employment, commercial, corporate, IP, privacy, regulatory, litigation, AI governance, and more",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-http",
+      "url": "https://uk-legal-mcp.fly.dev/mcp",
+      "transport": "http",
+      "command": "uk-legal"
+    },
+    {
+      "kind": "mcp-http",
+      "url": "https://govuk-mcp.fly.dev/mcp",
+      "transport": "http",
+      "command": "govuk"
+    },
+    {
+      "kind": "mcp-http",
+      "url": "https://uk-due-diligence-mcp.fly.dev/mcp",
+      "transport": "http",
+      "command": "uk-due-diligence"
+    },
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

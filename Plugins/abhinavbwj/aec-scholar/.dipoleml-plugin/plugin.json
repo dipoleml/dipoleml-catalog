@@ -1,0 +1,16 @@
+{
+  "name": "aec-scholar",
+  "displayName": "Aec Scholar",
+  "version": "1.1.0",
+  "description": "An end-to-end academic research toolkit for Architecture, Engineering & Construction. Covers the full research lifecycle: scoping and systematic literature reviews (PRISMA 2020), bibliometric/scientometric analysis, research-question and methodology design, data analysis planning, scholarly writing (IMRaD), citation management, journal targeting, peer review and rebuttal — backed by deep, current AEC domain knowledge (BIM, building performance, construction management, computational design, sustainability/LCA, digital twins, AI-in-AEC and more).",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Abhinavbwj"
+  },
+  "license": "MIT",
+  "homepage": "https://coera.io",
+  "repository": "https://github.com/Abhinavbwj/AEC-Scholar",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

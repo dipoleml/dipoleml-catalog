@@ -1,0 +1,36 @@
+# build + render output
+skills/anidoodle/engine/node_modules/
+skills/anidoodle/engine/node_modules
+skills/anidoodle/engine/out/
+skills/anidoodle/engine/dist/
+skills/anidoodle/engine/.tmp/
+skills/anidoodle/engine/.cache/
+**/*.log
+.DS_Store
+
+# local scratch (internal, never ship)
+_readme-preview.html
+_*.png
+.style-gallery-brief.md
+.banner-brief.md
+
+# PRIVATE, never ship: the owner's personal recreations and studies of others' artwork
+# (Louis keepsakes, the orchard frame study, the Clawd lesson). Kept locally only.
+skills/anidoodle/engine/src/canvas-core/cat*.ts
+skills/anidoodle/engine/src/hosts/page-cat*.ts
+skills/anidoodle/engine/src/canvas-core/folkTaleStudy*.ts
+skills/anidoodle/engine/src/hosts/page-folkTaleStudy.ts
+skills/anidoodle/engine/src/canvas-core/lessonClawd*.ts
+skills/anidoodle/engine/src/hosts/page-lessonClawd*.ts
+# agent worktrees
+.claude/
+# PRIVATE: local-only studio pieces
+skills/anidoodle/engine/src/canvas-core/clawd*.ts
+skills/anidoodle/engine/src/hosts/page-clawd*.ts
+
+# old local working copy of the worked example (source of truth: example/). Not needed any more:
+# tools/overlay.mjs resolves example/src at build time. A local copy here SHADOWS the example.
+skills/anidoodle/engine/src/canvas-core/butterfly/
+skills/anidoodle/engine/src/canvas-core/mechanicalLepidoptera.ts
+skills/anidoodle/engine/src/hosts/page-mechanicalLepidoptera.ts
+.scratch*/

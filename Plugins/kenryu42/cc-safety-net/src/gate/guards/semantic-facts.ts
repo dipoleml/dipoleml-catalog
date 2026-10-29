@@ -1,0 +1,184 @@
+import type { Environment } from '@/core/environment';
+import { expandSupportedPathEnvironmentVariables } from '@/core/paths/canonicalization';
+import type { CommandProgram, ShellKind } from '@/core/shell/model';
+import { parseCommand } from '@/core/shell/parse';
+import {
+  extractPatchTargetsFromToolInput,
+  extractPathLikeToolValues,
+  getCommandFromToolInput,
+} from '@/core/tool-input';
+import { REASON_STRICT_UNPARSEABLE } from '@/gate/analyzer/reasons';
+import type {
+  CommandFactUsage,
+  CommandSyntaxFacts,
+  SemanticFactStore,
+  SemanticFacts,
+} from '../facts';
+import type { ToolInvocation } from '../invocation';
+import { type GuardSyntax, readGuardSyntax } from './guard-walk';
+
+const PATH_LIKE_KEYS = new Set([
+  'absolutepath',
+  'destination',
+  'directorypath',
+  'directory_path',
+  'file',
+  'file_path',
+  'filepath',
+  'include',
+  'notebook_path',
+  'path',
+  'paths',
+  'searchdirectory',
+  'search_directory',
+  'searchpath',
+  'targetfile',
+  'target_file',
+]);
+const GREP_KEYS = new Set([
+  ...PATH_LIKE_KEYS,
+  'dir_path',
+  'glob',
+  'glob_pattern',
+  'include_pattern',
+]);
+const GLOB_KEYS = new Set([...PATH_LIKE_KEYS, 'folder', 'glob', 'pattern', 'patterns']);
+
+export class StructuralShellSyntaxLimitError extends Error {
+  override readonly name = 'StructuralShellSyntaxLimitError';
+
+  constructor() {
+    super('Structural command analysis limit exceeded.');
+  }
+}
+
+export class UnparseableCommandError extends Error {
+  override readonly name = 'UnparseableCommandError';
+
+  constructor() {
+    super(REASON_STRICT_UNPARSEABLE);
+  }
+}
+
+export function createSemanticFacts(invocation: ToolInvocation): SemanticFacts {
+  const store = createSemanticFactStore();
+  const inputCommand = getCommandFromToolInput(invocation.input);
+  const candidates: { usage: CommandFactUsage; source: string }[] = [];
+  if (
+    (invocation.route.kind === 'command' || invocation.route.kind === 'unknown') &&
+    inputCommand
+  ) {
+    candidates.push({ usage: 'input-candidate', source: inputCommand });
+  }
+  if (invocation.route.kind === 'command' && 'command' in invocation && invocation.command) {
+    candidates.push({ usage: 'declared-command', source: invocation.command });
+  }
+
+  const commands = candidates.reduce<CommandSyntaxFacts[]>((facts, candidate) => {
+    const existingIndex = facts.findIndex((fact) => fact.source === candidate.source);
+    if (existingIndex !== -1) {
+      const existing = facts[existingIndex];
+      if (!existing) return facts;
+      facts[existingIndex] = {
+        ...existing,
+        usages: [...existing.usages, candidate.usage],
+      };
+      return facts;
+    }
+    const dialect =
+      invocation.route.kind === 'command'
+        ? invocation.route.shell
+        : process.platform === 'win32'
+          ? 'powershell'
+          : 'posix';
+    const program = store.getCommandProgram(candidate.source, dialect);
+    facts.push({
+      usages: [candidate.usage],
+      source: candidate.source,
+      program,
+      shell: store.getShellSyntax(candidate.source, program),
+    });
+    return facts;
+  }, []);
+
+  return {
+    invocation: {
+      toolName: invocation.toolName,
+      route: invocation.route,
+      context: invocation.context,
+    },
+    commands,
+    paths: extractDirectPathFacts(invocation),
+    store,
+  };
+}
+
+export function getCommandSyntaxFact(
+  facts: SemanticFacts,
+  usage: CommandFactUsage,
+): CommandSyntaxFacts | undefined {
+  return facts.commands.find((fact) => fact.usages.includes(usage));
+}
+
+export function getExecutedCommandSyntaxFact(facts: SemanticFacts): CommandSyntaxFacts | undefined {
+  return (
+    getCommandSyntaxFact(facts, 'declared-command') ??
+    getCommandSyntaxFact(facts, 'input-candidate')
+  );
+}
+
+export function projectSensitiveShellText(source: string, environment: Environment): string {
+  if (!source.includes('$')) return source;
+  return expandSupportedPathEnvironmentVariables(source, environment);
+}
+
+/** @internal */
+export function createSemanticFactStore(): SemanticFactStore {
+  const commandPrograms = new Map<string, CommandProgram>();
+  const shellFacts = new WeakMap<CommandProgram, GuardSyntax>();
+  const getCommandProgram = (source: string, dialect: ShellKind) => {
+    const key = `${dialect}\u0000${source}`;
+    const existing = commandPrograms.get(key);
+    if (existing) return existing;
+    const program = parseCommand(source, dialect);
+    commandPrograms.set(key, program);
+    return program;
+  };
+  const getShellSyntax = (source: string, suppliedProgram?: CommandProgram) => {
+    if (suppliedProgram && suppliedProgram.source !== source) {
+      throw new TypeError('Shell syntax source does not match command program source.');
+    }
+    const program = suppliedProgram ?? getCommandProgram(source, 'posix');
+    const existing = shellFacts.get(program);
+    if (existing) return existing;
+    const syntax =
+      program.status === 'limited'
+        ? { status: 'structural-limit' as const, source, program, assignmentFallbacks: [] }
+        : readGuardSyntax(source, program);
+    shellFacts.set(program, syntax);
+    return syntax;
+  };
+  return {
+    getShellSyntax,
+    getCommandProgram,
+    readsAutoAsPowerShell: () =>
+      [...commandPrograms].some(
+        ([key, program]) => key.startsWith('auto\u0000') && program.dialect === 'powershell',
+      ),
+  };
+}
+
+function extractDirectPathFacts(invocation: ToolInvocation): string[] {
+  const keys =
+    invocation.route.kind === 'grep'
+      ? GREP_KEYS
+      : invocation.route.kind === 'glob'
+        ? GLOB_KEYS
+        : PATH_LIKE_KEYS;
+  return [
+    ...extractPathLikeToolValues(invocation.input, keys),
+    ...(invocation.route.kind === 'patch' || typeof invocation.input === 'string'
+      ? extractPatchTargetsFromToolInput(invocation.input)
+      : []),
+  ];
+}

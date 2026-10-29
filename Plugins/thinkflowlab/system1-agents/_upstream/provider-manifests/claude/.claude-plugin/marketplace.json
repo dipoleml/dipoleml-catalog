@@ -1,0 +1,17 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "system1-agents",
+  "description": "S1A: System 1 decision models in the model slot of openJiuwen agents.",
+  "owner": {
+    "name": "ThinkFlowLab",
+    "url": "https://github.com/ThinkFlowLab"
+  },
+  "plugins": [
+    {
+      "name": "s1a",
+      "description": "A browser subagent for page tasks with enumerable controls, game agents, and one fast pick over options you enumerate, on Jev, Laya or Cua-S1.",
+      "source": "./",
+      "category": "productivity"
+    }
+  ]
+}

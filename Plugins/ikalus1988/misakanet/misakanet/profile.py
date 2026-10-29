@@ -1,0 +1,288 @@
+"""MisakaNet 用户档案 — 阶段管理与推荐链。
+
+三段用户阶段:
+    newcomer  →  active  →  contributor
+    首次使用       3次搜索       1条 lesson
+
+存储: misakanet/profile.json（**每台机器一份、git 不跟踪**、每次检索都会被改写；
+      2026-09-21 之前它曾被跟踪，那段时间每次搜索都会弄脏工作树 —— 见 #1991）
+
+推荐链:
+    referral_code  < 8 位随机短码
+    referred_by    < 推荐节点的 referral_code
+"""
+import json
+import os
+import random
+import string
+import subprocess
+import sys
+import tempfile
+import time
+from contextlib import contextmanager
+from datetime import datetime, timezone
+from pathlib import Path
+
+REPO = Path(__file__).resolve().parent.parent
+PROFILE_PATH = REPO / "misakanet" / "profile.json"
+LESSONS_DIR = REPO / "lessons"
+
+STAGES = ["newcomer", "active", "contributor"]
+STAGE_SEARCH_THRESHOLD = 3    # 3 次搜索 → active
+STAGE_LESSON_THRESHOLD = 1    # 1 条 lesson → contributor
+
+
+# How long `_acquire_fd` waits for the lock before giving up. `flock` blocks
+# indefinitely; `msvcrt.locking` does not, so the Windows side gets an explicit
+# ceiling rather than an unbounded loop. 60s is far past any real critical section
+# here (read a small JSON file, bump two counters, write it back).
+_LOCK_TIMEOUT_SECONDS = 60.0
+
+# Bound once at import. Read via the module so tests can force either backend
+# without rewriting `os.name`, which would make pathlib try to build a WindowsPath.
+_WINDOWS = os.name == "nt"
+
+
+def _acquire_fd(fd: int) -> None:
+    """Hold an exclusive lock on `fd` until `_release_fd`.
+
+    POSIX: `fcntl.flock`. Windows: `msvcrt.locking`. There is deliberately **no**
+    silent fallback — this used to `yield` unlocked whenever `fcntl` was missing,
+    which is exactly how concurrent increments lost updates on Windows while the
+    code looked healthy (#3536). A platform with neither primitive must fail
+    loudly, because an unenforced lock is worse than no lock: it removes the
+    reason to look for the race.
+    """
+    if _WINDOWS:
+        import msvcrt
+
+        # msvcrt.locking locks `nbytes` starting at the current file position.
+        os.lseek(fd, 0, os.SEEK_SET)
+        deadline = time.monotonic() + _LOCK_TIMEOUT_SECONDS
+        while True:
+            try:
+                msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+                return
+            except OSError:
+                if time.monotonic() >= deadline:
+                    raise TimeoutError(
+                        f"could not lock the profile after {_LOCK_TIMEOUT_SECONDS:.0f}s "
+                        f"(fd={fd}); another process is holding it"
+                    ) from None
+                time.sleep(0.02)
+    else:
+        import fcntl
+
+        fcntl.flock(fd, fcntl.LOCK_EX)
+
+
+def _release_fd(fd: int) -> None:
+    if _WINDOWS:
+        import msvcrt
+
+        os.lseek(fd, 0, os.SEEK_SET)
+        msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+    else:
+        import fcntl
+
+        fcntl.flock(fd, fcntl.LOCK_UN)
+
+
+@contextmanager
+def _profile_lock():
+    """Exclusive lock for the read-modify-write of profile.json (#1775, #3536).
+
+    `_save`'s atomic rename only prevents *torn* writes — it does nothing for *lost updates*.
+    Two concurrent callers can both read `search_count: 0`, both compute `1`, and one increment
+    vanishes; the counters drive stage transitions and referral attribution, so that is a silent
+    correctness bug. A sidecar lock file is used rather than the profile itself because `_save`
+    replaces the inode on every write (`os.replace`), which would drop a lock held on the old one.
+    The lock is auto-released if the process dies, so a crash cannot leave the profile wedged.
+
+    On Windows this now uses `msvcrt.locking`. It previously yielded with no lock at all
+    (see `_acquire_fd`).
+    """
+    PROFILE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    lock_path = PROFILE_PATH.parent / ".profile.lock"
+    fd = os.open(str(lock_path), os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        _acquire_fd(fd)
+        try:
+            yield
+        finally:
+            _release_fd(fd)
+    finally:
+        os.close(fd)
+
+
+def _read_profile() -> dict | None:
+    """profile.json as it is on disk, or None when there is nothing usable to read.
+
+    `_save` swaps the file with `os.replace`, so a reader sees either the old file or the new
+    one, never a torn one — the plain read path needs no lock for that reason.
+    """
+    if not PROFILE_PATH.exists():
+        return None
+    try:
+        return json.loads(PROFILE_PATH.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError):
+        return None
+
+
+def _load() -> dict:
+    """读取 profile.json，不存在时尝试倒推。
+
+    The backfill *writes* a profile, and a write that lands on top of a count another caller
+    just wrote loses that count — so the missing-file path takes the lock and re-checks under
+    it, instead of writing next to a concurrent update.
+    """
+    profile = _read_profile()
+    if profile is not None:
+        return profile
+    with _profile_lock():
+        return _load_under_lock()
+
+
+def _load_under_lock() -> dict:
+    """`_load` for a caller that already holds the profile lock."""
+    profile = _read_profile()
+    if profile is not None:
+        return profile
+    return _backfill()
+
+
+def _save(profile: dict):
+    """原子写入：使用临时文件 + rename 避免并发损坏。"""
+    PROFILE_PATH.parent.mkdir(parents=True, exist_ok=True)
+    # 在同一目录创建临时文件，确保 rename 原子性
+    fd, tmp_path = tempfile.mkstemp(
+        dir=str(PROFILE_PATH.parent),
+        prefix=".profile-",
+        suffix=".tmp"
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(json.dumps(profile, ensure_ascii=False, indent=2) + "\n")
+        os.replace(tmp_path, str(PROFILE_PATH))
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
+def _backfill() -> dict:
+    """从 git log / lessons 贡献记录倒推当前阶段。"""
+    profile = {
+        "stage": "newcomer",
+        "referral_code": _generate_code(),
+        "referred_by": "",
+        "search_count": 0,
+        "lesson_count": 0,
+        "last_active": datetime.now(timezone.utc).isoformat(),
+    }
+    # 查 git log 中 lessons/ 下是否有当前用户提交
+    try:
+        node_id = os.environ.get("MISAKANET_NODE_ID", "")
+        if node_id:
+            r = subprocess.run(
+                ["git", "log", "--author=" + node_id, "--oneline", "--", "lessons/"],
+                capture_output=True, text=True, timeout=5, cwd=str(REPO),
+            )
+            if r.returncode == 0 and r.stdout.strip():
+                # 有提交记录
+                lesson_count = len(r.stdout.strip().split("\n"))
+                profile["lesson_count"] = lesson_count
+                if lesson_count >= STAGE_LESSON_THRESHOLD:
+                    profile["stage"] = "contributor"
+                else:
+                    profile["stage"] = "active"
+    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
+        # git 不存在、超时或权限问题，保持 newcomer 状态
+        pass
+    _save(profile)
+    return profile
+
+
+def _generate_code(length: int = 8) -> str:
+    return "M" + "".join(random.choices(string.ascii_uppercase + string.digits, k=length - 1))
+
+
+def get_stage() -> str:
+    """返回当前阶段字符串。"""
+    return _load()["stage"]
+
+
+def get_referral_code() -> str:
+    return _load().get("referral_code", "")
+
+
+def get_search_count() -> int:
+    return _load().get("search_count", 0)
+
+
+def get_lesson_count() -> int:
+    return _load().get("lesson_count", 0)
+
+
+def increment_search():
+    """搜索计数+1，跨阈值时自动升阶段并持久化。"""
+    with _profile_lock():
+        p = _load_under_lock()
+        p["search_count"] = p.get("search_count", 0) + 1
+        p["last_active"] = datetime.now(timezone.utc).isoformat()
+        if p["stage"] == "newcomer" and p["search_count"] >= STAGE_SEARCH_THRESHOLD:
+            p["stage"] = "active"
+            # stderr, not stdout. `search_knowledge.py --json` writes its result to stdout and an
+            # agent parses that; these notices are human-facing chrome and belong beside the
+            # diagnostics, not inside the payload. Measured 2026-10-04: the upgrade fired in the
+            # middle of a `--json` run and the output stopped being JSON
+            # (`json.decoder.JSONDecodeError: Expecting value: line 1 column 3`), because
+            # `tests/test_search_quota.py` treats this as a real contract. That test only ever saw
+            # it by accident — the notice is one-shot, so it fires for whichever caller crosses the
+            # threshold, and a fresh profile reaches it partway through a suite run.
+            print("  🎉 升级: newcomer → active", file=sys.stderr)
+            print("  提示: 试试 python3 scripts/new_lesson.py 贡献第一条 lesson", file=sys.stderr)
+        _save(p)
+
+
+def increment_lesson():
+    """lesson 计数+1，跨阈值时自动升阶段。"""
+    with _profile_lock():
+        p = _load_under_lock()
+        p["lesson_count"] = p.get("lesson_count", 0) + 1
+        p["last_active"] = datetime.now(timezone.utc).isoformat()
+        n = p["lesson_count"]
+        if p["stage"] == "active" and n >= STAGE_LESSON_THRESHOLD:
+            p["stage"] = "contributor"
+            print("  升级: active -> contributor", file=sys.stderr)
+            print("  提示: 你的 lesson 已进入共享池，影响范围扩大", file=sys.stderr)
+        elif n > 0 and n % 5 == 0:
+            print(f"  累计 {n} 条 lesson，节点权重提升", file=sys.stderr)
+        _save(p)
+        # 这里曾经调用 reset_quota() 并打印"搜索额度已重置（感谢贡献！）"。读路径在 2026-09-18 起
+        # 不限次数，本地检索更是纯本地计算，没有配额可重置 —— 那句话是假的（#1986）。感谢留下，
+        # 假话不留。
+        print("  🙏 感谢贡献！", file=sys.stderr)
+
+
+def apply_referral(code: str) -> bool:
+    """首次注册时填写推荐码。"""
+    if not code or len(code) < 4:
+        return False
+    with _profile_lock():
+        p = _load_under_lock()
+        if p.get("referred_by"):
+            return False  # 已绑定，不可修改
+        p["referred_by"] = code.upper()
+        _save(p)
+        return True
+
+
+def get_credit_weight() -> float:
+    """基于阶段的检索权重加成。"""
+    p = _load()
+    stage = p.get("stage", "newcomer")
+    weights = {"newcomer": 1.0, "active": 1.05, "contributor": 1.10}
+    return weights.get(stage, 1.0)

@@ -1,0 +1,42 @@
+{
+  "name": "install-claude-workflow-v2",
+  "version": "2.0.7",
+  "type": "commonjs",
+  "description": "Install the Claude Code workflow plugin with agents, commands, skills, and hooks",
+  "bin": {
+    "install-claude-workflow-v2": "./bin/cli.js"
+  },
+  "files": [
+    "bin",
+    "lib"
+  ],
+  "keywords": [
+    "claude",
+    "claude-code",
+    "skills",
+    "plugin",
+    "ai",
+    "anthropic",
+    "agents",
+    "commands",
+    "hooks",
+    "workflow",
+    "orchestration"
+  ],
+  "author": "CloudAI-X",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CloudAI-X/claude-workflow-v2.git"
+  },
+  "bugs": {
+    "url": "https://github.com/CloudAI-X/claude-workflow-v2/issues"
+  },
+  "homepage": "https://github.com/CloudAI-X/claude-workflow-v2#readme",
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "dependencies": {
+    "degit": "^2.8.4"
+  }
+}

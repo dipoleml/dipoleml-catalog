@@ -1,0 +1,88 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.sponticelli.level-design",
+  "type": "plugin",
+  "name": "Level Design",
+  "slug": "level-design",
+  "vendor": "sponticelli",
+  "description": "a comprehensive plugin marketplace for an AI-augmented game studio",
+  "version": "1.2.0",
+  "homepage": "https://github.com/sponticelli/gamedev-claude-plugins",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "sponticelli",
+    "brandName": "sponticelli",
+    "source": "https://github.com/sponticelli.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:14:56Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "sponticelli/gamedev-claude-plugins",
+    "url": "https://github.com/sponticelli/gamedev-claude-plugins",
+    "commit": "fa5e0422ce4f5482863cce1268ceccf69d81f8e8",
+    "path": "plugins/level-design",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 19,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:50:46Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

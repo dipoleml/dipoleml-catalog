@@ -1,0 +1,50 @@
+{
+  "_readme": "REFERENCE ONLY — these hooks are NOT active. They were active in SocialForge v1.0–v1.4 and removed in v1.5.0 because Claude Code plugin hooks fire globally on every session/operation regardless of working directory. The work each hook did is preserved at the right layer: per-agent compliance/approval instructions (agents/*.md), the /socialforge:status command for credential reporting, and Quality Gate equivalents inside each phase. To re-enable a hook for your own usage, copy the relevant entry into hooks.json — but understand it will fire across all your Claude Code sessions, not just SocialForge work.",
+  "hooks": {
+    "SessionStart": [
+      {
+        "_note": "Fires on every Claude Code launch in any project. Banner with credential status was useful when working on SocialForge but noisy everywhere else. Run /socialforge:status on demand instead. The archived one-line shell banner (credential status piped through inline Python) is not kept: /socialforge:status reports the same thing on demand.",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "timeout 30 python3 ${CLAUDE_PLUGIN_ROOT}/scripts/status_manager.py --action session-init"
+          }
+        ]
+      }
+    ],
+    "PreToolUse": [
+      {
+        "_note": "Fires on EVERY Write|Edit in EVERY project. Brand-compliance checks already live in the agent files responsible for generating copy/prompts (agents/*.md).",
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "If this Write/Edit is creating social media copy or image prompts for SocialForge, check: (1) No banned phrases from brand compliance-rules.json. (2) No fabricated statistics or unsourced claims. (3) Platform character limits respected. (4) Brand hashtags included where required. Otherwise respond 'SKIP'. $ARGUMENTS"
+          }
+        ]
+      }
+    ],
+    "SubagentStart": [
+      {
+        "_note": "Fires on EVERY subagent invocation in any project. Brand context, asset rules, and creative-mode instructions already live inside each SocialForge agent's instructions.",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "If this subagent is working on SocialForge content: (1) Load active brand-config.json — enforce brand colors, fonts, visual style. (2) Brand assets are sacred — AI generates around them, never replaces them. (3) All generated images must be shown to user for approval. (4) Follow the 4 creative modes: ANCHOR_COMPOSE, ENHANCE_EXTEND, STYLE_REFERENCED, PURE_CREATIVE. (5) Respect compliance-rules.json banned phrases and disclaimers. Otherwise respond 'SKIP'. $ARGUMENTS"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "_note": "Fires on EVERY Stop event in every project. Image-approval and compliance verification already happen in-flow via agent instructions and Quality Gate criteria.",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "If this task involved SocialForge content production, verify: (1) All generated images approved by user. (2) Copy respects platform character limits. (3) Brand compliance checked (no banned phrases). (4) Logo overlay applied where required by brand-config. (5) Correct image dimensions for target platforms. If any check fails, list issues and ask how to proceed. Otherwise respond 'PASS'. $ARGUMENTS"
+          }
+        ]
+      }
+    ]
+  }
+}

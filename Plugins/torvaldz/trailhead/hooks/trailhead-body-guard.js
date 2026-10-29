@@ -1,0 +1,305 @@
+#!/usr/bin/env node
+// trailhead-body-guard.js: PreToolUse(Bash) hook.
+// trailhead rewrites issue/PR bodies with a read-modify-write: `gh issue view
+// <n> --json body` -> transform in memory -> `gh issue edit <n> --body...`.
+// If the pre-write read hits a transient failure (e.g. a GitHub HTTP 5xx) and
+// comes back with an empty body without `gh` exiting non-zero, that empty
+// string flows straight into the write and clobbers the existing body. A
+// trailhead body is never legitimately empty, so this is the write-site
+// backstop: it hard-blocks a `gh issue edit` / `gh pr edit` / `gh api` write
+// that would set a body to empty or whitespace-only, protecting the existing
+// body from a degraded read.
+// The command is not required to START with `gh`: the shared statement walk
+// (ghWrites in secret-guard: `;` `&&` `||` `|` newline, subshells, if/then,
+// leading NAME=v) finds every `gh` write, and each one is checked on its own;
+// ANY provably empty body blocks. Opaque writes (eval, sh -c, ...) are ignored
+// (fail-open). After a cd the working directory is unknown, so a relative
+// --body-file / api `@path` is unknowable and never blocks.
+// A construct it cannot interpret with certainty (eval, source / `.`, a bash 5.3
+// `${ cmd; }`, printf -v, a function definition, an alias, a quoted or split `gh api`
+// body key, a backslash-newline inside a word) is not emulated: as a FINAL gate, after
+// the empty-body verdict, it blocks with BODY_GUARD_UNMODELLED_CONSTRUCT when a body
+// write hides behind it or follows it (lib/unmodelled.js is the one closed list; #227).
+// Blocks with exit 2 + {"decision":"block",...}; allows everything else.
+// Fail-OPEN on any error (exit 0): this is a cheap backstop, not a hard
+// dependency, and a crash here must never block a legitimate write.
+// Self-contained. Pure functions are exported for tests; runs as a hook when
+// executed directly.
+
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { parseGhSubcommand } = require('./lib/gh-subcommand.js');
+const { words, parseRedirects, flagValues, expandWord, STDIN_PATHS } = require('./lib/body-sources.js');
+
+// Is the resolved body text clearly empty or whitespace-only?
+function isEmptyBody(text) {
+  return text === '' || /^\s*$/.test(text);
+}
+
+// A value that is a shell expansion (command substitution, backticks, or a
+// bare env-var reference) can't be resolved statically: treat it as unknown
+// rather than guessing, so the guard never blocks on a body it can't prove
+// empty.
+function isShellExpansion(text) {
+  return /\$\(/.test(text) || /`/.test(text) || /^\$/.test(text);
+}
+
+// `fs.readFileSync` does not expand `~`; do it ourselves so a `~/`-prefixed
+// (or bare `~`) --body-file / api @-path is actually read, rather than
+// throwing ENOENT and silently falling through to "unknowable".
+function expandHome(p) {
+  if (p === '~') return os.homedir();
+  if (p.startsWith('~/')) return os.homedir() + p.slice(1);
+  return p;
+}
+
+// Read a --body-file (or api `@file`) target, mirroring secret-guard's
+// bodyFileText: sliced to ~1MB. Throws (ENOENT etc.) are the caller's
+// problem to catch.
+function readBodyFile(filePath, cwdKnown = true) {
+  const p = expandHome(filePath);
+  // Unknown cwd (after a cd): a relative path may point anywhere, so refuse to guess.
+  if (!cwdKnown && !path.isAbsolute(p)) throw new Error('relative path with unknown cwd');
+  return fs.readFileSync(p, 'utf8').slice(0, 1_000_000);
+}
+
+// Strip one matching pair of surrounding quotes (an artifact of parsing a
+// bare `body=` value that itself contains a literal `""`/`''`, e.g. `-f
+// body=""`, where the RAW command text carries the quote characters rather
+// than the shell having already stripped them). A no-op when the value
+// isn't quote-wrapped.
+function stripQuotedPair(val) {
+  if (val.length >= 2) {
+    const first = val[0];
+    const last = val[val.length - 1];
+    if ((first === '"' && last === '"') || (first === "'" && last === "'")) {
+      return val.slice(1, -1);
+    }
+  }
+  return val;
+}
+
+// Resolve the body for a `gh issue edit` / `gh pr edit` command, the way gh
+// does (pflag keeps the LAST occurrence of a repeated flag; pkg/cmd/{issue,pr}/
+// edit rejects --body together with --body-file, and --body counts as provided
+// whenever it appears, while --body-file counts only if its last value is
+// non-empty). Flags are parsed with the shared body-sources helpers. Returns:
+//   undefined -> no body param present at all, or gh would reject the command
+//                        (both --body and a non-empty --body-file: no write)
+//   { body: string } -> known body text
+//   { body: null }   -> a body param IS present but its text is unknowable
+//                        (shell expansion, stdin/process-substitution path,
+//                        or an unreadable --body-file): never block on this.
+function resolveEditBody(cmd, cwdKnown = true) {
+  const { args } = parseRedirects(words(cmd));
+  const files = flagValues(args, '--body-file', '-F');
+  const bodies = flagValues(args, '--body', '-b');
+
+  // Last --body-file value; an empty expanded value means "not provided".
+  let filePath;
+  if (files.length) {
+    const r = expandWord(files[files.length - 1], {}, { HOME: os.homedir() });
+    if (r.unresolved) return { body: null }; // may or may not be empty: unknowable
+    if (r.value !== '') filePath = r.value;
+  }
+
+  if (filePath !== undefined && bodies.length) return undefined; // gh errors, nothing is written
+
+  if (filePath !== undefined) {
+    // Normalise only for this test (/dev//stdin, /dev/./stdin): the read below keeps the raw
+    // path, since the kernel resolves `..` after symlinks, not lexically.
+    if (STDIN_PATHS.has(path.posix.normalize(filePath)) || filePath.startsWith('<')) return { body: null }; // stdin / process substitution
+    try {
+      return { body: readBodyFile(filePath, cwdKnown) };
+    } catch {
+      return { body: null }; // unreadable: unknowable, not provably empty
+    }
+  }
+
+  if (bodies.length) {
+    // Empty env: any $VAR, $(...) or backtick is unresolved, hence unknowable.
+    const r = expandWord(bodies[bodies.length - 1], {}, {});
+    if (r.unresolved) return { body: null };
+    return { body: r.value };
+  }
+
+  return undefined; // no body param at all
+}
+
+// Resolve the body for a `gh api ... -f/-F/--field/--raw-field body=<val>`
+// write. Called only once the caller has already confirmed a `body=` field
+// is present, so a null return here always means "unknowable", never
+// "absent". Handles gh's `@<path>` file-reference form (`@-` is stdin, so
+// unknowable) and a bare value carrying literal surrounding quotes (e.g.
+// `-f body=""`, where the shell hasn't run yet so the quote characters are
+// still in the raw command text).
+function resolveApiBody(cmd, cwdKnown = true) {
+  let raw;
+  let m = cmd.match(/(?:-f|-F|--field|--raw-field)\s+"body=([^"]*)"/);
+  if (m) raw = m[1];
+  if (raw === undefined) {
+    m = cmd.match(/(?:-f|-F|--field|--raw-field)\s+'body=([^']*)'/);
+    if (m) raw = m[1];
+  }
+  if (raw === undefined) {
+    m = cmd.match(/(?:-f|-F|--field|--raw-field)\s+body=(\S*)/);
+    if (m) raw = m[1];
+  }
+  if (raw === undefined) return null;
+
+  const val = stripQuotedPair(raw);
+
+  if (val.startsWith('@')) {
+    const ref = val.slice(1);
+    if (ref === '-') return null; // @- : stdin, unknowable
+    try {
+      return readBodyFile(ref, cwdKnown);
+    } catch {
+      return null; // unreadable: unknowable, not provably empty
+    }
+  }
+
+  if (isShellExpansion(val)) return null;
+  return val;
+}
+
+// Is this a `gh` write that would CLOBBER an issue/PR body (the
+// read-modify-write overwrite shape), and if so what would it write?
+// Returns { kind, body } or null. `kind` is 'issue' | 'pr' | 'api'; `body` is
+// the resolved text (string), or null when present-but-unknowable. Only
+// `gh issue edit` / `gh pr edit` / `gh api ... body=` are recognised: `create`
+// and `comment` add new content rather than overwrite an existing body, so
+// they are out of scope for this guard. Handles ONE statement; see
+// ghBodyWrites for a whole (possibly compound) command.
+function ghBodyWrite(cmd, { cwdKnown = true } = {}) {
+  const parsed = parseGhSubcommand(cmd);
+  if (!parsed) return null;
+  const { sub, verb } = parsed;
+
+  if ((sub === 'issue' || sub === 'pr') && verb === 'edit') {
+    const resolved = resolveEditBody(cmd, cwdKnown);
+    if (resolved === undefined) return null; // no body param: not this guard's concern
+    return { kind: sub, body: resolved.body };
+  }
+  if (sub === 'api' && /(?:^|\s)(?:-f|-F|--field|--raw-field)\s+['"]?body=/.test(cmd)) {
+    return { kind: 'api', body: resolveApiBody(cmd, cwdKnown) };
+  }
+  return null;
+}
+
+// Every body-clobbering write in a whole command: the shared statement walk
+// finds each `gh` write, then each statement is resolved on its own with the
+// cwd state at that point. Opaque writes are skipped. If the walk cannot load
+// (a partial install), fall back to the single-statement check so a leading
+// empty-body write still blocks.
+function ghBodyWrites(cmd) {
+  let ghWrites;
+  try {
+    ({ ghWrites } = require('./trailhead-secret-guard.js'));
+  } catch {
+    const hit = ghBodyWrite(cmd);
+    return hit ? [hit] : [];
+  }
+  const hits = [];
+  for (const w of ghWrites(cmd, {})) {
+    if (w.kind === 'opaque') continue;
+    const hit = ghBodyWrite(w.text, { cwdKnown: w.cwdKnown });
+    if (hit) hits.push(hit);
+  }
+  return hits;
+}
+
+function blockVerdict(kind) {
+  const label = kind === 'api' ? 'GitHub API write' : `gh ${kind} edit`;
+  return {
+    kind: 'block',
+    payload: {
+      decision: 'block',
+      code: 'EMPTY_ISSUE_BODY_WRITE',
+      reason:
+        `trailhead: this ${label} would set an EMPTY issue body, overwriting the existing one. ` +
+        'A trailhead body is never legitimately empty, so this usually means a read-modify-write whose ' +
+        'pre-write read returned an empty or degraded body (e.g. a transient HTTP 5xx on `gh issue view --json body`). ' +
+        'Aborting to protect the existing body: re-read the current body (treat a non-200 or empty read as a hard ' +
+        'error, retry once with backoff), rebuild it, then write again.',
+    },
+  };
+}
+
+// The final gate (#227): a construct the guard cannot interpret (eval, source / `.`, a
+// bash 5.3 `${ cmd; }`, printf -v, a function definition, an alias, a quoted or split
+// `gh api` body key, a backslash-newline inside a word) is blocked, not emulated, when
+// it can matter here: its payload, its later calls, a write after it or its own
+// statement is a body write by ghBodyWrites (a quoted api key only when the body it sets is
+// empty or unknowable).
+// Returns a block verdict or null.
+function unmodelledGate(cmd) {
+  const { findUnmodelled, firstRelevant, unmodelledReason } = require('./lib/unmodelled.js');
+  const hits = findUnmodelled(cmd);
+  // A quoted api key is no gap when the body it sets is known and not empty
+  // (`-f 'body'=@file` is read like the plain form); only an empty or unknowable one is.
+  const emptyOrUnknown = (h) => ghBodyWrites(h.payload).some((w) => w.body === null || w.body === undefined || isEmptyBody(w.body));
+  const hit = firstRelevant(hits, (text) => ghBodyWrites(text).length > 0, ['api-field']) ||
+    hits.find((h) => h.id === 'api-field' && emptyOrUnknown(h));
+  if (!hit) return null;
+  let redact; // the secret-guard's redactor; without it the message omits the sample
+  try {
+    ({ redact } = require('./trailhead-secret-guard.js'));
+  } catch {
+    redact = undefined;
+  }
+  return {
+    kind: 'block',
+    payload: {
+      decision: 'block',
+      code: 'BODY_GUARD_UNMODELLED_CONSTRUCT',
+      reason: unmodelledReason('body-guard', 'that it does not overwrite a body with an empty one', hit, redact),
+    },
+  };
+}
+
+// Pure verdict for one command: {kind:'allow'} or {kind:'block', payload}. Never
+// exits or writes; any internal error falls through to allow (a crash here must
+// never block a legitimate write). The unmodelled-construct gate runs last, so an
+// empty body found above keeps its own verdict.
+function evaluate(cmd) {
+  try {
+    for (const hit of ghBodyWrites(cmd)) {
+      if (hit.body === null || hit.body === undefined) continue; // a body we cannot prove empty
+      if (isEmptyBody(hit.body)) return blockVerdict(hit.kind);
+    }
+    const gate = unmodelledGate(cmd);
+    if (gate) return gate;
+  } catch {
+    // never let a crash here block a legitimate write
+  }
+  return { kind: 'allow' };
+}
+
+function run(data) {
+  let cmd = '';
+  try {
+    cmd = (JSON.parse(data).tool_input || {}).command || '';
+  } catch {
+    process.exit(0); // unparseable input: nothing meaningful to say
+  }
+  const v = evaluate(cmd);
+  if (v.kind === 'block') {
+    process.stdout.write(JSON.stringify(v.payload));
+    process.exit(2);
+  }
+  process.exit(0);
+}
+
+if (require.main === module) {
+  let data = '';
+  const timer = setTimeout(() => process.exit(0), 5000); // stdin never ends → give up (no write identified)
+  process.stdin.on('data', (c) => (data += c));
+  process.stdin.on('end', () => {
+    clearTimeout(timer);
+    run(data);
+  });
+}
+
+module.exports = { ghBodyWrite, ghBodyWrites, isEmptyBody, resolveEditBody, resolveApiBody, evaluate };

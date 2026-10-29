@@ -1,0 +1,124 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.karanb192.nerf-receipts",
+  "type": "plugin",
+  "name": "Nerf Receipts",
+  "slug": "nerf-receipts",
+  "vendor": "karanb192",
+  "description": "🪝 DipoleML hooks + an installable plugin marketplace: safety, cost, observability, productivity.",
+  "version": "1.0.3",
+  "homepage": "https://github.com/karanb192/claude-code-hooks",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "anthropic",
+    "automation",
+    "claude-code-hooks",
+    "claude-code-plugin",
+    "cli",
+    "developer-tools",
+    "hooks",
+    "marketplace",
+    "notifications"
+  ],
+  "tags": [
+    "ai-tools",
+    "anthropic",
+    "automation",
+    "claude",
+    "claude-code",
+    "claude-code-hooks",
+    "claude-code-plugin",
+    "cli",
+    "developer-tools",
+    "hooks",
+    "marketplace",
+    "notifications",
+    "plugin",
+    "security"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "karanb192",
+    "brandName": "karanb192",
+    "source": "https://github.com/karanb192.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:13:39Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "karanb192/claude-code-hooks",
+    "url": "https://github.com/karanb192/claude-code-hooks",
+    "commit": "57a28c7687305e4a9b9dd50490e9b3c552c71ca4",
+    "path": "plugins/nerf-receipts",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 567,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:48:38Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Nerf Receipts | 🪝 Claude Code hooks + an installable plugin marketplace: safety, cost, observability, productivity.",
+        "after": "Nerf Receipts | 🪝 DipoleML hooks + an installable plugin marketplace: safety, cost, observability, productivity.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "A personal flight recorder for Claude Code quality. Background hooks (async, zero added latency) record your own per-session signals keyed by model id and Claude Code version: tool-failure rate, same-file edit churn, turn-end counts, and tokens-per-completed-task. At your next SessionStart (or on demand via /nerf-receipts:receipts) it renders a trend card with sparklines and flags meaningful shifts that coincide with a model change, so the next time someone says \"they nerfed it\" you have data instead of vibes.",
+        "after": "A personal flight recorder for DipoleML quality. Background hooks (async, zero added latency) record your own per-session signals keyed by model id and DipoleML version: tool-failure rate, same-file edit churn, turn-end counts, and tokens-per-completed-task. At your next SessionStart (or on demand via /nerf-receipts:receipts) it renders a trend card with sparklines and flags meaningful shifts that coincide with a model change, so the next time someone says \"they nerfed it\" you have data instead of vibes.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

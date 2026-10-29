@@ -1,0 +1,23 @@
+# Release assets for the example creatures: sha256, bytes, asset name on the release, where it goes in the repo.
+# Release: https://github.com/Patch-gg/anymove/releases/tag/examples-v1 (tools/fetch_examples.sh downloads and checks these)
+# mesh: the Tripo H3.1 model each assets/<creature>/rig.json was placed on
+7d25b0f75c03f84d11bef0cde823d2039637115fd2250eba23e1d3ff99ffdce4 10726072 wolf.glb assets/wolf/model.glb
+bf2f97d4220cad1c208580fde139990da7b9552717f7962c9e9f081ce79d8128 13256908 dragon.glb assets/dragon/model.glb
+e82d443d1ab9f497db24622afc230b37ff2c36b0cc40ad6e656b3f1632ce0114 15377764 spider.glb assets/spider/model.glb
+fdc3948df59fb92fabb3eec8ae3d3e0b6409a1fc79994aa910de0bf057b852af 14874932 demon.glb assets/demon/model.glb
+# reader: a trained joint reader (DINOv2 ViT-B/14 + head), 20 epochs on 2,200 renders
+8a797cc9ce7162cdf1a835a96ab06fe7214e1d4d258bc98d970aa59d1ecdad75 355298675 reader-wolf.pt runs/wolf/reader.pt
+17066c0f4c3900445b6e406271d7ac9d113094888f84655d1c50b8c5a661f29a 355306587 reader-dragon.pt runs/dragon/reader.pt
+c80b7db316c976af19baa658c10a5175cc4ccf8c36ea162847cd86e76dcf2daf 355301275 reader-spider.pt runs/spider/reader.pt
+b2b2ca1b9ca3156839ae1e062da9f481f91a182dc954bc1e8803d9170a764bdd 355304167 reader-demon.pt runs/demon/reader.pt
+# clip: one MiniMax H3 Max two-camera clip per creature and the reference frame it started from
+e06ebcaf4eb5fad98939c95ff682e9988390626a14670a61b158cb162a8e049f 245855 ref-wolf.png runs/wolf/ref/ref.png
+71d01d37e581b986d47cc25e45acbba3c8272d88fde7a427798a3bd87d4ba140 4385056 clip-wolf-trot.mp4 runs/wolf/videos/trot/s1/h3max.mp4
+9c7ad169c241842202bb3c68413b3633aa084706d96a80d58015de4b8d67a9fb 209092 ref-dragon.png runs/dragon/ref/ref.png
+135f4e8d79f7b8f76c122cc4abce7bc3d8f3f7a3cfd44350f3e82939ad7855f6 3766498 clip-dragon-roar.mp4 runs/dragon/videos/roar/s1/h3max.mp4
+44e6bcb87d6b7dc23b921cd9d534c31a4b3e1e1c3af81d2eb646894230558cd1 194984 ref-spider.png runs/spider/ref/ref.png
+f852e1386fcd67fc4fc9e438c2b1c9e713392a05603f61f384b0ec98ecd90842 3444393 clip-spider-rear.mp4 runs/spider/videos/rear/s1/h3max.mp4
+264493c12adecc09069b5e5d740abecfc51169b5cc57484a92121b7a4543fdf7 282439 ref-demon.png runs/demon/ref/ref.png
+2062ef188701f01b11c38dab8a768ce321a0e42a5375e2a1eb9cd390be7ef951 4762986 clip-demon-flap.mp4 runs/demon/videos/flap/s1/h3max.mp4
+# lora: the wolf's two-camera LoRA on MiniMax H3 (1,200 steps; skills/anymove-lora). MiniMax H3's community licence applies, not Apache-2.0
+2eaa8a8e558d6468443422719a48575be9182c03fe4deae249322d07be81eded 131229792 lora-wolf-twocam-h3.safetensors runs/wolf/lora/twocam_wolf_h3_lora.safetensors

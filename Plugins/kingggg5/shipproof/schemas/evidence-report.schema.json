@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/kingggg5/shipproof/schemas/evidence-report.schema.json",
+  "title": "ShipProof optional analyzer evidence report",
+  "allOf": [
+    { "$ref": "evidence-envelope.schema.json" },
+    {
+      "type": "object",
+      "required": ["root", "adapter", "analyzer", "process_exit_code", "passed", "diagnostics"],
+      "properties": {
+        "tool": { "properties": { "command": { "const": "evidence" } } },
+        "root": { "type": "string", "minLength": 1 },
+        "adapter": { "enum": ["typescript", "go", "rust"] },
+        "analyzer": { "type": "string", "minLength": 1 },
+        "analyzer_version": { "type": "string", "minLength": 1, "maxLength": 256 },
+        "process_exit_code": { "type": "integer", "minimum": 0 },
+        "passed": { "type": "boolean" },
+        "diagnostics": { "type": "array", "items": { "type": "string" } },
+        "diagnostics_truncated": { "type": "boolean" },
+        "severity_counts": {
+          "type": "object",
+          "required": ["error", "warning", "other"],
+          "properties": {
+            "error": { "type": "integer", "minimum": 0 },
+            "warning": { "type": "integer", "minimum": 0 },
+            "other": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": false
+        }
+      }
+    }
+  ],
+  "unevaluatedProperties": false
+}

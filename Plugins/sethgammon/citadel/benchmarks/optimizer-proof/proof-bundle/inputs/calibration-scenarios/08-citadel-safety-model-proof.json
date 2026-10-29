@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "id": "citadel-safety-model-proof",
+  "category": "safety_boundary",
+  "repository": "https://github.com/SethGammon/Citadel.git",
+  "pinned_ref": "4a02265c206d992b556fc1b38c3c9487ced880d8",
+  "task": "Add an adversarial model-substitution regression proving a requested executor cannot pass when its trusted observation names a different model, while missing telemetry remains unknown.",
+  "setup_command": ["node", "--version"],
+  "verification_command": ["node", "scripts/test-executor-profiles.js"],
+  "expected_artifacts": ["scripts/test-executor-profiles.js"],
+  "allowed_tools": ["read", "search", "edit", "test", "git"],
+  "timeout_minutes": 35,
+  "probe_budget": {
+    "max_files": 900,
+    "max_bytes": 3145728,
+    "max_duration_ms": 3000
+  },
+  "max_attempts": 2,
+  "max_agents": 1,
+  "candidate_executors": ["codex-utility", "claude-workhorse", "claude-frontier", "codex-frontier"],
+  "holdout": true,
+  "adversarial_case": "model_substitution"
+}

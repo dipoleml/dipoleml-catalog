@@ -1,0 +1,415 @@
+#!/usr/bin/env node
+
+/**
+ * test-quality-gate.js -- Offline tests for quality-gate inline suppression.
+ *
+ * Verifies the <!-- citadel:ignore ... --> marker contract:
+ *   (a) only explicit Markdown cross-reference waivers are honored
+ *   (b) source files retain every configured lens, including blocking checks
+ *   (c) markers in Markdown code examples are inert
+ *   (d) files without a marker are unaffected
+ *   (e) the cross-reference lens itself is unchanged (marker lives upstream)
+ *   (f) .citadelignore fingerprints waive single cross-reference findings
+ *       only; entries for other lenses have no effect
+ *
+ * Stdlib only. No network, no LLM.
+ *
+ * Usage: node scripts/test-quality-gate.js
+ */
+
+'use strict';
+
+// quality-gate reads harness.json via harness-health-util, which requires a
+// resolvable runtime. Pin one so dual-marker checkouts stay hermetic.
+process.env.CITADEL_RUNTIME = 'claude-code';
+
+const path = require('path');
+const assert = require('assert');
+const fs = require('fs');
+const os = require('os');
+const { execFileSync, spawnSync } = require('child_process');
+const health = require('../hooks_src/harness-health-util');
+const originalReadConfig = health.readConfig;
+let config = {};
+health.readConfig = () => config;
+const {
+  parseIgnoreFile,
+  isIgnoredViolation,
+  parseInlineIgnores,
+  selectColdPathLenses,
+  lensCrossReference,
+  lensPerformance,
+  lensContractual,
+} = require(path.join(__dirname, '..', 'hooks_src', 'quality-gate.js'));
+
+// The all-property transition rule matches class tokens, not rule IDs.
+{
+  const token = ['transition', 'all'].join('-');
+  const flagged = (text) => lensPerformance('ui.tsx', text, [`no-${token}`])
+    .some(v => v.rule === `no-${token}`);
+  assert(flagged(`<div className="${token} duration-200">`));
+  assert(flagged(`<div className="hover:${token}">`));
+  assert(!flagged(`builtIn: ['no-${token}']`));
+  assert(!flagged(`const name = '${token}-fast';`));
+}
+
+// Regression: the gate and lint enforce the same mandatory skill contract.
+{
+  const { STRUCTURE_CHECKS, parseFrontmatter } = require('../core/skills/structure');
+  const root = path.join(__dirname, '..');
+  const file = 'skills/example/SKILL.md';
+  const fixture = (protocol = '## Protocol') => [
+    '---', 'name: example', 'description: A substantive test skill description.',
+    'user-invocable: true', '---', '## Orientation', 'Use when testing.',
+    protocol, 'Execute the task.', '## Quality Gates', 'Verify output.',
+    '## Exit Protocol', 'Return evidence.',
+  ].join('\n');
+  const mandatoryFailures = content => {
+    const { frontmatter, body } = parseFrontmatter(content);
+    return STRUCTURE_CHECKS.filter(check => check.check(frontmatter, body) !== true);
+  };
+  for (const name of fs.readdirSync(path.join(root, 'skills'))) {
+    const skillPath = `skills/${name}/SKILL.md`;
+    if (!fs.existsSync(path.join(root, skillPath))) continue;
+    const content = fs.readFileSync(path.join(root, skillPath), 'utf8');
+    assert.equal(mandatoryFailures(content).length, 0, `${name}: lint contract`);
+    assert.deepEqual(lensContractual(skillPath, content), [], `${name}: gate contract`);
+  }
+  for (const heading of ['Protocol', 'Commands', 'Steps', 'How Work', 'How You Work',
+    'How to Use', 'Execution Protocol']) {
+    assert.deepEqual(lensContractual(file, fixture(`## ${heading}`)), [], heading);
+  }
+  for (const heading of ['Step 1', 'Tier 2', 'Phase 3']) {
+    assert.deepEqual(lensContractual(file, fixture(`### ${heading}`)), [], heading);
+  }
+  for (const heading of ['## Orientation', '## Identity', '## When to Use', '']) {
+    assert.deepEqual(lensContractual(file, fixture().replace('## Orientation', heading)), []);
+  }
+  assert.deepEqual(lensContractual(file, fixture().replace(/\n/g, '\r\n')), []);
+  for (const fragment of ['name: example', 'description: A substantive test skill description.',
+    'user-invocable: true', '## Protocol', '## Quality Gates', '## Exit Protocol']) {
+    const content = fixture().replace(fragment, '');
+    assert(mandatoryFailures(content).length > 0, fragment);
+    assert(lensContractual(file, content).length > 0, fragment);
+  }
+  for (const content of [fixture().replace('## Protocol', 'Inline ## Protocol mention'),
+    fixture().replace('description: A substantive test skill description.', 'description: short'),
+    '## Protocol\n## Quality Gates\n## Exit Protocol']) {
+    assert(mandatoryFailures(content).length > 0);
+    assert(lensContractual(file, content).length > 0);
+  }
+  for (const companion of ['skills/example/README.md', 'skills/example/__benchmarks__/basic.md', 'docs/SKILLS.md']) {
+    assert.deepEqual(lensContractual(companion, 'No skill frontmatter'), []);
+  }
+  console.log('  PASS  shared skill contract: full corpus, aliases and invalid structures');
+}
+
+// Shared hot/cold performance rules, including real PostToolUse dispatch.
+{
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'citadel-performance-parity-'));
+  const token = ['transition', 'all'].join('-');
+  const modal = ['pro', 'mpt'].join('');
+  try {
+    fs.mkdirSync(path.join(root, '.claude'));
+    const configPath = path.join(root, '.claude', 'harness.json');
+    const filePath = path.join(root, 'example.js');
+    const runHot = (content, builtIn) => {
+      fs.writeFileSync(filePath, content);
+      fs.writeFileSync(configPath, JSON.stringify({ qualityRules: { builtIn },
+        verification: { disabled: ['programmatic', 'structural', 'cross-reference'] } }));
+      const run = spawnSync(process.execPath, [path.join(__dirname, '..', 'hooks_src', 'post-edit.js')], {
+        cwd: root, encoding: 'utf8', input: JSON.stringify({ tool_name: 'Write', tool_input: { file_path: filePath } }),
+        env: { ...process.env, CLAUDE_PROJECT_DIR: root, CITADEL_UI: 'false' },
+      });
+      assert.equal(run.status, 0, run.stderr);
+      return run.stdout;
+    };
+    const rules = ['no-confirm-alert', `no-${token}`];
+    for (const content of [`const rules = ['no-${token}'];`, `<div className="hover:${token}">`,
+      `${modal}('input');`, `${'al' + 'ert'}('message'); // eslint comment`]) {
+      const cold = lensPerformance('example.js', content, rules);
+      const hot = runHot(content, rules);
+      assert.equal(hot.includes('[lint]'), cold.length > 0, content);
+      for (const finding of cold) assert(hot.includes(finding.message), hot);
+      assert(!runHot(content, []).includes('[lint]'), 'disabled rules must stay disabled');
+    }
+    assert.equal(lensPerformance('example.css', `.${token} {}`, rules).length, 1);
+    assert.equal(lensPerformance('example.md', token, rules).length, 0);
+    assert.equal(lensPerformance('example.js', 'setInterval(tick, 1000)', ['no-magic-intervals']).length, 1);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+}
+
+let failures = 0;
+
+function check(label, condition, detail) {
+  if (condition) {
+    console.log(`  PASS  ${label}`);
+  } else {
+    failures++;
+    console.error(`  FAIL  ${label}${detail ? ` -- ${detail}` : ''}`);
+  }
+}
+
+console.log('quality-gate inline suppression tests\n');
+
+const refDoc = 'See `planned/feature.ts` for the design.';
+const markedDoc = '<!-- citadel:ignore cross-reference -->\n' + refDoc;
+const bareMarkedDoc = '<!-- citadel:ignore -->\n' + refDoc;
+const multiMarkedDoc = '<!-- citadel:ignore cross-reference, secrets -->\n' + refDoc;
+
+const withMarker = selectColdPathLenses('docs/plan.md', markedDoc);
+check('named marker drops only that lens',
+  !withMarker.includes('cross-reference') && withMarker.includes('contractual'),
+  JSON.stringify(withMarker));
+
+const withoutMarker = selectColdPathLenses('docs/plan.md', refDoc);
+check('unmarked file keeps all lenses',
+  withoutMarker.includes('cross-reference') && withoutMarker.includes('contractual'),
+  JSON.stringify(withoutMarker));
+
+check('bare marker is inert',
+  selectColdPathLenses('docs/plan.md', bareMarkedDoc).length === 2);
+
+check('mixed comma-separated waiver is inert',
+  parseInlineIgnores(multiMarkedDoc).size === 0);
+
+check('mixed space-separated waiver is inert',
+  parseInlineIgnores('<!-- citadel:ignore cross-reference secrets -->').size === 0);
+
+check('unrelated comment is ignored',
+  parseInlineIgnores('<!-- ignore this -->' + refDoc).size === 0);
+
+check('lens itself still reports missing refs',
+  lensCrossReference('docs/plan.md', markedDoc).length === 1,
+  'marker must filter at dispatch, not inside the lens');
+
+const marker = '<!-- citadel:ignore cross-reference -->';
+for (const name of ['all', '*', 'contractual', 'secrets', 'custom', 'adversarial']) {
+  check(`${name} cannot be waived inline`,
+    parseInlineIgnores(`<!-- citadel:ignore ${name} -->`).size === 0);
+}
+check('skill contracts remain checked',
+  selectColdPathLenses('skills/example/SKILL.md', markedDoc).includes('contractual'));
+check('CRLF and up to three spaces of indentation are supported',
+  parseInlineIgnores(`   ${marker}\r\n${refDoc}`).has('cross-reference'));
+check('undefined content is supported', parseInlineIgnores(undefined).size === 0);
+
+config = { qualityRules: { blocking: true } };
+for (const ext of ['js', 'jsx', 'ts', 'tsx', 'py', 'go', 'rs', 'css', 'scss']) {
+  const file = `src/app.${ext}`;
+  const baseline = JSON.stringify(selectColdPathLenses(file, ''));
+  for (const names of ['', 'all', 'secrets adversarial custom', 'cross-reference']) {
+    const comment = `<!-- citadel:ignore ${names} -->`;
+    check(`${ext}: ${names || 'bare'} marker cannot waive source checks`,
+      [comment, `/* ${comment} */`, `const note = '${comment}';`].every(content =>
+        JSON.stringify(selectColdPathLenses(file, content)) === baseline));
+  }
+}
+config = {};
+
+const examples = [
+  `\`\`\`markdown\n${marker}\n\`\`\``,
+  `~~~html\r\n${marker}\r\n~~~`,
+  `   \`\`\`html\n${marker}\n   \`\`\``,
+  `\`\`\`\`markdown\n\`\`\`\n${marker}\n\`\`\`\``,
+  `~~~\n\`\`\`\n${marker}\n~~~`,
+  `\`\`\`\n\`\`\`not-a-close\n${marker}\n\`\`\``,
+  `\`\`\`html\n${marker}`,
+  `    ${marker}`,
+  `\t${marker}`,
+  `\`${marker}\``,
+  `For example: ${marker}`,
+  `- \`\`\`html\n  ${marker}\n  \`\`\``,
+  `1. ~~~html\n   ${marker}\n   ~~~`,
+  `> \`\`\`html\n> ${marker}\n> \`\`\``,
+];
+for (const [index, example] of examples.entries()) {
+  check(`Markdown code example ${index + 1} is inert`,
+    selectColdPathLenses('docs/plan.md', example).includes('cross-reference'));
+}
+for (const fence of ['```', '~~~', '````']) {
+  check(`real waiver after ${fence} fence is honored`,
+    parseInlineIgnores(`${fence}html\n${marker}\n${fence}${fence[0]}\n${marker}`).has('cross-reference'));
+}
+config = { verification: { disabled: ['contractual', 'performance'] } };
+check('project-level disabled configuration composes with inline waiver',
+  selectColdPathLenses('docs/plan.md', markedDoc).length === 0 &&
+  JSON.stringify(selectColdPathLenses('src/app.js', marker)) === JSON.stringify(['adversarial', 'custom', 'secrets']));
+health.readConfig = originalReadConfig;
+
+// .citadelignore: line-based fingerprints, like .gitleaksignore.
+const fingerprints = parseIgnoreFile([
+  '# planned files',
+  '',
+  '  docs/plan.md:cross-reference:planned/feature.ts  ',
+  'docs\\win.md:cross-reference:planned/feature.ts',
+  'src/app.js:secrets:aws-access-key-id',
+].join('\r\n'));
+check('ignore file skips blanks and comments, trims, normalizes separators',
+  fingerprints.size === 3 && fingerprints.has('docs/plan.md:cross-reference:planned/feature.ts')
+  && fingerprints.has('docs/win.md:cross-reference:planned/feature.ts'));
+const [refViolation] = lensCrossReference('docs/plan.md', refDoc);
+check('cross-reference findings carry a fingerprint',
+  refViolation && refViolation.fingerprint === 'docs/plan.md:cross-reference:planned/feature.ts');
+check('listed cross-reference fingerprint is ignored', isIgnoredViolation(refViolation, fingerprints));
+check('fingerprint for another file is not ignored',
+  !isIgnoredViolation({ ...refViolation, fingerprint: 'docs/other.md:cross-reference:planned/feature.ts' }, fingerprints));
+check('non-ignorable lenses cannot be waived by fingerprint',
+  !isIgnoredViolation({ file: 'src/app.js', lens: 'secrets', fingerprint: 'src/app.js:secrets:aws-access-key-id' }, fingerprints));
+check('missing or non-string ignore content yields no fingerprints', parseIgnoreFile(undefined).size === 0);
+
+// Exercise the actual stdin runner, config loading, dispatch and blocking output.
+const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'citadel-quality-gate-'));
+try {
+  const git = args => execFileSync('git', args, { cwd: sandbox, stdio: 'pipe' });
+  git(['init']);
+  fs.mkdirSync(path.join(sandbox, '.claude'));
+  fs.writeFileSync(path.join(sandbox, '.claude', 'harness.json'), JSON.stringify({
+    qualityRules: { blocking: true, custom: [{ pattern: 'REVIEW_SENTINEL', message: 'Custom check survived' }] },
+  }));
+  const files = ['source.js', 'fenced.md', 'waived.md', 'listed.md'];
+  for (const file of files) fs.writeFileSync(path.join(sandbox, file), 'baseline\n');
+  git(['add', ...files]);
+  git(['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'fixture']);
+  fs.writeFileSync(path.join(sandbox, 'source.js'), [
+    '/* <!-- citadel:ignore --> */',
+    '/* <!-- citadel:ignore secrets adversarial custom --> */',
+    `/* ${marker} */`,
+    // This file is only scanned, never executed. Exercise the adversarial lens
+    // with an HTML assignment instead of a dynamic-execution example.
+    `element.${'inner' + 'HTML'} = userInput; // REVIEW_SENTINEL`,
+    `const credential = '${'AKIA' + '0123456789ABCDEF'}';`,
+  ].join('\n'));
+  fs.writeFileSync(path.join(sandbox, 'fenced.md'), `\`\`\`html\n${marker}\n\`\`\`\n${refDoc}`);
+  fs.writeFileSync(path.join(sandbox, 'waived.md'), markedDoc);
+  // listed.md has one waived and one live reference; source.js tries to waive
+  // a secrets finding, which must have no effect.
+  fs.writeFileSync(path.join(sandbox, 'listed.md'), `${refDoc}\nAlso \`planned/other.ts\`.\n`);
+  fs.writeFileSync(path.join(sandbox, '.citadelignore'), [
+    '# intentional forward references',
+    'listed.md:cross-reference:planned/feature.ts',
+    'source.js:secrets:aws-access-key-id',
+    '',
+  ].join('\n'));
+  const result = spawnSync(process.execPath, [path.join(__dirname, '..', 'hooks_src', 'quality-gate.js')], {
+    cwd: sandbox, input: '{}', encoding: 'utf8', timeout: 15000,
+    env: { ...process.env, CITADEL_RUNTIME: 'claude-code', CITADEL_UI: 'false',
+      CLAUDE_PROJECT_DIR: sandbox, CLAUDE_PLUGIN_DATA: path.join(sandbox, '.claude') },
+  });
+  assert.strictEqual(result.status, 0, result.stderr);
+  const output = JSON.parse(result.stdout);
+  assert.strictEqual(output.decision, 'block');
+  for (const lens of ['adversarial', 'custom', 'secrets']) {
+    assert(output.reason.includes(`source.js: [${lens}]`), output.reason);
+  }
+  assert(output.reason.includes('fenced.md: [cross-reference]'), output.reason);
+  assert(!output.reason.includes('waived.md:'), output.reason);
+  assert(!output.reason.includes('listed.md:cross-reference:planned/feature.ts'), output.reason);
+  assert(output.reason.includes('(fingerprint: listed.md:cross-reference:planned/other.ts)'), output.reason);
+  assert(output.reason.includes('.citadelignore'), output.reason);
+  check('blocking Stop hook preserves source checks and fenced-document warnings', true);
+  check('.citadelignore waives only listed cross-reference fingerprints end to end', true);
+} catch (error) {
+  check('blocking Stop hook preserves source checks and fenced-document warnings', false, error.message);
+} finally {
+  fs.rmSync(sandbox, { recursive: true, force: true });
+}
+
+// Repeated Stop advisories consume context without adding a new finding. The
+// real runner must still rescan, re-emit changed/recurring findings and block.
+{
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'citadel-quality-advisory-'));
+  try {
+    const git = args => execFileSync('git', args, { cwd: root, stdio: 'pipe' });
+    git(['init']);
+    const dataDir = path.join(root, '.claude');
+    fs.mkdirSync(dataDir);
+    const configPath = path.join(dataDir, 'harness.json');
+    const css = path.join(root, 'view.css');
+    const doc = path.join(root, 'notes.md');
+    const baseline = '.panel { color: blue; }\n';
+    const finding = `.${['transition', 'all'].join('-')} {}\n`;
+    const readCount = path.join(root, 'config-read-count.json');
+    const preload = path.join(root, 'config-read-count.js');
+    fs.writeFileSync(preload, [
+      `const health = require(${JSON.stringify(path.join(__dirname, '..', 'hooks_src', 'harness-health-util.js'))});`,
+      'const original = health.readConfig; let calls = 0;',
+      'health.readConfig = function(...args) { calls++; return original.apply(this, args); };',
+      `process.on('exit', () => require('fs').writeFileSync(${JSON.stringify(readCount)}, JSON.stringify({ calls })));`,
+    ].join('\n'));
+    fs.writeFileSync(css, baseline);
+    fs.writeFileSync(doc, 'Notes\n');
+    git(['add', 'view.css', 'notes.md']);
+    git(['-c', 'user.name=Test', '-c', 'user.email=test@example.invalid', 'commit', '-m', 'fixture']);
+    const runStop = (session, blocking = false, agent, builtIn = ['no-transition-all']) => {
+      fs.writeFileSync(configPath, JSON.stringify({ qualityRules: {
+        builtIn, blocking,
+      } }));
+      const result = spawnSync(process.execPath, ['--require', preload, path.join(__dirname, '..', 'hooks_src', 'quality-gate.js')], {
+        cwd: root, input: JSON.stringify({ session_id: session, agent_id: agent }), encoding: 'utf8', timeout: 15000,
+        env: { ...process.env, CITADEL_RUNTIME: 'claude-code', CITADEL_UI: 'false',
+          CLAUDE_PROJECT_DIR: root, CLAUDE_PLUGIN_DATA: dataDir },
+      });
+      assert.equal(result.status, 0, result.stderr);
+      return result.stdout;
+    };
+    fs.writeFileSync(css, finding);
+    const first = runStop('session-a');
+    assert(first.includes('[performance]'), first);
+    assert.equal(JSON.parse(fs.readFileSync(readCount, 'utf8')).calls, 1, 'one fresh configuration read per Stop');
+    assert.equal(runStop('session-a'), '', 'identical same-session advisory must be suppressed');
+    assert.equal(runStop('session-a'), '', 'third Stop must remain suppressed');
+    fs.writeFileSync(doc, 'See `planned/missing.ts`.\n');
+    const changed = runStop('session-a');
+    assert(changed.includes('[cross-reference]'), 'new finding must be emitted after a fresh scan');
+    assert.equal(JSON.parse(fs.readFileSync(readCount, 'utf8')).calls, 1, 'multiple changed files share one configuration snapshot');
+    assert.equal(runStop('session-a'), '', 'changed advisory is deduplicated after delivery');
+    assert(runStop('session-b').includes('[cross-reference]'), 'new session must receive the findings');
+    assert(runStop('session-a', false, 'agent-b').includes('[performance]'), 'another agent must receive the findings');
+    assert.equal(runStop('session-a', false, 'agent-b'), '', 'same agent receives one unchanged advisory');
+    assert(runStop(undefined).length > 0 && runStop(undefined).length > 0, 'missing session identity must always emit');
+    fs.writeFileSync(doc, 'Notes\n');
+    assert.equal(runStop('session-a'), first, 'return to the original advisory before clearing it');
+    fs.writeFileSync(css, baseline);
+    assert.equal(runStop('session-a'), '', 'clean diff must clear remembered advisory');
+    fs.writeFileSync(css, finding);
+    assert.equal(runStop('session-a'), first, 'byte-identical finding must return after a clean diff');
+    fs.writeFileSync(css, '.panel { color: red; }\n');
+    assert.equal(runStop('session-a'), '', 'dirty files without findings must also clear the advisory');
+    fs.writeFileSync(css, finding);
+    assert.equal(runStop('session-a'), first, 'byte-identical finding must return after a clean scan');
+    assert.equal(runStop('session-a', false, undefined, []), '', 'the next Stop must read changed rule configuration');
+    assert.equal(runStop('session-a'), first, 're-enabled rules must produce the original finding');
+    for (let i = 0; i < 2; i++) {
+      assert.equal(JSON.parse(runStop('session-a', true)).decision, 'block', 'blocking findings are never deduplicated');
+    }
+    const statePath = path.join(dataDir, 'quality-advisories.json');
+    fs.writeFileSync(statePath, '{invalid');
+    assert(runStop('session-a').length > 0, 'corrupt advisory cache must preserve delivery');
+    // Bound and validate storage directly through the same health helper in a
+    // subprocess; it stores hashes only and keeps the latest 32 scopes.
+    const helper = spawnSync(process.execPath, ['-e', [
+      `const health = require(${JSON.stringify(path.join(__dirname, '..', 'hooks_src', 'harness-health-util.js'))});`,
+      'for(let i=0;i<40;i++) health.qualityAdvisoryChanged({session_id:`scope-${i}`}, `message-${i}`);',
+    ].join('\n')], {
+      cwd: root, encoding: 'utf8', timeout: 15000,
+      env: { ...process.env, CLAUDE_PROJECT_DIR: root, CLAUDE_PLUGIN_DATA: dataDir },
+    });
+    assert.equal(helper.status, 0, helper.stderr);
+    const saved = JSON.parse(fs.readFileSync(statePath, 'utf8'));
+    assert.equal(saved.entries.length, 32);
+    assert(saved.entries.every(entry => Object.keys(entry).sort().join(',') === 'digest,scope'
+      && /^[a-f0-9]{64}$/.test(entry.scope) && /^[a-f0-9]{64}$/.test(entry.digest)));
+    fs.writeFileSync(statePath, 'x'.repeat(8193));
+    assert(runStop('session-a').length > 0, 'oversized cache must preserve delivery');
+    check('same-session advisory dedup preserves scans, identity, recurrence, blocking and bounded hash-only state', true);
+  } catch (error) {
+    check('same-session quality advisory dedup', false, error.stack || error.message);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+}
+
+if (failures > 0) {
+  console.error(`\n${failures} check(s) failed`);
+  process.exit(1);
+}
+console.log('\nAll checks passed.');

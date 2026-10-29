@@ -1,0 +1,16 @@
+{
+  "name": "dev-workflows",
+  "displayName": "Dev Workflows",
+  "version": "0.29.3",
+  "description": "Skills + Subagents for backend development - Use skills for coding guidance, or run recipe workflows for full orchestrated agentic coding with specialized agents",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Shinpr"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/shinpr/claude-code-workflows",
+  "repository": "https://github.com/shinpr/claude-code-workflows",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

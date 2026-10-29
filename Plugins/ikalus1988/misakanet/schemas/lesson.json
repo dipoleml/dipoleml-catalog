@@ -1,0 +1,93 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/Ikalus1988/MisakaNet/schemas/lesson.json",
+  "title": "MisakaNet Lesson",
+  "description": "Schema for validating MisakaNet lesson Markdown frontmatter",
+  "type": "object",
+  "required": ["title", "domain", "status"],
+  "properties": {
+    "title": {
+      "type": "string",
+      "minLength": 4,
+      "maxLength": 120,
+      "description": "Lesson title"
+    },
+    "domain": {
+      "type": "string",
+      "minLength": 2,
+      "description": "Knowledge domain — should match a domain file in docs/domains/"
+    },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 2 },
+      "minItems": 1,
+      "maxItems": 10,
+      "uniqueItems": true,
+      "description": "Search tags for BM25 retrieval"
+    },
+    "language": {
+      "type": "string",
+      "pattern": "^[a-z]{2}(-[A-Z]{2})?$",
+      "default": "zh",
+      "description": "ISO 639-1 language code (e.g. zh, en, ja). Default: zh"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["published", "draft", "archived", "active", "stale", "superseded"],
+      "description": "Publication status. Must stay identical to VALID_STATUS in scripts/lesson_gate.py — tests/test_lesson_status_vocabulary.py fails when the two disagree, because this enum is what the required `audit` check validates against."
+    },
+    "evidence_level": {
+      "type": "string",
+      "enum": ["E0", "E1", "E2", "E3", "E4"],
+      "default": "E0",
+      "description": "How well this lesson is evidenced — E0 self-reported, E1 maintainer reviewed, E2 locally reproduced, E3 CI/sandbox verified, E4 observed reuse by two or more distinct clients (never declared and never voted; see docs/trust-semantics.md). Missing means E0."
+    },
+    "source": {
+      "type": "string",
+      "description": "Origin of this lesson"
+    },
+    "created": {
+      "type": "string",
+      "description": "Creation timestamp"
+    },
+    "updated": {
+      "type": "string",
+      "description": "Last-updated timestamp"
+    },
+    "triggers": {
+      "type": "object",
+      "description": "Structured triggers for proactive retrieval before executing risky intents/commands",
+      "properties": {
+        "intents": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true,
+          "description": "Agent intent keywords/actions that match this lesson"
+        },
+        "commands": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true,
+          "description": "Shell commands, script names, or tools that trigger this lesson"
+        },
+        "environments": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true,
+          "description": "Environment/OS/hardware tags (e.g. wsl, gpu, cuda, linux, docker)"
+        },
+        "risks": {
+          "type": "array",
+          "items": { "type": "string", "minLength": 1 },
+          "uniqueItems": true,
+          "description": "Risk taxonomy tags (e.g. memory_pressure, no_checkpoint, batch_overflow, silent_failure)"
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["low", "medium", "high", "critical"],
+          "description": "Risk severity level for this lesson"
+        }
+      }
+    }
+  }
+}

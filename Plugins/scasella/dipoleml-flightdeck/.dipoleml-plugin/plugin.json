@@ -1,0 +1,16 @@
+{
+  "name": "dipoleml-flightdeck",
+  "displayName": "DipoleML Flightdeck",
+  "version": "0.5.1",
+  "description": "Flightdeck: a live agent dashboard for DipoleML. Main model vitals, an on-call architect, every permission check, subagent cards and swimlanes, a turn receipt and a session log, all from real session events",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Scasella"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/scasella/claude-flightdeck",
+  "repository": "https://github.com/scasella/claude-flightdeck",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

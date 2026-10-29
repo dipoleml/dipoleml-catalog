@@ -1,0 +1,10 @@
+{
+  "name": "spec-interview",
+  "description": "Refine a rough SPEC.md into an implementation-ready specification through a multi-round interview, then break it into ordered tasks. Use when starting a new feature or turning a rough idea into something a developer can build without asking questions.",
+  "version": "1.1.1",
+  "author": {
+    "name": "Leandro Zubrezki"
+  },
+  "repository": "https://github.com/leandroz/claude-plugins",
+  "license": "MIT"
+}

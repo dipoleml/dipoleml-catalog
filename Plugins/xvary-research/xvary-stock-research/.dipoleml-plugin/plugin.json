@@ -1,0 +1,16 @@
+{
+  "name": "xvary-stock-research",
+  "displayName": "Xvary Stock Research",
+  "version": "1.0.0",
+  "description": "Institutional-style stock snapshots in DipoleML: /analyze, /score, /compare from public EDGAR + market data.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Xvary Research"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/xvary-research/claude-code-stock-analysis-skill",
+  "repository": "https://github.com/xvary-research/claude-code-stock-analysis-skill",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

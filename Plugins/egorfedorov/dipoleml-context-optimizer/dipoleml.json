@@ -1,0 +1,129 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.egorfedorov.dipoleml-context-optimizer",
+  "type": "plugin",
+  "name": "DipoleML Context Optimizer",
+  "slug": "dipoleml-context-optimizer",
+  "vendor": "egorfedorov",
+  "description": "DipoleML plugin that tracks token usage, identifies wasted context, and saves 30-50% on API costs. Heatmaps, ROI reports, budget alerts, efficiency scores, git-aware suggestions — all local, zero config.",
+  "version": "5.1.1",
+  "homepage": "https://github.com/egorfedorov/claude-context-optimizer",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "anthropic",
+    "claude-code-plugin",
+    "cli-plugin",
+    "context-management",
+    "cost-saving",
+    "developer-tools",
+    "productivity",
+    "token-optimization"
+  ],
+  "tags": [
+    "ai-tools",
+    "anthropic",
+    "claude-code",
+    "claude-code-plugin",
+    "cli-plugin",
+    "context-management",
+    "cost-saving",
+    "developer-tools",
+    "productivity",
+    "token-optimization"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "egorfedorov",
+    "brandName": "egorfedorov",
+    "source": "https://github.com/egorfedorov.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:12:54Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "egorfedorov/claude-context-optimizer",
+    "url": "https://github.com/egorfedorov/claude-context-optimizer",
+    "commit": "1fb7a8693fa2ecd0e77f6c8669afe162c5f011a0",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 125,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:49:01Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Claude Context Optimizer | Claude Code plugin that tracks token usage, identifies wasted context, and saves 30-50% on API costs. Heatmaps, ROI reports, budget alerts, efficiency scores, git-aware suggestions — all local, zero config.",
+        "after": "DipoleML Context Optimizer | DipoleML plugin that tracks token usage, identifies wasted context, and saves 30-50% on API costs. Heatmaps, ROI reports, budget alerts, efficiency scores, git-aware suggestions — all local, zero config.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "See what Claude costs you and spend less of it. In chat: hand a long chat over to a new one, digest long documents, set up Projects, check tokens, sharpen prompts. In Claude Code: Haiku 5.5 subagents for reading and test runs; /cco audit of your own transcripts. Local, no telemetry.",
+        "after": "See what DipoleML costs you and spend less of it. In chat: hand a long chat over to a new one, digest long documents, set up Projects, check tokens, sharpen prompts. In DipoleML: Haiku 5.5 subagents for reading and test runs; /cco audit of your own transcripts. Local, no telemetry.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "claude-context-optimizer",
+        "after": "dipoleml-context-optimizer",
+        "reason": "provider token neutralized in slug/id"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "claude-context-optimizer"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "schema": 1,
+  "evidence_kind": "actual-run",
+  "scenario_set_id": "optimizer-scenarios-sha256:602e496906f3a293203750602234ba88a55a86b9e4f54f32239264098dcebe5b",
+  "metric_set_id": "optimizer-metrics-sha256:bedffbda2b18d725610b0f294a8273ef908237fd957bf9e51a5af4885b123e4f",
+  "scenario_id": "citadel-short-executor-proof",
+  "category": "short_control",
+  "holdout": true,
+  "policy_id": "prompt-only",
+  "repetition": 1,
+  "decision_id": "sha256:e7c5a04a81eb94285ddbbf6f28df2f30dd25f8b6dfbef492369d107ca8415248",
+  "selected_profile_id": "claude-workhorse",
+  "observed_profile_id": "claude-workhorse",
+  "requested_model": "claude-sonnet-5",
+  "observed_model": "claude-sonnet-5",
+  "model_proof_status": "passed",
+  "started_at": "2026-07-30T21:12:57.511Z",
+  "duration_ms": 170310,
+  "outcome": "passed",
+  "verified": true,
+  "attempts": 1,
+  "human_interventions": 0,
+  "topology": "single",
+  "cost": {
+    "status": "known",
+    "amount_usd": 0.428923,
+    "provenance": "tool_reported",
+    "source": "citadel_optimizer_runner",
+    "source_ref": "summed_attempts:1",
+    "pricing_snapshot_digest": null,
+    "components": [
+      {
+        "kind": "model",
+        "amount_usd": 0.428923,
+        "source": "attempt_1:claude total_cost_usd"
+      }
+    ]
+  },
+  "artifact_paths": [
+    "scripts/test-executor-profiles.js"
+  ],
+  "verification_receipts": [
+    {
+      "attempt": 1,
+      "profile_id": "claude-workhorse",
+      "status": "passed",
+      "exit_code": 0,
+      "timed_out": false,
+      "output_digest": "sha256:cfbcb5eb561d7757d10e054de15d8c886ab07285c428bc508c3dfec194eea343",
+      "output_excerpt": "[stdout]\nExecutor profiles passed: strict profiles, canonical digests, literal invocations, bound receipts, and honest model proof.\n\n[stderr]\n",
+      "output_truncated": false,
+      "patch_exit_code": 0,
+      "patch_digest": "sha256:1641d6076fdd93b49d43f52134a177be47da00ac5099e2984d1fab4ac6364f91",
+      "patch_excerpt": "diff --git a/scripts/test-executor-profiles.js b/scripts/test-executor-profiles.js\nindex 3178834..7b7aa30 100644\n--- a/scripts/test-executor-profiles.js\n+++ b/scripts/test-executor-profiles.js\n@@ -156,7 +156,21 @@ const wrapperInput = {\n };\n const wrapper = profiles.createForkReceiptWrapper({ ...wrapperInput, signingKey });\n const publicKey = crypto.createPublicKey(signingKey);\n-assert.equal(profiles.verifyForkReceiptWrapper(wrapper, { publicKey, expected: wrapperInput }).status, 'verified');\n+const verifiedVerification = profiles.verifyForkReceiptWrapper(wrapper, { publicKey, expected: wrapperInput });\n+assert.equal(verifiedVerification.status, 'verified');\n+\n+// A cryptographically verified receipt must never launder a missing model\n+// observation into a verified model match: model proof and receipt proof\n+// are independent facts.\n+const missingTelemetryWithVerifiedReceipt = profiles.missionControlExecutorState({\n+  profile: local, observation: null, wrapper, verification: verifiedVerification,\n+});\n+assert.equal(missingTelemetryWithVerifiedReceipt.receipt_status, 'verified');\n+assert.equal(missingTelemetryWithVerifiedReceipt.observed_model, null);\n+assert.equal(missingTelemetryWithVerifiedReceipt.model_status, 'unknown');\n+assert.equal(missingTelemetryWithVerifiedReceipt.model_reason_code, 'MODEL_OBSERVATION_MISSING');\n+assert.notEqual(missingTelemetryWithVerifiedReceipt.model_status, 'verified');\n+assert.notEqual(missingTelemetryWithVerifiedReceipt.model_status, 'passed');\n for (const field of ['fork_id', 'branch_id', 'contract_digest', 'executor_profile_digest', 'execution_receipt_digest', 'observation_digest']) {\n   const tampered = copy(wrapper);\n   tampered.receipt[field] = field.endsWith('digest') ? `sha256:${'c'.repeat(64)}` : `${tampered.receipt[field]}-tampered`;\n",
+      "patch_truncated": false,
+      "changed_paths": [
+        "scripts/test-executor-profiles.js"
+      ]
+    }
+  ],
+  "receipt_status": "verified",
+  "adversarial_result": null,
+  "failure_code": null,
+  "attestation": {
+    "algorithm": "ed25519",
+    "signature_base64": "78gEHuxu8LmlB/drwYk3Xmmejc3EY2PC40UJnlA0M/T0TuDiTMJ6qrzmeLCzX6hVEkqgCPnIr48+n46Jjl9ZCg=="
+  }
+}

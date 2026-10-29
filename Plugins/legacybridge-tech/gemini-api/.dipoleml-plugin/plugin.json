@@ -1,0 +1,16 @@
+{
+  "name": "gemini-api",
+  "displayName": "Gemini API",
+  "version": "1.0.0",
+  "description": "Google Gemini API integration for text generation, multimodal analysis, image generation (Nano Banana), function calling, search grounding, and embeddings via REST API",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Legacybridge Tech"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/legacybridge-tech/claude-plugins",
+  "repository": "https://github.com/legacybridge-tech/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

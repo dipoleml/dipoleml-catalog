@@ -1,0 +1,651 @@
+#!/usr/bin/env bash
+# error-tracking.sh — Extracted from orchestrate.sh
+# Functions: record_error, update_task_progress, get_active_form_verb,
+#            write_agent_status, render_agent_summary, record_oversize_event
+
+if ! type probe_result_file_status >/dev/null 2>&1; then
+    _octo_probe_results_lib="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/probe-results.sh"
+    [[ -f "$_octo_probe_results_lib" ]] && source "$_octo_probe_results_lib"
+fi
+if ! type _octo_run_output_usable_file >/dev/null 2>&1; then
+    _octo_run_contract_lib="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/run-contract.sh"
+    [[ -f "$_octo_run_contract_lib" ]] && source "$_octo_run_contract_lib"
+fi
+
+# Initialize this in the sourcing shell so command substitutions inherit one
+# stable fallback instead of creating a different run id in each subshell.
+if [[ -z "${OCTO_ERROR_TRACKING_FALLBACK_ID:-}" ]]; then
+    OCTO_ERROR_TRACKING_FALLBACK_ID="run-$(date -u +%Y%m%dT%H%M%SZ)-$$-${RANDOM:-0}"
+fi
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# UX ENHANCEMENTS: Feature 1 - Enhanced Spinner Verbs (v7.16.0)
+# Dynamic task progress updates with context-aware verbs
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# Update Claude Code task progress with activeForm
+update_task_progress() {
+    local task_id="$1"
+    local active_form="$2"
+
+    # Skip if task progress disabled or missing parameters
+    if [[ "$TASK_PROGRESS_ENABLED" != "true" ]]; then
+        log DEBUG "Task progress disabled - skipping update"
+        return 0
+    fi
+
+    if [[ -z "$task_id" || -z "$active_form" ]]; then
+        log DEBUG "Missing task_id or active_form - skipping update"
+        return 0
+    fi
+
+    if [[ -z "${CLAUDE_CODE_CONTROL_PIPE:-}" ]]; then
+        log DEBUG "CLAUDE_CODE_CONTROL_PIPE not set - skipping update"
+        return 0
+    fi
+
+    if [[ ! -p "$CLAUDE_CODE_CONTROL_PIPE" ]]; then
+        log WARN "CLAUDE_CODE_CONTROL_PIPE is not a pipe: $CLAUDE_CODE_CONTROL_PIPE"
+        return 1
+    fi
+
+    # Write to control pipe for Claude Code to update spinner
+    echo "TASK_UPDATE:${task_id}:activeForm:${active_form}" >> "$CLAUDE_CODE_CONTROL_PIPE" 2>/dev/null || {
+        log WARN "Failed to write to control pipe"
+        return 1
+    }
+
+    log DEBUG "Updated task $task_id: $active_form"
+    return 0
+}
+
+# Get context-aware activeForm verb for agent + phase combination
+get_active_form_verb() {
+    local phase="$1"
+    local agent="$2"
+    local prompt_context="${3:-}"  # Optional: for even more specific verbs
+
+    # Normalize phase name (aliases to canonical names)
+    case "$phase" in
+        probe) phase="discover" ;;
+        grasp) phase="define" ;;
+        tangle) phase="develop" ;;
+        ink) phase="deliver" ;;
+    esac
+
+    # Normalize agent name (remove version suffixes)
+    local agent_base
+    agent_base=$(echo "$agent" | sed 's/-[0-9].*$//' | sed 's/:.*//')
+
+    # Generate phase/agent-specific verb with emoji indicators
+    local verb=""
+    case "$phase" in
+        discover)
+            case "$agent_base" in
+                codex*) verb="🔴 Researching technical patterns (Codex)" ;;
+                gemini*|agy*|antigravity) verb="🧭 Exploring ecosystem and options (Antigravity)" ;;
+                claude*) verb="🔵 Synthesizing research findings" ;;
+                *) verb="🔍 Researching and exploring" ;;
+            esac
+            ;;
+        define)
+            case "$agent_base" in
+                codex*) verb="🔴 Analyzing technical requirements (Codex)" ;;
+                gemini*|agy*|antigravity) verb="🧭 Clarifying scope and constraints (Antigravity)" ;;
+                claude*) verb="🔵 Building consensus on approach" ;;
+                *) verb="🎯 Defining requirements" ;;
+            esac
+            ;;
+        develop)
+            case "$agent_base" in
+                codex*) verb="🔴 Generating implementation code (Codex)" ;;
+                gemini*|agy*|antigravity) verb="🧭 Exploring alternative approaches (Antigravity)" ;;
+                claude*) verb="🔵 Integrating and validating solution" ;;
+                *) verb="🛠️  Developing implementation" ;;
+            esac
+            ;;
+        deliver)
+            case "$agent_base" in
+                codex*) verb="🔴 Analyzing code quality (Codex)" ;;
+                gemini*|agy*|antigravity) verb="🧭 Testing edge cases and security (Antigravity)" ;;
+                claude*) verb="🔵 Final review and recommendations" ;;
+                *) verb="✅ Validating and testing" ;;
+            esac
+            ;;
+        *)
+            verb="Processing with $agent"
+            ;;
+    esac
+
+    echo "$verb"
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# v8.19.0 FEATURE: ERROR LEARNING LOOP (Veritas-inspired)
+# Structured error capture with similar-error detection and repeat flagging.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+record_error() {
+    local agent="$1"
+    local task="$2"
+    local error_msg="$3"
+    local exit_code="${4:-1}"
+    local attempt_desc="${5:-}"
+
+    local error_dir="${WORKSPACE_DIR}/.octo/errors"
+    local error_file="$error_dir/error-log.md"
+    mkdir -p "$error_dir"
+
+    # Cap at 100 entries: count existing, trim oldest if needed
+    if [[ -f "$error_file" ]]; then
+        local entry_count
+        entry_count=$(grep -c "^### ERROR |" "$error_file" 2>/dev/null) || entry_count=0
+        if [[ "$entry_count" -ge 100 ]]; then
+            # Remove first entry (everything up to second ### ERROR)
+            local second_entry_line
+            second_entry_line=$(grep -n "^### ERROR |" "$error_file" | sed -n '2p' | cut -d: -f1)
+            if [[ -n "$second_entry_line" ]]; then
+                tail -n +"$second_entry_line" "$error_file" > "${error_file}.tmp" && mv "${error_file}.tmp" "$error_file"
+            fi
+        fi
+    fi
+
+    local timestamp
+    timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+    # Sanitize error message (truncate, remove control chars)
+    local safe_error="${error_msg:0:500}"
+    safe_error=$(echo "$safe_error" | tr -d '\000-\011\013-\037')
+
+    cat >> "$error_file" << ERREOF
+
+### ERROR | $timestamp | agent: $agent | exit_code: $exit_code
+**Task:** ${task:0:200}
+**Error:** $safe_error
+**Attempt:** ${attempt_desc:-Initial attempt}
+**Root Cause:** Pending analysis
+**Prevention:** Pending
+---
+ERREOF
+
+    log DEBUG "Recorded error: agent=$agent, exit_code=$exit_code"
+}
+
+# Resolve the current run id for multi-provider diagnostics. Prefer the explicit
+# run id when a workflow sets one, then host/session ids, then a stable fallback.
+octo_current_run_id() {
+    if type octo_run_contract_id >/dev/null 2>&1; then
+        octo_run_contract_id
+        return
+    fi
+
+    # Standalone compatibility for unusually narrow source harnesses.
+    printf '%s\n' "${OCTOPUS_RUN_ID:-${OCTOPUS_SESSION_ID:-${CLAUDE_CODE_SESSION_ID:-${CLAUDE_SESSION_ID:-${CLAUDE_CODE_SESSION:-$OCTO_ERROR_TRACKING_FALLBACK_ID}}}}}"
+}
+
+# Capture owners keep provider stdout and stderr separate. Budget warnings can
+# therefore use the ordinary diagnostic stream without a pathname-based side
+# channel or an inherited bypass descriptor.
+octo_notice_warn() {
+    log WARN "$*"
+}
+
+octo_run_dir() {
+    local run_id
+    run_id=$(octo_current_run_id)
+    printf '%s\n' "${WORKSPACE_DIR:-${HOME}/.claude-octopus}/runs/${run_id}"
+}
+
+octo_json_quote() {
+    local value="${1-}" char encoded="" output="" code
+    local LC_ALL=C
+
+    while [[ -n "$value" ]]; do
+        char="${value:0:1}"
+        value="${value:1}"
+        case "$char" in
+            '"') output="${output}\\\"" ;;
+            \\) output="${output}\\\\" ;;
+            $'\b') output="${output}\\b" ;;
+            $'\f') output="${output}\\f" ;;
+            $'\n') output="${output}\\n" ;;
+            $'\r') output="${output}\\r" ;;
+            $'\t') output="${output}\\t" ;;
+            *)
+                printf -v code '%d' "'$char" 2>/dev/null || return 1
+                if [[ "$code" -ge 0 && "$code" -lt 32 ]]; then
+                    printf -v encoded '\\u%04x' "$code"
+                    output="${output}${encoded}"
+                else
+                    output="${output}${char}"
+                fi
+                ;;
+        esac
+    done
+
+    printf '"%s"' "$output"
+}
+
+octo_json_normalize_uint() {
+    local value="${1:-}"
+    [[ "$value" =~ ^[0-9]+$ ]] || return 1
+    while [[ "${#value}" -gt 1 && "${value:0:1}" == "0" ]]; do
+        value="${value:1}"
+    done
+    printf '%s\n' "$value"
+}
+
+octo_estimate_tokens_for_file() {
+    local file="$1"
+    [[ -f "$file" ]] || { echo "0"; return; }
+    local chars
+    chars=$(wc -c < "$file" 2>/dev/null | tr -d ' ' || echo "0")
+    [[ -z "$chars" ]] && chars=0
+    echo $((chars / 4))
+}
+
+octo_provider_rejection_pattern() {
+    printf '%s\n' 'Prompt is too long|request entity too large|context limit|context length|tokens exceeded|too many tokens|maximum context|input is too large'
+}
+
+octo_file_has_provider_rejection() {
+    local pattern
+    pattern=$(octo_provider_rejection_pattern)
+    local file
+    for file in "$@"; do
+        [[ -f "$file" ]] || continue
+        if grep -qiE "$pattern" "$file" 2>/dev/null; then
+            return 0
+        fi
+    done
+    return 1
+}
+
+# A provider that refuses an oversized prompt answers with a short error, not
+# with work. Past this many bytes an output file is a real result, so a
+# rejection phrase inside it is subject matter rather than a provider error:
+# a code review that discusses a "verify-context limit" matches `context limit`.
+: "${OCTO_PROVIDER_REJECTION_MAX_OUTPUT_BYTES:=4096}"
+
+octo_output_is_substantive() {
+    local output_file="${1:-}" bytes threshold
+    [[ -n "$output_file" && -f "$output_file" ]] || return 1
+    threshold=$(octo_json_normalize_uint "${OCTO_PROVIDER_REJECTION_MAX_OUTPUT_BYTES:-4096}") || threshold=4096
+    # Bound decimal conversion below Bash's signed integer overflow range.
+    [[ "${#threshold}" -le 18 ]] || threshold=4096
+    # BSD wc pads its output, so strip all whitespace before comparing.
+    bytes=$(LC_ALL=C wc -c < "$output_file" 2>/dev/null | tr -d '[:space:]')
+    [[ "$bytes" =~ ^[0-9]+$ ]] || return 1
+    ((10#$bytes > 10#$threshold))
+}
+
+# Trust the rejection signature on the error channel unconditionally; inside the
+# provider's own answer trust it only while that answer is too short to be a
+# result. Keeps a genuine stdout-only rejection detectable without discarding a
+# long, valid result that merely mentions a context limit.
+octo_seat_was_rejected() {
+    local output_file="${1:-}" stderr_file="${2:-}"
+    if [[ -n "$stderr_file" ]] && octo_file_has_provider_rejection "$stderr_file"; then
+        return 0
+    fi
+    octo_output_is_substantive "$output_file" && return 1
+    octo_file_has_provider_rejection "$output_file"
+}
+
+octo_file_has_codex_stdin_closed() {
+    local stderr_file="${1:-}"
+    [[ -n "$stderr_file" && -f "$stderr_file" ]] || return 1
+
+    grep -q 'write_stdin failed: stdin is closed' "$stderr_file" 2>/dev/null
+}
+
+octo_file_has_codex_recoverable_stderr() {
+    local stderr_file="${1:-}"
+    [[ -n "$stderr_file" && -s "$stderr_file" ]] || return 1
+
+    grep -qE '^# Completed:|^## Worktree Changes$|^## Integration Evidence$|^## Verification$|^tokens used$' "$stderr_file" 2>/dev/null
+}
+
+octo_failure_reason() {
+    local exit_code="$1" dispatched_prompt="$2" file detail=""
+    shift 2
+    for file in "$@"; do
+        [[ -n "$file" && -s "$file" ]] || continue
+        detail=$(grep -E '^ERROR: ' "$file" 2>/dev/null \
+            | grep -vxF -f <(printf '%s\n' "$dispatched_prompt" | grep -E '^ERROR: ' || true) \
+            | tail -n 1) || detail=""
+        [[ -n "$detail" ]] && break
+    done
+    detail="${detail#ERROR: }"
+    printf 'Exit code %s%s\n' "$exit_code" "${detail:+: ${detail:0:240}}"
+}
+
+classify_agent_output() {
+    local output_file="$1"
+    local exit_code="${2:-0}"
+    local agent="${3:-unknown}"
+    local stderr_file="${4:-}"
+
+    if [[ "$agent" == codex* ]] && octo_file_has_codex_stdin_closed "$stderr_file"; then
+        if [[ -s "$output_file" ]] && grep -c '[[:alnum:]]' "$output_file" >/dev/null 2>&1; then
+            echo "degraded:Codex stdin closed after substantive output was captured"
+        else
+            echo "failed:Codex tool stdin closed (avoid write_stdin in non-interactive sessions)"
+        fi
+        return 0
+    fi
+
+    if [[ "$exit_code" -eq 124 || "$exit_code" -eq 143 ]]; then
+        echo "timeout:Timed out before completion"
+        return 0
+    fi
+
+    if [[ "$exit_code" -ne 0 ]]; then
+        echo "failed:Exit code $exit_code"
+        return 0
+    fi
+
+    if octo_seat_was_rejected "$output_file" "$stderr_file"; then
+        echo "failed:Prompt rejected by provider (oversize)"
+        return 0
+    fi
+
+    if [[ ! -s "$output_file" ]]; then
+        if [[ "$agent" == codex* ]] && octo_file_has_codex_recoverable_stderr "$stderr_file"; then
+            echo "degraded:Codex response captured on stderr"
+            return 0
+        fi
+        echo "failed:Empty output"
+        return 0
+    fi
+
+    if type _octo_run_output_usable_file >/dev/null 2>&1 && \
+       ! _octo_run_output_usable_file "$output_file"; then
+        echo "failed:Empty or placeholder output"
+        return 0
+    fi
+
+    if grep -q 'OUTPUT TRUNCATED' "$output_file" 2>/dev/null; then
+        echo "degraded:Output truncated"
+        return 0
+    fi
+
+    # Some CLIs exit 0 with only boilerplate after filtering.
+    if ! grep -q '[[:alnum:]]' "$output_file" 2>/dev/null; then
+        echo "failed:Empty output"
+        return 0
+    fi
+
+    echo "ok:"
+}
+
+write_agent_run_snapshot() {
+    command -v jq >/dev/null 2>&1 || return 0
+
+    local run_id dir jsonl snapshot latest_dir
+    run_id=$(octo_current_run_id)
+    dir=$(octo_run_dir)
+    jsonl="$dir/agents.jsonl"
+    snapshot="$dir/agents.json"
+    [[ -s "$jsonl" ]] || return 0
+
+    jq -s \
+        --arg run_id "$run_id" \
+        --arg command "${OCTOPUS_COMMAND:-${COMMAND:-unknown}}" \
+        --arg args "${OCTOPUS_COMMAND_ARGS:-}" \
+        'group_by(.agent)
+         | map(.[-1])
+         | {
+             run_id: $run_id,
+             command: $command,
+             args: $args,
+             updated_at: (now | todate),
+             agents: .
+           }' \
+        "$jsonl" > "${snapshot}.tmp" 2>/dev/null && mv "${snapshot}.tmp" "$snapshot"
+
+    latest_dir="${WORKSPACE_DIR:-${HOME}/.claude-octopus}/runs/latest"
+    rm -f "$latest_dir" 2>/dev/null || true
+    ln -sfn "$dir" "$latest_dir" 2>/dev/null || true
+}
+
+write_agent_status() {
+    local agent="$1"
+    local status="$2"      # ok|degraded|failed|timeout|running
+    local tokens_in="${3:-0}"
+    local tokens_out="${4:-0}"
+    local reason="${5:-}"
+    local duration_ms="${6:-0}"
+    local output_file="${7:-}"
+    local role="${8:-}"
+    local seat_id="${9:-}"
+    local transition="${10:-}"
+    local contribution="${11:-}"
+
+    if [[ -z "$transition" ]]; then
+        case "$status" in
+            ok|completed) transition=contributed ;;
+            degraded|skipped|failed|timeout|cancelled|running) transition="$status" ;;
+            *) transition="" ;;
+        esac
+    fi
+    if [[ -z "$contribution" ]]; then
+        case "$transition" in
+            contributed) contribution=eligible ;;
+            degraded) contribution=eligible-with-warning ;;
+            *) contribution=none ;;
+        esac
+    fi
+
+    local run_id dir
+    run_id=$(octo_current_run_id)
+    dir=$(octo_run_dir)
+    mkdir -p "$dir"
+
+    if command -v jq >/dev/null 2>&1; then
+        jq -nc \
+            --arg agent "$agent" \
+            --arg role "$role" \
+            --arg status "$status" \
+            --arg schema_version "${OCTO_RUN_SCHEMA_VERSION:-10.0}" \
+            --arg seat_id "$seat_id" \
+            --arg transition "$transition" \
+            --arg contribution "$contribution" \
+            --arg reason "$reason" \
+            --arg output_file "$output_file" \
+            --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --argjson tokens_in "${tokens_in:-0}" \
+            --argjson tokens_out "${tokens_out:-0}" \
+            --argjson duration_ms "${duration_ms:-0}" \
+            '{agent:$agent,role:$role,status:$status,schema_version:$schema_version,seat_id:$seat_id,transition:$transition,contribution:$contribution,tokens_in:$tokens_in,tokens_out:$tokens_out,duration_ms:$duration_ms,reason:(if ($reason|length)>0 then $reason else "" end),output_file:(if ($output_file|length)>0 then $output_file else "" end),ts:$ts}' \
+            >> "$dir/agents.jsonl" 2>/dev/null || true
+    else
+        printf '{"agent":"%s","role":"%s","status":"%s","schema_version":"%s","seat_id":"%s","transition":"%s","contribution":"%s","tokens_in":%d,"tokens_out":%d,"duration_ms":%d,"reason":"%s","output_file":"%s","ts":"%s"}\n' \
+            "$agent" "$role" "$status" "${OCTO_RUN_SCHEMA_VERSION:-10.0}" "$seat_id" "$transition" "$contribution" "$tokens_in" "$tokens_out" "$duration_ms" \
+            "$reason" "$output_file" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$dir/agents.jsonl"
+    fi
+
+    write_agent_run_snapshot
+}
+
+record_oversize_event() {
+    local agent="$1"
+    local original_chars="$2"
+    local final_chars="$3"
+    local outcome="$4"
+    local role="${5:-}"
+    local phase="${6:-}"
+    local budget="${7:-0}"
+
+    local dir run_id budget_json original_chars_json final_chars_json
+    run_id=$(octo_current_run_id)
+    dir=$(octo_run_dir)
+    mkdir -p "$dir"
+
+    budget_json=$(octo_json_normalize_uint "$budget") || return 2
+    original_chars_json=$(octo_json_normalize_uint "$original_chars") || return 2
+    final_chars_json=$(octo_json_normalize_uint "$final_chars") || return 2
+
+    if command -v jq >/dev/null 2>&1; then
+        jq -nc \
+            --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --arg run_id "$run_id" \
+            --arg agent "$agent" \
+            --arg role "$role" \
+            --arg phase "$phase" \
+            --arg outcome "$outcome" \
+            --argjson budget "$budget_json" \
+            --argjson original_chars "$original_chars_json" \
+            --argjson final_chars "$final_chars_json" \
+            '{ts:$ts,run_id:$run_id,agent:$agent,role:$role,phase:$phase,budget:$budget,original_chars:$original_chars,final_chars:$final_chars,outcome:$outcome}' \
+            >> "$dir/oversize.jsonl" 2>/dev/null || true
+    else
+        local ts_json run_id_json agent_json role_json phase_json outcome_json
+        ts_json=$(octo_json_quote "$(date -u +%Y-%m-%dT%H:%M:%SZ)") || return 2
+        run_id_json=$(octo_json_quote "$run_id") || return 2
+        agent_json=$(octo_json_quote "$agent") || return 2
+        role_json=$(octo_json_quote "$role") || return 2
+        phase_json=$(octo_json_quote "$phase") || return 2
+        outcome_json=$(octo_json_quote "$outcome") || return 2
+        printf '{"ts":%s,"run_id":%s,"agent":%s,"role":%s,"phase":%s,"budget":%s,"original_chars":%s,"final_chars":%s,"outcome":%s}\n' \
+            "$ts_json" "$run_id_json" "$agent_json" "$role_json" "$phase_json" \
+            "$budget_json" "$original_chars_json" "$final_chars_json" "$outcome_json" \
+            >> "$dir/oversize.jsonl"
+    fi
+}
+
+agent_status_output_files() {
+    local filter="${1:-}"
+    local dir jsonl
+    dir=$(octo_run_dir)
+    jsonl="$dir/agents.jsonl"
+    [[ -s "$jsonl" ]] || return 0
+    command -v jq >/dev/null 2>&1 || return 0
+
+    jq -rs --arg filter "$filter" '
+        group_by(.agent)
+        | map(.[-1])
+        | .[]
+        | [
+            .status,
+            (.contribution // ""),
+            (.output_file // "")
+          ]
+        | @tsv
+    ' "$jsonl" 2>/dev/null | while IFS=$'\t' read -r status contribution file; do
+        [[ -n "$file" && -f "$file" ]] || continue
+        [[ -z "$filter" || "$file" == *"$filter"* ]] || continue
+        if [[ "$status" == "ok" && "$contribution" == "eligible" ]] && \
+           _octo_run_output_usable_file "$file"; then
+            printf '%s\n' "$file"
+        elif [[ "$status" == "degraded" && "$contribution" == "eligible-with-warning" ]] && \
+             _octo_run_output_usable_file "$file"; then
+            printf '%s\n' "$file"
+        elif [[ "$status" == "running" ]] && probe_result_file_is_usable "$file"; then
+            printf '%s\n' "$file"
+        fi
+    done
+}
+
+render_agent_summary() {
+    local dir jsonl
+    dir=$(octo_run_dir)
+    jsonl="$dir/agents.jsonl"
+    [[ -s "$jsonl" ]] || return 0
+
+    command -v jq >/dev/null 2>&1 || {
+        echo "Agent run summary: $jsonl"
+        return 0
+    }
+
+    local rows ok degraded failed timeout total
+    local reconciled_rows=""
+    while IFS=$'\t' read -r agent status tokens_out seconds reason output_file; do
+        [[ -z "$agent" ]] && continue
+
+        if [[ "$status" == "running" && -n "$output_file" && -f "$output_file" ]]; then
+            local classification probe_status probe_reason output_chars
+            classification="$(probe_result_file_status "$output_file")"
+            probe_status="${classification%%:*}"
+            probe_reason="${classification#*:}"
+
+            case "$probe_status" in
+                success)
+                    status="ok"
+                    reason="reconciled from result file"
+                    ;;
+                degraded)
+                    status="degraded"
+                    reason="${probe_reason:-reconciled partial result}"
+                    ;;
+                timeout)
+                    status="timeout"
+                    reason="${probe_reason:-reconciled timeout result}"
+                    ;;
+                failed)
+                    status="failed"
+                    reason="${probe_reason:-reconciled failed result}"
+                    ;;
+            esac
+
+            output_chars="$(probe_result_output_chars "$output_file")"
+            if [[ "$output_chars" =~ ^[0-9]+$ && "$output_chars" -gt 0 ]]; then
+                tokens_out="$output_chars"
+            fi
+        fi
+
+        reconciled_rows+="${agent}"$'\t'"${status}"$'\t'"${tokens_out}"$'\t'"${seconds}"$'\t'"${reason}"$'\n'
+    done < <(jq -rs '
+        group_by(.agent)
+        | map(.[-1])
+        | .[]
+        | [
+            .agent,
+            .status,
+            ((.tokens_out // 0) | tostring),
+            (((.duration_ms // 0) / 1000) | floor | tostring),
+            (if ((.reason // "") | length) > 0 then .reason else "-" end),
+            (.output_file // "")
+          ]
+        | @tsv
+    ' "$jsonl" 2>/dev/null) || return 0
+    rows="$reconciled_rows"
+
+    ok=$(awk -F '\t' '$2 == "ok" { n++ } END { print n + 0 }' <<< "$rows")
+    degraded=$(awk -F '\t' '$2 == "degraded" { n++ } END { print n + 0 }' <<< "$rows")
+    failed=$(awk -F '\t' '$2 == "failed" { n++ } END { print n + 0 }' <<< "$rows")
+    timeout=$(awk -F '\t' '$2 == "timeout" { n++ } END { print n + 0 }' <<< "$rows")
+    total=$((ok + degraded + failed + timeout))
+
+    echo ""
+    echo "Agent run summary"
+    echo "─────────────────────────────────────────────────────────────────────"
+    printf '%-22s | %-10s | %-6s | %-5s | %s\n' "Provider" "Status" "Tokens" "Time" "Reason"
+    echo "─────────────────────────────────────────────────────────────────────"
+    while IFS=$'\t' read -r agent status tokens_out seconds reason; do
+        [[ -z "$agent" ]] && continue
+        local glyph
+        case "$status" in
+            ok) glyph="✓" ;;
+            degraded) glyph="⚠" ;;
+            failed) glyph="✗" ;;
+            timeout) glyph="⏱" ;;
+            running) glyph="…" ;;
+            *) glyph="?" ;;
+        esac
+        [[ ${#reason} -gt 44 ]] && reason="${reason:0:41}..."
+        printf '%-22s | %s %-8s | %6s | %4ss | %s\n' "$agent" "$glyph" "$status" "$tokens_out" "$seconds" "${reason:--}"
+    done <<< "$rows"
+    echo ""
+
+    if [[ $failed -gt 0 || $timeout -gt 0 ]]; then
+        printf '⚠ %d of %d agents failed or timed out — synthesis should use %d available outputs. Details: %s\n' \
+            "$((failed + timeout))" "$total" "$((ok + degraded + timeout))" "$dir"
+        if [[ "${OCTOPUS_REQUIRE_ALL:-false}" == "true" ]]; then
+            echo "Aborting: OCTOPUS_REQUIRE_ALL=true."
+            return 78
+        fi
+    elif [[ $degraded -gt 0 ]]; then
+        printf 'ℹ %d agents ran in degraded mode. Details: %s\n' "$degraded" "$dir"
+    fi
+}

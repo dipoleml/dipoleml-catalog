@@ -1,0 +1,82 @@
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: SAMEORIGIN
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()
+  Link: <https://misakanet.org/llms.txt>; rel="alternate"; type="text/plain"; title="LLM-readable index"
+  Link: <https://misakanet.org/.well-known/agent.json>; rel="http://www.w3.org/ns/json-ld#describedby"; type="application/json"
+
+# HTML documents get no ETag and no Last-Modified from Workers static assets, so with the default
+# `Cache-Control: public, max-age=0, must-revalidate` the browser cannot send a conditional request
+# and re-downloads the whole document (~44 KB for `/`) on every navigation. Measured 2026-10-02:
+#   /assets/misaka-avatar-crop.png -> etag: "ebf8d0eb..."   /locales/zh.json -> etag: "2aab467f..."
+#   /                             -> no etag, no last-modified    /search/ -> no etag, no last-modified
+# So the header is the only lever available here; there is nothing to revalidate against.
+#
+# 300s (5 min) is deliberately short, and NOT `immutable` or a day/week: every page here is rewritten
+# whenever `docs/` is pushed (lesson counters, the "latest merged" list, the activity panel), and `/`
+# is the first paint. A long max-age would serve stale content as a normal outcome instead of a rare
+# one — a correctness bug traded for a bandwidth win we do not need. Five minutes covers a browsing
+# session (leave the homepage, come back) and expires well before the daily corpus refresh, so the
+# worst case is one stale page view, not a stale site.
+#
+# The three patterns below are disjoint on purpose: `_headers` MERGES the headers of every matching
+# rule and comma-joins a name set twice, which would make the value unparseable
+# (`public, max-age=300, public, max-age=300`). `/` covers the homepage, `/*/` the 577 directory-index
+# pages (`/search/`, `/journey/`, `/lessons/<slug>/`, ...), `/*.html` the extension-addressed ones
+# (`/start.html`, `/insights/*.html`, ...).
+/
+  Cache-Control: public, max-age=300
+
+/*/
+  Cache-Control: public, max-age=300
+
+/*.html
+  Cache-Control: public, max-age=300
+
+# Content-Security-Policy for the pages that cannot execute script. #2683 found the
+# homepage had none and correctly declined to force one there: `index.html` carries
+# 47 inline `on*` handlers and an 82.9 KB inline `<script>`, and a strict policy over
+# that markup breaks the site rather than hardening it.
+#
+# The rest of the site does not need any of that. Measured on the branch that added
+# this (2026-10-06), **521 of the 532 HTML pages under docs/ have no inline `on*`
+# handler, no executable inline `<script>`, and no `url(...)` anywhere in their inline
+# CSS** — every external reference on them points back at misakanet.org or is a plain
+# github.com hyperlink. So `default-src 'none'` costs them nothing, and `script-src`
+# falls through to it: those pages cannot run script at all.
+#
+# Why these seven patterns and not one `/*` rule: `_headers` MERGES every matching rule
+# and comma-joins a repeated name, exactly as the Cache-Control note above says. A CSP
+# under `/*` could not be relaxed for the eleven script pages without shipping
+# `Content-Security-Policy: a, b`, which browsers ignore. So the policy goes only on the
+# paths that can take it, and tests/test_site_csp.py fails in both directions — a page
+# that grows script under one of these rules, and a script page that quietly grows
+# outside them.
+#
+# `style-src 'unsafe-inline'` is required and is the one concession: all 521 carry an
+# inline <style> block. Inline CSS cannot execute script, so this does not reopen the
+# hole the policy closes. `frame-ancestors` restates X-Frame-Options because CSP
+# supersedes it where both are present and a header nobody reads is not a control.
+/lessons/*
+  Content-Security-Policy: default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; img-src 'self' data:; style-src 'unsafe-inline'
+
+/topics/*
+  Content-Security-Policy: default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; img-src 'self' data:; style-src 'unsafe-inline'
+
+/privacy/*
+  Content-Security-Policy: default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; img-src 'self' data:; style-src 'unsafe-inline'
+
+/terms/*
+  Content-Security-Policy: default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; img-src 'self' data:; style-src 'unsafe-inline'
+
+/enterprise/*
+  Content-Security-Policy: default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; img-src 'self' data:; style-src 'unsafe-inline'
+
+/install/*
+  Content-Security-Policy: default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; img-src 'self' data:; style-src 'unsafe-inline'
+
+# `/journey/*` would be wrong here: `/journey/index.html` runs script. Only the one
+# static child qualifies. Widening this to `/journey/*` turns the gate red.
+/journey/http-mcp/*
+  Content-Security-Policy: default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; img-src 'self' data:; style-src 'unsafe-inline'

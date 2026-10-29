@@ -1,0 +1,63 @@
+{
+  "name": "@gendigital/sage-opencode",
+  "license": "Apache-2.0",
+  "publishConfig": {
+    "access": "public"
+  },
+  "version": "0.14.0",
+  "type": "module",
+  "description": "Safety for Agents - ADR layer for OpenCode",
+  "homepage": "https://github.com/gendigitalinc/sage",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gendigitalinc/sage.git",
+    "directory": "packages/opencode"
+  },
+  "bugs": {
+    "url": "https://github.com/gendigitalinc/sage/issues"
+  },
+  "main": "./dist/index.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist/**",
+    "resources/**",
+    "package.json",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "pnpm run clean && pnpm run sync:assets && tsc && node esbuild.config.mjs",
+    "clean": "node ../../scripts/clean.mjs dist resources tsconfig.tsbuildinfo",
+    "prepack": "node ../../scripts/check-workspace-refs.mjs",
+    "sync:assets": "node scripts/sync-assets.mjs",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@gendigital/sage-core": "workspace:*",
+    "@gendigital/sage-mcp": "workspace:*",
+    "@opencode-ai/plugin": "^1.14.48"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.9.0",
+    "vitest": "^4.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "opencode",
+    "opencode-plugin",
+    "security",
+    "adr",
+    "agent-security",
+    "safety",
+    "malware-detection"
+  ]
+}

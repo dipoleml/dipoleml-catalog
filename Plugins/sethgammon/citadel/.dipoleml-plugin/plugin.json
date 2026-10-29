@@ -1,0 +1,16 @@
+{
+  "name": "citadel",
+  "displayName": "Citadel",
+  "version": "1.4.4",
+  "description": "DipoleML harness for routing requests, preserving run state, enforcing hooks, and recording evidence",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Sethgammon"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/SethGammon/Citadel",
+  "repository": "https://github.com/SethGammon/Citadel",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

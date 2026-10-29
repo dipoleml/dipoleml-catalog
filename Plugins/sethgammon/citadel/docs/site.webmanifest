@@ -1,0 +1,9 @@
+{
+  "name": "Citadel",
+  "short_name": "Citadel",
+  "description": "A progressive operating and evidence layer for coding agents.",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#06111f",
+  "theme_color": "#06111f"
+}

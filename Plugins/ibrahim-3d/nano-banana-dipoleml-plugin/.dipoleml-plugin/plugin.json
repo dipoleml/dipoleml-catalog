@@ -1,0 +1,16 @@
+{
+  "name": "nano-banana-dipoleml-plugin",
+  "displayName": "Nano Banana DipoleML Plugin",
+  "version": "2.1.0",
+  "description": "Nano Banana 2 — Google Gemini 3.1 AI image generation & editing plugin for DipoleML. Text-to-image, inpainting, style transfer, 4K generation, search grounding, and 14-image multi-reference composition.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Ibrahim 3d"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/Ibrahim-3d/nano-banana-claude-plugin",
+  "repository": "https://github.com/Ibrahim-3d/nano-banana-claude-plugin",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

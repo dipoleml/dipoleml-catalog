@@ -1,0 +1,587 @@
+"""The stdout envelope: the only thing that crosses the engine/agent boundary.
+
+Every ``dex`` subcommand prints exactly one JSON object matching :class:`Envelope`
+to stdout and nothing else (logs and diagnostics go to stderr). The agent reads
+this envelope and decides the next step. Credentials and raw warehouse rows never
+appear here: :func:`emit` runs the payload through :func:`sanitize` first, and a
+leak is a release-blocking safety regression (see references/command-contract.md).
+
+The envelope shape is itself a Tier-2 eval target, so it is defined once, here,
+and reused by every command rather than hand-built per subcommand.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+import sys
+from enum import Enum
+from typing import Any
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from .errors import DexError, StatementStage, WarehouseQueryError
+from .values_free import ValuesFreeError, error_code
+
+
+class Status(str, Enum):
+    OK = "ok"
+    NOT_IMPLEMENTED = "not_implemented"
+    ERROR = "error"
+    # A command that would spend money/scan data but was not confirmed. The agent
+    # is expected to re-issue with --confirm and a budget after surfacing cost.
+    NEEDS_CONFIRMATION = "needs_confirmation"
+
+
+class Paradigm(str, Enum):
+    """Cost paradigm of the active connector. DuckDB is free/local.
+
+    ``FREE_LOCAL`` is DuckDB's own paradigm and never a stand-in for "not
+    applicable": it is a positive claim that the connector in play bills
+    nothing. A command with no connector to describe reports no paradigm at all
+    (``Cost.paradigm is None``) rather than borrowing this one.
+    """
+
+    FREE_LOCAL = "free_local"
+    BYTES_SCANNED = "bytes_scanned"
+    COMPUTE_TIME = "compute_time"
+    DB_LOAD = "db_load"
+    # The hosted dbt Cloud Semantic Layer executes queries server-side under its
+    # own warehouse connection, so dex's cost guard is structurally unavailable:
+    # no dry-run estimate and no ceiling. `estimate` and `ceiling` stay None and
+    # the command warns that dbt Cloud, not dex, governs spend.
+    HOSTED = "hosted"
+
+
+class EstimateQuality(str, Enum):
+    """How much an estimate is worth, which is not the same as how large it is.
+
+    A host deciding whether to admit a build needs this separately from the
+    number: BigQuery's figure comes from a free dry run and is what the job will
+    bill, while Snowflake's is a heuristic over table statistics and Databricks's
+    is a floor that sharpens as the run proceeds. Treating those alike is how a
+    budget sized against one connector's exactness gets applied to another's
+    guess.
+
+    ``UNKNOWN`` is a produced verdict, not an absence: it means dex tried to
+    price the work and could not (no reachable connection, a compile that failed),
+    so the ceiling and the server-side per-statement cap are the only things
+    still binding. Where no estimate was attempted at all the field is ``None``.
+    """
+
+    EXACT = "exact"
+    APPROXIMATE = "approximate"
+    UNKNOWN = "unknown"
+
+
+#: The unit each paradigm's magnitudes are counted in. Here rather than in the
+#: cost guard because it belongs to the paradigm, and the envelope is what
+#: reports it; the guard's own ledger and spend keys are different spellings of
+#: the same fact and stay where they are.
+PARADIGM_UNITS: dict[Paradigm, str | None] = {
+    Paradigm.FREE_LOCAL: None,
+    Paradigm.BYTES_SCANNED: "bytes",
+    Paradigm.COMPUTE_TIME: "seconds",
+    Paradigm.DB_LOAD: "seconds",
+    Paradigm.HOSTED: None,
+}
+
+
+def paradigm_unit(paradigm: Paradigm | None) -> str | None:
+    """What this paradigm counts in, or ``None`` where it counts nothing."""
+
+    return PARADIGM_UNITS.get(paradigm) if paradigm is not None else None
+
+
+class Cost(BaseModel):
+    """A preflight cost estimate, surfaced before any spend.
+
+    ``estimate`` and ``ceiling`` are paradigm-relative magnitudes (bytes, credits,
+    DBUs, or a load score); the unit is carried by ``paradigm``, and spelled out
+    in ``unit`` for a caller that would otherwise have to keep its own table. For
+    DuckDB both are ``None`` because the work is free and only resource-bounded.
+
+    ``paradigm`` names **the connector this command ran against**, so a caller
+    reading a free metadata command still learns what a billed one will cost in.
+    It defaults to ``None``, meaning no connector was resolved, and that default
+    is load-bearing: a refusal built without a paradigm has to say nothing rather
+    than claim ``free_local``, which is a positive assertion a host branching on
+    this field would read as "this refusal was not about money".
+
+    ``estimate_quality`` defaults to ``None`` for the same reason, and the
+    distinction is the sharper one here: ``None`` means nothing was priced, while
+    :attr:`EstimateQuality.UNKNOWN` means pricing was attempted and produced no
+    number. A host that collapses the two admits an unpriced build believing it
+    was priced.
+    """
+
+    # `validate_assignment` so the derivation below also runs when a field is
+    # set after construction, which the CLI does: it stamps the paradigm onto
+    # every envelope centrally, and without this the unit stayed null on exactly
+    # the refusals that had one.
+    model_config = ConfigDict(validate_assignment=True)
+
+    paradigm: Paradigm | None = None
+    estimate: float | None = None
+    ceiling: float | None = None
+    estimate_quality: EstimateQuality | None = None
+    unit: str | None = None
+
+    @model_validator(mode="after")
+    def _unit_follows_paradigm(self) -> Cost:
+        # Derived rather than passed, so no call site can report a magnitude in
+        # one unit and label it another. `object.__setattr__` rather than a
+        # plain assignment because with `validate_assignment` on, assigning here
+        # would re-enter this validator.
+        object.__setattr__(self, "unit", paradigm_unit(self.paradigm))
+        return self
+
+
+class Connection(BaseModel):
+    """The non-secret target dex resolved for this command.
+
+    ``target`` contains identifiers only (a DuckDB path, or warehouse namespace
+    coordinates such as project/datasets).  Credential values and principal
+    identities never belong here.  Empty fields mean the command did not resolve
+    a warehouse connection, which is common for repo-only commands.
+    """
+
+    connector: str | None = None
+    target: dict[str, Any] = Field(default_factory=dict)
+    source: str | None = None
+
+
+class Reason(str, Enum):
+    """Why an error envelope was refused, coarse enough for a host to branch
+    on retry/setup/stop without parsing prose. Derived from the exception's
+    class (see :func:`reason_for`), never invented per call site, so it stays
+    consistent with every refusal's typed exception as new ones are added.
+    Populated only when ``status`` is ``error``.
+    """
+
+    GUARD = "guard"  # a cost/PII/firewall/safety policy said no
+    PREREQUISITE = "prerequisite"  # run a named setup command first, then retry
+    CONNECTION = "connection"  # the warehouse/backend could not be reached
+    CONFIGURATION = (
+        "configuration"  # the engine/repo is wired without something it needs
+    )
+    REQUEST = "request"  # this call's input cannot be resolved or used
+    EXECUTION_FAILURE = (
+        "execution_failure"  # the operation ran (e.g. dbt build) and failed
+    )
+    INTERNAL = "internal"  # unclassified: not a deliberate dex refusal
+
+
+class Envelope(BaseModel):
+    """The single object every command prints to stdout."""
+
+    status: Status
+    data: dict[str, Any] = Field(default_factory=dict)
+    connection: Connection = Field(default_factory=Connection)
+    cost: Cost = Field(default_factory=Cost)
+    warnings: list[str] = Field(default_factory=list)
+    # Reviewable diffs (propose-don't-impose). Nothing is applied just by being here.
+    diffs: list[dict[str, Any]] = Field(default_factory=list)
+    errors: list[str] = Field(default_factory=list)
+    reason: Reason | None = None
+
+
+# Keys whose presence anywhere in ``data`` indicates a credential or secret has
+# leaked into the boundary. Matched case-insensitively as a substring of the key.
+_SECRET_KEY_PATTERNS = (
+    "password",
+    "passwd",
+    "secret",
+    "token",
+    "private_key",
+    "privatekey",
+    "credential",
+    "api_key",
+    "apikey",
+    "access_key",
+    "client_secret",
+    "authorization",
+    "session_token",
+)
+
+# A "raw row" payload is profiling's forbidden output: a list of records keyed by
+# column name. Profiling must emit aggregates and flags, never row values. We flag
+# any list of dicts living under a key that reads like row data.
+_RAW_ROW_KEY_PATTERNS = ("rows", "records", "sample_rows", "raw", "preview_rows")
+
+
+class SanitizationError(DexError):
+    """Raised when an envelope payload would leak secrets or raw rows.
+
+    This is intentionally a hard failure rather than a silent scrub: a leak is a
+    bug in the calling command, and the safety tests assert it cannot ship.
+    """
+
+
+def secret_like(key: str) -> bool:
+    """Whether ``key`` reads as the name of a credential.
+
+    The one rule for it: the boundary scan below refuses such a key in ``data``,
+    and the config editor refuses to write one and withholds its value, so a name
+    that trips one trips the other.
+    """
+
+    lowered = str(key).lower()
+    return any(pat in lowered for pat in _SECRET_KEY_PATTERNS)
+
+
+def _scan(value: Any, path: str = "data") -> None:
+    if isinstance(value, dict):
+        for key, sub in value.items():
+            key_l = str(key).lower()
+            if secret_like(key):
+                raise SanitizationError(
+                    f"secret-like key '{key}' at {path}: credentials never cross "
+                    "the stdout boundary"
+                )
+            if any(pat in key_l for pat in _RAW_ROW_KEY_PATTERNS) and _looks_like_rows(
+                sub
+            ):
+                raise SanitizationError(
+                    f"raw-row payload at {path}.{key}: profile-don't-exfiltrate; "
+                    "emit aggregates and flags, not row values"
+                )
+            _scan(sub, f"{path}.{key}")
+    elif isinstance(value, (list, tuple)):
+        for i, sub in enumerate(value):
+            _scan(sub, f"{path}[{i}]")
+
+
+def _looks_like_rows(value: Any) -> bool:
+    return (
+        isinstance(value, (list, tuple))
+        and len(value) > 0
+        and all(isinstance(item, dict) for item in value)
+    )
+
+
+def sanitize(envelope: Envelope) -> Envelope:
+    """Assert the envelope is safe to print. Returns it unchanged on success.
+
+    Raises :class:`SanitizationError` if ``data`` or ``connection`` carries a
+    secret-like key or a raw-row payload. ``errors``/``warnings`` are free text
+    with no keys to scan, so :func:`emit` redacts them instead.
+    """
+
+    _scan(envelope.data)
+    connection = getattr(envelope, "connection", None)
+    if connection is not None:
+        rendered = (
+            connection.model_dump(mode="python")
+            if hasattr(connection, "model_dump")
+            else connection
+        )
+        _scan(rendered, "connection")
+    return envelope
+
+
+def emit(envelope: Envelope) -> None:
+    """Sanitize, redact the messages, then print exactly one JSON envelope.
+
+    Every ``errors`` and ``warnings`` entry passes through :func:`redact` here,
+    at the one place stdout is written, rather than at each call site: a message
+    often carries text dex did not write (a driver's exception, dbt's log line,
+    an installer's stderr), and a call site that forgets would print whatever
+    credential that text held.
+    """
+
+    sanitize(envelope)
+    envelope = envelope.model_copy(
+        update={
+            "errors": [redact(message) for message in envelope.errors],
+            "warnings": [redact(message) for message in envelope.warnings],
+        }
+    )
+    sys.stdout.write(json.dumps(envelope.model_dump(mode="json")) + "\n")
+
+
+def ok(data: dict[str, Any] | None = None, **kwargs: Any) -> Envelope:
+    return Envelope(status=Status.OK, data=data or {}, **kwargs)
+
+
+def not_implemented(command: str) -> Envelope:
+    return Envelope(
+        status=Status.NOT_IMPLEMENTED,
+        data={"command": command},
+        warnings=[f"'{command}' is scaffolded but not yet implemented"],
+    )
+
+
+def error(message: str, **kwargs: Any) -> Envelope:
+    return Envelope(status=Status.ERROR, errors=[message], **kwargs)
+
+
+_reason_overrides_cache: list[tuple[type[BaseException], Reason]] | None = None
+
+
+def _reason_overrides() -> list[tuple[type[BaseException], Reason]]:
+    """Built on first use, not at import time: the exception classes it
+    references live in modules that already import this one at their own top
+    level (``explore/commands.py``, ``transform/commands.py``,
+    ``transform/build.py``, ``connect.py``, ``guards/cost_guard.py``), so
+    importing them here at module load would be circular. By the time any
+    error envelope is built, every module is already loaded, so a call-time
+    import (the same lazy-import pattern ``cli.py``'s own ``_run`` already
+    uses for command modules) is safe. Cached after the first call so the
+    import cost is paid once, not on every error envelope.
+
+    Two tiers, not one: a handful of exception families live in modules with
+    no optional-dependency imports of their own and are always available; the
+    rest live behind connector extras (sqlglot, scikit-learn, the dbt reader)
+    that a bare or partial install may not have -- and importing THOSE must
+    not itself crash the very refusal (a missing extra) that names the gap.
+    """
+
+    global _reason_overrides_cache
+    if _reason_overrides_cache is not None:
+        return _reason_overrides_cache
+
+    # Always safe: no imports of their own (`errors.py`) or explicitly
+    # designed to import without the dialect engine (`guards/dialect.py` is
+    # the module that checks whether sqlglot is even installed, and
+    # `slayer/dependency.py` reads distribution metadata rather than importing
+    # SLayer).
+    from .demo.warehouse import (
+        DemoDependencyError,
+        DemoPathError,
+        DemoTargetExistsError,
+    )
+    from .errors import (
+        ConfigurationError,
+        ConnectorError,
+        DexError,
+        PrerequisiteError,
+        RequestError,
+        WarehouseQueryError,
+    )
+    from .guards.dialect import DialectDependencyError
+    from .slayer.dependency import SlayerDependencyError
+
+    overrides: list[tuple[type[BaseException], Reason]] = [
+        (DemoTargetExistsError, Reason.GUARD),
+        (DemoDependencyError, Reason.PREREQUISITE),
+        (DemoPathError, Reason.REQUEST),
+        (DialectDependencyError, Reason.PREREQUISITE),
+        (SlayerDependencyError, Reason.PREREQUISITE),
+        (PrerequisiteError, Reason.PREREQUISITE),  # CacheRequiredError, NoBaselineError
+        (ConnectorError, Reason.CONNECTION),  # every *ConnectionError subclass
+        (ConfigurationError, Reason.CONFIGURATION),
+        (WarehouseQueryError, Reason.EXECUTION_FAILURE),  # the server said no
+        (RequestError, Reason.REQUEST),
+        (DexError, Reason.REQUEST),  # generic fallback for any other deliberate refusal
+        (ValueError, Reason.REQUEST),  # the pre-typed-error convention: bad input
+    ]
+
+    # Everything else pulls in a connector extra transitively (sqlglot,
+    # scikit-learn, the dbt reader chain) that a bare or partial install may
+    # not have -- and a missing-extra refusal (DialectDependencyError,
+    # ClusterDependencyError) is exactly the scenario where that extra is
+    # absent. A ModuleNotFoundError here must not crash the one command
+    # reporting exactly that, so a failed optional import just keeps the
+    # safe subset above (an unlisted subclass still resolves through
+    # `DexError`/`ValueError`) instead of propagating.
+    try:
+        from .connect import CredentialDiscoveryError
+        from .dbt_project import DbtProjectError
+        from .explore.cluster import ClusterDependencyError, ClusterError
+        from .explore.semantic import SemanticBackendError, SemanticQueryRefusedError
+        from .guards.cost_guard import CostGuardError
+        from .guards.query_firewall import QueryRefusedError
+        from .guards.sql_guard import NotSelectOnlyError
+        from .results import BudgetExhaustedError
+        from .transform.build import DbtRunError, ProdTargetRefusedError
+        from .transform.commands import BuildFailedError, DbtParseError
+        from .transform.plans import PlanError
+        from .transform.scaffold import ScaffoldError
+        from .transform.validate import EditValidationError
+    except ImportError:
+        _reason_overrides_cache = overrides
+        return overrides
+
+    # Most-specific-first: a subclass here overrides its parent's bucket.
+    # Anything not listed falls through to the nearest listed ancestor via
+    # isinstance, so a new DexError subclass only needs an entry when its own
+    # reason diverges from its parent's.
+    _reason_overrides_cache = [
+        # A demo target that already exists is a safety refusal, not bad input:
+        # the command declines to touch a warehouse it did not create.
+        (DemoTargetExistsError, Reason.GUARD),
+        (DemoDependencyError, Reason.PREREQUISITE),
+        (DemoPathError, Reason.REQUEST),
+        (SemanticQueryRefusedError, Reason.GUARD),  # policy, not backend failure
+        (ClusterDependencyError, Reason.PREREQUISITE),  # install the extra, retry
+        (DialectDependencyError, Reason.PREREQUISITE),
+        (SlayerDependencyError, Reason.PREREQUISITE),
+        (PrerequisiteError, Reason.PREREQUISITE),
+        (CostGuardError, Reason.GUARD),  # OverCeilingError, CeilingRequiredError
+        (BudgetExhaustedError, Reason.GUARD),
+        (QueryRefusedError, Reason.GUARD),
+        (NotSelectOnlyError, Reason.GUARD),
+        (ProdTargetRefusedError, Reason.GUARD),
+        (ConnectorError, Reason.CONNECTION),
+        (CredentialDiscoveryError, Reason.CONFIGURATION),  # will not appear on a retry
+        (ConfigurationError, Reason.CONFIGURATION),
+        (DbtProjectError, Reason.CONFIGURATION),
+        (SemanticBackendError, Reason.CONFIGURATION),  # after SemanticQueryRefusedError
+        (BuildFailedError, Reason.EXECUTION_FAILURE),
+        (DbtRunError, Reason.EXECUTION_FAILURE),
+        # The statement ran and the server refused it: an execution failure for
+        # the same reason a failed dbt run is one, and never `internal`.
+        (WarehouseQueryError, Reason.EXECUTION_FAILURE),
+        (RequestError, Reason.REQUEST),
+        (DbtParseError, Reason.REQUEST),
+        (PlanError, Reason.REQUEST),  # PlanNotFoundError
+        # A scaffold refusal raised bare is the caller's input. Its two
+        # subclasses each carry a second parent listed above, and read that
+        # parent's bucket: ScaffoldPrerequisiteError through PrerequisiteError,
+        # SourcesFileError through ConfigurationError (#514).
+        (ScaffoldError, Reason.REQUEST),
+        (EditValidationError, Reason.REQUEST),
+        (ClusterError, Reason.REQUEST),  # after ClusterDependencyError
+        (DexError, Reason.REQUEST),
+        (ValueError, Reason.REQUEST),
+    ]
+    return _reason_overrides_cache
+
+
+def reason_for(exc: BaseException) -> Reason:
+    """Classify why a caught exception refused, from its class alone.
+
+    Fails toward the informative: an unrecognized ``DexError`` subclass or a
+    bare ``ValueError`` still reads as ``REQUEST`` (a deliberate refusal, bad
+    input assumed) rather than ``INTERNAL``, which is reserved for exceptions
+    that are not a deliberate dex refusal at all.
+
+    This is the ``reason`` every CLI error envelope carries, because
+    :func:`error_for` calls it, and :mod:`exmergo_dex_core.host` exports it for a
+    host that calls the engine in process and so holds the exception rather than
+    an envelope. Two things such a host needs to know:
+
+    - ``ConfirmationRequiredError`` reads ``GUARD`` here, but it is not a
+      refusal. The CLI answers it with a ``needs_confirmation`` envelope that
+      carries no ``reason`` at all, so check for it before classifying.
+    - The answer can depend on the install. The table's second tier imports
+      modules that need the ``sql`` extra, and loads only when every one of
+      those imports succeeds. On an install without the extra, a class listed
+      only in that tier reads its nearest listed ancestor instead:
+      ``CostGuardError`` reads ``REQUEST`` rather than ``GUARD``. Every
+      warehouse connector extra brings ``sql``.
+    """
+
+    if isinstance(exc, ValuesFreeError):
+        # The one family that carries its bucket rather than deriving it: a
+        # withheld error keeps the reason the error it replaced would have read.
+        return Reason(exc.reason)
+    for exc_type, reason in _reason_overrides():
+        if isinstance(exc, exc_type):
+            return reason
+    return Reason.INTERNAL
+
+
+def stage_for(exc: BaseException) -> StatementStage | None:
+    """Which door a warehouse refusal came through, where the adapter said.
+
+    ``None`` for anything that is not a :class:`WarehouseQueryError`, and for one
+    raised by an adapter that cannot tell its doors apart. The two places an
+    exception becomes a ``reason`` a host reads (:func:`error_for`, and a batch
+    statement's own verdict in ``explore query``) both read the stage here, so
+    neither can carry one the other drops.
+    """
+
+    if isinstance(exc, (WarehouseQueryError, ValuesFreeError)):
+        return exc.stage
+    return None
+
+
+def error_for(
+    exc: BaseException, message: str | None = None, **kwargs: Any
+) -> Envelope:
+    """Build an error envelope from a caught exception: ``errors`` defaults to
+    ``str(exc)`` (override via ``message`` for call sites that add context or
+    redact), and ``reason`` is derived automatically via :func:`reason_for`.
+
+    ``data.stage`` is derived the same way, via :func:`stage_for`, and merged
+    into whatever ``data`` the call site passes. Doing it here rather than at
+    the call sites is what puts it on every error envelope a warehouse refusal
+    can reach, the CLI's catch-all included, and absent from every other one.
+    """
+
+    stage = stage_for(exc)
+    if stage is not None:
+        kwargs["data"] = {**(kwargs.get("data") or {}), "stage": stage.value}
+    # The stable code an error carries in values-free mode (#591), which is the
+    # part of it guaranteed to quote no value; absent outside the mode.
+    code = error_code(exc)
+    if code is not None:
+        kwargs["data"] = {**(kwargs.get("data") or {}), "code": code}
+    return Envelope(
+        status=Status.ERROR,
+        errors=[message if message is not None else str(exc)],
+        reason=reason_for(exc),
+        **kwargs,
+    )
+
+
+def needs_confirmation(
+    data: dict[str, Any] | None = None, cost: Cost | None = None, **kwargs: Any
+) -> Envelope:
+    """A command that would spend (or overwrite) but was not confirmed.
+
+    Carries the preflight cost so the agent can surface it and re-issue the
+    command with ``--confirm``.
+    """
+
+    return Envelope(
+        status=Status.NEEDS_CONFIRMATION,
+        data=data or {},
+        cost=cost or Cost(),
+        **kwargs,
+    )
+
+
+# The password in a URL's userinfo runs to the *last* `@` before the host, and
+# may itself hold `@` or `/` (`snowflake://bob:p@ss@acct`). Stopping at the first
+# `@`, or refusing `/`, leaves the tail of the password in the message.
+_URL_USERINFO = re.compile(r"(\b[a-z][a-z0-9+.\-]*://[^\s/@:\[\]]*:)(\S*)(@)", re.I)
+# `Authorization: <anything>` to the end of the line, then a bare bearer
+# credential wherever it sits.
+_AUTHORIZATION = re.compile(r"(\bauthorization\s*:\s*)[^\r\n]+", re.I)
+_BEARER = re.compile(r"(\bbearer\s+)[A-Za-z0-9._~+/=\-]+", re.I)
+# A secret-named key with a value: `token=abc`, `password: abc`, `DBT_SL_TOKEN=abc`.
+# The name may carry a prefix or a `_suffix` but not a plural (`tokens: 3` is a
+# count), and a value that opens with a backtick is a name dex is pointing at
+# (``token: `DBT_SL_TOKEN` ``), not the secret, so it is left as written.
+_KEY_VALUE = re.compile(
+    r"(?<![a-z0-9])((?:[a-z0-9]+_)*(?:api[_\-]?key|access[_\-]?key|secret|token|"
+    r"password|passwd|pwd)(?:_[a-z0-9]+)*)(?![a-z0-9])(\s*[:=]\s*)"
+    r"(?!\*\*\*|`)(\"[^\"]*\"|'[^']*'|[^\s,;&'\"`)]+)",
+    re.I,
+)
+# A credential in a query string: `?token=abc&...`, `&sig=...`.
+_QUERY_SECRET = re.compile(
+    r"([?&](?:token|access_token|key|api_key|sig|signature|password)=)[^&\s#]+",
+    re.I,
+)
+
+
+# Re-exported for callers that build messages and want to avoid leaking secrets
+# into error/warning strings (e.g. a DSN that embeds a password). `emit` also
+# runs it over every error and warning, so a missed call site prints nothing.
+def redact(text: str) -> str:
+    """Best-effort redaction of secret-looking tokens in a free-text message.
+
+    Idempotent: a value already reading ``***`` is left alone, so a message
+    redacted at its call site and again in :func:`emit` reads the same.
+    """
+
+    text = _URL_USERINFO.sub(r"\1***\3", text)
+    text = _AUTHORIZATION.sub(r"\1***", text)
+    text = _BEARER.sub(r"\1***", text)
+    text = _QUERY_SECRET.sub(r"\1***", text)
+    text = _KEY_VALUE.sub(r"\1\2***", text)
+    return text

@@ -1,0 +1,10 @@
+# <SPP>
+# Print Claude SPP plugin stats (skip during merge/rebase)
+if command -v spp &> /dev/null && [ -d "$(git rev-parse --show-toplevel)/.claude-spp" ]; then
+  GIT_DIR="$(git rev-parse --git-dir)"
+  # Skip if we're in the middle of a merge or rebase
+  if [ ! -f "$GIT_DIR/MERGE_HEAD" ] && [ ! -d "$GIT_DIR/rebase-merge" ] && [ ! -d "$GIT_DIR/rebase-apply" ]; then
+    spp stats
+  fi
+fi
+# </SPP>

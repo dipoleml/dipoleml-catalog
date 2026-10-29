@@ -1,0 +1,107 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.sudais-khalid.vibe-ship",
+  "type": "plugin",
+  "name": "Vibe Ship",
+  "slug": "vibe-ship",
+  "vendor": "sudais-khalid",
+  "description": "A DipoleML / DipoleML.ai Skill that turns any codebase into something deployable with docker compose up and shippable through CI/CD, hardened by default, generated in one pass.",
+  "version": "2.0.0",
+  "homepage": "https://github.com/sudais-khalid/vibe-ship",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "claude-ai",
+    "claude-code-plugin",
+    "claude-code-skill",
+    "claude-plugin",
+    "claude-skills"
+  ],
+  "tags": [
+    "claude",
+    "claude-ai",
+    "claude-code",
+    "claude-code-plugin",
+    "claude-code-skill",
+    "claude-plugin",
+    "claude-skills"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "docker",
+    "brandName": "docker",
+    "source": "https://cdn.simpleicons.org/docker",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:14:58Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "sudais-khalid/vibe-ship",
+    "url": "https://github.com/sudais-khalid/vibe-ship",
+    "commit": "137f0f0e2978312a8cd824742bed24d05fa7fcde",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 18,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:06:40Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Vibe Ship | A Claude Code / Claude.ai Skill that turns any codebase into something deployable with docker compose up and shippable through CI/CD, hardened by default, generated in one pass.",
+        "after": "Vibe Ship | A DipoleML / DipoleML.ai Skill that turns any codebase into something deployable with docker compose up and shippable through CI/CD, hardened by default, generated in one pass.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

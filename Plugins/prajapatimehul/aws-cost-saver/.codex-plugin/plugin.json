@@ -1,0 +1,44 @@
+{
+  "name": "aws-cost-saver",
+  "version": "2.1.0",
+  "description": "180 AWS cost optimization checks with Compute Optimizer ML integration, data transfer analysis, and reservation purchase recommendations.",
+  "author": {
+    "name": "Mehul Prajapati",
+    "url": "https://github.com/prajapatimehul"
+  },
+  "homepage": "https://github.com/prajapatimehul/claude-aws-cost-saver",
+  "repository": "https://github.com/prajapatimehul/claude-aws-cost-saver",
+  "license": "MIT",
+  "keywords": [
+    "aws",
+    "cost-optimization",
+    "cloud",
+    "finops",
+    "savings",
+    "ec2",
+    "rds",
+    "s3",
+    "lambda",
+    "eks",
+    "mcp"
+  ],
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "AWS Cost Saver",
+    "shortDescription": "Find AWS waste with 180 read-only cost checks.",
+    "longDescription": "Scans an AWS account across 11 domains (compute, storage, database, networking, serverless, reservations, containers, advanced databases, analytics, data pipelines, storage-advanced) using Compute Optimizer ML rightsizing, Cost Explorer USAGE_TYPE breakdown, and Reservation/Savings Plan purchase recommendations. Read-only by design — never modifies or deletes resources. Every finding is priced from the AWS Pricing API or a verified table (never guessed).",
+    "defaultPrompt": [
+      "Scan my AWS account for cost savings.",
+      "Find the top 5 idle resources I can shut down today.",
+      "Validate the savings estimates in findings.json against the AWS Pricing API."
+    ],
+    "developerName": "Mehul Prajapati",
+    "category": "Cloud",
+    "capabilities": [
+      "Read"
+    ],
+    "websiteURL": "https://github.com/prajapatimehul/claude-aws-cost-saver",
+    "brandColor": "#FF9900"
+  }
+}

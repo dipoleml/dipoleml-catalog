@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "id": "nanoid-size-consistency",
+  "category": "long_task",
+  "repository": "https://github.com/ai/nanoid.git",
+  "pinned_ref": "1a1fee4610061c63e2429eb5c22a35e3634c1d03",
+  "task": "Make customAlphabet size validation consistent for secure, browser, and non-secure exports, including matching tests, types, and documentation for zero and negative sizes.",
+  "setup_command": ["corepack", "pnpm", "install", "--frozen-lockfile"],
+  "verification_command": ["corepack", "pnpm", "test"],
+  "expected_artifacts": ["index.js", "index.browser.js", "non-secure/index.js", "test/index.test.js", "test/non-secure.test.js", "index.d.ts"],
+  "allowed_tools": ["read", "search", "edit", "test", "git"],
+  "timeout_minutes": 45,
+  "probe_budget": {
+    "max_files": 400,
+    "max_bytes": 2097152,
+    "max_duration_ms": 2500
+  },
+  "max_attempts": 2,
+  "max_agents": 1,
+  "candidate_executors": ["codex-utility", "claude-workhorse", "claude-frontier", "codex-frontier"],
+  "holdout": true,
+  "adversarial_case": null
+}

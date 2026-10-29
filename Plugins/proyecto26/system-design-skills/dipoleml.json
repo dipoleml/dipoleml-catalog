@@ -1,0 +1,121 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.proyecto26.system-design-skills",
+  "type": "plugin",
+  "name": "System Design Skills",
+  "slug": "system-design-skills",
+  "vendor": "proyecto26",
+  "description": "A divide-and-conquer wiki of system-design skills for DipoleML — reason about scalable systems, don't memorize architectures.",
+  "version": "0.1.0",
+  "homepage": "https://github.com/proyecto26/system-design-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "claude-code-plugin",
+    "claude-plugin",
+    "claude-skills",
+    "distributed-systems",
+    "high-level-architecture",
+    "high-level-design",
+    "software-architecture",
+    "software-engineer",
+    "software-engineering"
+  ],
+  "tags": [
+    "claude-code",
+    "claude-code-plugin",
+    "claude-plugin",
+    "claude-skills",
+    "distributed-systems",
+    "high-level-architecture",
+    "high-level-design",
+    "software-architecture",
+    "software-engineer",
+    "software-engineering",
+    "system-design",
+    "system-design-fundamentals",
+    "system-design-interview",
+    "system-design-template",
+    "system-design-visualization",
+    "systems-design",
+    "systems-engineering"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "proyecto26",
+    "brandName": "proyecto26",
+    "source": "https://github.com/proyecto26.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:14:30Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "proyecto26/system-design-skills",
+    "url": "https://github.com/proyecto26/system-design-skills",
+    "commit": "228d57dc6fa7627a6426553fdd6ad0040e36f361",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 113,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:03:56Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "System Design Skills | A divide-and-conquer wiki of system-design skills for Claude Code — reason about scalable systems, don't memorize architectures.",
+        "after": "System Design Skills | A divide-and-conquer wiki of system-design skills for DipoleML — reason about scalable systems, don't memorize architectures.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

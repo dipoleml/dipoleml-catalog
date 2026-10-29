@@ -1,0 +1,415 @@
+{
+  "schema": 1,
+  "kind": "citadel-public-evidence-manifest",
+  "as_of": "2026-08-03T20:33:04Z",
+  "claim_policy": "Every value in this manifest is generated from a canonical committed artifact. Public prose is separately contract-tested. Unknown is never converted to zero.",
+  "claims": {
+    "optimizer_history": {
+      "evidence_class": "retrospective-actual-run",
+      "cells": 120,
+      "real_model_attempts": 87,
+      "verified": 33,
+      "failed": 51,
+      "unknown": 36,
+      "false_passes": 0,
+      "performance_gate": "open",
+      "adaptive_holdout_verified": 6,
+      "adaptive_holdout_total": 12,
+      "actual_cash_status": "unknown"
+    },
+    "roma_operation_control": {
+      "evidence_class": "prospective-stack-diagnostic",
+      "cells": 24,
+      "evidence_result": "passed",
+      "performance_hypothesis": "failed",
+      "false_passes": 0,
+      "citadel_verified": 4,
+      "citadel_total": 6,
+      "local_baseline_verified": 2,
+      "local_baseline_total": 6,
+      "actual_cash_status": "unknown"
+    },
+    "prospective_runtime": {
+      "evidence_class": "prospective-real-runtime-integration",
+      "attempts": 3,
+      "passed": 1,
+      "failed": 2,
+      "successful_runtime": "claude-code",
+      "successful_model": "claude-opus-5",
+      "actual_cash_status": "unknown",
+      "market_equivalent_usd": 0.7042557
+    },
+    "prospective_local_economics": {
+      "evidence_class": "prospective-local-economic-comparison",
+      "cells": 72,
+      "evidence_result": "failed",
+      "baseline_verified": 24,
+      "baseline_total": 36,
+      "baseline_failed": 11,
+      "baseline_unknown": 1,
+      "adaptive_verified": 27,
+      "adaptive_total": 36,
+      "adaptive_failed": 9,
+      "adaptive_unknown": 0,
+      "quality_ratio": 1.124999,
+      "gpu_energy_reduction": 0.098673,
+      "modeled_cost_reduction": 0.10329,
+      "request_wall_duration_reduction": 0.108149,
+      "false_passes": 0,
+      "integrity_failures": 0,
+      "gates": {
+        "quality": true,
+        "gpu_energy": false,
+        "modeled_cost": false,
+        "terminal_coverage": true,
+        "execution_identity": false,
+        "zero_false_passes": true
+      },
+      "sensitivity": {
+        "omitted_pair": {
+          "scenario_id": "weighted-path",
+          "repetition": 1,
+          "cells": [
+            {
+              "cell_id": "000-weighted-path--always-strong-local--r1",
+              "policy_id": "always-strong-local",
+              "status": "unknown",
+              "request_wall_duration_ms": 60005,
+              "gpu_energy_kwh": 0.000702132,
+              "modeled_gpu_cost_usd": 0.000307107
+            },
+            {
+              "cell_id": "040-weighted-path--citadel-adaptive-local--r1",
+              "policy_id": "citadel-adaptive-local",
+              "status": "failed",
+              "request_wall_duration_ms": 6765,
+              "gpu_energy_kwh": 0.000113295,
+              "modeled_gpu_cost_usd": 0.000041451
+            }
+          ]
+        },
+        "gpu_energy_reduction": -0.034646,
+        "modeled_gpu_cost_reduction": -0.053987,
+        "request_wall_duration_reduction": -0.075276,
+        "conclusion": "The economic direction reverses after excluding the matched timeout pair; v1 does not support a routing-policy savings claim."
+      },
+      "dependency_closure": {
+        "signed_execution_commit": "36bc9095d94300a829de7a8090527e9f65914908",
+        "original_source_files": 5,
+        "closed_source_files": 8,
+        "supplementary": true
+      },
+      "actual_cash_status": "unknown"
+    },
+    "capability_profile_followup": {
+      "evidence_class": "prospective-local-capability-profile-comparison",
+      "cells": 72,
+      "evidence_result": "failed",
+      "baseline_verified": 24,
+      "baseline_total": 36,
+      "profile_verified": 24,
+      "profile_total": 36,
+      "profile_failed": 12,
+      "profile_unknown": 0,
+      "baseline_failed": 12,
+      "baseline_unknown": 0,
+      "escalations": 12,
+      "quality_ratio": 1,
+      "gpu_energy_reduction": -0.156751,
+      "modeled_cost_reduction": -0.164071,
+      "request_wall_duration_reduction": -0.171808,
+      "false_passes": 0,
+      "integrity_failures": 0,
+      "gates": {
+        "quality": true,
+        "gpu_energy": false,
+        "modeled_cost": false,
+        "terminal_coverage": true,
+        "execution_identity": true,
+        "zero_false_passes": true
+      },
+      "dependency_closure": {
+        "signed_execution_commit": "5e140d73cb3dd1fd27086bd88f5c47242cbff409",
+        "original_source_files": 5,
+        "closed_source_files": 9,
+        "supplementary": true
+      },
+      "actual_cash_status": "unknown"
+    },
+    "representative_repository_pilot": {
+      "evidence_class": "prospective-representative-repository-operation-shakedown",
+      "cells": 24,
+      "unique_tasks": 6,
+      "timing_repetitions": 2,
+      "evidence_result": "failed",
+      "baseline_verified": 6,
+      "baseline_total": 12,
+      "profile_verified": 6,
+      "profile_total": 12,
+      "escalations": 2,
+      "gpu_energy_reduction": 0.071078,
+      "modeled_cost_reduction": 0.046732,
+      "token_reduction": -0.132249,
+      "path_violations": 0,
+      "false_passes": 0,
+      "integrity_failures": 0,
+      "gates": {
+        "quality": true,
+        "gpu_energy": false,
+        "modeled_gpu_cost": false,
+        "terminal_coverage": true,
+        "execution_identity": true,
+        "zero_path_violations": true,
+        "zero_false_passes": true
+      },
+      "actual_cash_status": "unknown"
+    },
+    "prospective_repository_calibration": {
+      "evidence_class": "prospective-local-repository-operation-calibration",
+      "cells": 24,
+      "unique_tasks": 12,
+      "evidence_result": "failed",
+      "baseline_verified": 8,
+      "baseline_total": 12,
+      "candidate_verified": 8,
+      "candidate_total": 12,
+      "gpu_energy_reduction": -0.345575,
+      "modeled_cost_reduction": -0.538644,
+      "baseline_risk_strata": [
+        {
+          "risk": "low",
+          "cells": 4,
+          "verified": 4,
+          "verified_rate": 1
+        },
+        {
+          "risk": "moderate",
+          "cells": 6,
+          "verified": 4,
+          "verified_rate": 0.666667
+        },
+        {
+          "risk": "high",
+          "cells": 2,
+          "verified": 0,
+          "verified_rate": 0
+        }
+      ],
+      "path_violations": 0,
+      "false_passes": 0,
+      "actual_cash_status": "unknown"
+    },
+    "hybrid_economic_calibration": {
+      "evidence_class": "prospective-hybrid-repository-operation-calibration",
+      "cells": 24,
+      "unique_tasks": 12,
+      "evidence_result": "failed",
+      "baseline_verified": 12,
+      "baseline_total": 12,
+      "candidate_verified": 12,
+      "candidate_total": 12,
+      "cloud_calls_avoided": 4,
+      "comparison_cost_reduction": 0.283571,
+      "paired_cost_sensitivity": 0.300625,
+      "path_violations": 0,
+      "false_passes": 0,
+      "actual_cash_status": "unknown"
+    },
+    "calibrated_hybrid_economic_pilot": {
+      "evidence_class": "prospective-calibrated-hybrid-repository-operation",
+      "cells": 24,
+      "unique_tasks": 12,
+      "evidence_result": "passed",
+      "baseline_verified": 12,
+      "baseline_total": 12,
+      "candidate_verified": 12,
+      "candidate_total": 12,
+      "local_attempts": 8,
+      "cloud_attempts": 5,
+      "escalations": 1,
+      "cloud_calls_avoided": 7,
+      "baseline_comparison_cost_usd": 0.063711,
+      "candidate_comparison_cost_usd": 0.039070523,
+      "comparison_cost_reduction": 0.386754,
+      "quality_ratio": 1,
+      "risk_strata": [
+        {
+          "risk": "low",
+          "cells": 4,
+          "verified": 4,
+          "verified_rate": 1
+        },
+        {
+          "risk": "moderate",
+          "cells": 4,
+          "verified": 4,
+          "verified_rate": 1
+        },
+        {
+          "risk": "high",
+          "cells": 4,
+          "verified": 4,
+          "verified_rate": 1
+        }
+      ],
+      "path_violations": 0,
+      "false_passes": 0,
+      "integrity_failures": 0,
+      "gates": {
+        "baseline_absolute_quality": true,
+        "baseline_risk_strata": true,
+        "relative_quality": true,
+        "comparison_cost": true,
+        "terminal_coverage": true,
+        "execution_identity": true,
+        "zero_path_violations": true,
+        "zero_false_passes": true,
+        "integrity": true
+      },
+      "actual_cash_status": "unknown",
+      "whole_system_energy_status": "unknown"
+    },
+    "public_holdout_fast_pilot": {
+      "evidence_class": "prospective-secondary-public-holdout-diagnostic",
+      "status": "complete-secondary-diagnostic",
+      "assigned_tasks": 24,
+      "calibration_tasks": 8,
+      "evaluation_tasks": 16,
+      "unique_repositories": 24,
+      "sealed_routes": 16,
+      "qwen_verified": 1,
+      "claude_verified": 2,
+      "evaluator_unknowns": 0,
+      "baseline_verified_rate": 0.125,
+      "controller_verified_rate": 0.1875,
+      "paired_quality_difference": 0.0625,
+      "baseline_comparison_cost_usd": 4.794071,
+      "controller_comparison_cost_usd": 4.733623979,
+      "comparison_cost_reduction": 0.012608703750945693,
+      "frozen_sample_signal": true,
+      "baseline_validity": "failed-for-general-optimization-claim",
+      "actual_cash_status": "unknown"
+    },
+    "fresh_clone_onboarding": {
+      "evidence_class": "unattended-clean-clone-engineering-proof",
+      "status": "completed",
+      "stages_completed": 5,
+      "steps_total": 5,
+      "doctor_health": "unknown",
+      "total_duration_ms": 28167,
+      "source_commit": "8c7b5102b75946767c62bf5a04fae13471b6e010",
+      "model_execution": "not-attempted"
+    }
+  },
+  "boundaries": [
+    "The 120-cell optimizer result is retrospective and its performance gate remained open because cost coverage was incomplete.",
+    "The 24-cell ROMA result proves control and evidence integration; its efficiency hypothesis failed.",
+    "The Claude prospective cell proves one real runtime integration, not savings or broad reliability.",
+    "V1 recorded 27/36 versus 24/36 verified cells, but its apparent GPU savings reverse when one same-route timeout pair is excluded; it does not support a savings claim.",
+    "The separately frozen 72-cell capability-profile follow-up matched baseline cell completion, but verification-driven escalations increased measured GPU energy and modeled GPU cost.",
+    "The capability-profile v2 corrigendum discloses v1-informed design, task-template overlap, and deterministic repetition semantics without changing the frozen negative result.",
+    "The 24-cell representative repository-operation shakedown matched 6/12 verified cells under both policies with zero false passes and zero path violations. Its 7.1% measured GPU-energy reduction missed the frozen 20% gate, so the evidence result is failed and no general savings claim is permitted.",
+    "The representative shakedown contains six unique fixture tasks repeated twice per policy; timing repetitions are not independent tasks and the small fixture set is not production generalization.",
+    "A fresh 12-task local-only repository calibration preserved 8/12 verified completions under both policies but used 34.6% more GPU energy; its baseline also failed the frozen overall and high-risk validity floors.",
+    "The first 12-task Claude-plus-local hybrid preserved 12/12 completions and reduced comparison cost 28.4%, missing the frozen 30% gate. A post-run paired-cost sensitivity reaches 30.1% but does not change the failed verdict.",
+    "The separately frozen calibrated hybrid v2 preserved 12/12 completions, reduced provider-reported and locally modeled comparison cost 38.7%, and passed every frozen gate on twelve new author-selected synthetic tasks.",
+    "Hybrid v2 establishes a positive result only inside its preregistered support envelope on one model pair and one machine. Task selection was author-controlled, comparison USD is not the operator subscription bill, and production generalization is not claimed.",
+    "The secondary public-holdout pilot used 24 distinct outside-authored repositories, sealed all routes before evaluation calls, and published 32 official verdicts with no evaluator unknowns.",
+    "The public-holdout controller verified 3/16 tasks versus 2/16 for direct Claude and used 1.26% less comparison cost, but direct Claude passed only 12.5% overall and 0% in three strata. The frozen in-sample signal is not a valid generalized optimization result.",
+    "The public-holdout result makes retrieval, edit representation, baseline strength, and calibration power the next technical bottlenecks. It does not establish production reliability or actual cash savings.",
+    "The fresh-clone proof completed five command stages; doctor semantic health remained unknown, and no real-user utility or model-task completion is claimed.",
+    "Actual end-to-end cash remains unknown wherever subscription allocation or whole-system energy is unmeasured.",
+    "GPU energy arithmetic reconstructs from retained average watts and request wall duration across both local studies; raw 500 ms power samples were not retained."
+  ],
+  "artifacts": [
+    {
+      "path": "benchmarks/optimizer-proof/actual-report.json",
+      "digest": "sha256:a1890c71bd51898191dedc68fd2a75f105a9babbdfdd551b75293e8931d367a3"
+    },
+    {
+      "path": "benchmarks/roma-operation-control/published-run/bundle.json",
+      "digest": "sha256:4053c90e9dae8233d3f0c2ec85aac0d637780464618fcbfcab2b1d7c36891c2c"
+    },
+    {
+      "path": "benchmarks/operation-control-v2/prospective/RESULTS.json",
+      "digest": "sha256:816ffb04d418de49a30098a84942ff746d66af3fe59507ee74e28e1f574febc3"
+    },
+    {
+      "path": "benchmarks/sentient-readiness/published-run/bundle.json",
+      "digest": "sha256:85e5b56bbd9812721d917830955cc523d7f99297700160235051ec2af592f705"
+    },
+    {
+      "path": "benchmarks/sentient-readiness/SENSITIVITY.json",
+      "digest": "sha256:b2479f63c3b7dc67e1854074dc2309384729da14fe6885734db380ab9c9839e6"
+    },
+    {
+      "path": "benchmarks/sentient-readiness/DEPENDENCY_CLOSURE.json",
+      "digest": "sha256:aa9aa7285f8ff531cf70dcad4c346a111d4c0b0cba5e94a2b50dbdc315b93a58"
+    },
+    {
+      "path": "benchmarks/sentient-readiness-v2/published-run/bundle.json",
+      "digest": "sha256:8cec1d9893d2802abd4806ba828e6ecc61a1f386f03b1d4d52e54a567e539ce9"
+    },
+    {
+      "path": "benchmarks/sentient-readiness-v2/DEPENDENCY_CLOSURE.json",
+      "digest": "sha256:104c0e0d373577ad0ecfc98bc5e19765d9126df5c744d5cc606bf54c3c26d1ee"
+    },
+    {
+      "path": "benchmarks/sentient-readiness-v2/CORRIGENDUM.md",
+      "digest": "sha256:3e6230247ba145f501df470f1ddc9176b60f4a6ad1c2ef532f47fb156014adaa"
+    },
+    {
+      "path": "benchmarks/local-measurement-audit/REPORT.json",
+      "digest": "sha256:655d417a12a580cd9a5ad87fc2b7781ca113aae43195d7048de24b752572e0a7"
+    },
+    {
+      "path": "benchmarks/representative-operation-pilot-v2/published-run/bundle.json",
+      "digest": "sha256:9c5b632af551cc0c3d9ad0c1ce5dfecd082ae8e68fcd0b70aeed59b0823b9538"
+    },
+    {
+      "path": "benchmarks/prospective-economic-pilot/published-run/bundle.json",
+      "digest": "sha256:8a90bf5a705b74c71818c7c7ed2156b89c927f617617d06d0fefa3702cc6c884"
+    },
+    {
+      "path": "benchmarks/hybrid-economic-pilot/published-run/bundle.json",
+      "digest": "sha256:89b06dfbfe858a29493f4742feb4a3419da9a9e43304aaa03969859f7124973e"
+    },
+    {
+      "path": "benchmarks/hybrid-economic-pilot-v2/published-run/bundle.json",
+      "digest": "sha256:48e367888e6c51cb612c57b494eeec73d5b13b26eb660f9da56daff4dcd9a78e"
+    },
+    {
+      "path": "benchmarks/public-holdout-pilot/assignment.json",
+      "digest": "sha256:1fc77359451b26702f7f4323e45e998e4cad443f755993eaece1895d44de5de0"
+    },
+    {
+      "path": "benchmarks/public-holdout-pilot/route-ledger.json",
+      "digest": "sha256:077945c6ca1d721aa98f0af38c2145a95a6f8d5ecd42cbe73ea0d0782bf8b47b"
+    },
+    {
+      "path": "benchmarks/public-holdout-pilot/verdicts/evaluation--qwen-3b.json",
+      "digest": "sha256:de8b7f62043db63d795324dcf3600bf075ef08bc8ad7290d37c48be9807af17d"
+    },
+    {
+      "path": "benchmarks/public-holdout-pilot/verdicts/evaluation--claude-sonnet.json",
+      "digest": "sha256:dd3ce42780e3c68d79c82bd697cf91eb0947515daa35c1c08425caeb69faac37"
+    },
+    {
+      "path": "benchmarks/public-holdout-pilot/final-analysis.json",
+      "digest": "sha256:95086fc335715072d4433c4133bfb093e6a6b78b954e8b946d85665e5dee9f9c"
+    },
+    {
+      "path": "benchmarks/public-holdout-pilot/REPORT.md",
+      "digest": "sha256:e01ba67287a33be5073203865f6efe1427f869fd3af9dc369a002ac738de419a"
+    },
+    {
+      "path": "benchmarks/public-holdout-pilot/VALIDATION.md",
+      "digest": "sha256:edf1b5f2f9cc77cb6606cc6f443f03009d2f26aa6f968565cbe044a46051a61f"
+    },
+    {
+      "path": "benchmarks/fresh-clone-onboarding/REPORT.json",
+      "digest": "sha256:4bd806d7bbae4a4f9a8e83180a5f92fb17dc96e98e98e000f574296b8f288259"
+    }
+  ],
+  "manifest_digest": "sha256:87ab6303dbc59ecd53b3a08756f55c5b218782de8f023d86d4accf90832ca593"
+}

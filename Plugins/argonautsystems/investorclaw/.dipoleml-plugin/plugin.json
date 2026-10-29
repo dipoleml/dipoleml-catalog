@@ -1,0 +1,16 @@
+{
+  "name": "investorclaw",
+  "displayName": "Investorclaw",
+  "version": "4.7.2",
+  "description": "Deterministic portfolio analysis and market intelligence. Ask anything in natural language through ic-engine's signed-envelope pipeline: holdings, performance, bonds, analyst consensus, news sentiment, multi-factor synthesis, portfolio optimization, CME futures, and CSV/Excel reporting. Direct file upload (CSV/XLS/XLSX/PDF) and vision extraction of broker statements. Container-first: pulls the public ic-engine image and connects over MCP-HTTP. Guardrails: educational-only, no investment advice. Free out of the box — Yahoo Finance quotes, no API key or paid SaaS required; an optional Massive key adds CME futures and premium real-time data.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Argonautsystems"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/argonautsystems/InvestorClaw",
+  "repository": "https://github.com/argonautsystems/InvestorClaw",
+  "skills": "./",
+  "commands": "./commands/",
+  "agents": []
+}

@@ -1,0 +1,16 @@
+{
+  "name": "linked-intent-dev",
+  "displayName": "Linked Intent Dev",
+  "version": "1.4.2",
+  "description": "Structured design-before-code workflow: HLD → LLD → EARS specs → Tests → Code",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Jszmajda"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/jszmajda/lid",
+  "repository": "https://github.com/jszmajda/lid",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

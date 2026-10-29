@@ -1,0 +1,16 @@
+{
+  "name": "github-dev",
+  "displayName": "GitHub Dev",
+  "version": "2.8.0",
+  "description": "Write clear issues, commits, and PRs, review code, and resolve feedback.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Fcakyon"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/fcakyon/claude-codex-settings",
+  "repository": "https://github.com/fcakyon/claude-codex-settings",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,252 @@
+<div align="center">
+
+# 🌀 Superloopy
+
+**Ingeniería de bucles para Codex y Claude Code.** Escribe `loopy <task>`: un agente hace el trabajo, prueba cada parte con evidencia real y solo entonces dice que terminó.
+
+<p>
+  <a href="README.md">English</a> ·
+  <a href="README.ko.md">한국어</a> ·
+  <a href="README.zh-CN.md">中文(简体)</a> ·
+  <a href="README.ja.md">日本語</a> ·
+  <a href="README.es.md">Español</a>
+</p>
+
+<img src=".github/assets/forge.webp" width="92" alt="forge" />&nbsp;<img src=".github/assets/sentinel.webp" width="92" alt="sentinel" />&nbsp;<img src=".github/assets/probe.webp" width="92" alt="probe" />&nbsp;<img src=".github/assets/arbiter.webp" width="92" alt="arbiter" />&nbsp;<img src=".github/assets/assayer.webp" width="92" alt="assayer" />&nbsp;<img src=".github/assets/pathfinder.webp" width="92" alt="pathfinder" />
+
+<sub><b>the crew</b> — subagentes opcionales, un trabajo cada uno</sub>
+
+</div>
+
+## Uso
+
+Después de instalarlo, escribe tu tarea en Codex o Claude Code con `loopy` al inicio:
+
+```
+loopy agrega el módulo de pagos
+```
+
+El agente la planifica, prueba cada parte con un archivo real y responde con el resultado. No tienes que ejecutar comandos manualmente. El Stop hook incluido mantiene la sesión en marcha solo después de que empiezas o retomas un loop con `loopy`, y solo hasta que envías un mensaje normal; `SUPERLOOPY_STOP_HOOK=on` lo activa en todas las sesiones y `SUPERLOOPY_STOP_HOOK=off` lo desactiva.
+
+## ¿Por qué Superloopy?
+
+Superloopy es para trabajo en Codex y Claude Code donde "terminado" tiene que significar algo más que una frase de estado dicha con confianza.
+
+- Evidencia primero: cada pasada apunta a un artefacto real en `.superloopy/evidence/`.
+- Ligero por defecto: un CLI pequeño, estado local al repo, cero dependencias de runtime.
+- Amigable con agentes: skills, hooks y crew lanes opcionales guían al agente sin ocultar el gate final.
+
+**Alcance de la garantía.** Los criterios respaldados por un comando son la garantía fuerte: al finalizar, Superloopy vuelve a ejecutar cada comando en proceso y exige que se reproduzca, de modo que un pass obsoleto o fabricado no puede llegar a "hecho". Los criterios manuales (sin comando) se verifican como la existencia de un artefacto de evidencia no vacío más el juicio del auditor/humano: su corrección depende de la revisión, no de la reejecución determinista.
+
+## Skills
+
+Superloopy mantiene pequeña la capa de comandos. Las skills guardan el flujo especializado: cuándo usarlas, qué debe revisar el agente y qué prueba debe quedar en `.superloopy/evidence/`.
+
+| Skill | Cuándo usarla | Qué produce |
+| --- | --- | --- |
+| `superloopy-loop` | Escribes `loopy <task>` o `loopy team <task>` para un loop completo; usa `loopywork`, `lpy` o `$lpy` para contexto solo de guidance. | Los loops completos producen progreso/respuestas finales directos, concisos y completos, además de plan ligero, prueba, quality gate y evidence report final. Los controles exactos en inglés/coreano solo afectan al loop incompleto actual; los nuevos loops vuelven a enabled. Los alias de guidance no mutan estado. |
+| `superloopy-doctor` | Diagnosticas instalación, wrapper, plugin cache, hook/bootstrap, agentes, wiring de Codex/Claude Code o versiones stale. | Health report de solo lectura: evidencia de wrapper/cache/version, checks fallidos y el comando exacto de reparación que solo se ejecuta si lo apruebas. |
+| `superloopy-research` | Invocas explícitamente `$superloopy:superloopy-research` en Codex o `/superloopy:superloopy-research` en Claude Code, o inicias la investigación con un `loopy`/`루피` inicial (por ejemplo `loopy research`). Las peticiones simples de investigar, buscar o resumir no lo activan. | Ejes de investigación, expansion waves, un veredicto por cada recuperación, fuentes graduadas y fechadas, un claim ledger con coste registrado, notas de verificación y un synthesis artifact citado. |
+| `superloopy-backend` | Invocas explícitamente `$superloopy:superloopy-backend` en Codex o `/superloopy:superloopy-backend` en Claude Code para trabajo de backend, datos, migraciones o agentes de base de datos en runtime, o inicias ese trabajo con `loopy`/`루피` al principio. El vocabulario corriente de backend o base de datos no lo activa. | Una ficha de contexto independiente del stack, contratos definidos, protección de datos con privilegios mínimos, TDD, límites para migraciones y agentes en runtime, y evidencia operativa verificada con comandos. |
+| `superloopy-clone` | Pides `loopy clone`, clonación autorizada de un sitio, reconstrucción, migración o recuperación visual precisa de páginas. | Capturas de navegador, topología de página, design tokens, inventario de assets, notas de implementación, salida de build y evidencia de visual QA. |
+| `superloopy-frontend` | Solo para interfaces de aplicaciones en pantalla dentro del alcance —Web alojada en navegador (pública, autenticada, privada/interna, PWA instalada o extensión), Web interactiva de contenido ya desplegada (campañas, publicaciones o experiencias de landing con un recorrido de usuario), escritorio, móvil/tableta, clientes embebidos/híbridos, UI con renderizado personalizado, Qt o destinos mixtos—, invocas explícitamente `$superloopy:superloopy-frontend` en Codex o `/superloopy:superloopy-frontend` en Claude Code, o inicias ese trabajo con `loopy`/`루피` al principio. La mera terminología de UI, plataforma o framework no la activa; se excluyen TV, wearables, XR, automoción, UI de juegos, TUI, artefactos estáticos de medios/documentos y trabajo que no sea de UI. | Un contrato de UX compartido más rutas de plataforma/composición. La evidencia es proporcional a las afirmaciones modificadas y verifica por separado cada navegador, destino/shell nativo, renderizador y destino mixto. Las ejecuciones independientes conservan recibos por ejecución; los bucles activos los vinculan al goal y criterion. |
+| `humanize-korean` | Úsala cuando usuarios coreanos piden quitar el tono AI, corregir 번역투 o hacer que el texto coreano suene humano sin cambiar hechos. | Se encarga de la naturalidad del coreano, incluida la revisión semántica de modificadores mal colocados. Escribe `final.md`, `summary.md` y `audit.json`; en loops de Superloopy registra evidencia en `.superloopy/evidence/humanize-korean/`. |
+| `i-have-adhd` | Invocas explícitamente `$superloopy:i-have-adhd` en Codex o `/superloopy:i-have-adhd` en Claude Code, o un brief que empieza con `loopy`/`루피` pide directamente una salida apta para TDAH, orientada a la acción, paso a paso o fácil de escanear. El estilo de escritura por sí solo nunca la activa. | Da forma a las actualizaciones para mantener visible la siguiente acción. No crea un artifact de evidencia de Superloopy ni debilita la planificación, la seguridad, la validación o los gates de finalización. |
+| `say-it-straight` | Solo al invocar explícitamente `$superloopy:say-it-straight` en Codex o `/superloopy:say-it-straight` en Claude para editar prosa suministrada o task artifacts; el estilo por sí solo no la activa. El progreso/final de un Loopy completo es directo por defecto y los controles exactos en inglés/coreano solo afectan al loop incompleto actual. | La edición explícita de artifacts conserva hechos, registro, texto protegido y detalles necesarios; ejecuta la auditoría. ADHD conserva la estructura y `humanize-korean` la reescritura coreana. |
+| `superloopy-slides` | Pides diapositivas, una presentación, un deck o convertir un PPT/PPTX a web. | Un deck HTML de un solo archivo sin dependencias en un escenario 16:9 fijo, tres previews de estilo para elegir y un artefacto de visual QA con capturas renderizadas bajo `.superloopy/evidence/slides/`. |
+
+**Gate automático de copy tranquilizador.** Cada inicio o reanudación de un Loopy completo incluye este gate condicional. Solo se activa cuando el artifact afectado crea o modifica copy coreano visible para el usuario sobre el comportamiento del producto; entonces añade al plan criterion RC-1 a RC-4 y la revisión de naturalidad de `humanize-korean`. Se excluyen logs internos y diagnósticos, documentación y comentarios para desarrolladores, narración de tests, citas, prosa general o de marketing y copy que no esté en coreano. Usa solo el comportamiento proporcionado y, si falta un hecho, lo registra como blocker o pregunta en vez de inventar un resultado. No hay skill independiente ni nombre de invocación.
+
+### Qué efecto medido tiene `superloopy-backend`
+
+Medido reproduciendo pull requests fusionados de cuatro bases de código backend (Java y Go) sobre un checkout sellado, con las pruebas del propio PR retenidas como oráculo y cada entrega revisada a ciegas tres veces. En 46 tareas de las que las reglas nunca se derivaron, activar la habilidad dejó **alrededor de una cuarta parte menos de cambios con una parte sin prueba** (razón 0,73 frente a ejecutar sin la habilidad, intervalo del 90 % 0,56–0,90), con **1,7–1,8× los tokens de salida**. No cambió si las pruebas retenidas pasaban ni encontró más partes de la corrección. La guía de seguridad de datos, migraciones y agentes en runtime no se ha medido; léela como guía, no como efecto medido.
+
+La skill de loop es la barandilla por defecto. Un token `loopy` completo al principio inicia o reanuda el evidence loop; `loopy team` sube a crew mode. `loopywork`, `lpy` y `$lpy` al principio solo inyectan guidance inicial, y las directivas estructuradas `SUPERLOOPY_STEER` ajustan un loop activo. La salida directa de un Loopy completo no reescribe en silencio prosa suministrada ni task artifacts; la edición directa sigue siendo explícita. El prompt hook no infiere modos de frontend ni de redacción coreana a partir de texto normal; invoca las skills especializadas explícitamente o deja que un loop ya activo asigne un subtask especializado real.
+
+## Demo de clonación
+
+[![Referencia de clonación de Transferloom.com](.github/assets/transferloom-clone-reference.png)](https://transferloom.com/)
+
+`superloopy-clone` reprodujo Transferloom.com en local y pasó validación de navegador desktop/mobile. La ejecución de referencia conservó el sticky nav, el animated hero, las app preview sections, la comparison table, el security panel, el sister app banner, el footer, los local assets y el Superloopy evidence trail.
+
+## Demo de diapositivas
+
+[![Deck de presentación de Fileloom creado con superloopy-slides](.github/assets/slides-demo-reference.png)](https://fileloom-slides.pages.dev)
+
+`superloopy-slides` generó este **[deck multilingüe en vivo →](https://fileloom-slides.pages.dev)** — una presentación HTML de un solo archivo y sin dependencias sobre un escenario fijo 16:9, con English · 한국어 · 中文 · 日本語 · Español. Superó la QA visual en navegador real (independiente, letterbox en móvil e incrustado en iframe) registrada en `.superloopy/evidence/slides/`.
+
+## Demo de comparación de escritura
+
+[![App de comparación de escritura mostrando un documento original junto a su reescritura de Say It Straight](.github/assets/writing-comparison-demo.png)](https://writing-comparison.pages.dev/)
+
+El **[visor de comparación de escritura en vivo →](https://writing-comparison.pages.dev/)** muestra un documento original junto a sus reescrituras `humanize-korean` (A), `i-have-adhd` (B) y `say-it-straight` (C) en trece muestras en coreano e inglés. Cada edición de Say It Straight lleva una nota con su justificación y cualquier comparación se puede compartir por URL.
+
+## Crew
+
+Para trabajos grandes, Superloopy incluye seis subagentes opcionales, cada uno con una única línea de trabajo. Claude Code usa los `agents/*.md` incluidos en el plugin. En Codex, bootstrap, `superloopy install` y `superloopy agents install` materializan los TOML personales en `$CODEX_HOME/agents` y resuelven allí el enrutamiento de modelos.
+
+Codex consulta el método estable `model/list` solo si falta el estado, cambió la política o el destino, la caché tiene al menos 24 horas o se usa `--refresh-models`; si el estado y los archivos gestionados siguen coincidiendo, reutiliza el mismo manifest. La resolución elige las tuplas completas de `gpt-6.1-sol` para `standard` y `deep`, y de `gpt-6-luna` para `fast`. Si `gpt-6.1-sol` no está disponible, `standard` y `deep` pasan primero a `gpt-6-sol`; un perfil que aún no se resuelve usa la tupla GPT-5.6 correspondiente. Un primer sondeo desconocido elige la compatibilidad de forma conservadora; un refresco desconocido conserva una resolución válida. `--compat` elige la compatibilidad sin consultar. Los cambios en los agentes requieren reiniciar Codex; un manifest vigente sin cambios no. No hay reintento ni cambio de modelo después del lanzamiento. `superloopy doctor --refresh-models` solo compara y no modifica archivos ni estado. Los detalles están en `docs/superloopy-model-policy.md` y `docs/superloopy-model-policy-claude.md`.
+
+<table>
+  <tr>
+    <td align="center" width="33%"><img src=".github/assets/forge.webp" width="190" alt="forge" /><br /><b>forge</b><br /><sub>construye</sub></td>
+    <td align="center" width="33%"><img src=".github/assets/sentinel.webp" width="190" alt="sentinel" /><br /><b>sentinel</b><br /><sub>revisa</sub></td>
+    <td align="center" width="33%"><img src=".github/assets/probe.webp" width="190" alt="probe" /><br /><b>probe</b><br /><sub>prueba</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><img src=".github/assets/arbiter.webp" width="190" alt="arbiter" /><br /><b>arbiter</b><br /><sub>valida el gate</sub></td>
+    <td align="center"><img src=".github/assets/assayer.webp" width="190" alt="assayer" /><br /><b>assayer</b><br /><sub>audita</sub></td>
+    <td align="center"><img src=".github/assets/pathfinder.webp" width="190" alt="pathfinder" /><br /><b>pathfinder</b><br /><sub>encuentra</sub></td>
+  </tr>
+</table>
+
+**Invoca la crew** con `loopy team <task>`, o `loopy crew`, la forma de una palabra `loopycrew`, o simplemente `ultrawork <task>`. Superloopy reparte el trabajo en las líneas en paralelo y aun así prueba cada parte antes de darlo por terminado. Un `loopy <task>` normal se queda en modo solo y solo delega cuando las partes son claramente independientes.
+
+En ejecuciones con la crew completa, el padre registra cada línea con `superloopy loop handoff`, revisa `superloopy loop fleet --json` y mantiene separado el informe final humano del gate JSON de máquina. Un informe de gate puede ser evidencia Markdown; `superloopy loop finish --artifact` es para la salida `.json` del quality gate.
+
+Cuando un handoff de crew registrado termina, Superloopy puede imprimir una línea original de crew antes del estado normal de `handoff` o `fleet`. Sigue el idioma del usuario detectado en la asignación o el brief del scope cuando coincide con el catálogo soportado, con el inglés como fallback seguro. La línea solo da personalidad; el verdict, el evidence artifact, la lista outstanding y la lista attention siguen siendo la autoridad.
+
+## Funciona con Superpowers
+
+Superloopy encaja bien junto al plugin [Superpowers](https://github.com/obra/superpowers). Cada uno cubre una mitad distinta del mismo trabajo, así que no tienes que elegir.
+
+- Superpowers lleva la primera parte del loop: lluvia de ideas, planificación y su metodología de TDD y revisión de código.
+- Superloopy lleva el cierre: criterios respaldados por comandos que se vuelven a ejecutar al terminar, para que "hecho" quede probado y no solo dicho.
+
+Si Superpowers está instalado (en Codex o en Claude Code), Superloopy lo detecta y ajusta su propia guía. Deja el diseño, la planificación y el TDD a Superpowers y se queda como el evidence gate exterior. La detección es de mejor esfuerzo y solo afecta a los consejos; nunca debilita un gate. Usa `SUPERLOOPY_SUPERPOWERS=off` para desactivarlo o `on` para forzarlo, y ejecuta `superloopy doctor` para ver qué se encontró. Más detalles en [docs/superloopy-interop-superpowers.md](docs/superloopy-interop-superpowers.md).
+
+### Q&A
+
+- **¿Necesito los dos?** No. Superloopy funciona por su cuenta. Si Superpowers también está, los dos se coordinan en vez de solaparse.
+- **¿Qué etapa lleva cada uno?** Superpowers lleva la lluvia de ideas, la planificación y la implementación; Superloopy lleva la prueba final. Deja un solo conductor por tarea: no ejecutes `loopy team` y el flujo de subagentes de Superpowers sobre las mismas partes a la vez.
+- **¿Quién decide que una tarea está hecha?** Superloopy. Vuelve a ejecutar el comando real al final y bloquea un falso aprobado.
+- **¿Cómo se detecta Superpowers?** Mirando en tus carpetas de plugins de Codex y Claude Code. Puedes anularlo cuando quieras con `SUPERLOOPY_SUPERPOWERS=on|off`.
+
+## Instalación
+
+Superloopy se instala tanto en **Codex** como en **Claude Code** desde un mismo repo. El núcleo (loop state, evidence gates, doctor) es agnóstico del host; cada host recibe su propio manifest de plugin liviano, su cableado de hooks y su formato de agents.
+
+### Codex
+
+Requiere Node.js ≥ 22 y Codex CLI ≥ 0.131.0 para `codex plugin add`. Superloopy no tiene dependencias: cero dependencias de runtime, solo Node.
+
+```
+codex plugin marketplace add https://github.com/beefiker/superloopy
+codex plugin add superloopy@beefiker
+```
+
+Reinicia Codex después de instalar el plugin. Si Codex te pide revisar hooks, apruébalos; la siguiente sesión aprobada ejecuta un hook `SessionStart` que hace un bootstrap único una sola vez: instala el comando `superloopy` y los agents. Si `superloopy` no aparece, su carpeta no está en tu `PATH`; el bootstrap imprime la línea exacta que debes agregar. Revisa todo con `superloopy doctor`.
+
+¿Instalas desde un checkout? Ejecuta `node src/cli.js install --json`.
+
+### Claude Code
+
+Requiere Node.js ≥ 22 y Claude Code ≥ 2.1.280 para los subagentes fijados a Opus 5.5. Desde el mismo repo:
+
+```
+/plugin marketplace add beefiker/superloopy
+/plugin install superloopy@beefiker
+```
+
+Recarga los plugins (o reinicia Claude Code) y aprueba los hooks cuando te lo pida. En Claude Code las skills, los subagentes (`agents/*.md`) y los hooks (`hooks/hooks.json`) van **incluidos en el plugin** (plugin-bundled): no hay paso de instalación en `~/.codex` ni wrapper `superloopy`; los hooks invocan el CLI directamente vía `${CLAUDE_PLUGIN_ROOT}`, y `SessionStart` es un no-op limpio (no hay nada que hacer bootstrap). Para desarrollo local, apunta Claude Code a un checkout con `claude --plugin-dir <checkout>`. Verifica con `node "${CLAUDE_PLUGIN_ROOT}/src/cli.js" doctor --json`. Los valores de modelo recomendados de los subagentes para Claude están documentados en `docs/superloopy-model-policy-claude.md`.
+
+## Actualización
+
+### Codex
+
+Si instalaste desde el Codex marketplace, actualiza el marketplace snapshot:
+
+```
+codex plugin marketplace upgrade beefiker
+```
+
+Superloopy revisa actualizaciones en `SessionStart`. Las instalaciones desde marketplace las gestiona Codex, así que Superloopy nunca inicia un self-update con `npx` para ellas; cuando detecta una versión nueva, te indica ejecutar el marketplace upgrade y volver a aprobar los hooks modificados.
+
+Reinicia Codex después de actualizar. Si los hooks aparecen como Modified, apruébalos; la siguiente sesión aprobada vuelve a ejecutar el bootstrap `SessionStart` en la versión nueva. Después ejecuta `superloopy doctor`.
+
+Si el plugin todavía parece viejo o sigue degradado, haz un repair reinstall desde el marketplace actualizado:
+
+```
+codex plugin add superloopy@beefiker
+```
+
+Si instalaste desde un checkout, actualiza el checkout y vuelve a ejecutar el installer:
+
+```
+git pull --ff-only
+node src/cli.js install --json
+superloopy doctor
+```
+
+Las instalaciones desde checkout no están gestionadas por `npx`. El self-update con `npx` queda reservado para un instalador futuro que escriba un snapshot `superloopy-install.json` en una raíz de instalación estable.
+
+### Claude Code
+
+Actualiza el marketplace, actualiza el plugin instalado y luego recarga; no hace falta reiniciar:
+
+```
+/plugin marketplace update beefiker
+/plugin update superloopy@beefiker
+/reload-plugins
+```
+
+`/plugin update` resuelve la versión nueva desde el marketplace actualizado, y `/reload-plugins` la aplica en la sesión actual (sin reiniciar Claude Code, y los hooks no necesitan volver a aprobarse). Verifica con `node "${CLAUDE_PLUGIN_ROOT}/src/cli.js" doctor --json`. Si cargaste un checkout con `--plugin-dir`, basta con `git pull --ff-only` y ejecutar `/reload-plugins`.
+
+## Solución de problemas
+
+Si fallan los comandos de instalación o actualización del plugin, actualiza primero el Codex CLI. `codex plugin add` está disponible desde Codex CLI 0.131.0 en adelante; las versiones antiguas pueden tener problemas con los comandos actuales de plugin marketplace y los flujos de aprobación de hooks.
+
+Después de actualizar el CLI, reinicia Codex, vuelve a ejecutar el comando de instalación o actualización del marketplace, aprueba cualquier hook Modified y revisa con `superloopy doctor`.
+
+En Claude Code, si los comandos `/plugin` fallan o el plugin parece viejo, ejecuta `/reload-plugins` (o reinicia Claude Code) y verifica con `node "${CLAUDE_PLUGIN_ROOT}/src/cli.js" doctor --json`.
+
+## Desinstalación
+
+### Codex
+
+Elimina el plugin instalado de Codex:
+
+```
+codex plugin remove superloopy@beefiker
+```
+
+Si ya no necesitas el marketplace source, elimínalo también:
+
+```
+codex plugin marketplace remove beefiker
+```
+
+Reinicia Codex después de desinstalar. Limpieza opcional del bootstrap local: eliminar el plugin cubre la config y cache de plugins de Codex, pero el wrapper `superloopy` y los agents personales copiados pueden quedar. Revísalos antes de borrarlos, sobre todo si personalizaste algún archivo de agent.
+
+```sh
+rm -f ~/.local/bin/superloopy
+rm -f ~/.codex/agents/forge.toml ~/.codex/agents/sentinel.toml ~/.codex/agents/probe.toml ~/.codex/agents/arbiter.toml ~/.codex/agents/assayer.toml ~/.codex/agents/pathfinder.toml
+```
+
+```powershell
+Remove-Item "$env:APPDATA\npm\superloopy.cmd" -ErrorAction SilentlyContinue
+Remove-Item "$env:USERPROFILE\.codex\agents\forge.toml", "$env:USERPROFILE\.codex\agents\sentinel.toml", "$env:USERPROFILE\.codex\agents\probe.toml", "$env:USERPROFILE\.codex\agents\arbiter.toml", "$env:USERPROFILE\.codex\agents\assayer.toml", "$env:USERPROFILE\.codex\agents\pathfinder.toml" -ErrorAction SilentlyContinue
+```
+
+Al actualizar, los archivos de agente anteriores al cambio de nombre se eliminan automáticamente si no se modificaron. Si editaste alguno, elimínalo a mano:
+
+```sh
+rm -f ~/.codex/agents/franky.toml ~/.codex/agents/zoro.toml ~/.codex/agents/usopp.toml ~/.codex/agents/jinbe.toml ~/.codex/agents/robin.toml ~/.codex/agents/nami.toml
+```
+
+```powershell
+Remove-Item "$env:USERPROFILE\.codex\agents\franky.toml", "$env:USERPROFILE\.codex\agents\zoro.toml", "$env:USERPROFILE\.codex\agents\usopp.toml", "$env:USERPROFILE\.codex\agents\jinbe.toml", "$env:USERPROFILE\.codex\agents\robin.toml", "$env:USERPROFILE\.codex\agents\nami.toml" -ErrorAction SilentlyContinue
+```
+
+Si instalaste con `CODEX_HOME`, `SUPERLOOPY_BIN_DIR` o `CODEX_LOCAL_BIN_DIR`, limpia esas rutas configuradas.
+
+### Claude Code
+
+```
+/plugin uninstall superloopy@beefiker
+/plugin marketplace remove beefiker
+```
+
+Luego ejecuta `/reload-plugins`. No hay nada más que limpiar: las instalaciones en Claude Code van completamente incluidas en el plugin (sin wrapper `superloopy`, sin escrituras en `~/.codex`). Eliminar el marketplace de su último scope restante también desinstala el plugin.
+
+<sub>Licencia MIT.</sub>

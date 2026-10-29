@@ -1,0 +1,129 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.nurettincoban.ai-prd-workflow",
+  "type": "plugin",
+  "name": "Ai Prd Workflow",
+  "slug": "ai-prd-workflow",
+  "vendor": "nurettincoban",
+  "description": "RFC-driven development for AI coding agents: idea or existing codebase → verified PRD → features → rules → sequenced RFCs → reviewed code. Agent Skills for DipoleML, Codex, Copilot, Cursor, Gemini CLI, OpenCode, Devin.",
+  "version": "3.0.0",
+  "homepage": "https://github.com/nurettincoban/ai-prd-workflow",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agent-skills",
+    "agentic-coding",
+    "ai-workflow",
+    "claude-code-plugin",
+    "codex",
+    "cursor-ai",
+    "gemini-cli",
+    "github-copilot",
+    "prd"
+  ],
+  "tags": [
+    "agent-skills",
+    "agentic-coding",
+    "ai-tools",
+    "ai-workflow",
+    "claude",
+    "claude-code",
+    "claude-code-plugin",
+    "codex",
+    "cursor-ai",
+    "gemini-cli",
+    "github-copilot",
+    "llm",
+    "prd",
+    "prompt-engineering",
+    "rfc",
+    "spec-driven-development",
+    "vibe-coding"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "nurettincoban",
+    "brandName": "nurettincoban",
+    "source": "https://github.com/nurettincoban.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:14:16Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "nurettincoban/ai-prd-workflow",
+    "url": "https://github.com/nurettincoban/ai-prd-workflow",
+    "commit": "b67f4d3e1161dcf10ac6d8d0e31ca22015474de0",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 305,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:01:14Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Ai Prd Workflow | RFC-driven development for AI coding agents: idea or existing codebase → verified PRD → features → rules → sequenced RFCs → reviewed code. Agent Skills for Claude Code, Codex, Copilot, Cursor, Gemini CLI, OpenCode, Devin.",
+        "after": "Ai Prd Workflow | RFC-driven development for AI coding agents: idea or existing codebase → verified PRD → features → rules → sequenced RFCs → reviewed code. Agent Skills for DipoleML, Codex, Copilot, Cursor, Gemini CLI, OpenCode, Devin.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [
+      "IMPORTANT"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

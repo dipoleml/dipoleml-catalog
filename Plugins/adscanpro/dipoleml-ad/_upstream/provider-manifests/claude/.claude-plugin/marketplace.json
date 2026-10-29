@@ -1,0 +1,23 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "claude-ad",
+  "owner": {
+    "name": "ADscan",
+    "url": "https://github.com/ADScanPro"
+  },
+  "metadata": {
+    "description": "Claude Code skills, agents and commands for Active Directory penetration testing methodology."
+  },
+  "plugins": [
+    {
+      "name": "claude-ad",
+      "source": "./",
+      "description": "AD pentest methodology for Claude Code: phase order, environment constraints, OPSEC telemetry, technique catalog (Kerberoasting, ADCS ESC1-17, DCSync, coercion/NTLM relay, delegation, ACL abuse) and conceptual compliance mapping. Orchestrates standard tooling (netexec, impacket, certipy, bloodyAD, BloodHound CE).",
+      "version": "0.1.0",
+      "author": { "name": "ADscan", "url": "https://github.com/ADScanPro" },
+      "category": "security",
+      "keywords": ["active-directory", "pentesting", "kerberos", "adcs", "bloodhound", "dcsync", "red-team", "ntlm-relay"],
+      "strict": false
+    }
+  ]
+}

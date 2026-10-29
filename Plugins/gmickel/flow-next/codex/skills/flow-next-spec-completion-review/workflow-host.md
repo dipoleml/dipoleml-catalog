@@ -1,0 +1,283 @@
+# Host Backend Workflow (spec-completion-review)
+
+Use when `BACKEND="host"`. Prerequisite: Phase 0 backend detection in [workflow-common.md](workflow-common.md) has resolved `BACKEND`, `FLOWCTL`, and `SPEC_ID`.
+
+`host` is a NON-EXECUTABLE selection sentinel. Review runs as a host-native fresh-context subagent (skill-owned judgment). No `flowctl host` subcommand, no subprocess path, no model/effort on the backend string — pins live in the model-routing block of the instruction file that holds it (CLAUDE.md on Claude Code and Droid, AGENTS.md elsewhere).
+
+## Critical rules
+
+1. **The coordinator never judges completion itself** — you coordinate; a fresh-context host-native subagent reviews. A verdict formed without that subagent's response has broken this
+2. Pin the subagent to a **cross-family** model slug (family that did **not** write the implementation)
+3. Every re-review is a **fresh subagent** — no context reuse, no fabricated resume ids
+4. Receipt records actual reviewer model + `"mode": "host"`
+5. Fail closed when no cross-family pin is available (never silent same-family self-review)
+6. **`host` never shells out to another CLI** — a `codex exec` / `cursor-agent` / `claude -p` / `grok` subprocess inside a host review is a broken run; the CLI backends exist for exactly that, and the user chose `host` to avoid them. Dispatch through the harness's own subagent primitive with the model named in the dispatch; an unhonored model request degrades to the session model, and then rule 5 decides — never a CLI fallback
+
+Everything else on the identities side still applies: point the subagent at the
+`base..head` range and the changed-path list and let it read the diff and the
+spec from the checkout itself. Do not paste diff hunks or spec bodies into the
+subagent prompt — it has the same repository you do.
+
+## Step 1: Resolve cross-family pin
+
+1. Read the model-routing block of the instruction file that holds it (CLAUDE.md on Claude Code and Droid, AGENTS.md elsewhere) for the review role / cross-family pairing.
+2. Identify the family that wrote the implementation.
+3. Pick a reviewer slug from a **different** family.
+
+**If no cross-family pin is available:**
+- **Interactive:** ask the user explicitly (plain-text numbered prompt) which reviewer model/family to use — do not silently self-review
+- **Autonomous** (`mode:autonomous` / `FLOW_AUTONOMOUS=1`): stop with `NEEDS_HUMAN: host review needs a cross-family model pin in the model-routing block` — never same-family self-review
+
+## Step 2: Dispatch read-only reviewer subagent
+
+Validate the criteria object BEFORE reserving a round - an invalid
+`.flow/criteria.md` must not consume review budget (`$FLOWCTL criteria
+prompt-block >/dev/null` exiting nonzero is a validation error: surface it,
+fix the file, re-run; absent file exits 0 and costs nothing):
+
+```bash
+"$FLOWCTL" criteria prompt-block > /dev/null || { echo "invalid .flow/criteria.md - fix before re-running (see: flowctl criteria list)" >&2; exit 1; }
+```
+
+Then, after the complete reviewer input is composed but before **every** host
+dispatch (including the first), bind the reviewed range, build the completion
+artifact, and reserve one shared spec-scoped round. The full diff is materialized
+**for the artifact hash only**; the subagent gets
+`$REVIEW_BASE_SHA..$REVIEW_HEAD_SHA`, the `git diff --numstat --no-renames` path
+list, and the spec/task PATHS, and reads the rest from the checkout itself.
+
+The snapshot anchors are bound **in this same block, above the diff** — an
+unbound `$REVIEW_BASE_SHA`/`$REVIEW_HEAD_SHA` makes `git diff ..` fail, hashes
+an empty blob, and falsely refuses the next round as NOT_RETRYABLE. The fence
+fails closed (no reservation) whenever the range cannot be bound or diffed.
+
+```bash
+# The CLI backends' order: an explicit BASE_COMMIT, the base work recorded for
+# this spec, the chain parent's branch, then the repository's default branch.
+# An explicit BASE_COMMIT that does not resolve fails closed: silently reviewing
+# against another base would bind and hash a range the caller never asked for.
+if [[ -n "${BASE_COMMIT:-}" ]]; then
+  git rev-parse --verify --quiet "$BASE_COMMIT^{commit}" >/dev/null \
+    || { echo "BASE_COMMIT '$BASE_COMMIT' does not resolve; not reserving a round" >&2; exit 1; }
+  DIFF_BASE="$BASE_COMMIT"
+else
+  DIFF_BASE="" REC_SPEC="" REC_BASE="" PARENT_BRANCH=""
+  # Work records the canonical spec id; SPEC_ID may be a short alias.
+  CANONICAL_ID="$("$FLOWCTL" show "$SPEC_ID" --json 2>/dev/null | jq -r '.id // empty')" || CANONICAL_ID=""
+  read -r REC_SPEC REC_BASE < "$(git rev-parse --show-toplevel)/.flow/tmp/spec_base_branch" 2>/dev/null || true
+  if [[ -n "$REC_BASE" && "$REC_SPEC" == "${CANONICAL_ID:-$SPEC_ID}" ]] \
+      && git rev-parse --verify --quiet "$REC_BASE^{commit}" >/dev/null; then
+    DIFF_BASE="$REC_BASE"
+  else
+    PARENT_BRANCH="$("$FLOWCTL" spec chain "$SPEC_ID" --json 2>/dev/null | jq -r '.parent_branch // empty')" || PARENT_BRANCH=""
+    for CANDIDATE in ${PARENT_BRANCH:+"origin/$PARENT_BRANCH" "$PARENT_BRANCH"} \
+        "$(git symbolic-ref --quiet --short refs/remotes/origin/HEAD 2>/dev/null)" \
+        origin/main main origin/master master; do
+      if [[ -n "$CANDIDATE" ]] && git rev-parse --verify --quiet "$CANDIDATE^{commit}" >/dev/null; then
+        DIFF_BASE="$CANDIDATE"; break
+      fi
+    done
+  fi
+  [[ -n "$DIFF_BASE" ]] || { echo "cannot resolve diff base; pass BASE_COMMIT; not reserving a round" >&2; exit 1; }
+fi
+REVIEW_SNAPSHOT_FILE="${TMPDIR:-/tmp}/flow-completion-review-host-${SPEC_ID}.env"
+REVIEW_HEAD_SHA="$(git rev-parse HEAD)" || exit 1
+REVIEW_BASE_SHA="$(git merge-base "$DIFF_BASE" "$REVIEW_HEAD_SHA")" || exit 1
+[[ -n "$REVIEW_HEAD_SHA" && -n "$REVIEW_BASE_SHA" ]] \
+  || { echo "unbound review snapshot; refusing to hash" >&2; exit 1; }
+printf 'REVIEW_HEAD_SHA=%q\nREVIEW_BASE_SHA=%q\n' \
+  "$REVIEW_HEAD_SHA" "$REVIEW_BASE_SHA" > "$REVIEW_SNAPSHOT_FILE"
+if [[ "$REVIEW_BASE_SHA" != "$REVIEW_HEAD_SHA" ]]; then
+  git diff --quiet "$REVIEW_BASE_SHA..$REVIEW_HEAD_SHA"; DIFF_RC=$?
+  [[ "$DIFF_RC" -ne 0 ]] || { echo "empty diff over a non-empty range; not reserving a round" >&2; exit 1; }
+  [[ "$DIFF_RC" -eq 1 ]] || { echo "git diff failed; not reserving a round" >&2; exit 1; }
+fi
+
+ROUND_JSON="$($FLOWCTL review-rounds increment "$SPEC_ID" --kind plan \
+  --review-type completion --base "$REVIEW_BASE_SHA" --head "$REVIEW_HEAD_SHA" --json)"
+ROUND_EXIT=$?
+if [[ "$ROUND_EXIT" -ne 0 ]]; then
+  printf '%s\n' "$ROUND_JSON"
+  if grep -Fq 'NOT_RETRYABLE: artifact unchanged since last verdict' <<<"$ROUND_JSON"; then
+    # Human-action terminal: edit artifact / human reset / human --force only.
+    # Never refund, force, reset, or redispatch autonomously.
+    exit 1
+  fi
+  exit "$ROUND_EXIT"
+fi
+if [[ "$(jq -r '.replayed // false' <<<"$ROUND_JSON")" == "true" ]]; then
+  # A delivered verdict was recovered. Apply
+  # NEEDS_HUMAN > MAJOR_RETHINK > NEEDS_WORK >
+  # all-SHIP and do not dispatch another reviewer.
+  printf '%s\n' "$ROUND_JSON"
+  # A superseded replay never votes (a concurrent SHIP reset the counter).
+  if [[ "$(jq -r '[.replays[]? | select(.superseded != true) | .verdict] | if index("NEEDS_HUMAN") then "NEEDS_HUMAN" else "" end' <<<"$ROUND_JSON")" == "NEEDS_HUMAN" ]]; then
+    echo "ESCALATE: reviewer requested human review" >&2
+    exit 4
+  fi
+  exit 0
+fi
+REVIEW_ROUND="$(printf '%s' "$ROUND_JSON" | jq -r '.round')"
+REVIEW_CAP="$(printf '%s' "$ROUND_JSON" | jq -r '.cap')"
+RESERVATION_ID="$(printf '%s' "$ROUND_JSON" | jq -er '.reservation_id')"
+```
+
+Exit 4 / `ESCALATE:` before a reviewer runs means no completion verdict was
+delivered in this run. Stop without writing completion status; autonomous
+callers surface `NEEDS_HUMAN`.
+
+Dispatch a **fresh** read-only reviewer subagent with the resolved pin. The
+`REVIEW_HEAD_SHA` / `REVIEW_BASE_SHA` anchors bound in the fence above are the
+reviewed range; retain them (re-`source "$REVIEW_SNAPSHOT_FILE"` in any later
+block) through receipt writing.
+
+The reviewer runs on the **reviewer tier**. Resolution order: an explicit
+instruction in the invocation, then the project routing block in the
+instruction file, then the agent definition's own default, then the session
+model. How *this* harness reaches that model - and what degrades when it
+cannot - is its reach page: [`docs/reach/README.md`](../../docs/flow-next/reach/README.md).
+A harness that reaches only one model family natively fails closed when the
+writer shares that family (interactive -> ask; autonomous -> `NEEDS_HUMAN`);
+cross-family then comes through a bridge backend.
+
+Read-only is enforced by TOOLS, never by prompt: dispatch through a read-only
+agent definition or the host's read-only subagent mode
+(`disallowedTools: Edit, Write, Task` where the host consumes it) - never a
+mutation-capable subagent, because the reviewer reads untrusted diff content. Where the host cannot
+enforce it, say so in the receipt: pin and read-only enforcement are
+host-dependent. The dispatch prompt additionally states working-tree conduct: the reviewer
+never runs a mutating command (`git checkout`/`restore`/`clean`/`stash`,
+shell file writes) - tool fences do not cover the shell, and uncommitted
+state it finds is evidence to report, never something to repair.
+
+Receipt in every case: `mode: "host"`, the actual reviewer model,
+`session_id: null`.
+
+Render and dispatch the shared backend prompt verbatim:
+
+```bash
+"$FLOWCTL" review-prompt completion "$SPEC_ID" \
+  --base "$REVIEW_BASE_SHA" --head "$REVIEW_HEAD_SHA" --receipt "$RECEIPT_PATH" \
+  --out "${TMPDIR:-/tmp}/flow-completion-review-${SPEC_ID}.md" --json || exit $?
+```
+
+The generated prompt already supplies the completion rubric, requirements, global criteria, task
+and diff identities, prior findings with their reply grammar, and the verdict tags; dispatch it
+verbatim and never hand-assemble, restate or widen them.
+
+Wait for the subagent result (blocking — do not background).
+
+Write the exact reviewer result to a spec-scoped temporary response file. Do
+not finalize yet: Step 3 must first assemble the receipt payload and status
+target that `record` journals before consuming this reservation.
+
+```bash
+RESPONSE_FILE="${TMPDIR:-/tmp}/flow-completion-review-host-${SPEC_ID}.md"
+# Write the exact reviewer output to RESPONSE_FILE; do not reinterpret it.
+```
+
+A malformed/missing verdict is a transport failure when Step 3's recorder runs:
+it refunds this reservation and may stop with exit 5 / `TRANSPORT_UNHEALTHY`.
+Never turn it into `NEEDS_WORK`, and never write completion status for that path.
+
+## Step 3: Receipt
+
+Receipt path (same contract as the subprocess backends — repo- and spec-keyed default; explicit `REVIEW_RECEIPT_PATH` always wins):
+
+```bash
+RECEIPT_PATH="${REVIEW_RECEIPT_PATH:-$(git rev-parse --show-toplevel)/.flow/tmp/completion-review-receipt-${SPEC_ID}.json}"
+```
+
+Build this payload once:
+
+```json
+{
+  "type": "completion_review",
+  "id": "<spec-id>",
+  "mode": "host",
+  "verdict": "<SHIP|NEEDS_WORK|NEEDS_HUMAN>",
+  "model": "<actual-reviewer-slug>",
+  "spec": "host",
+  "session_id": null,
+  "review": "<full reviewer output text - findings + verdict>",
+  "base": "<REVIEW_BASE_SHA>",
+  "head": "<REVIEW_HEAD_SHA>",
+  "timestamp": "<ISO-8601>",
+  "attempt_timestamp": ""
+}
+```
+
+Write that base payload and the full reviewer output to temporary files BEFORE
+the record fence above. The empty `attempt_timestamp` is the request for
+`record` to stamp its own attempt clock into the journaled payload — pre-record
+assembly cannot know it. After its successful journaled finalization, validate
+and publish that payload by reservation id (never re-derive it):
+
+```bash
+RECORD_JSON="$($FLOWCTL review-rounds record "$SPEC_ID" --kind plan \
+  --review-type completion --backend host --output-file "$RESPONSE_FILE" \
+  --model "<actual reviewer slug>" \
+  --reservation-id "$RESERVATION_ID" --receipt-target "$RECEIPT_PATH" \
+  --receipt-payload-file "$RECEIPT_INPUT" --status-target completion --attach --json)"
+RECORD_EXIT=$?
+if [[ "$RECORD_EXIT" -ne 0 ]]; then
+  printf '%s\n' "$RECORD_JSON"
+  exit "$RECORD_EXIT"
+fi
+# Only the fields the next step reads; the full ledger stays in flowctl.
+printf '%s' "$RECORD_JSON" | jq -c '{superseded: (.superseded // false), verdict: .verdict, timestamp: .attempts[-1].timestamp, review_rounds}'
+
+if [[ "$VERDICT" == "NEEDS_HUMAN" ]]; then
+  echo "ESCALATE: reviewer requested human review" >&2
+  exit 4
+fi
+```
+
+Unsupported/legacy prose leaves the additive field absent. The same transaction
+also attaches the additive `criteria: [{id, status, note?}]` field when the
+reviewer output has a parseable `## Global criteria` section (absent otherwise).
+The command performs no reviewer/model/network call. `attach` publishes under
+the receipt lock and keeps the prior generation, and the `record` journal is
+its recovery source: never write a recovery file or advance the receipt by
+hand.
+
+`session_id` is literal `null` — host re-reviews are always fresh subagents; `null` distinguishes by-design non-resumability from an incomplete receipt. Shape stays compatible with existing consumers.
+
+## Step 4: Continue through the shared fix loop and status owner
+
+Continue into the shared Fix Loop — [workflow-common.md](workflow-common.md)
+§"Fix Loop (INTERNAL)", reached from SKILL.md Step 3 —
+in this same skill run. The shared
+terminal checkpoint re-reads the latest completion verdict and cap counters
+from `review-rounds resume-terminal`; it never relies on shell variables surviving a
+prompt turn. The journaled `record --status-target completion` leg owns this
+host workflow's terminal status — `record` journals it PENDING and it lands
+when the receipt publishes (the `attach` above, or the pre-increment replay
+gate in a later invocation), never before. A failed publish therefore leaves
+no terminal status with no receipt behind it.
+
+- `SHIP`: the journaled status leg persisted `ship` when attach published the
+  receipt; continue to the shared terminal checkpoint.
+- `NEEDS_WORK`: parse every valid gap, fix the implementation, run the relevant
+  tests/lints, and commit the fixes before re-review. Then repeat Steps 1–3
+  with a **new** read-only subagent, the same cross-family rules, and prior
+  findings in its prompt. At the deterministic round cap
+  (`REVIEW_ROUND == REVIEW_CAP`), do not start another fix/re-review cycle:
+  the journaled status leg persisted `needs_work` on publication; then emit
+  `ESCALATE:` and exit 4.
+- After `SHIP`, `record` already atomically reset the shared plan counter and
+  advanced its hash epoch. Never issue `review-rounds reset` autonomously.
+- `NEEDS_HUMAN`: after attach publishes the receipt and lands `needs_human`,
+  emit `ESCALATE: reviewer requested human review` and exit 4.
+  Dispatch failure, malformed verdict, receipt failure, or retry outcome stops
+  without writing completion status; dispatch/transport failures output
+  `RETRY: no verdict (backend or transport failure)` and never self-issue a verdict or switch backends.
+
+## Anti-patterns (Host backend)
+
+- **Self-reviewing** — coordinator never grades its own completion claim
+- **Silent same-family self-review** when no cross-family pin is available
+- **Reusing a prior subagent context** for re-review (always fresh)
+- **Putting a model on the backend string** (`host:<model>`) — rejected by flowctl; the model is named on the `reviewer` tier of the model-routing block
+- **Calling a non-existent `flowctl host` command**
+- **Fabricating resume/session ids** for host receipts

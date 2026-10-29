@@ -1,0 +1,23 @@
+{
+  "name": "research-co-pilot",
+  "description": "Comprehensive research co-pilot — literature review, methodology, ethics review, data analysis, qualitative coding, brainstorming, manuscript drafting, replication design, grant writing, talk building, citations, survey design, and peer review. A peer collaborator for academic and applied research, not a subservient assistant.",
+  "version": "0.11.4",
+  "license": "MIT",
+  "homepage": "https://github.com/Marazii/research-co-pilot",
+  "repository": "https://github.com/Marazii/research-co-pilot.git",
+  "keywords": [
+    "research",
+    "academic",
+    "literature-review",
+    "methodology",
+    "statistics",
+    "qualitative",
+    "thematic-analysis",
+    "peer-review",
+    "citations",
+    "survey-design"
+  ],
+  "author": {
+    "name": "Maya Arazi"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "bash-master",
+  "displayName": "Bash Master",
+  "version": "2.0.7",
+  "description": "Expert bash/shell scripting across all platforms with Bash 5.3 and 2025 security-first practices. PROACTIVELY activate for: (1) any bash/shell task, (2) Bash 5.3 features (in-shell substitution, BASH_TRAPSIG), (3) security-first patterns (input validation, HISTFILE), (4) ShellCheck v0.11 validation, (5) CI/CD and container-aware scripting, (6) debugging and profiling. Provides: Bash 5.3 reference, ShellCheck rules, Google Shell Style, POSIX.1-2024 compliance, cross-platform patterns, and cloud/CI helpers.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Josiahsiegel"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/JosiahSiegel/claude-plugin-marketplace",
+  "repository": "https://github.com/JosiahSiegel/claude-plugin-marketplace",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

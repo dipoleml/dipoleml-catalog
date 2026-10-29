@@ -1,0 +1,174 @@
+# MisakaNet CI Workflow 清单（docs/CI.md）
+
+> 审计 2026-09-05（T2.3）：`.github/workflows/` 当时共 **53 个** workflow，本页为其完整
+> 索引，之后新增的门禁按同一格式补录（最近一次：`misakanet-setup-ci.yml`，2026-09-18；
+> 目录现为 69 个文件，未逐条收录的以 `ARCHITECTURE.md` 的计数与目录本身为准）。
+> 触发条件建议以各
+> workflow 文件内的 `on:` 为准；分类是维护性归类，非强制。
+>
+> 定位问题：先看「失败的是哪个 job」→ 在本表找到 workflow → 点 GitHub Actions
+> 对应运行查看日志 → 按文末「常见失败与修复」处理。CI 运行失败不等于代码坏了：
+> 许多 workflow 是机器人/数据管道，失败常在外部依赖（D1、registry、配额）。
+
+
+## 质量门禁（26）
+
+| workflow | 用途 | 触发 | 定时 |
+|---|---|---|---|
+| `auto-merge-docs.yml` | Auto-Merge Docs PRs | PR |  |
+| `auto-merge-lessons.yml` | Auto-Merge Lessons（`auto-merge-lesson` opt-in 标签）| PR |  |
+| `bounty-claim-guard.yml` | Bounty Claim Guard | PR（opened/edited）|  |
+| `check-documented-gates.yml` | Documented Gates Ratchet（比对 `docs/ci-gates.md` 的门禁表与规则集 23826057 的真实集合，不一致则开 issue）| 定时, 手动 | `11 7 * * 1` |
+| `ci-cross-platform.yml` | Cross-Platform Tests | PR, 手动 |  |
+| `codeql.yml` | CodeQL | PR, push, 定时 | `0 6 * * 0` |
+| `dco-check.yml` | DCO Check | PR, 手动 |  |
+| `external-asset-integrity.yml` | External Asset Integrity | 定时, 手动 | `23 7 * * 3` —— 重算 CDN 实际下发的字节，和 `data/external_assets.json` 里钉的 sha384 对比。离线的另一半在 `tests/test_external_asset_integrity.py`（每个 PR 跑）：markup 与清单必须一致、且不允许存在清单外的外部脚本。见 #2683 |
+| `dsh-client-e2e.yml` | DSH Client E2E（真宿主 + Chromium：`/misakanet` 浮层、全窗口 toast、设置行↔面板三条行为场景；库请求被拦截，不依赖公网。**2026-10-02 起跑 PR**：composer 起不来的根因是 seed 的 workspace 记录缺 `createdAt`/`updatedAt`，宿主会自己建首条会话）| PR, 手动, 定时 | `40 3 * * *` |
+| `field-report-schema.yml` | Field Report Schema（FR3 家目录规则另跑语料外的已发布面：`docs/**` 减去 `linguist-generated` 的路径，加上 `lessons/**`）| PR, push, 手动, 定时 | `23 6 * * 1` —— `--strict-all` 全量审计唯一的定时入口；#3011 之前它只在 `workflow_dispatch` 上，而那个入口的累计运行数是 **0**，于是"某个没人碰过的文件里有泄漏"在结构上不可能被报出来 |
+| `fix-dco.yml` | DCO Auto-Fix | 评论 |  |
+| `gate-mutation-audit.yml` | Gate Mutation Audit（每个 PR 证明硬门「还能红」，见 `docs/ci-gates.md`）| PR, 定时, 手动 | `43 6 * * 1` |
+| `heartbeat.yml` | Daily Heartbeat（每天一条评论回答"谁在调用、问了什么、有没有帮上"；发在 `heartbeat` 标签的长寿 issue 上，正文里的 `<!-- heartbeat-day:YYYY-MM-DD -->` 标记让它**幂等** —— 重跑改当天那条评论，而不是再发一条。D1 里的 `mcpclient:` / `gap` 行用 `d1-counters-report.yml` 那套 Cloudflare 凭据读，`env.MCP_TOKEN` 不进入任何 workflow。口径与四条诚实规则见 `docs/maintainer/heartbeat.md`）| 定时, 手动 | `12 0 * * *` —— 00:12 UTC（北京时间 08:12）报**刚结束的**那个 UTC 日：日报在当天还没过完时出数，就是把部分计数当成全天 |
+| `lesson-gate.yml` | Lesson Quality Gate | PR |  |
+| `lesson-quality.yml` | Lesson Quality Score | PR |  |
+| `lesson-security.yml` | Lesson Security Scan | PR, push |  |
+| `mcp-stress.yml` | MCP Endpoint Stress Tests | PR, push, 手动 |  |
+| `misakanet-setup-ci.yml` | Setup Package CI（安装器：3 OS × Node 18/20/22 单测 + 打包产物 e2e + **drift**：npm 上已发布的安装器不许落后于本仓库）| PR, push, 手动, 定时 | `17 4 * * *` —— drift 巡检：漂移是**累积**的（发版被切了却没打 tag，或源码动了却没发版，都不会再产生任何 PR，只有下次有人碰这个包时才会被发现；npm 上的安装器因此停了 0.5.6 一个月，见 #3691）。定时触发只跑 drift 这一个 job，矩阵 job 在 schedule 下 `if:` 跳过 |
+| `pr-agent-review.yml` | PR-Agent Code Review | PR, 评论 |  |
+| `pr-checks.yml` | Misaka Network Agent Auditor | PR, 手动 |  |
+| `pr-genius-check.yml` | PR Genius Check | PR |  |
+| `pr-quality-gate.yml` | PR Quality Gate | PR |  |
+| `provenance-gate.yml` | Provenance Gate（溯源矩阵完整性）| PR, 定时, 手动 | `17 6 * * 1` |
+| `pr-shape-guard.yml` | PR Shape Guard | PR(目标) |  |
+| `approval-watch.yml` | Approval Watch | 定时, 手动 | `17,47 * * * *` —— 列出 `status: waiting` 的 run，维护一个跟踪 issue；**永不审批**（`tests/test_approval_watch.py` 断言它不含任何审批调用） |
+| `shadow-branch.yml` | Shadow Branch - External Agent Isolation | PR |  |
+
+## 数据/索引（24）
+
+| workflow | 用途 | 触发 | 定时 |
+|---|---|---|---|
+| `auto-draft.yml` | Auto-Draft from Crash Tombstone | 手动 |  |
+| `auto-sync-prs.yml` | Auto-Sync PR Branches | 定时（6 小时）, 手动 | 每次 main push 就同步会把每个开着的 PR 推一次新 head：整个矩阵重跑 + 可合并性重置（详见 `docs/maintainer/branch-sync-and-ci.md`） |
+| `benchmark-workers-ai.yml` | Workers AI Lesson Benchmark（**2026-10-17 起暂停**：它测的是把课程贴进 prompt 后的复述率，不调用检索、不检查正确性；README 已把该节降为一条带日期的记录，`tests/test_benchmark_claims.py` 同时读 workflow 的 trigger 与 README 的那句话） | 手动 |  |
+| `dependency-vuln-audit.yml` | Dependency Vulnerability Audit（`pr-checks.yml` 的依赖审计**只在 PR 改了 manifest 时**跑，回答的是「这个 PR 有没有引入坏依赖」；新 CVE 针对已在树里的版本公布时，没有任何 PR 动 manifest，于是没有任何东西变红。这条每周定时补上另一半问题。另见 `data/README.md` 一类的"登记"惯例：它 find-or-update 一个 `dependency-vuln-audit` 摘要议题，不改 manifest、不开 PR；`requirements.txt` 是下界约束且无 lockfile，所以 PyPI 那一半审计的是**此刻解析到的版本**而非钉住的集合）| 定时, 手动 | `41 5 * * 2` |
+| `build-feed.yml` | Build Live Feed（并写 `docs/data/activity.json`：首页活动面板的**兜底**快照，由 `scripts/sync_site_activity.py` 生成。面板首选 `/api/activity`——同一批计数器的匿名边缘缓存投影，TTL 分钟级（2026-09-29 加）；三小时快照只在它不可达时兜底。起因：2026-09-29 实测首页显示 `total 5974` 而同日端点报 6645，日期相同、页面看不出陈旧；当年 17.4 秒冷路径理由是重测为 1.08–1.28 秒）| push, 定时, 手动 | `23 */3 * * *` |
+| `example-capture.yml` | Example Capture (not active) | 手动 |  |
+| `intake-auto-review.yml` | Intake Auto Review | issues, 手动 |  |
+| `intake-kind-audit.yml` | Intake Kind Audit | 定时, 手动 | `30 6 * * 1` |
+| `intake-pipeline-test.yml` | Intake Pipeline Test (PRD ③) | 手动 |  |
+| `decision-queue-digest.yml` | Decision Queue Digest（每週把「`decision`/`product-design` 标签 + 零评论 + ≥14 天」的 issue 列成一条跟踪 issue；**空清单不发言**，只报告、不关单、不自动决策）| 定时, 手动 | `23 9 * * 1` |
+| `intake-salvage-digest.yml` | Intake Salvage Digest（另跑 `scripts/done_but_open.py`：工作已在 `main`、issue 还开着的 intake，非空才写进 digest 议题；**只报告，不关单**）| 定时, 手动 | `0 8 * * *` |
+| `issue-intake-triage.yml` | MCP Intake Triage | issues, 手动 |  |
+| `sync-d1.yml` | Sync Lessons to D1 (PRD ④) | push, 定时, 手动 | `0 3 * * *` |
+| `d1-backup.yml` | D1 backup（每周一次 `d1 export` 存档 + 打印 storage backend 与 Time Travel bookmark；artifact 保留 90 天）| 定时, 手动 | `10 4 * * 1` |
+| `apply-d1-schema.yml` | Apply D1 schema | 手动 |  |
+| `d1-counters-report.yml` | D1 counters report | 手动 |  |
+| `cf-diagnostics.yml` | CF diagnostics（只读运维视图：#2126 的 504/522 归因 + 区级 route 表与 KV namespace 清单 + D1 Time Travel 资格与 bookmark + durable store 健康）| 手动 |  |
+| `guarded-repository.yml` | Guarded Repository（仓库守卫巡检）| push, 定时, 手动 | `0 7 * * 1` |
+| `update-smithery-badge.yml` | Update Smithery Badge (daily) | 定时, 手动 | `0 6 * * *` |
+| `sync-question-answers.yml` | Sync Question Answers | 定时, 手动 | `20 7 * * *` |
+| `question-autopilot.yml` | Question Autopilot（逐条 open `[Question]`：用**生产检索**判定「语料是否已覆盖」，把同一问题的多条聚簇，刷一条 digest；**只分级、只报告，从不写答复、从不打 `answered`、从不关单** —— `answered` 是「把文本送进 FAQ」的开关，必须来自真正踩过的人。**默认就写**（回执 + 每簇一条 `[Bounty]` 任务 + digest；`post: false` 才是演练）——因为"没人看的报告"就是要清掉的那个积压本身。每次写入都幂等：回执按内容哈希、任务按锚点标记、digest 原地更新）| 定时, 手动 | `40 6 * * *` |
+| `update-badges.yml` | Update Badge Counts | push, 定时, 手动 | `23 3 * * 1` |
+| `update-lessons.yml` | Update lessons.json（`lessons/**` 合并进来时也跑一遍，别让新课程等一天才有页面）| push, 定时, 手动 | `0 0 * * *` |
+| `nightly-mirror-consistency.yml` | Nightly Mirror Consistency（镜像一致性）| 定时 |  |
+
+## 发布/部署（14）
+
+| workflow | 用途 | 触发 | 定时 |
+|---|---|---|---|
+| `d1-bootstrap.yml` | D1 Bootstrap (PRD ④) | 手动 |  |
+| `deploy-worker.yml` | Deploy Cloudflare Worker（`workers/register-proxy-sw.js` **和** `workers/wrangler.toml` 变更都触发；部署后按 config 校对 keepalive cron，不一致即失败） | push, 手动 |  |
+| `docs.yml` | Deploy Documentation | PR, push |  |
+| `publish-dist.yml` | Publish generated site artifacts to dist（把生成站点发到 `dist`：`dist` = `main` 的树 + 生成物，Cloudflare Workers Builds 的 production branch 指向它，**尚未切换**）。只推 `dist`、不推 `main`；提交信息里**故意没有** `[skip ci]`——那会抑制它唯一要触发的部署。切换/验证/回滚见 `docs/maintainer/dist-branch-cutover.md` | push, 手动 |  |
+| `fatal-guard-publish.yml` | Publish @misaka-net/fatal-guard | push |  |
+| `fatal-guard.yml` | fatal-guard CI | PR, push, 手动 |  |
+| `publish-container.yml` | Publish Container to GHCR | 手动, release |  |
+| `release-please.yml` | Release Please | push |  |
+| `release-pypi.yml` | Release to PyPI | push |  |
+| `pypi-wheel-smoke.yml` | PyPI Wheel Smoke（wheel 安装冒烟）| PR, push, 手动 |  |
+| `misakanet-publish.yml` | Publish misakanet（npm；`package.json`/`.codex-plugin/plugin.json` 自 2026-09-30 归 release-please，发布前用版本守卫拒绝对不上的树；release 事件 + release-please 派发 + 手动 tag 三条入口，已在 npm 上的版本直接跳过）| release, tag push, 手动 |  |
+| `misakanet-setup-publish.yml` | Publish @misaka-net/misakanet-setup | tag push, 手动 |  |
+| `publish-mcp-registry.yml` | Publish to MCP Registry（等 PyPI 落地后发布）| 手动 |  |
+| `publish-dataset.yml` | Publish dataset to R2（把 `data/okf/lessons.jsonl` + benchmark 产物打成带 manifest 的版本，推到 `misakanet-dataset`，`v<日期>/` 不可变、`latest.json` 可变；上传后回读远端 manifest 与本地比对才算成功。用 `release` 环境，因为写凭据只放在那里）| push, 手动 |  |
+
+## 社区/机器人（14）
+
+| workflow | 用途 | 触发 | 定时 |
+|---|---|---|---|
+| `cite-lesson.yml` | 知识引用追踪 | issues, 手动 |  |
+| `claim-enforcer.yml` | Claim Window Enforcer | 定时, 手动 | `0 */6 * * *` |
+| `issue-quality-gate.yml` | Issue Quality Gate | issues |  |
+| `lesson-notify.yml` | 新 Lesson 通知 | issues |  |
+| `newbie-welcome.yml` | Newbie Welcome | 评论 |  |
+| `pr-merged-thank.yml` | Thank Merged PR Contributor | PR(目标) |  |
+| `pr-thank-you.yml` | PR Thank You | PR(目标) |  |
+| `pr-welcome.yml` | PR Welcome | PR(目标) |  |
+| `register.yml` | 御坂网络注册 | issues, 手动 |  |
+| `stale.yml` | Stale PR / Issue Manager | 定时, 手动 | `0 6 * * *` |
+| `star-request.yml` | Star Request | PR |  |
+| `adopt-pr.yml` | Adopt Fork PR（维护者评论 `/adopt`）| 评论 |  |
+| `protect-pinned-issues.yml` | Protect long-running issues | issues |  |
+| `pr-audit-watch.yml` | PR Audit Watch（PR 审查巡检）| 定时, 手动 | `17 */2 * * *` |
+
+## 基础设施（9）
+
+| workflow | 用途 | 触发 | 定时 |
+|---|---|---|---|
+| `ci-lesson-search.yml` | Search MisakaNet on CI Failure（CI 失败时检索匹配课程；`workflow_dispatch` 可手工验证）| workflow_run（仅 `Cross-Platform Tests` 失败）、手动 |  |
+| `intake-bot-demo.yml` | Intake Bot Demo（失败 CI 上跑 intake-bot 的 dogfood 入口）| workflow_run, 手动 |  |
+| `intake-benchmark.yml` | Intake Bot Benchmark | push, 手动 |  |
+| `arch-review.yml` | Monthly Architecture Review | 定时（月度）, 手动 |  |
+| `workers-builds-watch.yml` | Site build watch（站点部署流水线 `Workers Builds: misakanet-web` 变红时开 issue；**只报状态变化**、不刷屏，也不把该 check 加进规则集必查项——理由见 #2136）| check_suite（**触发对所有套件生效**，仅 job `if:` 放行 Cloudflare app + `dist`——2026-10-17 起，此前是 `main`）, 定时, 手动 | `*/30 * * * *` |
+| `site-health.yml` | Site Health（`scripts/site_health_check.py` 的 CI 调用点：每天探线上首页与 `/api/*` 等 6 个入口 + 首页关键标记；**连续 3 次都不过才算失败**——实测从真实机器发出约 1/4 请求会在 TLS 握手超时，单次失败是天气不是故障。报告进 step summary，并作为 artifact 留存）| 定时, 手动 | `37 5 * * *` |
+| `install-smoke.yml` | Install Smoke（**真装机**探测，对应 intake #2486 的「自动检查通过 ≠ 它能用」：`npm-form` 把仓库打成本地 tarball，断言含 `SKILL.md`/`index.js`/`cordis.patch.yml` 且**不含 `scripts/`**、MCP 行指向 `https://misakanet.org/mcp`，再真的 `initialize` + `tools/call misakanet_search`；`git-stdio` 断言 `python3 --version ≥ 3.11`、用 stdin/stdout 完成 `initialize`/`tools/list`（工具集与 `docs/mcp.md` 的 local stdio 行逐名相等）/`tools/call misakanet_search`。两个 job 互相独立（托管端点可能被限流），结果写 `data` 分支 `badges/install.json`：干净=带日期绿，失败=点名那个形态并发红，**没有任何测量就不发**）| 定时, 手动 | `43 6 * * *` |
+
+| `deploy-freshness.yml` | Deploy Freshness（#2779：每天问一次"线上跑的是不是 main 那个 commit"。`python3 scripts/doctor.py --deploy-freshness` 把 `/api/health` 的 `commit_sha`（由 `deploy-worker.yml` 的 `--var COMMIT_SHA:${GITHUB_SHA}` 注入）与 checkout 的 HEAD 比，不一致就报"线上落后 N 个提交"；`commit_sha` 为 `unknown`（本地 `make deploy-api` 部署）报**无法验证**而非报新。**存在的理由是 post-deploy 校验发现不了"部署压根没发生"**——2026-10-03 线上冻结 3 天、5 个 PR 未上线，全程无红，因为 release-please 不 bump 版本号，线上与 main 长期同号。连续 3 次不过才算失败）| 定时, 手动 | `53 4 * * *` |
+| `registry-drift-watch.yml` | Registry Drift Watch（**打第三方 API 的那半边**：定时跑 `scripts/verify-glama-listing.py`，比对 Glama 上架的工具集与 worker 实际提供的工具集。**这个脚本本来就是对的——它会 exit 1 并点名多出来的工具——但此前没有任何调用者**。实测 2026-10-04：Glama 列 12 个，`https://misakanet.org/mcp` 的 `tools/list` 只返 7 个，其中 `misakanet_cli` 从来不是 MCP 工具、`misakanet_get_my_events` 已改名 `misakanet_me_events`，另 3 个只存在于 Python stdio 服务器。**注意：仓库里没有任何文件声明那 12 个工具**（`glama.json` 无工具表，`server.json` 只声明 stdio 包），所以重跑 `publish-mcp-registry.yml` 修不好它——要改得去 Glama 那边。连续 3 次不过才算失败；退出码 2（脚本崩了）**不建 issue、直接变红**）| 定时, 手动 | `26 11 * * *` |
+
+## 有意保持安静的自动化（#1826 的结论，2026-09-25 复核）
+
+这一节存在的理由：`#1826` 的审计把"跑了很多次但那个有用的分支从没走到"列成清单，其中几条**不是坏掉的**，
+而是**设计上就不会触发**。静默空转确实比没有更贵（它让人以为有人管），但**把"设计如此"和"坏了"分开**才是重点——
+下面每条都带实测状态与"什么情况下它会真的动"。下次审计不必重新发现一遍。
+
+| workflow | 实测（2026-09-25） | 它为什么安静 | 什么会让它动 |
+|---|---|---|---|
+| `adopt-pr.yml` | 70 次运行 / 70 次 skipped；`/adopt` 真实使用 **0** 次 | 入口是维护者在 fork PR 上评论 `/adopt`；这条路径从没被用起过 | 有人真的评论 `/adopt`（`docs/maintainer/adopt-fork-pr.md`）。**删掉它是 owner 的选项**，不是维护者的默认动作 |
+| `stale.yml` | 97 次 success；`label:stale` 1 条；自动关闭评论 0 条 | 豁免面很大（`keep`/`registered`/`help wanted`/`bounty` + `exempt-all-milestones`），而本仓多数开放项都带其中至少一个 | 出现既不豁免、又 14 天（PR）/30 天（issue）无活动的项。**这是它的设计目的**：宁可空转，也不要在一堆 bounty 上乱贴 stale |
+| `lesson-notify.yml` | 2953 次运行：2946 skipped / 2 success / 5 failure | 只在 `new-lesson` 标签出现时才有意义，而该标签全仓只有 6 条 | 新建的 lesson PR 打上 `new-lesson`。投递成功与否**不可见**——这是它真正的短板，要改不是关 |
+| `intake-kind-audit.yml` | 3 次 clean；2026-09-25 手工重跑仍然 clean（37 条 open `mcp-intake`） | 语料里**确实**没有错分 | 出现"内容读起来是问题、却被当课程处理"的 intake。这条以前无法区分"真的干净"和"检测从不触发"，现在 `tests/test_intake_kind_audit.py` 用夹具证明检测能触发；2026-10-25（#3835）起 workflow 改按脚本退出码判定：翻转 / 0 行红，misfiles 仍绿并建 digest issue |
+| `automation_output_audit.py` | 2026-09-21 定时运行 **success**（job `automation-output-audit`） | push 触发时该 job 会被 skip，只有每周一 07:00 的窗口才跑 | 每周一。`#1826` 记的"这个 job 一次都没跑过"是因为当时窗口还没到——**已经跑过了** |
+
+**已修好的那几条**（同一次复核）：`pr-checks.yml` 的 Auto-Merge Gate（布尔比 `true` 而不是 GraphQL 的 `MERGEABLE` 枚举）、
+`auto-merge-docs.yml` 的触发补上 `labeled`、`auto-draft.yml` 不再依赖没有写入者的 `crash-reports/` 路径、
+以及 `claim-enforcer.yml` 的窗口（4h → 与文档一致的 **8h**，并把数字收进一个变量，见 `tests/test_claim_window.py`）。
+
+## 常见失败与修复路径
+
+| 失败信号 | 原因 | 修复 |
+|---|---|---|
+| DCO Check 红 | commit 缺 `Signed-off-by` | `git commit --amend -s`；或在 PR 评论发 `/fix-dco`（`fix-dco.yml`） |
+| lesson-gate / lesson-quality 红 | lesson 命名/结构/质量不达标 | 本地 `python3 scripts/check_lesson_quality.py` 与 `python3 scripts/validate_lessons.py` 复现后修改 |
+| pr-shape-guard 红 | PR 改动形状/单次意图不合规 | 读 guard 输出；保持 PR 单主题、避免大杂烩提交 |
+| lesson-security 红 | lesson 内含疑似密钥/危险模式 | 本地 `gitleaks git --pre-commit --config .gitleaks.toml` 复现；参考 `docs/cloudflare-waf/` 与 SECURITY.md |
+| CodeQL 红 | 静态分析告警（security-extended） | 看告警路径；.github/codeql/codeql-config.yml 记录了已知误报与排除理由 |
+| sync-d1 红 | D1/远端同步失败（配额/凭据/网络） | `workflow_dispatch` 重跑；检查 `CF_API_TOKEN` 与 D1 database_id |
+| update-lessons 红/无提交 | lessons.json 无变化则跳过提交是**预期** | 需要强制刷新时 `workflow_dispatch` 触发 |
+| release-please 出 PR | 发版流程**正常** | review 后合并；合并后按 handoff 的“对齐”流程更新 server.json/glama.json（2.27.x 线） |
+| ci-lesson-search 相关 | 检索质量巡检 | 输出即提交入口：把失败案例作为 lesson 提交，喂给知识库 |
+
+## 说明与边界
+
+- 本清单的「触发」列由脚本读取 `on:` 提取（push/pull_request/schedule/manual 等），
+  未展开 paths/branches 过滤；精确行为以 workflow 文件为准。
+- 「失败时看哪」：GitHub Actions → 左侧 workflow → 最近运行 → 点失败 job 展开日志；
+  机器人类 workflow 的日志头部通常直接给出原因与重跑方式。
+- 53 个文件中有部分是**一次性/演练**性质（如 `d1-bootstrap.yml`、
+  `intake-pipeline-test.yml`、`example-capture.yml`——后者注释自述不自动发布），
+  日常开发主要关心「质量门禁」组。
+- **贡献者排行榜不再由 workflow 维护**，因此上表没有它：`leaderboard-watch.yml` 已于 2026-10-15
+  删除（#1919），同一份计算搬进了 Worker 的每日 cron（`workers/wrangler.toml` 的 `17 3 * * *`），
+  状态存 D1、只读入口是 `GET /api/leaderboard/state`；#1 换人时 Worker 自己开带 `leaderboard`、
+  `automated` 标签的 issue。天梯榜是另一张榜，仍由手动脚本产出（见 `data/README.md`）。
+- 维护：`.github/workflows/` 增删后手工更新本表；本页为 2026-09-05 快照
+  （53 个 workflow，触发条件由脚本读取 `on:` 提取）。
+

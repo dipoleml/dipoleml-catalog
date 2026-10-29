@@ -1,0 +1,16 @@
+{
+  "name": "app-it-static",
+  "displayName": "App It Static",
+  "version": "0.2.0",
+  "description": "Turn a finished or buildable web app into a macOS Dock-launchable .app that serves the built output — no dev server, ~15 MB instead of 700 MB.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Christian Katzmann"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/Christian-Katzmann/app-it",
+  "repository": "https://github.com/Christian-Katzmann/app-it",
+  "skills": "./skills/",
+  "commands": [],
+  "agents": []
+}

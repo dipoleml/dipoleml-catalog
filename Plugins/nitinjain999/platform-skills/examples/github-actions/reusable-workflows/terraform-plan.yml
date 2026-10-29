@@ -1,0 +1,141 @@
+name: Reusable Terraform Plan
+
+on:
+  workflow_call:
+    inputs:
+      working_directory:
+        description: 'Directory containing Terraform files'
+        required: true
+        type: string
+      terraform_version:
+        description: 'Terraform version to use'
+        required: false
+        type: string
+        default: '1.7.0'
+      aws_region:
+        description: 'AWS region'
+        required: true
+        type: string
+      environment:
+        description: 'Environment name'
+        required: true
+        type: string
+      tfvars_file:
+        description: 'Terraform variables file'
+        required: false
+        type: string
+        default: 'terraform.tfvars'
+    secrets:
+      aws_role_arn:
+        description: 'AWS IAM role ARN for OIDC'
+        required: true
+      tf_state_bucket:
+        description: 'S3 bucket for Terraform state'
+        required: true
+    outputs:
+      plan_exitcode:
+        description: 'Terraform plan exit code'
+        value: ${{ jobs.plan.outputs.exitcode }}
+
+permissions:
+  contents: read
+  pull-requests: write
+  id-token: write
+
+jobs:
+  plan:
+    name: Plan ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    outputs:
+      exitcode: ${{ steps.plan.outputs.exitcode }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e  # v4.0.1
+        with:
+          terraform_version: ${{ inputs.terraform_version }}
+          terraform_wrapper: false
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@e1253824e5c10ff9df46874f81ed3ec929e19cfd  # v6.3.0
+        with:
+          role-to-assume: ${{ secrets.aws_role_arn }}
+          aws-region: ${{ inputs.aws_region }}
+          role-session-name: github-actions-terraform-plan-${{ inputs.environment }}
+
+      - name: Terraform Init
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ secrets.tf_state_bucket }}" \
+            -backend-config="key=${{ inputs.environment }}/terraform.tfstate" \
+            -backend-config="region=${{ inputs.aws_region }}"
+
+      - name: Terraform Format Check
+        working-directory: ${{ inputs.working_directory }}
+        run: terraform fmt -check -recursive
+
+      - name: Terraform Validate
+        working-directory: ${{ inputs.working_directory }}
+        run: terraform validate
+
+      - name: Terraform Plan
+        id: plan
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          terraform plan \
+            -var-file="${{ inputs.tfvars_file }}" \
+            -out=tfplan \
+            -detailed-exitcode \
+            -no-color || echo "exitcode=$?" >> $GITHUB_OUTPUT
+
+      - name: Generate plan summary
+        if: always()
+        working-directory: ${{ inputs.working_directory }}
+        run: |
+          if [ -f tfplan ]; then
+            terraform show -no-color tfplan > plan-output.txt
+          fi
+
+      - name: Comment PR with plan
+        if: github.event_name == 'pull_request'
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3  # v9.0.0
+        with:
+          script: |
+            const fs = require('fs');
+            let plan = 'Plan not available';
+
+            try {
+              plan = fs.readFileSync('${{ inputs.working_directory }}/plan-output.txt', 'utf8');
+            } catch (error) {
+              plan = 'Error reading plan output';
+            }
+
+            const truncatedPlan = plan.length > 60000 ? plan.substring(0, 60000) + '\n... (truncated)' : plan;
+            const exitCode = '${{ steps.plan.outputs.exitcode }}';
+            const status = exitCode === '0' ? '✅ No changes' : exitCode === '2' ? '📝 Changes detected' : '❌ Error';
+
+            const output = `#### Terraform Plan for \`${{ inputs.environment }}\` ${status}
+
+            <details><summary>Show Plan</summary>
+
+            \`\`\`terraform
+            ${truncatedPlan}
+            \`\`\`
+
+            </details>
+
+            **Exit Code:** ${exitCode}
+            **Environment:** ${{ inputs.environment }}
+            **Directory:** ${{ inputs.working_directory }}
+
+            *Pusher: @${{ github.actor }}, Action: \`${{ github.event_name }}\`*`;
+
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: output
+            })

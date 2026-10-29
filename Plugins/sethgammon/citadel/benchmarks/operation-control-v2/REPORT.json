@@ -1,0 +1,213 @@
+{
+  "schema": 1,
+  "kind": "citadel_operation_control_v2_retrospective_evidence",
+  "evidence_class": "retrospective-actual-run-calibration",
+  "source": {
+    "report_id": "optimizer-report-sha256:f43285ff9254b84a49ae8e4e7c02f278716ed4c09db4e30307d7678c75420aa9",
+    "raw_digest": "sha256:f43285ff9254b84a49ae8e4e7c02f278716ed4c09db4e30307d7678c75420aa9",
+    "raw_digest_verified": true,
+    "attestations_verified": true,
+    "frozen_inputs": true,
+    "matrix_authorization_verified": true,
+    "cells": 120,
+    "model_attempts": 87,
+    "verified_completions": 33,
+    "failed": 51,
+    "unknown": 36,
+    "adversarial_false_passes": 0,
+    "repositories": [
+      {
+        "repository": "https://github.com/SethGammon/Citadel.git",
+        "pinned_refs": [
+          "4a02265c206d992b556fc1b38c3c9487ced880d8"
+        ]
+      },
+      {
+        "repository": "https://github.com/sindresorhus/p-limit.git",
+        "pinned_refs": [
+          "df476048d023ff868cd45b35ee47f5fb0ca2b25a"
+        ]
+      },
+      {
+        "repository": "https://github.com/ai/nanoid.git",
+        "pinned_refs": [
+          "1a1fee4610061c63e2429eb5c22a35e3634c1d03"
+        ]
+      }
+    ],
+    "scenarios": 10,
+    "holdout_scenarios": 4
+  },
+  "imported_history": {
+    "schema": 1,
+    "records": 120,
+    "digest": "sha256:7451619e36d6de922fd5efed47f39df55049bf1e8ade9ee9c767a50f49b473e7",
+    "cost_semantics": {
+      "actual_cash": "unknown",
+      "marginal": "unknown",
+      "market_equivalent": "preserved from known list-price-normalized source cells"
+    }
+  },
+  "baselines": {
+    "always-frontier": {
+      "runs": 30,
+      "verified_completions": 11,
+      "verified_completion_rate": 0.366667,
+      "known_cost_runs": 21,
+      "unknown_cost_runs": 9,
+      "known_cost_rate": 0.7,
+      "total_cost_usd": null,
+      "total_known_cost_usd": 34.838471,
+      "median_cost_usd": null,
+      "median_known_cost_usd": 1.404847,
+      "effective_cost_per_verified_completion": null,
+      "median_duration_ms": 311506.5,
+      "total_human_interventions": 0,
+      "total_attempts": 30,
+      "adversarial_cases": 12,
+      "adversarial_false_passes": 0
+    },
+    "always-cheap": {
+      "runs": 30,
+      "verified_completions": 0,
+      "verified_completion_rate": 0,
+      "known_cost_runs": 21,
+      "unknown_cost_runs": 9,
+      "known_cost_rate": 0.7,
+      "total_cost_usd": null,
+      "total_known_cost_usd": 4.312938,
+      "median_cost_usd": null,
+      "median_known_cost_usd": 0.186091,
+      "effective_cost_per_verified_completion": null,
+      "median_duration_ms": 106672.5,
+      "total_human_interventions": 0,
+      "total_attempts": 30,
+      "adversarial_cases": 12,
+      "adversarial_false_passes": 0
+    },
+    "prompt-only": {
+      "runs": 30,
+      "verified_completions": 10,
+      "verified_completion_rate": 0.333333,
+      "known_cost_runs": 21,
+      "unknown_cost_runs": 9,
+      "known_cost_rate": 0.7,
+      "total_cost_usd": null,
+      "total_known_cost_usd": 39.561832,
+      "median_cost_usd": null,
+      "median_known_cost_usd": 1.596053,
+      "effective_cost_per_verified_completion": null,
+      "median_duration_ms": 209016,
+      "total_human_interventions": 0,
+      "total_attempts": 30,
+      "adversarial_cases": 12,
+      "adversarial_false_passes": 0
+    },
+    "adaptive": {
+      "runs": 30,
+      "verified_completions": 12,
+      "verified_completion_rate": 0.4,
+      "known_cost_runs": 21,
+      "unknown_cost_runs": 9,
+      "known_cost_rate": 0.7,
+      "total_cost_usd": null,
+      "total_known_cost_usd": 35.862083,
+      "median_cost_usd": null,
+      "median_known_cost_usd": 1.357002,
+      "effective_cost_per_verified_completion": null,
+      "median_duration_ms": 402870,
+      "total_human_interventions": 0,
+      "total_attempts": 33,
+      "adversarial_cases": 12,
+      "adversarial_false_passes": 0
+    }
+  },
+  "retrospective_decisions": {
+    "cleanup": {
+      "selection_status": "meets-quality-target",
+      "selected_plan_id": "adaptive",
+      "conservative_verified_success_probability": 0.513541,
+      "expected_market_equivalent_usd": {
+        "status": "known",
+        "amount_usd": 1.387003,
+        "unknown_plan_ids": []
+      },
+      "expected_duration_ms": 635554,
+      "decision_digest": "sha256:f7688de2474acd5848a2d18be7dcf67558e000065f3fb761fdfd4501b1773a5e"
+    },
+    "context_reset": {
+      "selection_status": "best-available",
+      "selected_plan_id": "always-cheap",
+      "conservative_verified_success_probability": 0.038177,
+      "expected_market_equivalent_usd": {
+        "status": "known",
+        "amount_usd": 0.277454,
+        "unknown_plan_ids": []
+      },
+      "expected_duration_ms": 142345,
+      "decision_digest": "sha256:58b542477e7547d0b725b4a8c0efb75a822927766460d46f124ef1f630b31feb"
+    },
+    "long_task": {
+      "selection_status": "meets-quality-target",
+      "selected_plan_id": "adaptive",
+      "conservative_verified_success_probability": 0.513541,
+      "expected_market_equivalent_usd": {
+        "status": "known",
+        "amount_usd": 2.611579,
+        "unknown_plan_ids": []
+      },
+      "expected_duration_ms": 310018,
+      "decision_digest": "sha256:f38701c3ecf8332247f5a8fba626c409e471d0dbb7490da139f9a97e885fba3a"
+    },
+    "parallel_work": {
+      "selection_status": "best-available",
+      "selected_plan_id": "always-cheap",
+      "conservative_verified_success_probability": 0.164252,
+      "expected_market_equivalent_usd": {
+        "status": "known",
+        "amount_usd": 0.186091,
+        "unknown_plan_ids": []
+      },
+      "expected_duration_ms": 4122,
+      "decision_digest": "sha256:559f9528ba0b28beb68f6614a5bfa84075c713a1145a8c3f031abd4e67622cde"
+    },
+    "safety_boundary": {
+      "selection_status": "meets-quality-target",
+      "selected_plan_id": "prompt-only",
+      "conservative_verified_success_probability": 0.513541,
+      "expected_market_equivalent_usd": {
+        "status": "known",
+        "amount_usd": 0.648209,
+        "unknown_plan_ids": []
+      },
+      "expected_duration_ms": 106152,
+      "decision_digest": "sha256:9f60295c362eafb26c55a2d70ae2627ac11a129296305b21cd2a1858409f2ab9"
+    },
+    "short_control": {
+      "selection_status": "best-available",
+      "selected_plan_id": "prompt-only",
+      "conservative_verified_success_probability": 0.293645,
+      "expected_market_equivalent_usd": {
+        "status": "known",
+        "amount_usd": 0.477936,
+        "unknown_plan_ids": []
+      },
+      "expected_duration_ms": 126104,
+      "decision_digest": "sha256:482953cb686f0f66de3fd7361904b53cb341e2c2927952db3e80b29209ad6fa0"
+    }
+  },
+  "claims": {
+    "demonstrated": [
+      "The v2 controller ingests verified outcomes from pinned real-repository tasks.",
+      "Failure and unknown outcomes remain distinct during calibration.",
+      "Three economic lenses remain separate; unknown cash and marginal cost never become zero.",
+      "Every retrospective decision is reproducible from a digest-bound history and catalog."
+    ],
+    "not_demonstrated": [
+      "Retrospective selection is not a prospective or causal savings result.",
+      "The source matrix did not observe tool-call identity, so this import cannot calibrate tool effectiveness.",
+      "The source performance gate remained open and v2 does not relabel it as passed."
+    ]
+  },
+  "evidence_digest": "sha256:8961ea9101bd6187d4fa7a54eaa0d7488d3546be365639bdb9af8fe155f10606"
+}

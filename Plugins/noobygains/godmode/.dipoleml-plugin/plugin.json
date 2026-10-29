@@ -1,0 +1,16 @@
+{
+  "name": "godmode",
+  "displayName": "Godmode",
+  "version": "2.1.2",
+  "description": "Engineering discipline for AI coding agents: question the request, verify against current docs instead of memory, plan, build test-first on the cheapest capable model, review with a second model family, prove it before saying done",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Noobygains"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/NoobyGains/godmode",
+  "repository": "https://github.com/NoobyGains/godmode",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

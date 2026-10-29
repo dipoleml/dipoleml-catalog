@@ -1,0 +1,16 @@
+{
+  "name": "github",
+  "displayName": "GitHub",
+  "version": "0.0.0",
+  "description": "Official GitHub MCP server for repository management. Create issues, manage pull requests, review code, search repositories, and interact with GitHub's full API directly from DipoleML.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Anthropic"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/anthropics/claude-plugins-official",
+  "repository": "https://github.com/anthropics/claude-plugins-official",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,153 @@
+/**
+ * CSS files with the .module.css suffix will be treated as CSS modules
+ * and scoped locally.
+ */
+
+.heroBanner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 22px;
+  padding: 8rem 2rem 4.5rem;
+}
+
+.eyebrow {
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ifm-color-primary);
+}
+
+.title {
+  font-family: var(--ifm-heading-font-family);
+  font-weight: 900;
+  font-size: clamp(2rem, 4.5vw, 3.4rem);
+  line-height: 1.08;
+  letter-spacing: -0.01em;
+  max-width: 780px;
+  margin: 0;
+  text-wrap: balance;
+}
+
+.subtitle {
+  font-size: 1.2rem;
+  line-height: 1.6;
+  color: var(--lattice-muted);
+  max-width: 620px;
+  margin: 0;
+}
+
+.buttons {
+  display: flex;
+  gap: 14px;
+  margin-top: 10px;
+}
+
+.primaryButton {
+  background: var(--ifm-color-primary);
+  color: #fff !important;
+  font-weight: 600;
+  font-size: 1rem;
+  padding: 14px 26px;
+  border-radius: 6px;
+}
+
+.primaryButton:hover {
+  background: var(--ifm-color-primary-dark);
+  text-decoration: none;
+}
+
+.secondaryButton {
+  border: 1.5px solid var(--lattice-muted);
+  color: var(--ifm-font-color-base) !important;
+  font-weight: 600;
+  font-size: 1rem;
+  padding: 12.5px 24px;
+  border-radius: 6px;
+}
+
+.secondaryButton:hover {
+  border-color: var(--ifm-font-color-base);
+  text-decoration: none;
+}
+
+.heroDiagram {
+  margin-top: 28px;
+  max-width: 100%;
+  height: auto;
+  color: var(--ifm-font-color-base);
+}
+
+@media screen and (max-width: 736px) {
+  .heroBanner {
+    padding: 4rem 1.5rem 3rem;
+  }
+  .buttons {
+    flex-direction: column;
+    width: 100%;
+    max-width: 320px;
+  }
+}
+
+.storySection {
+  border-top: 1px solid var(--ifm-color-emphasis-300);
+  padding: 5rem 2rem 6.5rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 1.25rem;
+}
+
+.storyEyebrow {
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--lattice-muted);
+  margin: 0;
+}
+
+.storyQuote {
+  font-family: var(--ifm-heading-font-family);
+  font-weight: 700;
+  font-size: clamp(1.35rem, 2.6vw, 1.85rem);
+  line-height: 1.45;
+  max-width: 720px;
+  margin: 0;
+  text-align: left;
+  color: var(--ifm-font-color-base);
+  border-left: 3px solid var(--lattice-coral);
+  padding-left: 1.5rem;
+}
+
+.storySupport {
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--lattice-muted);
+  max-width: 560px;
+  margin: 0;
+}
+
+.storyLink {
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--ifm-color-primary) !important;
+  margin-top: 10px;
+}
+
+.storyLink:hover {
+  text-decoration: underline;
+}
+
+@media screen and (max-width: 736px) {
+  .storyQuote {
+    text-align: left;
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "name": "open-steps",
+  "description": "Plain-language skills for coding agents, for the person running development who does not read code: session reports, decisions, next steps and the whole picture.",
+  "version": "0.4.8",
+  "license": "MIT",
+  "keywords": [
+    "claude-code",
+    "agent-skills",
+    "coding-agents",
+    "session-report",
+    "premortem",
+    "plain-language"
+  ],
+  "author": {
+    "name": "Pavlo Kharmanskyi",
+    "url": "https://github.com/kharmanskyi"
+  },
+  "homepage": "https://opensteps.ai",
+  "repository": "https://github.com/kharmanskyi/open-steps"
+}

@@ -1,0 +1,16 @@
+{
+  "name": "context-meter",
+  "displayName": "Context Meter",
+  "version": "0.1.0",
+  "description": "The session's context window fill, right above the prompt: gray while there is room, yellow when it is time to /compact, red when a new session is better.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Midudev"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/midudev/better-claude",
+  "repository": "https://github.com/midudev/better-claude",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

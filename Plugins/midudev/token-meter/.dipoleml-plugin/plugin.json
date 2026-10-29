@@ -1,0 +1,16 @@
+{
+  "name": "token-meter",
+  "displayName": "Token Meter",
+  "version": "0.1.0",
+  "description": "Each turn's tokens and the session's running total, in color at the end of the hint line under the prompt.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Midudev"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/midudev/better-claude",
+  "repository": "https://github.com/midudev/better-claude",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

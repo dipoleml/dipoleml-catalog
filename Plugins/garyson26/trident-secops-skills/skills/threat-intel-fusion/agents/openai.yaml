@@ -1,0 +1,4 @@
+interface:
+  display_name: "Threat Intel Fusion"
+  short_description: "Normalize, enrich, prioritize IOCs and actor profiles"
+  default_prompt: "Use $threat-intel-fusion to fuse multi-source intel into STIX, priority blocklists, and detections."

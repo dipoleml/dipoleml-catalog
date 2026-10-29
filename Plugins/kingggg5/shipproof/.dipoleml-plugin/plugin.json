@@ -1,0 +1,16 @@
+{
+  "name": "shipproof",
+  "displayName": "Shipproof",
+  "version": "0.12.0",
+  "description": "Evidence-first engineering and production audits for secure, efficient, scalable systems.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Kingggg5"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/kingggg5/shipproof",
+  "repository": "https://github.com/kingggg5/shipproof",
+  "skills": "./skills/",
+  "commands": [],
+  "agents": []
+}

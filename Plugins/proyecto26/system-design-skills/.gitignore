@@ -1,0 +1,11 @@
+.DS_Store
+*.log
+node_modules/
+__pycache__/
+*.pyc
+meta/*.workflow.js
+meta/**/*.workflow.js
+meta/ALIGNMENT-BRIEF.md
+evals/results/
+
+docs/design/

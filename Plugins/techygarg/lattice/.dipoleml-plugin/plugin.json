@@ -1,0 +1,16 @@
+{
+  "name": "lattice",
+  "displayName": "Lattice",
+  "version": "2.2.0",
+  "description": "Composable AI skills framework covering the full software delivery lifecycle — design, architecture, implementation, testing, and review.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Techygarg"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/techygarg/lattice",
+  "repository": "https://github.com/techygarg/lattice",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

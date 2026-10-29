@@ -1,0 +1,16 @@
+{
+  "name": "odin-git",
+  "displayName": "Odin Git",
+  "version": "2.1.5",
+  "description": "ODIN workflows for commits, branches, pull requests, review feedback, and issue tracking.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Outlinedriven"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/OutlineDriven/odin-claude-plugin",
+  "repository": "https://github.com/OutlineDriven/odin-claude-plugin",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

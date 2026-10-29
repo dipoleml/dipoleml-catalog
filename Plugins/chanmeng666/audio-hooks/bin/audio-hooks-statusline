@@ -1,0 +1,33 @@
+#!/usr/bin/env bash
+# audio-hooks-statusline — portable shell wrapper around audio-hooks-statusline.py
+#
+# Same rationale as bin/audio-hooks: Git Bash on Windows can't resolve
+# Python shebangs reliably, so we wrap with Bash.
+
+set -e
+
+SOURCE="${BASH_SOURCE[0]:-$0}"
+while [ -h "$SOURCE" ]; do
+    DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
+    SOURCE="$(readlink "$SOURCE")"
+    [[ "$SOURCE" != /* ]] && SOURCE="$DIR/$SOURCE"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "$SOURCE")" >/dev/null 2>&1 && pwd)"
+
+PYTHON_ENTRY="$SCRIPT_DIR/audio-hooks-statusline.py"
+
+if [ ! -f "$PYTHON_ENTRY" ]; then
+    # Status line fails silently to avoid breaking the terminal
+    exit 0
+fi
+
+# Same Microsoft Store python3 stub workaround as bin/audio-hooks.
+for candidate in python3 python py; do
+    if command -v "$candidate" >/dev/null 2>&1; then
+        if "$candidate" -c "import sys" >/dev/null 2>&1; then
+            exec "$candidate" "$PYTHON_ENTRY" "$@"
+        fi
+    fi
+done
+
+exit 0

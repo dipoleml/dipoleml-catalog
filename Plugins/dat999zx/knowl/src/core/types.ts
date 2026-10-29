@@ -1,0 +1,628 @@
+export type KnowledgeCategory =
+  | 'fact'           // Objective truths
+  | 'decision'       // Choices with reasoning
+  | 'goal'           // Desired outcomes
+  | 'constraint'     // Hard rules
+  | 'architecture'   // Structural understanding
+  | 'state'          // Current activity
+  | 'skill';         // Learned procedures
+
+const CATEGORY_VALUES = ['fact', 'decision', 'goal', 'constraint', 'architecture', 'state', 'skill'] as const;
+
+/**
+ * The same categories as a runtime list, for validating input and for enumerating them.
+ *
+ * The `Exclude<...> extends never` guard makes a category added to the union but not to this
+ * list a compile error. Without it, the list silently drifts and the validator starts
+ * rejecting a category the rest of the system accepts -- which is the failure this constant
+ * exists to prevent, since it now backs both the MCP tool schemas and CLI input checking.
+ */
+export const KNOWLEDGE_CATEGORIES: Exclude<KnowledgeCategory, typeof CATEGORY_VALUES[number]> extends never
+  ? typeof CATEGORY_VALUES
+  : never = CATEGORY_VALUES;
+
+export function isKnowledgeCategory(value: string): value is KnowledgeCategory {
+  return (KNOWLEDGE_CATEGORIES as readonly string[]).includes(value);
+}
+
+export type KnowledgeStatus =
+  | 'active'
+  | 'deprecated'
+  | 'rejected'
+  | 'archived'
+  | 'superseded';
+
+export type KnowledgeFreshness =
+  | 'fresh'
+  | 'stale'
+  | 'needs_review';
+
+/**
+ * Standing earned by use, orthogonal to self-reported confidence. Every write starts
+ * `asserted`; repeated confirmed-useful feedback promotes to `verified`; a correction or a
+ * content edit resets, because verified means verified-verbatim. Deliberately absent from
+ * lifecycleHash: verification is this machine's own experience with the item, and an
+ * imported copy has not been used here yet.
+ */
+export type KnowledgeTier = 'asserted' | 'verified';
+
+/**
+ * How the knowledge came to be believed, fixed at write time. `observed` — from execution
+ * or direct inspection; `user_stated` — the human said so; `inferred` — the agent
+ * concluded it. A reflected lesson reads as authoritative once stored, so the class it
+ * was born with is the only record that it was ever a guess.
+ */
+export type KnowledgeProvenance = 'observed' | 'user_stated' | 'inferred';
+
+export type SessionStatus = 'active' | 'finished' | 'failed' | 'abandoned' | 'recovered';
+export type SessionEventType = 'start' | 'command' | 'test' | 'error' | 'git' | 'decision' | 'checkpoint' | 'stop';
+
+export interface MemorySession {
+  id: string; agent?: string | null; title: string; query?: string | null; status: SessionStatus;
+  startedAt: string; lastHeartbeatAt: string; finishedAt?: string | null; baselineCommit?: string | null; expiresAt: string;
+}
+
+export interface MemorySessionEvent {
+  id: string; sessionId: string; type: SessionEventType; payload: Record<string, unknown>; observedAt: string; expiresAt: string;
+}
+
+export interface MemoryCandidate extends KnowledgeAtom {
+  candidateType: 'outcome' | 'decision' | 'error' | 'commit' | 'verified-command' | 'task-state';
+  sessionId: string;
+  evidence: EvidenceInput[];
+}
+
+export interface KnowledgeItem {
+  id: string;
+  category: KnowledgeCategory;
+  status: KnowledgeStatus;
+  title: string;
+  content: string;
+  reasoning?: string | null;
+  alternatives?: string[] | null; // stored as JSON array of strings
+  tags?: string[] | null;         // stored as JSON array of strings
+  source?: string | null;
+  sourceCommit?: string | null;
+  affectedPaths?: string[] | null; // stored as JSON array of repository-relative paths
+  contentHash?: string | null;
+  /**
+   * Fingerprint of status, freshness, supersession, owner and visibility. Distinct from
+   * `contentHash` because the two diverge independently: a promotion or a retirement leaves
+   * content byte-identical, and an import classifying on content alone skipped it.
+   */
+  lifecycleHash?: string | null;
+  /** Owning repo in a workspace; null outside one. The only lifecycle key. */
+  originRepo?: string | null;
+  /**
+   * The repo whose session authored this atom, when that is not the repo that owns it.
+   *
+   * Subject and author are two different facts, and `originRepo` answers only the first. Acting
+   * as a linked repo writes an atom that is genuinely the target's -- it governs that repo, is
+   * promoted and retired by it, and travels with its knowledge -- but the work happened
+   * somewhere else, and without this nothing recorded where.
+   *
+   * Null is the ordinary case and means "the owner wrote it", not "unknown". Storing the owner's
+   * own name here for every local write would make the column noise and cost a read to discover
+   * it says nothing, so it is set only when the two genuinely differ.
+   */
+  writtenBy?: string | null;
+  /** 'repo' | 'workspace'. Logical scope, independent of which file holds the row. */
+  visibility?: string | null;
+  freshness: KnowledgeFreshness;
+  confidence: number;
+  tier: KnowledgeTier;
+  /** When `tier` was last set; confirmations before it belong to a superseded standing. */
+  tierSince?: string | null;
+  provenance?: KnowledgeProvenance | null;
+  conflictKey?: string | null;
+  conflictScope?: Record<string, unknown> | null;
+  conflictExclusive?: boolean;
+  supersededById?: string | null;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface KnowledgeAssertion {
+  id: string;
+  knowledgeItemId: string;
+  content: string;
+  validFrom: string;
+  validTo?: string | null;
+  recordedAt: string;
+  replacedAt?: string | null;
+  confidence: number;
+  sourceEvidenceId?: string | null;
+  conflictKey?: string | null;
+  conflictScope?: Record<string, unknown> | null;
+  conflictExclusive?: boolean;
+}
+
+export interface KnowledgeCommit {
+  id: string;
+  message: string;
+  changes: CommitChange[]; // stored as JSON
+  createdAt: string;
+}
+
+/**
+ * What a piece of evidence points at.
+ *
+ * `command` and `url` were members until 2026-08-20 and are gone because nothing ever reached
+ * them: `isEvidenceStale` handles `symbol` and `file` and returns false for everything else, and
+ * both stores held zero rows of either across 2,173 evidence rows (#145). They were storable,
+ * syncable, and checked by nothing.
+ *
+ * Removing an exported union member is a breaking type change, which is why it happened while
+ * the count was zero rather than later. `evidence.type` is `TEXT NOT NULL` with no CHECK
+ * constraint, so this is a compile-time narrowing and needs no migration -- a row written by an
+ * older client still reads back, it simply has no type here to be.
+ *
+ * A future verification mechanism should add what it implements rather than reviving these. A
+ * stored free-text `command` that something later executes is a different security posture than
+ * this codebase has today, and the moment to argue that is when something proposes to run one.
+ */
+export type EvidenceType = 'file' | 'symbol' | 'commit' | 'test' | 'user' | 'agent';
+export type EvidenceRelationship = 'supports' | 'contradicts' | 'derived_from';
+
+export interface Evidence {
+  id: string;
+  type: EvidenceType;
+  locator: string;
+  contentHash?: string | null;
+  excerpt?: string | null;
+  observedAt: string;
+  metadata?: Record<string, unknown> | null;
+}
+
+export interface KnowledgeEvidence {
+  knowledgeItemId: string;
+  evidenceId: string;
+  relationship: EvidenceRelationship;
+}
+
+export type CodeSymbolKind = 'class' | 'function' | 'method' | 'type' | 'import' | 'export' | 'variable';
+
+export interface CodeFile {
+  path: string;
+  contentHash: string;
+  updatedAt: string;
+}
+
+export interface CodeSymbol {
+  locator: string;
+  filePath: string;
+  qualifiedName: string;
+  kind: CodeSymbolKind;
+  startLine: number;
+  endLine: number;
+  signature: string | null;
+  signatureHash: string | null;
+}
+
+export interface CodeSymbolEdge {
+  fromLocator: string;
+  toLocator: string;
+  kind: 'imports' | 'exports';
+}
+
+export type KnowledgeSearchExplanation = {
+  finalScore: number;
+  bm25Rank?: number;
+  vectorRank?: number;
+  contributions: Record<string, number>;
+  reason: string;
+  /**
+   * The query does not look like it is about this store, and this row is one the floor judged.
+   * Present only when true, so an answered query costs nothing.
+   *
+   * **READ THE NAME NARROWLY.** It says off-subject, NOT unanswerable, and the difference is the
+   * whole of what three separate measurements found. A question phrased in the store's own
+   * vocabulary is close to that store whether or not anything in it answers the question, so a
+   * high score cannot mean "the answer is here" and this flag's absence cannot mean it either.
+   * What it does support is the negative direction, and only loosely: a question written in a
+   * register foreign to the corpus tends to fall below.
+   *
+   * Why no threshold fixes this, so nobody re-tunes it a fourth time:
+   * - Cosine: on-topic and off-topic distributions OVERLAP on all five shipped presets, and the
+   *   current default has the smallest overlap of them, so there is no preset to move to
+   *   (docs/evals/preset-floor-sweep.md).
+   * - Lexical coverage: quantized at 1/n, so short vague on-topic queries land on the same
+   *   values as partially-matching junk (docs/evals/query-coverage-probe.md).
+   *
+   * A verdict rather than a filter. The floor used to delete the whole ranking here and was
+   * measured deleting real answers (docs/evals/floor-sweep.md), which is why the rows are
+   * returned and the caller is asked to judge them.
+   */
+  abstained?: boolean;
+  /**
+   * This row has a same-subject twin, kept side by side, and the older of the two is verified
+   * (#323). The twin may not be on the page. Present only when true. The ranker puts the older
+   * item first; this says there is a second answer, and that the newer one was never confirmed
+   * against the older.
+   */
+  contested?: boolean;
+  /**
+   * `finalScore` is not a calibrated relevance for this row, and this is why. Present only
+   * when set, mirroring `abstained`, so the calibrated path costs nothing.
+   *
+   * Two reasons are the ranker's to know: no semantic half ran at all (`lexical-only` -- the
+   * ranking is each corpus's rows against its own best hit, so the top result scores ~1.0
+   * whatever it is), or vector ran and never saw this row (`not embedded` -- its semantic half
+   * is 0 by absence, not by verdict, the same predicate the relevance floor exempts on). The
+   * third reason a caller can add, `layered namespaces`, belongs to the path that layers.
+   */
+  uncalibrated?: 'lexical-only' | 'not embedded';
+  /**
+   * The raw cosine this row scored, on the absolute scale `MODEL_RELEVANCE_FLOORS` is measured
+   * against. Present only where it is a verdict rather than an absence -- the same predicate
+   * `uncalibrated` is absent on.
+   *
+   * This is the number a caller deciding "does this store hold the answer" needs, and
+   * `finalScore` cannot be it: `rescaleSemantic` min-max scales the semantic half across the
+   * candidate page, so the top row's is ~1.0 whether its cosine was 0.93 or 0.20. Measured on a
+   * two-atom store (#146), an off-topic query and a perfect match both published 0.96 while
+   * their cosines were 0.7928 and 0.9296 -- the fused number cannot separate them and this one
+   * can.
+   */
+  cosine?: number;
+};
+
+export type ExplainedKnowledgeItem = KnowledgeItem & { explanation: KnowledgeSearchExplanation };
+
+export type EvidenceInput = Omit<Evidence, 'id'> & { relationship?: EvidenceRelationship };
+
+export interface CommitChange {
+  itemId: string;
+  action: 'insert' | 'update' | 'delete' | 'supersede' | 'deprecate' | 'archive' | 'reject' | 'restore';
+  before?: Partial<KnowledgeItem> | null;
+  after?: Partial<KnowledgeItem> | null;
+}
+
+export interface SkillStep {
+  id: string;
+  knowledgeItemId: string;
+  stepOrder: number;
+  instruction: string;
+  createdAt: string;
+}
+
+export interface SkillMetadata {
+  knowledgeItemId: string;
+  usageCount: number;
+  successCount: number;
+  lastUsed?: string | null;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  description?: string | null;
+  rootPath: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectConfig {
+  version: number;
+  // `project` used to hold a name and description. Nothing has read either for a long time and
+  // `stripDeprecatedConfigFields` deletes the block on every load, so declaring it here described
+  // a field the product does not have. The strip stays: it is what cleans the key out of configs
+  // written before this.
+  ai?: {
+    provider: string;
+    model: string;
+    temperature?: number;
+    baseUrl?: string;
+    apiKey?: string;
+    /** Domain profile id for AI ingestion. Absent: `code` for a project store, `general` for the global store. */
+    profile?: string;
+  };
+  search?: {
+    vector?: {
+      enabled?: boolean;
+      /** Named profile bundling model, dtype and pooling. See resolveVectorProfile. */
+      preset?: string;
+      model?: string;
+      dtype?: 'q4' | 'q8' | 'fp32' | 'fp16';
+      /** Only read when the preset is `custom` or absent; a preset carries its own. */
+      pooling?: 'mean' | 'cls';
+      cacheDir?: string;
+    };
+    /**
+     * Searchable session transcripts. Off by default: enabling it creates a second
+     * database and registers two more MCP tools, which costs guidance-card space in
+     * every session of every user -- including those who never search a transcript.
+     */
+    transcripts?: {
+      enabled?: boolean;
+      /** Let linked workspace repos open this index read-only. Requires `enabled`. */
+      share?: boolean;
+      /**
+       * Run transcript search automatically inside a `knowl_query` that missed, instead of
+       * suggesting it in prose. Requires `enabled`, by the same AND rule as `share`.
+       *
+       * The suggestion path already existed and its failure mode is measured: the agent reads
+       * the miss, skips the second tool, and answers "no record" over an archive it never
+       * consulted. With this on, a negative is a claim verified against both stores.
+       */
+      fallback?: boolean;
+    };
+    /**
+     * Annotate a query row whose `affectedPaths` were modified after the row was stored.
+     *
+     * ON unless explicitly set to false -- the only key here that defaults on, because it adds
+     * a field rather than a message: it spends no slot, blocks no stop, and is absent from
+     * every row whose files are clean. The escape hatch exists because it is not free either:
+     * every returned local row costs an `fs.stat` per cited path, and a repository whose
+     * atoms cite generated or checked-out-fresh files would carry the marker permanently,
+     * which is how a true signal becomes furniture.
+     */
+    pathsChanged?: boolean;
+  };
+  /**
+   * What Knowl says to the agent mid-turn, as opposed to what it stores.
+   *
+   * Both default ON, because both ship on and a key that silently disabled a working feature
+   * would be a worse surprise than one that does nothing until set. Kept out of
+   * `DEFAULT_CONFIG` for the usual reason: merged in, they are stamped into every config on
+   * the machine at the next upgrade.
+   *
+   * These share the one mid-turn slot with the change card and the capture prompts, in that
+   * priority. Turning one off does not give the others more room -- it gives the turn back.
+   */
+  reminders?: {
+    /**
+     * How many consecutive successful non-Knowl tool events trigger the continuation
+     * reminder. `0` turns it off. Default 12.
+     *
+     * The cadence is the setting, not a separate on/off, because "how often" is the actual
+     * question -- the reminder is ~370 characters delivered on the tool path, so the cost is
+     * linear in how many tool calls a session makes, and a long mechanical session pays it
+     * repeatedly for a rule it followed the first time.
+     */
+    driftEvery?: number;
+    /**
+     * Double the gap after each delivery -- 6, 12, 24, 48 -- rather than repeating at a fixed
+     * cadence forever. On by default.
+     *
+     * The reminder is byte-identical every time it is sent, so its value decays: after two or
+     * three the agent has either adopted the rule or decided against it, and the rest is
+     * furniture. Backing off keeps the long-session safety net the fixed cadence exists for
+     * while removing the nagging it was already criticised for. Set false for the old
+     * every-N-forever behaviour.
+     */
+    driftBackoff?: boolean;
+    /**
+     * The two skill nudges: "you have run this three times, save it as a skill" and "a saved
+     * skill matches this command". One key, because both are the skills subsystem speaking
+     * and nobody has yet needed to keep one without the other.
+     */
+    skills?: boolean;
+  };
+  memory?: {
+    organization?: { enabled?: boolean; path?: string };
+    global?: { enabled?: boolean; path?: string };
+  };
+  skills?: Record<string, { inputs?: Record<string, string>; version?: number }>;
+  /**
+   * Pointer to a Knowl Cloud workspace. Never a credential -- this file is deliberately
+   * force-committable so the pointer travels with a clone, and `isConfigTrackedByGit`
+   * exists for that case. Credentials live in `knowlHome()/credentials.json`.
+   */
+  cloud?: {
+    apiHost: string;
+    workspaceId: string;
+    workspaceName?: string;
+    /**
+     * What this project publishes under: a normalized remote identity when there is a remote,
+     * otherwise a name that was given or taken from the project directory. A label, not a claim
+     * about version control -- the server accepts any non-empty string here.
+     */
+    repo: string;
+    /**
+     * Which remote it was derived from, so a fork's choice stays inspectable. Absent when the
+     * identity did not come from one, which is not the same as `origin`.
+     */
+    remote?: string;
+    /**
+     * Stage new knowledge as it is written. Absent means on; only an explicit false disables it.
+     *
+     * Safe to keep in this committable file, unlike auto-push consent: staging sends nothing, is
+     * visible in `knowl cloud status`, and is reversible with `knowl cloud unstage`. Consent to
+     * send irreversibly is per-machine and lives under `knowlHome()` instead.
+     */
+    autoStage?: boolean;
+  };
+  /**
+   * Live change-impact detection: what a session read, whether that code moved underneath
+   * it, and findings an agent can pull and adjudicate. Off by default for two separate
+   * reasons. Refusing the write itself is a separate switch, `gate` below, for a separate
+   * risk.
+   *
+   * It is advisory machinery that spends context: findings reach the agent through the
+   * shared change card, and tool-side noise is the channel a wrong finding damages most, so
+   * a repository that never asked for it must pay nothing -- not a card line and not a
+   * capture write.
+   *
+   * Deliberately absent from DEFAULT_CONFIG for the same reason `search.transcripts` is:
+   * `upgradeConfigDefaults` merges that object into every config on the machine, so a
+   * default written there would switch the subsystem on in every repository the user has
+   * ever initialized, at once, with nothing in any of them recording that it happened.
+   */
+  impact?: {
+    enabled?: boolean;
+    /**
+     * Whether the `PreToolUse` write gate refuses an edit whose premise has already moved.
+     *
+     * A second switch rather than a mode of `enabled`, because the two carry different kinds of
+     * risk. Detection spends context and can be wrong inside a card; the gate refuses a tool
+     * call, and being wrong there costs somebody their working session. Arming it is therefore a
+     * separate, deliberate act.
+     *
+     * `shadow` computes the identical verdict, records it in `impact_gate_shadow`, and lets the
+     * write through -- the state the certain tier's ≥95%-over-≥40-findings bar is measured in,
+     * before anything is permitted to block. `enforce` denies and hands back what changed.
+     *
+     * Meaningless without `enabled`, and resolved to `off` in that case rather than honoured:
+     * the gate reads the findings the detector writes, so an armed gate over a disabled detector
+     * can never fire while claiming it can.
+     */
+    gate?: 'off' | 'shadow' | 'enforce';
+  };
+  /**
+   * The write side's negative signal: sessions that talked and stored nothing.
+   *
+   * The write path has admission control -- secret validation, categories, conflict keys --
+   * deciding what gets *in*. Nothing detected what should have got in and did not, and the
+   * knowledge with no verification moment to trigger a save is exactly the most durable kind:
+   * declared intent. The only detector before this was a user noticing and asking.
+   *
+   * Measurement is unconditional and costs one counter per session; `nudge` decides only what
+   * is done with the answer. Deliberately absent from DEFAULT_CONFIG, for the reason `impact`
+   * and `search.transcripts` are: `upgradeConfigDefaults` merges defaults into every config on
+   * the machine, so a value written there would arm this in every repository at once.
+   */
+  capture?: {
+    /**
+     * `shadow` records the nudge it would have delivered and delivers nothing. `enforce` blocks
+     * the stop once, with the nudge as the reason, and never blocks that session again.
+     *
+     * A separate switch from measurement, and off by default, because the two carry different
+     * risk. Counting is invisible; blocking a stop takes a turn the person did not ask for, and
+     * a heuristic that fires on a session which stored plenty is the fatigue that teaches
+     * everyone to ignore the channel. Shadow is where this is expected to sit until the numbers
+     * say otherwise -- the same ladder `impact.gate` climbs.
+     */
+    nudge?: 'off' | 'shadow' | 'enforce';
+    /**
+     * Event-shaped lessons: a destructive command that just ran, or a prompt that reads as
+     * the user correcting the agent, each recorded as a pending item that only a subsequent
+     * durable write settles. The class of knowledge the silence nudge above structurally
+     * cannot see -- its verdict is per conversation, so a session that stored plenty of
+     * unrelated atoms reads as healthy while the one event that mattered goes unwritten.
+     *
+     * Same ladder as `nudge`, and shadow is where it is expected to sit first: the detectors
+     * are precision-tuned regexes, and the measurement of how often they fire is what any
+     * decision to enforce has to be made on.
+     */
+    events?: 'off' | 'shadow' | 'enforce';
+    /**
+     * At what granularity the silence question is asked. `conversation` (the default) is the
+     * one-shot end-of-conversation verdict above. `turn` additionally watches each turn as it
+     * runs: a turn that crosses a substantive-work threshold with no durable write gets one
+     * capture prompt through the free mid-turn channel -- never a blocked stop -- at the
+     * moment the unstored knowledge actually exists. The property that distinguishes it from
+     * the drift reminder: querying memory does not reset it, only storing does, so the
+     * memory-active session -- precisely the one every other reminder goes quiet for -- is
+     * still asked.
+     */
+    scope?: 'conversation' | 'turn';
+    /** The periodic assumption checkpoint. `ask` arms it; absent means `shadow`. See #184. */
+    checkpoint?: 'off' | 'shadow' | 'ask';
+  };
+  /**
+   * Awareness of the other agent sessions running on this machine.
+   *
+   * The host already keeps a registry of its live sessions and already lets one message
+   * another; what it does not record is what each session is working on, which problem it has
+   * claimed, or what it wrote this turn. These switches govern what Knowl does with that: a
+   * roster at session start, a same-problem card when two sessions hit one failure, a
+   * pre-flight card before a change to something every session stands on, and a stop-time
+   * nudge when a turn's writes invalidated what another session read.
+   *
+   * `enabled` defaults ON and is the only key here that does: the roster prints nothing when a
+   * session is alone, and the collision it prevents is one nobody opts into avoiding until
+   * after it has happened. Everything else follows the `capture` ladder and is absent from
+   * DEFAULT_CONFIG for the reason `impact` and `capture` are.
+   */
+  fleet?: {
+    enabled?: boolean;
+    /** The per-turn delta of what other sessions moved on to. Costs lines every turn of a busy fleet. */
+    digest?: 'off' | 'on';
+    /** The same-problem and shared-surface cards: advice on a channel the agent already gets. */
+    cards?: 'off' | 'shadow' | 'enforce';
+    /** The stop-time "a session read what you just changed" nudge, which withholds a stop and costs a turn. */
+    nudge?: 'off' | 'shadow' | 'enforce';
+  };
+  /**
+   * How the host reaches the lifecycle handler. `command` (the default, and what every install
+   * has always used) spawns `knowl agent-hook` per event; `mcp` writes the mid-session events
+   * as calls to `knowl_hook` on the server the host already holds open, and registers that
+   * tool. Read at `knowl init` and `knowl doctor --fix`, which write the hooks file, and at
+   * server start, which decides the tool list. See `core/hooks-transport.ts`.
+   */
+  hooks?: {
+    transport?: 'command' | 'mcp';
+  };
+  /**
+   * This repo's half of workspace membership. The other half is the workspace manifest
+   * listing this repo; either alone is not membership, which is what makes linkage
+   * un-forgeable by a cloned repository.
+   */
+  workspace?: { workspace: string; repo: string };
+  security: {
+    rejectSecrets: boolean;
+    secretPatterns: string[];
+  };
+  /**
+   * Skill execution trust. Not under `skills`, which is a map keyed by skill name: a skill called
+   * `autoApproveSkills` would collide with the key.
+   */
+  trust?: {
+    /** Run a skill without `knowl skill approve`. On unless the literal `false`. */
+    autoApproveSkills?: boolean;
+  };
+  /** Opt out of the once-a-day npm update check shown by `status` and `doctor`. */
+  updateCheck?: {
+    enabled?: boolean;
+  };
+}
+
+export interface FilterResult {
+  pass: boolean;
+  reason?: string;
+}
+
+export type KnowledgeWriteInput = {
+  title?: string | null;
+  content?: string | null;
+  reasoning?: string | null;
+  source?: string | null;
+  affectedPaths?: string[] | null;
+  rawOutput?: string | null;
+  /**
+   * Declared, not merely read off `any`. The scanner has always looked at these three, but the
+   * type stopped short at the prose fields -- so a caller assembling an input by hand got no
+   * signal that leaving them out narrows the scan, and three of them left them out.
+   */
+  tags?: string[] | null;
+  alternatives?: string[] | null;
+  steps?: Array<string | { instruction?: string | null } | null> | null;
+};
+
+export type KnowledgeWriteValidationOptions = {
+  rejectSecrets?: boolean;
+  secretPatterns?: string[];
+  maxFieldLength?: number;
+  maxRawOutputLength?: number;
+};
+
+export interface KnowledgeAtom {
+  category: KnowledgeCategory;
+  title: string;
+  content: string;
+  reasoning?: string | null;
+  alternatives?: string[] | null;
+  tags?: string[] | null;
+  source?: string | null;
+  sourceCommit?: string | null;
+  affectedPaths?: string[] | null;
+  confidence?: number;
+  provenance?: KnowledgeProvenance | null;
+  conflictKey?: string | null;
+  conflictScope?: Record<string, unknown> | null;
+  conflictExclusive?: boolean;
+  steps?: string[]; // If category is 'skill'
+  evidence?: EvidenceInput[];
+}

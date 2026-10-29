@@ -1,0 +1,105 @@
+WEBVTT
+
+1
+00:00:00.050 --> 00:00:01.810
+Citadel starts with slash do.
+
+2
+00:00:01.810 --> 00:00:07.050
+Describe an engineering outcome, and Citadel chooses the smallest operating lane that can carry it.
+
+3
+00:00:07.050 --> 00:00:14.810
+Longer work gains repository state, recovery, coordination, bounded execution, and a concrete next action around Claude Code or Codex.
+
+4
+00:00:14.810 --> 00:00:17.200
+The research begins where orchestration ends.
+
+5
+00:00:17.200 --> 00:00:23.180
+A smaller model is not cheaper when it fails, verification forces a retry, or the operation hides cost.
+
+6
+00:00:23.180 --> 00:00:30.550
+Citadel binds the declared route to observed execution, a model-external verdict, separate cost lenses, and a signed receipt.
+
+7
+00:00:30.550 --> 00:00:32.200
+Failures remain visible.
+
+8
+00:00:32.200 --> 00:00:34.590
+Six prospective studies tested that contract.
+
+9
+00:00:34.590 --> 00:00:36.290
+The first was timeout-sensitive.
+
+10
+00:00:36.290 --> 00:00:42.310
+The second matched baseline completion but used fifteen point seven percent more GPU energy after escalation.
+
+11
+00:00:42.310 --> 00:00:46.780
+The third preserved artifact and path integrity, yet missed its economic gate.
+
+12
+00:00:46.780 --> 00:00:49.310
+Citadel kept all three failures public.
+
+13
+00:00:49.310 --> 00:00:55.900
+The first Claude-plus-local calibration gave both policies twelve of twelve verified completions and avoided four Claude calls.
+
+14
+00:00:55.900 --> 00:00:58.540
+But unsupported local attempts forced recovery.
+
+15
+00:00:58.540 --> 00:01:05.110
+Its twenty-eight point four percent comparison-cost reduction missed the frozen thirty percent gate, so Citadel rejected it.
+
+16
+00:01:05.110 --> 00:01:09.900
+A separately frozen hybrid v2 used twelve new tasks and a narrower support envelope.
+
+17
+00:01:09.900 --> 00:01:13.480
+Always-Claude and Citadel again verified twelve of twelve.
+
+18
+00:01:13.480 --> 00:01:18.450
+Citadel made eight local attempts, recovered once, and reduced Claude calls from twelve to five.
+
+19
+00:01:18.450 --> 00:01:25.940
+Provider-reported plus locally modeled comparison cost fell from six point four cents to three point nine cents: thirty-eight point seven percent.
+
+20
+00:01:25.940 --> 00:01:27.520
+Every frozen gate passed.
+
+21
+00:01:27.520 --> 00:01:28.720
+The boundary matters.
+
+22
+00:01:28.720 --> 00:01:33.000
+These were author-selected synthetic tasks on one workstation and one model pair.
+
+23
+00:01:33.000 --> 00:01:37.210
+Claude Code's returned cost is comparison telemetry, not Seth's subscription bill.
+
+24
+00:01:37.210 --> 00:01:40.420
+Whole-system energy and actual cash remain unknown.
+
+25
+00:01:40.420 --> 00:01:52.100
+Sentient funding buys the external validity still missing: independently selected production tasks across repositories, agent stacks, models, tools, and hardware, plus a learned operation-value policy.
+
+26
+00:01:52.100 --> 00:01:57.650
+The public method and every negative result remain available whether broader savings pass or fail.

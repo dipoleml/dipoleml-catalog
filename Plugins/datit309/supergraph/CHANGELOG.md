@@ -1,0 +1,230 @@
+# Changelog
+
+## 2.3.0 - 2026-10-15
+
+### Added
+
+- **Supergraph Agent Team Engine (`supergraph-team`)** — Native host-agnostic multi-agent orchestration engine with standard MCP Stdio interface and Git worktree isolation.
+  - **Git Worktree Isolation**: Spawns independent worktrees (`.supergraph/worktrees/task-<id>`) per worker, guaranteeing 0 file conflicts and 0 git index lock collisions during concurrent execution.
+  - **Wave DAG Task Scheduling**: State machine enforcing dependency chains (`pending` → `claimed` → `red_tested` → `green` → `merged`) where Wave N+1 tasks only unlock when Wave N dependencies are verified and merged.
+  - **TDD Enforcement Gate**: Enforces RED test evidence before green implementation; automated test runner blocks merge unless exit code is 0.
+  - **Standard MCP Stdio Tools**: `sg_team_init`, `sg_task_create`, `sg_task_list`, `sg_task_claim`, `sg_task_record_red`, `sg_task_submit`, `sg_task_verify_merge`, `sg_worktree_cleanup`, `sg_team_status`.
+  - **Multi-Platform Integration**: Compatible out-of-the-box across DSH (`cordis.patch.yml`), Claude Code (`.mcp.json`), Antigravity/Gemini (`mcp_config.json`), OpenCode, and Codex.
+- **Autonomous Human Browser Agent & ISTQB QA (`browser-agent`)** — Replaced legacy Playwright with native Rust CDP (`agent-browser` v0.39.1).
+  - **Anti-Bot Bypass**: Supports connecting to real user Chrome profiles (`--profile Default --headed`) or existing CDP endpoints (`:9222`), preserving cookies, login sessions, and passing Cloudflare/Akamai bot walls.
+  - **Token-Efficient Accessibility Tree**: Snapshot `@ref` element indexing (~10-100 tokens) eliminating huge DOM or mandatory screenshot dumps.
+  - **Full-Stack ISTQB QA Suite**: 5-dimension test matrix generation (Happy path, Negative, Boundary, 500 fault resilience, RBAC/IDOR), automated testcase execution, console/network error tracing, and formal defect reporting in `docs/qa/`.
+- **7-Subagent Specialized Architecture** — Expanded subagent suite from 4 to 7 specialized roles:
+  - `plan-writer`: Code graph analysis & plan creation.
+  - `plan-reviewer`: Independent plan & spec verification.
+  - `executor`: TDD execution in isolated git worktrees.
+  - `qa-tester`: Autonomous E2E browser & API testing with ISTQB matrices.
+  - `security-auditor`: OWASP Top 10 & Vibesec AppSec vulnerability audits.
+  - `diagnostician`: Scientific root-cause debugging with Serena LSP & Codebase Memory.
+  - `code-reviewer`: Independent final review & merge verdict.
+- **Modular Documentation Architecture** — Extracted detailed platform installation and examples to `docs/INSTALLATION.md` and `docs/EXAMPLES.md`, reducing README size by ~75% (saving ~6,000 tokens per session load).
+
+## 2.2.15 - 2026-09-16
+
+### Added
+
+- **Three.js 3D skills** — added ten pinned upstream skills for fundamentals, geometry, materials, lighting, textures, animation, loaders, shaders, post-processing, and interaction.
+- **Design skills** — integrated Taste Skill guidance for distinctive frontend design, image-to-code, redesigns, and GPT taste.
+
+### Fixed
+
+- **Codebase Memory compatibility** — migrated the baseline contract to `codebase-memory-mcp >= 0.10.8,<0.11.0` with normalized JSON handling and updated documentation/workflows.
+
+## 2.2.14 - 2026-09-05
+
+### Changed
+
+- **Permissions — safe auto-allow + API-port-scoped kill** — `plugins/supergraph/settings.json` allow `Read/Edit/Write/Glob/Grep/TodoWrite/AskUserQuestion/Skill/WebFetch/WebSearch` + safe bash `ls/cat/pwd/echo/head/tail/wc/find/mkdir/touch` + `git diff/status/log/branch/checkout/add/commit`; thêm full test/lint stack `bash -n/sh` `npm/yarn/pnpm/bun test|dev|start` `make` `npx jest|vitest|tsc|eslint|prettier|playwright` `flutter/dart` `vendor/bin/phpunit|pest` `cargo/go/pytest/ruff` + `playwright` `python -m playwright|pip install|scripts/with_server.py` + `node/nodemon/ts-node/pm2` + Node API `npm run dev|api|server`; kill port **chỉ whitelist API** `3000/3001/4000/5000/8000/8080/5173` via `lsof -i :PORT` `kill -9 $(lsof -ti:PORT)` `fuser -k PORT` `npx kill-port PORT` (bỏ generic `lsof *|kill *`); `plugins/supergraph/.opencode-plugin/opencode.json` sync `permission` tương ứng `read/edit/glob/grep/list/todowrite/question/skill/webfetch/websearch: allow` + `bash` allow `ls/cat/pwd/echo/.../git` `bash -n` `bash plugins/supergraph/tests/*` `npm/npx/pnpm/yarn/bun/make/composer/php/dart/flutter/fvm/go/cargo/pytest/ruff/playwright/python` + deny `rm -rf /*|~` `mkfs` `dd if=` `git push --force|reset --hard`; global `~/.config/opencode/opencode.json` merged
+- **Bump** — `bump-version.sh` synced 4 manifests `2.2.13→2.2.14` (`.claude-plugin/plugin.json`, `marketplace.json`, `plugin.json`, `.codex-plugin/plugin.json`)
+
+## 2.2.13 - 2026-09-04
+
+### Added
+
+- **Skill `/supergraph:sdd` (Software Design Document)** — tạo `plugins/supergraph/skills/sdd/SKILL.md` cung cấp template thiết kế hệ thống chuẩn: Component & Flow Architecture (Mermaid), Interface & Data Contracts (JSON Schemas, types), Platform Compatibility Matrix (Claude/Antigravity/OpenCode/Codex), Failure Modes & Fallback Matrix, và ADRs; tích hợp vào Step 2 của Tier 3 (Full Pipeline: `scan → analyze → sdd → plan → ...`) trong `AGENTS.md`, `CLAUDE.md`, `OPENCODE.md`; bổ sung keyword hints trong `user-prompt-submit`, `pre-invocation`, `session-start`, và `plugin.ts`
+- **Wave-based DAG Parallelism & Subagent Optimization** — `skills/plan/SKILL.md` bổ sung trường `Wave: 1 | 2 | 3` (DAG scheduling) và gợi ý phân cấp `Model: flash | inherit | pro` (tối ưu chi phí/tốc độ); `skills/execute/SKILL.md` nâng cấp engine thành Wave-by-Wave Dispatch thực thi song song các subagents trong cùng một Wave với `Workspace: "branch"` (isolated git worktrees) triệt tiêu xung đột ghi đè file và tránh lock git index; `agents/executor.md` và `agents/plan-reviewer.md` chống race condition ghi file plan và kiểm tra tính hợp lệ của Wave dependency
+
+### Changed
+
+- **Bump** — `bump-version.sh` synced 4 manifests `2.2.12→2.2.13` (`.claude-plugin/plugin.json`, `marketplace.json`, `plugin.json`, `.codex-plugin/plugin.json`)
+
+## 2.2.12 - 2026-09-04
+
+### Changed
+
+- **Antigravity hooks compat & enhancements** — `plugins/supergraph/hooks.json` mở rộng matcher cho `PreToolUse` và `PostToolUse` bao gồm `write_file|edit_file|update_file|apply_patch` cùng với `write_to_file|replace_file_content`, `plugins/supergraph/hooks/pre-tool-use` bổ sung resolve workspace từ `workspacePaths` và kiểm tra trạng thái plan cho Antigravity (`is_antigravity`), `plugins/supergraph/install.sh` thêm symlink vào `~/.gemini/config/plugins/supergraph` để hỗ trợ cơ chế discovery của Antigravity
+- **Bump** — `bump-version.sh` synced 4 manifests `2.2.11→2.2.12` (`.claude-plugin/plugin.json`, `marketplace.json`, `plugin.json`, `.codex-plugin/plugin.json`)
+
+## 2.2.11 - 2026-08-28
+
+### Changed
+
+- **Workflow: analyze → plan (all platforms)** — `AGENTS.md:49-77` tiered `Standard: analyze→plan`, `Full: scan→analyze→plan→...`, `OPENCODE.md:5-7` mandatory `2. analyze` required before `plan` (skip Micro), `hooks/session-start:128-145` + `hooks/pre-invocation:28-44` inject `2. analyze` + tiered `scan→analyze→plan`, `hooks/user-prompt-submit:72-82` + `hooks/pre-invocation:118-133` thêm hint `analyze`, `plugins/supergraph/.opencode-plugin/plugin.ts:68-131` system transform + keywordHint thêm `analyze` trước `plan`, `opencode debug info` plugins OK
+- **OpenCode hooks compat** — tạo `plugins/supergraph/.opencode-plugin/plugin.ts:1-284` (`SupergraphPlugin: Plugin` với `experimental.chat.system.transform` + `tool.execute.before` bash-guard/plan-guard + `chat.message` hint + `event` session.idle + `experimental.session.compacting`), `install.sh:4-91,109-174` cài `~/.config/opencode/plugins/supergraph.ts` + skills flat + merge `opencode.json` mcp `codebase-memory-mcp` + `serena`, `OPENCODE.md:47-49` ghi hooks active via plugin, `opencode mcp list` 2 servers, `bun --check` PASS; `install.sh --platform all` sync claude/antigravity/codex lên 2.2.11
+- **Bump** — `bump-version.sh` synced 4 manifests `2.2.10→2.2.11` (`.claude-plugin/plugin.json`, `marketplace.json`, `plugin.json`, `.codex-plugin/plugin.json`)
+
+## 2.2.10 - 2026-08-27
+
+### Changed
+
+- **Caveman always-on** — bỏ toggle bật/tắt, mặc định luôn nén ~75%: `hooks/user-prompt-submit:32` luôn `emit CAVEMAN_RULES` (không `grep caveman|normal mode`), `hooks/session-start:191` `parts+= always`, `hooks/pre-invocation:114` `parts.append(caveman_rules)` always, `skills/caveman:6` `Always-on` + `OPENCODE.md:35` always-on; xoá `SUPERGRAPH_CAVEMAN` flag logic
+- **Cross-platform compat** — `hooks/user-prompt-submit:6` fallback `python3→python` + empty prompt vẫn emit caveman, `emit` fallback raw text nếu thiếu python, `OPENCODE.md:48` ghi rõ caveman vẫn active dù hooks không chạy trên OpenCode; `bash -n` + `7/7 tests` PASS
+- **Bump** — `bump-version.sh` synced 4 manifests `2.2.9→2.2.10` (`.claude-plugin/plugin.json`, `marketplace.json`, `plugin.json`, `.codex-plugin/plugin.json`)
+
+## 2.2.9 - 2026-08-27
+
+### Performance
+
+- **Skills perf: cache+parallel+dedup 40-50%** — `scan` TTL 10m reuse `index_status` (skip `index_repository` khi `ready+BRANCH` fresh, vẫn `index_status` verify + `get_graph_schema||get_architecture` parallel), `plan` graph calls `detect_changes+search_graph+trace_path+get_architecture` parallel (save 1.5-2s), `fix/verify/review` dedup suite với freshness guard `HEAD_SHA unchanged + diff unchanged + PASS <120s` (tiết kiệm 3-5 suite 60-180s), `flutter-ui` `find|xargs grep` 4 lần → `rg --type dart --type yaml -l` 1 lần 10-20x, `with_server.py` `start→wait` tuần tự 60s → Phase1 Popen all + Phase2 poll shared 30s; pipeline 8-12p → 4-6p trên `979 nodes`; giữ `>20 files STOP` và `verify Iron Law fresh`
+- **Bump** — `bump-version.sh` synced 4 manifests `2.2.8→2.2.9` (`.claude-plugin/plugin.json`, `marketplace.json`, `plugin.json`, `.codex-plugin/plugin.json`)
+
+### Changed
+
+- `scan:37,73` TTL guard + `SERENA_ACTIVE` guard + parallel schema/arch, `plan:31` parallel note, `fix:45` dedup + TTL respect, `verify:57` freshness guard, `review:56` reuse `verify` evidence, `flutter-ui:26` ripgrep + codebase-memory fallback, `with_server.py:64` 2-phase parallel startup
+
+## 2.2.8 - 2026-08-26
+
+### Performance
+
+- **Token trim 19.5%** — deduplicated Serena/graph lifecycle to `references/codebase-memory-contract.md`, shortened `plan`/`review`/`architecture`/`frontend` prose, compressed `user-prompt-submit` caveman/triage hints; `plan 6989→4622`, `review 6527→5137`, `frontend 6272→3222`, `skills` total `60317→48536` chars
+- **Review speed tiered+parallel** — `review` now tiered recipes (Micro 2 recipes 0.04s vs Full 6 recipes 0.12s), parallel `code-reviewer` + `tests` (save 6s), `Micro` skip LLM 30-60s, `Standard` Stage1 only; measured `979 nodes` `tests 6s` → `Micro ~6s` vs `~40s` before
+- **Subagent trim 30%** — `executor 8904→7126` removed re-parse, `plan-writer 4904→3228` dedup to `plan` skill, `code-reviewer` diff bound `300 lines`, parallel shared prefix
+
+### Changed
+
+- **Tier thresholds relaxed** — `Micro <20 lines ≤2 files complexity<10` (was `<10 1 file`), `Standard ≤5 files no cross-boundary` (was `1-3`), `Full >5 files` (was `>5` gap fixed), `AGENTS.md:53` `SKILL.md:38` `plan:14` `scan:85` + hooks `session-start:143`/`pre-invocation:42`
+- **RED/GREEN icons** — `plan`/`tdd`/`executor` now `🔴 RED`/`🟢 GREEN` (icon+text, keep `RED` for grep), `tdd:32` already had `🔴`
+- **Hooks keywords expanded** — `user-prompt-submit` + `pre-invocation` from 5→9 groups: added `plan`/`execute`/`verify`/`review` hints, tightened `bug` regex (`error|why is|debug` → `bug|broken|failing|crash|exception` + guard `!verify|review`) to fix false positives `error in verify step`
+- **Security** — `hooks/bash-guard:27` harden `rm -rf` to catch `; rm` `&& rm` `$(rm` `/tmp/*` `$HOME` while allowing `rm -rf node_modules`, `settings.json:33` remove `Bash(eval:*)` overly permissive
+- **Install** — `install.sh` now `--platform all` + default `all` (was auto-detect single `claude`), `opencode` global `~/.config/opencode/skills` (was per-project `./.opencode/skills`), `dry-run` prints `opencode.json` snippet, `OPENCODE.md` guard, stale skill cleanup, docs `README.md:92-100` show 4 explicit curls + `all`
+- **Bump** — `bump-version.sh:5-8` synced 4 manifests `2.2.7→2.2.8` (`.claude-plugin/plugin.json`, `marketplace.json`, `plugin.json`, `.codex-plugin/plugin.json`)
+
+### Fixed
+
+- Completed a full Codex hook contract audit: normalized `Stop`, `PreCompact`, `PostToolUse`, and `PreToolUse` JSON, fixed Codex stdin handling, and added executable coverage for every configured hook.
+- Fixed `UserPromptSubmit` hook output for Codex by emitting the required `hookSpecificOutput` envelope with `hookEventName` and `additionalContext`.
+- Added the required top-level `name` to the Codex marketplace manifest so `codex plugin marketplace upgrade supergraph` passes marketplace validation.
+- Migrated all active graph configuration, workflows, hooks, CI, and documentation to Codebase Memory MCP 0.9.0 with project-scoped indexing and executable query-contract tests.
+- `hooks/post-tool-use` restored `auto_watch=true` marker, `install.sh` `opencode` global path, `README` curl docs
+
+## 2.2.3
+
+### Docs
+
+- README/README-VI Team Setup rewritten: correct install flow (plugin → MCP deps → `/supergraph:scan`), removed manual file copying
+- Serena setup: `uv tool install -p 3.13 serena-agent` only — plugin `.mcp.json` handles Claude Code registration automatically
+- Quick Start: added `/supergraph:analyze` as Step 2
+- README-VI synced with README
+
+## 2.2.2
+
+### Updated Skills (1)
+
+- **analyze** — added 4-signal ambiguity scoring (scope, path, intent, session context) → Tier 0/1/2 routing before grilling; added 5-persona debate on recommended approach (Architect/Security/Performance/UX/Devil's Advocate) → GO/CAUTION/STOP verdict
+
+### Updated Skills — scan (1)
+
+- **scan** — graph build logic: calls `list_graph_stats_tool` first; `index_directory` on empty graph; `index_incremental` on existing same-branch; full `index_directory` rebuild on branch change; hard STOP if `index_directory` fails
+
+### Infrastructure
+
+- **`.mcp.json`** — plugin now declares `code-review-graph` and `serena` MCP server configs; users only need to install the binaries
+- **`bin/bump-version.sh`** — script to update version in both `plugin.json` and `marketplace.json` in one command
+- **`.github/`** — added issue templates (bug report, feature request, skill submission), release workflow on `v*` tag push
+- **`docs/GITHUB-LABELS.md`** — full label system (Type/Priority/Size/Triage/Workflow) with `gh` CLI commands
+
+### Docs
+
+- README Team Setup rewritten: install plugin → install MCP deps → `/supergraph:scan` (no manual file copying)
+- Serena setup section: `uv tool install -p 3.13 serena-agent` only; plugin `.mcp.json` handles Claude Code registration
+- Quick Start: added `/supergraph:analyze` as Step 2 with note on what it covers
+
+## 2.2.1
+
+### New Skills (1)
+
+- **flutter-ui** — build pixel-faithful Flutter UI from Figma MCP or image input; scans src for design tokens (colors, text styles, spacing), existing widgets, state management pattern, and import convention before writing a single line; token mapping table required before code; never hard-codes values; uses `flutter_gen` for asset references with naming convention (`ic_`, `img_`, `bg_` prefix + state suffix); self-verifies with grep before handoff
+
+### Key behaviors
+
+- Figma URL parsing built-in: extracts `fileKey` and converts `node-id` `123-456` → `123:456` automatically
+- Unmapped token gate: STOP and ask user before Step 4 if any design value has no matching token
+- Figma variant support: maps Normal/Disabled/Active variants to boolean/enum params on a single widget
+- `flutter_gen` setup proposal: if package absent, proposes full `pubspec.yaml` + `build_runner` setup
+- ThemeData branch: detects whether project uses direct class references (`AppColors.primary`) or `Theme.of(context).colorScheme.*` and matches generated code accordingly
+- Asset declarations: verifies `flutter.assets:` in `pubspec.yaml` before any asset reference
+
+## 2.2.0
+
+### New Skills (8)
+
+- **diagnose** — 6-phase structured debugging: build feedback loop → reproduce → hypothesize (3-5 ranked falsifiable theories) → instrument one variable at a time → fix + regression test → cleanup + post-mortem
+- **handoff** — compact current session state to `$TMPDIR` for seamless continuation across sessions or agents; references artifacts by path, never duplicates content
+- **triage** — formal issue state machine: needs-triage → needs-info → ready-for-agent → ready-for-human → wontfix; `ready-for-agent` is the handoff trigger to the supergraph pipeline
+- **caveman** — persistent token-compression mode (~75% output reduction); strips filler while keeping code/numbers exact; auto-suspends for safety warnings
+- **prd** — convert conversation into a structured PRD (problem, solution, user stories, acceptance criteria, out-of-scope); optionally posts to GitHub Issues with `ready-for-agent` label
+- **architecture** — 3-phase architecture review: explore graph → self-contained HTML report with Mermaid before/after diagrams and recommendation strength badges → grilling loop
+- **prototype** — throwaway code validation in two branches: Logic (terminal state machine) or UI (multiple designs on one route with URL-param switcher); no persistence, no tests, delete after
+- **zoom-out** — one-shot module map using domain vocabulary; re-orient fast after deep-dive sessions
+
+### Updated Skills (3)
+
+- **analyze** — added structured grill phase (one question at a time with recommended answers, max 3 questions); reads CONTEXT.md for domain vocabulary; updates CONTEXT.md when new terms crystallize
+- **plan** — reads CONTEXT.md step 0; uses domain vocabulary in task descriptions
+- **review** — updates CONTEXT.md when review surfaces hidden domain invariants
+
+### CONTEXT.md Convention
+
+Cross-skill shared vocabulary system: `analyze`, `plan`, and `review` read CONTEXT.md before acting and write to it when new domain concepts emerge. Reduces token waste and inconsistency across the skill chain.
+
+### Automation — 4 Smart Hooks
+
+- **`SessionStart` (enhanced)** — loads CONTEXT.md vocabulary into context; reminds about handoff file if one exists in `$TMPDIR` (< 48h); activates caveman mode if `SUPERGRAPH_CAVEMAN=true` in `.supergraph-env`; suggests `/supergraph:zoom-out` when no active plan exists
+- **`PostToolUse Bash` (new)** — detects test failure patterns (`exit_code ≠ 0` + output match across jest/pytest/cargo/flutter/phpunit/go test) → injects `/supergraph:diagnose` suggestion into context
+- **`PreCompact` (new)** — fires immediately before context compaction; injects urgent handoff reminder with active plan status (`pending`/`in_progress`/`stuck` counts)
+- **`UserPromptSubmit` (new)** — detects caveman trigger phrases ("caveman", "compress", "token diet"...) → activates compression mode; detects "normal mode"/"verbose" → deactivates; detects triage keywords → suggests `/supergraph:triage`
+
+## 2.1.0
+
+### Features
+
+- 13 skills: scan, analyze, plan, tdd, execute, fix, integration, verify, review, database-migrations, flutter-dart-code-review, frontend-design, webapp-testing
+- 4 agents: executor, plan-writer, code-reviewer, plan-reviewer
+- Refactored core skills (scan → analyze → plan → execute → fix → verify → review) for enhanced clarity
+- Enhanced executor with graph-assisted parallel dispatch (independent tasks run concurrently)
+- New skill: **database-migrations** — patterns for PostgreSQL, Prisma, Drizzle, Kysely, Django, golang-migrate
+- New skill: **flutter-dart-code-review** — 15-section checklist covering widgets, state management, Dart idioms, performance, accessibility, security
+- New skill: **frontend-design** — distinctive, production-grade frontend interfaces avoiding generic AI aesthetics
+- New skill: **webapp-testing** — Playwright-based web application testing toolkit with helper scripts
+- Standardized machine-readable plan format with task status tracking
+- Plan-aware fix/review cycle (auto-updates task status)
+- Mandatory "read-before-edit" guardrails in documentation
+- Auto-fix loop: max 3 iterations (test → lint → graph review)
+- Dead code detection in fix loop
+- Report progress after each phase
+
+## 1.0.1
+
+### Features
+
+- 9 skills: scan, design, plan, tdd, execute, fix, integration, verify, review
+- 4 agents: executor, plan-writer, code-reviewer, plan-reviewer
+- MCP integration with code-review-graph
+- Auto language detection: Node.js, Flutter, PHP
+- Auto-fix loop: test + lint + graph review, max 3 iterations
+- Blast radius analysis for change impact
+- Hub node protection — requires user approval
+- Community boundary detection
+- Surprise score flagging
+- Hook system for pre/post code write tracking
+
+### Supported Languages
+
+- Node.js / TypeScript (jest, vitest, mocha, eslint)
+- Flutter / Dart (flutter test, flutter analyze)
+- PHP (phpunit, pest, phpstan, phpcs)

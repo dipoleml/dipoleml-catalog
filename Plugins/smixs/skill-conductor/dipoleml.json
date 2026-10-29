@@ -1,0 +1,120 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.smixs.skill-conductor",
+  "type": "plugin",
+  "name": "Skill Conductor",
+  "slug": "skill-conductor",
+  "vendor": "smixs",
+  "description": "Architecture-first skill lifecycle for AI agents. BinEval binary scoring with threshold-blind, cross-family-calibrated judges, gated self-update loop, pressure testing, 10 authoring principles grounded in empirical research.",
+  "version": "3.2.0",
+  "homepage": "https://github.com/smixs/skill-conductor",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agent-skills",
+    "anthropic",
+    "claude-plugin",
+    "claude-skill",
+    "knowledge-management",
+    "obsidian",
+    "personal-assistant",
+    "productivity",
+    "prompt-engineering"
+  ],
+  "tags": [
+    "agent-skills",
+    "ai-agents",
+    "anthropic",
+    "claude-code",
+    "claude-plugin",
+    "claude-skill",
+    "knowledge-management",
+    "llm",
+    "obsidian",
+    "personal-assistant",
+    "productivity",
+    "prompt-engineering",
+    "second-brain",
+    "skill-authoring",
+    "skills",
+    "tdd"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "smixs",
+    "brandName": "smixs",
+    "source": "https://github.com/smixs.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:14:51Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "smixs/skill-conductor",
+    "url": "https://github.com/smixs/skill-conductor",
+    "commit": "3c21d2f19c336d3a3333bfe4f45eee041bd13beb",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 198,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:02:15Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Create, edit, evaluate, and package Claude Code agent skills — full draft→test→review→improve lifecycle.",
+        "after": "Create, edit, evaluate, and package DipoleML agent skills — full draft→test→review→improve lifecycle.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

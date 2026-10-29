@@ -1,0 +1,129 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.indranilbanerjee.contentforge",
+  "type": "plugin",
+  "name": "Contentforge",
+  "slug": "contentforge",
+  "vendor": "indranilbanerjee",
+  "description": "An open-source editorial production system that researches, verifies, drafts, and delivers publication-ready long-form content with human review and provenance built in.",
+  "version": "4.6.0",
+  "homepage": "https://github.com/indranilbanerjee/contentforge",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "aeo",
+    "agent-skills",
+    "ai-humanizer",
+    "brand-voice",
+    "c2pa",
+    "claude-plugin",
+    "claude-skills",
+    "content-marketing",
+    "content-pipeline"
+  ],
+  "tags": [
+    "aeo",
+    "agent-skills",
+    "ai-humanizer",
+    "brand-voice",
+    "c2pa",
+    "claude-code",
+    "claude-plugin",
+    "claude-skills",
+    "content-marketing",
+    "content-pipeline",
+    "copilot-cli-plugin",
+    "cursor-plugin",
+    "eu-ai-act",
+    "fact-checking",
+    "gemini-cli-extension",
+    "geo",
+    "hermes-plugin",
+    "openai-codex",
+    "openclaw-plugin",
+    "seo"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "indranilbanerjee",
+    "brandName": "indranilbanerjee",
+    "source": "https://github.com/indranilbanerjee.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:13:21Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "indranilbanerjee/contentforge",
+    "url": "https://github.com/indranilbanerjee/contentforge",
+    "commit": "1ea5c02119efd71136e6e0ecfce2884986d2ecb8",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 32,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:05:59Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude,cursor",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".cursor-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/cursor/.cursor-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "@indranilbanerjee/contentforge"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude",
+      "cursor"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

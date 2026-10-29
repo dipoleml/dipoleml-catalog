@@ -1,0 +1,16 @@
+{
+  "name": "incident-response",
+  "displayName": "Incident Response",
+  "version": "1.2.1",
+  "description": "Production incident management, triage workflows, and automated incident resolution",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Ormus Solutions"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/HermeticOrmus/LibreUIUX-Claude-Code",
+  "repository": "https://github.com/Ormus-Solutions/LibreUIUX-Claude-Code",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

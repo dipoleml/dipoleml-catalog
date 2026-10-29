@@ -1,0 +1,16 @@
+{
+  "name": "image-gen-skill",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "bundle": "esbuild scripts/generate_image.ts --bundle --platform=node --format=esm --outfile=dist/generate_image.js --external:fsevents --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\""
+  },
+  "dependencies": {
+    "@google/genai": "^1.48.0",
+    "openai": "^6.34.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.12"
+  }
+}

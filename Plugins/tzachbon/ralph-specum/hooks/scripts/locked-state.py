@@ -1,0 +1,647 @@
+#!/usr/bin/env python3
+"""Locked Ralph state updates for overlay prototype state."""
+
+from __future__ import annotations
+
+import argparse
+import contextlib
+import json
+import os
+import socket
+import sys
+import time
+import uuid
+from collections.abc import Iterator
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Callable
+
+try:
+    import fcntl  # type: ignore
+except ImportError:  # pragma: no cover - exercised on Windows
+    fcntl = None
+
+
+JSON = dict[str, Any]
+Update = Callable[[JSON], JSON | None]
+
+
+class StateError(Exception):
+    """Report a rejected or unavailable state operation."""
+
+    pass
+
+
+def utc_now() -> str:
+    """Return the current UTC time in the state file format."""
+
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def parse_scalar(raw: str) -> Any:
+    """Parse a legacy scalar assignment without executing input."""
+
+    lowered = raw.lower()
+    if lowered == "true":
+        return True
+    if lowered == "false":
+        return False
+    if lowered == "null":
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return raw
+
+
+def parse_pairs(items: list[str], as_json: bool) -> JSON:
+    """Parse key-value assignments as scalars or strict JSON values."""
+
+    merged: JSON = {}
+    for item in items:
+        if "=" not in item:
+            raise StateError(f"Invalid assignment: {item}")
+        key, value = item.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if not key:
+            raise StateError(f"Invalid assignment: {item}")
+        if as_json:
+            try:
+                merged[key] = json.loads(value)
+            except json.JSONDecodeError as exc:
+                raise StateError(f"Invalid JSON for '{key}': {exc.msg}") from exc
+        else:
+            merged[key] = parse_scalar(value)
+    return merged
+
+
+def read_json_object(path: Path) -> JSON:
+    """Read a state object, treating a missing file as empty state."""
+
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise StateError(f"State file is not valid JSON: {path} ({exc.msg})") from exc
+    if not isinstance(data, dict):
+        raise StateError("State file must contain a JSON object.")
+    return data
+
+
+def fsync_dir(path: Path) -> None:
+    """Best-effort sync a directory after an atomic state replacement."""
+
+    if not hasattr(os, "O_DIRECTORY"):
+        return
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_DIRECTORY)
+    except OSError:
+        return
+    try:
+        os.fsync(fd)
+    except OSError:
+        return
+    finally:
+        os.close(fd)
+
+
+def write_json_atomic(path: Path, state: JSON) -> None:
+    """Fsync state before replacement, then best-effort sync its directory."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp_path = path.parent / f"{path.name}.tmp"
+    encoded = json.dumps(state, indent=2, sort_keys=True) + "\n"
+    with tmp_path.open("w", encoding="utf-8") as handle:
+        handle.write(encoded)
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(tmp_path, path)
+    fsync_dir(path.parent)
+
+
+def _windows_pid_running(pid: int) -> bool:
+    import ctypes
+    from ctypes import wintypes
+
+    process_query_limited_information = 0x1000
+    still_active = 259
+    error_access_denied = 5
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    open_process = kernel32.OpenProcess
+    open_process.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    open_process.restype = wintypes.HANDLE
+    get_exit_code = kernel32.GetExitCodeProcess
+    get_exit_code.argtypes = (wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD))
+    get_exit_code.restype = wintypes.BOOL
+    close_handle = kernel32.CloseHandle
+    close_handle.argtypes = (wintypes.HANDLE,)
+    close_handle.restype = wintypes.BOOL
+
+    handle = open_process(process_query_limited_information, False, pid)
+    if not handle:
+        return ctypes.get_last_error() == error_access_denied
+    exit_code = wintypes.DWORD()
+    try:
+        if not get_exit_code(handle, ctypes.byref(exit_code)):
+            return True
+        return exit_code.value == still_active
+    finally:
+        close_handle(handle)
+
+
+def pid_exists(pid: int) -> bool:
+    """Check process liveness without sending a terminating signal."""
+
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        return _windows_pid_running(pid)
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
+    except OSError:
+        return False
+    return True
+
+
+def lock_metadata() -> JSON:
+    """Describe the current process as a directory-lock owner."""
+
+    return {
+        "host": socket.gethostname(),
+        "pid": os.getpid(),
+        "created": utc_now(),
+        "heartbeatAt": utc_now(),
+    }
+
+
+@contextlib.contextmanager
+def posix_lock(lock_path: Path, timeout: float) -> Iterator[None]:
+    """Hold an exclusive flock until context exit or the acquisition deadline."""
+
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with lock_path.open("a+", encoding="utf-8") as handle:
+        deadline = time.monotonic() + timeout
+        while True:
+            try:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)  # type: ignore[union-attr]
+                handle.seek(0)
+                handle.truncate()
+                handle.write(json.dumps(lock_metadata(), sort_keys=True) + "\n")
+                handle.flush()
+                os.fsync(handle.fileno())
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise StateError(f"Timed out acquiring lock: {lock_path}")
+                time.sleep(0.05)
+        try:
+            yield
+        finally:
+            fcntl.flock(handle.fileno(), fcntl.LOCK_UN)  # type: ignore[union-attr]
+
+
+def parse_time(raw: Any) -> float | None:
+    """Parse an ISO timestamp for stale-owner checks."""
+
+    if not isinstance(raw, str):
+        return None
+    try:
+        return datetime.fromisoformat(raw.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
+
+
+def try_break_stale_lock(lock_path: Path, stale_seconds: int) -> bool:
+    """Remove a directory lock only when its owner metadata is stale."""
+
+    owner_path = lock_path / "owner.json"
+    try:
+        owner = json.loads(owner_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        try:
+            if time.time() - lock_path.stat().st_mtime < stale_seconds:
+                return False
+            lock_path.rmdir()
+            return True
+        except OSError:
+            return False
+    except Exception:
+        return False
+    if not isinstance(owner, dict):
+        return False
+    heartbeat = parse_time(owner.get("heartbeatAt") or owner.get("created"))
+    if heartbeat is None or time.time() - heartbeat < stale_seconds:
+        return False
+    try:
+        owner_pid = int(str(owner.get("pid") or 0), 10)
+    except ValueError:
+        owner_pid = 0
+    if owner.get("host") == socket.gethostname() and pid_exists(owner_pid):
+        return False
+    try:
+        owner_path.unlink(missing_ok=True)
+        lock_path.rmdir()
+        return True
+    except OSError:
+        return False
+
+
+@contextlib.contextmanager
+def directory_lock(lock_path: Path, timeout: float, stale_seconds: int = 600) -> Iterator[None]:
+    """Hold a portable directory lock and recover only stale owners."""
+
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    deadline = time.monotonic() + timeout
+    acquired = False
+    while True:
+        try:
+            os.mkdir(lock_path)
+            owner_path = lock_path / "owner.json"
+            try:
+                owner_path.write_text(json.dumps(lock_metadata(), sort_keys=True) + "\n", encoding="utf-8")
+            except Exception:
+                owner_path.unlink(missing_ok=True)
+                try:
+                    lock_path.rmdir()
+                except OSError:
+                    pass
+                raise
+            acquired = True
+            break
+        except FileExistsError:
+            try_break_stale_lock(lock_path, stale_seconds)
+            if time.monotonic() >= deadline:
+                raise StateError(f"Timed out acquiring lock: {lock_path}")
+            time.sleep(0.05)
+    try:
+        yield
+    finally:
+        if acquired:
+            try:
+                (lock_path / "owner.json").unlink(missing_ok=True)
+                lock_path.rmdir()
+            except OSError:
+                pass
+
+
+def lock_for(state_path: Path, timeout: float) -> contextlib.AbstractContextManager[None]:
+    """Select the POSIX or directory lock implementation for a state file."""
+
+    lock_path = state_path.parent / ".ralph-state.lock"
+    if fcntl is not None and os.name != "nt":
+        return posix_lock(lock_path, timeout)
+    return directory_lock(lock_path, timeout)
+
+
+def mutate_state(state_path: Path, timeout: float, update: Update, *, delete: bool = False) -> JSON:
+    """Update and durably publish state while holding its exclusive lock."""
+
+    with lock_for(state_path, timeout):
+        state = read_json_object(state_path)
+        result = update(state)
+        if result is None:
+            result = state
+        if delete:
+            active = result.get("activePrototypes")
+            if isinstance(active, dict) and active:
+                raise StateError("Refusing to delete state with activePrototypes.")
+            if state_path.exists():
+                state_path.unlink()
+                fsync_dir(state_path.parent)
+            return {"deleted": True}
+        write_json_atomic(state_path, result)
+        return result
+
+
+def active_map(state: JSON) -> JSON:
+    """Return the mutable active-prototype map, creating it when absent."""
+
+    if "activePrototypes" not in state:
+        active = {}
+        state["activePrototypes"] = active
+    else:
+        active = state["activePrototypes"]
+    if not isinstance(active, dict):
+        raise StateError("activePrototypes must be an object.")
+    if not all(isinstance(entry, dict) for entry in active.values()):
+        raise StateError("activePrototypes values must be objects.")
+    return active
+
+
+def get_entry(state: JSON, prototype_id: str) -> JSON:
+    """Return one active prototype entry or reject an unknown identifier."""
+
+    entry = active_map(state).get(prototype_id)
+    if not isinstance(entry, dict):
+        raise StateError(f"Prototype not found: {prototype_id}")
+    return entry
+
+
+def bump(entry: JSON) -> None:
+    """Advance an entry revision and update its timestamp."""
+
+    entry["stateRevision"] = int(entry.get("stateRevision") or 0) + 1
+    entry["updated"] = utc_now()
+
+
+def ensure_revision(entry: JSON, expected: int | None) -> None:
+    """Enforce an optional compare-and-set state revision."""
+
+    if expected is None:
+        return
+    current = int(entry.get("stateRevision") or 0)
+    if current != expected:
+        raise StateError(f"stateRevision mismatch: expected {expected}, found {current}")
+
+
+def ensure_token(entry: JSON, token: str | None) -> None:
+    """Require the active lease token for a builder mutation."""
+
+    if token is None:
+        raise StateError("leaseToken is required")
+    if entry.get("leaseToken") != token:
+        raise StateError("leaseToken mismatch")
+
+
+def live_lease(entry: JSON, owner: str) -> bool:
+    """Return whether another owner still holds an unexpired lease."""
+
+    entry_owner = entry.get("owner")
+    if not entry_owner or entry_owner == owner:
+        return False
+    expires = parse_time(entry.get("leaseExpires"))
+    return expires is not None and expires > time.time()
+
+
+def lease_until(seconds: int, hard_deadline: Any = None) -> str:
+    """Return a lease expiry capped by the builder hard deadline."""
+
+    target = time.time() + seconds
+    hard = parse_time(hard_deadline)
+    if hard is not None:
+        target = min(target, hard)
+    return datetime.fromtimestamp(target, timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def cmd_merge(args: argparse.Namespace) -> JSON:
+    """Merge validated top-level fields into Ralph state."""
+
+    patch = parse_pairs(args.set, as_json=False)
+    patch.update(parse_pairs(args.json, as_json=True))
+    if patch.get("phase") == "prototype":
+        raise StateError("Main phase cannot be prototype; use activePrototypes.")
+
+    if args.stdout:
+        state = read_json_object(args.state)
+        state.update(patch)
+        return state
+
+    def update(state: JSON) -> JSON:
+        state.update(patch)
+        return state
+
+    return mutate_state(args.state, args.timeout, update)
+
+
+def cmd_upsert(args: argparse.Namespace) -> JSON:
+    """Reserve a new active prototype identifier."""
+
+    try:
+        entry = json.loads(args.entry_json)
+    except json.JSONDecodeError as exc:
+        raise StateError(f"Invalid entry JSON: {exc.msg}") from exc
+    if not isinstance(entry, dict):
+        raise StateError("entry-json must be a JSON object.")
+    entry["id"] = args.id
+
+    def update(state: JSON) -> JSON:
+        active = active_map(state)
+        if args.id in active:
+            raise StateError(f"Prototype id is already reserved: {args.id}")
+        active[args.id] = entry
+        return state
+
+    return mutate_state(args.state, args.timeout, update)
+
+
+def cmd_remove(args: argparse.Namespace) -> JSON:
+    """Remove an active prototype entry."""
+
+    def update(state: JSON) -> JSON:
+        active = active_map(state)
+        active.pop(args.id, None)
+        if not active:
+            state.pop("activePrototypes", None)
+        return state
+
+    mutate_state(args.state, args.timeout, update)
+    return {"removed": args.id}
+
+
+def cmd_list(args: argparse.Namespace) -> JSON:
+    """List active prototype entries."""
+
+    state = read_json_object(args.state)
+    return {"activePrototypes": active_map(state)}
+
+
+def cmd_delete(args: argparse.Namespace) -> JSON:
+    """Delete Ralph state when no active prototypes remain."""
+
+    return mutate_state(args.state, args.timeout, lambda state: state, delete=True)
+
+
+def cmd_claim(args: argparse.Namespace) -> JSON:
+    """Claim builder ownership for an active prototype."""
+
+    token = args.lease_token or uuid.uuid4().hex
+
+    def update(state: JSON) -> JSON:
+        entry = get_entry(state, args.id)
+        ensure_revision(entry, args.expected_revision)
+        if live_lease(entry, args.owner):
+            raise StateError("Prototype is owned by another live lease.")
+        if entry.get("status") in {"building", "reviewing", "awaiting_verdict", "handoff"}:
+            raise StateError(f"Prototype status does not allow builder launch: {entry.get('status')}")
+        entry["owner"] = args.owner
+        entry["leaseToken"] = token
+        entry["leaseExpires"] = lease_until(args.lease_seconds, entry.get("builderHardDeadline"))
+        entry["heartbeatAt"] = utc_now()
+        entry["status"] = "building"
+        entry["builderExecutionAttempt"] = int(entry.get("builderExecutionAttempt") or 0) + 1
+        bump(entry)
+        return state
+
+    return get_entry(mutate_state(args.state, args.timeout, update), args.id)
+
+
+def cmd_heartbeat(args: argparse.Namespace) -> JSON:
+    """Record activity for the matching builder lease."""
+
+    def update(state: JSON) -> JSON:
+        entry = get_entry(state, args.id)
+        ensure_token(entry, args.lease_token)
+        entry["heartbeatAt"] = utc_now()
+        bump(entry)
+        return state
+
+    return get_entry(mutate_state(args.state, args.timeout, update), args.id)
+
+
+def cmd_renew(args: argparse.Namespace) -> JSON:
+    """Renew the matching builder lease."""
+
+    def update(state: JSON) -> JSON:
+        entry = get_entry(state, args.id)
+        ensure_token(entry, args.lease_token)
+        entry["heartbeatAt"] = utc_now()
+        entry["leaseExpires"] = lease_until(args.lease_seconds, entry.get("builderHardDeadline"))
+        bump(entry)
+        return state
+
+    return get_entry(mutate_state(args.state, args.timeout, update), args.id)
+
+
+def cmd_release(args: argparse.Namespace) -> JSON:
+    """Release the matching builder lease."""
+
+    def update(state: JSON) -> JSON:
+        entry = get_entry(state, args.id)
+        ensure_token(entry, args.lease_token)
+        entry["owner"] = None
+        entry["leaseToken"] = None
+        entry["leaseExpires"] = None
+        if args.status:
+            entry["status"] = args.status
+        bump(entry)
+        return state
+
+    return get_entry(mutate_state(args.state, args.timeout, update), args.id)
+
+
+def cmd_transition(args: argparse.Namespace) -> JSON:
+    """Transition an active prototype with optional compare-and-set."""
+
+    patch: JSON = {}
+    if args.patch_json:
+        try:
+            patch = json.loads(args.patch_json)
+        except json.JSONDecodeError as exc:
+            raise StateError(f"Invalid patch JSON: {exc.msg}") from exc
+        if not isinstance(patch, dict):
+            raise StateError("patch-json must be a JSON object.")
+
+    def update(state: JSON) -> JSON:
+        entry = get_entry(state, args.id)
+        ensure_revision(entry, args.expected_revision)
+        if args.from_status and entry.get("status") != args.from_status:
+            raise StateError(f"status mismatch: expected {args.from_status}, found {entry.get('status')}")
+        entry.update(patch)
+        entry["status"] = args.to_status
+        bump(entry)
+        return state
+
+    return get_entry(mutate_state(args.state, args.timeout, update), args.id)
+
+
+def add_common(parser: argparse.ArgumentParser) -> None:
+    """Add state path and lock timeout arguments."""
+
+    parser.add_argument("--state", required=True, type=Path, help="Path to .ralph-state.json")
+    parser.add_argument("--timeout", type=float, default=10.0, help="Lock acquisition timeout in seconds")
+
+
+def build_parser() -> argparse.ArgumentParser:
+    """Build the locked-state command parser."""
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(dest="command", required=True)
+
+    merge = sub.add_parser("merge", help="Merge top-level fields")
+    add_common(merge)
+    merge.add_argument("--set", action="append", default=[], help="key=value assignment")
+    merge.add_argument("--json", action="append", default=[], help="key=<json> assignment")
+    merge.add_argument("--stdout", action="store_true", help="Print merged JSON without writing")
+    merge.set_defaults(func=cmd_merge)
+
+    upsert = sub.add_parser("upsert-prototype", help="Upsert an active prototype entry")
+    add_common(upsert)
+    upsert.add_argument("--id", required=True)
+    upsert.add_argument("--entry-json", required=True)
+    upsert.set_defaults(func=cmd_upsert)
+
+    remove = sub.add_parser("remove-prototype", help="Remove an active prototype entry")
+    add_common(remove)
+    remove.add_argument("--id", required=True)
+    remove.set_defaults(func=cmd_remove)
+
+    list_parser = sub.add_parser("list", help="List active prototypes")
+    add_common(list_parser)
+    list_parser.set_defaults(func=cmd_list)
+
+    delete = sub.add_parser("delete-state", help="Delete state if no active prototypes remain")
+    add_common(delete)
+    delete.set_defaults(func=cmd_delete)
+
+    claim = sub.add_parser("claim-builder", help="Claim builder ownership with compare-and-set")
+    add_common(claim)
+    claim.add_argument("--id", required=True)
+    claim.add_argument("--expected-revision", required=True, type=int)
+    claim.add_argument("--owner", required=True)
+    claim.add_argument("--lease-token")
+    claim.add_argument("--lease-seconds", type=int, default=600)
+    claim.set_defaults(func=cmd_claim)
+
+    heartbeat = sub.add_parser("heartbeat", help="Record builder activity")
+    add_common(heartbeat)
+    heartbeat.add_argument("--id", required=True)
+    heartbeat.add_argument("--lease-token", required=True)
+    heartbeat.set_defaults(func=cmd_heartbeat)
+
+    renew = sub.add_parser("renew-lease", help="Extend builder lease")
+    add_common(renew)
+    renew.add_argument("--id", required=True)
+    renew.add_argument("--lease-token", required=True)
+    renew.add_argument("--lease-seconds", type=int, default=600)
+    renew.set_defaults(func=cmd_renew)
+
+    release = sub.add_parser("release-lease", help="Release builder lease")
+    add_common(release)
+    release.add_argument("--id", required=True)
+    release.add_argument("--lease-token", required=True)
+    release.add_argument("--status")
+    release.set_defaults(func=cmd_release)
+
+    transition = sub.add_parser("transition", help="Move an entry between statuses with compare-and-set")
+    add_common(transition)
+    transition.add_argument("--id", required=True)
+    transition.add_argument("--expected-revision", type=int)
+    transition.add_argument("--from-status")
+    transition.add_argument("--to-status", required=True)
+    transition.add_argument("--patch-json")
+    transition.set_defaults(func=cmd_transition)
+
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    """Run a locked-state command and print its JSON result."""
+
+    args = build_parser().parse_args(argv)
+    result = args.func(args)
+    print(json.dumps(result, indent=2, sort_keys=True))
+    return 0
+
+
+if __name__ == "__main__":
+    try:
+        raise SystemExit(main())
+    except StateError as exc:
+        print(str(exc), file=sys.stderr)
+        raise SystemExit(2)

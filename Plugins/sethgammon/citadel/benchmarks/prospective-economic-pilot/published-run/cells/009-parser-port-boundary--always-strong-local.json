@@ -1,0 +1,123 @@
+{
+  "schema": 1,
+  "cell_id": "009-parser-port-boundary--always-strong-local",
+  "order": 9,
+  "scenario_id": "parser-port-boundary",
+  "task_class": "input-validation",
+  "risk": "moderate",
+  "policy_id": "always-strong-local",
+  "repetition": 1,
+  "route": {
+    "initial_tier": "strong",
+    "escalation_tier": null,
+    "reason_code": "BASELINE_ALWAYS_STRONG"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "strong",
+      "started_at": "2026-08-02T00:35:38.094Z",
+      "duration_ms": 11024,
+      "output_text": "{\n  \"files\": {\n    \"src/port.js\": \"'use strict';\\nfunction parsePort(value) {\\n  const parsed = parseInt(value, 10);\\n  if (Number.isFinite(parsed) && parsed >= 1 && parsed <= 65535) {\\n    return parsed;\\n  } else {\\n    return 3000;\\n  }\\n}\\nmodule.exports = { parsePort };\"\n  }\n}",
+      "output_digest": "sha256:55ad336b44680ac3e0006352a77097a719727366da6db9c9c43581ed9aafc86b",
+      "verification": {
+        "status": "failed",
+        "code": "REPOSITORY_VERIFIER_FAILED",
+        "changed_paths": [
+          "src/port.js"
+        ],
+        "applied_file_digests": {
+          "src/port.js": "sha256:b058781d6f15cabc00453ba45950991c528a3d0c25a81a371d7faf3a410f62c4"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 1,
+          "signal": null,
+          "stdout": "",
+          "stderr": "node:assert:95\r\n  throw new AssertionError(obj);\r\n  ^\r\n\r\nAssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\r\n\r\n8080 !== 3000\r\n\r\n    at Object.<anonymous> (<ISOLATED_WORKSPACE>\\verifier.js:7:88)\r\n    at Module._compile (node:internal/modules/cjs/loader:1730:14)\r\n    at Object..js (node:internal/modules/cjs/loader:1895:10)\r\n    at Module.load (node:internal/modules/cjs/loader:1465:32)\r\n    at Function._load (node:internal/modules/cjs/loader:1282:12)\r\n    at TracingChannel.traceSync (node:diagnostics_channel:322:14)\r\n    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)\r\n    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:171:5)\r\n    at node:internal/main/run_main_module:36:49 {\r\n  generatedMessage: true,\r\n  code: 'ERR_ASSERTION',\r\n  actual: 8080,\r\n  expected: 3000,\r\n  operator: 'strictEqual'\r\n}\r\n\r\nNode.js v22.17.1\r\n",
+          "error": null
+        },
+        "patch_digest": "sha256:5612cbe5638f0bb1e3cf805ee60aade267acf4f626e234d8d355ba2a02e788dc"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "ollama-chat",
+        "requested_model": "qwen2.5-coder:7b",
+        "observed_model": "qwen2.5-coder:7b",
+        "model_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+        "done_reason": "stop",
+        "response_digest": "sha256:cd876a6fc5defd8c6600b87306e49b8a22e79ec2cda771d61d91447a9d5ed0d7",
+        "error": null
+      },
+      "usage": {
+        "prompt_tokens": 226,
+        "completion_tokens": 98,
+        "total_tokens": 324,
+        "provider_total_duration_ns": 11021731200
+      },
+      "economics": {
+        "provider_invoice": {
+          "status": "known",
+          "amount_usd": 0,
+          "source": "self_hosted_ollama_no_per_request_invoice"
+        },
+        "gpu_energy": {
+          "status": "measured",
+          "energy_kwh": 0.000257864,
+          "samples": 22,
+          "average_watts": 84.208182
+        },
+        "comparison_cost": {
+          "status": "derived-comparison",
+          "total_usd": 0.000082195,
+          "components": [
+            {
+              "kind": "gpu_electricity",
+              "status": "derived-comparison",
+              "amount_usd": 0.000051573,
+              "source": "average_gpu_power_times_request_wall_duration_times_frozen_rate"
+            },
+            {
+              "kind": "gpu_amortization",
+              "status": "derived-comparison",
+              "amount_usd": 0.000030622,
+              "source": "request_wall_duration_times_frozen_residual_value"
+            }
+          ]
+        },
+        "actual_end_to_end_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "whole_system_energy_setup_and_observed_utility_rate_not_measured"
+        }
+      }
+    }
+  ],
+  "status": "failed",
+  "final_verification": {
+    "status": "failed",
+    "code": "REPOSITORY_VERIFIER_FAILED",
+    "changed_paths": [
+      "src/port.js"
+    ],
+    "applied_file_digests": {
+      "src/port.js": "sha256:b058781d6f15cabc00453ba45950991c528a3d0c25a81a371d7faf3a410f62c4"
+    },
+    "verifier": {
+      "command": "node verifier.js",
+      "status": 1,
+      "signal": null,
+      "stdout": "",
+      "stderr": "node:assert:95\r\n  throw new AssertionError(obj);\r\n  ^\r\n\r\nAssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\r\n\r\n8080 !== 3000\r\n\r\n    at Object.<anonymous> (<ISOLATED_WORKSPACE>\\verifier.js:7:88)\r\n    at Module._compile (node:internal/modules/cjs/loader:1730:14)\r\n    at Object..js (node:internal/modules/cjs/loader:1895:10)\r\n    at Module.load (node:internal/modules/cjs/loader:1465:32)\r\n    at Function._load (node:internal/modules/cjs/loader:1282:12)\r\n    at TracingChannel.traceSync (node:diagnostics_channel:322:14)\r\n    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)\r\n    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:171:5)\r\n    at node:internal/main/run_main_module:36:49 {\r\n  generatedMessage: true,\r\n  code: 'ERR_ASSERTION',\r\n  actual: 8080,\r\n  expected: 3000,\r\n  operator: 'strictEqual'\r\n}\r\n\r\nNode.js v22.17.1\r\n",
+      "error": null
+    },
+    "patch_digest": "sha256:5612cbe5638f0bb1e3cf805ee60aade267acf4f626e234d8d355ba2a02e788dc"
+  },
+  "previous_cell_digest": "sha256:0c99056bdd9f61af7a042f90220999fcdce71f0e79d013a2feb59ed496b2af13",
+  "receipt_digest": "sha256:2219321782b98c9bbb7b830dc48f20221ea4141a06392403ba4d7051b7f57fa7",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:f7919da984371ebc8ddac19c337d6467d304e81d75d8e7cb680fe30483c98a11",
+    "signature": "JI9XYER2aqQz8EJowUrac49zpPpf9/Ayhpa+2ItpiXQeAI/uR12XZVLNWuZ7Jc9749VocHRmkr8Jgbeam4j4DA=="
+  }
+}

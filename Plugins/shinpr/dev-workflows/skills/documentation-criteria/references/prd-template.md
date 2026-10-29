@@ -1,0 +1,149 @@
+# PRD: [Feature Name]
+
+## Overview
+
+### One-line Summary
+[Describe this feature in one line]
+
+### Background
+[Why is this feature needed? What problem does it solve?]
+
+## User Stories
+
+### Primary Users
+[Define the main target users]
+
+### User Stories
+```
+As a [user type]
+I want to [goal/desire]
+So that [expected value/benefit]
+```
+
+### Use Cases
+1. [Specific usage scenario 1]
+2. [Specific usage scenario 2]
+3. [Specific usage scenario 3]
+
+### User Journey Diagram (When Needed)
+
+[Include when prose does not make the material user flow clear; otherwise remove this subsection.]
+```mermaid
+journey
+    title [Feature Name] User Journey
+    section [Phase 1]
+      [Step]: [satisfaction score]: [actor]
+```
+[Map the end-to-end user experience from trigger event to goal completion]
+
+### Scope Boundary Diagram (When Needed)
+
+[Include when prose does not make the material in-scope/out-of-scope relationship clear; otherwise remove this subsection.]
+```mermaid
+C4Context
+    Boundary(scope, "In Scope") {
+        [Components in scope]
+    }
+    Boundary(out, "Out of Scope") {
+        [Components out of scope]
+    }
+```
+[Clarify what is and is not included in this feature]
+
+## Functional Requirements
+
+### MVP Requirements
+- [ ] Requirement 1: [Detailed description]
+  - AC-001: [Acceptance criteria - Given/When/Then format or measurable standard]
+  - AC-002: [Acceptance criteria]
+- [ ] Requirement 2: [Detailed description]
+  - AC-003: [Acceptance criteria]
+
+### Future / Out of Scope
+
+Record user-authored non-goals and any current exclusion required to make the MVP boundary executable. The table is limited to confirmed boundaries; evaluation requests, speculative ideas, and unselected possibilities remain only in pre-confirmation convergence context. Record `None — user confirmed there are none` when the user considered exclusions and found none.
+
+Use `user` for a user-authored non-goal and `analysis` for a current exclusion required to make the confirmed MVP boundary executable.
+
+| Capability | Disposition | Origin | Reason |
+|---|---|---|---|
+| [Confirmed non-goal or required current scope exclusion] | future / out-of-scope | user / analysis | [Governing scope reason] |
+
+## Non-Functional Requirements
+
+### Performance
+- Response Time: [Target value]
+- Throughput: [Target value]
+- Concurrency: [Target value]
+
+### Reliability
+- Availability: [Target value]
+- Error Rate: [Target value]
+
+### Security
+- [Security requirements details]
+
+### Scalability
+- [Considerations for future scaling]
+
+### Accessibility (when feature includes UI)
+- Compliance standard (when established by an accepted organizational, legal, contractual, or confirmed product source): [standard]
+- Target assistive technologies: [Screen reader, keyboard operation, voice control, etc.]
+- Platform requirements: [e.g., app store review requirements]
+- Known constraints: [e.g., external library limitations]
+
+## Success Criteria
+
+State observable success for the confirmed outcome. Include only sourced quantitative/UI targets; in as-is documentation, distinguish observed measures from unknown business objectives. The examples below are optional shapes, not a required metric count.
+
+### Quantitative Metrics
+1. [Metric name]: [numeric target] measured by [method] within [timeframe]
+2. [Metric name]: [numeric target] measured by [method] within [timeframe]
+3. [Metric name]: [numeric target] measured by [method] within [timeframe]
+
+### Qualitative Metrics
+1. [User experience metric 1]
+2. [User experience metric 2]
+
+### UI Quality Metrics (when feature includes UI)
+1. [Key operation completion rate / error recovery rate / retry success rate]
+2. [Accessibility audit target score]
+
+## Technical Considerations
+
+### Dependencies
+- [Dependencies on existing systems]
+- [Dependencies on external services]
+
+### Constraints
+- [Technical constraints]
+- [Resource constraints]
+
+### Assumptions
+- [Prerequisite requiring validation 1]
+- [Prerequisite requiring validation 2]
+
+### Risks and Mitigation
+Include only evidenced product or delivery risks that can change scope, success criteria, sequencing, or acceptance.
+
+| Risk | Impact | Probability | Mitigation |
+|------|--------|-------------|------------|
+| [Risk 1] | High/Medium/Low | High/Medium/Low | [Countermeasure] |
+| [Risk 2] | High/Medium/Low | High/Medium/Low | [Countermeasure] |
+
+## Undetermined Items
+
+- [ ] [Question 1]: [Description of options or impacts]
+- [ ] [Question 2]: [Description of options or impacts]
+
+Resolve only questions that block the current document or next decision. Retain non-blocking unknowns with their effect; in as-is documentation, unknown business intent is not a reason to invent requirements.
+
+## Appendix
+
+### References
+- [Related document 1]
+- [Related document 2]
+
+### Glossary
+- **Term 1**: [Definition]
+- **Term 2**: [Definition]

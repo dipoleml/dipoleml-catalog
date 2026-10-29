@@ -1,0 +1,16 @@
+{
+  "name": "dipoleml-mem-sync",
+  "displayName": "DipoleML Mem Sync",
+  "version": "1.1.9",
+  "description": "Team memory sharing for DipoleML-mem — tracks observation access for intelligent eviction scoring",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Lopadova"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/lopadova/claude-mem-sync",
+  "repository": "https://github.com/lopadova/claude-mem-sync",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

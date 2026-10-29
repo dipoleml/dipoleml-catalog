@@ -1,0 +1,16 @@
+{
+  "name": "handbook-discover",
+  "displayName": "Handbook Discover",
+  "version": "1.0.0",
+  "description": "Discover and audit all plugins in a DipoleML marketplace with installation status, versions, and component breakdown",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Nikiforovall"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://nikiforovall.blog/claude-code-rules/",
+  "repository": "https://github.com/NikiforovAll/claude-code-rules",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

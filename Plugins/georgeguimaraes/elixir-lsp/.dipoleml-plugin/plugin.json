@@ -1,0 +1,16 @@
+{
+  "name": "elixir-lsp",
+  "displayName": "Elixir Lsp",
+  "version": "2.1.1",
+  "description": "Elixir Language Server integration for DipoleML",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Georgeguimaraes"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/georgeguimaraes/elixir-agent-tools",
+  "repository": "https://github.com/georgeguimaraes/elixir-agent-tools",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

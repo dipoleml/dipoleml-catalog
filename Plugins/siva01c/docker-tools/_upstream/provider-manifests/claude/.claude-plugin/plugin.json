@@ -1,0 +1,8 @@
+{
+  "name": "docker-tools",
+  "description": "Docker skills for Drupal development — Compose stack authoring/operations and Docker Model Runner for local AI models",
+  "version": "1.0.0",
+  "author": {
+    "name": "Ludek Kvapil - siva01"
+  }
+}

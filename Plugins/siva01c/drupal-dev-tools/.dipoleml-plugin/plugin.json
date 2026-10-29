@@ -1,0 +1,16 @@
+{
+  "name": "drupal-dev-tools",
+  "displayName": "Drupal Dev Tools",
+  "version": "4.0.0",
+  "description": "Drupal 11 toolkit — audit command and skills for module development and security review",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Siva01c"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/siva01c/claude-plugins",
+  "repository": "https://github.com/siva01c/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

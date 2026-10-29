@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# codebase-memory-mcp owns asynchronous refresh via auto_watch=true.
+# Never synchronously reindex in a post-tool hook or claim graph freshness here.
+exit 0

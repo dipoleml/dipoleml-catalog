@@ -1,0 +1,16 @@
+{
+  "name": "vibedipoleml",
+  "displayName": "VibeDipoleML",
+  "version": "0.1.0",
+  "description": "Feel every DipoleML lifecycle event through Intiface Central / buttplug.io. Streaming output, edits, tool results, permission prompts and turn completion are mapped to vibration pulses.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Transkatgirl"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/transkatgirl/vibeclaude",
+  "repository": "https://github.com/transkatgirl/vibeclaude",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

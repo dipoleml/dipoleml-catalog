@@ -1,0 +1,16 @@
+{
+  "name": "canvas-api",
+  "displayName": "Canvas API",
+  "version": "1.0.0",
+  "description": "Canvas LMS API connection guide and MCP tools reference",
+  "provider": "DipoleML",
+  "author": {
+    "name": "A Ariff"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/a-ariff/ariff-claude-plugins",
+  "repository": "https://github.com/a-ariff/ariff-claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

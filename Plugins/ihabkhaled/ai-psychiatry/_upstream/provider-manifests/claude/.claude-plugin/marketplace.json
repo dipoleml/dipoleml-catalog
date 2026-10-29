@@ -1,0 +1,33 @@
+{
+  "name": "ihabkhaled-ai",
+  "owner": {
+    "name": "Ihab Khaled"
+  },
+  "description": "AI coding-agent workflow plugins by Ihab Khaled.",
+  "plugins": [
+    {
+      "name": "ai-psychiatry",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/ihabkhaled/AI-Psychiatry.git",
+        "ref": "main"
+      },
+      "description": "Semantic anti-bypass and sufficient-reasoning controls for coding agents.",
+      "version": "0.7.0",
+      "category": "Productivity",
+      "tags": [
+        "ai-agents",
+        "coding",
+        "productivity",
+        "context",
+        "focus",
+        "semantic-compliance",
+        "underthinking",
+        "anti-gaming",
+        "relentless-execution",
+        "autonomous-execution",
+        "all-the-medicine"
+      ]
+    }
+  ]
+}

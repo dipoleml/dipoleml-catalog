@@ -1,0 +1,16 @@
+{
+  "name": "prismantis",
+  "displayName": "Prismantis",
+  "version": "0.36.0",
+  "description": "Colorful, themeable rendering for DipoleML replies: tables, headings, code, numbers, paths and links.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Nahumlitvin"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/NahumLitvin/prismantis",
+  "repository": "https://github.com/NahumLitvin/prismantis",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

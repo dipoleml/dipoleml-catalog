@@ -1,0 +1,38 @@
+{
+  "name": "@gendigital/sage-claude-code",
+  "private": true,
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/gendigitalinc/sage",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gendigitalinc/sage.git",
+    "directory": "packages/claude-code"
+  },
+  "bugs": {
+    "url": "https://github.com/gendigitalinc/sage/issues"
+  },
+  "version": "0.14.0",
+  "type": "module",
+  "scripts": {
+    "build": "node esbuild.config.js",
+    "clean": "node ../../scripts/clean.mjs dist tsconfig.tsbuildinfo"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "zod": "^3.24.0"
+  },
+  "optionalDependencies": {
+    "koffi": "^2.9.0"
+  },
+  "devDependencies": {
+    "@gendigital/sage-core": "workspace:*",
+    "@gendigital/sage-mcp": "workspace:*",
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.25.0",
+    "typescript": "^5.9.0",
+    "vitest": "^4.0.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -1,0 +1,68 @@
+{
+  "schema": 1,
+  "evidence_kind": "actual-run",
+  "scenario_set_id": "optimizer-scenarios-sha256:602e496906f3a293203750602234ba88a55a86b9e4f54f32239264098dcebe5b",
+  "metric_set_id": "optimizer-metrics-sha256:bedffbda2b18d725610b0f294a8273ef908237fd957bf9e51a5af4885b123e4f",
+  "scenario_id": "citadel-context-receipt-recovery",
+  "category": "context_reset",
+  "holdout": false,
+  "policy_id": "adaptive",
+  "repetition": 1,
+  "decision_id": "sha256:adcada2dd71cc3a178987e27df9d70fb0bf5fc3a2f6692f538c57f1a24972f8b",
+  "selected_profile_id": "claude-frontier",
+  "observed_profile_id": "claude-frontier",
+  "requested_model": "claude-opus-5",
+  "observed_model": "claude-opus-5",
+  "model_proof_status": "passed",
+  "started_at": "2026-07-31T03:20:34.964Z",
+  "duration_ms": 632231,
+  "outcome": "failed",
+  "verified": false,
+  "attempts": 1,
+  "human_interventions": 0,
+  "topology": "sequential-recovery",
+  "cost": {
+    "status": "known",
+    "amount_usd": 2.33048,
+    "provenance": "tool_reported",
+    "source": "citadel_optimizer_runner",
+    "source_ref": "summed_attempts:1",
+    "pricing_snapshot_digest": null,
+    "components": [
+      {
+        "kind": "model",
+        "amount_usd": 2.3304796,
+        "source": "attempt_1:claude total_cost_usd"
+      }
+    ]
+  },
+  "artifact_paths": [],
+  "verification_receipts": [
+    {
+      "attempt": 1,
+      "profile_id": "claude-frontier",
+      "status": "passed",
+      "exit_code": 0,
+      "timed_out": false,
+      "output_digest": "sha256:0676e1fef8b2b217ca748f6431dd436838a5a380516c810d6d34829cd3f3cb53",
+      "output_excerpt": "[stdout]\nOperation Fork executors passed: schema 2 bindings, same-runtime isolation, honest model proof, tamper rejection, legacy compatibility, and shell-free Windows launch.\n\n[stderr]\n",
+      "output_truncated": false,
+      "patch_exit_code": 0,
+      "patch_digest": "sha256:93d2691b25f1d75863e5eea3782f5f9b2a2114e8fc3877e9e173560cfc889f0e",
+      "patch_excerpt": "diff --git a/core/operations/recovery.js b/core/operations/recovery.js\nindex 44df30d..dc857ac 100644\n--- a/core/operations/recovery.js\n+++ b/core/operations/recovery.js\n@@ -33,6 +33,7 @@ function planRecovery(journalDir) {\n     attempt_id: entry.attempt_id,\n     idempotency_key: entry.idempotency_key,\n     effect_class: entry.effect_class,\n+    payload_digest: entry.payload_digest,\n     state: entry.state,\n     ...decisionFor(entry),\n   }));\n@@ -46,12 +47,24 @@ function planRecovery(journalDir) {\n   });\n }\n \n-function recoveryAction(plan, idempotencyKey) {\n+/**\n+ * `expected` binds the resumed work to the checkpoint it claims to continue. An\n+ * idempotency key alone never authorizes a skip: a checkpoint recorded for a\n+ * different payload, attempt, or effect class is stale, not evidence.\n+ */\n+function recoveryAction(plan, idempotencyKey, expected = null) {\n   if (plan.journal_status === 'corrupt') return { decision: 'block', reason_code: 'JOURNAL_CORRUPT' };\n-  return plan.actions.find((action) => action.idempotency_key === idempotencyKey) || {\n-    decision: 'execute',\n-    reason_code: 'NO_PRIOR_CHECKPOINT',\n-  };\n+  const action = plan.actions.find((item) => item.idempotency_key === idempotencyKey);\n+  if (!action) return { decision: 'execute', reason_code: 'NO_PRIOR_CHECKPOINT' };\n+  if (expected) {\n+    if (action.payload_digest !== expected.payloadDigest) {\n+      return { decision: 'block', reason_code: 'PAYLOAD_DIGEST_MISMATCH' };\n+    }\n+    if (action.attempt_id !== expected.attemptId || action.effect_class !== expected.effectClass) {\n+      return { decision: 'block', reason_code: 'EFFECT_BINDING_MISMATCH' };\n+    }\n+  }\n+  return action;\n }\n \n module.exports = Object.freeze({ EFFECT_CLASSES, decisionFor, planRecovery, recoveryAction });\ndiff --git a/scripts/operation-runner.js b/scripts/operation-runner.js\nindex b8148d6..ffd1960 100644\n--- a/scripts/operation-runner.js\n+++ b/scripts/operation-runner.js\n@@ -68,7 +68,11 @@ function checkpointInput(options, state, evidenceDigest = null) {\n function executeStepAttempt(options) {\n   assertRunnerOptions(options);\n   const plan = planRecovery(options.journalDir);\n-  const action = recoveryAction(plan, options.idempotencyKey);\n+  const action = recoveryAction(plan, options.idempotencyKey, {\n+    payloadDigest: options.payloadDigest,\n+    attemptId: options.attempt.attempt_id,\n+    effectClass: options.effectClass,\n+  });\n   if (action.decision === 'skip') {\n     return Object.freeze({ status: 'completed', execution: 'skipped', reason_code: action.reason_code });\n   }\ndiff --git a/scripts/test-operation-recovery.js b/scripts/test-operation-recovery.js\nindex e1d82d5..88da0fa 100644\n--- a/scripts/test-operation-recovery.js\n+++ b/scripts/test-operation-recovery.js\n@@ -81,6 +81,23 @@ test('safe effects recover from a crash after the effect boundary', (journalDir)\n   assert.deepEqual(readJournal(journalDir).entries.map((entry) => entry.state), ['pending', 'pending', 'completed']);\n });\n \n+test('a checkpoint for different work is stale and never skips the effect', (journalDir) => {\n+  let effects = 0;\n+  executeStepAttempt(options(journalDir, () => { effects++; return { evidence_digest: EVIDENCE }; }, {\n+    effectClass: 'external-nonrepeatable',\n+  }));\n+  assert.equal(effects, 1);\n+  const stale = { effectClass: 'external-nonrepeatable', payloadDigest: sha256Digest({ operation: 'other-work' }) };\n+  const mismatched = recoverStepAttempt(options(journalDir, () => { effects++; return { evidence_digest: EVIDENCE }; }, stale));\n+  assert.deepEqual(mismatched, { status: 'unknown', execution: 'blocked', reason_code: 'PAYLOAD_DIGEST_MISMATCH' });\n+  const rebound = recoverStepAttempt(options(journalDir, () => { effects++; return { evidence_digest: EVIDENCE }; }, {\n+    effectClass: 'external-nonrepeatable', attempt: attempt('attempt-demo-2'),\n+  }));\n+  assert.deepEqual(rebound, { status: 'unknown', execution: 'blocked', reason_code: 'EFFECT_BINDING_MISMATCH' });\n+  assert.equal(effects, 1);\n+  assert.deepEqual(readJournal(journalDir).entries.map((entry) => entry.state), ['pending', 'completed']);\n+});\n+\n test('effect errors checkpoint unknown without leaking error content', (journalDir) => {\n<REDACTED_SECRET_OR_PATH>\n   assert.deepEqual(result, { status: 'unknown', execution: 'attempted', reason_code: 'EFFECT_OUTCOME_UNKNOWN' });\n",
+      "patch_truncated": false,
+      "changed_paths": [
+        "core/operations/recovery.js",
+        "scripts/operation-runner.js",
+        "scripts/test-operation-recovery.js"
+      ]
+    }
+  ],
+  "receipt_status": "verified",
+  "adversarial_result": "unknown",
+  "failure_code": "EXPECTED_ARTIFACTS_NOT_CHANGED",
+  "attestation": {
+    "algorithm": "ed25519",
+    "signature_base64": "3tljaM9AU7P12557sNPbXpb14UsGQMk6E3GWLnWEF9fO84uA750gUW8E84yxjO2v9FnUtby5Hke5wxhWPt8JDQ=="
+  }
+}

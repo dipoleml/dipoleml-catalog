@@ -1,0 +1,2723 @@
+"""Connection handling and credential discovery.
+
+All connection handling lives here so credentials and raw rows stay inside the
+engine process and never reach the agent. DuckDB is a local file path, opened
+read-only, no credentials. BigQuery discovers credentials ("discover, don't
+ask"): Application Default Credentials only, never a prompted or pasted key,
+with the project resolved from explicit config, the environment, the ADC
+default, or a dbt profile, in that order. Snowflake discovers a connection the
+same way: a named ``connections.toml`` entry, the default connection, the
+``SNOWFLAKE_*`` environment (which is also how CI's workload-identity token
+arrives), or a dbt profile. Databricks delegates to the SDK's unified auth
+chain: a config-pinned ``~/.databrickscfg`` profile, the ``DATABRICKS_*``
+environment (which is also how CI's OIDC federation arrives), the default
+profile, or a dbt profile. Postgres follows suit: a config-pinned
+``pg_service.conf`` entry, ``DATABASE_URL``, the ``PG*`` environment (resolved
+natively by libpq, including ``~/.pgpass``), or a dbt profile. Redshift
+discovers along both of its worlds: a config-pinned Serverless workgroup (or
+provisioned cluster) resolved through the AWS default credential chain into
+IAM temporary database credentials, the ``REDSHIFT_*`` environment, the
+committed non-secret config target (password via ``REDSHIFT_PASSWORD``), or a
+dbt profile. Every discovery failure names the fix; nothing is ever prompted
+for.
+"""
+
+from __future__ import annotations
+
+import contextlib
+import os
+import re
+import time
+import tomllib
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+from .adapters import get_adapter
+from .adapters.base import scope_within
+from .config import (
+    GALAXY_HOST_SUFFIX,
+    SEMANTIC_ENVIRONMENT,
+    BigQueryTarget,
+    ClickHouseTarget,
+    DatabricksTarget,
+    DexConfig,
+    PostgresTarget,
+    RedshiftTarget,
+    SnowflakeTarget,
+    TrinoTarget,
+    load_config,
+)
+from .envelope import Paradigm
+from .errors import (
+    ConfigurationError,
+    DexError,
+    NoConnectorSelectedError,
+    PrerequisiteError,
+    StoreRequiredError,
+)
+from .guards.cost_guard import CostGate, ledger_field, utc_day_start
+from .semantic_hosts import (
+    SemanticHostRefusedError,
+    check_semantic_layer_host,
+    env_allowed_hosts,
+)
+from .storage import ExploreStore
+
+# What each connector bills in. Absent means free and local (DuckDB), which is
+# also what an unknown name resolves to: no gate, no ceiling, no confirmation.
+_PARADIGMS = {
+    "bigquery": Paradigm.BYTES_SCANNED,
+    "snowflake": Paradigm.COMPUTE_TIME,
+    "databricks": Paradigm.COMPUTE_TIME,
+    "redshift": Paradigm.COMPUTE_TIME,
+    "postgres": Paradigm.DB_LOAD,
+    "clickhouse": Paradigm.DB_LOAD,
+    "trino": Paradigm.DB_LOAD,
+}
+
+# Deployments that bill differently from their connector's default. A managed
+# service bills the uptime of capacity it runs for you, which is compute time,
+# where the self-hosted server it is built from bills nothing but load.
+_DEPLOYMENT_PARADIGMS = {
+    ("clickhouse", "cloud"): Paradigm.COMPUTE_TIME,
+    ("trino", "galaxy"): Paradigm.COMPUTE_TIME,
+}
+
+
+def paradigm_for(connector: str | None, config: DexConfig | None = None) -> Paradigm:
+    """The cost paradigm a connector bills in, free/local when it bills nothing.
+
+    A connector with a ``deployment`` axis (ClickHouse, Trino) bills in the
+    paradigm its declared deployment does. Config-free callers deliberately get
+    the self-hosted answer; callers that resolved a project config must pass it,
+    so that refusals and error envelopes for a managed deployment are
+    denominated in compute-seconds before any adapter opens.
+    """
+
+    if connector and config is not None:
+        deployment = getattr(getattr(config, connector, None), "deployment", None)
+        paradigm = _DEPLOYMENT_PARADIGMS.get((connector, deployment))
+        if paradigm is not None:
+            return paradigm
+    return _PARADIGMS.get(connector or "", Paradigm.FREE_LOCAL)
+
+
+# Deployments a connector's configuration accepts, so the committed shape is
+# already final, and that dex refuses by name until it can guard them. Refusing
+# beats connecting: a guard denominated in the wrong unit is silent about the
+# spend it cannot see.
+_UNSUPPORTED_DEPLOYMENTS = {
+    ("trino", "galaxy"): (
+        "Starburst Galaxy bills credits for every second a cluster runs, "
+        "including the resume and the idle time before it suspends, and dex does "
+        "not yet model that uptime, so it cannot bound what a command would "
+        "cost. Point dex at a self-hosted Trino or Starburst Enterprise cluster "
+        "(deployment: self_hosted)"
+    ),
+}
+
+
+def assert_deployment_supported(connector: str | None, config: DexConfig) -> None:
+    """Refuse a declared deployment dex cannot guard yet, before anything opens.
+
+    Called on every path that can spend against it: opening an adapter, the
+    dev-target preflight before a build, and ``transform init``. The build path
+    matters most, because a build whose pricing connection fails degrades to a
+    note and runs dbt anyway, so a refusal at connect time alone would let dbt
+    spend uncapped on a deployment the guard was never able to see.
+    """
+
+    deployment = getattr(getattr(config, connector or "", None), "deployment", None)
+    reason = _UNSUPPORTED_DEPLOYMENTS.get((connector, deployment))
+    if reason is not None:
+        raise ConfigurationError(
+            f"{connector}.deployment '{deployment}' is not supported yet: {reason}"
+        )
+
+
+@dataclass(frozen=True)
+class ConnectionSource:
+    """What a host supplies in place of dex's own credential discovery.
+
+    Discovery reads process-ambient state (Application Default Credentials,
+    ``~/.databrickscfg``, ``os.environ``, ``connections.toml``, the AWS chain),
+    which is exactly right for one person at a terminal and unusable in a process
+    serving several end users: ambient is process-wide, so a connection cannot be
+    opened as a *particular* principal. Supplying this record moves that one step
+    to the host.
+
+    A zero-argument factory rather than a live connection, matching the shape the
+    Databricks path already used internally: it is the only shape under which a
+    free metadata command can avoid touching the warehouse at all, because dex
+    calls the factory on the first billed statement and not before.
+
+    **Supplying a connection supplies identity.** dex no longer knows who the
+    principal is beyond what this record says, so ``auth_method`` and (on
+    BigQuery) ``principal_type`` are what keep ``capabilities()`` honest for the
+    agent reading it. It does not make the budget the host's: the cost gate is
+    still built here from the injected store, and the session ceiling still binds.
+
+    **dex closes nothing it reaches through this record.** A host that opened a
+    connection closes it. The factory is called at most once per engine, so a host
+    that mints a fresh connection per call must retain what it returns if it
+    intends to close it.
+
+    Nothing here is persisted, cached, or refreshed. ``.dex/`` stays secret-free.
+    """
+
+    #: Zero-argument, returning the connection this connector's adapter takes. On
+    #: BigQuery it returns credentials instead, from which dex builds the client
+    #: it then owns and closes, because that is the shape the adapter takes.
+    connect: Callable[[], Any]
+    #: The coarse credential class ``capabilities()`` surfaces. Refine it
+    #: ("host_supplied:oauth_user") when the host knows what it handed over and
+    #: wants the report to say so; never put a credential value in it.
+    auth_method: str = "host_supplied"
+    #: BigQuery only, and normally omitted: dex classifies the supplied credential
+    #: exactly as it classifies a discovered one, which is more trustworthy than
+    #: letting a host assert its own principal class.
+    principal_type: str | None = None
+    #: Databricks only, and required there: the Unity Catalog REST client serving
+    #: every free metadata path. Databricks has two clients, not one.
+    workspace: Any | None = None
+
+
+@dataclass(frozen=True)
+class SemanticSource:
+    """What a host supplies in place of Semantic Layer token discovery.
+
+    The sibling of :class:`ConnectionSource`, for the sixth credential path: the
+    hosted dbt Cloud Semantic Layer. Kept separate rather than folded in, because
+    the two reach different services and can carry different principals (a
+    Semantic Layer service token is not the credential a warehouse read uses),
+    and because ``ConnectionSource`` is validated against a connector name, which
+    the semantic layer is orthogonal to.
+
+    The split between this and ``DexConfig.semantic`` is the same one the
+    warehouse path draws. Non-secret coordinates (``host``, ``environment_id``)
+    live in config, which is committed and injectable; the token is a secret and
+    never belongs in a file under version control, so it arrives here.
+
+    A callable rather than a string, so a rotating token is re-read without
+    rebuilding the engine. It is called once per semantic command, not once per
+    HTTP request: a single metric query can poll dbt Cloud dozens of times, and a
+    host fetching its token from a datastore should not pay for each poll.
+
+    Nothing here is persisted, cached, or refreshed by dex.
+    """
+
+    #: Zero-argument, returning the dbt Cloud Semantic Layer service token. Held
+    #: only for the Authorization header, never logged, never put in an envelope.
+    token: Callable[[], str]
+    #: Exact hosts outside dbt Cloud's own domains this token may be sent to, for
+    #: a private-link or single-tenant deployment. It lives here, beside the
+    #: token, because the config naming the host may be one the repository wrote,
+    #: and a repository must not be able to choose where the token goes.
+    allowed_hosts: tuple[str, ...] = ()
+
+
+# Connectors whose adapters take an already-built connection or credential, and so
+# can be opened from a host-supplied one. DuckDB is deliberately absent: its target
+# is a local file dex opens read-only itself, and accepting an outside handle would
+# mean trusting that it is read-only.
+_INJECTABLE = frozenset(
+    {
+        "bigquery",
+        "snowflake",
+        "databricks",
+        "postgres",
+        "redshift",
+        "clickhouse",
+        "trino",
+    }
+)
+
+
+def assert_connection_source(
+    connector: str | None, connection: ConnectionSource | None
+) -> None:
+    """Refuse a connection this connector cannot honor.
+
+    Same rule as :func:`assert_scope_vocabulary`, for the same reason:
+    accepted-and-ignored is strictly worse than rejected. A host that believes it
+    supplied a principal, and in fact reached the warehouse under the process's
+    ambient identity, has lost exactly the access control it came here for, and
+    nothing in the output would say so.
+    """
+
+    if connection is None:
+        return
+    if connector == "duckdb":
+        raise ConfigurationError(
+            "connection= does not apply to the duckdb connector: the target is a "
+            "single local file, which dex opens read-only itself (an injected "
+            "handle could be writable). Select it with path= instead"
+        )
+    if connector not in _INJECTABLE:
+        raise ConfigurationError(
+            f"connection= is not supported for connector '{connector}': pass one "
+            f"of {', '.join(sorted(_INJECTABLE))}"
+        )
+    if connector == "databricks":
+        if connection.workspace is None:
+            raise ConfigurationError(
+                "an injected databricks connection needs workspace= too: the "
+                "Unity Catalog REST client serves every free metadata path, and "
+                "connect= opens the billed SQL session only. Pass "
+                "ConnectionSource(connect=..., workspace=WorkspaceClient(...))"
+            )
+    elif connection.workspace is not None:
+        raise ConfigurationError(
+            f"workspace= is Databricks vocabulary and has no meaning for the "
+            f"{connector} connector; pass the connection itself as connect="
+        )
+    if connection.principal_type is not None and connector != "bigquery":
+        raise ConfigurationError(
+            f"principal_type= is BigQuery vocabulary and has no meaning for the "
+            f"{connector} connector; describe the credential in auth_method="
+        )
+
+
+def new_cost_gate(
+    connector: str,
+    config: DexConfig,
+    store: ExploreStore,
+    *,
+    budget: float | None = None,
+    confirmed: bool = False,
+    command: str | None = None,
+) -> CostGate:
+    """A gate for one command on a billed connector.
+
+    A :class:`CostGate` is per-command state, not per-connection: it accumulates
+    the estimates a single command has charged, remembers whether that command
+    was confirmed, and labels the command's ledger entries. So a caller that
+    holds a connection across commands (the engine does) builds a fresh gate for
+    each one, which also re-settles the session budget against whatever the
+    ledger has recorded since.
+
+    Kept here, alongside credential discovery, on purpose: a host that supplies
+    its own connection must never be the thing that supplies the guard.
+
+    The day's spend is passed as a reader rather than a number, and nothing
+    calls it here: the gate reads it when it admits work instead of deciding the
+    whole command from one reading taken at assembly. That is what keeps the
+    ledger out of the availability path of commands that cannot spend, since a
+    gate is built for every command on a billed connector and only the billed
+    ones have any stake in the day's total. A store whose ledger lives on a
+    network can therefore be unreachable without taking down a cache-served
+    answer, while billed admission still refuses.
+
+    The lock comes from the store when the store has one; without it the gate
+    still reserves and says on every billed result that the cumulative ceiling
+    is advisory.
+
+    The history reader is bound the same way and scoped to this connector at the
+    binding, so nothing downstream can widen it: the ratio an over-ceiling
+    refusal quotes has to be this connector's own, and a DuckDB history
+    calibrating a BigQuery refusal would be worse than no calibration at all.
+    Passed as a reader for the same reason the day's spend is, and more so:
+    nothing calls it unless a command is actually refused over its ceiling.
+
+    The one-time cumulative-ceiling ask (issue #283) is armed from
+    ``config.source_path``, so it fires only where dex itself loaded the config
+    from a file it can therefore amend: a config-free ad-hoc read and a
+    host-supplied config object are both never asked a question they have
+    nowhere to answer.
+    """
+
+    paradigm = paradigm_for(connector, config)
+    field = ledger_field(paradigm)
+    lock = getattr(store, "spend_lock", None)
+    history = getattr(store, "spend_entries", None)
+    return CostGate(
+        paradigm=paradigm,
+        ceiling=budget if budget is not None else config.budget.ceiling,
+        # The ceiling in force, not the file's: a host's cap (#787) is folded in
+        # here, the one place a gate is built, so every billed command sees it.
+        session_ceiling=config.session_ceiling_in_force,
+        session_spent=lambda: store.spend_since(
+            utc_day_start(), field=field, connector=connector
+        ),
+        confirmed=confirmed,
+        connector=connector,
+        command=command,
+        record=store.append_spend_log,
+        lock=lock if callable(lock) else None,
+        history=(lambda: history(connector=connector)) if callable(history) else None,
+        session_ceiling_declined=config.session_ceiling_declined_in_force,
+        config_path=config.source_path,
+        session_ceiling_cap=config.session_ceiling_cap,
+    )
+
+
+def duckdb_candidates(directory: str | Path) -> list[Path]:
+    """Every ``*.duckdb`` file directly in ``directory``, sorted for a stable
+    answer. No recursion and no walk up: this is the narrow, run-directory-only
+    substrate the single-unambiguous-file on-ramp (issue #199) and its
+    ambiguous-refusal both read; a config or an explicit ``--connector``/
+    ``--path`` is never overridden by what this finds.
+    """
+
+    return sorted(Path(directory).glob("*.duckdb"))
+
+
+def no_connector_selected(
+    repo_root: str | Path | None, *, ambiguous_duckdb: list[Path] | None = None
+) -> NoConnectorSelectedError:
+    """The connector-selection half of "no silent connector default".
+
+    Nothing resolved a connector and nothing explicit was passed, so there is no
+    honest choice left: defaulting to duckdb here would connect a user to a
+    target they never named. The two spellings address the two callers, a CLI run
+    from a directory and a library caller holding no repo at all.
+
+    ``ambiguous_duckdb`` names the case a bare run directory almost resolves on
+    its own: more than one ``*.duckdb`` file sits there, so which one the caller
+    meant is exactly the thing dex must not guess at (issue #199). Naming both
+    is what turns the refusal into something the caller can act on instead of
+    rerunning the same command.
+    """
+
+    if repo_root is None:
+        return NoConnectorSelectedError(
+            "no connector selected: pass connector= (with path= for duckdb) or a "
+            "config= that declares one, or build from a project on disk with "
+            "DexEngine.from_repo(repo_root). DBT_PROFILES_DIR only locates dbt "
+            "profiles.yml; it does not select dex's connector"
+        )
+    if ambiguous_duckdb:
+        names = ", ".join(str(p) for p in ambiguous_duckdb)
+        return NoConnectorSelectedError(
+            f"no .dex/config.yml found searching from '{repo_root}' up to the "
+            f"git root, and more than one DuckDB file sits in this directory "
+            f"({names}); pass --path <file> to pick one, or --repo-root"
+        )
+    return NoConnectorSelectedError(
+        f"no .dex/config.yml found searching from '{repo_root}' up to the git "
+        "root: run inside your dex project, pass --repo-root, or pass "
+        "--connector/--path for an ad-hoc read. DBT_PROFILES_DIR only locates "
+        "dbt profiles.yml; it does not select dex's connector"
+    )
+
+
+class CredentialDiscoveryError(DexError):
+    """Raised when a cloud connection cannot be discovered. The message always
+    names the command or config that fixes it, never a credential value."""
+
+
+class ScopeError(ConfigurationError):
+    """Raised when a source scope is not one this connector can honor: a flag it
+    does not speak, or an entry outside the committed allowlist. The message
+    always names the offending entry and the vocabulary that would work."""
+
+
+# Where each connector keeps its committed source allowlist, and how a `--scope`
+# entry reads in that connector's namespace vocabulary. DuckDB is absent because
+# it has no namespace to scope: the target is one file.
+_SCOPE_FIELDS = {
+    "bigquery": "datasets",
+    "snowflake": "databases",
+    "databricks": "catalogs",
+    "postgres": "schemas",
+    "redshift": "schemas",
+    "clickhouse": "databases",
+    "trino": "catalogs",
+}
+_SCOPE_GRAMMAR = {
+    "bigquery": "--scope <dataset> (or <project>.<dataset>)",
+    "snowflake": "--scope <schema>, <database>, or <database>.<schema>",
+    "databricks": "--scope <catalog> (or <catalog>.<schema>)",
+    "postgres": "--scope <schema>",
+    "redshift": "--scope <schema>",
+    "clickhouse": "--scope <database>",
+    "trino": "--scope <catalog> (or <catalog>.<schema>)",
+}
+
+
+def open_adapter(
+    *,
+    connector: str | None = None,
+    path: str | None = None,
+    project: str | None = None,
+    datasets: list[str] | None = None,
+    scopes: list[str] | None = None,
+    repo_root: str | Path = ".",
+    config: DexConfig | None = None,
+    store: ExploreStore | None = None,
+    budget: float | None = None,
+    confirmed: bool = False,
+    command: str | None = None,
+    connection: ConnectionSource | None = None,
+):
+    """Resolve the connection target and return an open, read-only adapter.
+
+    Resolution order: explicit arguments win, then ``.dex/config.yml``. For
+    DuckDB the only input is a file path. ``scopes`` narrows the source
+    allowlist for this one command in every warehouse connector's own
+    vocabulary; ``project``/``datasets`` are BigQuery's older spelling of the
+    same idea. None of them are written back to config.
+    ``budget``/``confirmed`` feed the cost gate on billed connectors and are
+    ignored by free ones; ``command`` labels ledger entries. ``store`` is where the
+    gate settles the session budget and records spend; it is required on a billed
+    connector and unused by a free one, so a DuckDB read needs no store at all.
+
+    Passing ``config`` supplies the configuration outright and **no file is
+    read**: not the one under ``repo_root``, not one anywhere above it. A caller
+    holding a config object has already made the choice this function would
+    otherwise go looking for, and a process serving more than one principal must
+    not be able to inherit a stray config from its filesystem. ``repo_root``
+    still locates the things that are files by nature (a DuckDB path, the
+    credential files a connector discovers), which no config choice moves.
+
+    Passing ``connection`` supplies the credential outright and **no discovery
+    runs**: the ambient chain for that connector is skipped entirely. It is the
+    host's identity from there on, so the non-secret facts that identify the target
+    (a Snowflake ``account``, a Databricks ``host``) come from ``config`` rather
+    than from the connection, and the coarse credential class comes from the
+    record. The gate is still built here either way, which is the point: identity
+    becomes the host's, the guards do not. See :class:`ConnectionSource`.
+    """
+
+    if config is None:
+        loaded = load_config(repo_root)
+        if loaded is None and connector is None and path is None:
+            # No config resolved anywhere up the tree, and nothing explicit to
+            # fall back on. A run from a subdirectory with a real config higher
+            # up is fixed by the walk-up in command_args, so reaching this point
+            # means there is genuinely nothing.
+            raise no_connector_selected(repo_root)
+        config = loaded or DexConfig()
+    connector = connector or config.connector
+    assert_scope_vocabulary(
+        connector, project=project, datasets=datasets, scopes=scopes
+    )
+    assert_connection_source(connector, connection)
+    assert_deployment_supported(connector, config)
+
+    if connector == "duckdb":
+        if path:
+            # A live --path is typed in the user's shell, so it stays relative to
+            # the process cwd.
+            resolved = path
+        elif config.duckdb and config.duckdb.path:
+            # A committed duckdb.path is relative to the config's project root, not
+            # the cwd, so the same target resolves from any subdirectory (config
+            # is now found by walking up). An absolute path is left untouched.
+            target = Path(config.duckdb.path)
+            resolved = str(target if target.is_absolute() else Path(repo_root) / target)
+        else:
+            resolved = None
+        if not resolved:
+            raise ConfigurationError(
+                "no DuckDB path: pass --path or set duckdb.path in .dex/config.yml"
+            )
+        return get_adapter("duckdb", path=resolved)
+
+    if connector == "bigquery":
+        return _open_bigquery(
+            config,
+            repo_root,
+            store=_require_store(store, connector),
+            budget=budget,
+            confirmed=confirmed,
+            command=command,
+            project_override=project,
+            dataset_override=datasets or scopes,
+            # Both flags scope BigQuery, and the refusal has to name the one the
+            # user actually typed.
+            scope_flag=("--dataset" if datasets else "--scope" if scopes else None),
+            connection=connection,
+        )
+
+    if connector == "snowflake":
+        return _open_snowflake(
+            config,
+            repo_root,
+            store=_require_store(store, connector),
+            budget=budget,
+            confirmed=confirmed,
+            command=command,
+            scope_override=scopes,
+            connection=connection,
+        )
+
+    if connector == "databricks":
+        return _open_databricks(
+            config,
+            repo_root,
+            store=_require_store(store, connector),
+            budget=budget,
+            confirmed=confirmed,
+            command=command,
+            scope_override=scopes,
+            connection=connection,
+        )
+
+    if connector == "postgres":
+        return _open_postgres(
+            config,
+            repo_root,
+            store=_require_store(store, connector),
+            budget=budget,
+            confirmed=confirmed,
+            command=command,
+            scope_override=scopes,
+            connection=connection,
+        )
+
+    if connector == "redshift":
+        return _open_redshift(
+            config,
+            repo_root,
+            store=_require_store(store, connector),
+            budget=budget,
+            confirmed=confirmed,
+            command=command,
+            scope_override=scopes,
+            connection=connection,
+        )
+
+    if connector == "clickhouse":
+        return _open_clickhouse(
+            config,
+            repo_root,
+            store=_require_store(store, connector),
+            budget=budget,
+            confirmed=confirmed,
+            command=command,
+            scope_override=scopes,
+            connection=connection,
+        )
+
+    if connector == "trino":
+        return _open_trino(
+            config,
+            repo_root,
+            store=_require_store(store, connector),
+            budget=budget,
+            confirmed=confirmed,
+            command=command,
+            scope_override=scopes,
+            connection=connection,
+        )
+
+    return get_adapter(connector)
+
+
+def _require_store(store: ExploreStore | None, connector: str) -> ExploreStore:
+    """The store a billed connector's cost gate cannot do without.
+
+    The gate settles the cumulative session budget against the spend ledger and
+    records every billed statement back into it, so opening a metered connection
+    with nowhere to read or write that ledger would silently run unbudgeted. Free
+    connectors (DuckDB) have no gate and need no store.
+    """
+
+    if store is None:
+        raise StoreRequiredError(
+            f"opening '{connector}' needs a store: its cost gate settles the "
+            "session budget against the spend ledger and records spend back into "
+            "it. Pass store= (the CLI passes the filesystem store it built from "
+            "--repo-root)"
+        )
+    return store
+
+
+def assert_scope_vocabulary(
+    connector: str,
+    *,
+    project: str | None,
+    datasets: list[str] | None,
+    scopes: list[str] | None,
+) -> None:
+    """Refuse a scoping flag the connector cannot honor.
+
+    Accepted-and-ignored is strictly worse than rejected. A ``--dataset`` silently
+    dropped on Snowflake let a user confirm a budget believing it bounded an
+    eight-table schema, when the estimate in fact spanned billion-row tables
+    elsewhere in the allowlist. So the only two outcomes a scoping flag may have
+    are "honored" and "named in an error".
+    """
+
+    if connector == "duckdb":
+        for flag, value in (
+            ("--project", project),
+            ("--dataset", datasets),
+            ("--scope", scopes),
+        ):
+            if value:
+                raise ScopeError(
+                    f"{flag} does not apply to the duckdb connector: a DuckDB "
+                    "target is a single file, selected with --path"
+                )
+        return
+    if connector not in _SCOPE_FIELDS:
+        return
+    if connector != "bigquery":
+        for flag, value in (("--project", project), ("--dataset", datasets)):
+            if value:
+                raise ScopeError(
+                    f"{flag} is BigQuery vocabulary and has no meaning for the "
+                    f"{connector} connector; scope this command with "
+                    f"{_SCOPE_GRAMMAR[connector]}"
+                )
+        return
+    if datasets and scopes:
+        raise ScopeError(
+            "--dataset and --scope both scope a BigQuery command; pass one "
+            "(--scope is the spelling every connector understands)"
+        )
+
+
+def narrow_target(target, connector: str, scope_override: list[str] | None):
+    """Apply a ``--scope`` override to a connector target, in memory only.
+
+    A per-command scope must never rewrite the committed ``.dex/config.yml``, and
+    it may only narrow: a committed allowlist is a cost boundary, so a flag cannot
+    reach outside it. When nothing is committed, the override sets the allowlist,
+    which is what makes ``connect test --scope X`` work before a config block
+    exists.
+
+    Entries are matched textually here. Snowflake resolves bare schema names
+    against the account before it can test containment, so it narrows inside the
+    adapter and never reaches this function.
+    """
+
+    if not scope_override:
+        return target
+    field = _SCOPE_FIELDS[connector]
+    committed = [str(entry) for entry in getattr(target, field)]
+    outside = [s for s in scope_override if not scope_within(s, committed)]
+    if committed and outside:
+        raise ScopeError(
+            f"scope {', '.join(repr(s) for s in outside)} is outside the committed "
+            f"allowlist ({connector}.{field}: {', '.join(committed)}); --scope "
+            "narrows the configured scope, it never widens it"
+        )
+    return target.model_copy(update={field: list(scope_override)})
+
+
+def scope_origin(connector: str, flag: str | None) -> str:
+    """What a scope refusal should tell the user to go edit.
+
+    ``narrow_target`` copies a per-command scope over the committed allowlist, so
+    by the time an adapter proves the entries exist it can no longer tell which
+    of the two it is holding, and the fix differs entirely: edit the flag, or
+    edit the file. The caller knows, so it says.
+    """
+
+    return flag or f"{connector}.{_SCOPE_FIELDS[connector]} in .dex/config.yml"
+
+
+def dev_target_scope(connector: str, target) -> str | None:
+    """The namespace dbt dev builds write into, spelled as a scope entry of
+    ``connector``, or ``None`` when the config names none.
+
+    Spelled in the allowlist's own vocabulary because that is what the adapter
+    folds it into: Snowflake and Databricks scope by the container above the
+    schema, so both parts are required there, and a bare dev schema names
+    nothing they could read. DuckDB has no namespace: its dev target is a file,
+    and the dev-target preflight already refuses a build whose profile and
+    config disagree about which file that is.
+    """
+
+    if target is None:
+        return None
+    if connector == "bigquery":
+        return target.dev_dataset or None
+    if connector == "snowflake":
+        if target.dev_database and target.dev_schema:
+            return f"{target.dev_database}.{target.dev_schema}"
+        return None
+    if connector == "databricks":
+        if target.dev_catalog and target.dev_schema:
+            return f"{target.dev_catalog}.{target.dev_schema}"
+        return None
+    if connector in {"postgres", "redshift"}:
+        return target.dev_schema or None
+    if connector == "clickhouse":
+        return target.dev_database or None
+    if connector == "trino":
+        if target.dev_catalog and target.dev_schema:
+            return f"{target.dev_catalog}.{target.dev_schema}"
+        return None
+    return None
+
+
+def _open_bigquery(
+    config: DexConfig,
+    repo_root: str | Path,
+    *,
+    store: ExploreStore,
+    budget: float | None,
+    confirmed: bool,
+    command: str | None,
+    project_override: str | None = None,
+    dataset_override: list[str] | None = None,
+    scope_flag: str | None = None,
+    connection: ConnectionSource | None = None,
+):
+    target = config.bigquery or BigQueryTarget()
+    target = narrow_target(target, "bigquery", dataset_override)
+    if project_override:
+        # A command-line override of the committed target, applied in memory
+        # only: a smoke test should not silently rewrite .dex/config.yml.
+        target = target.model_copy(update={"project": project_override})
+    if connection is not None:
+        # A host supplies the credential, not a client: the adapter builds the
+        # client, so BigQuery is the one connector where what dex holds afterwards
+        # is dex's to close. There is no ADC project to fall back on, so the
+        # resolution chain below has one fewer link.
+        credentials = connection.connect()
+        adc_project = None
+        principal_type = connection.principal_type or gcp_principal_type(credentials)
+    else:
+        credentials, adc_project, principal_type = _default_credentials()
+    project = resolve_bigquery_project(
+        target, os.environ, adc_project, repo_root=repo_root
+    )
+    if not project:
+        # The fix differs by caller: a host holding a config object edits the
+        # object, and telling it to run a gcloud command would be wrong advice.
+        raise CredentialDiscoveryError(
+            "no GCP project resolved; set bigquery.project on the DexConfig you "
+            "passed (or GOOGLE_CLOUD_PROJECT in the environment)"
+            if connection is not None
+            else "no GCP project resolved; set bigquery.project in .dex/config.yml "
+            "or run `gcloud config set project <id>` (then refresh ADC with "
+            "`gcloud auth application-default login`)"
+        )
+
+    gate = new_cost_gate(
+        "bigquery",
+        config,
+        store,
+        budget=budget,
+        confirmed=confirmed,
+        command=command,
+    )
+    return get_adapter(
+        "bigquery",
+        project=project,
+        target=target,
+        cost_gate=gate,
+        credentials=credentials,
+        principal_type=principal_type,
+        scope_origin=scope_origin("bigquery", scope_flag),
+    )
+
+
+def _open_snowflake(
+    config: DexConfig,
+    repo_root: str | Path,
+    *,
+    store: ExploreStore,
+    budget: float | None,
+    confirmed: bool,
+    command: str | None,
+    scope_override: list[str] | None = None,
+    connection: ConnectionSource | None = None,
+):
+    target = config.snowflake or SnowflakeTarget()
+
+    if connection is not None:
+        # The host owns the session, so the session settings below are the host's
+        # too: a warehouse pinned on its connection, and its own keep-alive choice.
+        # The warehouse guard still holds regardless, because the adapter
+        # re-asserts the configured pin before anything billed runs. The account is
+        # a non-secret fact, so it comes from config rather than from the handle.
+        conn = connection.connect()
+        account = target.account
+        method = connection.auth_method
+    else:
+        params, method = resolve_snowflake_connection(target, os.environ, repo_root)
+
+        try:
+            import snowflake.connector
+        except ImportError as exc:
+            raise CredentialDiscoveryError(
+                "the Snowflake client is not installed; install the connector "
+                "extra: exmergo-dex-core[snowflake]"
+            ) from exc
+
+        # The pinned warehouse rides on the session so free paths and dbt agree,
+        # but the adapter re-asserts the pin before anything billed regardless.
+        if target.warehouse:
+            params.setdefault("warehouse", target.warehouse)
+        params.setdefault("client_session_keep_alive", False)
+        conn = snowflake.connector.connect(**params)
+        account = str(params.get("account") or "") or None
+
+    gate = new_cost_gate(
+        "snowflake",
+        config,
+        store,
+        budget=budget,
+        confirmed=confirmed,
+        command=command,
+    )
+    return get_adapter(
+        "snowflake",
+        connection=conn,
+        owns_connection=connection is None,
+        cost_gate=gate,
+        target=target,
+        account=account,
+        auth_method=method,
+        # Not folded into the target: a bare `--scope TPCH_SF1` is a schema name
+        # that only the account can resolve to a database, so the adapter has to
+        # see the override and the committed allowlist as two separate things.
+        scope_override=scope_override,
+    )
+
+
+def resolve_snowflake_connection(
+    target: SnowflakeTarget,
+    env: dict | os._Environ,
+    repo_root: str | Path = ".",
+) -> tuple[dict, str]:
+    """Discover Snowflake connection parameters, never prompting.
+
+    Returns ``(params, auth_method)`` where ``params`` feeds
+    ``snowflake.connector.connect`` and ``auth_method`` is a coarse class safe
+    to surface (named_connection / default_connection / environment /
+    dbt_profile, suffixed with the credential kind); parameter values,
+    including any password or key a store legitimately holds, never leave the
+    engine process. Order: the config-pinned ``connections.toml`` entry, the
+    default connection, ``SNOWFLAKE_*`` environment variables (the CI path:
+    a workload-identity token arrives as SNOWFLAKE_TOKEN), then a dbt
+    profile's snowflake target. Every failure names the fix.
+    """
+
+    connections = _snowflake_connections(env)
+
+    if target.connection_name:
+        params = connections.get(target.connection_name)
+        if params is None:
+            raise CredentialDiscoveryError(
+                f"snowflake.connection_name '{target.connection_name}' not "
+                "found in connections.toml; run `snow connection add "
+                f"--connection-name {target.connection_name} ...` or fix the "
+                "name in .dex/config.yml"
+            )
+        return _normalize_connection(params, target), (
+            f"named_connection:{_credential_kind(params)}"
+        )
+
+    default_name = env.get("SNOWFLAKE_DEFAULT_CONNECTION_NAME") or connections.get(
+        "__default__"
+    )
+    if isinstance(default_name, str) and default_name in connections:
+        params = connections[default_name]
+        return _normalize_connection(params, target), (
+            f"default_connection:{_credential_kind(params)}"
+        )
+
+    if env.get("SNOWFLAKE_ACCOUNT") and env.get("SNOWFLAKE_USER"):
+        params = {
+            key: env[var]
+            for var, key in (
+                ("SNOWFLAKE_ACCOUNT", "account"),
+                ("SNOWFLAKE_USER", "user"),
+                ("SNOWFLAKE_PASSWORD", "password"),
+                ("SNOWFLAKE_AUTHENTICATOR", "authenticator"),
+                ("SNOWFLAKE_PRIVATE_KEY_FILE", "private_key_file"),
+                ("SNOWFLAKE_TOKEN", "token"),
+                ("SNOWFLAKE_WORKLOAD_IDENTITY_PROVIDER", "workload_identity_provider"),
+                ("SNOWFLAKE_ROLE", "role"),
+                ("SNOWFLAKE_WAREHOUSE", "warehouse"),
+                ("SNOWFLAKE_DATABASE", "database"),
+            )
+            if env.get(var)
+        }
+        return _normalize_connection(params, target), (
+            f"environment:{_credential_kind(params)}"
+        )
+
+    profile_params = _snowflake_from_dbt_profiles(repo_root)
+    if profile_params:
+        return _normalize_connection(profile_params, target), (
+            f"dbt_profile:{_credential_kind(profile_params)}"
+        )
+
+    raise CredentialDiscoveryError(
+        "no Snowflake connection discovered; add one with `snow connection "
+        "add` (then set snowflake.connection_name in .dex/config.yml), or "
+        "export SNOWFLAKE_ACCOUNT/SNOWFLAKE_USER plus a credential, or keep a "
+        "snowflake target in your dbt profiles.yml"
+    )
+
+
+def _normalize_connection(params: dict, target: SnowflakeTarget) -> dict:
+    """Apply the config's account pin and refuse a connection dex should not use.
+
+    Every discovery path ends here, so this is where a private key file that
+    other accounts can read is refused, the way ``ssh`` refuses one: using it
+    silently would lend dex's authority to a key that is already exposed. Only an
+    existing file is checked; a path that does not resolve is left for the
+    connector to report in its own words. ``private_key`` is skipped because it
+    holds key material, not a path.
+    """
+
+    normalized = dict(params)
+    if target.account:
+        normalized["account"] = target.account
+    if not normalized.get("account"):
+        raise CredentialDiscoveryError(
+            "the discovered Snowflake connection has no account identifier; "
+            "set snowflake.account in .dex/config.yml or fix the connection"
+        )
+    key_path = normalized.get("private_key_file") or normalized.get("private_key_path")
+    # Windows reports mode bits synthesized from the read-only flag, so every key
+    # would look world-readable there; its ACLs, which this cannot see, are what
+    # actually govern access.
+    if key_path and os.name == "posix":
+        path = Path(str(key_path)).expanduser()
+        try:
+            mode = path.stat().st_mode
+        except OSError:
+            mode = 0
+        if mode & 0o077:
+            raise CredentialDiscoveryError(
+                f"the Snowflake private key file {path} is readable by other "
+                f"accounts (mode {mode & 0o777:04o}); restrict it with "
+                f"`chmod 600 {path}` and re-run"
+            )
+    return normalized
+
+
+def _credential_kind(params: dict) -> str:
+    """The coarse credential class for the envelope; never a value."""
+
+    authenticator = str(params.get("authenticator", "")).upper()
+    if authenticator == "WORKLOAD_IDENTITY":
+        return "workload_identity"
+    if authenticator == "EXTERNALBROWSER":
+        return "sso_browser"
+    if (
+        params.get("private_key_file")
+        or params.get("private_key_path")
+        or params.get("private_key")
+    ):
+        return "key_pair"
+    if params.get("token"):
+        return "token"
+    if params.get("password"):
+        return "password"
+    return "unknown"
+
+
+def _snowflake_connections(env: dict | os._Environ) -> dict:
+    """Parse the Snowflake config stores the ``snow`` CLI and the Python
+    connector share. Returns name -> params, plus ``__default__`` naming the
+    configured default connection when one is declared.
+
+    Search order matches the connector: ``$SNOWFLAKE_HOME``, ``~/.snowflake``,
+    then the platform config dir. ``connections.toml`` holds top-level
+    connection tables; ``config.toml`` holds ``[connections.<name>]`` tables
+    and ``default_connection_name``.
+    """
+
+    candidates: list[Path] = []
+    snowflake_home = env.get("SNOWFLAKE_HOME")
+    if snowflake_home:
+        candidates.append(Path(snowflake_home))
+    candidates.append(Path.home() / ".snowflake")
+    candidates.append(_platform_config_dir())
+
+    connections: dict = {}
+    for directory in candidates:
+        connections_file = directory / "connections.toml"
+        config_file = directory / "config.toml"
+        try:
+            if connections_file.is_file():
+                parsed = tomllib.loads(connections_file.read_text(encoding="utf-8"))
+                for name, params in parsed.items():
+                    if isinstance(params, dict):
+                        connections.setdefault(name, params)
+            if config_file.is_file():
+                parsed = tomllib.loads(config_file.read_text(encoding="utf-8"))
+                for name, params in (parsed.get("connections") or {}).items():
+                    if isinstance(params, dict):
+                        connections.setdefault(name, params)
+                default = parsed.get("default_connection_name")
+                if isinstance(default, str):
+                    connections.setdefault("__default__", default)
+        except (OSError, tomllib.TOMLDecodeError):
+            continue
+    return connections
+
+
+def _platform_config_dir() -> Path:
+    import sys
+
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "snowflake"
+    return Path.home() / ".config" / "snowflake"
+
+
+def _snowflake_from_dbt_profiles(repo_root: str | Path) -> dict | None:
+    """Best-effort: the connection fields of a ``type: snowflake`` output in
+    the discovered dbt project's profiles. Any failure means "not found"."""
+
+    try:
+        from .dbt_project import PROFILES_FILE, find_project, profiles_dir
+
+        project_dir = find_project(repo_root)
+        profiles_path = profiles_dir(project_dir) / PROFILES_FILE
+        profiles = yaml.safe_load(profiles_path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return None
+    for profile in profiles.values():
+        if not isinstance(profile, dict):
+            continue
+        for output in (profile.get("outputs") or {}).values():
+            if (
+                isinstance(output, dict)
+                and output.get("type") == "snowflake"
+                and output.get("account")
+            ):
+                params = {
+                    key: output[key]
+                    for key in (
+                        "account",
+                        "user",
+                        "password",
+                        "authenticator",
+                        "role",
+                        "warehouse",
+                        "database",
+                    )
+                    if output.get(key)
+                }
+                if output.get("private_key_path"):
+                    params["private_key_file"] = output["private_key_path"]
+                return params
+    return None
+
+
+def _open_databricks(
+    config: DexConfig,
+    repo_root: str | Path,
+    *,
+    store: ExploreStore,
+    budget: float | None,
+    confirmed: bool,
+    command: str | None,
+    scope_override: list[str] | None = None,
+    connection: ConnectionSource | None = None,
+):
+    target = config.databricks or DatabricksTarget()
+    target = narrow_target(target, "databricks", scope_override)
+
+    if connection is not None:
+        # Databricks needs two clients, and the split is the whole reason the free
+        # paths are free: `workspace` is the Unity Catalog REST door that serves all
+        # metadata, and `connect` opens the billed SQL session, which lands on the
+        # warehouse and can wake it. The adapter calls the factory on the first
+        # billed statement and never before, so an injected source keeps that
+        # property. The host is a non-secret fact, so it comes from config.
+        workspace = connection.workspace
+        sql_connect = connection.connect
+        host = _databricks_hostname(target.host) if target.host else None
+        method = connection.auth_method
+    else:
+        try:
+            from databricks.sdk import WorkspaceClient
+        except ImportError as exc:
+            raise CredentialDiscoveryError(
+                "the Databricks client is not installed; install the connector "
+                "extra: exmergo-dex-core[databricks]"
+            ) from exc
+
+        sdk_config, method = resolve_databricks_connection(
+            target, os.environ, repo_root
+        )
+        workspace = WorkspaceClient(config=sdk_config)
+        host = _databricks_hostname(sdk_config.host)
+
+        def sql_connect():
+            # Built lazily by the adapter on the first billed statement only:
+            # opening a SQL session lands on the warehouse and can wake it, so the
+            # free metadata paths must never construct this connection.
+            from databricks import sql as dbsql
+
+            from .adapters.databricks import warehouse_http_path
+
+            return dbsql.connect(
+                server_hostname=_databricks_hostname(sdk_config.host),
+                http_path=warehouse_http_path(str(target.warehouse)),
+                credentials_provider=lambda: sdk_config.authenticate,
+                user_agent_entry="dex",
+            )
+
+    gate = new_cost_gate(
+        "databricks",
+        config,
+        store,
+        budget=budget,
+        confirmed=confirmed,
+        command=command,
+    )
+    return get_adapter(
+        "databricks",
+        workspace=workspace,
+        sql_connect=sql_connect,
+        owns_connection=connection is None,
+        cost_gate=gate,
+        target=target,
+        host=host,
+        auth_method=method,
+        scope_origin=scope_origin("databricks", "--scope" if scope_override else None),
+    )
+
+
+def resolve_databricks_connection(
+    target: DatabricksTarget,
+    env: dict | os._Environ,
+    repo_root: str | Path = ".",
+):
+    """Discover a Databricks workspace connection, never prompting.
+
+    Returns ``(sdk_config, auth_method)`` where ``sdk_config`` is a
+    ``databricks.sdk.core.Config`` carrying the resolved host and credential
+    strategy, and ``auth_method`` is a coarse class safe to surface
+    (named_profile / environment / default_profile / dbt_profile, suffixed
+    with the credential kind); token values never leave the engine process.
+    Credential mechanics are the SDK's unified chain, so the CLI's OAuth
+    cache, PATs, OAuth M2M, and CI's OIDC federation all arrive through the
+    same door. Order: the config-pinned ``~/.databrickscfg`` profile, the
+    ``DATABRICKS_*`` environment, the default profile, then a dbt profile's
+    databricks target. Every failure names the fix.
+    """
+
+    from databricks.sdk.core import Config
+
+    overrides: dict = {}
+    if target.host:
+        overrides["host"] = target.host
+
+    if target.profile:
+        try:
+            cfg = Config(profile=target.profile, **overrides)
+        except ValueError as exc:
+            raise CredentialDiscoveryError(
+                f"databricks.profile '{target.profile}' did not resolve: check "
+                "~/.databrickscfg or run `databricks auth login --host "
+                f"<workspace-url> --profile {target.profile}`"
+            ) from exc
+        return cfg, f"named_profile:{_databricks_credential_kind(cfg)}"
+
+    if env.get("DATABRICKS_HOST") or env.get("DATABRICKS_CONFIG_PROFILE"):
+        try:
+            cfg = Config(**overrides)
+        except ValueError as exc:
+            raise CredentialDiscoveryError(
+                "DATABRICKS_* environment variables are set but no credential "
+                "resolved; export DATABRICKS_TOKEN or the OAuth client "
+                "variables, or run `databricks auth login`"
+            ) from exc
+        return cfg, f"environment:{_databricks_credential_kind(cfg)}"
+
+    if _databrickscfg_default_exists(env):
+        try:
+            cfg = Config(**overrides)
+        except ValueError as exc:
+            raise CredentialDiscoveryError(
+                "the DEFAULT profile in ~/.databrickscfg did not resolve; "
+                "re-run `databricks auth login --host <workspace-url>` or pin "
+                "databricks.profile in .dex/config.yml"
+            ) from exc
+        return cfg, f"default_profile:{_databricks_credential_kind(cfg)}"
+
+    profile_params = _databricks_from_dbt_profiles(repo_root)
+    if profile_params:
+        kwargs: dict = {"host": target.host or profile_params.get("host")}
+        if profile_params.get("token"):
+            kwargs["token"] = profile_params["token"]
+        try:
+            cfg = Config(**kwargs)
+        except ValueError as exc:
+            raise CredentialDiscoveryError(
+                "the databricks target in dbt profiles.yml did not resolve to "
+                "a usable credential; run `databricks auth login --host "
+                "<workspace-url>` instead"
+            ) from exc
+        return cfg, f"dbt_profile:{_databricks_credential_kind(cfg)}"
+
+    raise CredentialDiscoveryError(
+        "no Databricks connection discovered; run `databricks auth login "
+        "--host <workspace-url>` (then optionally pin databricks.profile in "
+        ".dex/config.yml), or export DATABRICKS_HOST plus a credential, or "
+        "keep a databricks target in your dbt profiles.yml"
+    )
+
+
+def _databricks_credential_kind(cfg) -> str:
+    """The coarse credential class for the envelope; never a value. The SDK's
+    ``auth_type`` names the strategy that won its unified chain."""
+
+    auth_type = str(getattr(cfg, "auth_type", "") or "").lower()
+    if auth_type == "pat":
+        return "token"
+    if auth_type in ("databricks-cli", "external-browser"):
+        return "oauth_user"
+    if auth_type == "oauth-m2m":
+        return "oauth_m2m"
+    if "oidc" in auth_type:
+        return "workload_identity"
+    if auth_type.startswith(("azure", "google")):
+        return "cloud_native"
+    return "unknown"
+
+
+def _databricks_hostname(host: object) -> str:
+    """The bare workspace hostname (an identifier, not a secret): what the SQL
+    driver wants, and what capabilities surface."""
+
+    return str(host or "").removeprefix("https://").removeprefix("http://").rstrip("/")
+
+
+def _databrickscfg_default_exists(env: dict | os._Environ) -> bool:
+    """Whether ``~/.databrickscfg`` (or ``DATABRICKS_CONFIG_FILE``) declares a
+    default profile the SDK would resolve without any other signal: either a
+    classic ``[DEFAULT]`` section with a host, or the newer CLI's
+    ``[__settings__] default_profile`` pointer at a profile with a host."""
+
+    import configparser
+
+    path = Path(env.get("DATABRICKS_CONFIG_FILE") or Path.home() / ".databrickscfg")
+    if not path.is_file():
+        return False
+    parser = configparser.ConfigParser(interpolation=None)
+    try:
+        parser.read_string(path.read_text(encoding="utf-8"))
+    except (OSError, configparser.Error):
+        return False
+    if parser.defaults().get("host"):
+        return True
+    if parser.has_section("__settings__"):
+        pointed = parser.get("__settings__", "default_profile", fallback=None)
+        if (
+            pointed
+            and parser.has_section(pointed)
+            and parser.get(pointed, "host", fallback=None)
+        ):
+            return True
+    return False
+
+
+def _databricks_from_dbt_profiles(repo_root: str | Path) -> dict | None:
+    """Best-effort: the connection fields of a ``type: databricks`` output in
+    the discovered dbt project's profiles. Any failure means "not found"."""
+
+    try:
+        from .dbt_project import PROFILES_FILE, find_project, profiles_dir
+
+        project_dir = find_project(repo_root)
+        profiles_path = profiles_dir(project_dir) / PROFILES_FILE
+        profiles = yaml.safe_load(profiles_path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return None
+    for profile in profiles.values():
+        if not isinstance(profile, dict):
+            continue
+        for output in (profile.get("outputs") or {}).values():
+            if (
+                isinstance(output, dict)
+                and output.get("type") == "databricks"
+                and output.get("host")
+            ):
+                return {
+                    key: output[key]
+                    for key in ("host", "token", "http_path")
+                    if output.get(key)
+                }
+    return None
+
+
+def _open_postgres(
+    config: DexConfig,
+    repo_root: str | Path,
+    *,
+    store: ExploreStore,
+    budget: float | None,
+    confirmed: bool,
+    command: str | None,
+    scope_override: list[str] | None = None,
+    connection: ConnectionSource | None = None,
+):
+    target = config.postgres or PostgresTarget()
+    target = narrow_target(target, "postgres", scope_override)
+
+    if connection is not None:
+        # autocommit and application_name are session settings on a connection the
+        # host built, so they are the host's to set; an injected session without
+        # autocommit risks idle-in-transaction on what is often a production
+        # primary. The read-only guard does not depend on either: the adapter sets
+        # the session read-only itself before any statement runs.
+        conn = connection.connect()
+        method = connection.auth_method
+    else:
+        params, method = resolve_postgres_connection(target, os.environ, repo_root)
+
+        try:
+            import psycopg
+        except ImportError as exc:
+            raise CredentialDiscoveryError(
+                "the Postgres client is not installed; install the connector "
+                "extra: exmergo-dex-core[postgres]"
+            ) from exc
+
+        # autocommit keeps the session out of idle-in-transaction (which blocks
+        # vacuum on a production primary); application_name is the attribution
+        # tag, the QUERY_TAG analogue. The adapter additionally sets the session
+        # read-only before any statement runs.
+        conn = psycopg.connect(**params, autocommit=True, application_name="dex")
+
+    gate = new_cost_gate(
+        "postgres",
+        config,
+        store,
+        budget=budget,
+        confirmed=confirmed,
+        command=command,
+    )
+    return get_adapter(
+        "postgres",
+        connection=conn,
+        owns_connection=connection is None,
+        cost_gate=gate,
+        target=target,
+        auth_method=method,
+        scope_origin=scope_origin("postgres", "--scope" if scope_override else None),
+    )
+
+
+def resolve_postgres_connection(
+    target: PostgresTarget,
+    env: dict | os._Environ,
+    repo_root: str | Path = ".",
+) -> tuple[dict, str]:
+    """Discover Postgres connection parameters, never prompting.
+
+    Returns ``(params, auth_method)`` where ``params`` feeds
+    ``psycopg.connect`` and ``auth_method`` is a coarse class safe to surface
+    (config_service / database_url / environment / config_target /
+    dbt_profile, suffixed with the credential kind); parameter values,
+    including any password a store legitimately holds, never leave the engine
+    process. Order: the config-pinned ``pg_service.conf`` entry,
+    ``DATABASE_URL``, the ``PG*`` environment (resolved natively by libpq,
+    including ``~/.pgpass`` and ``PGSERVICE``), the committed non-secret
+    config target, then a dbt profile's postgres target. Every failure names
+    the fix.
+    """
+
+    if target.service:
+        service_params = _pg_service_params(target.service, env)
+        if service_params is None:
+            raise CredentialDiscoveryError(
+                f"postgres.service '{target.service}' not found in "
+                "pg_service.conf; add the entry (PGSERVICEFILE or "
+                "~/.pg_service.conf) or fix the name in .dex/config.yml"
+            )
+        # libpq resolves the service entry itself; the parsed fields above
+        # only validated existence and stay inside the engine.
+        return {"service": target.service}, (
+            f"config_service:{_pg_credential_kind(service_params)}"
+        )
+
+    url = env.get("DATABASE_URL")
+    if url:
+        params = _pg_url_params(url)
+        return {"conninfo": url}, f"database_url:{_pg_credential_kind(params)}"
+
+    if env.get("PGSERVICE"):
+        return {}, "environment:service_file"
+    if env.get("PGHOST") or env.get("PGDATABASE"):
+        # libpq reads the PG* variables (and ~/.pgpass) natively; passing no
+        # explicit params lets its own resolution rules apply.
+        kind = "password" if env.get("PGPASSWORD") else "external"
+        return {}, f"environment:{kind}"
+
+    if target.host or target.dbname:
+        params = {
+            key: value
+            for key, value in (
+                ("host", target.host),
+                ("port", target.port),
+                ("dbname", target.dbname),
+                ("user", target.user),
+            )
+            if value is not None
+        }
+        kind = "password" if env.get("PGPASSWORD") else "external"
+        return params, f"config_target:{kind}"
+
+    profile_params = _postgres_from_dbt_profiles(repo_root)
+    if profile_params:
+        return profile_params, f"dbt_profile:{_pg_credential_kind(profile_params)}"
+
+    raise CredentialDiscoveryError(
+        "no Postgres connection discovered; export DATABASE_URL (or PGHOST/"
+        "PGDATABASE and friends), or add a pg_service.conf entry and set "
+        "postgres.service in .dex/config.yml, or set postgres.host/dbname "
+        "there, or keep a postgres target in your dbt profiles.yml"
+    )
+
+
+def _pg_credential_kind(params: dict) -> str:
+    """The coarse credential class for the envelope; never a value. Anything
+    that is not an inline password is ``external`` (``~/.pgpass``, peer/trust
+    auth, SSL client certificates), deliberately coarse."""
+
+    return "password" if params.get("password") else "external"
+
+
+def _pg_url_params(url: str) -> dict:
+    """Parse a Postgres URL into libpq keywords, for classification only (the
+    URL itself is what gets passed to the driver). Failures mean "no fields",
+    never an error that could echo the URL."""
+
+    try:
+        from psycopg.conninfo import conninfo_to_dict
+
+        return {k: v for k, v in conninfo_to_dict(url).items() if v is not None}
+    except Exception:
+        return {}
+
+
+def _pg_service_params(service: str, env: dict | os._Environ) -> dict | None:
+    """The named entry of the pg_service.conf file, or ``None`` when the file
+    or entry is missing. Search order matches libpq: ``PGSERVICEFILE``, then
+    ``~/.pg_service.conf``. Parsed fields are used for existence validation
+    and credential classification only; they never leave the engine."""
+
+    import configparser
+
+    candidates: list[Path] = []
+    service_file = env.get("PGSERVICEFILE")
+    if service_file:
+        candidates.append(Path(service_file))
+    candidates.append(Path.home() / ".pg_service.conf")
+    for candidate in candidates:
+        if not candidate.is_file():
+            continue
+        parser = configparser.ConfigParser(interpolation=None)
+        try:
+            parser.read_string(candidate.read_text(encoding="utf-8"))
+        except (OSError, configparser.Error):
+            continue
+        if parser.has_section(service):
+            return dict(parser.items(service))
+    return None
+
+
+def _open_clickhouse(
+    config: DexConfig,
+    repo_root: str | Path,
+    *,
+    store: ExploreStore,
+    budget: float | None,
+    confirmed: bool,
+    command: str | None,
+    scope_override: list[str] | None = None,
+    connection: ConnectionSource | None = None,
+):
+    target = config.clickhouse or ClickHouseTarget()
+    target = narrow_target(target, "clickhouse", scope_override)
+
+    if connection is not None:
+        # Session settings are the host's to set on a client it built; the
+        # read-only guard does not depend on them, because the adapter sends
+        # readonly=2 with every statement it issues.
+        client = connection.connect()
+        method = connection.auth_method
+    else:
+        params, method = resolve_clickhouse_connection(target, os.environ, repo_root)
+
+        try:
+            import clickhouse_connect
+        except ImportError as exc:
+            raise CredentialDiscoveryError(
+                "the ClickHouse client is not installed; install the connector "
+                "extra: exmergo-dex-core[clickhouse]"
+            ) from exc
+
+        client = clickhouse_connect.get_client(
+            **params,
+            # The attribution tag, the application_name analogue. Session
+            # settings ride each statement instead of the client, so a host
+            # reusing this client cannot lose them.
+            client_name="dex",
+        )
+
+    gate = new_cost_gate(
+        "clickhouse",
+        config,
+        store,
+        budget=budget,
+        confirmed=confirmed,
+        command=command,
+    )
+    return get_adapter(
+        "clickhouse",
+        connection=client,
+        owns_connection=connection is None,
+        cost_gate=gate,
+        target=target,
+        auth_method=method,
+        scope_origin=scope_origin("clickhouse", "--scope" if scope_override else None),
+    )
+
+
+def resolve_clickhouse_connection(
+    target: ClickHouseTarget,
+    env: dict | os._Environ,
+    repo_root: str | Path = ".",
+) -> tuple[dict, str]:
+    """Discover ClickHouse connection parameters, never prompting.
+
+    Returns ``(params, auth_method)`` where ``params`` feeds
+    ``clickhouse_connect.get_client`` and ``auth_method`` is a coarse class safe
+    to surface (environment / config_target / dbt_profile, suffixed with the
+    credential kind); parameter values, including any password, never leave the
+    engine process.
+
+    Order: ``CLICKHOUSE_URL`` (or ``CLICKHOUSE_DSN``), the ``CLICKHOUSE_*``
+    environment, the committed non-secret config target plus
+    ``CLICKHOUSE_PASSWORD``, then a dbt profile's clickhouse target. There is no
+    ``pg_service.conf`` analogue to pin, which is why this chain is one shorter
+    than Postgres's. Every failure names the fix.
+    """
+
+    dsn = env.get("CLICKHOUSE_URL") or env.get("CLICKHOUSE_DSN")
+    if dsn:
+        params: dict = {"dsn": dsn}
+        if target.database:
+            params["database"] = target.database
+        return params, "environment:dsn"
+
+    host = env.get("CLICKHOUSE_HOST")
+    if host:
+        params = {"host": host}
+        _put(params, "port", env.get("CLICKHOUSE_PORT"), int)
+        _put(params, "username", env.get("CLICKHOUSE_USER"))
+        _put(params, "password", env.get("CLICKHOUSE_PASSWORD"))
+        _put(params, "database", env.get("CLICKHOUSE_DATABASE") or target.database)
+        secure = env.get("CLICKHOUSE_SECURE")
+        if secure is not None:
+            params["secure"] = str(secure).lower() in ("1", "true", "yes", "on")
+        return params, _ch_credential_kind(params)
+
+    if target.host:
+        params = {"host": target.host}
+        _put(params, "port", target.port)
+        _put(params, "username", target.user)
+        _put(params, "password", env.get("CLICKHOUSE_PASSWORD"))
+        _put(params, "database", target.database)
+        if target.secure is not None:
+            params["secure"] = target.secure
+        return params, f"config_target:{_ch_credential_kind(params).split(':')[-1]}"
+
+    profile_params = _clickhouse_from_dbt_profiles(repo_root, env)
+    if profile_params:
+        kind = _ch_credential_kind(profile_params).split(":")[-1]
+        return profile_params, f"dbt_profile:{kind}"
+
+    raise CredentialDiscoveryError(
+        "no ClickHouse connection could be discovered. Set CLICKHOUSE_URL, or "
+        "CLICKHOUSE_HOST (with CLICKHOUSE_USER and CLICKHOUSE_PASSWORD), or "
+        "commit a clickhouse.host target in .dex/config.yml, or add a "
+        "clickhouse output to your dbt profiles.yml"
+    )
+
+
+def _put(params: dict, key: str, value, cast=None) -> None:
+    """Set an optional connection parameter only when it has a value, so the
+    client's own defaults (port by protocol, user 'default') still apply."""
+
+    if value in (None, ""):
+        return
+    params[key] = cast(value) if cast else value
+
+
+def _ch_credential_kind(params: dict) -> str:
+    """The coarse credential class, never the credential. Deliberately blunt:
+    the envelope needs to know whether a password was inlined, not what it was."""
+
+    if params.get("password"):
+        return "environment:password"
+    return "environment:external"
+
+
+def _clickhouse_from_dbt_profiles(
+    repo_root: str | Path, env: dict | os._Environ
+) -> dict | None:
+    """Last-resort fallback: a clickhouse output in the project's profiles.yml.
+
+    dbt-clickhouse names the ClickHouse database ``schema`` (it has no
+    ``database`` key), which is the same two-part-namespace fact the adapter
+    encodes, so the mapping here is not a special case so much as the same
+    truth spelled dbt's way. Any failure means not found.
+    """
+
+    profiles_path = Path(repo_root) / "profiles.yml"
+    if not profiles_path.is_file():
+        profiles_path = Path.home() / ".dbt" / "profiles.yml"
+    if not profiles_path.is_file():
+        return None
+    try:
+        profiles = yaml.safe_load(profiles_path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return None
+    for profile in profiles.values():
+        if not isinstance(profile, dict):
+            continue
+        for output in (profile.get("outputs") or {}).values():
+            if not isinstance(output, dict) or output.get("type") != "clickhouse":
+                continue
+            host = _profile_scalar(output.get("host"), env)
+            if not host:
+                continue
+            params: dict = {"host": host}
+            _put(params, "port", _profile_scalar(output.get("port"), env), int)
+            _put(params, "username", _profile_scalar(output.get("user"), env))
+            _put(params, "password", _profile_scalar(output.get("password"), env))
+            _put(params, "database", _profile_scalar(output.get("schema"), env))
+            secure = _profile_scalar(output.get("secure"), env)
+            if secure is not None:
+                params["secure"] = str(secure).lower() in ("1", "true", "yes", "on")
+            return params
+    return None
+
+
+def _open_trino(
+    config: DexConfig,
+    repo_root: str | Path,
+    *,
+    store: ExploreStore,
+    budget: float | None,
+    confirmed: bool,
+    command: str | None,
+    scope_override: list[str] | None = None,
+    connection: ConnectionSource | None = None,
+):
+    target = config.trino or TrinoTarget()
+    target = narrow_target(target, "trino", scope_override)
+    warnings: list[str] = []
+
+    if connection is not None:
+        # The host built the connection; the caps still ride every statement,
+        # because the adapter sets them as session properties through its own
+        # door rather than trusting how the connection was configured.
+        conn = connection.connect()
+        method = connection.auth_method
+        host = target.host
+    else:
+        params, method, warnings = resolve_trino_connection(
+            target, os.environ, repo_root
+        )
+        host = params["host"]
+        _refuse_undeclared_galaxy(host, target)
+        try:
+            import trino
+        except ImportError as exc:
+            raise CredentialDiscoveryError(
+                "the Trino client is not installed; install the connector extra: "
+                "exmergo-dex-core[trino]"
+            ) from exc
+
+        auth = None
+        if params.get("password") is not None:
+            auth = trino.auth.BasicAuthentication(params["user"], params["password"])
+        elif params.get("jwt_token") is not None:
+            auth = trino.auth.JWTAuthentication(params["jwt_token"])
+        conn = trino.dbapi.connect(
+            host=host,
+            port=params["port"],
+            user=params["user"],
+            http_scheme=params["http_scheme"],
+            auth=auth,
+            # No session catalog or schema, ever: every relation is written
+            # catalog.schema.table, so the one the firewall approved is the one
+            # Trino reads.
+            catalog=None,
+            schema=None,
+            # Attribution: an operator can see dex's queries and route them to a
+            # constrained resource group, the server-side backstop dex cannot
+            # raise from inside a session.
+            source="dex",
+            client_tags=["dex"],
+        )
+
+    gate = new_cost_gate(
+        "trino",
+        config,
+        store,
+        budget=budget,
+        confirmed=confirmed,
+        command=command,
+    )
+    return get_adapter(
+        "trino",
+        connection=conn,
+        owns_connection=connection is None,
+        cost_gate=gate,
+        target=target,
+        host=host,
+        auth_method=method,
+        scope_origin=scope_origin("trino", "--scope" if scope_override else None),
+        connection_warnings=warnings,
+    )
+
+
+def _refuse_undeclared_galaxy(host: str, target: TrinoTarget) -> None:
+    """Refuse a Galaxy host reached under a ``self_hosted`` declaration.
+
+    The committed config is validated for this already; a host that arrives
+    from the environment or a dbt profile is checked here, because the guard
+    would otherwise count load on a cluster that bills uptime.
+    """
+
+    if target.deployment == "self_hosted" and host.strip().lower().rstrip(".").endswith(
+        GALAXY_HOST_SUFFIX
+    ):
+        raise ConfigurationError(
+            f"the discovered Trino host {host} is a Starburst Galaxy cluster, but "
+            "trino.deployment is 'self_hosted'. Galaxy bills cluster uptime, which "
+            "a self-hosted declaration would never count; set trino.deployment: "
+            "galaxy in .dex/config.yml"
+        )
+
+
+# Authentication methods a dbt-trino profile may name that dex refuses, with
+# why. Agent sessions are non-interactive, and dex hands the same profile to a
+# dbt subprocess that cannot answer a browser or a ticket prompt either.
+_TRINO_REFUSED_METHODS = {
+    "oauth": "OAuth2 opens a browser to sign in",
+    "oauth_console": "OAuth2 waits for a sign-in at the console",
+    "kerberos": "Kerberos needs a ticket cache dex does not manage",
+    "certificate": "certificate auth needs client key files dex does not manage",
+}
+
+
+def resolve_trino_connection(
+    target: TrinoTarget,
+    env: dict | os._Environ,
+    repo_root: str | Path = ".",
+) -> tuple[dict, str, list[str]]:
+    """Discover Trino connection parameters, never prompting.
+
+    Returns ``(params, auth_method, warnings)``. ``params`` carries ``host``,
+    ``port``, ``user``, ``http_scheme`` and at most one of ``password`` and
+    ``jwt_token``; ``auth_method`` is a coarse class safe to surface; parameter
+    values, including any credential, never leave the engine process.
+    ``warnings`` ride ``connect test``.
+
+    Order: ``TRINO_URL``, the ``TRINO_*`` environment, the committed non-secret
+    target plus ``TRINO_PASSWORD`` or ``TRINO_JWT_TOKEN``, then a dbt profile's
+    trino output with ``env_var`` expanded.
+
+    ``TRINO_URL`` takes only its own credential. ``TRINO_PASSWORD`` and
+    ``TRINO_JWT_TOKEN`` are what a dex-rendered dbt profile reads, so a dbt
+    identity that writes and a dex identity that reads stay separable: the URL
+    for dex, the variables for dbt.
+
+    Password and JWT ride HTTP basic and bearer headers, so a credential over
+    plain HTTP is refused here with the fix rather than left to the client's
+    own refusal; dex never sets the client's ``allow_insecure_auth``.
+    """
+
+    warnings: list[str] = []
+    url = env.get("TRINO_URL")
+    if url:
+        params, warnings = _trino_from_url(url)
+        return _checked_trino_params(params, "TRINO_URL"), "environment:dsn", warnings
+
+    host = env.get("TRINO_HOST")
+    if host:
+        params = {
+            "host": host,
+            "port": env.get("TRINO_PORT"),
+            "user": env.get("TRINO_USER"),
+            "http_scheme": env.get("TRINO_HTTP_SCHEME"),
+            "password": env.get("TRINO_PASSWORD") or None,
+            "jwt_token": env.get("TRINO_JWT_TOKEN") or None,
+        }
+        params = _checked_trino_params(params, "TRINO_HOST")
+        return params, f"environment:{_trino_credential_kind(params)}", warnings
+
+    if target.host:
+        params = {
+            "host": target.host,
+            "port": target.port,
+            # Only the committed user: TRINO_USER is what a dex-rendered dbt
+            # profile reads for the identity that writes, which is usually not
+            # the one dex reads as.
+            "user": target.user,
+            "http_scheme": target.http_scheme,
+            "password": env.get("TRINO_PASSWORD") or None,
+            "jwt_token": env.get("TRINO_JWT_TOKEN") or None,
+        }
+        params = _checked_trino_params(params, "trino.host in .dex/config.yml")
+        return params, f"config_target:{_trino_credential_kind(params)}", warnings
+
+    params, refused = _trino_from_dbt_profiles(repo_root, env)
+    if params is not None:
+        params = _checked_trino_params(params, "the dbt profile's trino output")
+        return params, f"dbt_profile:{_trino_credential_kind(params)}", warnings
+
+    refusal = ""
+    if refused:
+        refusal = (
+            " The dbt profile's trino output was skipped because dex does not use "
+            + "; ".join(sorted(refused))
+            + "; use method: none, ldap (password), or jwt."
+        )
+    raise CredentialDiscoveryError(
+        "no Trino connection could be discovered. Set TRINO_URL (for example "
+        "http://dex_ro@localhost:8080), or TRINO_HOST with TRINO_USER, or commit "
+        "trino.host and trino.user in .dex/config.yml, or add a trino output to "
+        "your dbt profiles.yml." + refusal
+    )
+
+
+def _trino_from_url(url: str) -> tuple[dict, list[str]]:
+    """``trino://`` or ``http(s)://`` with an optional ``user[:password]@``.
+
+    A path (``/catalog/schema``, the client's own URL form) is ignored and
+    warned on rather than honored: dex never sets a session catalog or schema.
+    """
+
+    from urllib.parse import unquote, urlsplit
+
+    parts = urlsplit(url.strip())
+    if parts.scheme not in ("trino", "http", "https") or not parts.hostname:
+        raise CredentialDiscoveryError(
+            "TRINO_URL must look like trino://user@host:port, http://user@host:port "
+            "or https://user[:password]@host:port"
+        )
+    warnings: list[str] = []
+    if parts.path.strip("/") or parts.query:
+        warnings.append(
+            "TRINO_URL names a catalog, schema, or session options; dex ignores "
+            "them, because it never sets a session catalog or schema: every "
+            "relation is read as catalog.schema.table"
+        )
+    params = {
+        "host": parts.hostname,
+        "port": parts.port,
+        "user": unquote(parts.username) if parts.username else None,
+        "http_scheme": parts.scheme if parts.scheme != "trino" else None,
+        "password": unquote(parts.password) if parts.password else None,
+        "jwt_token": None,
+    }
+    return params, warnings
+
+
+def _checked_trino_params(params: dict, source: str) -> dict:
+    """Fill the scheme and port defaults and refuse what cannot work.
+
+    The scheme defaults to https when the port is 443 or a credential is
+    present (the cluster then has TLS, or the credential cannot be sent), and
+    to http otherwise; the port then defaults from the scheme.
+    """
+
+    if not params.get("user"):
+        raise CredentialDiscoveryError(
+            f"{source} names no Trino user; every query runs as a user, which "
+            "the cluster's access control decides on. Set TRINO_USER, or put the "
+            "user in the URL (http://dex_ro@host:8080)"
+        )
+    port = params.get("port")
+    port = int(port) if port not in (None, "") else None
+    credential = (
+        params.get("password") is not None or params.get("jwt_token") is not None
+    )
+    scheme = params.get("http_scheme") or (
+        "https" if credential or port == 443 else "http"
+    )
+    if scheme not in ("http", "https"):
+        raise CredentialDiscoveryError(
+            f"{source}: http_scheme must be http or https, got '{scheme}'"
+        )
+    if credential and scheme == "http":
+        raise CredentialDiscoveryError(
+            f"{source} supplies a password or token over plain HTTP. Trino sends "
+            "both as headers, so they are refused without TLS; use https (set "
+            "TRINO_HTTP_SCHEME=https, or an https:// URL) against a coordinator "
+            "with TLS, or connect without a credential on a cluster that needs none"
+        )
+    return {
+        **params,
+        "port": port if port is not None else (443 if scheme == "https" else 8080),
+        "http_scheme": scheme,
+    }
+
+
+def _trino_credential_kind(params: dict) -> str:
+    """The coarse credential class, never the credential."""
+
+    if params.get("jwt_token") is not None:
+        return "jwt"
+    if params.get("password") is not None:
+        return "password"
+    return "none"
+
+
+def _trino_from_dbt_profiles(
+    repo_root: str | Path, env: dict | os._Environ
+) -> tuple[dict | None, set[str]]:
+    """Best-effort: the connection fields of a ``type: trino`` output in the
+    discovered dbt project's profiles, and the refused auth methods it skipped.
+    Any failure reading the file means "not found".
+
+    dex's own rendered profiles keep the password and token as ``env_var``
+    references; an output whose credential the environment cannot render is
+    skipped rather than connected with a hole where the credential should be.
+    """
+
+    try:
+        from .dbt_project import PROFILES_FILE, find_project, profiles_dir
+
+        project_dir = find_project(repo_root)
+        profiles_path = profiles_dir(project_dir) / PROFILES_FILE
+        profiles = yaml.safe_load(profiles_path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return None, set()
+    refused: set[str] = set()
+    for profile in profiles.values():
+        if not isinstance(profile, dict):
+            continue
+        for output in (profile.get("outputs") or {}).values():
+            if not isinstance(output, dict) or output.get("type") != "trino":
+                continue
+            method = str(output.get("method") or "none").lower()
+            if method in _TRINO_REFUSED_METHODS:
+                refused.add(f"method: {method} ({_TRINO_REFUSED_METHODS[method]})")
+                continue
+            host = _profile_scalar(output.get("host"), env)
+            if not host:
+                continue
+            params: dict = {
+                "host": host,
+                "port": _profile_scalar(output.get("port"), env),
+                "user": _profile_scalar(output.get("user"), env),
+                "http_scheme": _profile_scalar(output.get("http_scheme"), env),
+                "password": None,
+                "jwt_token": None,
+            }
+            if method == "ldap":
+                params["password"] = _profile_scalar(output.get("password"), env)
+                if not params["password"]:
+                    continue
+            elif method == "jwt":
+                params["jwt_token"] = _profile_scalar(output.get("jwt_token"), env)
+                if not params["jwt_token"]:
+                    continue
+            elif method != "none":
+                continue
+            return params, refused
+    return None, refused
+
+
+def _postgres_from_dbt_profiles(repo_root: str | Path) -> dict | None:
+    """Best-effort: the connection fields of a ``type: postgres`` output in
+    the discovered dbt project's profiles. Any failure means "not found"."""
+
+    try:
+        from .dbt_project import PROFILES_FILE, find_project, profiles_dir
+
+        project_dir = find_project(repo_root)
+        profiles_path = profiles_dir(project_dir) / PROFILES_FILE
+        profiles = yaml.safe_load(profiles_path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return None
+    for profile in profiles.values():
+        if not isinstance(profile, dict):
+            continue
+        for output in (profile.get("outputs") or {}).values():
+            if (
+                isinstance(output, dict)
+                and output.get("type") == "postgres"
+                and output.get("host")
+            ):
+                params = {
+                    key: output[key]
+                    for key in ("host", "port", "user", "password", "sslmode")
+                    if output.get(key)
+                }
+                dbname = output.get("dbname") or output.get("database")
+                if dbname:
+                    params["dbname"] = dbname
+                return params
+    return None
+
+
+# An idle Redshift Serverless workgroup resumes on the first connection: the
+# startup/auth handshake blocks until compute is ready, and a resume slower
+# than the endpoint tolerates is torn down mid-handshake, so the first command
+# to touch a cold workgroup gets a connection error while everything after it
+# runs warm. The bare connect is therefore retried across a window wide enough
+# to cover a cold resume. A per-attempt timeout bounds a stalled handshake so a
+# reset that never arrives cannot block forever, and it is cleared once the
+# connection is up so it never bounds a later billed query's result read. No
+# statement runs here, so the retries add no billed compute; the wake is billed
+# once by the first real statement regardless.
+_CONNECT_ATTEMPT_TIMEOUT_SECONDS = 90
+_CONNECT_BACKOFF_SECONDS = (2.0, 5.0, 10.0)
+
+
+def _connect_redshift(redshift_connector, params: dict):
+    """Open the redshift_connector connection, retrying a cold-start resume.
+
+    Retries only the connection-level failures a resuming Serverless workgroup
+    produces (a reset handshake surfaces as InterfaceError, a stalled one as
+    OperationalError) with backoff, then re-raises as a discovery error that
+    names the resume. A server-side refusal (a bad credential, a missing
+    database, a denied privilege) is a ProgrammingError and surfaces on the
+    first attempt rather than waiting out the backoff.
+    """
+
+    from redshift_connector.error import InterfaceError, OperationalError
+
+    transient = (InterfaceError, OperationalError)
+    attempts = len(_CONNECT_BACKOFF_SECONDS) + 1
+    last_exc: Exception | None = None
+    for attempt in range(attempts):
+        try:
+            connection = redshift_connector.connect(
+                **params,
+                application_name="dex",
+                timeout=_CONNECT_ATTEMPT_TIMEOUT_SECONDS,
+            )
+            connection.autocommit = True
+            # The connect timeout is a socket timeout that would otherwise
+            # persist and cap every later result read; a billed scan on a
+            # just-woken workgroup can legitimately outlast it. Clear it now
+            # that the handshake is done (best-effort: never fail the connect
+            # over a driver internal).
+            usock = getattr(connection, "_usock", None)
+            if usock is not None:
+                with contextlib.suppress(OSError):
+                    usock.settimeout(None)
+            return connection
+        except transient as exc:
+            last_exc = exc
+            if attempt < len(_CONNECT_BACKOFF_SECONDS):
+                time.sleep(_CONNECT_BACKOFF_SECONDS[attempt])
+
+    raise CredentialDiscoveryError(
+        f"could not establish a Redshift connection after {attempts} attempts; "
+        "an idle Serverless workgroup can be slow to resume on first contact. "
+        "Retry the command, or check the workgroup is AVAILABLE and its "
+        "endpoint is reachable"
+    ) from last_exc
+
+
+def _open_redshift(
+    config: DexConfig,
+    repo_root: str | Path,
+    *,
+    store: ExploreStore,
+    budget: float | None,
+    confirmed: bool,
+    command: str | None,
+    scope_override: list[str] | None = None,
+    connection: ConnectionSource | None = None,
+):
+    target = config.redshift or RedshiftTarget()
+    target = narrow_target(target, "redshift", scope_override)
+
+    if connection is not None:
+        # The control-plane facts (Serverless workgroup, base RPU capacity) are
+        # discovered through boto3 alongside the credential, so a host-supplied
+        # connection arrives without them. The adapter already treats absent compute
+        # as "translation degrades, gating holds": budgets stay in seconds and every
+        # statement is still server-capped, only the RPU-hour display is lost.
+        conn = connection.connect()
+        method = connection.auth_method
+        compute = None
+    else:
+        params, method, compute = resolve_redshift_connection(
+            target, os.environ, repo_root
+        )
+
+        try:
+            import redshift_connector
+        except ImportError as exc:
+            raise CredentialDiscoveryError(
+                "the Redshift client is not installed; install the connector "
+                "extra: exmergo-dex-core[redshift]"
+            ) from exc
+
+        # application_name is the attribution tag (SYS_CONNECTION_LOG); the
+        # adapter additionally sets query_group and a best-effort session
+        # read-only mode before any statement runs. autocommit keeps session SETs
+        # (statement_timeout) outside any transaction the driver would otherwise
+        # open. The connect itself is retried: an idle Serverless workgroup resumes
+        # on first contact, and a slow resume can reset the startup handshake.
+        conn = _connect_redshift(redshift_connector, params)
+
+    gate = new_cost_gate(
+        "redshift",
+        config,
+        store,
+        budget=budget,
+        confirmed=confirmed,
+        command=command,
+    )
+    return get_adapter(
+        "redshift",
+        connection=conn,
+        owns_connection=connection is None,
+        cost_gate=gate,
+        target=target,
+        compute=compute,
+        auth_method=method,
+        scope_origin=scope_origin("redshift", "--scope" if scope_override else None),
+    )
+
+
+def resolve_redshift_connection(
+    target: RedshiftTarget,
+    env: dict | os._Environ,
+    repo_root: str | Path = ".",
+) -> tuple[dict, str, dict | None]:
+    """Discover Redshift connection parameters, never prompting.
+
+    Returns ``(params, auth_method, compute)`` where ``params`` feeds
+    ``redshift_connector.connect``, ``auth_method`` is a coarse class safe to
+    surface (iam_serverless / iam_cluster / environment / config_target /
+    dbt_profile, suffixed with the credential kind), and ``compute`` carries
+    the control-plane facts for the RPU translation (kind, workgroup, base
+    capacity) or ``None`` when they are unknowable. Parameter values,
+    including any password an environment legitimately holds, never leave the
+    engine process.
+
+    Order: the config-pinned Serverless ``workgroup`` (IAM temporary
+    credentials through the AWS default chain, endpoint and database
+    discovered from the control plane), the config-pinned provisioned
+    ``cluster_identifier`` (IAM, GetClusterCredentials), the ``REDSHIFT_*``
+    environment, the committed non-secret config target (password via
+    ``REDSHIFT_PASSWORD``), then a dbt profile's redshift target. Every
+    failure names the fix.
+    """
+
+    if target.workgroup:
+        return _redshift_serverless_iam(target, env)
+
+    if target.cluster_identifier:
+        if not target.dbname or not target.user:
+            raise CredentialDiscoveryError(
+                "IAM auth against a provisioned cluster needs the database "
+                "and user: set redshift.dbname and redshift.user in "
+                ".dex/config.yml alongside redshift.cluster_identifier"
+            )
+        params: dict = {
+            "iam": True,
+            "cluster_identifier": target.cluster_identifier,
+            "database": target.dbname,
+            "db_user": target.user,
+        }
+        if target.aws_profile:
+            params["profile"] = target.aws_profile
+        if target.region:
+            params["region"] = target.region
+        return (
+            params,
+            f"iam_cluster:{_aws_credential_kind(target, env)}",
+            _redshift_compute("provisioned"),
+        )
+
+    if env.get("REDSHIFT_HOST"):
+        params = {"host": env["REDSHIFT_HOST"]}
+        if env.get("REDSHIFT_PORT"):
+            params["port"] = int(env["REDSHIFT_PORT"])
+        if env.get("REDSHIFT_DATABASE"):
+            params["database"] = env["REDSHIFT_DATABASE"]
+        if env.get("REDSHIFT_USER"):
+            params["user"] = env["REDSHIFT_USER"]
+        if env.get("REDSHIFT_PASSWORD"):
+            params["password"] = env["REDSHIFT_PASSWORD"]
+        kind = "password" if env.get("REDSHIFT_PASSWORD") else "external"
+        return params, f"environment:{kind}", _redshift_host_compute(params["host"])
+
+    if target.host or target.dbname:
+        params = {
+            key: value
+            for key, value in (
+                ("host", target.host),
+                ("port", target.port),
+                ("database", target.dbname),
+                ("user", target.user),
+            )
+            if value is not None
+        }
+        if env.get("REDSHIFT_PASSWORD"):
+            params["password"] = env["REDSHIFT_PASSWORD"]
+            kind = "password"
+        else:
+            kind = "external"
+        return (
+            params,
+            f"config_target:{kind}",
+            _redshift_host_compute(target.host),
+        )
+
+    profile_params = _redshift_from_dbt_profiles(repo_root, env)
+    if profile_params:
+        kind = "password" if profile_params.get("password") else "external"
+        return (
+            profile_params,
+            f"dbt_profile:{kind}",
+            _redshift_host_compute(profile_params.get("host")),
+        )
+
+    raise CredentialDiscoveryError(
+        "no Redshift connection discovered; set redshift.workgroup in "
+        ".dex/config.yml (Serverless, IAM via the AWS credential chain), or "
+        "redshift.cluster_identifier plus dbname/user (provisioned, IAM), or "
+        "export REDSHIFT_HOST/REDSHIFT_DATABASE (password via "
+        "REDSHIFT_PASSWORD), or set redshift.host/dbname there, or keep a "
+        "redshift target in your dbt profiles.yml"
+    )
+
+
+def _redshift_serverless_iam(
+    target: RedshiftTarget, env: dict | os._Environ
+) -> tuple[dict, str, dict | None]:
+    """The Serverless IAM path: the workgroup pin plus the AWS default
+    credential chain resolve everything else (endpoint, port, database) from
+    the control plane, and GetCredentials mints temporary database
+    credentials inside the driver. Nothing is prompted; every failure names
+    the fix."""
+
+    try:
+        import boto3
+        from botocore.exceptions import (
+            BotoCoreError,
+            ClientError,
+            MissingDependencyException,
+        )
+    except ImportError as exc:
+        raise CredentialDiscoveryError(
+            "the Redshift client is not installed; install the connector "
+            "extra: exmergo-dex-core[redshift]"
+        ) from exc
+
+    session = boto3.Session(
+        profile_name=target.aws_profile or None,
+        region_name=target.region or None,
+    )
+    try:
+        client = session.client("redshift-serverless")
+        workgroup = client.get_workgroup(workgroupName=target.workgroup)["workgroup"]
+    except MissingDependencyException as exc:
+        # A BotoCoreError too, so it is caught first: the fix is an install
+        # (an `aws login` profile needs botocore[crt]), not chain configuration.
+        raise PrerequisiteError(
+            f"could not resolve Redshift Serverless workgroup "
+            f"'{target.workgroup}': {exc} Reinstall with the connector extra "
+            "exmergo-dex-core[redshift], which includes it"
+        ) from exc
+    except (BotoCoreError, ClientError, ValueError) as exc:
+        raise CredentialDiscoveryError(
+            f"could not resolve Redshift Serverless workgroup "
+            f"'{target.workgroup}': configure the AWS credential chain "
+            "(aws configure, AWS_* environment variables, or "
+            "redshift.aws_profile), set redshift.region when the default "
+            "region is wrong, and grant redshift-serverless:GetWorkgroup "
+            "and redshift-serverless:GetCredentials"
+        ) from exc
+
+    endpoint = workgroup.get("endpoint") or {}
+    host = endpoint.get("address")
+    if not host:
+        raise CredentialDiscoveryError(
+            f"workgroup '{target.workgroup}' has no reachable endpoint yet "
+            f"(status {workgroup.get('status', 'unknown')}); wait for it to "
+            "become AVAILABLE or check its network configuration"
+        )
+    database = target.dbname or _redshift_namespace_database(
+        client, workgroup.get("namespaceName")
+    )
+    if not database:
+        raise CredentialDiscoveryError(
+            "could not discover the database of workgroup "
+            f"'{target.workgroup}'; set redshift.dbname in .dex/config.yml "
+            "or grant redshift-serverless:GetNamespace"
+        )
+    params: dict = {
+        "iam": True,
+        "host": host,
+        "port": int(endpoint.get("port") or 5439),
+        "database": database,
+    }
+    if target.aws_profile:
+        params["profile"] = target.aws_profile
+    if target.region:
+        params["region"] = target.region
+    compute = _redshift_compute(
+        "serverless",
+        workgroup=str(workgroup.get("workgroupName", target.workgroup)),
+        base_capacity_rpus=(
+            float(workgroup["baseCapacity"])
+            if workgroup.get("baseCapacity") is not None
+            else None
+        ),
+    )
+    return params, f"iam_serverless:{_aws_credential_kind(target, env)}", compute
+
+
+def _redshift_namespace_database(client, namespace_name: str | None) -> str | None:
+    """The default database of a Serverless namespace, or ``None`` when it
+    cannot be read (the caller then requires ``redshift.dbname``). Takes the
+    already-built redshift-serverless client: constructing a second one per
+    connect would re-load the service model for nothing."""
+
+    if not namespace_name:
+        return None
+    try:
+        namespace = client.get_namespace(namespaceName=namespace_name)["namespace"]
+        return str(namespace["dbName"]) if namespace.get("dbName") else None
+    except Exception:
+        return None
+
+
+def _aws_credential_kind(target: RedshiftTarget, env: dict | os._Environ) -> str:
+    """The coarse AWS credential class for the envelope; never a value or an
+    identity. Deliberately coarse: a pinned profile, the environment, or
+    whatever else the default chain found (SSO, a role, instance metadata)."""
+
+    if target.aws_profile:
+        return "profile"
+    if env.get("AWS_ACCESS_KEY_ID"):
+        return "environment"
+    return "default_chain"
+
+
+def _redshift_compute(
+    kind: str,
+    *,
+    workgroup: str | None = None,
+    base_capacity_rpus: float | None = None,
+) -> dict:
+    """The compute-facts shape every discovery path returns. The adapter reads
+    exactly these three keys for the RPU translation, so one constructor keeps
+    the shape from drifting per path."""
+
+    return {
+        "kind": kind,
+        "workgroup": workgroup,
+        "base_capacity_rpus": base_capacity_rpus,
+    }
+
+
+def _redshift_host_compute(host: str | None) -> dict | None:
+    """Compute facts inferred from an endpoint host alone: a Serverless
+    endpoint is recognizable by its domain, but its workgroup and base
+    capacity are unknowable without the control plane, so the RPU translation
+    degrades and only the wake-minimum honesty remains."""
+
+    if not host:
+        return None
+    kind = "serverless" if ".redshift-serverless." in host else "provisioned"
+    return _redshift_compute(kind)
+
+
+_ENV_VAR_TEMPLATE = re.compile(
+    r"\{\{\s*env_var\(\s*['\"]([^'\"]+)['\"]\s*(?:,\s*['\"]([^'\"]*)['\"]\s*)?\)\s*\}\}"
+)
+
+
+def _profile_scalar(value, env: dict | os._Environ) -> str | None:
+    """A profiles.yml scalar with dbt's env_var indirection honored. dex's own
+    rendered profiles keep the password as ``{{ env_var('REDSHIFT_PASSWORD') }}``
+    (never a value), so a reference resolves from the environment the way dbt
+    would; any other unrendered template is unusable, never passed through as
+    a literal (the driver would misreport that as a wrong password)."""
+
+    if value is None:
+        return None
+    text = str(value)
+    if "{{" not in text:
+        return text
+    match = _ENV_VAR_TEMPLATE.fullmatch(text.strip())
+    if match:
+        var_name = match.group(1)
+        default_val = match.group(2)
+        val = env.get(var_name)
+        if val is not None:
+            return val
+        return default_val
+    return None
+
+
+def _redshift_from_dbt_profiles(
+    repo_root: str | Path, env: dict | os._Environ
+) -> dict | None:
+    """Best-effort: the connection fields of a ``type: redshift`` output in
+    the discovered dbt project's profiles. Any failure means "not found"."""
+
+    try:
+        from .dbt_project import PROFILES_FILE, find_project, profiles_dir
+
+        project_dir = find_project(repo_root)
+        profiles_path = profiles_dir(project_dir) / PROFILES_FILE
+        profiles = yaml.safe_load(profiles_path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return None
+    for profile in profiles.values():
+        if not isinstance(profile, dict):
+            continue
+        for output in (profile.get("outputs") or {}).values():
+            if not isinstance(output, dict) or output.get("type") != "redshift":
+                continue
+            if str(output.get("method") or "").lower() == "iam":
+                # An IAM output mints its credentials at dbt runtime; it
+                # carries nothing durable to connect with natively, and the
+                # workgroup/cluster config paths own that story.
+                continue
+            host = _profile_scalar(output.get("host"), env)
+            if not host:
+                continue
+            # A declared field the environment cannot render (dex's own
+            # profiles keep the password as {{ env_var(...) }}) makes the
+            # output unusable as discovered: skip it rather than connect
+            # with a hole where a credential should be, and let the terminal
+            # discovery error name the export that fixes it.
+            fields: dict = {}
+            unusable = False
+            for key in ("user", "password", "dbname", "database"):
+                raw = output.get(key)
+                if not raw:
+                    continue
+                value = _profile_scalar(raw, env)
+                if not value:
+                    unusable = True
+                    break
+                fields["database" if key == "database" else key] = value
+            if unusable:
+                continue
+            params: dict = {"host": host}
+            port = output.get("port")
+            if isinstance(port, int) or (isinstance(port, str) and port.isdigit()):
+                params["port"] = int(port)
+            for key in ("user", "password"):
+                if key in fields:
+                    params[key] = fields[key]
+            dbname = fields.get("dbname") or fields.get("database")
+            if dbname:
+                params["database"] = dbname
+            return params
+    return None
+
+
+def gcp_principal_type(credentials: Any) -> str:
+    """Classify a Google credential coarsely: user / service_account /
+    impersonated_service_account / external_account / metadata.
+
+    Derived from the credential's own type rather than asserted by whoever
+    supplied it, which is what makes it trustworthy on both paths: a
+    host-supplied credential is classified exactly as a discovered one, and a
+    host cannot claim to be a service account it is not. The class is safe to
+    surface in ``capabilities()``; the principal's identity never is.
+    """
+
+    module = type(credentials).__module__
+    if "impersonated" in module:
+        return "impersonated_service_account"
+    if "external_account" in module:
+        return "external_account"
+    if "service_account" in module:
+        return "service_account"
+    if "compute_engine" in module:
+        return "metadata"
+    return "user"
+
+
+def _default_credentials():
+    """Discover Application Default Credentials, never prompting.
+
+    Returns ``(credentials, adc_project, principal_type)``. ``principal_type``
+    is a coarse class of principal (user / service_account /
+    impersonated_service_account / external_account / metadata), safe to
+    surface; the principal's identity never is.
+    """
+
+    try:
+        import google.auth
+        from google.auth.exceptions import DefaultCredentialsError
+    except ImportError as exc:
+        raise CredentialDiscoveryError(
+            "the BigQuery client is not installed; install the connector "
+            "extra: exmergo-dex-core[bigquery]"
+        ) from exc
+
+    try:
+        credentials, adc_project = google.auth.default()
+    except DefaultCredentialsError as exc:
+        raise CredentialDiscoveryError(
+            "no Google Application Default Credentials found; run "
+            "`gcloud auth application-default login` (or point "
+            "GOOGLE_APPLICATION_CREDENTIALS at a service-account file) and retry"
+        ) from exc
+
+    return credentials, adc_project, gcp_principal_type(credentials)
+
+
+def resolve_bigquery_project(
+    target: BigQueryTarget,
+    env: dict | os._Environ,
+    adc_project: str | None,
+    *,
+    repo_root: str | Path = ".",
+) -> str | None:
+    """The project resolution chain: explicit config, then the environment,
+    then the ADC default, then a dbt profile's bigquery target. Pure given its
+    inputs (the environment is injected), so the order is directly testable."""
+
+    return (
+        target.project
+        or env.get("GOOGLE_CLOUD_PROJECT")
+        or env.get("GCLOUD_PROJECT")
+        or adc_project
+        or _project_from_dbt_profiles(repo_root)
+    )
+
+
+def _project_from_dbt_profiles(repo_root: str | Path) -> str | None:
+    """Best-effort: the ``project`` of a ``type: bigquery`` output in the
+    discovered dbt project's profiles. Any failure means "not found"."""
+
+    try:
+        from .dbt_project import PROFILES_FILE, find_project, profiles_dir
+
+        project_dir = find_project(repo_root)
+        profiles_path = profiles_dir(project_dir) / PROFILES_FILE
+        profiles = yaml.safe_load(profiles_path.read_text(encoding="utf-8")) or {}
+    except Exception:
+        return None
+    for profile in profiles.values():
+        if not isinstance(profile, dict):
+            continue
+        for output in (profile.get("outputs") or {}).values():
+            if (
+                isinstance(output, dict)
+                and output.get("type") == "bigquery"
+                and output.get("project")
+            ):
+                return str(output["project"])
+    return None
+
+
+def resolve_semantic_layer_connection(
+    semantic: object | None,
+    env: dict | os._Environ,
+    source: SemanticSource | None = None,
+) -> tuple[str, str, str, str]:
+    """Resolve the hosted dbt Cloud Semantic Layer coordinates and token.
+
+    Discover, don't ask, same as every connector. Non-secret coordinates come
+    from the environment first (``DBT_SL_HOST`` / ``DBT_SL_ENV_ID``), then the
+    ``.dex/config.yml`` ``semantic`` block. The token is a secret and is never in
+    config: ``DBT_SL_TOKEN`` first, then a ``token-value`` in
+    ``~/.dbt/dbt_cloud.yml``. Returns ``(host, environment_id, token,
+    credential_kind)``; the token value is never logged and ``credential_kind``
+    is the only class safe to surface. Every failure names the fix, never a value.
+
+    Passing ``source`` supplies the token outright and **nothing ambient is
+    read**: not ``DBT_SL_TOKEN``, not ``~/.dbt/dbt_cloud.yml``, and not the
+    environment's coordinates either. That last part matters more than it looks. A
+    host holding one config per end user has already chosen which deployment this
+    request is for, and letting a single process-wide ``DBT_SL_HOST`` outrank it
+    would redirect every tenant's metric query at once, which is a
+    wrong-deployment bug that presents as working software.
+    """
+
+    if source is not None:
+        host = getattr(semantic, "host", None)
+        env_id = getattr(semantic, "environment_id", None)
+        if not host or not env_id:
+            raise CredentialDiscoveryError(
+                "the hosted semantic layer needs a host and environment id; set "
+                "them under `semantic:` on the DexConfig you passed (host, "
+                "environment_id). Both are shown in the dbt Cloud Semantic Layer "
+                "panel and neither is secret, so they belong in config next to the "
+                "connector rather than beside the token"
+            )
+        # Before the token callable runs: a host it may not reach costs no read.
+        host = _checked_semantic_host(host, source.allowed_hosts)
+        token = source.token()
+        if not token:
+            raise CredentialDiscoveryError(
+                "the supplied semantic source returned no token; its `token` "
+                "callable must return a dbt Cloud 'Semantic Layer Only' service "
+                "token (dex never falls back to an ambient one once a source is "
+                "supplied, because that would reach the layer as the process "
+                "rather than as this request's principal)"
+            )
+        return str(host), str(env_id), str(token), "host_supplied"
+
+    host = env.get(SEMANTIC_ENVIRONMENT["host"]) or getattr(semantic, "host", None)
+    env_id = env.get(SEMANTIC_ENVIRONMENT["environment_id"]) or getattr(
+        semantic, "environment_id", None
+    )
+    if not host or not env_id:
+        raise CredentialDiscoveryError(
+            "the hosted semantic layer needs a host and environment id; set them "
+            "under `semantic:` in .dex/config.yml (host, environment_id) or export "
+            "DBT_SL_HOST and DBT_SL_ENV_ID (both are shown in the dbt Cloud "
+            "Semantic Layer panel and are not secret)"
+        )
+    # Before either token source is read. The host may come from a repository's
+    # .dex/config.yml and the token never does, so it goes only to dbt Cloud.
+    host = _checked_semantic_host(host, env_allowed_hosts(env))
+    token = env.get("DBT_SL_TOKEN") or _dbt_cloud_service_token(env)
+    if not token:
+        raise CredentialDiscoveryError(
+            "no dbt Cloud Semantic Layer token found; export DBT_SL_TOKEN (a "
+            "'Semantic Layer Only' service token) or give the active project in "
+            "~/.dbt/dbt_cloud.yml a token-value (another project's token is never "
+            "used)"
+        )
+    return str(host), str(env_id), str(token), "service_token"
+
+
+def _dbt_cloud_service_token(env: dict | os._Environ) -> str | None:
+    """A ``token-value`` from ``~/.dbt/dbt_cloud.yml`` (the dbt Cloud CLI config),
+    the active project's and no other. It may be a dbt Cloud API token rather
+    than a Semantic Layer service token; if so the API rejects it with a clear
+    message, which is why ``DBT_SL_TOKEN`` is the documented primary source."""
+
+    directory = env.get("DBT_CLOUD_CONFIG_DIR")
+    path = (Path(directory) if directory else Path.home() / ".dbt") / "dbt_cloud.yml"
+    if not path.is_file():
+        return None
+    try:
+        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+    except (OSError, yaml.YAMLError):
+        return None
+    projects = data.get("projects") or []
+    active = (data.get("context") or {}).get("active-project")
+    # The active project's token or none. Falling back to the first project
+    # holding one could hand dex a token for a dbt Cloud account the user never
+    # pointed it at.
+    for project in projects:
+        if str(project.get("project-id")) == str(active) and project.get("token-value"):
+            return str(project["token-value"])
+    return None
+
+
+def _checked_semantic_host(host: object, extra_hosts: tuple[str, ...]) -> str:
+    try:
+        return check_semantic_layer_host(host, extra_hosts=extra_hosts)
+    except SemanticHostRefusedError as exc:
+        raise CredentialDiscoveryError(str(exc)) from exc

@@ -1,0 +1,119 @@
+{
+  "schema": 1,
+  "cell_id": "046-adversarial-ledger-v2--citadel-adaptive-local--r3",
+  "order": 46,
+  "scenario_id": "adversarial-ledger-v2",
+  "policy_id": "citadel-adaptive-local",
+  "repetition": 3,
+  "route": {
+    "initial_tier": "strong",
+    "escalation_tier": null,
+    "features": {
+      "word_count": 71,
+      "constraint_count": 2,
+      "reasoning_count": 3,
+      "structure_count": 0,
+      "difficulty_score": 0.2425
+    },
+    "reason_code": "ADAPTIVE_STRONG_LOCAL"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "strong",
+      "started_at": "2026-08-01T03:09:18.228Z",
+      "duration_ms": 6789,
+      "output_text": "{\n  \"answer\": 108\n}",
+      "output_digest": "sha256:29b088a86b892e3a87671a679a4f6203a5e56463ef26ddc7992c9002a7881db9",
+      "answer": 108,
+      "verification": {
+        "status": "failed",
+        "verifier_id": "exact-answer-v1",
+        "answer_digest": "sha256:9537f32ec7599e1ae953af6c9f929fe747ff9dadf79a9beff1f304c550173011",
+        "failure_code": "ANSWER_DIGEST_MISMATCH"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "ollama-chat",
+        "requested_model": "qwen2.5-coder:7b",
+        "observed_model": "qwen2.5-coder:7b",
+        "model_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+        "done_reason": "stop",
+        "response_digest": "sha256:99ca77d3cdd465f65b60131d6d2e3c1c6539bd8f2cfa863d7cfe9bd7667badb4",
+        "error": null
+      },
+      "usage": {
+        "prompt_tokens": 158,
+        "completion_tokens": 12,
+        "total_tokens": 170,
+        "provider_total_duration_ns": 6787588000
+      },
+      "economics": {
+        "provider_invoice": {
+          "status": "known",
+          "amount_usd": 0,
+          "source": "self_hosted_ollama_no_per_request_invoice"
+        },
+        "gpu_energy": {
+          "status": "measured",
+          "energy_kwh": 0.000125408,
+          "samples": 14,
+          "average_watts": 66.5
+        },
+        "comparison_cost": {
+          "status": "derived-comparison",
+          "total_usd": 0.00004394,
+          "components": [
+            {
+              "kind": "gpu_electricity",
+              "status": "derived-comparison",
+              "amount_usd": 0.000025082,
+              "energy_kwh": 0.000125408,
+              "rate_usd_per_kwh": 0.2,
+              "source": "nvidia_smi_energy_times_frozen_scenario_rate"
+            },
+            {
+              "kind": "gpu_amortization",
+              "status": "derived-comparison",
+              "amount_usd": 0.000018858,
+              "residual_value_usd": 100,
+              "useful_compute_hours": 10000,
+              "source": "duration_times_frozen_residual_value_scenario"
+            },
+            {
+              "kind": "provider_invoice",
+              "status": "known",
+              "amount_usd": 0,
+              "source": "self_hosted_ollama_no_per_request_invoice"
+            },
+            {
+              "kind": "cpu_memory_storage_display_energy",
+              "status": "unknown",
+              "amount_usd": null,
+              "source": "not_measured"
+            }
+          ]
+        },
+        "actual_end_to_end_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "whole_system_energy_and_actual_utility_rate_not_observed"
+        }
+      }
+    }
+  ],
+  "status": "failed",
+  "final_verification": {
+    "status": "failed",
+    "verifier_id": "exact-answer-v1",
+    "answer_digest": "sha256:9537f32ec7599e1ae953af6c9f929fe747ff9dadf79a9beff1f304c550173011",
+    "failure_code": "ANSWER_DIGEST_MISMATCH"
+  },
+  "previous_cell_digest": "sha256:db6076e09424e9792a810a2ef43b037be4c632a97f1b52d0e3fbee8c7b75f502",
+  "receipt_digest": "sha256:9e1876b8a94bbcc24de4306498d321308c729bc70a479d4d7d11120a6a73ba57",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:4df4db958c330cab311f8416defc0eb6e1055efbf1218adb11002e7c7bda78aa",
+    "signature": "tTwmDYpE3KhY/4wAP08IJUl1AVuIb9Zx5S9JSQ4CF6t3SOB/M3NId/BAbm7XtRxJjcUG+/0fuwPyF4C9YCmaBg=="
+  }
+}

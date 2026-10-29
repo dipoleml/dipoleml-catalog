@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "kind": "citadel_optimizer_matrix_intent",
+  "authorization_digest": "sha256:b17292a5a08b6ea705f82d5c265e047aa65bb9f774d2fc5ea085648e0fdab1eb",
+  "ordinal": 117,
+  "run_key": "p-limit-cleanup-pending/prompt-only/3",
+  "scenario_id": "p-limit-cleanup-pending",
+  "policy_id": "prompt-only",
+  "repetition": 3,
+  "state": "completed",
+  "started_at": "2026-07-31T06:09:35.770Z",
+  "completed_at": "2026-07-31T06:20:10.523Z",
+  "output_file": "records/117-p-limit-cleanup-pending-prompt-only-3.json",
+  "error": null
+}

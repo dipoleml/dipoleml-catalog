@@ -1,0 +1,14 @@
+---
+name: plan
+description: Draft a structured build plan from a short request
+argument-hint: "<idea or fn-N> [--depth=short|standard|deep] [--review=codex|copilot|cursor|claude|host|none]"
+disable-model-invocation: true
+---
+
+# IMPORTANT: This command MUST invoke the skill `flow-next-plan`
+
+The ONLY purpose of this command is to call the `flow-next-plan` skill. You MUST use that skill now.
+
+**User request:** $ARGUMENTS
+
+Pass the user request to the skill. The skill handles all planning logic.

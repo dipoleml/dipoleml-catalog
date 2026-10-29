@@ -1,0 +1,165 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# setup.sh — Initialize claude-carbon: check deps, create DB, backfill history, show summary.
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/portable-lib.sh
+. "${SCRIPT_DIR}/portable-lib.sh"
+PLUGIN_DIR="$(dirname "$SCRIPT_DIR")"
+CONFIG_DIR="$(cc_path "${CLAUDE_CONFIG_DIR:-${HOME}/.claude}")"
+DB_DIR="${CONFIG_DIR}/claude-carbon"
+DB_PATH="${DB_DIR}/carbon.db"
+
+echo "🌿 claude-carbon setup"
+echo "─────────────────────────────"
+
+# 1. Check dependencies
+echo "Checking dependencies..."
+
+for CMD in jq sqlite3; do
+  if ! command -v "$CMD" &>/dev/null; then
+    echo "ERROR: $CMD is not installed. Install with: $(cc_install_hint "$CMD")" >&2
+    exit 1
+  fi
+  echo "  ${CMD}: OK"
+done
+
+# 2. Create directory
+echo ""
+echo "Creating database directory at ${DB_DIR}..."
+mkdir -p "$DB_DIR"
+
+# 3. Create SQLite database with schema
+echo "Initializing database at ${DB_PATH}..."
+sqlite3 "$DB_PATH" <<'SQL'
+CREATE TABLE IF NOT EXISTS sessions (
+  session_id TEXT PRIMARY KEY,
+  project TEXT,
+  model TEXT,
+  input_tokens INTEGER,
+  output_tokens INTEGER,
+  cache_read_tokens INTEGER DEFAULT 0,
+  cache_creation_tokens INTEGER DEFAULT 0,
+  cache_creation_1h_tokens INTEGER DEFAULT 0,
+  output_context_sum INTEGER DEFAULT 0,
+  cost_usd REAL,
+  co2_grams REAL,
+  started_at TEXT,
+  ended_at TEXT,
+  source TEXT DEFAULT 'live',
+  methodology_version INTEGER DEFAULT 1,
+  excluded INTEGER DEFAULT 0,
+  git_branch TEXT DEFAULT '',
+  frozen INTEGER DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_sessions_year ON sessions(started_at);
+SQL
+
+# Migrate pre-existing DBs that lack the newer columns, and add the per-model table
+# session_models (idempotent; see cc_ensure_schema in portable-lib.sh).
+cc_ensure_schema "$DB_PATH"
+
+echo "  Schema created."
+
+# 4. Run backfill
+echo ""
+echo "Running backfill of historical sessions..."
+bash "${SCRIPT_DIR}/backfill.sh"
+
+# 5. Show summary
+echo ""
+echo "─────────────────────────────"
+echo "Summary:"
+
+TOTAL_SESSIONS="$(sqlite3 "$DB_PATH" "SELECT COUNT(*) FROM sessions;")"
+TOTAL_CO2_G="$(sqlite3 "$DB_PATH" "SELECT COALESCE(SUM(co2_grams), 0) FROM sessions;" | LC_ALL=C awk '{printf "%.0f", $1}')"
+CURRENT_YEAR="$(date +%Y)"
+YEAR_CO2_G="$(sqlite3 "$DB_PATH" "SELECT COALESCE(SUM(co2_grams), 0) FROM sessions WHERE started_at LIKE '${CURRENT_YEAR}%';" | LC_ALL=C awk '{printf "%.0f", $1}')"
+
+# Adaptive CO2 units for total
+if [ "$TOTAL_CO2_G" -ge 1000 ] 2>/dev/null; then
+  TOTAL_CO2_DISPLAY="$(echo "$TOTAL_CO2_G" | LC_ALL=C awk '{printf "%.1fkg", $1/1000}')"
+else
+  TOTAL_CO2_DISPLAY="${TOTAL_CO2_G}g"
+fi
+
+# Adaptive CO2 units for year
+if [ "$YEAR_CO2_G" -ge 1000 ] 2>/dev/null; then
+  YEAR_CO2_DISPLAY="$(echo "$YEAR_CO2_G" | LC_ALL=C awk '{printf "%.1fkg", $1/1000}')"
+else
+  YEAR_CO2_DISPLAY="${YEAR_CO2_G}g"
+fi
+
+echo "  Total sessions    : ${TOTAL_SESSIONS}"
+echo "  Total CO2         : ${TOTAL_CO2_DISPLAY} CO2"
+echo "  CO2 (${CURRENT_YEAR})       : ${YEAR_CO2_DISPLAY} CO2"
+
+# 6. Next steps (skip if called from install.sh which handles config automatically)
+if [ "${CLAUDE_CARBON_INSTALLER:-}" != "1" ]; then
+  echo ""
+  echo "─────────────────────────────"
+  echo "Next steps:"
+  echo ""
+  PLUGIN_DIR="$(cc_native_path "$PLUGIN_DIR")"
+  echo "1. Add to ${CONFIG_DIR}/settings.json:"
+  echo ""
+  cat <<EOF
+{
+  "statusLine": {
+    "type": "command",
+    "command": "${PLUGIN_DIR}/scripts/statusline.sh"
+  },
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${PLUGIN_DIR}/scripts/persist-session.sh"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${PLUGIN_DIR}/scripts/persist-on-exit.sh"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${PLUGIN_DIR}/scripts/safety-rescan.sh"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": ".+",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${PLUGIN_DIR}/scripts/agent-stop.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
+EOF
+  echo ""
+  echo "2. Reload Claude Code to pick up the new status line."
+fi
+echo ""
+echo "Setup complete."

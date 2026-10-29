@@ -1,0 +1,16 @@
+{
+  "name": "dipoleml-auto-pause",
+  "displayName": "DipoleML Auto Pause",
+  "version": "0.1.12",
+  "description": "Pauses DipoleML at a safe point before the usage limit and writes a handoff with a ready-to-paste resume prompt.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "K45sle"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/k45sle/Claude-auto-pause",
+  "repository": "https://github.com/k45sle/Claude-auto-pause",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

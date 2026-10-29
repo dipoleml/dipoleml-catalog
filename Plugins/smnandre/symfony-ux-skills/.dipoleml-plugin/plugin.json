@@ -1,0 +1,16 @@
+{
+  "name": "symfony-ux-skills",
+  "displayName": "Symfony Ux Skills",
+  "version": "1.2.0",
+  "description": "AI agent skills for the Symfony UX frontend stack: Stimulus, Turbo, TwigComponent, LiveComponent, Icons, and Map.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Smnandre"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/smnandre/symfony-ux-skills",
+  "repository": "https://github.com/smnandre/symfony-ux-skills",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

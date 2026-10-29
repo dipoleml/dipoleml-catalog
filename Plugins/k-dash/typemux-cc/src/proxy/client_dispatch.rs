@@ -1,0 +1,785 @@
+use super::pool_management::PoolLookup;
+use crate::backend_pool::{
+    shutdown_backend_instance, MAX_CREATING_QUEUE_LEN, MAX_WARMUP_QUEUE_LEN,
+};
+use crate::error::ProxyError;
+use crate::framing::LspFrameWriter;
+use crate::message::{RpcId, RpcMessage};
+use crate::state::PendingRequest;
+use std::path::{Path, PathBuf};
+use tokio::time::Instant;
+
+/// LSP methods that depend on the cross-file index and should be queued during warmup.
+const INDEX_DEPENDENT_METHODS: &[&str] = &[
+    "textDocument/definition",
+    "textDocument/references",
+    "textDocument/implementation",
+    "textDocument/typeDefinition",
+];
+
+/// LSP methods that support fan-out to all backends when multiple are active.
+const FANOUT_METHODS: &[&str] = &["workspace/symbol"];
+
+/// Outcome of routing a notification via `forward_or_queue_for_venv`.
+pub(crate) enum NotificationDelivery {
+    /// Written directly to a `Ready` backend.
+    Forwarded,
+    /// The venv is `Creating`; queued in its entry for replay once the
+    /// creation resolves (success or failure — see
+    /// `handle_creation_outcome`, both arms replay queued notifications).
+    Queued,
+    /// The venv is `Creating`, but its queue is already at
+    /// `MAX_CREATING_QUEUE_LEN`; dropped (an overflow `window/showMessage`
+    /// was already sent). Nothing will ever redeliver this message.
+    Dropped,
+    /// The venv isn't tracked anywhere (neither `Ready` nor `Creating`) —
+    /// nothing to forward to or queue behind.
+    NoBackend,
+}
+
+impl super::LspProxy {
+    /// Handle client "initialize" request.
+    ///
+    /// Caches the message for the first backend's eventual handshake, and
+    /// answers immediately with empty capabilities. No backend is spawned
+    /// here: the first one is created lazily by the Creating machinery, on
+    /// the first venv-resolving client message (`didOpen` or a URI-bearing
+    /// request) — the design behind every startup, not a degraded fallback
+    /// (see #140: a synchronous pre-spawned-backend handshake here
+    /// permanently wedges Claude Code 2.1.207's LSP client).
+    pub(crate) async fn dispatch_initialize(
+        &mut self,
+        msg: &RpcMessage,
+        client_writer: &mut LspFrameWriter<tokio::io::Stdout>,
+    ) -> Result<(), ProxyError> {
+        tracing::info!("Caching initialize message for backend initialization");
+        self.state.client_initialize = Some(msg.clone());
+
+        let init_response =
+            RpcMessage::success_response(msg, serde_json::json!({"capabilities": {}}));
+        client_writer.write_message(&init_response).await?;
+
+        Ok(())
+    }
+
+    /// Handle client "initialized" notification.
+    ///
+    /// Forwards the notification to all backends in the pool.
+    pub(crate) async fn dispatch_initialized(&mut self) -> Result<(), ProxyError> {
+        tracing::info!("Client initialized");
+        // Forward to all backends in the pool
+        let initialized_msg = RpcMessage::notification("initialized", Some(serde_json::json!({})));
+        // Collect keys to avoid borrow issues
+        let venvs: Vec<PathBuf> = self.state.pool.backends_keys();
+        for venv in &venvs {
+            if let Some(inst) = self.state.pool.get_mut(venv) {
+                if let Err(e) = inst.writer.write_message(&initialized_msg).await {
+                    tracing::warn!(venv = %venv.display(), error = ?e, "Failed to forward initialized to backend");
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Handle client "shutdown" request.
+    ///
+    /// Shuts down all backends and sends a response to the client.
+    pub(crate) async fn dispatch_shutdown(
+        &mut self,
+        msg: &RpcMessage,
+        client_writer: &mut LspFrameWriter<tokio::io::Stdout>,
+    ) -> Result<(), ProxyError> {
+        tracing::info!("Received shutdown request from client");
+
+        // Shutdown all backends in the pool
+        let venvs: Vec<PathBuf> = self.state.pool.backends_keys();
+        for venv in &venvs {
+            if let Some(instance) = self.state.pool.remove(venv) {
+                tracing::info!(venv = %venv.display(), "Shutting down backend");
+                shutdown_backend_instance(instance);
+            }
+        }
+
+        // Send shutdown response to client
+        let shutdown_response = RpcMessage::success_response(msg, serde_json::Value::Null);
+        client_writer.write_message(&shutdown_response).await?;
+        tracing::info!("Sent shutdown response to client");
+
+        Ok(())
+    }
+
+    /// Handle a client response (to a server->client request from backend).
+    ///
+    /// Returns `Ok(true)` if the message was handled (caller should `continue`),
+    /// `Ok(false)` if it did not match a pending backend request (fall through).
+    pub(crate) async fn dispatch_client_response(
+        &mut self,
+        msg: &RpcMessage,
+    ) -> Result<bool, ProxyError> {
+        if let Some(proxy_id) = &msg.id {
+            if let Some(pending) = self.state.pending_backend_requests.remove(proxy_id) {
+                // Restore original backend ID and route to correct backend
+                let mut response_msg = msg.clone();
+                response_msg.id = Some(pending.original_id);
+
+                if let Some(inst) = self.state.pool.get_mut(&pending.venv_path) {
+                    if inst.session == pending.session {
+                        if let Err(e) = inst.writer.write_message(&response_msg).await {
+                            tracing::warn!(
+                                venv = %pending.venv_path.display(),
+                                error = ?e,
+                                "Failed to forward client response to backend"
+                            );
+                        }
+                    } else {
+                        tracing::warn!(
+                            proxy_id = ?proxy_id,
+                            expected_session = pending.session,
+                            actual_session = inst.session,
+                            "Discarding client response: session mismatch"
+                        );
+                    }
+                } else {
+                    tracing::warn!(
+                        proxy_id = ?proxy_id,
+                        venv = %pending.venv_path.display(),
+                        "Discarding client response: backend no longer in pool"
+                    );
+                }
+                return Ok(true);
+            }
+            // If not in pending_backend_requests, fall through (shouldn't happen normally)
+        }
+
+        Ok(false)
+    }
+
+    /// Handle a generic client request (not initialize/shutdown/textDocument notifications).
+    ///
+    /// Routes the request to the appropriate backend, creating one if necessary.
+    pub(crate) async fn dispatch_client_request(
+        &mut self,
+        msg: &RpcMessage,
+        client_writer: &mut LspFrameWriter<tokio::io::Stdout>,
+    ) -> Result<(), ProxyError> {
+        const VENV_CHECK_METHODS: &[&str] = &[
+            "textDocument/hover",
+            "textDocument/definition",
+            "textDocument/references",
+            "textDocument/documentSymbol",
+            "textDocument/typeDefinition",
+            "textDocument/implementation",
+        ];
+
+        let method = msg.method_name();
+        let mut target_venv: Option<PathBuf> = None;
+
+        // For VENV_CHECK_METHODS, ensure the correct backend is in the pool
+        if let Some(method_name) = method {
+            if VENV_CHECK_METHODS.contains(&method_name) {
+                if let Some(url) = Self::extract_text_document_uri(msg) {
+                    if let Ok(file_path) = url.to_file_path() {
+                        match self
+                            .ensure_backend_in_pool(&url, &file_path, client_writer)
+                            .await
+                        {
+                            Ok(PoolLookup::Ready(venv)) => {
+                                target_venv = Some(venv);
+                            }
+                            Ok(
+                                PoolLookup::CreatingStarted(venv)
+                                | PoolLookup::CreatingInFlight(venv),
+                            ) => {
+                                self.queue_or_reject_creating_request(&venv, msg, client_writer)
+                                    .await?;
+                                return Ok(());
+                            }
+                            Ok(PoolLookup::NotFound) => {
+                                // No venv found — return error
+                                let error_message = "lsp-proxy: .venv not found (strict mode). Create .venv or run hooks.";
+                                tracing::warn!(
+                                    method = method_name,
+                                    uri = %url,
+                                    "No venv found, returning error"
+                                );
+                                let error_response = RpcMessage::error_response(msg, error_message);
+                                client_writer.write_message(&error_response).await?;
+                                return Ok(());
+                            }
+                            Err(e) => {
+                                tracing::error!(error = ?e, "Failed to ensure backend in pool");
+                                let error_response = RpcMessage::error_response(
+                                    msg,
+                                    &format!("lsp-proxy: backend error: {}", e),
+                                );
+                                client_writer.write_message(&error_response).await?;
+                                return Ok(());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Determine target backend if not yet determined.
+        // For URI-bearing requests, try cache first, then full venv resolution on miss.
+        if target_venv.is_none() {
+            if let Some(url) = Self::extract_text_document_uri(msg) {
+                target_venv = self.venv_for_uri(&url);
+
+                if target_venv.is_none() {
+                    let file_path = if let Ok(p) = url.to_file_path() {
+                        p
+                    } else {
+                        // Non-file URI (e.g., untitled:, vscode-notebook-cell:)
+                        tracing::warn!(
+                            method = ?msg.method_name(),
+                            uri = %url,
+                            "Cannot resolve venv for non-file URI"
+                        );
+                        let error_response = RpcMessage::error_response(
+                            msg,
+                            &format!("lsp-proxy: cannot resolve venv for non-file URI: {}", url),
+                        );
+                        client_writer.write_message(&error_response).await?;
+                        return Ok(());
+                    };
+
+                    match self
+                        .ensure_backend_in_pool(&url, &file_path, client_writer)
+                        .await
+                    {
+                        Ok(PoolLookup::Ready(venv)) => {
+                            target_venv = Some(venv);
+                        }
+                        Ok(
+                            PoolLookup::CreatingStarted(venv) | PoolLookup::CreatingInFlight(venv),
+                        ) => {
+                            self.queue_or_reject_creating_request(&venv, msg, client_writer)
+                                .await?;
+                            return Ok(());
+                        }
+                        Ok(PoolLookup::NotFound) => {
+                            tracing::warn!(
+                                method = ?msg.method_name(),
+                                uri = %url,
+                                "No venv found for URI-bearing request"
+                            );
+                            let error_response = RpcMessage::error_response(
+                                msg,
+                                "lsp-proxy: .venv not found (strict mode). Create .venv or run hooks.",
+                            );
+                            client_writer.write_message(&error_response).await?;
+                            return Ok(());
+                        }
+                        Err(e) => {
+                            tracing::error!(error = ?e, "Failed to ensure backend in pool");
+                            let error_response = RpcMessage::error_response(
+                                msg,
+                                &format!("lsp-proxy: backend error: {}", e),
+                            );
+                            client_writer.write_message(&error_response).await?;
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+        }
+
+        // If we have a target, send to that backend
+        if let Some(ref venv_path) = target_venv {
+            // Extract session and warmup state, then drop the mutable borrow
+            // so register_pending_request can borrow self again.
+            let backend_info = self.state.pool.get_mut(venv_path).map(|inst| {
+                inst.last_used = Instant::now();
+                let session = inst.session;
+                let should_queue = method
+                    .is_some_and(|m| inst.is_warming() && INDEX_DEPENDENT_METHODS.contains(&m));
+                (session, should_queue)
+            });
+
+            if let Some((session, should_queue)) = backend_info {
+                if should_queue {
+                    let queued = self
+                        .state
+                        .pool
+                        .get_mut(venv_path)
+                        .is_some_and(|inst| inst.try_queue_warmup_request(msg.clone()));
+
+                    if !queued {
+                        let queue_len = self
+                            .state
+                            .pool
+                            .get(venv_path)
+                            .map_or(0, |inst| inst.warmup_queue.len());
+                        tracing::warn!(
+                            method = ?method,
+                            id = ?msg.id,
+                            venv = %venv_path.display(),
+                            queue_len,
+                            "Rejecting index-dependent request: warmup queue full"
+                        );
+                        let error_response = RpcMessage::error_response(
+                            msg,
+                            &format!(
+                                "lsp-proxy: warmup queue full ({MAX_WARMUP_QUEUE_LEN} requests) for {}",
+                                venv_path.display()
+                            ),
+                        );
+                        client_writer.write_message(&error_response).await?;
+                        return Ok(());
+                    }
+
+                    // Register in pending requests (so cancel/crash handling works)
+                    self.register_pending_request(msg, session, venv_path);
+                    tracing::info!(
+                        method = ?method,
+                        id = ?msg.id,
+                        venv = %venv_path.display(),
+                        "Queueing index-dependent request during warmup"
+                    );
+                    return Ok(());
+                }
+
+                // Register in pending requests
+                self.register_pending_request(msg, session, venv_path);
+
+                if let Some(inst) = self.state.pool.get_mut(venv_path) {
+                    if let Err(e) = inst.writer.write_message(msg).await {
+                        tracing::error!(venv = %venv_path.display(), error = ?e, "Failed to send request to backend");
+                    }
+                }
+            } else {
+                // Backend disappeared (race with crash handling)
+                let error_response =
+                    RpcMessage::error_response(msg, "lsp-proxy: backend not available");
+                client_writer.write_message(&error_response).await?;
+            }
+        } else {
+            // No target venv resolved (URI-less request)
+            if self.state.pool.is_empty() {
+                let error_message =
+                    "lsp-proxy: .venv not found (strict mode). Create .venv or run hooks.";
+                let error_response = RpcMessage::error_response(msg, error_message);
+                client_writer.write_message(&error_response).await?;
+            } else if self.state.pool.len() == 1 {
+                // Single backend: no cross-contamination possible, forward unconditionally
+                self.forward_to_first_backend(msg).await?;
+            } else {
+                // Multiple backends: fan-out or reject
+                let method_name = msg.method_name().unwrap_or("");
+                if FANOUT_METHODS.contains(&method_name) {
+                    self.dispatch_fanout_request(msg, client_writer).await?;
+                } else {
+                    tracing::warn!(
+                        method = method_name,
+                        pool_size = self.state.pool.len(),
+                        "Rejecting URI-less request: cannot determine target venv (multiple backends active)"
+                    );
+                    let error_response = RpcMessage::error_response(
+                        msg,
+                        &format!(
+                            "lsp-proxy: cannot route '{}' without a document URI (multiple backends active)",
+                            method_name
+                        ),
+                    );
+                    client_writer.write_message(&error_response).await?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Queue a request into a Creating venv's bounded queue, or reject it
+    /// immediately with a JSON-RPC error if the queue is full or the venv is
+    /// no longer tracked as Creating (a race with the completion handler —
+    /// shouldn't happen in the single-threaded event loop, handled
+    /// defensively). Registers the queued request in `pending_requests`
+    /// under the Creating entry's pre-allocated session, so `$/cancelRequest`
+    /// can find it via the same lookup used for the warmup queue.
+    async fn queue_or_reject_creating_request(
+        &mut self,
+        venv_path: &Path,
+        msg: &RpcMessage,
+        client_writer: &mut LspFrameWriter<tokio::io::Stdout>,
+    ) -> Result<(), ProxyError> {
+        let key = venv_path.to_path_buf();
+        let Some(entry) = self.state.pool.creating_get_mut(&key) else {
+            let error_response =
+                RpcMessage::error_response(msg, "lsp-proxy: backend not available");
+            client_writer.write_message(&error_response).await?;
+            return Ok(());
+        };
+
+        if entry.try_queue(msg.clone()) {
+            let session = entry.session;
+            self.register_pending_request(msg, session, venv_path);
+            tracing::info!(
+                method = ?msg.method_name(),
+                id = ?msg.id,
+                venv = %venv_path.display(),
+                "Queueing request while backend is being created"
+            );
+        } else {
+            tracing::warn!(
+                method = ?msg.method_name(),
+                id = ?msg.id,
+                venv = %venv_path.display(),
+                "Rejecting request: creating queue full"
+            );
+            let error_response = RpcMessage::error_response(
+                msg,
+                &format!(
+                    "lsp-proxy: creating queue full ({MAX_CREATING_QUEUE_LEN} requests) for {}",
+                    venv_path.display()
+                ),
+            );
+            client_writer.write_message(&error_response).await?;
+        }
+
+        Ok(())
+    }
+
+    /// Forward a message to `venv_path`'s backend if it's `Ready`, queue it
+    /// (bounded, dedup'd overflow warning) if the backend is `Creating`, or
+    /// drop it silently if no backend is tracked for the venv at all (matches
+    /// the pre-existing "forward to nothing" no-op for an absent backend).
+    ///
+    /// Used for notifications (no response to send an error for), so
+    /// overflow can only be reported via a `window/showMessage`, never a
+    /// JSON-RPC error response.
+    ///
+    /// Returns which `NotificationDelivery` outcome happened — the "drop"
+    /// case above splits into `Dropped` (overflow) and `NoBackend` (nothing
+    /// tracked for this venv at all). Some callers (didChange, didClose)
+    /// defer a cache mutation on the assumption that a `Queued` message is
+    /// guaranteed to be replayed later — `Dropped` and `NoBackend` both
+    /// break that assumption (nothing will ever redeliver this message), so
+    /// those callers need to know which outcome they got, not just whether
+    /// this returned an error.
+    pub(crate) async fn forward_or_queue_for_venv(
+        &mut self,
+        venv_path: &Path,
+        msg: &RpcMessage,
+        client_writer: &mut LspFrameWriter<tokio::io::Stdout>,
+    ) -> Result<NotificationDelivery, ProxyError> {
+        let key = venv_path.to_path_buf();
+        if self.state.pool.contains(&key) {
+            self.forward_to_backend(venv_path, msg).await?;
+            return Ok(NotificationDelivery::Forwarded);
+        }
+
+        let Some(entry) = self.state.pool.creating_get_mut(&key) else {
+            return Ok(NotificationDelivery::NoBackend);
+        };
+
+        if entry.try_queue(msg.clone()) {
+            return Ok(NotificationDelivery::Queued);
+        }
+
+        tracing::warn!(
+            method = ?msg.method_name(),
+            venv = %venv_path.display(),
+            "Dropping notification: creating queue full"
+        );
+        self.notify_creating_queue_overflow(venv_path, client_writer)
+            .await;
+        Ok(NotificationDelivery::Dropped)
+    }
+
+    /// Register a pending request so that the response can be routed back
+    /// to the correct backend session.
+    fn register_pending_request(&mut self, msg: &RpcMessage, session: u64, venv_path: &Path) {
+        if let Some(id) = &msg.id {
+            self.state.pending_requests.insert(
+                id.clone(),
+                PendingRequest {
+                    backend_session: session,
+                    venv_path: venv_path.to_path_buf(),
+                },
+            );
+        }
+    }
+
+    /// Forward a message to the backend for the given venv, updating its
+    /// last-used timestamp. Logs a warning on write failure.
+    pub(crate) async fn forward_to_backend(
+        &mut self,
+        venv_path: &Path,
+        msg: &RpcMessage,
+    ) -> Result<(), ProxyError> {
+        let key = venv_path.to_path_buf();
+        if let Some(inst) = self.state.pool.get_mut(&key) {
+            inst.last_used = Instant::now();
+            if let Err(e) = inst.writer.write_message(msg).await {
+                tracing::warn!(
+                    venv = %venv_path.display(),
+                    error = ?e,
+                    "Failed to forward message to backend"
+                );
+            }
+        }
+        Ok(())
+    }
+
+    /// Forward a request to the first available backend in the pool.
+    ///
+    /// Used when no specific target venv is resolved but forwarding is safe
+    /// (e.g., single-backend pool where no cross-contamination is possible).
+    async fn forward_to_first_backend(&mut self, msg: &RpcMessage) -> Result<(), ProxyError> {
+        let first_venv = self.state.pool.first_key().cloned();
+        if let Some(venv_path) = first_venv {
+            let session = self.state.pool.get(&venv_path).map(|inst| inst.session);
+            if let Some(session) = session {
+                self.register_pending_request(msg, session, &venv_path);
+            }
+            self.forward_to_backend(&venv_path, msg).await?;
+        }
+        Ok(())
+    }
+
+    /// Handle a generic client notification (not handled by specific handlers above).
+    ///
+    /// If the notification carries `textDocument.uri`, it is routed to that
+    /// document's owning backend only (resolved via the same cache lookup as
+    /// `textDocument/didChange`). If no owning backend can be determined, the
+    /// notification is dropped rather than broadcast, to avoid delivering
+    /// document-scoped notifications to backends that never opened the
+    /// document. Notifications without a `textDocument.uri` (e.g.
+    /// `workspace/didChangeConfiguration`) are still broadcast to all
+    /// backends in the pool.
+    pub(crate) async fn dispatch_client_notification(
+        &mut self,
+        msg: &RpcMessage,
+        client_writer: &mut LspFrameWriter<tokio::io::Stdout>,
+    ) -> Result<(), ProxyError> {
+        if let Some(url) = Self::extract_text_document_uri(msg) {
+            let Some(venv_path) = self.venv_for_uri(&url) else {
+                tracing::warn!(
+                    method = ?msg.method_name(),
+                    uri = %url,
+                    "Dropping URI-bearing notification: no owning backend found"
+                );
+                return Ok(());
+            };
+            // No deferred cache mutation depends on the outcome here (that's
+            // only relevant to didChange/didClose's own dispatch arms) — the
+            // delivery result doesn't change what this generic path does
+            // next, so it's discarded once errors are handled.
+            self.forward_or_queue_for_venv(&venv_path, msg, client_writer)
+                .await?;
+            return Ok(());
+        }
+
+        let venvs: Vec<PathBuf> = self.state.pool.backends_keys();
+        for venv in &venvs {
+            if let Some(inst) = self.state.pool.get_mut(venv) {
+                if let Err(e) = inst.writer.write_message(msg).await {
+                    tracing::warn!(venv = %venv.display(), error = ?e, "Failed to forward notification to backend");
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Handle `$/cancelRequest` notification.
+    ///
+    /// If the target request is queued in a warmup queue, remove it without
+    /// forwarding to the backend. Otherwise, forward the cancel to all backends.
+    pub(crate) async fn dispatch_cancel_request(
+        &mut self,
+        msg: &RpcMessage,
+        client_writer: &mut LspFrameWriter<tokio::io::Stdout>,
+    ) -> Result<(), ProxyError> {
+        if let Some(cancelled_id) = extract_cancel_id(msg) {
+            // Check if cancelled ID is a pending fan-out
+            if self.state.pending_fanouts.contains_key(&cancelled_id) {
+                self.cancel_fanout_request(&cancelled_id, client_writer)
+                    .await?;
+                return Ok(());
+            }
+
+            if let Some(pending) = self.state.pending_requests.get(&cancelled_id).cloned() {
+                if let Some(inst) = self.state.pool.get_mut(&pending.venv_path) {
+                    if inst.session == pending.backend_session
+                        && inst.cancel_warmup_request(&cancelled_id).is_some()
+                    {
+                        tracing::info!(
+                            id = ?cancelled_id,
+                            venv = %pending.venv_path.display(),
+                            "Cancelled warmup-queued request"
+                        );
+                        self.state.pending_requests.remove(&cancelled_id);
+                        return Ok(());
+                    }
+                } else if let Some(entry) = self.state.pool.creating_get_mut(&pending.venv_path) {
+                    if entry.session == pending.backend_session
+                        && entry.cancel_queued_request(&cancelled_id).is_some()
+                    {
+                        tracing::info!(
+                            id = ?cancelled_id,
+                            venv = %pending.venv_path.display(),
+                            "Cancelled creating-queued request"
+                        );
+                        self.state.pending_requests.remove(&cancelled_id);
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
+        // Not in a warmup/creating queue or fan-out — forward $/cancelRequest to all backends
+        self.dispatch_client_notification(msg, client_writer).await
+    }
+
+    /// Handle `window/workDoneProgress/cancel`.
+    ///
+    /// Unlike `$/cancelRequest`, this must never broadcast: the token the
+    /// client sends back is the proxy-namespaced string minted by
+    /// `progress_token::namespace` when a backend's
+    /// `window/workDoneProgress/create` or `$/progress` was forwarded (see
+    /// `backend_dispatch`), so only the one backend that owns the decoded
+    /// session would recognize it — every other backend would see a
+    /// completely foreign token. Decode it, restore the ORIGINAL token, and
+    /// forward to that backend alone. If the token isn't proxy-namespaced,
+    /// or its session no longer resolves to a backend (evicted/crashed/TTL'd
+    /// since the token was minted), drop the notification with a debug log —
+    /// there's nothing to cancel and no client-visible response to send
+    /// either way (`window/workDoneProgress/cancel` is fire-and-forget).
+    pub(crate) async fn dispatch_workdone_progress_cancel(
+        &mut self,
+        msg: &RpcMessage,
+    ) -> Result<(), ProxyError> {
+        let Some(raw_token) = msg
+            .params
+            .as_ref()
+            .and_then(|p| p.get("token"))
+            .and_then(serde_json::Value::as_str)
+        else {
+            tracing::debug!(
+                "window/workDoneProgress/cancel: missing or non-string token, dropping"
+            );
+            return Ok(());
+        };
+
+        let Some((session, original_token)) = super::progress_token::decode(raw_token) else {
+            tracing::debug!(
+                token = raw_token,
+                "window/workDoneProgress/cancel: token is not proxy-namespaced, dropping"
+            );
+            return Ok(());
+        };
+
+        let Some(inst) = self.state.pool.get_mut_by_session(session) else {
+            tracing::debug!(
+                session,
+                "window/workDoneProgress/cancel: session no longer resolves to a backend, dropping"
+            );
+            return Ok(());
+        };
+
+        let mut forwarded = msg.clone();
+        if let Some(params) = forwarded
+            .params
+            .as_mut()
+            .and_then(serde_json::Value::as_object_mut)
+        {
+            params.insert(
+                "token".to_string(),
+                serde_json::to_value(&original_token).unwrap_or(serde_json::Value::Null),
+            );
+        }
+
+        inst.last_used = Instant::now();
+        if let Err(e) = inst.writer.write_message(&forwarded).await {
+            tracing::warn!(
+                session,
+                error = ?e,
+                "Failed to forward workDoneProgress/cancel to backend"
+            );
+        }
+
+        Ok(())
+    }
+
+    /// Forward queued warmup requests to the backend now that it is ready.
+    /// `expected_session` is checked to avoid forwarding to a replaced backend.
+    pub(crate) async fn drain_warmup_queue(
+        &mut self,
+        venv_path: &PathBuf,
+        expected_session: u64,
+        queued: Vec<RpcMessage>,
+        client_writer: &mut LspFrameWriter<tokio::io::Stdout>,
+    ) -> Result<(), ProxyError> {
+        for request in queued {
+            let method = request.method_name().unwrap_or("unknown").to_string();
+            let id_debug = format!("{:?}", request.id);
+
+            // Session guard: if the backend was replaced (crash + re-create),
+            // discard remaining queued requests instead of forwarding to the new session.
+            let session_ok = self
+                .state
+                .pool
+                .get(venv_path)
+                .is_some_and(|inst| inst.session == expected_session);
+            if !session_ok {
+                tracing::warn!(
+                    method = %method,
+                    id = %id_debug,
+                    venv = %venv_path.display(),
+                    "Aborting warmup drain: backend session changed"
+                );
+                // Remove remaining queued requests from pending_requests
+                if let Some(req_id) = &request.id {
+                    self.state.pending_requests.remove(req_id);
+                }
+                continue;
+            }
+
+            if let Some(inst) = self.state.pool.get_mut(venv_path) {
+                match inst.writer.write_message(&request).await {
+                    Ok(()) => {
+                        tracing::info!(
+                            method = %method,
+                            id = %id_debug,
+                            venv = %venv_path.display(),
+                            "Draining warmup queue: forwarding request"
+                        );
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            method = %method,
+                            id = %id_debug,
+                            venv = %venv_path.display(),
+                            error = ?e,
+                            "Failed to forward warmup-queued request"
+                        );
+                        // Remove from pending_requests and send error to client
+                        if let Some(req_id) = &request.id {
+                            self.state.pending_requests.remove(req_id);
+                        }
+                        let error_response = RpcMessage::error_response(
+                            &request,
+                            "lsp-proxy: backend write failed during warmup drain",
+                        );
+                        client_writer.write_message(&error_response).await?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Extract the cancel target id from a `$/cancelRequest` params.
+fn extract_cancel_id(msg: &RpcMessage) -> Option<RpcId> {
+    let params = msg.params.as_ref()?;
+    let id_value = params.get("id")?;
+    id_value.as_i64().map_or_else(
+        || id_value.as_str().map(|s| RpcId::String(s.to_string())),
+        |n| Some(RpcId::Number(n)),
+    )
+}

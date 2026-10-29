@@ -1,0 +1,16 @@
+{
+  "name": "dipoleml-obsidian",
+  "displayName": "DipoleML Obsidian",
+  "version": "3.0.1",
+  "description": "Local-first Agent Skills package and DipoleML plugin for source-cited Obsidian knowledge bases. Provides explicit vault initialization and adoption, recoverable operation transactions, deterministic lint and retrieval, provenance ledgers, offline-first capture foundations, and optional methodology modes. User vaults stay outside the plugin cache; network and destructive actions require explicit consent.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Agricidaniel"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/AgriciDaniel/claude-obsidian",
+  "repository": "https://github.com/AgriciDaniel/claude-obsidian",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

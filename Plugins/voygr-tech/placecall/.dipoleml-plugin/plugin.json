@@ -1,0 +1,18 @@
+{
+  "name": "placecall",
+  "displayName": "Placecall",
+  "version": "6.5.1",
+  "description": "PlaceCall makes AI phone calls that book, confirm, and reach US businesses. It places a real outbound call and returns a structured outcome plus a full transcript. Sign in on first use, no API key needed.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Voygr Tech"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/voygr-tech/placecall",
+  "repository": "https://github.com/voygr-tech/placecall",
+  "skills": [
+    "./skills/placecall"
+  ],
+  "commands": [],
+  "agents": []
+}

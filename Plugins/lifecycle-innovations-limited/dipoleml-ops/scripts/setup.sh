@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+# ops setup — Auto-install missing tools + validate readiness
+# Called by SessionStart hook and /ops:setup
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PLUGIN_ROOT="$(dirname "$SCRIPT_DIR")"
+MISSING=()
+INSTALLED=()
+
+# ─── Auto-install core tools ────────────────────────────────────────
+auto_install() {
+  local tool="$1"
+  local brew_pkg="$2"
+  if ! command -v "$tool" &>/dev/null; then
+    if command -v brew &>/dev/null; then
+      timeout 30 brew install "$brew_pkg" &>/dev/null && INSTALLED+=("$tool") && return 0
+    fi
+    MISSING+=("$tool")
+    return 1
+  fi
+  return 0
+}
+
+# Core (auto-installed silently)
+auto_install jq jq
+auto_install gh gh
+auto_install git git
+
+# Infrastructure (auto-installed if brew available)
+auto_install aws awscli
+auto_install node node
+
+# Telegram MCP server deps
+if [ -f "$PLUGIN_ROOT/telegram-server/package.json" ] && command -v node &>/dev/null; then
+  if [ ! -d "$PLUGIN_ROOT/telegram-server/node_modules" ]; then
+    (cd "$PLUGIN_ROOT/telegram-server" && npm install --silent &>/dev/null) && INSTALLED+=("telegram-deps")
+  fi
+fi
+
+# Plugin bin deps
+if [ -f "$PLUGIN_ROOT/package.json" ] && command -v node &>/dev/null; then
+  if [ ! -d "$PLUGIN_ROOT/node_modules" ]; then
+    (cd "$PLUGIN_ROOT" && npm install --silent &>/dev/null) && INSTALLED+=("plugin-deps")
+  fi
+fi
+
+# ─── Keep the installed outbound-guard Node twin current ───────────
+# outbound_guard.py documents an installed copy at ~/.claude/mcp-proxy/outbound-guard.mjs
+# that shares its state file and rules. Without a refresh step that copy drifts onto an
+# old schema every time outbound-guard.mjs changes in the repo.
+#
+# The sync is no longer an unconditional overwrite: it refuses to replace an installed
+# guard whose schema it cannot place, or one newer than the checkout. `|| true` with
+# stderr on /dev/null hid exactly that refusal, which is how a silent downgrade of a
+# security guard became possible. A refusal must not abort session start, but it must be
+# SEEN, so only stdout is discarded and the diagnosis is printed.
+SYNC_GUARD="$PLUGIN_ROOT/scripts/outbound-guard/sync-installed-copy.sh"
+if [ -f "$SYNC_GUARD" ]; then
+  if ! SYNC_ERR="$(bash "$SYNC_GUARD" 2>&1 >/dev/null)"; then
+    echo "  ✗ ops: outbound-guard sync refused — installed copy left untouched" >&2
+    [ -n "$SYNC_ERR" ] && printf '%s\n' "$SYNC_ERR" >&2
+  fi
+fi
+
+# ─── Report only problems ───────────────────────────────────────────
+if [ ${#INSTALLED[@]} -gt 0 ]; then
+  echo "  ops: auto-installed ${INSTALLED[*]}"
+fi
+
+for tool in "${MISSING[@]}"; do
+  echo "  ✗ ops: $tool not found — run /ops:setup to configure"
+done
+
+# Check registry. The canonical registry lives in the plugin DATA dir
+# (CLAUDE_PLUGIN_DATA_DIR), which survives plugin upgrades; the cached copy
+# under $SCRIPT_DIR is wiped on every upgrade. Accept either location so a
+# valid data-dir registry doesn't trigger a false "no registry" warning.
+REGISTRY_DATA_DIR="${CLAUDE_PLUGIN_DATA_DIR:-$HOME/.claude/plugins/data/ops-ops-marketplace}"
+if [ ! -f "$SCRIPT_DIR/registry.json" ] && [ ! -f "$REGISTRY_DATA_DIR/registry.json" ]; then
+  echo "  ✗ ops: no project registry — run /ops:setup to create one"
+fi
+
+# ─── Seed partner_registry into preferences.json (idempotent) ────────
+# Adds integrations shipped with the plugin (e.g. myparcel) without
+# clobbering any user-added entries or credentials.
+PREFS_DIR="${CLAUDE_PLUGIN_DATA_DIR:-$HOME/.claude/plugins/data/ops-ops-marketplace}"
+PREFS="$PREFS_DIR/preferences.json"
+SEED="$SCRIPT_DIR/partner-registry.seed.json"
+if [ -f "$SEED" ] && command -v jq &>/dev/null; then
+  mkdir -p "$PREFS_DIR"
+  [ -f "$PREFS" ] || echo '{}' > "$PREFS"
+  tmp=$(mktemp)
+  # Seed wins only for keys the user hasn't already set.
+  jq -s '.[0] as $prefs
+    | .[1].partner_registry as $seed
+    | $prefs
+    | .partner_registry = (($seed // {}) + ($prefs.partner_registry // {}))' \
+    "$PREFS" "$SEED" > "$tmp" 2>/dev/null \
+    && mv "$tmp" "$PREFS" \
+    || rm -f "$tmp"
+fi

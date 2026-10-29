@@ -1,0 +1,115 @@
+{
+  "schema": 1,
+  "cell_id": "002-api-parser-alias--citadel-hybrid-risk-route",
+  "order": 2,
+  "scenario_id": "api-parser-alias",
+  "task_class": "api-compatibility",
+  "risk": "high",
+  "policy_id": "citadel-hybrid-risk-route",
+  "repetition": 1,
+  "route": {
+    "initial_tier": "cloud",
+    "escalation_tier": null,
+    "reason_code": "FROZEN_HIGH_RISK_CLAUDE"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "cloud",
+      "started_at": "2026-08-02T00:55:51.554Z",
+      "duration_ms": 5445,
+      "output_text": "{\"files\":{\"src/parser.js\":\"'use strict';\\nfunction parseRecord(text) {\\n  return JSON.parse(text);\\n}\\nconst parseLegacy = parseRecord;\\nmodule.exports = { parseRecord, parseLegacy };\\n\",\"src/consumer.js\":\"'use strict';\\nconst { parseRecord } = require('./parser');\\nfunction loadRecord(text) {\\n  return parseRecord(text);\\n}\\nmodule.exports = { loadRecord };\\n\"}}",
+      "output_digest": "sha256:9f479f1cb67e8474db479877bf4436de9bf6863ab12c50139df508736535ac36",
+      "verification": {
+        "status": "passed",
+        "code": null,
+        "changed_paths": [
+          "src/consumer.js",
+          "src/parser.js"
+        ],
+        "applied_file_digests": {
+          "src/consumer.js": "sha256:cc96da199ebdd3d822a57cdfb6ea8a1a474140cf994cc500fe1f2632b18f2324",
+          "src/parser.js": "sha256:57b1199d25602fa2903de7112aac1811de68e5f30a4a7f52f533ddb8a8bbb637"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 0,
+          "signal": null,
+          "stdout": "",
+          "stderr": "",
+          "error": null
+        },
+        "patch_digest": "sha256:3ee513d40096614ff862246010fd8ab3f7ad4a8bf715a70ec46f6922ff99df4e"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "claude-code-print",
+        "requested_model": "sonnet",
+        "canonical_model": "claude-sonnet-5",
+        "cli_version": "2.1.219",
+        "response_digest": "sha256:22915000d3f0d430b1245cb087f962448b3d0e6879e33e0f76066c7979249844",
+        "exit_status": 0,
+        "terminal_reason": "completed",
+        "error": null
+      },
+      "usage": {
+        "input_tokens": 578,
+        "output_tokens": 176,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0
+      },
+      "economics": {
+        "comparison_cost": {
+          "status": "provider-reported-equivalent",
+          "total_usd": 0.005249,
+          "source": "claude_code_total_cost_usd"
+        },
+        "provider_reported_equivalent_cost": {
+          "status": "provider-reported-equivalent",
+          "amount_usd": 0.005249,
+          "source": "claude_code_total_cost_usd"
+        },
+        "local_gpu_energy": {
+          "status": "not-applicable",
+          "energy_kwh": 0,
+          "samples": 0,
+          "average_watts": null
+        },
+        "actual_subscription_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "pro_subscription_cost_not_allocated_per_request"
+        }
+      }
+    }
+  ],
+  "status": "passed",
+  "final_verification": {
+    "status": "passed",
+    "code": null,
+    "changed_paths": [
+      "src/consumer.js",
+      "src/parser.js"
+    ],
+    "applied_file_digests": {
+      "src/consumer.js": "sha256:cc96da199ebdd3d822a57cdfb6ea8a1a474140cf994cc500fe1f2632b18f2324",
+      "src/parser.js": "sha256:57b1199d25602fa2903de7112aac1811de68e5f30a4a7f52f533ddb8a8bbb637"
+    },
+    "verifier": {
+      "command": "node verifier.js",
+      "status": 0,
+      "signal": null,
+      "stdout": "",
+      "stderr": "",
+      "error": null
+    },
+    "patch_digest": "sha256:3ee513d40096614ff862246010fd8ab3f7ad4a8bf715a70ec46f6922ff99df4e"
+  },
+  "previous_cell_digest": "sha256:e51341a1523902add6164997e2f887741c35904c8543949d480cf54867cefb80",
+  "receipt_digest": "sha256:7d487115bed602451b047bbf9b2ed3cd944fc887d169a8235e1b16feb3f17564",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:7cd1eae5403f732660976c3cd3afab74b7d1658715b0a1850ca3ef3bdd67be42",
+    "signature": "Aa9BOOKUaTS+U34dKRcGEgHIf+rA3oUhQDnwPxr95efnBqiXyVNj0mh6aMheJ0xnPy3E3KRZmCxRMJhFE/VhBQ=="
+  }
+}

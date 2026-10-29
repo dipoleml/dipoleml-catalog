@@ -1,0 +1,26 @@
+{
+  "schema": 1,
+  "kind": "citadel-supplementary-freeze-dependency-closure",
+  "study": "benchmarks/sentient-readiness",
+  "freeze_id": "sha256:40858b138a4125461bc25eda126b0df5875cca5e6f19c48709153dc22be60086",
+  "signed_execution_commit": "36bc9095d94300a829de7a8090527e9f65914908",
+  "original_source_files": 5,
+  "closed_source_files": 8,
+  "missing_from_original_freeze": [
+    "core/operation-control/contracts.js",
+    "core/operation-control/policy.js",
+    "core/operation-control/receipt.js"
+  ],
+  "source_closure": {
+    "benchmarks/sentient-readiness/METHOD.md": "sha256:f121d65bea88339e1c642c69729a4f09caae20b83ea1be6be98c2d95afe5ce27",
+    "benchmarks/sentient-readiness/scenarios.json": "sha256:a7af7ceaf3d834c437014cd1ec711a388bd09c043ff39605b4a9f0e328c4d5c1",
+    "core/application-readiness/benchmark.js": "sha256:ed9d4eac100ef671e1b488e9e5e7e5a44f0099ff1e95a960d2255dcc482c48e3",
+    "core/operation-control/contracts.js": "sha256:9f4e774ebf13255804bb5f06f9ccec832d55a9ce6e8f1c605515c0105cee1126",
+    "core/operation-control/policy.js": "sha256:77a709145629a467af1ded634abf34b624c9f492ea4f9c61fddf4ce82ca9b20a",
+    "core/operation-control/receipt.js": "sha256:e58cc4b6bce2a1dc96db1bcc2682a36a736e9d2a99dfbece94f20c157ec5d31c",
+    "scripts/application-readiness-benchmark.js": "sha256:2bf99f95340e217d6ecb01b16bccca5cb260a330d5fc98bc38b20968197f385c",
+    "scripts/test-application-readiness.js": "sha256:abf2bf53b813901cea7d81cbb6421cb7587134d67239b5403d1c8d4589dbcbc1"
+  },
+  "boundary": "Supplement created after execution from git objects at the signed execution commit. It documents transitive dependency closure but does not retroactively alter the preregistered freeze.",
+  "closure_digest": "sha256:255ed9c3fec957120b2e6c09e23129343e41ebc03f46b082a1564300dedf8b62"
+}

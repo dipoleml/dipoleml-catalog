@@ -1,0 +1,16 @@
+{
+  "name": "queue",
+  "displayName": "Queue",
+  "version": "0.0.1",
+  "description": "A real prompt queue: Enter while DipoleML works queues the prompt instead of steering the running turn, and it is sent when the turn ends. Send now, edit or cancel each one from a band above the prompt.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Francize"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/francize/my-better-claude/tree/main/plugins/queue",
+  "repository": "https://github.com/francize/my-better-claude",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,16 @@
+{
+  "name": "crevideo-reach",
+  "displayName": "Crevideo Reach",
+  "version": "3.4.4",
+  "description": "Turn DipoleML into your TikTok Shop affiliate outreach & marketing assistant — 9 skills (1 base playbook `mcp-playbook` + 8 business-scenario skills: creator fit scoring / tier resolver / offer policy / brand safety / outreach composer / reply triage / win-back & pruning / performance diagnosis) + Crevideo Reach MCP (79 tools, auto-registers as connector, OAuth sign-in). Works with DipoleML, DipoleML.ai web, and OpenAI Codex.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Crevideo"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/crevideo/crevideo-reach",
+  "repository": "https://github.com/crevideo/crevideo-reach",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,15 @@
+config.bat
+node_modules
+
+# instant-grep index
+.ig/
+
+# Local scraping / repo-evolution workspace (never committed)
+sniffer/
+.env
+.env.local
+.env.*.local
+
+# Build scratch
+dist/.tmp/
+.DS_Store

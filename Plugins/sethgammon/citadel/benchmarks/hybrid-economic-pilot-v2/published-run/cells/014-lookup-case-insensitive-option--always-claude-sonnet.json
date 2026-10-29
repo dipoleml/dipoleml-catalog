@@ -1,0 +1,111 @@
+{
+  "schema": 1,
+  "cell_id": "014-lookup-case-insensitive-option--always-claude-sonnet",
+  "order": 14,
+  "scenario_id": "lookup-case-insensitive-option",
+  "task_class": "bug-fix",
+  "risk": "moderate",
+  "policy_id": "always-claude-sonnet",
+  "repetition": 1,
+  "route": {
+    "initial_tier": "cloud",
+    "escalation_tier": null,
+    "reason_code": "BASELINE_ALWAYS_CLAUDE"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "cloud",
+      "started_at": "2026-08-02T01:11:00.381Z",
+      "duration_ms": 5058,
+      "output_text": "{\"files\":{\"src/options.js\":\"'use strict';\\nfunction readOption(entries,name){if(!Array.isArray(entries)||typeof name!=='string')return null;const lowerName=name.toLowerCase();const found=entries.find(entry=>entry&&typeof entry.name==='string'&&entry.name.toLowerCase()===lowerName);return found?found.value:null;}\\nmodule.exports={readOption};\\n\"}}",
+      "output_digest": "sha256:ba823782ef7cccfbb60e7f468f77d5d1af68e0e34e4a5e2dd586a001cbb2c037",
+      "verification": {
+        "status": "passed",
+        "code": null,
+        "changed_paths": [
+          "src/options.js"
+        ],
+        "applied_file_digests": {
+          "src/options.js": "sha256:5ed871ae3ea7bcf5d11212dc89ac139103eed7dc304003baf708eea2aacb1a80"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 0,
+          "signal": null,
+          "stdout": "",
+          "stderr": "",
+          "error": null
+        },
+        "patch_digest": "sha256:258f347c6ad96d05140115f92ff3c4cdd500bee0df444f062f714878620f44a4"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "claude-code-print",
+        "requested_model": "sonnet",
+        "canonical_model": "claude-sonnet-5",
+        "cli_version": "2.1.219",
+        "response_digest": "sha256:046c967aeddefdc46b82e7a252536bd047e36aad0a0f69228f1cecb56751343c",
+        "exit_status": 0,
+        "terminal_reason": "completed",
+        "error": null
+      },
+      "usage": {
+        "input_tokens": 522,
+        "output_tokens": 150,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0
+      },
+      "economics": {
+        "comparison_cost": {
+          "status": "provider-reported-equivalent",
+          "total_usd": 0.004661,
+          "source": "claude_code_total_cost_usd"
+        },
+        "provider_reported_equivalent_cost": {
+          "status": "provider-reported-equivalent",
+          "amount_usd": 0.004661,
+          "source": "claude_code_total_cost_usd"
+        },
+        "local_gpu_energy": {
+          "status": "not-applicable",
+          "energy_kwh": 0,
+          "samples": 0,
+          "average_watts": null
+        },
+        "actual_subscription_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "pro_subscription_cost_not_allocated_per_request"
+        }
+      }
+    }
+  ],
+  "status": "passed",
+  "final_verification": {
+    "status": "passed",
+    "code": null,
+    "changed_paths": [
+      "src/options.js"
+    ],
+    "applied_file_digests": {
+      "src/options.js": "sha256:5ed871ae3ea7bcf5d11212dc89ac139103eed7dc304003baf708eea2aacb1a80"
+    },
+    "verifier": {
+      "command": "node verifier.js",
+      "status": 0,
+      "signal": null,
+      "stdout": "",
+      "stderr": "",
+      "error": null
+    },
+    "patch_digest": "sha256:258f347c6ad96d05140115f92ff3c4cdd500bee0df444f062f714878620f44a4"
+  },
+  "previous_cell_digest": "sha256:834052a108ffa9c993be6caff97e0875e8d20011c5dffb9650027a8e91adb828",
+  "receipt_digest": "sha256:df58f56cc22375ecae662392bbe61747476b9a8b2784baf5ebf3a209d13f7a58",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:3a52347a12686ee1512608582c20915cb831e0eaea3e2208e941fe3a6c0b8c03",
+    "signature": "pzseH5ySwrj0aGWJSy7Uj1xrZi+00sBNfG0LKZN8vs+GlAQJvGr6DAv/G88pTWkg+dpbhXqRyVid5zuA6+OqBQ=="
+  }
+}

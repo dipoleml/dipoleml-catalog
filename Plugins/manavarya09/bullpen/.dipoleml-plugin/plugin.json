@@ -1,0 +1,16 @@
+{
+  "name": "bullpen",
+  "displayName": "Bullpen",
+  "version": "1.0.0",
+  "description": "My AI engineering team for DipoleML — 64 named specialists I actually use every day.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Manavarya09"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/Manavarya09/bullpen",
+  "repository": "https://github.com/Manavarya09/bullpen",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

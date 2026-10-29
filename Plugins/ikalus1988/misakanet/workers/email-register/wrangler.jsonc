@@ -1,0 +1,24 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "email-register",
+  "compatibility_date": "2026-06-01",
+  "main": "src/index.js",
+  "services": [
+    {
+      "binding": "MCP",
+      "service": "misakanet-register-proxy"
+    }
+  ],
+  "compatibility_flags": ["nodejs_compat"],
+  "kv_namespaces": [
+    {
+      "binding": "MISAKANET_KV",
+      "id": "d5fb6b0797b84d17b0586fb982231ffe"
+    }
+  ],
+  "vars": {
+    "GH_REPO": "Ikalus1988/MisakaNet",
+    "MCP_URL": "https://misakanet.org/mcp",
+    "MAINTAINER_EMAIL": "sheldonisspark@gmail.com"
+  }
+}

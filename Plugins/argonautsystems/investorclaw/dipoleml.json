@@ -1,0 +1,124 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.argonautsystems.investorclaw",
+  "type": "plugin",
+  "name": "Investorclaw",
+  "slug": "investorclaw",
+  "vendor": "argonautsystems",
+  "description": "Portfolio analysis & market intelligence for DipoleML & OpenClaw. Deterministic Python math + DipoleML/OpenClaw synthesis. Educational guardrails, no investment advice.",
+  "version": "4.7.2",
+  "homepage": "https://github.com/argonautsystems/InvestorClaw",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agent-skills",
+    "claude-plugin",
+    "claude-skills",
+    "finance",
+    "investing",
+    "portfolio-analysis",
+    "skills"
+  ],
+  "tags": [
+    "agent-skills",
+    "claude",
+    "claude-code",
+    "claude-plugin",
+    "claude-skills",
+    "finance",
+    "investing",
+    "mcp",
+    "mcp-server",
+    "portfolio-analysis",
+    "skills"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "argonautsystems",
+    "brandName": "argonautsystems",
+    "source": "https://github.com/argonautsystems.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:12:14Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "argonautsystems/InvestorClaw",
+    "url": "https://github.com/argonautsystems/InvestorClaw",
+    "commit": "ee3f269c62bb368dbb0aba82de73e9bb35503613",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 9,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:07:15Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Investorclaw | Portfolio analysis & market intelligence for Claude Code & OpenClaw. Deterministic Python math + Claude/OpenClaw synthesis. Educational guardrails, no investment advice.",
+        "after": "Investorclaw | Portfolio analysis & market intelligence for DipoleML & OpenClaw. Deterministic Python math + DipoleML/OpenClaw synthesis. Educational guardrails, no investment advice.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [
+      "MASSIVE_API_KEY",
+      "PROVIDER_HALLUCINATION_REPORT",
+      "SMTP_HOST",
+      "SMTP_PORT",
+      "TOGETHER_API_KEY",
+      "GEMINI_API_KEY"
+    ],
+    "credentials": [
+      "MASSIVE_API_KEY",
+      "TOGETHER_API_KEY",
+      "GEMINI_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

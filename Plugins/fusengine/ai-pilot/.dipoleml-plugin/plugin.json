@@ -1,0 +1,16 @@
+{
+  "name": "ai-pilot",
+  "displayName": "Ai Pilot",
+  "version": "1.2.46",
+  "description": "AI Pilot workflow agents: sniper (code quality), research-expert, explore-codebase, websearch",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Fusengine"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/fusengine/agents",
+  "repository": "https://github.com/Fusengine/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

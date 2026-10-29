@@ -1,0 +1,123 @@
+{
+  "schema": 1,
+  "cell_id": "020-package-health-script--always-strong-local",
+  "order": 20,
+  "scenario_id": "package-health-script",
+  "task_class": "package-metadata",
+  "risk": "low",
+  "policy_id": "always-strong-local",
+  "repetition": 1,
+  "route": {
+    "initial_tier": "strong",
+    "escalation_tier": null,
+    "reason_code": "BASELINE_ALWAYS_STRONG"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "strong",
+      "started_at": "2026-08-02T00:37:31.034Z",
+      "duration_ms": 10330,
+      "output_text": "{\n  \"files\": {\n    \"package.json\": \"{\\n  \\\"name\\\": \\\"fixture-service\\\",\\n  \\\"private\\\": true,\\n  \\\"scripts\\\": {\\n    \\\"start\\\": \\\"node server.js\\\",\\n    \\\"test\\\": \\\"node test.js\\\",\\n    \\\"health\\\": \\\"node scripts/health-check.js\\\"\\n  }\\n}\"\n  }\n}",
+      "output_digest": "sha256:aa79f46133c4c1858b6201c892b63e7206044f07652017bc6028cd37f3a8f760",
+      "verification": {
+        "status": "passed",
+        "code": null,
+        "changed_paths": [
+          "package.json"
+        ],
+        "applied_file_digests": {
+          "package.json": "sha256:4f5ddcc695788a1431c0668219cf168312f00142f37c0a0becdb24e7536d9ad4"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 0,
+          "signal": null,
+          "stdout": "",
+          "stderr": "",
+          "error": null
+        },
+        "patch_digest": "sha256:1715356258cbe9da6c6922555e8978fe5170e70941b028284eba505a72fafb86"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "ollama-chat",
+        "requested_model": "qwen2.5-coder:7b",
+        "observed_model": "qwen2.5-coder:7b",
+        "model_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+        "done_reason": "stop",
+        "response_digest": "sha256:e32905cbb6c1cbb2d7e64d7fe92d7ab7d0370f382bda9ec3c22c4eceb2096435",
+        "error": null
+      },
+      "usage": {
+        "prompt_tokens": 170,
+        "completion_tokens": 77,
+        "total_tokens": 247,
+        "provider_total_duration_ns": 10326353700
+      },
+      "economics": {
+        "provider_invoice": {
+          "status": "known",
+          "amount_usd": 0,
+          "source": "self_hosted_ollama_no_per_request_invoice"
+        },
+        "gpu_energy": {
+          "status": "measured",
+          "energy_kwh": 0.000208647,
+          "samples": 20,
+          "average_watts": 72.7135
+        },
+        "comparison_cost": {
+          "status": "derived-comparison",
+          "total_usd": 0.000070424,
+          "components": [
+            {
+              "kind": "gpu_electricity",
+              "status": "derived-comparison",
+              "amount_usd": 0.000041729,
+              "source": "average_gpu_power_times_request_wall_duration_times_frozen_rate"
+            },
+            {
+              "kind": "gpu_amortization",
+              "status": "derived-comparison",
+              "amount_usd": 0.000028694,
+              "source": "request_wall_duration_times_frozen_residual_value"
+            }
+          ]
+        },
+        "actual_end_to_end_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "whole_system_energy_setup_and_observed_utility_rate_not_measured"
+        }
+      }
+    }
+  ],
+  "status": "passed",
+  "final_verification": {
+    "status": "passed",
+    "code": null,
+    "changed_paths": [
+      "package.json"
+    ],
+    "applied_file_digests": {
+      "package.json": "sha256:4f5ddcc695788a1431c0668219cf168312f00142f37c0a0becdb24e7536d9ad4"
+    },
+    "verifier": {
+      "command": "node verifier.js",
+      "status": 0,
+      "signal": null,
+      "stdout": "",
+      "stderr": "",
+      "error": null
+    },
+    "patch_digest": "sha256:1715356258cbe9da6c6922555e8978fe5170e70941b028284eba505a72fafb86"
+  },
+  "previous_cell_digest": "sha256:e8da135c74b22049e24b160823ffe0be9bfa3e903970d41f12767b50278b9282",
+  "receipt_digest": "sha256:29e5972b019883c62ac0de296727cef2b800815c541d57dc49677ad6aa8000e1",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:830f49e69e903b2231bd0fa9d7153f76cd8deec8b7429038c5d112ae61514084",
+    "signature": "UwR48HImc0NfmI4Ssqi0fy63qzHnMrsqMn/B85/JXwRS5lxFKF95lnroLzXbDe9vBeth0yqs5A3jO2rQ7b0xBA=="
+  }
+}

@@ -1,0 +1,228 @@
+// src/components/ZUI/types.ts
+
+import type { ProxyConnectorDetails } from '../../crossBranch/types'
+import type { ZUIEdgeChange } from './edgeChange'
+
+/** Pan + zoom state for the canvas viewport. */
+export interface ZUIViewState {
+  /** World-space X of the canvas origin (panX). */
+  x: number
+  /** World-space Y of the canvas origin (panY). */
+  y: number
+  /** Current zoom multiplier (1 = 1 world-pixel per screen-pixel). */
+  zoom: number
+  /** World-space X rendered at the local camera origin. Keeps x screen-sized at deep zoom. */
+  originX?: number
+  /** World-space Y rendered at the local camera origin. Keeps y screen-sized at deep zoom. */
+  originY?: number
+}
+
+export interface ZUITestInteraction {
+  type: 'wheel' | 'mouse' | 'touch' | 'dblclick' | 'gesture'
+  mode: string
+  deltaX?: number
+  deltaY?: number
+  deltaMode?: number
+  ctrlKey?: boolean
+  button?: number
+  scale?: number
+  factor?: number
+  zoomBefore?: number
+  zoomAfter?: number
+}
+
+/**
+ * A node in the global world-space layout.
+ *
+ * Root-level nodes are placed directly from diagram coordinates.
+ * Each node that has a linked child diagram stores that diagram's
+ * elements in `children`, expressed in child-local (diagram-editor)
+ * coordinates.  The `childScale` and `childOffset*` values map those
+ * local coords into the node's own NODE_W × NODE_H world footprint.
+ */
+export interface LayoutNode {
+  /** Transient scene reconciliation state; absent outside animated updates. */
+  transitionOpacity?: number
+  transitionLeaving?: boolean
+  changeOverlay?: ZUIChangeOverlay
+  // ── Identity ────────────────────────────────────────────────────
+  /** Unique stable id: "d{diagramId}-o{elementId}" */
+  id: string
+  elementId: number
+  diagramId: number
+
+  // ── World position (global coords) ──────────────────────────────
+  worldX: number
+  worldY: number
+  /** Fixed: always NODE_W. */
+  worldW: number
+  /** Fixed: always NODE_H. */
+  worldH: number
+
+  /** Presentation only; authored tags and layout geometry stay unchanged. */
+  tagContext?: boolean
+  tagHoverState?: 'match' | 'context' | 'inactive'
+
+  // ── Appearance ───────────────────────────────────────────────────
+  label: string
+  /** One of: person | system | container | component | database | queue | api | service | external */
+  type: string
+  /** Explicit authored element kind; null/empty when unspecified. */
+  kind?: string | null
+  logoUrl: string | null
+  description: string | null
+  technology: string | null
+  tags: string[]
+  isCircular?: boolean
+  ancestorElementIds: number[]
+  pathElementIds: number[]
+
+  // ── Children (from linked diagram) ──────────────────────────────
+  linkedDiagramId?: number
+  linkedDiagramLabel?: string
+  /** True when this node's children come from a portal (diagram-to-diagram) link, not an element-child link. */
+  isPortal?: boolean
+  /**
+   * Child nodes in CHILD-LOCAL coordinates (same coord space as the
+   * diagram editor).  To draw them, apply:
+   *   ctx.translate(worldX, worldY)
+   *   ctx.scale(childScale, childScale)
+   *   ctx.translate(-childOffsetX, -childOffsetY)
+   *   …draw each child at child.worldX/worldY…
+   */
+  children: LayoutNode[]
+  /** Scale factor: child-local → node world-space. */
+  childScale: number
+  /** BBox minX used to align children to top-left of node. */
+  childOffsetX: number
+  /** BBox minY used to align children to top-left of node. */
+  childOffsetY: number
+
+  // ── Edges within the same diagram ────────────────────────────────
+  edgesOut: Array<{
+    id: number
+    /** LayoutNode id of the target. */
+    targetId: string
+    label: string
+    description?: string | null
+    relationship?: string | null
+    direction: 'forward' | 'backward' | 'both' | 'bidirectional' | string
+    sourceHandle: string | null
+    targetHandle: string | null
+    type: string
+    tags?: string[]
+    tagHighlighted?: boolean
+    tagMuted?: boolean
+    /** New/removed/modified in the compared revisions, when known. */
+    change?: ZUIEdgeChange
+  }>
+}
+
+/**
+ * Where a canvas node comes from.
+ * - authored: drawn by a user in the workspace (the baseline, no extra chrome).
+ * - augmented: transient placement synthesized from graph facts (unlinked change).
+ * - generated: materialized by the code map pipeline.
+ */
+export type ZUINodeProvenance = 'authored' | 'augmented' | 'generated'
+
+/** Transient repository comparison annotations; never workspace resources. */
+export interface ZUIChangeOverlay {
+  change: 'added' | 'removed' | 'modified' | 'unchanged'
+  path: string
+  linesAdded?: number
+  linesRemoved?: number
+  symbols: string[]
+  /** Why the element carries an overlay; roll-ups render softer. */
+  reason: 'direct' | 'contained'
+}
+
+/** Top-level group wrapping one root diagram. */
+export interface DiagramGroupLayout {
+  /** True when this group is a portal-linked target diagram (not a hierarchy root). */
+  isPortal?: boolean
+  diagramId: number
+  label: string
+  description: string | null
+  level: number
+  levelLabel: string | null
+  /** Top-left of this diagram in world space. */
+  worldX: number
+  worldY: number
+  worldW: number
+  worldH: number
+  /** Dimensions of the main diagram box (excluding portals below). */
+  diagramW: number
+  diagramH: number
+  diagramX: number
+  diagramY: number
+  nodes: LayoutNode[]
+  /** Edges whose both endpoints are in this diagram. */
+  edges: Array<{
+    id: number
+    sourceId: string
+    targetId: string
+    label: string
+    description?: string | null
+    relationship?: string | null
+    direction: string
+    sourceHandle: string | null
+    targetHandle: string | null
+    type: string
+    tags?: string[]
+    tagHighlighted?: boolean
+    tagMuted?: boolean
+    /** New/removed/modified in the compared revisions, when known. */
+    change?: ZUIEdgeChange
+  }>
+}
+
+/** Bounding box in world space. */
+export interface BBox {
+  minX: number
+  minY: number
+  maxX: number
+  maxY: number
+}
+
+/** Top-level result of the layout pass. */
+export interface ZUILayout {
+  groups: DiagramGroupLayout[]
+  /** Bounding box of the whole layout in world space. */
+  bbox: BBox
+}
+
+export type HoveredItem =
+  | { type: 'node'; data: LayoutNode; absX: number; absY: number; absW: number; absH: number }
+  | {
+    type: 'edge';
+    /** Hit-tested route in world coordinates. */
+    route?: Array<{ x: number; y: number }>;
+    clip?: BBox;
+    data: {
+      id?: number;
+      sourceId: string;
+      targetId: string;
+      label: string;
+      direction?: string;
+      description?: string | null;
+      relationship?: string | null;
+      diagramId: number;
+      sourceObjId?: number;
+      targetObjId?: number;
+      targetDiagId?: number;
+      isPortalConn?: boolean;
+      isProxy?: boolean;
+      details?: ProxyConnectorDetails;
+      change?: ZUIEdgeChange;
+    };
+    absX: number;
+    absY: number
+  }
+  | { type: 'group'; data: DiagramGroupLayout }
+
+export interface ZUIObjectSelection {
+  kind: 'placement' | 'connector' | 'view'
+  viewId: number
+  resourceId: number
+}

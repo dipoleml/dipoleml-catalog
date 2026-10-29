@@ -1,0 +1,1410 @@
+import { useState, useEffect, useRef, useMemo } from 'react'
+import { createPortal } from 'react-dom'
+import { AnimatePresence, motion } from 'framer-motion'
+import {
+  Alert,
+  AlertDescription,
+  AlertIcon,
+  Badge,
+  Box,
+  Button,
+  CloseButton,
+  FormControl,
+  FormLabel,
+  HStack,
+  Input,
+  InputGroup,
+  InputRightElement,
+  Progress,
+  Spinner,
+  Text,
+  Tooltip,
+  VStack,
+  useToast,
+  Accordion,
+  AccordionItem,
+  AccordionButton,
+  AccordionPanel,
+  AccordionIcon,
+  Portal,
+  Popover,
+  PopoverTrigger,
+  PopoverContent,
+  PopoverBody,
+} from '@chakra-ui/react'
+import { CheckIcon, ChevronRightIcon, ExternalLinkIcon, SearchIcon } from '@chakra-ui/icons'
+import { getParser, extractSymbols, detectLanguage, type SupportedLanguage, type ParsedSymbol } from '../utils/treesitter'
+import { githubCache } from '../utils/githubCache'
+import { parseRepoSlug } from '../utils/url'
+import { githubRequest } from '../utils/githubApi'
+import { githubBranchName, formatLineSourceLink, formatSymbolSourceLink, parseSourceLink } from '../utils/sourceLinks'
+import { openExternalUrl } from '../lib/desktop'
+import { api, type IndexedRepository } from '../api/client'
+import { isLocalRepoPath, listIndexedRepositories, normalizeRemoteKey } from '../utils/repositoryResolver'
+import { GROUNDING_IGNORE_TAG, isGroundingIgnoreTag } from '../utils/groundingTags'
+import type { LibraryElement } from '../types'
+
+interface Props {
+  element: LibraryElement
+  isReadOnly: boolean
+  onUpdate: (updates: Partial<LibraryElement>) => void
+}
+
+type SelectedSourceSymbol = Pick<ParsedSymbol, 'name' | 'type' | 'qualifiedName'>
+
+const SUPPORTED_LANGUAGES: SupportedLanguage[] = ['javascript', 'typescript', 'python', 'java', 'cpp', 'go', 'rust']
+
+function parseExistingLink(element: LibraryElement) {
+  const { basePath, anchor } = parseSourceLink(element.file_path || '')
+  let symbolName = ''
+  let nodeType = ''
+  let pickedLine: number | null = null
+  if (anchor.kind === 'symbol') {
+    symbolName = anchor.symbolName
+    nodeType = anchor.nodeType
+  } else if (anchor.kind === 'line') {
+    pickedLine = anchor.startLine
+  }
+  return { basePath, symbolName, nodeType, pickedLine }
+}
+
+type SourceKind = 'file' | 'manual'
+
+type ManualKind = 'url' | 'repo' | 'path'
+
+// Detect which source form the element currently encodes so the editor opens on
+// the matching tab. Mirrors the forms accepted by `tld link`.
+function detectSourceKind(element: LibraryElement): SourceKind {
+  if (element.repo) return 'file'
+  if (element.file_path || element.url) return 'manual'
+  return 'file'
+}
+
+// classifyManualTarget infers how a single free-form target should be stored,
+// mirroring the explicit forms `tld link` accepts: an http(s) URL links
+// externally, an owner/repo slug links at repository granularity, and anything
+// else is a file or folder path.
+function classifyManualTarget(value: string): ManualKind {
+  const trimmed = value.trim()
+  if (isHttpUrl(trimmed)) return 'url'
+  if (!trimmed || trimmed.endsWith('/') || trimmed.includes('#')) return 'path'
+  const lastSegment = trimmed.split('/').pop() ?? ''
+  if (/^[\w.-]+\/[\w.-]+$/.test(trimmed) && !lastSegment.includes('.')) return 'repo'
+  return 'path'
+}
+
+// withExternalTag adds or removes the reserved `external` marker tag used by
+// `tld link --external`, leaving every other tag (including `$ignored`) intact.
+function withExternalTag(tags: string[] | undefined, external: boolean): string[] {
+  const base = (tags ?? []).filter((tag) => tag.trim().toLowerCase() !== 'external')
+  return external ? [...base, 'external'] : base
+}
+
+function isHttpUrl(value: string | null | undefined): boolean {
+  const lower = (value ?? '').trim().toLowerCase()
+  return lower.startsWith('http://') || lower.startsWith('https://')
+}
+
+// manualTargetHint explains how the current free-form target will be stored.
+function manualTargetHint(value: string): string {
+  const trimmed = value.trim()
+  if (!trimmed) return ''
+  switch (classifyManualTarget(trimmed)) {
+    case 'url':
+      return 'Links externally, outside the code index.'
+    case 'repo':
+      return 'Links at repository granularity (no file path).'
+    default:
+      return trimmed.endsWith('/')
+        ? 'Links a folder.'
+        : 'Links a file path. Use Git for symbol/line anchors.'
+  }
+}
+
+const STEP_LABELS = ['Repo', 'Branch', 'Path', 'Symbol']
+
+const SOURCE_KIND_TABS: ReadonlyArray<readonly [SourceKind, string]> = [
+  ['file', 'Git'],
+  ['manual', 'Manual'],
+]
+
+function StepIndicator({ step }: { step: number }) {
+  return (
+    <Box mb={4} position="relative" w="full">
+      {/* Static background line spanning all circles */}
+      <Box position="absolute" top="9px" left="12.5%" right="12.5%" h="1px" bg="whiteAlpha.100" zIndex={0} />
+      {/* Completed portion */}
+      <Box
+        position="absolute" top="9px" left="12.5%"
+        w={step > 1 ? `${((step - 1) / 3) * 75}%` : '0%'}
+        h="1px" bg="blue.700" zIndex={0} transition="width 0.3s"
+      />
+      <HStack spacing={0} w="full" position="relative" zIndex={1}>
+        {STEP_LABELS.map((label, i) => {
+          const n = i + 1
+          const isCompleted = step > n
+          const isActive = step === n
+          return (
+            <VStack key={n} flex={1} spacing={1} align="center">
+              <Box
+                w="20px" h="20px" rounded="full"
+                display="flex" alignItems="center" justifyContent="center"
+                fontSize="10px" fontWeight="bold"
+                bg={isCompleted ? 'blue.500' : isActive ? 'var(--accent)' : 'whiteAlpha.150'}
+                color={isCompleted || isActive ? 'white' : 'gray.500'}
+                boxShadow={isActive ? '0 0 0 3px rgba(99,179,237,0.25)' : 'none'}
+                transition="all 0.2s"
+              >
+                {isCompleted ? <CheckIcon w={2.5} h={2.5} /> : n}
+              </Box>
+              <Text
+                fontSize="9px" textAlign="center" textTransform="uppercase"
+                color={isCompleted ? 'blue.300' : isActive ? 'white' : 'gray.600'}
+                fontWeight={isActive ? '600' : '400'}
+              >
+                {label}
+              </Text>
+            </VStack>
+          )
+        })}
+      </HStack>
+    </Box>
+  )
+}
+
+// Scrollable code line renderer - fills its parent container
+interface CodeLinesProps {
+  code: string
+  highlightStart?: number | null
+  highlightEnd?: number | null
+  selectedLine?: number | null
+  searchQuery?: string
+  onLineClick?: (line: number) => void
+}
+
+function CodeLines({ code, highlightStart, highlightEnd, selectedLine, searchQuery, onLineClick }: CodeLinesProps) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  const lines = useMemo(() => code.split('\n'), [code])
+
+  const matchingLines = useMemo(() => {
+    if (!searchQuery?.trim()) return new Set<number>()
+    const q = searchQuery.toLowerCase()
+    const set = new Set<number>()
+    lines.forEach((l, i) => { if (l.toLowerCase().includes(q)) set.add(i + 1) })
+    return set
+  }, [lines, searchQuery])
+
+  const firstMatch = useMemo(() => Array.from(matchingLines)[0] ?? null, [matchingLines])
+
+  useEffect(() => {
+    if (!containerRef.current) return
+    const target = highlightStart ?? firstMatch
+    if (!target) return
+    const el = containerRef.current.querySelector(`[data-line="${target}"]`)
+    el?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+  }, [highlightStart, firstMatch])
+
+  return (
+    <Box
+      ref={containerRef}
+      flex={1} overflowY="auto"
+      fontFamily="'Menlo', 'Monaco', 'Consolas', monospace" fontSize="11px" lineHeight="1.55"
+      bg="#111827"
+      className="custom-scrollbar"
+    >
+      {lines.map((line, i) => {
+        const lineNum = i + 1
+        const inHighlight = highlightStart != null && highlightEnd != null
+          ? lineNum >= highlightStart && lineNum <= highlightEnd
+          : false
+        const isSelected = selectedLine === lineNum
+        const isMatch = matchingLines.has(lineNum)
+
+        return (
+          <Box
+            key={i}
+            data-line={lineNum}
+            display="flex"
+            alignItems="stretch"
+            bg={isSelected ? 'rgba(49,130,206,0.35)' : inHighlight ? 'rgba(49,130,206,0.12)' : isMatch ? 'rgba(236,201,75,0.06)' : 'transparent'}
+            borderLeft="2px solid"
+            borderColor={isSelected ? 'blue.400' : inHighlight ? 'blue.800' : 'transparent'}
+            cursor={onLineClick ? 'pointer' : 'default'}
+            _hover={onLineClick ? { bg: isSelected ? 'rgba(49,130,206,0.45)' : 'whiteAlpha.50' } : {}}
+            onClick={() => onLineClick?.(lineNum)}
+            transition="background 0.1s"
+          >
+            <Box
+              w="38px" flexShrink={0}
+              px={1.5} py={0.5}
+              color={isSelected ? 'blue.300' : inHighlight ? 'blue.600' : isMatch ? 'yellow.500' : 'gray.700'}
+              fontSize="10px" textAlign="right"
+              userSelect="none"
+              borderRight="1px solid" borderColor="whiteAlpha.50"
+            >
+              {lineNum}
+            </Box>
+            <Box
+              px={2} py={0.5}
+              color={isSelected ? 'white' : inHighlight ? 'blue.100' : isMatch ? 'yellow.200' : 'gray.400'}
+              whiteSpace="pre" flex={1} overflow="hidden" textOverflow="ellipsis"
+            >
+              {line || '\u00a0'}
+            </Box>
+          </Box>
+        )
+      })}
+    </Box>
+  )
+}
+
+// Floating preview card - renders via portal, positioned to the left of the right ElementPanel
+interface PreviewCardProps {
+  filename: string
+  isLoading: boolean
+  rawCode: string
+  highlightStart?: number | null
+  highlightEnd?: number | null
+  selectedLine?: number | null
+  searchQuery?: string
+  onLineClick?: (line: number) => void
+  isUnsupported: boolean
+  onSearchChange?: (q: string) => void
+}
+
+function PreviewCard({
+  filename, isLoading, rawCode,
+  highlightStart, highlightEnd,
+  selectedLine, searchQuery, onLineClick,
+  isUnsupported, onSearchChange,
+}: PreviewCardProps) {
+  const EASE = [0.25, 0.46, 0.45, 0.94]
+
+  return createPortal(
+    <AnimatePresence>
+      <motion.div
+        key="git-preview-card"
+        initial={{ x: 32, opacity: 0 }}
+        animate={{ x: 0, opacity: 1 }}
+        exit={{ x: 32, opacity: 0 }}
+        transition={{ duration: 0.2, ease: EASE }}
+        style={{
+          position: 'fixed',
+          right: 'calc(300px + 1rem + 12px)',
+          top: 0,
+          bottom: 0,
+          display: 'flex',
+          alignItems: 'center',
+          zIndex: 999,
+          pointerEvents: 'none',
+        }}
+      >
+        <Box
+          pointerEvents="auto"
+          w="420px"
+          h="calc(90vh - 2rem)"
+          maxH="calc(90vh - 2rem)"
+          display="flex"
+          flexDir="column"
+          bg="var(--bg-panel)"
+          bgImage="var(--grad-panel)"
+          backdropFilter="blur(24px)"
+          border="1px solid"
+          borderColor="whiteAlpha.100"
+          borderTop="2px solid"
+          borderTopColor="var(--accent)"
+          rounded="xl"
+          shadow="panel"
+          overflow="hidden"
+        >
+          {/* Header */}
+          <Box px={4} pt={4} pb={3} borderBottom="1px solid" borderColor="whiteAlpha.100" flexShrink={0}>
+            <Text fontSize="10px" color="gray.600" letterSpacing="widest" fontWeight="600" mb={0.5}>
+              Preview
+            </Text>
+            <Text fontSize="sm" fontWeight="700" color="white" isTruncated letterSpacing="0.01em">
+              {filename}
+            </Text>
+            {highlightStart != null && !isUnsupported && (
+              <Text fontSize="10px" color="blue.400" fontFamily="mono" mt={0.5}>
+                L{highlightStart}–L{highlightEnd ?? highlightStart}
+              </Text>
+            )}
+            {isUnsupported && (
+              <InputGroup size="sm" mt={2.5}>
+                <InputRightElement pointerEvents="none">
+                  <SearchIcon color="gray.600" boxSize={3} />
+                </InputRightElement>
+                <Input
+                  value={searchQuery || ''}
+                  onChange={e => onSearchChange?.(e.target.value)}
+                  placeholder="Search in file..."
+                  pr={8}
+                  bg="whiteAlpha.50"
+                  border="1px solid"
+                  borderColor="whiteAlpha.150"
+                  _focus={{ borderColor: 'blue.500', bg: 'whiteAlpha.100' }}
+                />
+              </InputGroup>
+            )}
+          </Box>
+
+          {/* Body */}
+          <Box flex={1} overflow="hidden" display="flex" flexDir="column" position="relative">
+            {isLoading ? (
+              <VStack flex={1} justify="center" align="center" spacing={3}>
+                <Spinner color="blue.400" size="md" />
+                <Text fontSize="xs" color="gray.500">
+                  {isUnsupported ? 'Fetching file...' : 'Fetching & parsing symbols...'}
+                </Text>
+              </VStack>
+            ) : rawCode ? (
+              <CodeLines
+                code={rawCode}
+                highlightStart={highlightStart}
+                highlightEnd={highlightEnd}
+                selectedLine={selectedLine}
+                searchQuery={searchQuery}
+                onLineClick={onLineClick}
+              />
+            ) : (
+              <VStack flex={1} justify="center" align="center">
+                <Text fontSize="xs" color="gray.600">No preview available</Text>
+              </VStack>
+            )}
+          </Box>
+        </Box>
+      </motion.div>
+    </AnimatePresence>,
+    document.body
+  )
+}
+
+export default function GitSourceLinker({ element, isReadOnly, onUpdate }: Props) {
+  const { basePath: initBasePath, symbolName: initSymbolName, nodeType: initNodeType, pickedLine: initPickedLine } = parseExistingLink(element)
+
+  const hasRepo = !!element.repo
+  const hasFilePath = !!element.file_path
+  const hasUrl = !!element.url
+  const hasAnyLink = hasRepo || hasFilePath || hasUrl
+  const isExternalTagged = (element.tags ?? []).some((tag) => tag.trim().toLowerCase() === 'external')
+  const isIgnored = (element.tags ?? []).some(isGroundingIgnoreTag)
+  const [mode, setMode] = useState<'summary' | 'edit'>(hasAnyLink ? 'summary' : 'edit')
+  const [sourceKind, setSourceKind] = useState<SourceKind>(detectSourceKind(element))
+  const [manualTarget, setManualTarget] = useState(element.url || element.file_path || element.repo || '')
+
+  const [step, setStep] = useState<1 | 2 | 3 | 4>(1)
+
+  // Step 1
+  const [repo, setRepo] = useState(element.repo || '')
+
+  // Step 2
+  const [branch, setBranch] = useState(element.branch || '')
+  const [branches, setBranches] = useState<string[]>([])
+  const [branchSearch, setBranchSearch] = useState('')
+  const [branchOpen, setBranchOpen] = useState(false)
+  const [branchLoading, setBranchLoading] = useState(false)
+  const [branchActiveIndex, setBranchActiveIndex] = useState(0)
+  const branchRef = useRef<HTMLDivElement>(null)
+  const branchInputRef = useRef<HTMLInputElement>(null)
+
+  // Step 3
+  const [filePath, setFilePath] = useState(initBasePath)
+  const [fileSearch, setFileSearch] = useState(initBasePath)
+  const [fileTree, setFileTree] = useState<string[]>([])
+  const [fileOpen, setFileOpen] = useState(false)
+  const [fileTreeLoading, setFileTreeLoading] = useState(false)
+  const [fileActiveIndex, setFileActiveIndex] = useState(0)
+  const [language, setLanguage] = useState(element.language || '')
+  const fileRef = useRef<HTMLDivElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Step 4: symbols
+  const [symbols, setSymbols] = useState<ParsedSymbol[]>([])
+  const [selectedSymbol, setSelectedSymbol] = useState<SelectedSourceSymbol | null>(
+    initSymbolName ? { name: initSymbolName, qualifiedName: initSymbolName, type: initNodeType } : null
+  )
+  const [symbolLoading, setSymbolLoading] = useState(false)
+
+  // Step 4: code preview (shared)
+  const [rawCode, setRawCode] = useState('')
+  const [rawCodeLoading, setRawCodeLoading] = useState(false)
+
+  // Step 4b: line picker
+  const [pickedLine, setPickedLine] = useState<number | null>(initPickedLine)
+  const [lineSearch, setLineSearch] = useState('')
+
+  const [apiRateLimited, setApiRateLimited] = useState(false)
+  const [indexedRepo, setIndexedRepo] = useState<IndexedRepository | null>(null)
+  const toast = useToast()
+
+  // Resolve the typed repo against locally indexed repositories. When indexed,
+  // branches, files, symbols, and previews come from the local index instead of
+  // GitHub's API. The element's explicit repository_id wins while its repo value
+  // is unchanged, which covers materialized elements whose repo is a worktree
+  // root rather than a remote slug.
+  function pickIndexedRepo(repos: IndexedRepository[], repoValue: string): IndexedRepository | null {
+    const explicitId = element.repository_id ?? ''
+    const unchanged = repoValue.trim() === '' || repoValue === (element.repo ?? '')
+    if (explicitId && unchanged) {
+      const byID = repos.find((candidate) => candidate.id === explicitId)
+      if (byID) return byID
+    }
+    const key = normalizeRemoteKey(repoValue)
+    if (!key) return null
+    return repos.find((candidate) => normalizeRemoteKey(candidate.remoteUrl) === key) ?? null
+  }
+
+  useEffect(() => {
+    if (!repo && !element.repository_id) {
+      setIndexedRepo(null)
+      return
+    }
+    let cancelled = false
+    listIndexedRepositories()
+      .then((repos) => {
+        if (!cancelled) setIndexedRepo(pickIndexedRepo(repos, repo))
+      })
+      .catch(() => {
+        if (!cancelled) setIndexedRepo(null)
+      })
+    return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [repo, element.repository_id, element.repo])
+
+  useEffect(() => {
+    const hasLink = !!(element.repo || element.file_path || element.url)
+
+    // Only force a reset if we are not currently editing, or if the link changed from underneath us
+    if (mode === 'summary' || (element.repo !== repo && element.file_path !== filePath)) {
+      setMode(hasLink ? 'summary' : 'edit')
+      if (hasLink) {
+        const { basePath, symbolName, nodeType, pickedLine: pl } = parseExistingLink(element)
+        setStep(1)
+        setRepo(element.repo || '')
+        setBranch(element.branch || '')
+        setFilePath(basePath)
+        setFileSearch(basePath)
+        setLanguage(element.language || '')
+        setSelectedSymbol(symbolName ? { name: symbolName, qualifiedName: symbolName, type: nodeType } : null)
+        setPickedLine(pl)
+        setBranches([])
+        setFileTree([])
+        setApiRateLimited(false)
+        setSymbols([])
+        setRawCode('')
+        setLineSearch('')
+        setSourceKind(detectSourceKind(element))
+        setManualTarget(element.url || element.file_path || element.repo || '')
+      }
+    }
+  }, [element, filePath, mode, repo])
+
+  useEffect(() => {
+    setBranchActiveIndex(0)
+  }, [branchSearch, branches])
+
+  useEffect(() => {
+    setFileActiveIndex(0)
+  }, [fileSearch, fileTree])
+
+  useEffect(() => {
+    if (step === 2) {
+      setTimeout(() => branchInputRef.current?.focus(), 100)
+    } else if (step === 3) {
+      setTimeout(() => fileInputRef.current?.focus(), 100)
+    }
+  }, [step])
+
+  const filteredBranches = branches.filter(b => b.toLowerCase().includes(branchSearch.toLowerCase()))
+  // Derive folders from file paths so cached and locally indexed trees work too.
+  const sourcePaths = useMemo(() => {
+    const paths = new Set(fileTree)
+    for (const path of fileTree) {
+      for (let slash = path.indexOf('/'); slash >= 0; slash = path.indexOf('/', slash + 1)) {
+        paths.add(path.slice(0, slash + 1))
+      }
+    }
+    return [...paths].sort((a, b) => a.localeCompare(b))
+  }, [fileTree])
+  const filteredFiles = sourcePaths.filter(p => p.toLowerCase().includes(fileSearch.toLowerCase())).slice(0, 100)
+  const pathTarget = fileSearch.trim()
+  const isFolderTarget = pathTarget.endsWith('/')
+  const isSupported = SUPPORTED_LANGUAGES.includes(language as SupportedLanguage)
+
+  // Find full symbol data (with line numbers) for the currently selected symbol
+  const selectedSymbolData = selectedSymbol
+    ? symbols.find(s => (s.qualifiedName === selectedSymbol.qualifiedName || s.name === selectedSymbol.name) && s.type === selectedSymbol.type)
+      ?? symbols.find(s => s.qualifiedName === selectedSymbol.qualifiedName || s.name === selectedSymbol.name)
+      ?? null
+    : null
+
+  async function resolveIndexedRepo(repoValue: string): Promise<IndexedRepository | null> {
+    try {
+      const repos = await listIndexedRepositories()
+      return pickIndexedRepo(repos, repoValue)
+    } catch {
+      return null
+    }
+  }
+
+  async function fetchBranches(repoSlug: string) {
+    const indexed = await resolveIndexedRepo(repoSlug)
+    if (indexed) {
+      setBranchLoading(true)
+      setApiRateLimited(false)
+      try {
+        const history = await api.repositories.history(indexed.id, '', 1)
+        const names = history.branches.map((item) => item.name)
+        if (history.currentBranch && !names.includes(history.currentBranch)) names.unshift(history.currentBranch)
+        setBranches(names)
+        if (!branch) {
+          const def = names.find(n => n === history.currentBranch) ?? names.find(n => n === 'main') ?? names.find(n => n === 'master')
+          if (def) setBranch(def)
+        }
+        setBranchOpen(true)
+      } catch {
+        setBranches([])
+      } finally {
+        setBranchLoading(false)
+      }
+      return
+    }
+
+    const cached = githubCache.getBranches(repoSlug)
+    if (cached) {
+      setBranches(cached)
+      if (!branch) {
+        const def = cached.find(n => n === 'main') ?? cached.find(n => n === 'master')
+        if (def) setBranch(def)
+      }
+      setBranchOpen(true)
+      return
+    }
+
+    setBranchLoading(true)
+    setApiRateLimited(false)
+    try {
+      const res = await githubRequest(`/repos/${repoSlug}/branches?per_page=100`)
+      if (res.status === 403 || res.status === 429) { setApiRateLimited(true); return }
+      if (!res.ok) throw new Error(res.statusText)
+      const data: { name: string }[] = await res.json()
+      const names = data.map(b => b.name)
+      githubCache.setBranches(repoSlug, names)
+      setBranches(names)
+      if (!branch) {
+        const def = names.find(n => n === 'main') ?? names.find(n => n === 'master')
+        if (def) setBranch(def)
+      }
+      setBranchOpen(true) // Auto-open dropdown once fetched
+    } catch {
+      setApiRateLimited(true)
+    } finally {
+      setBranchLoading(false)
+    }
+  }
+
+  const [fileTreeTruncated, setFileTreeTruncated] = useState(false)
+
+  async function fetchFileTree(repoSlug: string, branchName: string) {
+    const indexed = await resolveIndexedRepo(repoSlug)
+    if (indexed) {
+      setFileTreeLoading(true)
+      setApiRateLimited(false)
+      setFileTreeTruncated(false)
+      try {
+        const facts = await api.repositories.files(indexed.id, indexed.latestSnapshotId)
+        const files = facts
+          .map((fact) => fact.anchor?.path || fact.name)
+          .filter((path): path is string => Boolean(path))
+          .sort((a, b) => a.localeCompare(b))
+        setFileTree(files)
+        setFileOpen(true)
+      } catch {
+        setFileTree([])
+      } finally {
+        setFileTreeLoading(false)
+      }
+      return
+    }
+
+    const cached = githubCache.getTree(repoSlug, branchName)
+    if (cached) {
+      setFileTree(cached)
+      setFileOpen(true)
+      return
+    }
+
+    setFileTreeLoading(true)
+    setApiRateLimited(false)
+    setFileTreeTruncated(false)
+    try {
+      const res = await githubRequest(`/repos/${repoSlug}/git/trees/${encodeURIComponent(githubBranchName(branchName))}?recursive=1`)
+      if (res.status === 403 || res.status === 429) { setApiRateLimited(true); return }
+      if (!res.ok) throw new Error(res.statusText)
+      const data: { tree: { path: string; type: string }[]; truncated?: boolean } = await res.json()
+      const files = data.tree.filter(i => i.type === 'blob').map(i => i.path)
+      githubCache.setTree(repoSlug, branchName, files)
+      setFileTree(files)
+      if (data.truncated) setFileTreeTruncated(true)
+      setFileOpen(true)
+    } catch {
+      setApiRateLimited(true)
+    } finally {
+      setFileTreeLoading(false)
+    }
+  }
+
+  async function fetchSourceText(path: string): Promise<string> {
+    const indexed = await resolveIndexedRepo(repo)
+    if (indexed) {
+      const { content } = await api.editor.source({
+        repository_id: indexed.id,
+        repo: indexed.root,
+        file_path: path,
+      })
+      return content
+    }
+    const rawUrl = `https://raw.githubusercontent.com/${repo}/refs/heads/${githubBranchName(branch) || 'main'}/${path}`
+    const cached = githubCache.getContent(rawUrl)
+    if (cached) return cached
+    const res = await fetch(rawUrl)
+    if (!res.ok) throw new Error(`Failed to fetch: ${res.statusText}`)
+    const text = await res.text()
+    githubCache.setContent(rawUrl, text)
+    return text
+  }
+
+  async function fetchAndParseSymbols(lang: SupportedLanguage, path: string) {
+    setSymbolLoading(true)
+    setSymbols([])
+    setRawCode('')
+    try {
+      const source = await fetchSourceText(path)
+      setRawCode(source)
+      const parser = await getParser(lang)
+      const tree = parser.parse(source)
+      const extracted = extractSymbols(tree, lang)
+      setSymbols(extracted)
+      if (extracted.length === 0) {
+        toast({ title: 'No symbols found in this file', status: 'info', duration: 3000 })
+      }
+    } catch (err: unknown) {
+      toast({ title: 'Failed to fetch/parse file', description: err instanceof Error ? err.message : String(err), status: 'error', duration: 4000 })
+    } finally {
+      setSymbolLoading(false)
+    }
+  }
+
+  async function fetchRawCode(path: string) {
+    setRawCodeLoading(true)
+    setRawCode('')
+    try {
+      setRawCode(await fetchSourceText(path))
+    } catch (err: unknown) {
+      toast({ title: 'Failed to fetch file', description: err instanceof Error ? err.message : String(err), status: 'error', duration: 4000 })
+    } finally {
+      setRawCodeLoading(false)
+    }
+  }
+
+  function advanceTo(nextStep: 1 | 2 | 3 | 4) {
+    setStep(nextStep)
+    if (nextStep === 2) {
+      // Normalize repo slug before fetching branches
+      const slug = parseRepoSlug(repo)
+      setRepo(slug)
+
+      // Avoid refetching if we already have branches for this repo
+      if (branches.length === 0 || slug !== (element.repo ? parseRepoSlug(element.repo) : '')) {
+        fetchBranches(slug)
+      } else {
+        setBranchOpen(true)
+      }
+    }
+    if (nextStep === 3) {
+      // Avoid refetching if we already have the tree for this repo/branch
+      const slug = parseRepoSlug(repo)
+      if (fileTree.length === 0 || slug !== (element.repo ? parseRepoSlug(element.repo) : '') || branch !== element.branch) {
+        fetchFileTree(slug, branch)
+      } else {
+        setFileOpen(true)
+      }
+    }
+    if (nextStep === 4) {
+      const path = fileSearch.trim()
+      if (!path || path.endsWith('/')) return
+      if (path !== filePath) handleFileSelect(path)
+      const detected = detectLanguage(path)
+      const lang = detected ?? 'unsupported'
+      setLanguage(lang)
+      if (SUPPORTED_LANGUAGES.includes(lang as SupportedLanguage)) {
+        fetchAndParseSymbols(lang as SupportedLanguage, path)
+      } else {
+        fetchRawCode(path)
+      }
+    }
+  }
+
+  function handleFileSelect(path: string) {
+    setFilePath(path)
+    setFileSearch(path)
+    setFileOpen(false)
+    setSelectedSymbol(null)
+    setSymbols([])
+    setRawCode('')
+    setPickedLine(null)
+  }
+
+  function buildFilePath(): string {
+    if (isSupported && selectedSymbol) {
+      const sourceSymbol = selectedSymbolData ?? selectedSymbol
+      return formatSymbolSourceLink(filePath, sourceSymbol.type, sourceSymbol.qualifiedName || sourceSymbol.name)
+    }
+    if (!isSupported && pickedLine) {
+      return formatLineSourceLink(filePath, pickedLine)
+    }
+    return filePath
+  }
+
+  function handleApply(level: 'repo' | 'path' | 'anchor') {
+    if (isReadOnly) return
+    const path = level === 'repo' ? null : level === 'path' ? pathTarget : buildFilePath()
+    if (level !== 'repo' && !path) return
+    const pathLanguage = path && !path.endsWith('/') ? detectLanguage(parseSourceLink(path).basePath) : null
+    const unchanged = repo.trim() === '' || repo === (element.repo ?? '')
+    const preserveRepositoryID = isLocalRepoPath(repo) || unchanged
+    onUpdate({
+      repo: isLocalRepoPath(repo) ? repo : parseRepoSlug(repo),
+      repository_id: indexedRepo?.id ?? (preserveRepositoryID ? element.repository_id ?? null : null),
+      branch: branch.trim() || null,
+      file_path: path,
+      language: pathLanguage ?? null,
+      url: null,
+      tags: withExternalTag(element.tags, false),
+    })
+    setMode('summary')
+  }
+
+  // Single free-form link target, mirroring the forms `tld link` accepts. The
+  // target is classified as an external URL, a repository, or a file/folder
+  // path.
+  function handleApplyManual() {
+    const value = manualTarget.trim()
+    if (!value) return
+    const kind = classifyManualTarget(value)
+    if (kind === 'url') {
+      onUpdate({
+        url: value,
+        repo: null,
+        repository_id: null,
+        branch: null,
+        file_path: null,
+        language: null,
+        tags: withExternalTag(element.tags, true),
+      })
+    } else if (kind === 'repo') {
+      onUpdate({
+        repo: isLocalRepoPath(value) ? value : parseRepoSlug(value),
+        repository_id: null,
+        branch: branch.trim() || null,
+        file_path: null,
+        language: null,
+        url: null,
+        tags: withExternalTag(element.tags, false),
+      })
+    } else {
+      onUpdate({
+        file_path: value,
+        language: null,
+        url: null,
+        tags: withExternalTag(element.tags, false),
+      })
+    }
+    setMode('summary')
+  }
+
+  function handleRemoveLink() {
+    onUpdate({ repo: null, repository_id: null, branch: null, file_path: null, language: null, url: null, tags: withExternalTag(element.tags, false) })
+    // Explicitly reset local state to ensure immediate UI update
+    setRepo('')
+    setBranch('')
+    setFilePath('')
+    setFileSearch('')
+    setLanguage('')
+    setSymbols([])
+    setRawCode('')
+    setPickedLine(null)
+    setSelectedSymbol(null)
+    setManualTarget('')
+    setSourceKind('file')
+    setMode('edit')
+    setStep(1)
+  }
+
+  // Toggle the reserved grounding-ignore tag. Ignoring exempts the element from
+  // the ARC205 source-grounding score without recording an external link.
+  function handleIgnoreToggle(ignored: boolean) {
+    const base = (element.tags ?? []).filter((tag) => !isGroundingIgnoreTag(tag))
+    onUpdate({ tags: ignored ? [...base, GROUNDING_IGNORE_TAG] : base })
+  }
+
+  const repoValid = /^[\w.-]+\/[\w.-]+$/.test(parseRepoSlug(repo)) ||
+    (isLocalRepoPath(repo) && !!element.repository_id)
+  const showPreviewCard = mode === 'edit' && sourceKind === 'file' && step === 4
+
+  const existingLocalRepo = isLocalRepoPath(element.repo)
+  const summaryRemoteSlug = indexedRepo?.remoteUrl?.includes('github.com')
+    ? parseRepoSlug(indexedRepo.remoteUrl)
+    : (!existingLocalRepo ? parseRepoSlug(element.repo ?? '') : '')
+  const summaryRepoLabel = indexedRepo
+    ? indexedRepo.name || summaryRemoteSlug || element.repo || ''
+    : element.repo
+      ? parseRepoSlug(element.repo)
+      : ''
+  const showGithubLink = /^[\w.-]+\/[\w.-]+$/.test(summaryRemoteSlug)
+
+  const parsedExisting = parseExistingLink(element)
+  const anchorLabel = parsedExisting.symbolName || (parsedExisting.pickedLine ? `L${parsedExisting.pickedLine}` : '')
+  const isFolderLink = hasFilePath && parsedExisting.basePath.endsWith('/')
+  const summaryUrl = (element.url ?? '').trim()
+
+  // --- RENDER ---
+  return (
+    <Box overflow="visible">
+      <Accordion allowToggle overflow="visible">
+        <AccordionItem border="none" overflow="visible">
+          <h2>
+            <AccordionButton px={0} py={3} _hover={{ bg: 'transparent' }}>
+              <HStack flex="1" textAlign="left" spacing={2}>
+                <Text fontSize="sm" fontFamily="var(--chakra-fonts-heading)" >
+                  Source
+                </Text>
+                {hasAnyLink && mode === 'summary' && (
+                  <>
+                    <Badge variant="subtle" colorScheme="blue" fontSize="9px" ml={1} px={1.5}>
+                      Linked
+                    </Badge>
+                    {isExternalTagged && (
+                      <Badge variant="subtle" colorScheme="purple" fontSize="9px" px={1.5}>
+                        External
+                      </Badge>
+                    )}
+                    {(element.repository_id || indexedRepo) && (
+                      <Badge variant="subtle" colorScheme="green" fontSize="9px" px={1.5}>
+                        Indexed
+                      </Badge>
+                    )}
+                  </>
+                )}
+                {isIgnored && (
+                  <Badge variant="subtle" colorScheme="orange" fontSize="9px" px={1.5}>
+                    Ignored
+                  </Badge>
+                )}
+              </HStack>
+              <AccordionIcon color="gray.500" />
+            </AccordionButton>
+          </h2>
+          <AccordionPanel pb={4} px={0} overflow="visible">
+            {mode === 'summary' && !isIgnored ? (
+              <VStack align="stretch" spacing={2}>
+                <VStack align="stretch" spacing={1.5}
+                  bg="whiteAlpha.50" rounded="lg" px={3} py={2.5}
+                  border="1px solid" borderColor="whiteAlpha.100">
+                  <HStack justify="space-between">
+                    <HStack spacing={2} minW={0}>
+                      <Text fontSize="xs" color="gray.500" flexShrink={0}>{hasUrl ? 'URL' : hasRepo ? 'Repo' : 'File'}</Text>
+                      <Text fontSize="xs" color="white" fontFamily="mono" isTruncated>
+                        {hasUrl ? summaryUrl : hasRepo ? summaryRepoLabel : parsedExisting.basePath}
+                      </Text>
+                    </HStack>
+                    {!isReadOnly && (
+                      <HStack spacing={1}>
+                        <Button size="xs" variant="ghost" color="gray.500" h="20px" _hover={{ color: 'white', bg: 'whiteAlpha.100' }}
+                          onClick={(e) => { e.stopPropagation(); setSourceKind(detectSourceKind(element)); setStep(1); setMode('edit') }}>
+                          Edit
+                        </Button>
+                        <Tooltip label="Remove link" placement="top">
+                          <CloseButton size="xs" color="gray.600" _hover={{ color: 'red.400', bg: 'whiteAlpha.100' }}
+                            onClick={(e) => { e.stopPropagation(); handleRemoveLink() }} />
+                        </Tooltip>
+                      </HStack>
+                    )}
+                  </HStack>
+                  {hasRepo && (
+                    <HStack spacing={2} minW={0}>
+                      <Text fontSize="xs" color="gray.500" flexShrink={0}>Branch</Text>
+                      <Badge colorScheme="blue" fontSize="9px">{element.branch || 'main'}</Badge>
+                    </HStack>
+                  )}
+                  {hasFilePath && (hasRepo || hasUrl) && (
+                    <HStack spacing={2} minW={0}>
+                      <Text fontSize="xs" color="gray.500" flexShrink={0}>{isFolderLink ? 'Folder' : 'File'}</Text>
+                      <Text fontSize="xs" color="gray.300" fontFamily="mono" isTruncated>{parsedExisting.basePath}</Text>
+                    </HStack>
+                  )}
+                  {anchorLabel && (
+                    <HStack spacing={2} minW={0}>
+                      <Text fontSize="xs" color="gray.500" flexShrink={0}>{parsedExisting.symbolName ? 'Symbol' : 'Line'}</Text>
+                      <Text fontSize="xs" color="blue.300" fontFamily="mono" fontWeight="600">{anchorLabel}</Text>
+                    </HStack>
+                  )}
+                  {hasUrl && (
+                    <Button
+                      onClick={() => openExternalUrl(summaryUrl)}
+                      size="xs" variant="ghost" leftIcon={<ExternalLinkIcon />}
+                      justifyContent="flex-start" px={0} mt={0.5} h="auto" py={1}
+                      color="blue.400" _hover={{ color: 'blue.200', bg: 'transparent' }}>
+                      Open link
+                    </Button>
+                  )}
+                  {showGithubLink && hasFilePath && (
+                    <Button
+                      onClick={() => openExternalUrl(`https://github.com/${summaryRemoteSlug}/${isFolderLink ? 'tree' : 'blob'}/${encodeURIComponent(githubBranchName(element.branch) || 'main')}/${parsedExisting.basePath}`)}
+                      size="xs" variant="ghost" leftIcon={<ExternalLinkIcon />}
+                      justifyContent="flex-start" px={0} mt={0.5} h="auto" py={1}
+                      color="blue.400" _hover={{ color: 'blue.200', bg: 'transparent' }}>
+                      Open in GitHub
+                    </Button>
+                  )}
+                </VStack>
+              </VStack>
+            ) : (
+              <VStack align="stretch" spacing={3} overflow="visible">
+                {showPreviewCard && !isIgnored && (
+                  <PreviewCard
+                    filename={filePath.split('/').pop() || filePath}
+                    isLoading={symbolLoading || rawCodeLoading}
+                    rawCode={rawCode}
+                    highlightStart={selectedSymbolData?.startLine ?? null}
+                    highlightEnd={selectedSymbolData?.endLine ?? null}
+                    selectedLine={pickedLine}
+                    searchQuery={lineSearch}
+                    onLineClick={isReadOnly ? undefined : (line) => setPickedLine(line === pickedLine ? null : line)}
+                    isUnsupported={!isSupported}
+                    onSearchChange={setLineSearch}
+                  />
+                )}
+
+                <HStack spacing={1} flexWrap="wrap" mb={1}>
+                  {SOURCE_KIND_TABS.map(([kind, label]) => (
+                    <Button
+                      key={kind}
+                      size="xs" h="24px"
+                      isDisabled={isReadOnly || isIgnored}
+                      variant={sourceKind === kind ? 'solid' : 'ghost'}
+                      colorScheme={sourceKind === kind ? 'blue' : undefined}
+                      color={sourceKind === kind ? undefined : 'gray.400'}
+                      _hover={sourceKind === kind ? undefined : { bg: 'whiteAlpha.100', color: 'white' }}
+                      onClick={() => setSourceKind(kind)}
+                    >
+                      {label}
+                    </Button>
+                  ))}
+                  {!isReadOnly && (
+                    <Button size="xs" h="24px" variant="ghost" ml="auto"
+                      color={isIgnored ? 'orange.300' : 'gray.500'}
+                      _hover={{ color: 'white', bg: 'whiteAlpha.100' }}
+                      onClick={() => handleIgnoreToggle(!isIgnored)}>
+                      {isIgnored ? 'Un-ignore' : 'Ignore'}
+                    </Button>
+                  )}
+                  {hasAnyLink && !isReadOnly && !isIgnored && (
+                    <Button size="xs" h="24px" variant="ghost" color="gray.500"
+                      _hover={{ color: 'white', bg: 'whiteAlpha.100' }}
+                      onClick={() => setMode('summary')}>
+                      Cancel
+                    </Button>
+                  )}
+                </HStack>
+
+                {!isIgnored && sourceKind === 'file' && (
+                  <>
+                <StepIndicator step={step} />
+
+                {/* STEP 1 */}
+                {step === 1 && (
+                  <VStack align="stretch" spacing={3}>
+                    <FormControl>
+                      <FormLabel fontSize="xs" color="gray.400">Repository</FormLabel>
+                      <Input
+                        size="sm" value={repo}
+                        onChange={e => setRepo(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter' && repoValid) advanceTo(2) }}
+                        placeholder="owner/repo  (e.g. facebook/react)"
+                        isDisabled={isReadOnly}
+                        bg="whiteAlpha.50"
+                        borderColor="whiteAlpha.100"
+                        _hover={{ borderColor: 'whiteAlpha.300' }}
+                        _focus={{ borderColor: 'blue.500', bg: 'whiteAlpha.100' }}
+                      />
+                      <Text fontSize="10px" color={indexedRepo ? 'green.400' : 'gray.600'} mt={1}>
+                        {indexedRepo ? `Indexed locally · ${indexedRepo.name}` : 'Public GitHub repositories only'}
+                      </Text>
+                    </FormControl>
+                    <HStack justify="flex-end">
+                      <Button size="sm" colorScheme="blue" isDisabled={!repoValid || isReadOnly}
+                        onClick={() => handleApply('repo')} h="32px">
+                        Link repository
+                      </Button>
+                      <Button size="sm" rightIcon={<ChevronRightIcon />} isDisabled={!repoValid || isReadOnly}
+                        onClick={() => advanceTo(2)} colorScheme="blue" variant="outline" h="32px">
+                        Next
+                      </Button>
+                    </HStack>
+                  </VStack>
+                )}
+
+                {/* STEP 2 */}
+                {step === 2 && (
+                  <VStack align="stretch" spacing={3}>
+                    <Text fontSize="xs" color="gray.500" fontFamily="mono">{repo}</Text>
+                    <FormControl>
+                      <FormLabel fontSize="xs" color="gray.400">Branch</FormLabel>
+                      {apiRateLimited ? (
+                        <>
+                          <Alert status="warning" rounded="md" mb={2} py={2} px={3}>
+                            <AlertIcon boxSize={3} mr={2} />
+                            <AlertDescription fontSize="xs">GitHub API rate limit reached - enter branch manually</AlertDescription>
+                          </Alert>
+                          <Input size="sm" value={branch} onChange={e => setBranch(e.target.value)} placeholder="main" />
+                        </>
+                      ) : (
+                        <Popover
+                          isOpen={branchOpen && filteredBranches.length > 0}
+                          onClose={() => setBranchOpen(false)}
+                          placement="bottom-start"
+                          autoFocus={false}
+                          matchWidth
+                        >
+                          <PopoverTrigger>
+                            <Box ref={branchRef}>
+                              <InputGroup size="sm">
+                                <Input
+                                  ref={branchInputRef}
+                                  value={branchSearch}
+                                  onChange={e => { setBranchSearch(e.target.value); setBranchOpen(true) }}
+                                  onFocus={() => setBranchOpen(true)}
+                                  onClick={() => setBranchOpen(true)}
+                                  onKeyDown={e => {
+                                    if (e.key === 'ArrowDown') {
+                                      e.preventDefault()
+                                      setBranchActiveIndex(prev => Math.min(prev + 1, filteredBranches.length - 1))
+                                    } else if (e.key === 'ArrowUp') {
+                                      e.preventDefault()
+                                      setBranchActiveIndex(prev => Math.max(prev - 1, 0))
+                                    } else if (e.key === 'Enter') {
+                                      e.preventDefault()
+                                      if (filteredBranches.length > 0) {
+                                        const selected = filteredBranches[branchActiveIndex]
+                                        setBranch(selected)
+                                        setBranchSearch('')
+                                        setBranchOpen(false)
+                                      } else if (branch) {
+                                        advanceTo(3)
+                                      }
+                                    } else if (e.key === 'Escape') {
+                                      setBranchOpen(false)
+                                    }
+                                  }}
+                                  placeholder={branchLoading ? 'Loading branches...' : (branch || 'Search branches...')}
+                                  isDisabled={branchLoading}
+                                  bg="whiteAlpha.50"
+                                  borderColor="whiteAlpha.100"
+                                />
+                                {branchLoading && (
+                                  <InputRightElement><Spinner size="xs" color="gray.400" /></InputRightElement>
+                                )}
+                              </InputGroup>
+                              {branchLoading && <Progress isIndeterminate size="xs" colorScheme="blue" mt={1} rounded="full" />}
+                            </Box>
+                          </PopoverTrigger>
+                          <Portal>
+                            <PopoverContent
+                              bg="var(--bg-panel)"
+                              border="1px solid"
+                              borderColor="whiteAlpha.200"
+                              rounded="lg"
+                              shadow="panel-sm"
+                              maxH="250px"
+                              overflow="hidden"
+                            >
+                              <PopoverBody p={0} overflowY="auto" className="custom-scrollbar">
+                                {filteredBranches.map((b, idx) => (
+                                  <Box key={b} px={3} py={1.5} cursor="pointer" fontSize="sm" color="gray.200"
+                                    _hover={{ bg: 'whiteAlpha.100' }}
+                                    bg={branch === b ? 'blue.900' : branchActiveIndex === idx ? 'whiteAlpha.200' : undefined}
+                                    onClick={() => { setBranch(b); setBranchSearch(''); setBranchOpen(false) }}>
+                                    {b}
+                                  </Box>
+                                ))}
+                              </PopoverBody>
+                            </PopoverContent>
+                          </Portal>
+                        </Popover>
+                      )}
+                    </FormControl>
+                    <Button size="sm" colorScheme="blue" isDisabled={!repoValid || isReadOnly}
+                      onClick={() => handleApply('repo')} h="32px">
+                      Link repository
+                    </Button>
+                    <HStack justify="space-between">
+                      <Button size="sm" variant="ghost" color="gray.500" onClick={() => setStep(1)} h="32px">← Back</Button>
+                      <Button size="sm" rightIcon={<ChevronRightIcon />} isDisabled={!branch || isReadOnly}
+                        onClick={() => advanceTo(3)} colorScheme="blue" variant="outline" h="32px">
+                        Next
+                      </Button>
+                    </HStack>
+                  </VStack>
+                )}
+
+                {/* STEP 3 */}
+                {step === 3 && (
+                  <VStack align="stretch" spacing={3}>
+                    <HStack spacing={1.5} flexWrap="wrap">
+                      <Text fontSize="xs" color="gray.500" fontFamily="mono">{repo}</Text>
+                      <Text fontSize="xs" color="gray.600">/</Text>
+                      <Badge colorScheme="blue" fontSize="9px">{branch}</Badge>
+                    </HStack>
+                    <FormControl>
+                      <FormLabel fontSize="xs" color="gray.400">File or Folder Path</FormLabel>
+                      {apiRateLimited ? (
+                        <>
+                          <Alert status="warning" rounded="md" mb={2} py={2} px={3}>
+                            <AlertIcon boxSize={3} mr={2} />
+                            <AlertDescription fontSize="xs">GitHub API rate limit reached - enter a file or folder path manually</AlertDescription>
+                          </Alert>
+                          <Input size="sm" value={fileSearch}
+                            onChange={e => setFileSearch(e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter' && fileSearch.trim()) handleFileSelect(fileSearch.trim()) }}
+                            placeholder="src/components/ or src/components/Foo.tsx"
+                            bg="whiteAlpha.50" borderColor="whiteAlpha.100" />
+                        </>
+                      ) : (
+                        <Popover
+                          isOpen={fileOpen && filteredFiles.length > 0}
+                          onClose={() => setFileOpen(false)}
+                          placement="bottom-start"
+                          autoFocus={false}
+                          matchWidth
+                        >
+                          <PopoverTrigger>
+                            <Box ref={fileRef}>
+                              <InputGroup size="sm">
+                                <Input
+                                  ref={fileInputRef}
+                                  value={fileSearch}
+                                  onChange={e => { setFileSearch(e.target.value); setFileOpen(true) }}
+                                  onFocus={() => { if (fileTree.length > 0) setFileOpen(true) }}
+                                  onClick={() => { if (fileTree.length > 0) setFileOpen(true) }}
+                                  onKeyDown={e => {
+                                    if (e.key === 'ArrowDown') {
+                                      e.preventDefault()
+                                      setFileActiveIndex(prev => Math.min(prev + 1, filteredFiles.length - 1))
+                                    } else if (e.key === 'ArrowUp') {
+                                      e.preventDefault()
+                                      setFileActiveIndex(prev => Math.max(prev - 1, 0))
+                                    } else if (e.key === 'Tab') {
+                                      e.preventDefault()
+                                      if (filteredFiles.length === 0) return
+                                      // Find longest common prefix of all matches
+                                      let common = filteredFiles[0]
+                                      for (const f of filteredFiles.slice(1)) {
+                                        let i = 0
+                                        while (i < common.length && i < f.length && common[i] === f[i]) i++
+                                        common = common.slice(0, i)
+                                      }
+                                      if (common.length > fileSearch.length) {
+                                        // Expand to next directory boundary
+                                        const nextSlash = common.indexOf('/', fileSearch.length)
+                                        setFileSearch(nextSlash >= 0 ? common.slice(0, nextSlash + 1) : common)
+                                      } else if (filteredFiles.length === 1) {
+                                        setFileSearch(filteredFiles[0])
+                                      }
+                                    } else if (e.key === 'Enter') {
+                                      e.preventDefault()
+                                      if (filteredFiles.length > 0) {
+                                        handleFileSelect(filteredFiles[fileActiveIndex])
+                                      } else if (fileSearch) {
+                                        handleFileSelect(fileSearch.trim())
+                                      }
+                                    } else if (e.key === 'Escape') {
+                                      setFileOpen(false)
+                                    }
+                                  }}
+                                  placeholder={fileTreeLoading ? 'Fetching file tree...' : 'Search files or folders...'}
+                                  bg="whiteAlpha.50"
+                                  borderColor="whiteAlpha.100"
+                                  _hover={{ borderColor: 'whiteAlpha.300' }}
+                                  _focus={{ borderColor: 'blue.500', bg: 'whiteAlpha.100' }}
+                                />
+                                {fileTreeLoading && (
+                                  <InputRightElement><Spinner size="xs" color="gray.400" /></InputRightElement>
+                                )}
+                              </InputGroup>
+                              {fileTreeLoading && <Progress isIndeterminate size="xs" colorScheme="blue" mt={1} rounded="full" />}
+                              {fileTreeTruncated && (
+                                <Text fontSize="10px" color="orange.400" mt={1}>
+                                  Large repo results may be incomplete. Type the full path if needed.
+                                </Text>
+                              )}
+                            </Box>
+                          </PopoverTrigger>
+                          <Portal>
+                            <PopoverContent
+                              bg="var(--bg-panel)"
+                              border="1px solid"
+                              borderColor="whiteAlpha.200"
+                              rounded="lg"
+                              shadow="panel-sm"
+                              maxH="300px"
+                              overflow="hidden"
+                            >
+                              <PopoverBody p={0} overflowY="auto" className="custom-scrollbar">
+                                {filteredFiles.map((p, idx) => (
+                                  <Box key={p} px={3} py={1.5} cursor="pointer" fontSize="xs" color="gray.300"
+                                    fontFamily="mono" _hover={{ bg: 'whiteAlpha.100' }}
+                                    bg={filePath === p ? 'blue.900' : fileActiveIndex === idx ? 'whiteAlpha.200' : undefined}
+                                    onClick={() => handleFileSelect(p)}>
+                                    {p}
+                                  </Box>
+                                ))}
+                              </PopoverBody>
+                            </PopoverContent>
+                          </Portal>
+                        </Popover>
+                      )}
+                    </FormControl>
+                    <Text fontSize="10px" color="gray.500">
+                      Link this path, or continue to choose a symbol or line. End folder paths with /.
+                    </Text>
+                    <Button size="sm" colorScheme="blue" isDisabled={!pathTarget || isReadOnly}
+                      onClick={() => handleApply('path')} h="32px">
+                      {isFolderTarget ? 'Link folder' : 'Link file'}
+                    </Button>
+                    <HStack justify="space-between">
+                      <Button size="sm" variant="ghost" color="gray.500" onClick={() => setStep(2)} h="32px">← Back</Button>
+                      <Button size="sm" rightIcon={<ChevronRightIcon />}
+                        isDisabled={!pathTarget || isFolderTarget || isReadOnly}
+                        onClick={() => advanceTo(4)} colorScheme="blue" variant="outline" h="32px">
+                        Next
+                      </Button>
+                    </HStack>
+                  </VStack>
+                )}
+
+                {/* STEP 4 */}
+                {step === 4 && (
+                  <VStack align="stretch" spacing={3}>
+                    <HStack spacing={1.5} flexWrap="wrap">
+                      <Text fontSize="xs" color="gray.500" fontFamily="mono" isTruncated maxW="200px">{filePath.split('/').pop()}</Text>
+                      {isSupported ? (
+                        <Badge colorScheme="green" fontSize="9px">{language}</Badge>
+                      ) : (
+                        <Badge colorScheme="orange" fontSize="9px">unsupported</Badge>
+                      )}
+                    </HStack>
+
+                    {isSupported ? (
+                      <Box>
+                        <FormLabel fontSize="xs" color="gray.400" mb={1.5}>Select Symbol</FormLabel>
+                        {symbolLoading ? (
+                          <Text fontSize="xs" color="gray.600" py={1}>Parsing symbols...</Text>
+                        ) : symbols.length === 0 ? (
+                          <Text fontSize="xs" color="gray.500" py={1}>No symbols found</Text>
+                        ) : (
+                          <VStack align="stretch" spacing={0} maxH="250px" overflowY="auto"
+                            rounded="lg" border="1px solid" borderColor="whiteAlpha.100"
+                            className="custom-scrollbar">
+                            {symbols.map((s, i) => {
+                              const isSelected = !!selectedSymbol
+                                && (!selectedSymbol.type || selectedSymbol.type === s.type)
+                                && (selectedSymbol.qualifiedName === s.qualifiedName || selectedSymbol.name === s.name)
+                              return (
+                                <Box key={i} px={3} py={1.5} cursor="pointer"
+                                  bg={isSelected ? 'blue.900' : undefined}
+                                  _hover={{ bg: isSelected ? 'blue.900' : 'whiteAlpha.80' }}
+                                  onClick={() => setSelectedSymbol(isSelected ? null : { name: s.name, type: s.type, qualifiedName: s.qualifiedName })}>
+                                  <Text fontSize="xs" fontWeight="600" color="white">{s.name}</Text>
+                                  <Text fontSize="10px" color="gray.500">{s.type.replace(/_/g, ' ')} · L{s.startLine}</Text>
+                                </Box>
+                              )
+                            })}
+                          </VStack>
+                        )}
+                      </Box>
+                    ) : (
+                      <Box>
+                        <Alert status="warning" rounded="md" py={2} px={3} mb={2}>
+                          <AlertIcon boxSize={3.5} mr={2} />
+                          <AlertDescription fontSize="10px">
+                            Select a line in the preview to link it.
+                          </AlertDescription>
+                        </Alert>
+                        {pickedLine && (
+                          <HStack spacing={1.5}>
+                            <Text fontSize="10px" color="gray.600">Selected:</Text>
+                            <Badge colorScheme="blue" fontSize="9px" fontFamily="mono">Line {pickedLine}</Badge>
+                          </HStack>
+                        )}
+                      </Box>
+                    )}
+
+                    <HStack justify="space-between">
+                      <Button size="sm" variant="ghost" color="gray.500" onClick={() => setStep(3)} h="32px">← Back</Button>
+                      <Button size="sm" colorScheme="blue" onClick={() => handleApply('anchor')} isDisabled={isReadOnly || symbolLoading || rawCodeLoading} h="32px">
+                        Apply
+                      </Button>
+                    </HStack>
+                  </VStack>
+                )}
+                  </>
+                )}
+
+                {!isIgnored && sourceKind === 'manual' && (
+                  <VStack align="stretch" spacing={3}>
+                    <FormControl>
+                      <FormLabel fontSize="xs" color="gray.400">Target</FormLabel>
+                      <Input
+                        size="sm" value={manualTarget}
+                        onChange={e => setManualTarget(e.target.value)}
+                        onKeyDown={e => { if (e.key === 'Enter') handleApplyManual() }}
+                        placeholder="file, path or URL"
+                        isDisabled={isReadOnly}
+                        bg="whiteAlpha.50" borderColor="whiteAlpha.100"
+                        _hover={{ borderColor: 'whiteAlpha.300' }}
+                        _focus={{ borderColor: 'blue.500', bg: 'whiteAlpha.100' }}
+                      />
+                      <Text fontSize="10px" color="gray.600" mt={1}>
+                        {manualTargetHint(manualTarget)}
+                      </Text>
+                    </FormControl>
+                    {classifyManualTarget(manualTarget) === 'repo' && (
+                      <FormControl>
+                        <FormLabel fontSize="xs" color="gray.400">Branch (optional)</FormLabel>
+                        <Input
+                          size="sm" value={branch}
+                          onChange={e => setBranch(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') handleApplyManual() }}
+                          placeholder="main"
+                          isDisabled={isReadOnly}
+                          bg="whiteAlpha.50" borderColor="whiteAlpha.100"
+                          _hover={{ borderColor: 'whiteAlpha.300' }}
+                          _focus={{ borderColor: 'blue.500', bg: 'whiteAlpha.100' }}
+                        />
+                      </FormControl>
+                    )}
+                    <Button size="sm" colorScheme="blue" alignSelf="flex-end" h="32px" isDisabled={isReadOnly || !manualTarget.trim()} onClick={handleApplyManual}>
+                      Apply
+                    </Button>
+                  </VStack>
+                )}
+              </VStack>
+            )}
+          </AccordionPanel>
+        </AccordionItem>
+      </Accordion>
+    </Box>
+  )
+}

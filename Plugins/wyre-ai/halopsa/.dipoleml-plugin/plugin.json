@@ -1,0 +1,16 @@
+{
+  "name": "halopsa",
+  "displayName": "Halopsa",
+  "version": "0.2.11",
+  "description": "DipoleML plugin for HaloPSA - tickets, clients, assets, contracts",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Wyre Ai"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/wyre-technology/msp-claude-plugins",
+  "repository": "https://github.com/WYRE-AI/msp-claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

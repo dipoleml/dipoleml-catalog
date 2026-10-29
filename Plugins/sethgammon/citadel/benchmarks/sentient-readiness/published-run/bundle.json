@@ -1,0 +1,401 @@
+{
+  "schema": 1,
+  "bundle_id": "sha256:1ad93e5df8edc54d8f115e152421f8e6b5db26d7a22b8acda3a3cdb8f294de8e",
+  "run_id": "sha256:92f8ca62dd0a5d119a0ded1c3a78c8bf77ba9b850905cd0c6c8fc898534197c1",
+  "freeze_id": "sha256:40858b138a4125461bc25eda126b0df5875cca5e6f19c48709153dc22be60086",
+  "started_at": "2026-08-01T03:02:13.729Z",
+  "completed_at": "2026-08-01T03:12:18.830Z",
+  "environment": {
+    "platform": "win32",
+    "arch": "x64",
+    "cpu_count": 12,
+    "cpu_model": "AMD Ryzen 5 2600 Six-Core Processor            ",
+    "total_memory_bytes": 34266742784,
+    "gpu": "NVIDIA GeForce GTX 1070, 8192 MiB, 582.53",
+    "hostname_digest": "sha256:76ad7b959234467904798f9c25069a2cf56a833f2282c4e8a4adfca9cf651540",
+    "git_commit": "36bc9095d94300a829de7a8090527e9f65914908",
+    "node": "v22.17.1",
+    "model_inventory": [
+      {
+        "model": "qwen2.5-coder:3b",
+        "expected_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+        "observed_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+        "status": "passed"
+      },
+      {
+        "model": "qwen2.5-coder:7b",
+        "expected_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+        "observed_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+        "status": "passed"
+      }
+    ],
+    "human_interventions_during_cells": 0
+  },
+  "economics": {
+    "electricity_usd_per_kwh": 0.2,
+    "gpu_residual_value_usd": 100,
+    "gpu_useful_compute_hours": 10000,
+    "setup_and_download_costs_included": false,
+    "whole_system_energy_status": "unknown"
+  },
+  "artifacts": [
+    {
+      "path": "cells/000-weighted-path--always-strong-local--r1.json",
+      "digest": "sha256:29238f59f6be07ab90bba08cb8d85740f7e58e044b7b120b976b5d6c3a7dae19"
+    },
+    {
+      "path": "cells/001-constraint-pair--citadel-adaptive-local--r1.json",
+      "digest": "sha256:ca6bef9ddf22dc82a9f3f414ba15394b3fc0ac0a7f702b013ed7172fabac52f5"
+    },
+    {
+      "path": "cells/002-weighted-path--citadel-adaptive-local--r3.json",
+      "digest": "sha256:7f49fe2051977b5ddd7915dcc4666cd7ee78aed4c9cd0e455bd0291320b362f8"
+    },
+    {
+      "path": "cells/003-compact-array-sum--citadel-adaptive-local--r3.json",
+      "digest": "sha256:5bec26d521aef4c2f91d53f30302592061c171903b2ee1ef693fe30e3b7570b8"
+    },
+    {
+      "path": "cells/004-compact-expression--always-strong-local--r1.json",
+      "digest": "sha256:295312dc03781006d7077bc88786478ea22a4c9d640f55fd61192c117c3c583a"
+    },
+    {
+      "path": "cells/005-compact-expression--always-strong-local--r2.json",
+      "digest": "sha256:f8af12239e33b0cd53c49a2cd6d7bb3f48a778494c89688b5f7e22717a084d00"
+    },
+    {
+      "path": "cells/006-adversarial-ledger-v2--always-strong-local--r1.json",
+      "digest": "sha256:3d16d9d6fa9c4807f53240f54c9093f34036c85dca915fd561ce8c143a3b7eae"
+    },
+    {
+      "path": "cells/007-compact-hex--always-strong-local--r2.json",
+      "digest": "sha256:f70c2e40b1940228b025f898ae0fa8730130f5ad28727f1fefc651b03339eccd"
+    },
+    {
+      "path": "cells/008-weighted-path--always-strong-local--r2.json",
+      "digest": "sha256:77e7fafe01887e732a9734fe209a95101c7802646d16cf4bce75c9211b0552c6"
+    },
+    {
+      "path": "cells/009-compact-addition--always-strong-local--r3.json",
+      "digest": "sha256:db74256960be0a0e89754d3eaf441cb9b08c36c3570245c984e075662b116ff5"
+    },
+    {
+      "path": "cells/010-constraint-pair--citadel-adaptive-local--r3.json",
+      "digest": "sha256:898eca7ac77a4916dbfbfe5e399d4dac35cc8f00ce5ba80ab8763791bb75eeb6"
+    },
+    {
+      "path": "cells/011-compact-median--always-strong-local--r1.json",
+      "digest": "sha256:e44e873ca9f752223c860a930d4f93b671e49d78385cb317ec0cb005a6105a48"
+    },
+    {
+      "path": "cells/012-compact-median--citadel-adaptive-local--r3.json",
+      "digest": "sha256:e53110b817fa5bd5194e0d8c23f4544e11fb68c4c7186c31c86aacaedbfe9ae1"
+    },
+    {
+      "path": "cells/013-compact-length--citadel-adaptive-local--r1.json",
+      "digest": "sha256:dec12220245a9485f982620ba78b617a1a95d1bffb4b108f399760c5c89ca68e"
+    },
+    {
+      "path": "cells/014-compact-addition--citadel-adaptive-local--r3.json",
+      "digest": "sha256:309703b78f7486da08aae8c68dd2ef8581fb254864faab269efd6648ee41b398"
+    },
+    {
+      "path": "cells/015-compact-addition--citadel-adaptive-local--r1.json",
+      "digest": "sha256:164a89650a38aaa92ad869e3eaa2b3262b383593a8c9b862ab5a16e91dbaa705"
+    },
+    {
+      "path": "cells/016-compact-vowels--always-strong-local--r2.json",
+      "digest": "sha256:16463474328f45facd1c2cf1225784a7c760f2382629f5a4567e5fbd46bcc954"
+    },
+    {
+      "path": "cells/017-critical-schedule--always-strong-local--r2.json",
+      "digest": "sha256:31b16d66c30016551cc43b42ecfe35fea9e491c1e7e409deddce628727a4feb2"
+    },
+    {
+      "path": "cells/018-compact-vowels--citadel-adaptive-local--r2.json",
+      "digest": "sha256:db36269161ddd119ee2e6ab4a1659d3ab35470725972d3c33f61344f26b46c34"
+    },
+    {
+      "path": "cells/019-compact-addition--always-strong-local--r2.json",
+      "digest": "sha256:98dce5bedb1a61c03aa99aba5da385248bfb12ce80f680e6b4e9df9c8a5d2eca"
+    },
+    {
+      "path": "cells/020-compact-median--always-strong-local--r3.json",
+      "digest": "sha256:9f872522fc0b00fe6aa43c13eb7c263b1eb9a7dc78553631217b49b104b5a709"
+    },
+    {
+      "path": "cells/021-compact-vowels--always-strong-local--r3.json",
+      "digest": "sha256:56cea4037c9918c51aae593e0e0766cc018201b9873b800a39d1f7d7a8dfb2ab"
+    },
+    {
+      "path": "cells/022-compact-array-sum--always-strong-local--r1.json",
+      "digest": "sha256:d387143f13d7c93bd98c5e52224b674e21b9a412d0236b08c4ad83c251a0d3eb"
+    },
+    {
+      "path": "cells/023-compact-hex--citadel-adaptive-local--r3.json",
+      "digest": "sha256:20140bfc18c017c25379c542a3994d7cf95809a0502958c0c8675c867dd9086e"
+    },
+    {
+      "path": "cells/024-compact-array-sum--always-strong-local--r3.json",
+      "digest": "sha256:ea601475b12e1017445977ec7519199b7eb7b9b4688db38a69563e91e0e0f0c9"
+    },
+    {
+      "path": "cells/025-compact-median--citadel-adaptive-local--r2.json",
+      "digest": "sha256:992afaa389dd71d2f6aa6e87af8b76aab83dd338c1e3e99fab82f92ae7509d9c"
+    },
+    {
+      "path": "cells/026-adversarial-ledger-v2--always-strong-local--r2.json",
+      "digest": "sha256:bd8900f07a79e8af2464ad2fb45d7f3d4d7c4de2f53611e207a0d4e0071ca689"
+    },
+    {
+      "path": "cells/027-critical-schedule--citadel-adaptive-local--r3.json",
+      "digest": "sha256:29c0a53a16e6bd85f0a89abe62e15871e2f67f0697e2b53d8a619e7886eac202"
+    },
+    {
+      "path": "cells/028-constraint-pair--citadel-adaptive-local--r2.json",
+      "digest": "sha256:b0901cfef6896c42596902bdba77c0681d6863bbb864d9b683e6573395b48e84"
+    },
+    {
+      "path": "cells/029-critical-schedule--citadel-adaptive-local--r2.json",
+      "digest": "sha256:61d099e9727f2cb803904b00ebd551bcccb84cf4dc8654a8c718faa6e8ab7f4d"
+    },
+    {
+      "path": "cells/030-compact-array-sum--always-strong-local--r2.json",
+      "digest": "sha256:c8cc21a7930e73095870dd7c6af3397f3a6fe6e1832945be63d49aad599bcf0e"
+    },
+    {
+      "path": "cells/031-compact-median--always-strong-local--r2.json",
+      "digest": "sha256:97538eeab094625b5adb382ce04b1d2e617c1d98f268e64517a087b3455b2cbb"
+    },
+    {
+      "path": "cells/032-critical-schedule--citadel-adaptive-local--r1.json",
+      "digest": "sha256:a5d8e6125a8ac1fba4883eaab5850c81524324be81d69f2f31f480fd22c945eb"
+    },
+    {
+      "path": "cells/033-constraint-pair--always-strong-local--r3.json",
+      "digest": "sha256:a41cce657a3fca8106832b46012dd74acb0cc32061d6124be562d54d70682357"
+    },
+    {
+      "path": "cells/034-compact-length--always-strong-local--r2.json",
+      "digest": "sha256:547ea5cb8a30be2de65b505f5c02756dbd5500e0e58f83317af480253f1c6d42"
+    },
+    {
+      "path": "cells/035-compact-array-sum--citadel-adaptive-local--r2.json",
+      "digest": "sha256:36da163930fdf32cdcd918529cb5ffd3a01a5fe0df6b7ec35d261986efcb1019"
+    },
+    {
+      "path": "cells/036-compact-length--citadel-adaptive-local--r3.json",
+      "digest": "sha256:1e33bb1457d490c7f4d8bb81c6fba329359e25054e36be286b7699fedd402c49"
+    },
+    {
+      "path": "cells/037-compact-distinct--citadel-adaptive-local--r2.json",
+      "digest": "sha256:e26a485d9b1e9535ab6b9de4415d8e1c453d12cd775887e977110a4ac92e0462"
+    },
+    {
+      "path": "cells/038-compact-hex--always-strong-local--r1.json",
+      "digest": "sha256:b9c6d5b0e2ac34c81c9ace3141d06295d0f50f6ce0b30e57eba1253ba8195b05"
+    },
+    {
+      "path": "cells/039-compact-hex--always-strong-local--r3.json",
+      "digest": "sha256:b2ff09fc21712e56f292554192d9ad981d08fe3cec2d6bdb16a11f122777f403"
+    },
+    {
+      "path": "cells/040-weighted-path--citadel-adaptive-local--r1.json",
+      "digest": "sha256:aac6b648297a9f5af2e5bb3908b09450f4957ae3ce302216a5d479d4d8ea83bd"
+    },
+    {
+      "path": "cells/041-compact-hex--citadel-adaptive-local--r2.json",
+      "digest": "sha256:2c8cb7e779bd95e3cbc8b89857e27228a5462c028f5d338703aa009875902a05"
+    },
+    {
+      "path": "cells/042-compact-distinct--always-strong-local--r3.json",
+      "digest": "sha256:33a6d9545bf159c2ab72fd0810d9d1ad3a549dbb7be5b7ea1f0fc4d95df630c2"
+    },
+    {
+      "path": "cells/043-compact-length--always-strong-local--r3.json",
+      "digest": "sha256:0c253856c85a39481bb220e30b73e74a1f016dcc2ccccf13dc164df77242d80d"
+    },
+    {
+      "path": "cells/044-compact-expression--citadel-adaptive-local--r2.json",
+      "digest": "sha256:5edf2fb958b7b050b844019d7eb2e5a654dcb30e36bead73820f57c98d731937"
+    },
+    {
+      "path": "cells/045-compact-distinct--always-strong-local--r2.json",
+      "digest": "sha256:94724788d5beb691024fc4bdf0ceca63a4d7f6fbba5670965e0a8ee76acf57c7"
+    },
+    {
+      "path": "cells/046-adversarial-ledger-v2--citadel-adaptive-local--r3.json",
+      "digest": "sha256:501ef8032222ca4dfa51c14fc44067102fd67f231c80338305f0ddbc1b07e02d"
+    },
+    {
+      "path": "cells/047-compact-hex--citadel-adaptive-local--r1.json",
+      "digest": "sha256:0d8214e0a29ad89a1b50c9795f913daef24405e3a515afdb1659793e69045a99"
+    },
+    {
+      "path": "cells/048-compact-distinct--citadel-adaptive-local--r1.json",
+      "digest": "sha256:e030710f0ad92f8ac4cc3643d6f03c455af043eb0cc3568f3164bdccc901460b"
+    },
+    {
+      "path": "cells/049-compact-expression--citadel-adaptive-local--r1.json",
+      "digest": "sha256:f6a28f8ed7fdf63d20cfdfd02d236794f2dc9a7f722b24f086e3b92449de48eb"
+    },
+    {
+      "path": "cells/050-weighted-path--citadel-adaptive-local--r2.json",
+      "digest": "sha256:e9ad6a7be1525b522cc8b2d565207b18a729543f1d6c8b8472785d288b6d3eca"
+    },
+    {
+      "path": "cells/051-compact-distinct--citadel-adaptive-local--r3.json",
+      "digest": "sha256:0a16b1aef6b6cd9e1bf13725923228eb093664539136670bd584fd0c341156c5"
+    },
+    {
+      "path": "cells/052-adversarial-ledger-v2--citadel-adaptive-local--r1.json",
+      "digest": "sha256:99d9b5fc1e10460e4d800031eb35ffc0e1f846a4055f4c69cfdfbf846bfed9ec"
+    },
+    {
+      "path": "cells/053-compact-array-sum--citadel-adaptive-local--r1.json",
+      "digest": "sha256:50da8c7de3e6e2c82fd6a7a87dfbbb87556b5173874bcfde9562d6e43ec1edfb"
+    },
+    {
+      "path": "cells/054-compact-length--always-strong-local--r1.json",
+      "digest": "sha256:0b5ad080f747a0dd270e49ca94b5e39028ac732d26e57560b78efd7277e7e32b"
+    },
+    {
+      "path": "cells/055-compact-expression--citadel-adaptive-local--r3.json",
+      "digest": "sha256:f8702558fd1af982a1aaee3399bd98da666ed2c0451b24696a8ad87f7b09bc21"
+    },
+    {
+      "path": "cells/056-compact-addition--citadel-adaptive-local--r2.json",
+      "digest": "sha256:194c3a28d45af00010879f810395b80d365b10088861079e14a8e633655084cd"
+    },
+    {
+      "path": "cells/057-compact-expression--always-strong-local--r3.json",
+      "digest": "sha256:4a878ab85029333f150049d3a818e648e4f54c487350d7d62dce01ac6838aef5"
+    },
+    {
+      "path": "cells/058-compact-vowels--citadel-adaptive-local--r3.json",
+      "digest": "sha256:4b30dc1e48ba186abb21bbb575d5560c785ed812953bb00e88d1039e0049bb78"
+    },
+    {
+      "path": "cells/059-critical-schedule--always-strong-local--r3.json",
+      "digest": "sha256:84090d9ac00e1f0c29db483b5a166c14c525bfeef5eec2998ae08bfc002fae74"
+    },
+    {
+      "path": "cells/060-compact-length--citadel-adaptive-local--r2.json",
+      "digest": "sha256:8b0cd72e51f728e9492eb0bd8b64ee639c3a1244b5d5d62359e3071f3f225c88"
+    },
+    {
+      "path": "cells/061-constraint-pair--always-strong-local--r2.json",
+      "digest": "sha256:c357a81eb7b9a6b5447077763f0c9aa58fe0afcee060adcd4632a9b961871d63"
+    },
+    {
+      "path": "cells/062-constraint-pair--always-strong-local--r1.json",
+      "digest": "sha256:3349e83468c1e447ef74f6b59dbf370628ed7c490582e4420f000c5a43020418"
+    },
+    {
+      "path": "cells/063-weighted-path--always-strong-local--r3.json",
+      "digest": "sha256:0d52a5cba921067921e7db43264bb1272520eecabf3b3d82fc965d29a234598a"
+    },
+    {
+      "path": "cells/064-adversarial-ledger-v2--always-strong-local--r3.json",
+      "digest": "sha256:886c089089e1536c521130bdbca15a1095159bf057e5efce42b674cef09a0953"
+    },
+    {
+      "path": "cells/065-adversarial-ledger-v2--citadel-adaptive-local--r2.json",
+      "digest": "sha256:2fb39f417fca34705e78fa3aadfb284f9ebb143219ab83ef0be7154c24e86990"
+    },
+    {
+      "path": "cells/066-compact-distinct--always-strong-local--r1.json",
+      "digest": "sha256:80bf419b0d62d4b65c5d4ef941cad591a125ef492ee6f2f7b0510600fb33f3bc"
+    },
+    {
+      "path": "cells/067-compact-addition--always-strong-local--r1.json",
+      "digest": "sha256:7e39db51e559679a9f5d6bcbe9cd74ffd494e62ea7f999ec4a4fe1a10dda8de8"
+    },
+    {
+      "path": "cells/068-compact-vowels--citadel-adaptive-local--r1.json",
+      "digest": "sha256:0e9d8242a201419d2106cc20033332d9102e33b0519dc96096f8265a6aa2f98d"
+    },
+    {
+      "path": "cells/069-compact-vowels--always-strong-local--r1.json",
+      "digest": "sha256:6aa90b0c71e4affd1053b11c9a4c3be86fc7806177550a86233d2ae153fb80fc"
+    },
+    {
+      "path": "cells/070-compact-median--citadel-adaptive-local--r1.json",
+      "digest": "sha256:f1f942075fc8151c927330e0201a419606e6de2aea5203c945aca1ae11f95923"
+    },
+    {
+      "path": "cells/071-critical-schedule--always-strong-local--r1.json",
+      "digest": "sha256:5f439b948c180d434961a6fa9ff9c66893972ccef7d403b3f56e48f274c63d57"
+    }
+  ],
+  "final_chain_digest": "sha256:229aea1ecf902aed8bbdc6868a2d2ac23604e6cf3f17f5895d515e369ff9b0cb",
+  "summary": {
+    "policies": [
+      {
+        "policy_id": "always-strong-local",
+        "cells": 36,
+        "verified": 24,
+        "failed": 11,
+        "unknown": 1,
+        "verified_rate": 0.666667,
+        "attempts": 36,
+        "cheap_attempts": 0,
+        "strong_attempts": 36,
+        "escalations": 0,
+        "duration_ms": 314880,
+        "prompt_tokens": 3172,
+        "completion_tokens": 371,
+        "gpu_energy_status": "measured",
+        "gpu_energy_kwh": 0.004599236,
+        "modeled_cost_status": "derived-comparison",
+        "modeled_cost_usd": 0.001794512,
+        "actual_end_to_end_cash_status": "unknown"
+      },
+      {
+        "policy_id": "citadel-adaptive-local",
+        "cells": 36,
+        "verified": 27,
+        "failed": 9,
+        "unknown": 0,
+        "verified_rate": 0.75,
+        "attempts": 39,
+        "cheap_attempts": 24,
+        "strong_attempts": 15,
+        "escalations": 3,
+        "duration_ms": 280826,
+        "prompt_tokens": 3528,
+        "completion_tokens": 411,
+        "gpu_energy_status": "measured",
+        "gpu_energy_kwh": 0.004145417,
+        "modeled_cost_status": "derived-comparison",
+        "modeled_cost_usd": 0.001609156,
+        "actual_end_to_end_cash_status": "unknown"
+      }
+    ],
+    "comparison": {
+      "quality_ratio": 1.124999,
+      "gpu_energy_reduction": 0.098673,
+      "modeled_cost_reduction": 0.10329,
+      "duration_reduction": 0.108149,
+      "token_reduction": -0.11177
+    },
+    "false_passes": 0,
+    "integrity_failures": 0,
+    "gates": {
+      "quality": true,
+      "gpu_energy": false,
+      "modeled_cost": false,
+      "terminal_coverage": true,
+      "execution_identity": false,
+      "zero_false_passes": true
+    },
+    "evidence_result": "failed",
+    "actual_end_to_end_cash_status": "unknown"
+  },
+  "report_digest": "sha256:bfd36bf4bff76ee723151113e481ac38c2a9713662418141a04a6cf72fefcf78",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:a7b3f24d8266c0f46bc2c7aa943786b4c59e2c1331c3a7a062480733302fb21d",
+    "signature": "0t/U6udkoT2jduKy5+gVz9yB/NisgF7m+bDi89GI+oboaoXHmKUdfhqoXBE83GXv+ynAbVm+JKYzDNCpLLGiBw=="
+  }
+}

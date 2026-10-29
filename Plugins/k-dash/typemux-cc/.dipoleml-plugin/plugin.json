@@ -1,0 +1,16 @@
+{
+  "name": "typemux-cc",
+  "displayName": "Typemux CC",
+  "version": "0.2.18",
+  "description": "Python type-checker LSP multiplexer for DipoleML (pyright, ty, pyrefly)",
+  "provider": "DipoleML",
+  "author": {
+    "name": "K Dash"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/K-dash/typemux-cc",
+  "repository": "https://github.com/K-dash/typemux-cc",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

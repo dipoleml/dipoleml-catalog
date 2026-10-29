@@ -1,0 +1,16 @@
+{
+  "name": "behavioral-state-analysis",
+  "displayName": "Behavioral State Analysis",
+  "version": "1.0.0",
+  "description": "Multi-dimensional smart contract security auditing using Behavioral State Analysis (BSA). Combines behavioral intent extraction, parallel threat engines (economic, access control, state integrity), adversarial simulation with PoC generation, and Bayesian confidence scoring.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Quillai Network"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/quillai-network/quillshield_skills",
+  "repository": "https://github.com/quillai-network/quillshield_skills",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

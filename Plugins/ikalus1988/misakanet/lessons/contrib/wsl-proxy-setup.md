@@ -1,0 +1,60 @@
+---
+title: WSL 代理Setup — 通过 Windows 梯子Access外网
+domain: wsl
+tags:
+- wsl
+- proxy
+- setup
+status: published
+created: '2026-07-06'
+language: zh
+source: unknown
+provenance:
+  source: "community"
+  contributor: "Community"
+  merged_at: "2026-08-23"
+  evidence: "post-publication"
+---
+
+## Problem
+
+WSL 内 `curl google.com` 失败，但 Windows 能正常访问外网。WSL 默认不走 Windows 的代理。
+
+## Root Cause
+
+WSL2 有自己的网络命名空间，Windows 代理不会自动继承到 Linux 环境。
+
+## Solution
+
+```bash
+# WSL 代理Setup — 通过 Windows 梯子Access外网
+export http_proxy=http://$(hostname).local:7890
+export https_proxy=http://$(hostname).local:7890
+export HTTP_PROXY=$http_proxy
+export HTTPS_PROXY=$https_proxy
+
+# 2. 永久加入 ~/.bashrc
+echo '
+export http_proxy=http://$(hostname).local:7890
+export https_proxy=http://$(hostname).local:7890
+export NO_PROXY=localhost,127.0.0.1,.local
+' >> ~/.bashrc
+
+# 3. git 单独设置（WSL git 不走环境变量）
+git config --global http.proxy http://$(hostname).local:7890
+git config --global https.proxy http://$(hostname).local:7890
+```
+
+**注意：** 端口 7890 是常见代理端口，实际端口由你的代理软件决定（Clash 默认 7890，v2ray 默认 10808）。
+
+## Verification
+
+```bash
+curl -I https://google.com  # 应返回 200
+```
+
+**Expected Output:**
+```
+HTTP/2 200
+content-type: text/html; charset=UTF-8
+```

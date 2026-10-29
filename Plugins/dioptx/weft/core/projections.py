@@ -1,0 +1,166 @@
+"""Projections — derived views from state and events."""
+
+import os
+
+from . import weft_dir, event_store
+
+
+def _terminal_mode() -> bool:
+    """True when output is consumed by a human at a shell, not by Claude Code.
+
+    Claude Code sets CLAUDECODE=1 when running. WEFT_TERMINAL=1 forces
+    terminal mode for tests/CI; WEFT_TERMINAL=0 forces Claude-Code mode.
+    """
+    forced = os.environ.get("WEFT_TERMINAL")
+    if forced in ("1", "true", "yes"):
+        return True
+    if forced in ("0", "false", "no"):
+        return False
+    return os.environ.get("CLAUDECODE") != "1"
+
+
+def generate_context_md(state: dict, project_dir: str | None = None) -> str:
+    """Generate a compact context summary for injection into Claude's context."""
+    name = state["name"]
+    status = state["status"]
+    steps = state["steps"]
+    current = state["current_step"]
+    total = len(steps)
+
+    current_name = steps[current]["name"] if current < total else "done"
+
+    lines = [
+        f"# Workflow: {name} [{status}]",
+        f"Step {current + 1}/{total}: {current_name}",
+        "",
+    ]
+
+    for s in steps:
+        mark = {
+            "complete": "x",
+            "running": "~",
+            "failed": "!",
+            "skipped": "-",
+        }.get(s["status"], " ")
+        suffix = ""
+        if s["status"] == "running" and s.get("on_fail") != "block":
+            suffix = f" (on_fail: {s['on_fail']})"
+        if s["status"] == "failed":
+            suffix = f" (on_fail: {s['on_fail']}, retries: {s.get('retry_count', 0)})"
+        opt = " [optional]" if s.get("optional") else ""
+        skill = f" → invoke: {s['skill']}" if s.get("skill") else ""
+        execu = " → run: /wf-run-step" if s.get("executor") else ""
+        loop = ""
+        if s.get("loop_back_to"):
+            loop = f" ↻ loops to {s['loop_back_to']} ({s.get('loop_count', 0)}/{s.get('max_iterations', 3)})"
+        lines.append(f"- [{mark}] {s['name']} ({s['status']}){suffix}{opt}{skill}{execu}{loop}")
+
+    if status in ("running", "waiting") and current < total:
+        cur_step = steps[current]
+        if cur_step.get("description"):
+            lines.append("")
+            lines.append(cur_step["description"])
+        if status == "waiting":
+            # Parked at a human gate (unattended on_fail=block) — resume, don't
+            # re-run the step's executor that just failed/blocked.
+            next_action = "/wf-resume"
+        elif cur_step.get("executor"):
+            next_action = "/wf-run-step"
+        else:
+            next_action = "/wf-step complete"
+        # In a plain terminal the /wf-* slash commands don't exist — point at the
+        # equivalent cli.py invocation instead. (/wf-run-step has no direct CLI
+        # equivalent; it stays as guidance to run the executor.)
+        if _terminal_mode():
+            next_action = {
+                "/wf-resume": "cli.py resume",
+                "/wf-run-step": "cli.py run-result  (run the step executor)",
+                "/wf-step complete": "cli.py step complete",
+            }[next_action]
+        lines.append("")
+        lines.append(f"Next action: {next_action}")
+
+        suggest = list(cur_step.get("suggest") or [])
+        if cur_step.get("skill"):
+            suggest.insert(0, f"{cur_step['skill']} (this step)")
+        if suggest:
+            lines.append(f"Suggested commands: {', '.join(suggest)}")
+        for insight in cur_step.get("insights") or []:
+            lines.append(f"  💡 {insight}")
+
+    if status == "running" and current < total:
+        cur_step = steps[current]
+        ex = cur_step.get("executor")
+        if ex:
+            script = ex.get("script", "?") if isinstance(ex, dict) else "?"
+            lines.append("")
+            lines.append(
+                f"▶ This step has a Workflow executor ({script}). Run /wf-run-step to "
+                "execute it and auto-transition on the verdict (or advance manually with "
+                "/wf-step)."
+            )
+        guards = cur_step.get("guards", [])
+        if guards:
+            lines.append("")
+            lines.append("Active guards (current step):")
+            for g in guards:
+                if isinstance(g, dict):
+                    lines.append(f"  - {g.get('command_pattern', g.get('pattern', '?'))}: {g.get('message', 'blocked')}")
+                else:
+                    lines.append(f"  - {g}")
+        if cur_step.get("exit_condition"):
+            lines.append("")
+            lines.append(f"Loop exit condition: {cur_step['exit_condition']}")
+
+    # General command reference footer — only while running (a completed/aborted
+    # workflow can't be advanced, so a stale "advance" hint is noise) and
+    # terminal-aware (the /weft:* slash commands don't exist in a plain shell).
+    if status == "running":
+        if _terminal_mode():
+            lines += [
+                "",
+                "Commands: cli.py step <complete|fail|skip>  |  cli.py status  |  cli.py query",
+            ]
+        else:
+            lines += [
+                "",
+                "Use /weft:wf-step to advance. /weft:wf-status for details. /weft:ev-query for events.",
+            ]
+
+    return "\n".join(lines)
+
+
+def write_context_md(state: dict, project_dir: str | None = None) -> None:
+    """Write context.md to the weft directory."""
+    content = generate_context_md(state, project_dir)
+    path = weft_dir(project_dir) / "context.md"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(content)
+
+
+def format_status(state: dict, project_dir: str | None = None) -> str:
+    """Format a human-readable status view."""
+    lines = [generate_context_md(state, project_dir)]
+
+    events = event_store.query(
+        project_dir,
+        workflow_id=state.get("workflow_id"),
+        last_n=10,
+    )
+    if events:
+        lines.append("")
+        lines.append("Recent events:")
+        for ev in events:
+            ts = ev.get("ts", "?")[:19]
+            et = ev.get("event_type", "?")
+            data_str = ""
+            data = ev.get("data", {})
+            if data.get("step_name"):
+                data_str = f" → {data['step_name']}"
+                if data.get("to_status"):
+                    data_str += f" ({data['to_status']})"
+            elif data.get("reason"):
+                data_str = f" — {data['reason']}"
+            lines.append(f"  {ts} {et}{data_str}")
+
+    return "\n".join(lines)

@@ -1,0 +1,31 @@
+# Narrow runtime detection for a noisy namespace instead of muting it.
+#
+# CI runner pods start new processes, open new files and call new hosts on
+# every build, so the anomaly rules (R0001–R0011, compared with a learned
+# profile) would alert all day. The signature rules below still mean an
+# attack: a known-malicious binary, a crypto miner, a kernel module load, a
+# container escape.
+#
+# Opt-in, in two steps (README, "Narrow runtime rules for a noisy namespace"):
+#   1. this binding (kustomization.yaml here), after the base install is Ready;
+#   2. release/: the base install plus a post-renderer that adds ci-runners to
+#      the NotIn list of the chart's default all-rules-all-pods binding.
+# Until step 2, ci-runners has both bindings (more alerts, never fewer).
+#
+# ci-runners must not be in excludeNamespaces: node-agent never traces pods in
+# excluded namespaces (node-agent v0.3.219, Config.SkipNamespace), so a binding
+# for an excluded namespace can never fire.
+apiVersion: kubescape.io/v1
+kind: RuntimeRuleAlertBinding
+metadata:
+  name: ci-runners-signature-rules   # cluster-scoped
+spec:
+  namespaceSelector:
+    matchExpressions:
+      - key: kubernetes.io/metadata.name
+        operator: In
+        values: ["ci-runners"]
+  rules:
+    - ruleTags: ["malicious"]   # R1000, R1001, R1003, R1005, R1007, R1008, R1009, R1011, R1012, R1015
+    - ruleID: "R1002"           # Process tries to load a kernel module
+    - ruleID: "R1006"           # Process tries to escape container

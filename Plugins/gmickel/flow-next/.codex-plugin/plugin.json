@@ -1,0 +1,34 @@
+{
+  "name": "flow-next",
+  "version": "9.3.3",
+  "description": "Zero-dependency, spec-driven agentic SDLC: durable specs, context-fit plans, re-anchored workers, adversarial cross-model review, and receipts. Compatible with Codex, Claude Code, and Factory Droid.",
+  "author": {
+    "name": "Gordon Mickel",
+    "email": "gordon@mickel.tech",
+    "url": "https://mickel.tech"
+  },
+  "homepage": "https://flow-next.dev",
+  "repository": "https://github.com/gmickel/flow-next",
+  "license": "MIT",
+  "keywords": [
+    "workflow",
+    "planning",
+    "execution",
+    "automation",
+    "ai"
+  ],
+  "skills": "./codex/skills/",
+  "interface": {
+    "displayName": "Flow-Next",
+    "shortDescription": "Plan-first workflow with subagent execution",
+    "longDescription": "Structured plan-first workflow engine. Tracks specs and tasks in .flow/ directory. Spawns isolated worker subagents per task to prevent context bleed. Prime delivers an opinionated, structure-aware agent-readiness assessment: it classifies the project, judges substance over existence, and leads with an operability verdict + ranked next-actions. 21 subagents, 26 commands, 29 skills.",
+    "developerName": "Gordon Mickel",
+    "category": "Productivity",
+    "capabilities": [
+      "Read",
+      "Write"
+    ],
+    "websiteURL": "https://flow-next.dev",
+    "brandColor": "#3B82F6"
+  }
+}

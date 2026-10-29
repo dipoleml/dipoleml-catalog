@@ -1,0 +1,129 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.exmergo.dex",
+  "type": "plugin",
+  "name": "Dex",
+  "slug": "dex",
+  "vendor": "exmergo",
+  "description": "Dex lets your agent build your analytics.",
+  "version": "1.16.4",
+  "homepage": "https://github.com/exmergo/dex",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agent-skills",
+    "analytics-engineering",
+    "bigquery",
+    "claude-code-plugin",
+    "claude-code-skill",
+    "clickhouse",
+    "data-contracts",
+    "data-engineering",
+    "databricks"
+  ],
+  "tags": [
+    "agent",
+    "agent-skills",
+    "analytics-engineering",
+    "bigquery",
+    "claude-code",
+    "claude-code-plugin",
+    "claude-code-skill",
+    "clickhouse",
+    "data-contracts",
+    "data-engineering",
+    "databricks",
+    "dbt",
+    "duckdb",
+    "metricflow",
+    "redshift",
+    "schema-drift",
+    "semantic-layer",
+    "skills",
+    "snowflake",
+    "trino"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "exmergo",
+    "brandName": "exmergo",
+    "source": "https://github.com/exmergo.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:12:59Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "exmergo/dex",
+    "url": "https://github.com/exmergo/dex",
+    "commit": "d5c28e744d226f2a1e0deaa8c3b05f07de0fa4e3",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 103,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:04:30Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Analytics engineering for Claude Code and any agent: data warehouse exploration, dbt transformation and semantic modeling, and schema-drift maintenance on dbt.",
+        "after": "Analytics engineering for DipoleML and any agent: data warehouse exploration, dbt transformation and semantic modeling, and schema-drift maintenance on dbt.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [
+      "IMPORTANT",
+      "CLICKHOUSE_URL",
+      "TRINO_URL",
+      "DATABASE_URL"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

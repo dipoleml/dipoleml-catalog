@@ -1,0 +1,16 @@
+{
+  "name": "mobile-first-design",
+  "displayName": "Mobile First Design",
+  "version": "3.9.0",
+  "description": "Designs responsive interfaces starting from mobile screens with progressive enhancement for larger devices. Use when building responsive websites, optimizing for mobile users, or implementing adaptive layouts.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Secondsky"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/secondsky/claude-skills",
+  "repository": "https://github.com/secondsky/claude-skills",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

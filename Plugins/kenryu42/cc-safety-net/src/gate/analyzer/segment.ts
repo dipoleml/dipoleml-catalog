@@ -1,0 +1,1337 @@
+import { sep } from 'node:path';
+import { AnalysisLimit, type Budget, createBudget, LIMITS } from '@/core/budget';
+import { normalizeMsysDrivePath } from '@/core/paths/canonicalization';
+import { resolveChdirTarget } from '@/core/paths/chdir';
+import { isTmpdirOverriddenToNonTemp } from '@/core/paths/tmpdir';
+import {
+  destructiveCommandRuleIsEnabled,
+  filterDestructiveCommandMatch,
+} from '@/core/policy/effective-rules';
+import { isInterpreterCommand } from '@/core/policy/transparent-wrappers';
+import type { CommandAnalysisPolicy } from '@/core/policy/types';
+import { AWK_INTERPRETERS, DISPLAY_COMMANDS, SHELL_WRAPPERS } from '@/core/rules/constants';
+import { checkPolicyRuleMatch } from '@/core/rules/custom';
+import { destructiveCommandMatch } from '@/core/rules/destructive';
+import type { CommandView, CommandWord } from '@/core/shell/model';
+import {
+  getBasename,
+  hasUnclosedQuotes,
+  normalizeCommandToken,
+  parseShellArgv,
+} from '@/core/shell/tokens';
+import type {
+  AnalyzeResult,
+  DestructiveCommandRuleMatch,
+  EnvironmentContext,
+  PathResolver,
+} from '@/gate/analysis';
+import type { CommandTraceContext } from '@/gate/trace';
+import { analyzeAwkSystemCallMatch, extractAwkExecutableSources } from './awk';
+import { type ChildProvenance, normalizeChildCommands } from './child-command';
+import { analysisWordText, analyzedViewWords, textCommandWords } from './command-words';
+import { dangerousInTextMatch } from './dangerous-text';
+import { analyzeDynamicCommandStructure, hasDynamicExecutableSource } from './derived-input';
+import { analyzeDeviceCommandMatch } from './device';
+import { analyzeNamespaceCommandMatch } from './namespace';
+import { analyzeNetworkCommandMatch } from './network';
+import { analyzeGitDetailed } from './git';
+import { readShellScriptFile, resolveTrackedHeredocPath } from './heredoc-files';
+import {
+  containsDangerousCode,
+  extractInterpreterCodeArg,
+  extractInterpreterExecutableSources,
+  isInterpreterDisplayOnly,
+  REASON_INTERPRETER_BLOCKED,
+  REASON_INTERPRETER_DANGEROUS,
+} from './interpreters';
+import {
+  dynamicShellSourceMatch,
+  REASON_DYNAMIC_SHELL_SOURCE,
+  REASON_STRICT_UNPARSEABLE,
+  REASON_UNSUPPORTED_HEREDOC_SYNTAX,
+} from './reasons';
+import { hasRecursiveForceFlags } from './rm-flags';
+import {
+  ANALYZER_RULES,
+  type AnalyzerRuleContext,
+  gitAnalyzeOptions,
+  type InternalOptions,
+  matchFromBlockResult,
+} from './rule';
+import {
+  extractEvalSource,
+  bindLiteralPositionalParameters,
+  extractPositionalShellSource,
+  extractShellScriptOperandSource,
+  extractShellStdinSource,
+  extractTrapSource,
+  isVerifiableLocalGeneratorSource,
+  shellSourceHasUnresolvedDynamicExecutionCarrier,
+  substitutesRemoteFetch,
+} from './shell-execution';
+import {
+  expandHomeTildeWord,
+  expandKnownVariableWord,
+  withImplicitShellVariables,
+} from './shell-git-env';
+import {
+  extractDashCArg,
+  extractShellStartupLoaderMetadata,
+  hasUnidentifiableCommandString,
+  isShellSyntaxCheck,
+} from './shell-wrappers';
+import { isStandardCommandWrapper, unwrapTransparentWrapper } from './transparent-wrappers';
+import {
+  reconstructEnvSplitWords,
+  stripEnvAssignmentWords,
+  stripWrappers,
+  stripWrapperWords,
+} from './wrapper-prelude';
+
+type AnalyzeBlockResult = Omit<AnalyzeResult, 'segment'>;
+
+function findCommandAnalyzer(head: string) {
+  return ANALYZER_RULES.find((rule) => rule.heads.has(head))?.analyze;
+}
+
+export function analyzeSegment(
+  commandWords: readonly CommandWord[],
+  depth: number,
+  options: InternalOptions,
+): AnalyzeBlockResult | null {
+  let trace = options.trace;
+  if (commandWords.length === 0) {
+    return null;
+  }
+
+  const dialect = options.commandView?.dialect ?? 'posix';
+  const texts = (candidates: readonly CommandWord[]) =>
+    candidates.map((word) => (dialect === 'posix' ? analysisWordText(word) : word.text));
+
+  const child = options.child;
+  const stream = child !== undefined && !child.embedded;
+  const embedded = child?.embedded === true;
+  const cwdUnknown = options.effectiveCwd === null;
+  const baseCwdForRm = child
+    ? child.cwd
+    : cwdUnknown
+      ? undefined
+      : (options.effectiveCwd ?? options.cwd);
+  const originalCwd = child ? child.originalCwd : cwdUnknown ? undefined : options.cwd;
+  const leading = stripEnvAssignmentWords(commandWords);
+  if (leading.envAssignments.size > 0) {
+    trace?.recordSegment({
+      type: 'env-strip',
+      input: texts(commandWords),
+      envVars: [...leading.envAssignments.keys()],
+      output: texts(leading.words),
+    });
+  }
+  const prelude = stripWrapperWords(
+    leading.words,
+    options.environment,
+    baseCwdForRm,
+    new Map([...(options.envAssignments ?? []), ...leading.envAssignments]),
+  );
+
+  const envSplitValues = prelude.envSplitValues ?? [];
+  if (envSplitValues.length > 0) {
+    const splitCommandText = [...envSplitValues, ...texts(prelude.words)].join(' ');
+    const dangerousSplitMatch = dangerousInTextMatch(splitCommandText);
+    if (dangerousSplitMatch) {
+      trace?.recordSegment({
+        type: 'dangerous-text',
+        token: splitCommandText,
+        matched: true,
+        reason: dangerousSplitMatch.reason,
+      });
+      return blockResultFromMatch(dangerousSplitMatch);
+    }
+    if (options.strict) {
+      return dynamicShellSourceResult(trace);
+    }
+    const spliced = reconstructEnvSplitWords(envSplitValues, texts(prelude.words));
+    if (spliced) {
+      options.budget.charge('derivedTokens', spliced.length);
+      const splicedResult = options.analyzeNested(spliced.join(' '), {
+        effectiveCwd: prelude.cwd === undefined ? options.effectiveCwd : prelude.cwd,
+        envAssignments: new Map([
+          ...(options.envAssignments ?? []),
+          ...leading.envAssignments,
+          ...prelude.envAssignments,
+        ]),
+      });
+      if (splicedResult) return splicedResult;
+    }
+  }
+
+  const words = prelude.rewritten
+    ? textCommandWords(texts(prelude.words))
+    : analyzedViewWords(dialect, prelude.words);
+  const stripped = texts(words);
+  const normalizedOptions = {
+    ...options,
+    wrapperNormalizationBudget: options.wrapperNormalizationBudget ?? { iterations: 0 },
+  };
+  if (trace && leading.words.length > words.length) {
+    const strippedEnv = texts(leading.words);
+    trace.recordSegment({
+      type: 'leading-tokens-stripped',
+      input: strippedEnv,
+      removed: strippedEnv.slice(0, strippedEnv.length - words.length),
+      output: stripped,
+    });
+  }
+
+  const envAssignments = new Map([
+    ...(options.envAssignments ?? []),
+    ...leading.envAssignments,
+    ...prelude.envAssignments,
+  ]);
+  const head = stripped[0];
+  if (!head) return null;
+
+  if (isStandardCommandWrapper(head)) {
+    throw new AnalysisLimit('wrapperPeelIterations');
+  }
+
+  const normalizedHead = normalizeCommandToken(head);
+  const cwdForRm = prelude.cwd === null ? undefined : (prelude.cwd ?? baseCwdForRm);
+  const originalCwdForRm = prelude.cwd === null ? undefined : originalCwd;
+  const nestedEffectiveCwd = prelude.cwd === undefined ? options.effectiveCwd : prelude.cwd;
+  const operandShellCwd = prelude.cwd === undefined ? options.effectiveCwd : null;
+
+  const allowTmpdirVar = child
+    ? child.allowTmpdirVar
+    : !isTmpdirOverriddenToNonTemp(envAssignments, options.environment);
+
+  const dynamicCommandMatch = analyzeDynamicCommandStructure(
+    dialect,
+    prelude.words,
+    options.environment,
+    depth === 0,
+    options.strict,
+    options.policy,
+  );
+  if (dynamicCommandMatch) {
+    trace?.recordSegment({
+      type: 'rule-check',
+      rule: 'analyzer/segment.ts:analyzeDynamicCommandStructure',
+      matched: true,
+      reason: dynamicCommandMatch.reason,
+    });
+    return blockResultFromMatch(dynamicCommandMatch);
+  }
+
+  const transparentWrapper = unwrapTransparentWrapper(stripped, options.policy);
+  if (transparentWrapper) {
+    for (const childIndex of [
+      transparentWrapper.childIndex,
+      ...transparentWrapper.alternativeChildIndices,
+    ]) {
+      reserveWrapperNormalization(normalizedOptions.wrapperNormalizationBudget);
+      const candidateWords = words.slice(childIndex);
+      trace?.recordSegment({
+        type: 'transparent-wrapper',
+        wrapper: transparentWrapper.wrapper,
+        output: texts(candidateWords),
+      });
+      const result = analyzeSegment(candidateWords, depth, {
+        ...normalizedOptions,
+        effectiveCwd: nestedEffectiveCwd,
+        envAssignments,
+      });
+      if (result) return result;
+    }
+    return null;
+  }
+
+  const shellBuiltinSource = embedded
+    ? undefined
+    : normalizedHead === 'eval'
+      ? extractEvalSource(words)
+      : normalizedHead === 'trap' && !stream
+        ? extractTrapSource(words)
+        : undefined;
+  if (stream && child && normalizedHead === 'eval') {
+    if (shellBuiltinSource?.kind === 'dynamic') {
+      return childShellDynamicResult(child, options.policy);
+    }
+    if (shellBuiltinSource?.kind === 'literal') {
+      const result = options.analyzeNested(shellBuiltinSource.source, {
+        effectiveCwd: nestedEffectiveCwd,
+        envAssignments,
+      });
+      if (result) return result;
+    }
+    return childDynamicSourceResult(child, options.policy);
+  }
+  if (
+    shellBuiltinSource?.kind === 'dynamic' &&
+    (options.strict ||
+      !options.commandView ||
+      !isVerifiableLocalGeneratorSource(options.commandView))
+  ) {
+    return dynamicShellSourceResult(trace);
+  }
+  if (shellBuiltinSource?.kind === 'literal') {
+    trace?.recordSegment({
+      type: 'recurse',
+      reason: normalizedHead === 'eval' ? 'shell-eval' : 'shell-trap',
+      innerCommand: shellBuiltinSource.source,
+      depth: depth + 1,
+    });
+
+    const result = options.analyzeNested(shellBuiltinSource.source, {
+      effectiveCwd: nestedEffectiveCwd,
+      envAssignments,
+      functionDefinitions: options.functionDefinitions,
+    });
+    if (result) return result;
+  }
+
+  const shellWrapperHead = stream
+    ? SHELL_WRAPPERS.has(normalizedHead)
+    : isShellWrapperCommand(head, normalizedHead);
+  if (shellWrapperHead) {
+    if (isShellSyntaxCheck(stripped)) return null;
+    if (hasUnidentifiableCommandString(stripped)) return dynamicShellSourceResult(trace);
+    if (stream && child) {
+      const streamDashCArg = extractDashCArg(stripped);
+      if (streamDashCArg) {
+        if (child.dynamicSourceInput ?? child.dynamicInput) {
+          const dynamic = childShellDynamicResult(child, options.policy);
+          if (dynamic) return dynamic;
+        }
+        if (shellSourceHasUnresolvedDynamicExecutionCarrier(streamDashCArg)) {
+          const dynamic = childShellDynamicResult(child, options.policy);
+          if (dynamic) return dynamic;
+        }
+        return options.analyzeNested(streamDashCArg, {
+          effectiveCwd: nestedEffectiveCwd,
+          envAssignments,
+        });
+      }
+      const streamScript = extractShellScriptOperandSource(words);
+      if (streamScript.kind === 'dynamic') return childShellDynamicResult(child, options.policy);
+      if (streamScript.kind === 'literal') {
+        return child.dynamicSourceInput ? childShellDynamicResult(child, options.policy) : null;
+      }
+      return (child.dynamicSourceInput ?? child.dynamicInput)
+        ? childShellDynamicResult(child, options.policy)
+        : null;
+    }
+    if (embedded) {
+      const embeddedDashCArg = extractDashCArg(stripped);
+      const embeddedResult = embeddedDashCArg
+        ? options.analyzeNested(embeddedDashCArg, {
+            effectiveCwd: nestedEffectiveCwd,
+            envAssignments,
+          })
+        : extractShellScriptOperandSource(words).kind === 'dynamic'
+          ? dynamicShellSourceResult(trace)
+          : null;
+      if (embeddedResult) return embeddedResult;
+    }
+    if (child === undefined) {
+      const startupResult = analyzeShellStartupSources(
+        stripped,
+        envAssignments,
+        nestedEffectiveCwd,
+        options,
+        trace,
+        depth,
+      );
+      if (startupResult) return startupResult;
+      const dashCArg = extractDashCArg(stripped);
+      if (dashCArg) {
+        const scriptIndex = parseShellArgv(stripped).commandIndex;
+        const scriptWord = scriptIndex === null ? undefined : words[scriptIndex];
+        if (
+          scriptWord &&
+          options.commandView &&
+          substitutesRemoteFetch(scriptWord, options.commandView.nested, options.environment)
+        ) {
+          return dynamicShellSourceResult(trace);
+        }
+        const positionalSource = extractPositionalShellSource(words, dashCArg);
+        if (positionalSource.kind === 'dynamic') return dynamicShellSourceResult(trace);
+        const source =
+          positionalSource.kind === 'literal'
+            ? positionalSource.source
+            : bindLiteralPositionalParameters(words, dashCArg);
+        const traceInnerCommand = unwrapTraceQuotes(source);
+        trace?.recordSegment({
+          type: 'shell-wrapper',
+          wrapper: normalizedHead,
+          innerCommand: traceInnerCommand,
+        });
+        trace?.recordSegment({
+          type: 'recurse',
+          reason: 'shell-wrapper',
+          innerCommand: traceInnerCommand,
+          depth: depth + 1,
+        });
+        const result = options.analyzeNested(source, {
+          effectiveCwd: nestedEffectiveCwd,
+          envAssignments,
+        });
+        if (result) return result;
+        return shellSourceHasUnresolvedDynamicExecutionCarrier(source)
+          ? dynamicShellSourceResult(trace)
+          : null;
+      }
+
+      const scriptSource = extractShellScriptOperandSource(
+        words,
+        options.environment.home,
+        options.strict
+          ? undefined
+          : withImplicitShellVariables(options.shellAssignments ?? new Map(), {
+              home: options.environment.home,
+              cwd: operandShellCwd,
+            }),
+      );
+      if (scriptSource.kind === 'dynamic') return dynamicShellSourceResult(trace);
+      if (scriptSource.kind === 'literal') {
+        return analyzeTrackedHeredocScript(
+          scriptSource.source,
+          nestedEffectiveCwd,
+          envAssignments,
+          options,
+          trace,
+          depth,
+        );
+      }
+
+      const stdinSource = extractShellStdinSource(
+        words,
+        options.commandView?.redirections ?? [],
+        options.hasPipelineInput ?? false,
+        options.literalShellInput,
+      );
+      if (stdinSource.kind === 'dynamic') return dynamicShellSourceResult(trace);
+      if (stdinSource.kind === 'literal') {
+        trace?.recordSegment({
+          type: 'recurse',
+          reason: 'shell-stdin',
+          innerCommand: stdinSource.source,
+          depth: depth + 1,
+        });
+        return options.analyzeNested(stdinSource.source, {
+          effectiveCwd: nestedEffectiveCwd,
+          envAssignments,
+        });
+      }
+    }
+  }
+
+  if (!child && (normalizedHead === 'source' || normalizedHead === '.')) {
+    const sourceSearchPathIndex = stripped[1] === '-p' ? 2 : null;
+    if (sourceSearchPathIndex !== null) {
+      const sourceSearchPath = options.commandView ? words[sourceSearchPathIndex] : undefined;
+      if (!sourceSearchPath) return null;
+      if (sourceSearchPath.provenance !== 'literal') return dynamicShellSourceResult(trace);
+    }
+    const sourceCandidateIndex = sourceSearchPathIndex === null ? 1 : 3;
+    const sourceOperandIndex =
+      stripped[sourceCandidateIndex] === '--' ? sourceCandidateIndex + 1 : sourceCandidateIndex;
+    const source = options.commandView ? words[sourceOperandIndex] : undefined;
+    if (!source) return null;
+    const sourcePath = literalOrAssignedPath(source, options, operandShellCwd);
+    if (sourcePath !== null) {
+      return analyzeTrackedHeredocScript(
+        sourcePath,
+        nestedEffectiveCwd,
+        envAssignments,
+        options,
+        trace,
+        depth,
+      );
+    }
+    if (
+      options.strict ||
+      !options.commandView ||
+      !isVerifiableLocalGeneratorSource(options.commandView)
+    ) {
+      return dynamicShellSourceResult(trace);
+    }
+  }
+
+  const executable = words[0];
+  if (!child && executable && head.includes('/')) {
+    const executablePath = literalOrAssignedPath(executable, options, operandShellCwd);
+    const scriptResult =
+      executablePath === null
+        ? null
+        : analyzeTrackedHeredocScript(
+            executablePath,
+            nestedEffectiveCwd,
+            envAssignments,
+            options,
+            trace,
+            depth,
+            false,
+            true,
+          );
+    if (scriptResult) return scriptResult;
+  }
+
+  if (AWK_INTERPRETERS.has(normalizedHead) && !embedded) {
+    if (
+      !child &&
+      options.strict &&
+      hasDynamicExecutableSource(extractAwkExecutableSources(stripped), words)
+    ) {
+      return dynamicShellSourceResult(trace);
+    }
+    const awkMatch = analyzeAwkSystemCallMatch(stripped, (command) =>
+      matchFromBlockResult(
+        options.analyzeNested(command, {
+          effectiveCwd: nestedEffectiveCwd,
+          envAssignments,
+        }),
+      ),
+    );
+    const awkReason = filterDestructiveCommandMatch(awkMatch, options.policy);
+    if (awkReason) {
+      trace?.recordSegment({
+        type: 'rule-check',
+        rule: 'awk:analyzeAwkSystemCallMatch',
+        matched: true,
+        reason: awkReason.reason,
+      });
+      return blockResultFromMatch(awkReason);
+    }
+  }
+
+  if (isInterpreterCommand(normalizedHead) && !embedded) {
+    if (
+      !child &&
+      options.strict &&
+      hasDynamicExecutableSource(extractInterpreterExecutableSources(stripped), words)
+    ) {
+      return dynamicShellSourceResult(trace);
+    }
+    const codeArg = extractInterpreterCodeArg(stripped);
+    if (stream && child) {
+      return analyzeStreamInterpreterChild(
+        normalizedHead,
+        codeArg,
+        nestedEffectiveCwd,
+        envAssignments,
+        options,
+        child,
+      );
+    }
+    if (codeArg) {
+      const paranoidInterpreterRuleEnabled = destructiveCommandRuleIsEnabled(
+        options.policy,
+        'interpreter.one-liner-paranoid',
+        !!options.paranoidInterpreters,
+      );
+      trace?.recordSegment({
+        type: 'interpreter',
+        interpreter: normalizedHead,
+        codeArg,
+        paranoidBlocked: paranoidInterpreterRuleEnabled,
+      });
+      if (paranoidInterpreterRuleEnabled) {
+        const match = filterDestructiveCommandMatch(
+          destructiveCommandMatch('interpreter.one-liner-paranoid', REASON_INTERPRETER_BLOCKED),
+          options.policy,
+        );
+        if (match) return blockResultFromMatch(match);
+      }
+
+      if (isInterpreterDisplayOnly(normalizedHead, codeArg)) return null;
+
+      trace?.recordSegment({
+        type: 'recurse',
+        reason: 'interpreter',
+        innerCommand: codeArg,
+        depth: depth + 1,
+      });
+      const innerReason = options.analyzeNested(codeArg, {
+        effectiveCwd: nestedEffectiveCwd,
+        envAssignments,
+      });
+      if (innerReason && !isInterpreterShellParseNoise(innerReason, codeArg)) return innerReason;
+
+      if (containsDangerousCode(codeArg, undefined, !options.strict)) {
+        const match = filterDestructiveCommandMatch(
+          destructiveCommandMatch('interpreter.dangerous-command', REASON_INTERPRETER_DANGEROUS),
+          options.policy,
+        );
+        if (match) {
+          trace?.recordSegment({
+            type: 'dangerous-text',
+            token: codeArg,
+            matched: true,
+            reason: REASON_INTERPRETER_DANGEROUS,
+          });
+          return blockResultFromMatch(match);
+        }
+      }
+      trace = undefined;
+    }
+  }
+
+  if (normalizedHead === 'busybox' && stripped.length > 1) {
+    reserveWrapperNormalization(normalizedOptions.wrapperNormalizationBudget);
+    trace?.recordSegment({ type: 'busybox', subcommand: stripped[1] ?? 'unknown' });
+    trace?.recordSegment({
+      type: 'recurse',
+      reason: 'busybox',
+      innerCommand: stripped.slice(1).join(' '),
+      depth: depth + 1,
+    });
+    return analyzeSegment(words.slice(1), depth, {
+      ...normalizedOptions,
+      effectiveCwd: nestedEffectiveCwd,
+      envAssignments,
+    });
+  }
+
+  const argvRuleCheck = child
+    ? undefined
+    : (
+        [
+          [
+            'analyzer/device.ts:analyzeDeviceCommandMatch',
+            analyzeDeviceCommandMatch(normalizedHead, stripped),
+          ],
+          [
+            'analyzer/network.ts:analyzeNetworkCommandMatch',
+            analyzeNetworkCommandMatch(normalizedHead, stripped),
+          ],
+          [
+            'analyzer/namespace.ts:analyzeNamespaceCommandMatch',
+            analyzeNamespaceCommandMatch(normalizedHead, stripped),
+          ],
+        ] as const
+      )
+        .map(([rule, match]) => ({
+          rule,
+          match: filterDestructiveCommandMatch(match, options.policy),
+        }))
+        .find((check) => check.match);
+  if (argvRuleCheck?.match) {
+    trace?.recordSegment({
+      type: 'rule-check',
+      rule: argvRuleCheck.rule,
+      matched: true,
+      reason: argvRuleCheck.match.reason,
+    });
+    return blockResultFromMatch(argvRuleCheck.match);
+  }
+
+  const analyzerOptions =
+    trace === normalizedOptions.trace ? normalizedOptions : { ...normalizedOptions, trace };
+  const commandContext: AnalyzerRuleContext = {
+    words,
+    parsedWords: prelude.words,
+    head: normalizedHead,
+    cwd: cwdForRm,
+    originalCwd: originalCwdForRm,
+    envAssignments,
+    allowTmpdirVar,
+    dynamicArguments: prelude.words.some((word) => word.provenance === 'command-substitution'),
+    depth,
+    effectiveCwd: nestedEffectiveCwd,
+    options: analyzerOptions,
+    analyzeChildTokens: (childTokens, childCwd) =>
+      stream && child
+        ? analyzeChildCommand(childTokens, depth, analyzerOptions, {
+            ...child,
+            cwd: childCwd ?? undefined,
+            effectiveCwd: childCwd ?? undefined,
+          })
+        : (matchFromBlockResult(
+            analyzeSegment(textCommandWords(childTokens), depth + 1, {
+              ...analyzerOptions,
+
+              child: undefined,
+              commandView: undefined,
+              effectiveCwd: childCwd,
+              envAssignments,
+            }),
+          ) ?? checkPolicyRuleMatch(childTokens, analyzerOptions.policy.rules)),
+    analyzeChild: (childTokens, childProvenance) =>
+      analyzeChildCommand(childTokens, depth, analyzerOptions, childProvenance),
+  };
+
+  const commandAnalyzer =
+    child && (normalizedHead === 'xargs' || normalizedHead === 'parallel')
+      ? undefined
+      : findCommandAnalyzer(normalizedHead);
+  if (normalizedHead === 'rm' || normalizedHead === 'xargs' || normalizedHead === 'parallel') {
+    trace?.recordSegment({
+      type: 'tmpdir-check',
+      tmpdirValue:
+        envAssignments.has('TMPDIR') || options.environment.env.has('TMPDIR') ? '<redacted>' : null,
+      allowTmpdirVar,
+    });
+  }
+  const gitDetail =
+    trace && normalizedHead === 'git'
+      ? analyzeGitDetailed(commandContext.words, gitAnalyzeOptions(commandContext))
+      : undefined;
+  const commandResult = filterBuiltInCommandMatch(
+    gitDetail ? gitDetail.match : (commandAnalyzer?.(commandContext) ?? null),
+    options.policy,
+  );
+  if (trace)
+    recordCommandAnalyzerTrace(commandContext, commandResult, gitDetail?.relaxation ?? null);
+  if (commandResult) {
+    return blockResultFromMatch(commandResult);
+  }
+
+  if (stream && child && (normalizedHead === 'rm' || normalizedHead === 'rmdir')) {
+    const dynamicRmPolicyApplies =
+      normalizedHead === 'rm' && (hasRecursiveForceFlags(stripped) || child.dynamicRmInput);
+    if (!dynamicRmPolicyApplies) return null;
+    return (
+      (child.dynamicRmInput ? childDynamicSourceResult(child, options.policy) : null) ??
+      childDynamicRmResult(child, options.policy)
+    );
+  }
+
+  const matchedKnown =
+    commandAnalyzer !== undefined && !HEADS_STILL_SCANNED_FOR_EMBEDDED.has(normalizedHead);
+
+  const scansForEmbedded = !child && !matchedKnown && !DISPLAY_COMMANDS.has(normalizedHead);
+  const tokensScanned: string[] | undefined = trace && scansForEmbedded ? [] : undefined;
+  if (scansForEmbedded) {
+    for (let i = 1; i < stripped.length; i++) {
+      const token = stripped[i];
+      if (!token) continue;
+      tokensScanned?.push(token);
+
+      const match = filterBuiltInCommandMatch(
+        analyzeEmbeddedSuffix(
+          stripped,
+          i,
+          depth,
+          analyzerOptions,
+          cwdForRm,
+          originalCwdForRm,
+          nestedEffectiveCwd,
+          envAssignments,
+        ),
+        options.policy,
+      );
+      if (match) {
+        trace?.recordSegment({
+          type: 'fallback-scan',
+          tokensScanned: tokensScanned ?? [],
+          embeddedCommandFound: normalizeCommandToken(token),
+        });
+        return blockResultFromMatch(match);
+      }
+    }
+  }
+  trace?.recordSegment({ type: 'fallback-scan', tokensScanned: tokensScanned ?? [] });
+
+  if (embedded && child && !child.wrappedByTransparent) return null;
+
+  const customResult = checkPolicyRuleMatch(stripped, options.policy.rules);
+  trace?.recordSegment({
+    type: 'custom-rules-check',
+    rulesChecked: options.policy.rules.length > 0,
+    matched: !!customResult,
+    reason: customResult?.reason,
+  });
+  if (customResult) {
+    return blockResultFromMatch(customResult);
+  }
+
+  return stream && child ? childDynamicSourceResult(child, options.policy) : null;
+}
+
+/** @internal */
+export function analyzeChildCommand(
+  tokens: readonly string[],
+  depth: number,
+  options: InternalOptions,
+  child: ChildProvenance,
+): DestructiveCommandRuleMatch | null {
+  return matchFromBlockResult(
+    analyzeSegment(textCommandWords(tokens), depth + 1, {
+      ...options,
+
+      trace: undefined,
+      commandView: undefined,
+      hasPipelineInput: undefined,
+      literalShellInput: undefined,
+      functionDefinitions: undefined,
+      cwd: child.originalCwd,
+      effectiveCwd: child.effectiveCwd,
+      envAssignments: child.envAssignments,
+      worktreeMode: child.dynamicInput ? false : child.worktreeMode,
+      wrapperNormalizationBudget: { iterations: 0 },
+      child,
+    }),
+  );
+}
+
+function analyzeEmbeddedSuffix(
+  tokens: readonly string[],
+  index: number,
+  depth: number,
+  options: InternalOptions,
+  cwd: string | undefined,
+  originalCwd: string | undefined,
+  effectiveCwd: string | null | undefined,
+  envAssignments: ReadonlyMap<string, string>,
+): DestructiveCommandRuleMatch | null {
+  for (const childCommand of normalizeChildCommands(tokens.slice(index), {
+    environment: options.environment,
+    cwd,
+    envAssignments,
+    policy: options.policy,
+  })) {
+    const token = childCommand.tokens[0];
+    if (!token) continue;
+    const head = normalizeCommandToken(token);
+    const dispatches =
+      isShellWrapperCommand(token, head) ||
+      (findCommandAnalyzer(head) !== undefined && head !== 'xargs' && head !== 'parallel');
+    if (dispatches || (childCommand.wrappedByTransparent && options.policy.rules.length > 0)) {
+      options.budget.charge('derivedTokens', tokens.length - index);
+    }
+    const result = analyzeChildCommand(childCommand.tokens, depth, options, {
+      embedded: true,
+      cwd: childCommand.cwd,
+      originalCwd: childCommand.wrapperCwd === null ? undefined : originalCwd,
+      effectiveCwd: childCommand.wrapperCwd === undefined ? effectiveCwd : childCommand.wrapperCwd,
+      envAssignments: childCommand.envAssignments,
+      allowTmpdirVar: !isTmpdirOverriddenToNonTemp(
+        childCommand.envAssignments,
+        options.environment,
+      ),
+
+      worktreeMode: false,
+      wrappedByTransparent: childCommand.wrappedByTransparent,
+    });
+    if (result) return result;
+  }
+  return null;
+}
+
+function analyzeStreamInterpreterChild(
+  normalizedHead: string,
+  codeArg: string | null | undefined,
+  effectiveCwd: string | null | undefined,
+  envAssignments: ReadonlyMap<string, string>,
+  options: InternalOptions,
+  child: ChildProvenance,
+): AnalyzeBlockResult | null {
+  if (!codeArg) return childDynamicSourceResult(child, options.policy);
+  if (
+    destructiveCommandRuleIsEnabled(
+      options.policy,
+      'interpreter.one-liner-paranoid',
+      !!options.paranoidInterpreters,
+    )
+  ) {
+    const paranoid = filterDestructiveCommandMatch(
+      destructiveCommandMatch('interpreter.one-liner-paranoid', REASON_INTERPRETER_BLOCKED),
+      options.policy,
+    );
+    if (paranoid) return blockResultFromMatch(paranoid);
+  }
+  if (isInterpreterDisplayOnly(normalizedHead, codeArg)) {
+    return childDynamicSourceResult(child, options.policy);
+  }
+  const nested = options.analyzeNested(codeArg, { effectiveCwd, envAssignments });
+  if (nested && !isInterpreterShellParseNoise(nested, codeArg)) return nested;
+  if (containsDangerousCode(codeArg, undefined, !options.strict)) {
+    const dangerous = filterDestructiveCommandMatch(
+      destructiveCommandMatch('interpreter.dangerous-command', REASON_INTERPRETER_DANGEROUS),
+      options.policy,
+    );
+    if (dangerous) return blockResultFromMatch(dangerous);
+  }
+  return childDynamicSourceResult(child, options.policy);
+}
+
+function isInterpreterShellParseNoise(nested: AnalyzeBlockResult, codeArg: string): boolean {
+  const textHitRescannedAsCode = nested.ruleId === 'raw-text.dangerous-command';
+  const parseFailureOnBalancedQuotes =
+    (nested.reason.startsWith(REASON_UNSUPPORTED_HEREDOC_SYNTAX) ||
+      nested.reason === REASON_STRICT_UNPARSEABLE) &&
+    !hasUnclosedQuotes(codeArg);
+  return textHitRescannedAsCode || parseFailureOnBalancedQuotes;
+}
+
+function childShellDynamicResult(
+  child: ChildProvenance,
+  policy: CommandAnalysisPolicy,
+): AnalyzeBlockResult | null {
+  const match = child.shellDynamicMatch
+    ? filterDestructiveCommandMatch(child.shellDynamicMatch, policy)
+    : null;
+  return match ? blockResultFromMatch(match) : null;
+}
+
+function childDynamicSourceResult(
+  child: ChildProvenance,
+  policy: CommandAnalysisPolicy,
+): AnalyzeBlockResult | null {
+  const match =
+    child.dynamicSourceInput && child.dynamicSourceMatch
+      ? filterDestructiveCommandMatch(child.dynamicSourceMatch, policy)
+      : null;
+  return match ? blockResultFromMatch(match) : null;
+}
+
+function childDynamicRmResult(
+  child: ChildProvenance,
+  policy: CommandAnalysisPolicy,
+): AnalyzeBlockResult | null {
+  const match =
+    child.dynamicInput && child.rmDynamicMatch
+      ? filterDestructiveCommandMatch(child.rmDynamicMatch, policy)
+      : null;
+  return match ? blockResultFromMatch(match) : null;
+}
+
+function analyzeShellStartupSources(
+  tokens: readonly string[],
+  envAssignments: ReadonlyMap<string, string>,
+  effectiveCwd: string | null | undefined,
+  options: InternalOptions,
+  trace: CommandTraceContext | undefined,
+  depth: number,
+): AnalyzeBlockResult | null {
+  const startup = extractShellStartupLoaderMetadata(tokens);
+  if (startup.argvSource?.kind === 'absent') return dynamicShellSourceResult(trace);
+  if (startup.argvSourceApplies && startup.argvSource) {
+    const result = analyzeTrackedHeredocScript(
+      startup.argvSource.value,
+      effectiveCwd,
+      envAssignments,
+      options,
+      trace,
+      depth,
+      true,
+    );
+    if (result) return result;
+  }
+
+  if (!startup.envSourceApplies || !startup.envName) return null;
+  const envSource = envAssignments.get(startup.envName);
+  if (!envSource) return null;
+  return analyzeTrackedHeredocScript(
+    envSource,
+    effectiveCwd,
+    envAssignments,
+    options,
+    trace,
+    depth,
+    true,
+  );
+}
+
+function literalOrAssignedPath(
+  word: CommandWord,
+  options: InternalOptions,
+  cwd: string | null | undefined,
+): string | null {
+  const home = options.environment.home;
+  const tildePath = expandHomeTildeWord(word, home);
+  if (tildePath !== null) return tildePath;
+  if (word.provenance === 'literal') return word.text;
+  return options.strict
+    ? null
+    : expandKnownVariableWord(
+        word,
+        withImplicitShellVariables(options.shellAssignments ?? new Map(), { home, cwd }),
+      );
+}
+
+const SHELL_SHEBANG_RE = /^#!\s*(?:\S*\/)?(?:env\s+(?:-\S+\s+)*)?(?:ba|z|da|k)?sh(?:\s|$)/;
+
+function analyzeTrackedHeredocScript(
+  source: string,
+  effectiveCwd: string | null | undefined,
+  envAssignments: ReadonlyMap<string, string>,
+  options: InternalOptions,
+  trace: CommandTraceContext | undefined,
+  depth: number,
+  failClosed = false,
+  runsByPath = false,
+): AnalyzeBlockResult | null {
+  if (failClosed && /[$`*?[\]]/.test(source)) return dynamicShellSourceResult(trace);
+  const path = resolveTrackedHeredocPath(
+    source,
+    effectiveCwd,
+    options.environment.paths,
+    options.budget,
+  );
+  const body = path ? options.literalHeredocFiles?.get(path) : undefined;
+  if (body === undefined && failClosed) return dynamicShellSourceResult(trace);
+  if (body === undefined) {
+    return path
+      ? analyzeScriptFile(source, path, effectiveCwd, envAssignments, options, trace, runsByPath)
+      : null;
+  }
+  if (runsByPath && body.startsWith('#!') && !SHELL_SHEBANG_RE.test(body)) return null;
+
+  options.budget.charge('derivedTokens', 1);
+  trace?.recordSegment({
+    type: 'recurse',
+    reason: 'heredoc-file',
+    innerCommand: body,
+    depth: depth + 1,
+  });
+  if (!runsByPath) return options.analyzeNested(body, { effectiveCwd, envAssignments });
+  const result = nestedResultWithinLimits(() =>
+    options.analyzeNested(body, { effectiveCwd, envAssignments }),
+  );
+  return result?.intent === 'stop_and_explain' ? null : result;
+}
+
+const UNCERTAIN_RULE_ID_RE =
+  /^(?:analysis|raw-text)\.|^(?!custom\.).*dynamic|^interpreter\.one-liner-paranoid$/;
+
+function analyzeScriptFile(
+  source: string,
+  path: string,
+  effectiveCwd: string | null | undefined,
+  envAssignments: ReadonlyMap<string, string>,
+  options: InternalOptions,
+  trace: CommandTraceContext | undefined,
+  runsByPath: boolean,
+): AnalyzeBlockResult | null {
+  const writtenPaths = [...(options.writtenPaths ?? [])];
+  if (writtenPaths.some((written) => path === written || path.startsWith(`${written}${sep}`))) {
+    return null;
+  }
+  const scriptReads = options.scriptReads ?? {};
+  const scriptBudget = (scriptReads.budget ??= createBudget());
+  const analyze = (withoutUncertainCapabilities?: boolean) =>
+    nestedResultWithinLimits(() => {
+      if (withoutUncertainCapabilities) resetAllButScriptFiles(scriptBudget);
+      scriptBudget.charge('scriptFiles');
+      const script = readShellScriptFile(path);
+      if (script === null) return null;
+      if (runsByPath && script.text.startsWith('#!') && !SHELL_SHEBANG_RE.test(script.text)) {
+        return null;
+      }
+      if (!withoutUncertainCapabilities) {
+        trace?.recordSegment({ type: 'script-file', path: source, bytes: script.bytes });
+      }
+      const result = options.analyzeNested(script.text, {
+        effectiveCwd,
+        envAssignments,
+        scriptBudget,
+        withoutUncertainCapabilities,
+        untraced: true,
+      });
+      if (!result || result.scriptLocation) return result;
+      const line =
+        result.sourceOffset === undefined
+          ? ''
+          : `:${script.text.slice(0, result.sourceOffset).split('\n').length}`;
+      return { ...result, scriptLocation: `${source}${line}` };
+    });
+  const concrete = (result: AnalyzeBlockResult | null) =>
+    result && !UNCERTAIN_RULE_ID_RE.test(result.ruleId) ? result : null;
+  const result = analyze();
+  const hasUncertainCapabilities = options.strict || options.paranoidInterpreters;
+  return concrete(result) ?? (hasUncertainCapabilities && result ? concrete(analyze(true)) : null);
+}
+
+function resetAllButScriptFiles(budget: Budget): void {
+  const scriptFiles = budget.counters.get('scriptFiles');
+  budget.counters.clear();
+  if (scriptFiles !== undefined) budget.counters.set('scriptFiles', scriptFiles);
+}
+
+function nestedResultWithinLimits(
+  analyze: () => AnalyzeBlockResult | null,
+): AnalyzeBlockResult | null {
+  try {
+    return analyze();
+  } catch (cause) {
+    if (cause instanceof AnalysisLimit) return null;
+    throw cause;
+  }
+}
+
+function unwrapTraceQuotes(command: string): string {
+  const first = command[0];
+  return command.length >= 2 && (first === '"' || first === "'") && command.at(-1) === first
+    ? command.slice(1, -1)
+    : command;
+}
+
+function recordCommandAnalyzerTrace(
+  context: AnalyzerRuleContext,
+  match: DestructiveCommandRuleMatch | null,
+  relaxation: ReturnType<typeof analyzeGitDetailed>['relaxation'],
+): void {
+  const rule = {
+    git: 'git:analyzeGitMatch',
+    rm: 'analyzer/rm.ts:analyzeRmMatch',
+    cmd: 'analyzer/cmd.ts:analyzeCmdMatch',
+    powershell: 'analyzer/powershell-wrapper.ts:analyzePowerShellWrapperMatch',
+    pwsh: 'analyzer/powershell-wrapper.ts:analyzePowerShellWrapperMatch',
+    find: 'analyzer/find.ts:analyzeFindMatch',
+    xargs: 'analyzer/xargs.ts:analyzeXargs',
+    parallel: 'analyzer/parallel.ts:analyzeParallel',
+  }[context.head];
+  if (!rule) return;
+  context.options.trace?.recordSegment({
+    type: 'rule-check',
+    rule,
+    matched: !!match || !!relaxation,
+    reason: match?.reason ?? relaxation?.originalReason,
+  });
+  if (relaxation) {
+    context.options.trace?.recordSegment({
+      type: relaxation.kind === 'worktree' ? 'worktree-relaxation' : 'temp-root-relaxation',
+      originalReason: relaxation.originalReason,
+      gitCwd: relaxation.gitCwd,
+    });
+  }
+}
+
+function reserveWrapperNormalization(budget: { iterations: number }): void {
+  if (budget.iterations >= LIMITS.wrapperPeelIterations.cap) {
+    throw new AnalysisLimit('wrapperPeelIterations');
+  }
+  budget.iterations++;
+}
+
+function blockResultFromMatch(match: DestructiveCommandRuleMatch): AnalyzeBlockResult {
+  return { reason: match.reason, ruleId: match.id, intent: match.intent };
+}
+
+function dynamicShellSourceResult(trace: CommandTraceContext | undefined): AnalyzeBlockResult {
+  trace?.recordSegment({ type: 'error', message: REASON_DYNAMIC_SHELL_SOURCE });
+  return blockResultFromMatch(dynamicShellSourceMatch());
+}
+
+function isShellWrapperCommand(head: string, normalizedHead: string): boolean {
+  return (
+    SHELL_WRAPPERS.has(normalizedHead) ||
+    head === '$SHELL' ||
+    head === '${SHELL}' ||
+    SHELL_WRAPPERS.has(getBasename(normalizedHead))
+  );
+}
+
+function filterBuiltInCommandMatch(
+  match: DestructiveCommandRuleMatch | null,
+  policy: CommandAnalysisPolicy,
+): DestructiveCommandRuleMatch | null {
+  return match?.id.startsWith('custom.') || match?.id === 'raw-text.dangerous-command'
+    ? match
+    : filterDestructiveCommandMatch(match, policy);
+}
+
+const CWD_CHANGE_REGEX =
+  /^\s*(?:\$\(\s*)?[({]*\s*(?:command\s+|builtin\s+)?(?:cd|pushd|popd)(?:\s|$)/;
+const HEADS_STILL_SCANNED_FOR_EMBEDDED = new Set(['powershell', 'pwsh']);
+const POWERSHELL_LOCATION_COMMANDS = new Set([
+  'cd',
+  'chdir',
+  'pop-location',
+  'popd',
+  'push-location',
+  'pushd',
+  'set-location',
+  'sl',
+]);
+type PowerShellLocationEffect =
+  | { kind: 'none' }
+  | { kind: 'unknown' }
+  | { kind: 'target'; target: string };
+
+function posixSegmentChangesCwd(
+  segment: readonly string[],
+  environment: EnvironmentContext,
+): boolean {
+  const unwrapped = getCwdChangeTokens(segment, environment);
+  if (unwrapped.length === 0) return false;
+  const head = unwrapped[getCdCommandIndex(unwrapped)];
+  if (head === 'cd' || head === 'pushd' || head === 'popd') return true;
+  return CWD_CHANGE_REGEX.test(segment.join(' '));
+}
+
+export function resolveCwdAfterCommandView(
+  commandView: Pick<CommandView, 'dialect' | 'words'>,
+  cwd: string | null | undefined,
+  environment: EnvironmentContext,
+  shellAssignments: ReadonlyMap<string, string>,
+  literalPipelineInput?: string,
+): string | null | undefined {
+  if (commandView.dialect === 'powershell') {
+    const effect = getPowerShellLocationEffect(commandView.words, literalPipelineInput);
+    if (effect.kind === 'none') return undefined;
+    if (!cwd || effect.kind === 'unknown') return null;
+    return resolveKnownCwdTarget(
+      normalizePowerShellLocationTarget(effect.target),
+      cwd,
+      environment.paths,
+    );
+  }
+
+  const segment = commandView.words.map(analysisWordText);
+  const assignsCdpath = segment.some((token) => /^CDPATH\+?=/.test(token));
+  if (!posixSegmentChangesCwd(segment, environment)) return assignsCdpath ? null : undefined;
+  if (!cwd) return null;
+
+  const unwrapped = getCwdChangeTokens(segment, environment, cwd);
+  const cdIndex = getCdCommandIndex(unwrapped);
+  if (cdIndex === -1 || unwrapped[cdIndex] !== 'cd') {
+    return null;
+  }
+
+  const operands = unwrapped.slice(cdIndex + 1);
+  const optionEnd = operands.findIndex(
+    (token) => token.length <= 1 || !token.startsWith('-') || token === '--',
+  );
+  const options = optionEnd === -1 ? operands : operands.slice(0, optionEnd);
+  if (options.some((token) => !/^-[LP]+$/.test(token))) return null;
+  const rest = optionEnd === -1 ? [] : operands.slice(optionEnd);
+  const targets = rest[0] === '--' ? rest.slice(1) : rest;
+  if (targets.length > 1) return null;
+  const rawTarget = targets[0];
+  const home = shellAssignments.get('HOME') || environment.home;
+  if (rawTarget === undefined) {
+    return resolveKnownCwdTarget(normalizeMsysDrivePath(home), cwd, environment.paths);
+  }
+  const targetWord = commandView.words.find(
+    (word) => word.provenance === 'variable' && word.text === rawTarget,
+  );
+  const tildeWord = commandView.words.find(
+    (word) => word.text === rawTarget && /^~(?:\/|$)/.test(word.raw),
+  );
+  const target = targetWord
+    ? expandKnownVariableWord(targetWord, new Map([...shellAssignments, ['HOME', home]]))
+    : tildeWord
+      ? `${home}${rawTarget.slice(1)}`
+      : rawTarget;
+  if (target === null) return null;
+  if (
+    !/^(?:[./]|[A-Za-z]:[\\/])/.test(target) &&
+    (assignsCdpath || environment.env.has('CDPATH'))
+  ) {
+    return null;
+  }
+  return resolveKnownCwdTarget(normalizeMsysDrivePath(target), cwd, environment.paths);
+}
+
+function resolveKnownCwdTarget(
+  target: string | undefined,
+  cwd: string,
+  paths: PathResolver,
+): string | null {
+  if (
+    !target ||
+    target === '-' ||
+    target.startsWith('~') ||
+    target.includes('$') ||
+    target.includes('`')
+  ) {
+    return null;
+  }
+
+  try {
+    const resolved = resolveChdirTarget(cwd, target, paths);
+    return paths.isDirectory(resolved) ? resolved : null;
+  } catch {
+    return null;
+  }
+}
+
+function getPowerShellLocationEffect(
+  words: readonly CommandWord[],
+  literalPipelineInput: string | undefined,
+): PowerShellLocationEffect {
+  const commandIndex = isBarePowerShellCallOperator(words[0]) ? 1 : 0;
+  const commandWord = words[commandIndex];
+  if (!isStaticPowerShellCommandWord(commandWord, commandIndex === 1)) return { kind: 'none' };
+
+  const command = commandWord.text.toLowerCase();
+  const bareCommand = command.split(/[\\/]/).pop() ?? command;
+  if (!POWERSHELL_LOCATION_COMMANDS.has(bareCommand)) return { kind: 'none' };
+  if (command !== bareCommand || bareCommand === 'pop-location' || bareCommand === 'popd') {
+    return { kind: 'unknown' };
+  }
+  return getPowerShellLocationArgumentEffect(words.slice(commandIndex + 1), literalPipelineInput);
+}
+
+function isBarePowerShellCallOperator(word: CommandWord | undefined): boolean {
+  return (
+    word?.provenance === 'literal' &&
+    !word.quoted &&
+    word.raw === word.text &&
+    (word.text === '&' || word.text === '.')
+  );
+}
+
+function isStaticPowerShellCommandWord(
+  word: CommandWord | undefined,
+  invoked: boolean,
+): word is CommandWord {
+  return word?.provenance === 'literal' && (invoked || (!word.quoted && word.raw === word.text));
+}
+
+function getPowerShellLocationArgumentEffect(
+  args: readonly CommandWord[],
+  literalPipelineInput: string | undefined,
+): PowerShellLocationEffect {
+  let target: string | undefined;
+  for (const word of args) {
+    if (word.provenance !== 'literal' || target !== undefined) return { kind: 'unknown' };
+    target = word.text;
+  }
+  if (target !== undefined) return { kind: 'target', target };
+  return literalPipelineInput === undefined
+    ? { kind: 'unknown' }
+    : { kind: 'target', target: literalPipelineInput };
+}
+
+function normalizePowerShellLocationTarget(target: string): string | undefined {
+  return target.includes('::') ? undefined : target.replaceAll('\\', '/');
+}
+
+function getCdCommandIndex(tokens: readonly string[]): number {
+  let headIndex = 0;
+  if (tokens[0] === 'builtin' && tokens.length > 1) {
+    headIndex = 1;
+  }
+  if (tokens[headIndex] !== 'time') {
+    return headIndex;
+  }
+
+  let i = headIndex + 1;
+  while (tokens[i]?.startsWith('-')) {
+    i++;
+  }
+  return i;
+}
+
+function getCwdChangeTokens(
+  segment: readonly string[],
+  environment: EnvironmentContext,
+  cwd?: string | null,
+): string[] {
+  const stripped = stripLeadingGrouping(segment);
+  return stripWrappers([...stripped], environment, cwd);
+}
+
+function stripLeadingGrouping(tokens: readonly string[]): readonly string[] {
+  let i = 0;
+  while (i < tokens.length) {
+    const token = tokens[i];
+    if (token !== '{' && token !== '(' && token !== '$(') break;
+    i++;
+  }
+  return tokens.slice(i);
+}

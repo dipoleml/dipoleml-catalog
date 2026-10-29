@@ -1,0 +1,4 @@
+{
+  "includeGitInstructions": false,
+  "autoMemoryDirectory": "~/.claude-octopus/memory/"
+}

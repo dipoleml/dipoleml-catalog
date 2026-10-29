@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "kind": "citadel_optimizer_matrix_intent",
+  "authorization_digest": "sha256:b17292a5a08b6ea705f82d5c265e047aa65bb9f774d2fc5ea085648e0fdab1eb",
+  "ordinal": 19,
+  "run_key": "p-limit-short-clear-queue/prompt-only/1",
+  "scenario_id": "p-limit-short-clear-queue",
+  "policy_id": "prompt-only",
+  "repetition": 1,
+  "state": "completed",
+  "started_at": "2026-07-30T21:52:25.032Z",
+  "completed_at": "2026-07-30T21:54:00.089Z",
+  "output_file": "records/019-p-limit-short-clear-queue-prompt-only-1.json",
+  "error": null
+}

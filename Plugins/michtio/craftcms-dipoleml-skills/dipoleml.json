@@ -1,0 +1,122 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.michtio.craftcms-dipoleml-skills",
+  "type": "plugin",
+  "name": "Craftcms DipoleML Skills",
+  "slug": "craftcms-dipoleml-skills",
+  "vendor": "michtio",
+  "description": "Production-ready DipoleML skills, agents, and project templates for Craft CMS 5 development",
+  "version": "1.21.0",
+  "homepage": "https://github.com/michtio/craftcms-claude-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agent-skills",
+    "claude-code-plugin",
+    "claude-code-skills",
+    "claude-skills",
+    "content-modeling",
+    "craft-cms",
+    "craft-cms-5",
+    "craftcms",
+    "ddev"
+  ],
+  "tags": [
+    "agent-skills",
+    "claude-code",
+    "claude-code-plugin",
+    "claude-code-skills",
+    "claude-skills",
+    "content-modeling",
+    "craft-cms",
+    "craft-cms-5",
+    "craftcms",
+    "ddev",
+    "php",
+    "twig"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "michtio",
+    "brandName": "michtio",
+    "source": "https://github.com/michtio.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:14:01Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "michtio/craftcms-claude-skills",
+    "url": "https://github.com/michtio/craftcms-claude-skills",
+    "commit": "6f732976fcb61a361285988b240a3958abab87b3",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 86,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:04:59Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Craftcms Claude Skills | Production-ready Claude Code skills, agents, and project templates for Craft CMS 5 development",
+        "after": "Craftcms DipoleML Skills | Production-ready DipoleML skills, agents, and project templates for Craft CMS 5 development",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "craftcms-claude-skills",
+        "after": "craftcms-dipoleml-skills",
+        "reason": "provider token neutralized in slug/id"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

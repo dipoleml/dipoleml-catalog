@@ -1,0 +1,16 @@
+{
+  "name": "refero-skill",
+  "displayName": "Refero Skill",
+  "version": "1.0.3",
+  "description": "Research real product interfaces and design with evidence from Refero.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Referodesign"
+  },
+  "license": "MIT",
+  "homepage": "https://refero.design/mcp",
+  "repository": "https://github.com/referodesign/refero_skill",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

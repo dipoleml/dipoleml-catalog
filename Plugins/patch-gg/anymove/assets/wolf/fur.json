@@ -1,0 +1,86 @@
+{
+ "ear_L": {
+  "parent": "head",
+  "freq": 5.0,
+  "damping": 0.45,
+  "max_deg": 25,
+  "gravity": 0.0
+ },
+ "ear_R": {
+  "parent": "head",
+  "freq": 5.0,
+  "damping": 0.45,
+  "max_deg": 25,
+  "gravity": 0.0
+ },
+ "ruff_upper_L": {
+  "parent": "neck1",
+  "freq": 2.4,
+  "damping": 0.25,
+  "max_deg": 30,
+  "gravity": 0.45
+ },
+ "ruff_mid_L": {
+  "parent": "neck1",
+  "freq": 2.1,
+  "damping": 0.22,
+  "max_deg": 30,
+  "gravity": 0.45
+ },
+ "ruff_lower_L": {
+  "parent": "chest",
+  "freq": 1.9,
+  "damping": 0.22,
+  "max_deg": 30,
+  "gravity": 0.45
+ },
+ "ruff_upper_R": {
+  "parent": "neck1",
+  "freq": 2.4,
+  "damping": 0.25,
+  "max_deg": 30,
+  "gravity": 0.45
+ },
+ "ruff_mid_R": {
+  "parent": "neck1",
+  "freq": 2.1,
+  "damping": 0.22,
+  "max_deg": 30,
+  "gravity": 0.45
+ },
+ "ruff_lower_R": {
+  "parent": "chest",
+  "freq": 1.9,
+  "damping": 0.22,
+  "max_deg": 30,
+  "gravity": 0.45
+ },
+ "crest": {
+  "parent": "neck2",
+  "freq": 2.6,
+  "damping": 0.25,
+  "max_deg": 25,
+  "gravity": 0.3
+ },
+ "chest_tuft": {
+  "parent": "chest",
+  "freq": 2.6,
+  "damping": 0.25,
+  "max_deg": 30,
+  "gravity": 0.5
+ },
+ "belly_L": {
+  "parent": "spine2",
+  "freq": 2.8,
+  "damping": 0.25,
+  "max_deg": 25,
+  "gravity": 0.5
+ },
+ "belly_R": {
+  "parent": "spine2",
+  "freq": 2.8,
+  "damping": 0.25,
+  "max_deg": 25,
+  "gravity": 0.5
+ }
+}

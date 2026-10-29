@@ -1,0 +1,202 @@
+{
+  "schema": 1,
+  "cell_id": "000-parser-port-boundary--citadel-frozen-risk-route",
+  "order": 0,
+  "scenario_id": "parser-port-boundary",
+  "task_class": "input-validation",
+  "risk": "moderate",
+  "policy_id": "citadel-frozen-risk-route",
+  "repetition": 1,
+  "route": {
+    "initial_tier": "cheap",
+    "escalation_tier": "strong",
+    "reason_code": "FROZEN_BOUNDED_CHEAP_THEN_VERIFY"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "cheap",
+      "started_at": "2026-08-02T00:32:14.809Z",
+      "duration_ms": 50238,
+      "output_text": "{\n  \"files\": {\n    \"src/port.js\": \"'use strict';\\nfunction parsePort(value) {\\n  const parsed = parseInt(value, 10);\\n  if (Number.isInteger(parsed) && parsed >= 1 && parsed <= 65535) {\\n    return parsed;\\n  }\\n  return 3000;\\n}\\nmodule.exports = { parsePort };\"\n  }\n}",
+      "output_digest": "sha256:14f38953d103d07e1a5eff6fc7873b205e94ea3e045af4d03a771175e852993f",
+      "verification": {
+        "status": "failed",
+        "code": "REPOSITORY_VERIFIER_FAILED",
+        "changed_paths": [
+          "src/port.js"
+        ],
+        "applied_file_digests": {
+          "src/port.js": "sha256:a6b397f4ce5c91d8a7717f3483a1e2738cc06bf6aaab9b07cbf07003bdf5831a"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 1,
+          "signal": null,
+          "stdout": "",
+          "stderr": "node:assert:95\r\n  throw new AssertionError(obj);\r\n  ^\r\n\r\nAssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\r\n\r\n8080 !== 3000\r\n\r\n    at Object.<anonymous> (<ISOLATED_WORKSPACE>\\verifier.js:7:88)\r\n    at Module._compile (node:internal/modules/cjs/loader:1730:14)\r\n    at Object..js (node:internal/modules/cjs/loader:1895:10)\r\n    at Module.load (node:internal/modules/cjs/loader:1465:32)\r\n    at Function._load (node:internal/modules/cjs/loader:1282:12)\r\n    at TracingChannel.traceSync (node:diagnostics_channel:322:14)\r\n    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)\r\n    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:171:5)\r\n    at node:internal/main/run_main_module:36:49 {\r\n  generatedMessage: true,\r\n  code: 'ERR_ASSERTION',\r\n  actual: 8080,\r\n  expected: 3000,\r\n  operator: 'strictEqual'\r\n}\r\n\r\nNode.js v22.17.1\r\n",
+          "error": null
+        },
+        "patch_digest": "sha256:464c468ffcb574713e40f59b1493fabf79f4b46f4d677bf5165e85f4b717d343"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "ollama-chat",
+        "requested_model": "qwen2.5-coder:3b",
+        "observed_model": "qwen2.5-coder:3b",
+        "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+        "done_reason": "stop",
+        "response_digest": "sha256:2904fdc7f2e09858e39fbb516852e1202a7abcfb217bcd8a19f1ea895a38bebb",
+        "error": null
+      },
+      "usage": {
+        "prompt_tokens": 226,
+        "completion_tokens": 93,
+        "total_tokens": 319,
+        "provider_total_duration_ns": 50227941700
+      },
+      "economics": {
+        "provider_invoice": {
+          "status": "known",
+          "amount_usd": 0,
+          "source": "self_hosted_ollama_no_per_request_invoice"
+        },
+        "gpu_energy": {
+          "status": "measured",
+          "energy_kwh": 0.000510576,
+          "samples": 98,
+          "average_watts": 36.587347
+        },
+        "comparison_cost": {
+          "status": "derived-comparison",
+          "total_usd": 0.000241665,
+          "components": [
+            {
+              "kind": "gpu_electricity",
+              "status": "derived-comparison",
+              "amount_usd": 0.000102115,
+              "source": "average_gpu_power_times_request_wall_duration_times_frozen_rate"
+            },
+            {
+              "kind": "gpu_amortization",
+              "status": "derived-comparison",
+              "amount_usd": 0.00013955,
+              "source": "request_wall_duration_times_frozen_residual_value"
+            }
+          ]
+        },
+        "actual_end_to_end_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "whole_system_energy_setup_and_observed_utility_rate_not_measured"
+        }
+      }
+    },
+    {
+      "attempt": 2,
+      "tier": "strong",
+      "started_at": "2026-08-02T00:33:05.361Z",
+      "duration_ms": 66480,
+      "output_text": "{\n  \"files\": {\n    \"src/port.js\": \"'use strict';\\nfunction parsePort(value) {\\n  const parsed = parseInt(value, 10);\\n  if (Number.isFinite(parsed) && parsed >= 1 && parsed <= 65535) {\\n    return parsed;\\n  } else {\\n    return 3000;\\n  }\\n}\\nmodule.exports = { parsePort };\"\n  }\n}",
+      "output_digest": "sha256:55ad336b44680ac3e0006352a77097a719727366da6db9c9c43581ed9aafc86b",
+      "verification": {
+        "status": "failed",
+        "code": "REPOSITORY_VERIFIER_FAILED",
+        "changed_paths": [
+          "src/port.js"
+        ],
+        "applied_file_digests": {
+          "src/port.js": "sha256:b058781d6f15cabc00453ba45950991c528a3d0c25a81a371d7faf3a410f62c4"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 1,
+          "signal": null,
+          "stdout": "",
+          "stderr": "node:assert:95\r\n  throw new AssertionError(obj);\r\n  ^\r\n\r\nAssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\r\n\r\n8080 !== 3000\r\n\r\n    at Object.<anonymous> (<ISOLATED_WORKSPACE>\\verifier.js:7:88)\r\n    at Module._compile (node:internal/modules/cjs/loader:1730:14)\r\n    at Object..js (node:internal/modules/cjs/loader:1895:10)\r\n    at Module.load (node:internal/modules/cjs/loader:1465:32)\r\n    at Function._load (node:internal/modules/cjs/loader:1282:12)\r\n    at TracingChannel.traceSync (node:diagnostics_channel:322:14)\r\n    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)\r\n    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:171:5)\r\n    at node:internal/main/run_main_module:36:49 {\r\n  generatedMessage: true,\r\n  code: 'ERR_ASSERTION',\r\n  actual: 8080,\r\n  expected: 3000,\r\n  operator: 'strictEqual'\r\n}\r\n\r\nNode.js v22.17.1\r\n",
+          "error": null
+        },
+        "patch_digest": "sha256:5612cbe5638f0bb1e3cf805ee60aade267acf4f626e234d8d355ba2a02e788dc"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "ollama-chat",
+        "requested_model": "qwen2.5-coder:7b",
+        "observed_model": "qwen2.5-coder:7b",
+        "model_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+        "done_reason": "stop",
+        "response_digest": "sha256:0f08bdad831236336e808fb8a7f9999d6b5b04a3c39e257e302e76b6eeb45d1e",
+        "error": null
+      },
+      "usage": {
+        "prompt_tokens": 226,
+        "completion_tokens": 98,
+        "total_tokens": 324,
+        "provider_total_duration_ns": 66475359400
+      },
+      "economics": {
+        "provider_invoice": {
+          "status": "known",
+          "amount_usd": 0,
+          "source": "self_hosted_ollama_no_per_request_invoice"
+        },
+        "gpu_energy": {
+          "status": "measured",
+          "energy_kwh": 0.000970399,
+          "samples": 130,
+          "average_watts": 52.548692
+        },
+        "comparison_cost": {
+          "status": "derived-comparison",
+          "total_usd": 0.000378746,
+          "components": [
+            {
+              "kind": "gpu_electricity",
+              "status": "derived-comparison",
+              "amount_usd": 0.00019408,
+              "source": "average_gpu_power_times_request_wall_duration_times_frozen_rate"
+            },
+            {
+              "kind": "gpu_amortization",
+              "status": "derived-comparison",
+              "amount_usd": 0.000184667,
+              "source": "request_wall_duration_times_frozen_residual_value"
+            }
+          ]
+        },
+        "actual_end_to_end_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "whole_system_energy_setup_and_observed_utility_rate_not_measured"
+        }
+      }
+    }
+  ],
+  "status": "failed",
+  "final_verification": {
+    "status": "failed",
+    "code": "REPOSITORY_VERIFIER_FAILED",
+    "changed_paths": [
+      "src/port.js"
+    ],
+    "applied_file_digests": {
+      "src/port.js": "sha256:b058781d6f15cabc00453ba45950991c528a3d0c25a81a371d7faf3a410f62c4"
+    },
+    "verifier": {
+      "command": "node verifier.js",
+      "status": 1,
+      "signal": null,
+      "stdout": "",
+      "stderr": "node:assert:95\r\n  throw new AssertionError(obj);\r\n  ^\r\n\r\nAssertionError [ERR_ASSERTION]: Expected values to be strictly equal:\r\n\r\n8080 !== 3000\r\n\r\n    at Object.<anonymous> (<ISOLATED_WORKSPACE>\\verifier.js:7:88)\r\n    at Module._compile (node:internal/modules/cjs/loader:1730:14)\r\n    at Object..js (node:internal/modules/cjs/loader:1895:10)\r\n    at Module.load (node:internal/modules/cjs/loader:1465:32)\r\n    at Function._load (node:internal/modules/cjs/loader:1282:12)\r\n    at TracingChannel.traceSync (node:diagnostics_channel:322:14)\r\n    at wrapModuleLoad (node:internal/modules/cjs/loader:235:24)\r\n    at Function.executeUserEntryPoint [as runMain] (node:internal/modules/run_main:171:5)\r\n    at node:internal/main/run_main_module:36:49 {\r\n  generatedMessage: true,\r\n  code: 'ERR_ASSERTION',\r\n  actual: 8080,\r\n  expected: 3000,\r\n  operator: 'strictEqual'\r\n}\r\n\r\nNode.js v22.17.1\r\n",
+      "error": null
+    },
+    "patch_digest": "sha256:5612cbe5638f0bb1e3cf805ee60aade267acf4f626e234d8d355ba2a02e788dc"
+  },
+  "previous_cell_digest": null,
+  "receipt_digest": "sha256:cf4a56eeb71f3d4a1f42dda85797832206585936ab23fae400a78b5d6c8d98e0",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:99a73d1dc7e95ff7684196b0cc2dd12aa0a9d544e22819f40a198ca740b2494c",
+    "signature": "gKPfGnpl9nAfZ1q55Kf65SHKu9N9Ro7CycesaL1t9+eqvW+zicERG+eLti8+DXCIPMa5fnhYqlXIaJPcu+BvDA=="
+  }
+}

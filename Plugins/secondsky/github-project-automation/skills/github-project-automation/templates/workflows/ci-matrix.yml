@@ -1,0 +1,68 @@
+# Advanced Matrix CI - Multi-OS, Multi-Version Testing
+# Prevents Error #7 (matrix strategy errors)
+#
+# Tests on: ubuntu, macos, windows
+# Node.js versions: 18, 20, 22
+# Use for: Cross-platform libraries, CLI tools
+
+name: Matrix CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+# Least privilege: CI only needs to read the repository.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test-matrix:
+    name: Test on ${{ matrix.os }} with Node ${{ matrix.node-version }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+
+    strategy:
+      fail-fast: false  # Continue testing all combinations
+      matrix:
+        os: [ubuntu-24.04, macos-14, windows-latest]
+        node-version: [18, 20, 22]
+        # Optionally exclude specific combinations
+        # exclude:
+        #   - os: macos-14
+        #     node-version: 18
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444  # v5.0.0
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run linter
+        run: npm run lint
+
+      - name: Run tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+
+      - name: Upload coverage (Ubuntu only)
+        if: matrix.os == 'ubuntu-24.04'
+        uses: codecov/codecov-action@0fb7174895f61a3b6b78fc075e0cd60383518dac  # v5.5.5
+        with:
+          flags: node-${{ matrix.node-version }}

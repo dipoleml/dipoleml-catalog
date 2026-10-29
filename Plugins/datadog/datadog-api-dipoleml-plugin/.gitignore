@@ -1,0 +1,26 @@
+# Plugin uses pup CLI - minimal build artifacts needed
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Claude Code local settings
+**/.claude/settings.local.json
+
+# Logs
+logs/
+*.log
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Temporary files
+*.tmp
+.cache/
+tmp/

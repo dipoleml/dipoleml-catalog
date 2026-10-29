@@ -1,0 +1,24 @@
+{
+  "name": "developer-kit-ai",
+  "displayName": "Developer Kit Ai",
+  "version": "4.0.1",
+  "description": "AI/ML capabilities including prompt engineering, RAG, and chunking strategies",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Giuseppe Trisciuoglio"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/giuseppe-trisciuoglio/developer-kit",
+  "repository": "https://github.com/giuseppe-trisciuoglio/developer-kit",
+  "skills": [
+    "./skills/prompt-engineering",
+    "./skills/chunking-strategy",
+    "./skills/rag"
+  ],
+  "commands": [
+    "./commands/devkit.prompt-optimize.md"
+  ],
+  "agents": [
+    "./agents/prompt-engineering-expert.md"
+  ]
+}

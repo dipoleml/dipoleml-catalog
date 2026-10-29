@@ -1,0 +1,102 @@
+# claude-smart
+
+Self-improving [Claude Code](https://claude.com/claude-code), Codex, and OpenCode plugin — turns corrections and successful workflows into durable Preferences, Project-specific skills, and Shared skills that future sessions follow, via [reflexio](https://github.com/ReflexioAI/reflexio).
+
+This directory is the Claude Code/Codex/OpenCode plugin payload shipped through the marketplace and the `claude-smart` npm package. For the project overview, install instructions, benchmarks, and feature walkthrough, see the [top-level README](https://github.com/ReflexioAI/claude-smart#readme).
+
+## Install
+
+### Claude Code
+
+```bash
+npx claude-smart install
+```
+
+The guide can install multiple coding-agent integrations together. Choose Local
+or Managed Reflexio; local mode also asks for the learning agent and its model
+(provider default or a supported model ID). Managed storage and learning run on
+the configured cloud service, whose model is reported when available.
+
+The local dashboard defaults to that saved mode. Its Data source dropdown changes
+the viewed backend without changing the learning configuration. Overview totals
+come from the selected backend; session buffers stay separately under This device.
+
+The Setup hook bootstraps `uv`, Python 3.12, and a private Node.js/npm runtime
+under `~/.claude-smart/` when they are missing. If Node.js is already installed,
+the npm installer also supplies the generated Reflexio runtime bundle that is
+not committed to the GitHub repository. Installing this repository directly as
+a Claude Code marketplace is therefore unsupported.
+
+Add `--read-only` to either install command to skip hooks that publish
+interactions for learning.
+
+Supported vanilla native targets are Apple Silicon macOS 14+ and Windows x64.
+Intel Mac, macOS 13 or older, and Windows ARM fail early because the local
+embedding/ML dependency stack does not provide a complete native wheel set.
+
+Run `/reload-plugins` in your existing Claude Code session, or use the update in your next session.
+
+### Codex
+
+Codex hooks use the installer's prepared Python environment. Stop saves the
+completed turn locally and queues publication for a single shared worker, so
+network retries do not hold up the session. Queued work is not a remote success:
+watermarks advance only after acknowledgement or verified storage. Later Stops
+and session startup recover pending work. Manual `learn` still runs synchronously.
+See [troubleshooting](https://github.com/ReflexioAI/claude-smart/blob/main/TROUBLESHOOTING.md) for timing logs and recovery.
+
+```bash
+npx claude-smart install --host codex
+```
+
+Start a new Codex session to load the update; you can finish your existing session first. If hook trust needs review, use `/hooks`. Codex installs reuse the same
+configured Reflexio backend and memories as Claude Code.
+
+### OpenCode
+
+```bash
+npx claude-smart install --host opencode
+```
+
+Then restart OpenCode in your project so it loads the plugin from `opencode.json`
+or your existing `.opencode/opencode.json*` config. The installer copies the
+active npm package to `~/.claude-smart/opencode/claude-smart` and registers that
+stable local package with `file://`. OpenCode installs reuse the same configured
+Reflexio backend and memories as Claude Code and Codex.
+
+## Uninstall
+
+### Claude Code
+
+```bash
+claude plugin uninstall claude-smart@reflexioai
+```
+
+Or, if Node.js is already installed:
+
+```bash
+npx claude-smart uninstall
+```
+
+### Codex
+
+```bash
+npx claude-smart uninstall --host codex
+```
+
+Start a new Codex session after uninstalling. Local data under `~/.reflexio/` and
+`~/.claude-smart/` is left in place for both hosts — remove manually if desired.
+
+### OpenCode
+
+```bash
+npx claude-smart uninstall --host opencode
+```
+
+Restart OpenCode after uninstalling. The copied OpenCode package is removed, but
+local learning data under `~/.reflexio/` and `~/.claude-smart/` is preserved and
+shared across supported hosts.
+
+## License
+
+Apache 2.0 — see [LICENSE](LICENSE).

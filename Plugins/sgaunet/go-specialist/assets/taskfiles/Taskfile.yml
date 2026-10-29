@@ -1,0 +1,67 @@
+# https://taskfile.dev
+version: '3'
+includes:
+  dev: ./Taskfile_dev.yml
+
+vars:
+  BINFILE: [PROJECT_BINARY]
+
+tasks:
+  default:
+    desc: "List tasks"
+    preconditions:
+      - sh: test -f .git/hooks/pre-commit
+        msg: "Pre-commit hook is not set up. Please run 'task dev:install-pre-commit' first."
+    cmds:
+      - task -a
+
+  check-before-commit:
+    desc: "Run checks before committing"
+    preconditions:
+      - sh: test -f .git/hooks/pre-commit
+        msg: "Pre-commit hook is not set up. Please run 'task dev:install-pre-commit' first."
+    deps:
+      - test
+      - snapshot
+    cmds:
+      - task: lint
+
+  lint:
+    desc: "Run golangci-lint"
+    cmds:
+      - golangci-lint run
+
+  test:
+    desc: "Run unit tests with race detection"
+    cmds:
+      - go test -count=2 -race ./...
+
+  build:
+    desc: "Build binary"
+    cmds:
+      - CGO_ENABLED=0 go build -o [PROJECT_BINARY] ./[MAIN_DIR]
+
+  image:
+    desc: "Build and push Docker image"
+    deps:
+      - build
+    cmds:
+      - docker build --no-cache --build-arg VERSION=development . -t [REGISTRY_URL]/[OWNER]/[PROJECT_NAME]:latest
+      - docker push [REGISTRY_URL]/[OWNER]/[PROJECT_NAME]:latest
+
+  doc:
+    desc: "Start godoc documentation server"
+    cmds:
+      - echo http://localhost:6060
+      - godoc -http=:6060
+
+  snapshot:
+    desc: "Create snapshot release with goreleaser"
+    cmds:
+      - GITLAB_TOKEN="" goreleaser --clean --snapshot
+
+  release:
+    desc: "Create production release with goreleaser"
+    cmds:
+      - GITLAB_TOKEN="" goreleaser --clean
+    

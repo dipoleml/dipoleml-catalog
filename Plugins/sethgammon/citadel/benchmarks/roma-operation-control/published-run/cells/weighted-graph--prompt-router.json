@@ -1,0 +1,102 @@
+{
+  "schema": 1,
+  "run_id": "sha256:daa2e179a7ed7347c532732e791862d36230a679b3eaad2f2732f627643562a4",
+  "freeze_id": "sha256:f1ecf932261ceac604978952c42cdb8ec14032b795bffd1848fae90e9572ded5",
+  "scenario_id": "weighted-graph",
+  "policy_id": "prompt-router",
+  "route": {
+    "target": "open-local",
+    "features": {
+      "word_count": 47,
+      "constraint_count": 1,
+      "reasoning_count": 2,
+      "structure_count": 0,
+      "difficulty_score": 0.15125
+    },
+    "reason_code": "PROMPT_SCORE_LOCAL"
+  },
+  "attempts": [
+    {
+      "receipt": {
+        "schema": 1,
+        "receipt_id": "sha256:ae73e48dcc37869970bb834b1f10caf3f8c52d6dca57f2ed97082583329c25eb",
+        "scenario_id": "weighted-graph",
+        "policy_id": "prompt-router",
+        "attempt": 1,
+        "plan_id": null,
+        "observation_digest": null,
+        "output_digest": "sha256:8d1d623cba4dbb5f309176796e14e7d993740d11c4fec8785f7a1b11574610f6",
+        "started_at": "2026-07-31T19:37:59.046Z",
+        "duration_ms": 12360,
+        "completion": {
+          "status": "failed",
+          "verifier_id": "json-answer-v1",
+          "answer_digest": "sha256:ef2d127de37b942baad06145e54b0c619a1f22327b2ebbcfbec78f5564afe39d",
+          "failure_code": "ANSWER_DIGEST_MISMATCH"
+        },
+        "control": {
+          "status": "verified",
+          "mismatch_codes": [],
+          "module_exercise": []
+        },
+        "execution_evidence": {
+          "status": "verified",
+          "runtime": "ollama-chat",
+          "requested_model": "qwen2.5-coder:3b",
+          "observed_model": "qwen2.5-coder:3b",
+          "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+          "done_reason": "stop",
+          "error": null
+        },
+        "cost": {
+          "status": "unknown",
+          "total_usd": null,
+          "reason": "electricity_rate_cpu_energy_and_hardware_amortization_unmeasured",
+          "components": [
+            {
+              "kind": "provider_invoice",
+              "status": "known",
+              "amount_usd": 0,
+              "source": "self_hosted_ollama_no_per_request_invoice"
+            },
+            {
+              "kind": "gpu_energy",
+              "status": "measured_nonmonetary",
+              "amount_usd": null,
+              "energy_kwh": 0.000332068,
+              "samples": 24,
+              "source": "nvidia_smi_power_draw_integration"
+            },
+            {
+              "kind": "cpu_and_system_energy",
+              "status": "unknown",
+              "amount_usd": null,
+              "source": "not_measured"
+            },
+            {
+              "kind": "hardware_amortization",
+              "status": "unknown",
+              "amount_usd": null,
+              "source": "not_allocated"
+            }
+          ],
+          "duration_ms": 12360,
+          "usage": {
+            "prompt_tokens": 119,
+            "completion_tokens": 533,
+            "total_tokens": 652,
+            "provider_total_duration_ns": 12357607600
+          },
+          "setup_costs_included": false
+        },
+        "adversarial_result": null
+      },
+      "plan": null,
+      "observation": null,
+      "output_text": "To find the minimum total weight from A to E in this undirected graph, we can use Dijkstra's algorithm. Here are the steps:\n\n1. **Initialize**:\n   - Set the distance to the starting node A as 0 and all other nodes as infinity.\n   - Create a priority queue (min-heap) with all nodes, prioritized by their current shortest known distance from A.\n\n2. **Extract the minimum distance node** from the priority queue. This is node A with a distance of 0.\n\n3. **Relax the edges** connected to this node:\n   - Node B: Distance from A (0) + weight of edge AB (4) = 4.\n   - Node C: Distance from A (0) + weight of edge AC (2) = 2.\n\n4. **Update the priority queue** with these new distances:\n   - Node B: New distance is 4.\n   - Node C: New distance is 2.\n\n5. **Extract the minimum distance node** again, which is now node C with a distance of 2.\n\n6. **Relax the edges** connected to this node:\n   - Node B: Distance from C (2) + weight of edge CB (1) = 3.\n   - Node D: Distance from C (2) + weight of edge CD (8) = 10.\n   - Node E: Distance from C (2) + weight of edge CE (10) = 12.\n\n7. **Update the priority queue** with these new distances:\n   - Node B: New distance is 3.\n   - Node D: New distance is 10.\n   - Node E: New distance is 12.\n\n8. **Extract the minimum distance node** again, which is now node B with a distance of 3.\n\n9. **Relax the edges** connected to this node:\n   - Node D: Distance from B (3) + weight of edge BD (5) = 8.\n   - Node E: Distance from B (3) + weight of edge BE (2) = 5.\n\n10. **Update the priority queue** with these new distances:\n    - Node D: New distance is 8.\n    - Node E: New distance is 5.\n\n11. **Extract the minimum distance node** again, which is now node E with a distance of 5.\n\nSince we have reached node E and its shortest path from A has been found, the minimum total weight from A to E is 5.\n\n{\"answer\": 5}",
+      "raw_execution": {
+        "response_digest": "sha256:438a333017e9fbdb7d598ce786aa354dc1bd050a95c7b6ccc98d3fddf78235a9"
+      }
+    }
+  ]
+}

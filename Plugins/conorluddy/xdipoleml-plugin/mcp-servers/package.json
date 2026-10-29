@@ -1,0 +1,41 @@
+{
+  "name": "@xclaude/mcp-servers",
+  "version": "0.4.0",
+  "description": "Root package for all xc-plugin MCP servers",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "npm run build:all",
+    "build:all": "npm run build:xc-build && npm run build:xc-launch && npm run build:xc-interact && npm run build:xc-ai-assist && npm run build:xc-setup && npm run build:xc-testing && npm run build:xc-meta && npm run build:xc-all",
+    "build:xc-build": "npm run build --workspace=xc-build",
+    "build:xc-launch": "npm run build --workspace=xc-launch",
+    "build:xc-interact": "npm run build --workspace=xc-interact",
+    "build:xc-ai-assist": "npm run build --workspace=xc-ai-assist",
+    "build:xc-setup": "npm run build --workspace=xc-setup",
+    "build:xc-testing": "npm run build --workspace=xc-testing",
+    "build:xc-meta": "npm run build --workspace=xc-meta",
+    "build:xc-all": "npm run build --workspace=xc-all",
+    "watch": "npm run watch --workspaces --if-present",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage",
+    "lint": "npm run lint --workspaces --if-present",
+    "clean": "rm -rf */dist",
+    "install-all": "npm install --workspaces"
+  },
+  "workspaces": [
+    "xc-build",
+    "xc-launch",
+    "xc-interact",
+    "xc-ai-assist",
+    "xc-setup",
+    "xc-testing",
+    "xc-meta",
+    "xc-all"
+  ],
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "esbuild": "^0.25.12",
+    "typescript": "^5.3.0"
+  }
+}

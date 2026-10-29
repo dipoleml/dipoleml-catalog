@@ -1,0 +1,382 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Parallax landscape — built with motiscope</title>
+<meta name="description" content="Six depth layers and a train, recreated from a 2.25s screen recording. Traced ridgelines, layer speeds measured at two independent scales, and one number honestly reported as not recoverable.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%A1%3C/text%3E%3C/svg%3E">
+<meta property="og:site_name" content="motiscope">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Parallax landscape — built with motiscope">
+<meta property="og:description" content="Six depth layers and a train. The ridgelines are traced from the recording, the layer speeds are measured at two scales, and the sky is honestly reported as not recoverable.">
+<meta property="og:url" content="https://kumarsashank.github.io/motiscope/examples/parallax/">
+<meta property="og:image" content="https://kumarsashank.github.io/motiscope/og/parallax.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="A layered dawn landscape: hills, a viaduct with a train crossing it, and dark foreground trees.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Parallax landscape — built with motiscope">
+<meta name="twitter:description" content="Traced terrain, measured layer speeds, and a train bound to your scroll at the recording's own 3.58:1 ratio.">
+<meta name="twitter:image" content="https://kumarsashank.github.io/motiscope/og/parallax.png">
+<meta name="twitter:image:alt" content="A layered dawn landscape: hills, a viaduct with a train crossing it, and dark foreground trees.">
+<link rel="canonical" href="https://kumarsashank.github.io/motiscope/examples/parallax/">
+<style>
+  :root{--ground:#0a0c12;--panel:#10131c;--line:rgba(129,140,248,.14);--hair:rgba(129,140,248,.09);
+    --ink:#e7e9f2;--ink-dim:#9aa0b4;--ink-faint:#5c6380;--ind:#818cf8;--fuc:#e879f9;--cya:#22d3ee;--good:#34d399;--warn:#fbbf24;--btn:#6366f1;
+    --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;--sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;--maxw:900px}
+  @media (prefers-color-scheme: light){:root{--ground:#f6f7fb;--panel:#fff;--line:rgba(99,102,241,.16);--hair:rgba(99,102,241,.10);--ink:#14161f;--ink-dim:#4b5163;--ink-faint:#8b90a3;--ind:#6366f1;--fuc:#c026d3;--cya:#0891b2;--good:#059669;--warn:#b45309}}
+  :root[data-theme="light"]{--ground:#f6f7fb;--panel:#fff;--line:rgba(99,102,241,.16);--hair:rgba(99,102,241,.10);--ink:#14161f;--ink-dim:#4b5163;--ink-faint:#8b90a3;--ind:#6366f1;--fuc:#c026d3;--cya:#0891b2;--good:#059669;--warn:#b45309}
+  :root[data-theme="dark"]{--ground:#0a0c12;--panel:#10131c;--line:rgba(129,140,248,.14);--hair:rgba(129,140,248,.09);--ink:#e7e9f2;--ink-dim:#9aa0b4;--ink-faint:#5c6380;--ind:#818cf8;--fuc:#e879f9;--cya:#22d3ee;--good:#34d399;--warn:#fbbf24}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--sans);line-height:1.65;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px}
+  a{color:var(--ind);text-decoration:none} a:hover{text-decoration:underline}
+  code{font-family:var(--mono);font-size:.86em;background:color-mix(in oklab,var(--ind) 10%,transparent);padding:1px 5px;border-radius:4px}
+  pre{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px;overflow-x:auto;
+      font-family:var(--mono);font-size:12.5px;color:var(--ink-dim);line-height:1.75}
+  pre code{background:none;padding:0}
+  .topbar{position:sticky;top:0;z-index:9;background:color-mix(in oklab,var(--ground) 88%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--hair)}
+  .topbar .wrap{display:flex;align-items:center;justify-content:space-between;height:54px;gap:16px}
+  .brandmark{font-family:var(--mono);font-weight:600;letter-spacing:.5px;font-size:15px;display:flex;align-items:center;gap:9px}
+  .dot{width:9px;height:9px;border-radius:50%;background:conic-gradient(from 0deg,var(--ind),var(--fuc),var(--cya),var(--ind));box-shadow:0 0 10px color-mix(in oklab,var(--fuc) 60%,transparent);animation:spin 6s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  nav{display:flex;align-items:center;gap:18px} nav a{color:var(--ink-dim);font-size:14px} nav a:hover{color:var(--ink);text-decoration:none}
+  .toggle{font-family:var(--mono);font-size:12px;color:var(--ink-dim);background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:6px 11px;cursor:pointer}
+  header{padding:50px 0 8px}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:2.5px;text-transform:uppercase;color:var(--fuc);margin:0 0 14px}
+  h1{font-size:clamp(28px,5vw,44px);margin:0 0 12px;letter-spacing:-.5px;line-height:1.1}
+  .lead{color:var(--ink-dim);font-size:18px;max-width:64ch;margin:0}
+  .promise{margin:26px 0 0;background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--cya);border-radius:10px;padding:16px 18px;font-size:14.5px;color:var(--ink-dim)}
+  .promise b{color:var(--ink)}
+  section{padding:46px 0;border-top:1px solid var(--hair)}
+  h2{font-size:23px;margin:0 0 6px;letter-spacing:-.2px} h3{font-size:16px;margin:30px 0 8px}
+  .sub{color:var(--ink-faint);font-family:var(--mono);font-size:12.5px;margin:0 0 20px}
+  p{color:var(--ink-dim);font-size:15.5px;max-width:68ch} p b,li b{color:var(--ink)}
+  .stage{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;line-height:0}
+  .stage img{width:100%;height:auto;display:block}
+  .frame{width:100%;height:620px;border:0;display:block;background:#08192A}
+  figure{margin:20px 0 0}
+  figcaption{line-height:1.6;color:var(--ink-faint);font-size:13px;margin-top:11px;max-width:68ch}
+  table{border-collapse:collapse;width:100%;font-size:14px;margin-top:14px;display:block;overflow-x:auto}
+  th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--hair);vertical-align:top}
+  th{color:var(--ink);font-weight:600} td{color:var(--ink-dim)}
+  .ok{color:var(--good);font-weight:600} .no{color:var(--warn);font-weight:600}
+  ul{color:var(--ink-dim);font-size:15.5px;padding-left:20px;max-width:68ch} li{margin:9px 0}
+  .callout{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--fuc);border-radius:10px;
+           padding:16px 18px;color:var(--ink-dim);font-size:14.5px;margin-top:20px;max-width:68ch}
+  .callout b{color:var(--ink)}
+  .pull{font-size:19px;color:var(--ink);border-left:3px solid var(--cya);padding:4px 0 4px 18px;margin:24px 0;max-width:62ch;line-height:1.5}
+  .tags{display:flex;gap:6px;flex-wrap:wrap;margin:14px 0 0}
+  .t{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:5px;border:1px solid var(--line);color:var(--ink-faint)}
+  .t.t1{color:var(--good);border-color:color-mix(in oklab,var(--good) 40%,var(--line))}
+  .t.t2{color:var(--cya);border-color:color-mix(in oklab,var(--cya) 40%,var(--line))}
+  .t.t3{color:var(--fuc);border-color:color-mix(in oklab,var(--fuc) 40%,var(--line))}
+  .cta{display:inline-flex;gap:8px;align-items:center;font-weight:600;font-size:14px;padding:11px 18px;border-radius:9px;border:1px solid transparent;background:var(--btn);color:#fff}
+  .cta.ghost{background:var(--panel);color:var(--ink);border-color:var(--line)}
+  .ctas{display:flex;gap:12px;flex-wrap:wrap;margin-top:22px}
+  .sw{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:7px;vertical-align:-1px;outline:1px solid rgba(255,255,255,.14)}
+  footer{padding:40px 0 64px;border-top:1px solid var(--hair);color:var(--ink-faint);font-family:var(--mono);font-size:12.5px}
+  @media (prefers-reduced-motion:reduce){.dot{animation:none!important}}
+</style>
+</head>
+<body>
+<div class="topbar"><div class="wrap">
+  <a class="brandmark" href="../../index.html" style="color:var(--ink)"><span class="dot"></span>motiscope</a>
+  <nav>
+    <a href="../../index.html">Home</a>
+    <a href="../../gallery.html">Gallery</a>
+    <a href="../../how-it-works.html">How it works</a>
+    <button class="toggle" id="tg">&#9680; theme</button>
+  </nav>
+</div></div>
+
+<div class="wrap">
+  <header>
+    <p class="eyebrow">example · scroll-driven parallax</p>
+    <h1>Six layers, one scroll, and a train</h1>
+    <p class="lead">A parallax landscape rebuilt from a <b>2.25-second</b> screen recording.
+      The ridgelines are traced out of the frames. The layer speeds are measured. One of them
+      is honestly reported as <b>not recoverable</b>.</p>
+    <div class="tags">
+      <span class="t t1">parallax</span><span class="t t1">scroll-driven</span>
+      <span class="t t2">traced terrain</span><span class="t t2">moving train</span>
+      <span class="t t3">SVG layers</span><span class="t">no dependencies</span>
+    </div>
+    <div class="promise">
+      <b>Everything below is shown, not claimed.</b> The unedited analysis is in
+      <a href="report.md">report.md</a>, the traced terrain in <a href="ridges.json">ridges.json</a>,
+      the build script in <a href="generate.py">generate.py</a>, and the page below this line is
+      the real <a href="recreation.html">recreation.html</a> running in an iframe — scroll it.
+    </div>
+  </header>
+
+  <section>
+    <h2>The recreation, live</h2>
+    <p class="sub">scroll inside the frame &middot; the train is bound to that scroll</p>
+    <figure>
+      <div class="stage">
+        <iframe class="frame" src="recreation.html" title="The recreated parallax landscape — scroll to move the layers and the train" loading="lazy"></iframe>
+      </div>
+      <figcaption>One self-contained file. Traced SVG ridgelines, ~20 lines of JavaScript, no
+        dependencies, <code>prefers-reduced-motion</code> honoured.
+        <a href="recreation.html">Open it full screen &#8599;</a></figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>One clip, two clocks</h2>
+    <p class="sub">the most interesting thing about this recording</p>
+    <p>A parallax is <b>scroll-driven</b>. The timing motiscope reports for this clip — a 0.77s
+      hold, then 1.45s of motion — describes <em>the person who did the scrolling</em>, not the
+      design. Replay those seconds and you recreate the recording, not the website.</p>
+    <p>The train, in the source, is <b>time-driven</b>: it runs on a clock, at a speed that
+      survives however fast you happened to scroll. So one clip carries two different kinds of
+      number.</p>
+    <table>
+      <tr><th>Quantity</th><th>Kind</th><th>Recoverable?</th></tr>
+      <tr><td>Layer speed <b>ratios</b></td><td>scroll-intrinsic</td><td class="ok">yes — four of six layers</td></tr>
+      <tr><td>Train speed</td><td>time-intrinsic</td><td class="ok">yes — 1501 px/s</td></tr>
+      <tr><td>Scroll duration, the hold</td><td>the recorder&rsquo;s</td><td class="no">meaningless for the design</td></tr>
+      <tr><td>Train repeat period</td><td>time-intrinsic</td><td class="no">no — one pass tells you nothing</td></tr>
+    </table>
+    <div class="callout">
+      <b>Here the train is bound to the scroll instead</b> — a deliberate departure from the source.
+      Scroll down, it runs left&nbsp;&rarr;&nbsp;right; scroll up, it reverses. The constant isn&rsquo;t
+      invented: during the recording the train covered <b>1501&nbsp;px/s</b> while the page scrolled at
+      <b>419&nbsp;px/s</b>, so it travels <b>3.58 units per pixel of scroll</b>. The ratio is measured;
+      the binding is the design decision. It also dissolves the unanswerable question — a scroll-bound
+      train has no period, only position.
+    </div>
+  </section>
+
+  <section>
+    <h2>The train tracks your scroll</h2>
+    <p class="sub">a scroll-through of the recreation &middot; the train crosses and exits behind a tree, as in the source</p>
+    <figure>
+      <div class="stage">
+        <video src="scroll.mp4" poster="scroll-poster.jpg" autoplay muted loop playsinline
+               style="width:100%;height:auto;display:block"
+               aria-label="Scrolling the recreated page: the layers separate by depth and the train crosses the viaduct left to right."></video>
+      </div>
+      <figcaption>Every frame rendered at a fixed scroll offset — this is the page itself, scrolled.
+        No animation, no keyframes: the train&rsquo;s position is a pure function of <code>--s</code>,
+        <code>translateX(calc(-60px + var(--s) * 3.58))</code>. Scroll back up and it reverses.
+        <a href="scroll.mp4">the video &#8599;</a></figcaption>
+    </figure>
+    <figure>
+      <div class="stage">
+        <img src="train-scroll.png" alt="Four bands of the recreated bridge at increasing scroll positions; the train moves further right in each one and disappears behind a foreground tree in the last.">
+      </div>
+      <figcaption>The same thing frame by frame, at <code>scrollY</code> = 0, 110, 220, 330.</figcaption>
+    </figure>
+  </section>
+
+  <section>
+    <h2>Layer speeds</h2>
+    <p class="sub">three of four estimators were confidently wrong</p>
+    <p>Each layer is a flat colour, so each layer is a binary mask. The vertical shift that
+      minimises mask disagreement between two frames is that layer&rsquo;s displacement.</p>
+    <p>The trap: layers <b>enter the viewport</b> during a scroll, so any statistic that depends on
+      a layer&rsquo;s visible extent — topmost row, centroid, a fixed viewport band — moves for reasons
+      that have nothing to do with translation.</p>
+    <table>
+      <tr><th>Method</th><th>What it actually measured</th></tr>
+      <tr><td>fixed viewport bands</td><td>the page scroll, not the layer</td></tr>
+      <tr><td>topmost ridge row</td><td>whichever hill peak was tallest; clamped at the screen edge</td></tr>
+      <tr><td>textured-patch tracking</td><td>the purple <b>headline text</b>, mistaken for a purple hill</td></tr>
+      <tr><td><b>mask alignment over a common window</b></td><td class="ok">the layer</td></tr>
+    </table>
+    <p style="margin-top:20px">They were caught only because they <b>disagreed by up to 6&times;</b>.
+      Restricting to the window where <em>every</em> layer is on screen (frames 97&ndash;134) and
+      accumulating identical step counts, run at two resolutions:</p>
+    <table>
+      <tr><th>Layer</th><th>quarter scale</th><th>half scale</th><th>verdict</th></tr>
+      <tr><td>mid hills</td><td>0.72&times;</td><td>0.72&times;</td><td class="ok">measured</td></tr>
+      <tr><td>deep hills</td><td>0.85&times;</td><td>0.87&times;</td><td class="ok">measured</td></tr>
+      <tr><td>near hills</td><td>0.97&times;</td><td>1.00&times;</td><td class="ok">measured</td></tr>
+      <tr><td>foreground</td><td>1.00&times;</td><td>1.00&times;</td><td>reference</td></tr>
+      <tr><td>sky / far hills</td><td>&minus;0.03&times; / 0.10&times;</td><td>0.63&times; / 0.33&times;</td><td class="no">not recoverable</td></tr>
+    </table>
+    <p class="pull">A smooth gradient has no stable colour mask. Estimates ran &minus;0.03 to 0.63,
+      so we don&rsquo;t quote one. Averaging them into <code>0.30</code> would have invented a fact.</p>
+    <p>In the recreation the <b>sky and the far hills share one factor</b> (<code>0.30</code>) —
+      a design choice inside the uncertainty. They are the same pale mask, and the measurement
+      could never separate them.</p>
+    <div class="callout">
+      <b>A bug this caused, and what it actually was.</b> The first version pinned the sky at
+      <code>0.00</code> while the far hills climbed at <code>0.30</code>, so the hills ate the sky band
+      and left a hard edge. We unified them at <code>0.30</code>, clamped travel to <code>240px</code>,
+      and called the leftover artifact a <b>depth inversion</b>. It was not. A near hill sweeping up over
+      a far one is precisely what parallax <em>is</em> — scrolling down moves the camera down, and near
+      things climb the frame faster. Nothing ever changed depth. What actually broke was that the sky was
+      a <code>&lt;rect&gt;</code> inside a layer that sinks at <code>0.70&nbsp;&times;&nbsp;scroll</code>,
+      and a rect <b>has a top edge</b>. Its only protection was accidental overhang: 474&nbsp;px on one
+      viewport, <b>14&nbsp;px</b> on another — cut after 20&nbsp;px of scroll. The clamp hid that edge by
+      freezing the parallax after a third of one screen. The sky is now the hero&rsquo;s own
+      <code>background</code>: no edge, nothing to uncover, travel bounded only by the hero. Every factor
+      resolves exactly at every offset — we asked <code>DOMMatrix</code>, not a screenshot.
+    </div>
+
+    <div class="callout">
+      <b>The ridges are the source&rsquo;s; the composition is ours.</b> The traced land fills 93% of the
+      canvas — and so does the source&rsquo;s. Its upper hills only <em>read</em> as sky because they are
+      pale-yellow on pale-yellow. A bottom-anchored, width-scaled artwork shows exactly
+      <code>heroH&nbsp;&times;&nbsp;1400/heroW</code> canvas rows, so a 745-row terrain leaves nowhere for a
+      sky to be, at any viewport; padding the canvas cannot invent one. So the land is compressed toward
+      the horizon by an affine map, <code>LAND_K&nbsp;=&nbsp;0.78</code>, which leaves the ridge
+      <em>shapes</em> and the layer <em>factors</em> untouched. Sky went from 7% of the canvas to 28%.
+      This is a design decision, not a measurement.
+    </div>
+
+    <h3>The viaduct</h3>
+    <p>The deck is the sharpest rigid feature in the whole clip, so it was tracked directly against
+      both foreground tree apexes:</p>
+    <pre><code>bridge deck      4.69 px/frame  (resid 3.5)
+left tree apex   5.88 px/frame  (resid 4.4)
+right tree apex  5.82 px/frame  (resid 4.4)
+  -&gt; bridge parallax factor = 0.80x ± 0.04</code></pre>
+    <p>Consistent within noise with the deep hills it sits in (0.86&times;), so it rides that layer —
+      and the train, sitting on the deck, inherits that parallax for free.</p>
+  </section>
+
+  <section>
+    <h2>The train, and the 100&times; error we nearly shipped</h2>
+    <p class="sub">track the tail, never the nose</p>
+    <p>The train was <b>missed entirely at first</b>. It never appeared in a single curated
+      keyframe: it is small, dark-on-dark, and rides a bridge that is off-screen for most of the
+      clip, so it barely moves the motion-energy signal that chooses frames. It was found by
+      diffing the band above the deck, aligned per-frame on the deck row — a localised bump
+      marching from x=950 to x=1200 across frames 112&ndash;126.</p>
+    <div class="callout">
+      <b>Then the measurement nearly lied.</b> Tracking the train&rsquo;s <em>nose</em> gives
+      <b>16&nbsp;px/s</b>. Tracking its <em>tail</em> gives <b>1500&nbsp;px/s</b>. The nose sits behind a
+      foreground tree for the entire clip, so it reads a constant <code>x=1223</code> and fits a
+      beautiful, almost-flat line. Nothing about that number says &ldquo;I am pinned.&rdquo;
+      An occluded feature reports a confident, wrong constant.
+    </div>
+    <table>
+      <tr><th>Property</th><th>Value</th></tr>
+      <tr><td>Direction</td><td>left &rarr; right, nose leading</td></tr>
+      <tr><td>Speed in the source</td><td><b>1501 px/s</b> (tail, frames 96&ndash;124)</td></tr>
+      <tr><td>Scroll speed in the source</td><td><b>419 px/s</b> (both tree apexes)</td></tr>
+      <tr><td>Bound here as</td><td><b>3.58 units of train per pixel of scroll</b></td></tr>
+      <tr><td>Length / height</td><td>~708 px &times; ~58 px, riding the deck at <code>y=498</code></td></tr>
+      <tr><td>Easing</td><td class="no">none claimed</td></tr>
+    </table>
+    <p>Per-4-frame velocity estimates scatter from 1080 to 1800 px/s with no clean trend — that is
+      measurement noise from the car gaps breaking the colour run, not an ease. Constant speed is
+      within noise, so <code>linear</code> it is.</p>
+  </section>
+
+  <section>
+    <h2>Terrain: traced, not approximated</h2>
+    <p class="sub">and why a median filter cannot do it</p>
+    <p>The four hill ridgelines are traced out of the final frame, one <code>y</code> per column,
+      into <a href="ridges.json">ridges.json</a>.</p>
+    <p class="pull">Occluders — trees, bushes — always sit <em>in front</em>, which in a landscape
+      means <em>above</em>. So the contamination is one-sided: it only ever pulls a ridge upward.</p>
+    <p>A median filter does <b>not</b> fix this. A tree crown spans 200 columns, and the median
+      follows it — the first tracer read the ground at <code>y=496</code>, which was a tree. The
+      terrain is the <b>upper quantile</b> of the raw trace over a wide window. Ask which way the
+      contamination pushes, then pick a statistic robust in <em>that</em> direction.</p>
+    <p>The ground line is the one exception: it is almost entirely hidden behind foreground trees in
+      the source, so it is derived from the purple ridge rather than traced.</p>
+  </section>
+
+  <section>
+    <h2>The frames motiscope actually used</h2>
+    <p class="sub">all 29 curated keyframes, in order, unedited &middot; the train is in none of them</p>
+    <figure>
+      <div class="stage">
+        <img src="frames.png" alt="Contact sheet of the 29 curated keyframes motiscope extracted from the recording, in timeline order.">
+      </div>
+      <figcaption>Chosen by the motion signal, not sampled evenly. Every timestamp and reason is
+        listed in <a href="report.md">report.md</a>.</figcaption>
+    </figure>
+    <div class="callout">
+      <b>The frames are evidence, not an inventory.</b> They are chosen by motion energy, so anything
+      small, low-contrast or mostly occluded can be a headline feature of the animation and still
+      appear in none of them. Before trusting a spec, ask <em>&ldquo;is anything else moving?&rdquo;</em>
+      and go look at the clip. This lesson is now written into the
+      <a href="https://github.com/KumarSashank/motiscope/blob/main/references/measurement-traps.md">measurement traps</a>
+      that the analyze skill reads.
+    </div>
+  </section>
+
+  <section>
+    <h2>Verified, not asserted</h2>
+    <p class="sub">ask the browser what it resolved — don&rsquo;t re-measure your own pixels</p>
+    <p>A pixel-diff of the finished page reported a mismatch. It was measuring occlusion and the page
+      background, not motion. So instead: scroll to 300px and read each layer&rsquo;s on-screen
+      position. A layer&rsquo;s on-screen speed relative to the page <b>is</b> its parallax factor.</p>
+    <pre><code>scrollY=200 (inside --pmax)     train: animation-name = none (it is pure geometry)
+set_f=0.30  implied_f=0.300     train translateX = 656.0  (expect -60 + 3.58*200 = 656.0)
+set_f=0.30  implied_f=0.300
+set_f=0.72  implied_f=0.720     scrolling 300 -&gt; 100: dx = -716.0  (the train reverses)
+set_f=0.86  implied_f=0.860
+set_f=0.97  implied_f=0.970
+set_f=1.00  implied_f=1.000</code></pre>
+  </section>
+
+  <section>
+    <h2>Only the palette changed</h2>
+    <p class="sub">a warm sunset became a cool dawn</p>
+    <table>
+      <tr><th>Source</th><th>Here</th><th></th></tr>
+      <tr><td><span class="sw" style="background:#FBE9AE"></span><code>#FBE9AE</code> pale gold</td><td><span class="sw" style="background:#EAF7F1"></span><code>#EAF7F1</code> mint</td><td>sky top</td></tr>
+      <tr><td><span class="sw" style="background:#FAE086"></span><code>#FAE086</code> sand</td><td><span class="sw" style="background:#CFEBE0"></span><code>#CFEBE0</code> pale aqua</td><td>far hills</td></tr>
+      <tr><td><span class="sw" style="background:#FC7541"></span><code>#FC7541</code> orange</td><td><span class="sw" style="background:#7FCCC2"></span><code>#7FCCC2</code> teal</td><td>mid hills</td></tr>
+      <tr><td><span class="sw" style="background:#C9234C"></span><code>#C9234C</code> crimson</td><td><span class="sw" style="background:#38869A"></span><code>#38869A</code> deep cyan</td><td>deep hills</td></tr>
+      <tr><td><span class="sw" style="background:#5B0081"></span><code>#5B0081</code> purple</td><td><span class="sw" style="background:#1E5570"></span><code>#1E5570</code> navy</td><td>near hills</td></tr>
+      <tr><td><span class="sw" style="background:#170433"></span><code>#170433</code> near-black plum</td><td><span class="sw" style="background:#08192A"></span><code>#08192A</code> near-black navy</td><td>foreground</td></tr>
+    </table>
+    <p>The terrain, the viaduct, the train, the tree shapes and the depth order are the source&rsquo;s.</p>
+  </section>
+
+  <section>
+    <h2>What we chose, and what we got wrong</h2>
+    <p class="sub">honest examples teach more than perfect ones</p>
+    <ul>
+      <li><b>The sky and far hills share a chosen factor</b>, not a measured one — they were never separable.</li>
+      <li><b>The vertical composition is ours.</b> The traced land fills 93% of the canvas, so it is
+        compressed toward the horizon (<code>&times;0.78</code>) to make room for sky. Ridge shapes and
+        layer factors are untouched.</li>
+      <li><b>We first called the sky bug a depth inversion.</b> It was a rectangle with a top edge inside a
+        sinking layer, and the clamp we added to hide it froze the parallax after 240&nbsp;px. The sky is now
+        the hero&rsquo;s background and travel runs the full hero.</li>
+      <li><b>Binding the train to scroll is a departure from the source</b>, where it runs on a clock.
+        The 3.58 ratio is measured; the binding is a decision.</li>
+      <li><b>The ground line is derived</b> from the purple ridge, not traced — it is hidden behind trees.</li>
+      <li><b>Trees, bushes, tulips and the train&rsquo;s car divisions are our own drawings</b>, positioned
+        to match the source. Only the terrain is traced.</li>
+      <li><b>The train was missed on the first pass entirely.</b> It took a user pointing at it.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Reproduce it</h2>
+    <p class="sub">the whole chain, from clip to page</p>
+    <pre><code>motiscope analyze parallax.mov --preset detailed        # -&gt; report.md + curated frames
+python3 generate.py &gt; recreation.html                   # the build script, verbatim</code></pre>
+    <div class="ctas">
+      <a class="cta" href="recreation.html">Open the live recreation &#8599;</a>
+      <a class="cta ghost" href="report.md">Raw analysis &#8599;</a>
+      <a class="cta ghost" href="ridges.json">Traced terrain &#8599;</a>
+      <a class="cta ghost" href="generate.py">Build script &#8599;</a>
+      <a class="cta ghost" href="https://www.svgator.com/blog/website-animation-examples-and-effects/">Original on SVGator &#8599;</a>
+    </div>
+  </section>
+
+  <footer>motiscope · MIT · <a href="https://github.com/KumarSashank/motiscope">github.com/KumarSashank/motiscope</a> ·
+    <a href="../../gallery.html">&larr; gallery</a><br>
+    Original animation from <a href="https://www.svgator.com/blog/website-animation-examples-and-effects/">SVGator&rsquo;s website-animation examples</a> — all credit to the original creator.</footer>
+</div>
+<script>
+  (function(){var r=document.documentElement,b=document.getElementById('tg');
+   function c(){return r.dataset.theme||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light')}
+   b.addEventListener('click',function(){r.dataset.theme=c()==='dark'?'light':'dark'})})();
+</script>
+</body>
+</html>

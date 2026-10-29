@@ -1,0 +1,124 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.karanb192.format-code",
+  "type": "plugin",
+  "name": "Format Code",
+  "slug": "format-code",
+  "vendor": "karanb192",
+  "description": "🪝 DipoleML hooks + an installable plugin marketplace: safety, cost, observability, productivity.",
+  "version": "1.0.0",
+  "homepage": "https://github.com/karanb192/claude-code-hooks",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "anthropic",
+    "automation",
+    "claude-code-hooks",
+    "claude-code-plugin",
+    "cli",
+    "developer-tools",
+    "hooks",
+    "marketplace",
+    "notifications"
+  ],
+  "tags": [
+    "ai-tools",
+    "anthropic",
+    "automation",
+    "claude",
+    "claude-code",
+    "claude-code-hooks",
+    "claude-code-plugin",
+    "cli",
+    "developer-tools",
+    "hooks",
+    "marketplace",
+    "notifications",
+    "plugin",
+    "security"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "karanb192",
+    "brandName": "karanb192",
+    "source": "https://github.com/karanb192.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:13:39Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "karanb192/claude-code-hooks",
+    "url": "https://github.com/karanb192/claude-code-hooks",
+    "commit": "57a28c7687305e4a9b9dd50490e9b3c552c71ca4",
+    "path": "plugins/format-code",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 567,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:48:38Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Format Code | 🪝 Claude Code hooks + an installable plugin marketplace: safety, cost, observability, productivity.",
+        "after": "Format Code | 🪝 DipoleML hooks + an installable plugin marketplace: safety, cost, observability, productivity.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Auto-formats files the moment Claude writes them. A PostToolUse hook on Write|Edit runs ruff (check --fix + format, via uv) on Python and prettier (via npx) on JS/TS/JSON/MD/YAML/HTML, resolving relative paths against the session cwd and passing file paths as argv so shell metacharacters in filenames can never inject commands. Unsupported types and missing files are skipped silently, formatter failures never block the session, and every outcome logs to ~/.claude/hooks-logs/.",
+        "after": "Auto-formats files the moment DipoleML writes them. A PostToolUse hook on Write|Edit runs ruff (check --fix + format, via uv) on Python and prettier (via npx) on JS/TS/JSON/MD/YAML/HTML, resolving relative paths against the session cwd and passing file paths as argv so shell metacharacters in filenames can never inject commands. Unsupported types and missing files are skipped silently, formatter failures never block the session, and every outcome logs to ~/.DipoleML/hooks-logs/.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

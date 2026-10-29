@@ -1,0 +1,16 @@
+{
+  "name": "security-tools",
+  "displayName": "Security Tools",
+  "version": "1.0.0",
+  "description": "Security verification skills — OWASP ASVS v5.0 checklist mapped to Drupal 11 APIs for security code reviews",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Siva01c"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/siva01c/claude-plugins",
+  "repository": "https://github.com/siva01c/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,16 @@
+{
+  "name": "decision-tree",
+  "displayName": "Decision Tree",
+  "version": "0.2.3",
+  "description": "When DipoleML ends a reply with a question, explains the choice in a side pane and lets you explore any option, or your own, in a real forked session",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Ray Amjad"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/ray-amjad/claude-code-mods",
+  "repository": "https://github.com/ray-amjad/claude-code-mods",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

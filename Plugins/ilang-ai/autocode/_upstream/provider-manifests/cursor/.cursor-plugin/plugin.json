@@ -1,0 +1,11 @@
+{
+  "name": "autocode",
+  "description": "You say it, AutoCode ships it. 11 skills. See a product you like → sourced blueprint → MVP → deployed URL. I-Lang v5.0 powered.",
+  "version": "6.2.2",
+  "author": {
+    "name": "I-Lang Research, iLang Inc."
+  },
+  "homepage": "https://github.com/ilang-ai/autocode",
+  "repository": "https://github.com/ilang-ai/autocode",
+  "license": "MIT"
+}

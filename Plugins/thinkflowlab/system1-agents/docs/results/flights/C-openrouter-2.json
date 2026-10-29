@@ -1,0 +1,771 @@
+{
+ "elapsed_ms": 50929,
+ "timing": "First decision request through the final DONE/BLOCKED turn; navigation, page load and the first probe are excluded, as in jev-ultrafast.",
+ "run_ms": 59142,
+ "decision_requests": 4,
+ "decision_median_ms": 730,
+ "decision_total_ms": 3045,
+ "browser_actions": 0,
+ "wait_actions": 0,
+ "text_calls": [
+  {
+   "field": "Where from?",
+   "latency_ms": 850
+  },
+  {
+   "field": "Where to?",
+   "latency_ms": 1221
+  },
+  {
+   "field": "Departure",
+   "latency_ms": 1085
+  },
+  {
+   "field": "Return",
+   "latency_ms": 1052
+  }
+ ],
+ "phases": {
+  "jev": 3045,
+  "probe": 30011,
+  "probe_wire": 29960,
+  "activate": 2777,
+  "value_wait": 0,
+  "model_overhead": 3,
+  "tool": 15071,
+  "tool_wire": 15044,
+  "framework": 22
+ },
+ "tools": {
+  "mcp_playwright-official_browser_click": {
+   "count": 3,
+   "ms": 15070
+  }
+ },
+ "wire": {
+  "browser_click": {
+   "count": 3,
+   "ms": 15044
+  },
+  "browser_run_code_unsafe": {
+   "count": 22,
+   "ms": 32726
+  }
+ },
+ "background_value_ms": 4208,
+ "steps": [
+  {
+   "turn_ms": 5979,
+   "probes": 2,
+   "probe_ms": 4125,
+   "jev": 1,
+   "jev_ms": 781,
+   "tool": "mcp_playwright-official_browser_click",
+   "tool_ms": 5031,
+   "tool_wire_ms": 5022,
+   "gap_ms": 8,
+   "finish": "tool_calls"
+  },
+  {
+   "turn_ms": 13091,
+   "probes": 6,
+   "probe_ms": 11329,
+   "jev": 1,
+   "jev_ms": 648,
+   "tool": "mcp_playwright-official_browser_click",
+   "tool_ms": 5019,
+   "tool_wire_ms": 5011,
+   "gap_ms": 7,
+   "finish": "tool_calls"
+  },
+  {
+   "turn_ms": 14263,
+   "probes": 6,
+   "probe_ms": 12215,
+   "jev": 1,
+   "jev_ms": 937,
+   "tool": "mcp_playwright-official_browser_click",
+   "tool_ms": 5020,
+   "tool_wire_ms": 5011,
+   "gap_ms": 8,
+   "finish": "tool_calls"
+  },
+  {
+   "turn_ms": 7700,
+   "probes": 5,
+   "probe_ms": 6467,
+   "jev": 1,
+   "jev_ms": 679,
+   "tool": "",
+   "tool_ms": 0,
+   "tool_wire_ms": 0,
+   "gap_ms": 0,
+   "finish": "stop"
+  }
+ ],
+ "ticks": [
+  {
+   "tick": 1,
+   "probe_ms": 5198,
+   "settle_probes": 0,
+   "settle_ms": 0,
+   "action_settle_probes": 0,
+   "action_settle_ms": 0,
+   "jev_ms": 781,
+   "operation": "CLICK",
+   "target": "Change ticket type. Round trip",
+   "confidence": 0.77,
+   "elements": 25,
+   "elapsed_ms": 7959,
+   "text": null
+  },
+  {
+   "tick": 2,
+   "probe_ms": 12443,
+   "settle_probes": 0,
+   "settle_ms": 0,
+   "action_settle_probes": 3,
+   "action_settle_ms": 1000,
+   "jev_ms": 648,
+   "operation": "CLICK",
+   "target": "Change ticket type. Round trip",
+   "confidence": 0.81,
+   "elements": 25,
+   "elapsed_ms": 26089,
+   "text": null
+  },
+  {
+   "tick": 3,
+   "probe_ms": 13325,
+   "settle_probes": 0,
+   "settle_ms": 0,
+   "action_settle_probes": 3,
+   "action_settle_ms": 1000,
+   "jev_ms": 937,
+   "operation": "CLICK",
+   "target": "Change ticket type. Round trip",
+   "confidence": 0.79,
+   "elements": 25,
+   "elapsed_ms": 45379,
+   "text": null
+  },
+  {
+   "tick": 4,
+   "probe_ms": 7021,
+   "settle_probes": 0,
+   "settle_ms": 0,
+   "action_settle_probes": 3,
+   "action_settle_ms": 1000,
+   "jev_ms": 679,
+   "operation": "CLICK",
+   "target": "Change ticket type. Round trip",
+   "confidence": 0.78,
+   "elements": 25,
+   "elapsed_ms": 58107
+  }
+ ],
+ "final": {
+  "status": "BLOCKED",
+  "reason": "three actions without page change",
+  "url": "https://www.google.com/travel/flights?hl=en",
+  "title": "Find Cheap Flights Worldwide & Book Your Ticket - Google Flights",
+  "steps": 3,
+  "elapsed_ms": 58107,
+  "page_text": "Skip to main content\nAccessibility feedback\nExplore\nFlights\nHotels\nVacation rentals\nSign in\nFlights\n1\nExplore\nFlexible? Discover the best flight deals with AI\nDescribe your ideal trip, and let Google Flights find the best deals for you\nExplore deals with AI\nFind and book cheap flights worldwide and track prices\nFind cheap flights from Japan to anywhere\nTokyo\nFukuoka\nOsaka\nSapporo\nTokyo\nSapporo\nTokyo\nOkinawa\nTokyo\nKagoshima"
+ },
+ "verified": false,
+ "spans": [
+  {
+   "kind": "tool",
+   "name": "mcp_playwright-official_browser_navigate",
+   "t0_ms": -6715,
+   "ms": 1513
+  },
+  {
+   "kind": "wire",
+   "name": "browser_navigate",
+   "t0_ms": -6709,
+   "ms": 1505
+  },
+  {
+   "kind": "probe",
+   "name": "settle=500",
+   "t0_ms": -5198,
+   "ms": 3469
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": -5196,
+   "ms": 3465
+  },
+  {
+   "kind": "activate",
+   "name": "https://www.google.com/travel/flights?hl=en",
+   "t0_ms": -1729,
+   "ms": 1072
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": -1727,
+   "ms": 1069
+  },
+  {
+   "kind": "probe",
+   "name": "settle=500",
+   "t0_ms": -657,
+   "ms": 656
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": -653,
+   "ms": 652
+  },
+  {
+   "kind": "jev",
+   "name": "typesafe/jev-1.13",
+   "t0_ms": 0,
+   "ms": 781,
+   "elements": [
+    "[1] Main menu",
+    "[2] Google",
+    "[3] Skip to main content",
+    "[4] Accessibility feedback",
+    "[5] Explore",
+    "[6] Flights",
+    "[7] Hotels",
+    "[8] Vacation rentals",
+    "[9] Change appearance",
+    "[10] Google apps",
+    "[11] Sign in",
+    "[12] Change ticket type. Round trip",
+    "[13] 1 passenger, change number of passengers.",
+    "[14] Change seating class. Economy",
+    "[15] Where from?",
+    "[16] Where to?",
+    "[17] Departure",
+    "[18] Return",
+    "[19] Explore destinations",
+    "[20] Explore deals with AI",
+    "[21] Learn more about this section",
+    "[22] Tokyo",
+    "[23] Fukuoka",
+    "[24] Osaka",
+    "[25] Sapporo"
+   ],
+   "operations": [
+    "CLICK",
+    "TYPE_TEXT",
+    "SCROLL_DOWN",
+    "WAIT",
+    "DONE",
+    "BLOCKED"
+   ],
+   "answers": {
+    "operation": {
+     "choice": "CLICK",
+     "confidence": 0.77
+    },
+    "click_target": {
+     "choice": "12",
+     "confidence": 0.82
+    },
+    "type_text_target": {
+     "choice": "15",
+     "confidence": 0.96
+    }
+   }
+  },
+  {
+   "kind": "value",
+   "name": "Where from?",
+   "t0_ms": 1,
+   "ms": 850
+  },
+  {
+   "kind": "value",
+   "name": "Where to?",
+   "t0_ms": 3,
+   "ms": 1221
+  },
+  {
+   "kind": "value",
+   "name": "Departure",
+   "t0_ms": 4,
+   "ms": 1085
+  },
+  {
+   "kind": "value",
+   "name": "Return",
+   "t0_ms": 4,
+   "ms": 1052
+  },
+  {
+   "kind": "tool",
+   "name": "mcp_playwright-official_browser_click",
+   "t0_ms": 785,
+   "ms": 5031
+  },
+  {
+   "kind": "wire",
+   "name": "browser_click",
+   "t0_ms": 792,
+   "ms": 5022
+  },
+  {
+   "kind": "probe",
+   "name": "settle=500",
+   "t0_ms": 5821,
+   "ms": 2448
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 5822,
+   "ms": 2445
+  },
+  {
+   "kind": "activate",
+   "name": "https://www.google.com/travel/flights?hl=en",
+   "t0_ms": 8269,
+   "ms": 557
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 8271,
+   "ms": 555
+  },
+  {
+   "kind": "probe",
+   "name": "settle=500",
+   "t0_ms": 8826,
+   "ms": 658
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 8827,
+   "ms": 656
+  },
+  {
+   "kind": "probe",
+   "name": "settle=250",
+   "t0_ms": 9484,
+   "ms": 1782
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 9485,
+   "ms": 1779
+  },
+  {
+   "kind": "probe",
+   "name": "settle=500",
+   "t0_ms": 11265,
+   "ms": 2999
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 11268,
+   "ms": 2996
+  },
+  {
+   "kind": "activate",
+   "name": "https://www.google.com/travel/flights?hl=en",
+   "t0_ms": 14265,
+   "ms": 556
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 14267,
+   "ms": 554
+  },
+  {
+   "kind": "probe",
+   "name": "settle=500",
+   "t0_ms": 14821,
+   "ms": 1206
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 14823,
+   "ms": 1203
+  },
+  {
+   "kind": "probe",
+   "name": "settle=250",
+   "t0_ms": 16028,
+   "ms": 2236
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 16030,
+   "ms": 2232
+  },
+  {
+   "kind": "jev",
+   "name": "typesafe/jev-1.13",
+   "t0_ms": 18264,
+   "ms": 648,
+   "elements": [
+    "[1] Main menu",
+    "[2] Google",
+    "[3] Skip to main content",
+    "[4] Accessibility feedback",
+    "[5] Explore",
+    "[6] Flights",
+    "[7] Hotels",
+    "[8] Vacation rentals",
+    "[9] Change appearance",
+    "[10] Google apps",
+    "[11] Sign in",
+    "[12] Change ticket type. Round trip",
+    "[13] 1 passenger, change number of passengers.",
+    "[14] Change seating class. Economy",
+    "[15] Where from?",
+    "[16] Where to?",
+    "[17] Departure",
+    "[18] Return",
+    "[19] Explore destinations",
+    "[20] Explore deals with AI",
+    "[21] Learn more about this section",
+    "[22] Tokyo",
+    "[23] Fukuoka",
+    "[24] Osaka",
+    "[25] Sapporo"
+   ],
+   "operations": [
+    "CLICK",
+    "TYPE_TEXT",
+    "SCROLL_DOWN",
+    "WAIT",
+    "DONE",
+    "BLOCKED"
+   ],
+   "answers": {
+    "operation": {
+     "choice": "CLICK",
+     "confidence": 0.81
+    },
+    "click_target": {
+     "choice": "12",
+     "confidence": 0.83
+    },
+    "type_text_target": {
+     "choice": "15",
+     "confidence": 0.97
+    }
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "mcp_playwright-official_browser_click",
+   "t0_ms": 18914,
+   "ms": 5019
+  },
+  {
+   "kind": "wire",
+   "name": "browser_click",
+   "t0_ms": 18921,
+   "ms": 5011
+  },
+  {
+   "kind": "probe",
+   "name": "settle=500",
+   "t0_ms": 23938,
+   "ms": 3329
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 23940,
+   "ms": 3326
+  },
+  {
+   "kind": "activate",
+   "name": "https://www.google.com/travel/flights?hl=en",
+   "t0_ms": 27267,
+   "ms": 554
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 27269,
+   "ms": 552
+  },
+  {
+   "kind": "probe",
+   "name": "settle=500",
+   "t0_ms": 27821,
+   "ms": 657
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 27823,
+   "ms": 654
+  },
+  {
+   "kind": "probe",
+   "name": "settle=250",
+   "t0_ms": 28478,
+   "ms": 1788
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 28481,
+   "ms": 1785
+  },
+  {
+   "kind": "probe",
+   "name": "settle=500",
+   "t0_ms": 30266,
+   "ms": 2993
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 30268,
+   "ms": 2990
+  },
+  {
+   "kind": "activate",
+   "name": "https://www.google.com/travel/flights?hl=en",
+   "t0_ms": 33259,
+   "ms": 556
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 33261,
+   "ms": 553
+  },
+  {
+   "kind": "probe",
+   "name": "settle=500",
+   "t0_ms": 33815,
+   "ms": 1099
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 33817,
+   "ms": 1096
+  },
+  {
+   "kind": "probe",
+   "name": "settle=250",
+   "t0_ms": 34914,
+   "ms": 2349
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 34916,
+   "ms": 2346
+  },
+  {
+   "kind": "jev",
+   "name": "typesafe/jev-1.13",
+   "t0_ms": 37264,
+   "ms": 937,
+   "elements": [
+    "[1] Main menu",
+    "[2] Google",
+    "[3] Skip to main content",
+    "[4] Accessibility feedback",
+    "[5] Explore",
+    "[6] Flights",
+    "[7] Hotels",
+    "[8] Vacation rentals",
+    "[9] Change appearance",
+    "[10] Google apps",
+    "[11] Sign in",
+    "[12] Change ticket type. Round trip",
+    "[13] 1 passenger, change number of passengers.",
+    "[14] Change seating class. Economy",
+    "[15] Where from?",
+    "[16] Where to?",
+    "[17] Departure",
+    "[18] Return",
+    "[19] Explore destinations",
+    "[20] Explore deals with AI",
+    "[21] Learn more about this section",
+    "[22] Tokyo",
+    "[23] Fukuoka",
+    "[24] Osaka",
+    "[25] Sapporo"
+   ],
+   "operations": [
+    "CLICK",
+    "TYPE_TEXT",
+    "SCROLL_DOWN",
+    "WAIT",
+    "DONE",
+    "BLOCKED"
+   ],
+   "answers": {
+    "operation": {
+     "choice": "CLICK",
+     "confidence": 0.79
+    },
+    "click_target": {
+     "choice": "12",
+     "confidence": 0.81
+    },
+    "type_text_target": {
+     "choice": "15",
+     "confidence": 0.96
+    }
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "mcp_playwright-official_browser_click",
+   "t0_ms": 38204,
+   "ms": 5020
+  },
+  {
+   "kind": "wire",
+   "name": "browser_click",
+   "t0_ms": 38211,
+   "ms": 5011
+  },
+  {
+   "kind": "probe",
+   "name": "settle=500",
+   "t0_ms": 43229,
+   "ms": 3031
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 43231,
+   "ms": 3029
+  },
+  {
+   "kind": "activate",
+   "name": "https://www.google.com/travel/flights?hl=en",
+   "t0_ms": 46260,
+   "ms": 554
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 46262,
+   "ms": 552
+  },
+  {
+   "kind": "probe",
+   "name": "settle=500",
+   "t0_ms": 46814,
+   "ms": 651
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 46816,
+   "ms": 648
+  },
+  {
+   "kind": "probe",
+   "name": "settle=250",
+   "t0_ms": 47465,
+   "ms": 848
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 47467,
+   "ms": 845
+  },
+  {
+   "kind": "probe",
+   "name": "settle=500",
+   "t0_ms": 48313,
+   "ms": 1095
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 48315,
+   "ms": 1091
+  },
+  {
+   "kind": "probe",
+   "name": "settle=250",
+   "t0_ms": 49408,
+   "ms": 842
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 49410,
+   "ms": 839
+  },
+  {
+   "kind": "jev",
+   "name": "typesafe/jev-1.13",
+   "t0_ms": 50250,
+   "ms": 679,
+   "elements": [
+    "[1] Main menu",
+    "[2] Google",
+    "[3] Skip to main content",
+    "[4] Accessibility feedback",
+    "[5] Explore",
+    "[6] Flights",
+    "[7] Hotels",
+    "[8] Vacation rentals",
+    "[9] Change appearance",
+    "[10] Google apps",
+    "[11] Sign in",
+    "[12] Change ticket type. Round trip",
+    "[13] 1 passenger, change number of passengers.",
+    "[14] Change seating class. Economy",
+    "[15] Where from?",
+    "[16] Where to?",
+    "[17] Departure",
+    "[18] Return",
+    "[19] Explore destinations",
+    "[20] Explore deals with AI",
+    "[21] Learn more about this section",
+    "[22] Tokyo",
+    "[23] Fukuoka",
+    "[24] Osaka",
+    "[25] Sapporo"
+   ],
+   "operations": [
+    "CLICK",
+    "TYPE_TEXT",
+    "SCROLL_DOWN",
+    "WAIT",
+    "DONE",
+    "BLOCKED"
+   ],
+   "answers": {
+    "operation": {
+     "choice": "CLICK",
+     "confidence": 0.78
+    },
+    "click_target": {
+     "choice": "12",
+     "confidence": 0.85
+    },
+    "type_text_target": {
+     "choice": "15",
+     "confidence": 0.97
+    }
+   }
+  }
+ ]
+}

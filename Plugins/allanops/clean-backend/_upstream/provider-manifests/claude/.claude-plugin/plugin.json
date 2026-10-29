@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
+  "name": "clean-backend",
+  "version": "2.0.1",
+  "description": "The backend habits an AI assistant misses on its own — API versioning, feature flags, circuit breakers, and four more. Measured across 13 baseline runs; everything the model already does reliably was cut.",
+  "author": {
+    "name": "AllanOps",
+    "url": "https://github.com/AllanOps"
+  },
+  "homepage": "https://github.com/AllanOps/Clean-Backend",
+  "repository": "https://github.com/AllanOps/Clean-Backend",
+  "license": "MIT",
+  "keywords": [
+    "backend",
+    "api-design",
+    "reliability",
+    "production",
+    "best-practices",
+    "claude-code",
+    "skills"
+  ]
+}

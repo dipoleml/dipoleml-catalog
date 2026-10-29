@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-plugin.json",
+  "name": "solana-finance",
+  "displayName": "Solana Finance",
+  "description": "Develop financial products as Solana Programs in Anchor 1, 2 or Quasar. The companion plugin to the book \"Building Financial Software on Solana\".",
+  "version": "1.2.0",
+  "author": {
+    "name": "Quicknode",
+    "url": "https://www.quicknode.com"
+  },
+  "homepage": "https://github.com/quicknode/solana-finance-claude-plugin",
+  "documentationUrl": "https://github.com/quicknode/solana-finance-claude-plugin#readme",
+  "supportUrl": "https://github.com/quicknode/solana-finance-claude-plugin/issues",
+  "termsOfServiceUrl": "https://github.com/quicknode/solana-finance-claude-plugin/blob/main/LICENSE.md",
+  "privacyPolicyUrl": "https://www.quicknode.com/privacy",
+  "repository": "https://github.com/quicknode/solana-finance-claude-plugin",
+  "license": "MIT",
+  "keywords": [
+    "solana",
+    "finance",
+    "defi",
+    "anchor",
+    "rust",
+    "typescript",
+    "quasar",
+    "litesvm"
+  ]
+}

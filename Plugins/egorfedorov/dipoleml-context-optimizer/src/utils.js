@@ -1,0 +1,858 @@
+/**
+ * Shared utilities for Context Optimizer
+ *
+ * Single source of truth for constants, formatting, token estimation,
+ * usefulness scoring, JSON I/O, file classification, and config management.
+ */
+
+import { readFileSync, writeFileSync, renameSync, mkdirSync, rmdirSync, existsSync, statSync, realpathSync, readdirSync, unlinkSync } from 'fs';
+import { join, basename, extname, dirname } from 'path';
+import { homedir } from 'os';
+import { fileURLToPath } from 'url';
+
+// ── Path normalization ───────────────────────────────────────────────────────
+// Windows hands us `C:\Users\me\proj\src\a.ts`; every glob, split and display
+// helper here reasons in `/`. Normalize once at the boundary rather than
+// teaching each matcher two separator dialects.
+export function toPosixPath(p) {
+  return typeof p === 'string' ? p.replace(/\\/g, '/') : p;
+}
+
+// ── Main-module guard ────────────────────────────────────────────────────────
+// True only when the given module is the process entry point (i.e. run as
+// `node src/foo.js`), false when it is imported by another module (e.g. tests).
+// Hook modules use this to guard their stdin-reading main() — importing them
+// for unit testing must NOT start the hook, or the test process hangs forever
+// waiting on stdin (this caused the v3.6.0 CI runs to time out at 6h).
+/**
+ * Why Claude Code would reject `name` as a third-party plugin name, or null.
+ * Mirrors `claude plugin validate` (2.1.302): names that pass for Anthropic's
+ * own are reserved. 4.20.0 shipped as "claude-context-optimizer" and failed it.
+ */
+export function reservedPluginNameReason(name) {
+  const n = String(name || '').toLowerCase();
+  if (['claude', 'anthropic', 'anthropics', 'claude-code', 'claude-mods'].includes(n)) return `"${n}" is reserved`;
+  const prefix = ['claude-', 'anthropic-', 'anthropics-', 'cc-plugin-'].find(p => n.startsWith(p));
+  if (prefix) return `starts with "${prefix}"`;
+  const parts = n.split('-');
+  for (let i = 0; i < parts.length; i++) {
+    if (parts[i] !== 'official') continue;
+    if (['claude', 'anthropic'].includes(parts[i - 1]) || ['claude', 'anthropic'].includes(parts[i + 1])) {
+      return 'puts "official" beside "claude" or "anthropic"';
+    }
+  }
+  return null;
+}
+
+export function isMainModule(metaUrl) {
+  try {
+    if (!process.argv[1]) return false;
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(metaUrl));
+  } catch {
+    return false;
+  }
+}
+
+// ── Data directories ─────────────────────────────────────────────────────────
+
+export const DATA_DIR = join(homedir(), '.claude-context-optimizer');
+export const SESSIONS_DIR = join(DATA_DIR, 'sessions');
+export const PATTERNS_FILE = join(DATA_DIR, 'patterns.json');
+export const GLOBAL_STATS_FILE = join(DATA_DIR, 'global-stats.json');
+export const CONFIG_FILE = join(DATA_DIR, 'config.json');
+export const BUDGET_STATE_DIR = join(DATA_DIR, 'budget');
+export const BUDGET_CONFIG_FILE = join(DATA_DIR, 'budget-config.json');
+export const READ_CACHE_DIR = join(DATA_DIR, 'read-cache');
+export const TEMPLATES_DIR = join(DATA_DIR, 'templates');
+export const EXPORTS_DIR = join(DATA_DIR, 'exports');
+export const SUMMARIES_DIR = join(DATA_DIR, 'summaries');
+export const PROMPTS_DIR = join(DATA_DIR, 'prompts');
+export const NOTICES_DIR = join(DATA_DIR, 'notices');
+export const TASKS_FILE = join(DATA_DIR, 'tasks.json');
+export const TOOL_COSTS_FILE = join(DATA_DIR, 'tool-costs.json');
+
+// ── Model costs ($/M tokens — input/output) — platform.claude.com/docs pricing ─
+// Current lineup (Claude 5 era). Output costs included for accurate ROI.
+//   • Fable 5.1 / Fable 5 — $10/$50, 1M window. Fable 5.1 bills cache READS at
+//     $0.25/M (0.025× — a quarter of everyone else's 0.1×), so it carries its
+//     own `cacheRead` multiplier. Mythos 5.x is the same tier and price.
+//   • Opus 5.5 — $4/$20, 1M. Cache reads $0.20/M = 0.05× its input price.
+//   • Opus 5 / 4.8 / 4.7 — $5/$25, full 1M context window at standard price
+//     (there is NO long-context premium; the old "1M tier surcharge" is gone).
+//   • Sonnet 5.5 / Sonnet 5 — $2/$10, 1M.  Sonnet 4.6 — $3/$15, 1M.
+//   • Haiku 5.5 — $0.10/$0.50, 1M — 40× below Opus 5.5 per token. Prompts over
+//     100K bill at $0.50/$2.50 (`longPrompt`, applied per request).
+//   • Haiku 4.5 — $1/$5, 200K context window.
+// `cacheRead` (optional) overrides CACHE_READ_MULT for that model.
+export const MODEL_COSTS = {
+  'haiku':         { input: 1,  output: 5,  contextWindow:   200_000 },
+  'haiku-4.5':     { input: 1,  output: 5,  contextWindow:   200_000 },
+  'haiku-5.5':     { input: 0.1, output: 0.5, contextWindow: 1_000_000,
+                     longPrompt: { over: 100_000, input: 0.5, output: 2.5 } },
+  'sonnet':        { input: 3,  output: 15, contextWindow: 1_000_000 },
+  'sonnet-4.6':    { input: 3,  output: 15, contextWindow: 1_000_000 },
+  'sonnet-5':      { input: 2,  output: 10, contextWindow: 1_000_000 },
+  'sonnet-5.5':    { input: 2,  output: 10, contextWindow: 1_000_000 },
+  'opus':          { input: 5,  output: 25, contextWindow: 1_000_000 },
+  'opus-4.7':      { input: 5,  output: 25, contextWindow: 1_000_000 },
+  'opus-4.8':      { input: 5,  output: 25, contextWindow: 1_000_000 },
+  'opus-5':        { input: 5,  output: 25, contextWindow: 1_000_000 },
+  'opus-5.5':      { input: 4,  output: 20, contextWindow: 1_000_000, cacheRead: 0.05 },
+  // Back-compat aliases — these used to carry a fictional 1M surcharge; the 1M
+  // window is now standard, so they map to the standard Opus price.
+  'opus-4.7-1m':   { input: 5,  output: 25, contextWindow: 1_000_000 },
+  'opus-4.8-1m':   { input: 5,  output: 25, contextWindow: 1_000_000 },
+  'opus-extended': { input: 5,  output: 25, contextWindow: 1_000_000 },
+  // Fable / Mythos tier (above Opus). `fable` = the newest Fable (5.1).
+  'fable':         { input: 10, output: 50, contextWindow: 1_000_000, cacheRead: 0.025 },
+  'fable-5.1':     { input: 10, output: 50, contextWindow: 1_000_000, cacheRead: 0.025 },
+  'fable-5':       { input: 10, output: 50, contextWindow: 1_000_000 },
+};
+
+// The current generation — what ROI/report tables compare and what doctor
+// treats as up to date. Everything else in MODEL_COSTS is an alias or older.
+export const CURRENT_MODELS = ['haiku-5.5', 'sonnet-5.5', 'opus-5.5', 'fable-5.1'];
+
+/**
+ * Map a raw session model id from the transcript (e.g. "claude-fable-5-1",
+ * "claude-opus-5", "claude-haiku-4-5-20251001", possibly with a "[1m]"
+ * suffix) to a MODEL_COSTS key. Null when unrecognized — callers fall back
+ * to config.model.
+ */
+export function normalizeModelId(raw) {
+  if (!raw || typeof raw !== 'string') return null;
+  const id = raw.toLowerCase().replace(/\[1m\]$/, '');
+  if (id.includes('fable') || id.includes('mythos')) {
+    return /(fable|mythos)[-_.]?5[-.]1\b/.test(id) ? 'fable-5.1' : 'fable-5';
+  }
+  if (id.includes('haiku')) return /haiku[-_.]?5[-.]5\b/.test(id) ? 'haiku-5.5' : 'haiku';
+  if (id.includes('sonnet')) {
+    if (/sonnet[-_.]?5[-.]5\b/.test(id)) return 'sonnet-5.5';
+    return /sonnet[-_.]?5\b/.test(id) ? 'sonnet-5' : 'sonnet';
+  }
+  if (id.includes('opus')) {
+    if (/opus[-_.]?5[-.]5\b/.test(id)) return 'opus-5.5';
+    if (/opus[-_.]?5\b/.test(id)) return 'opus-5';
+    if (id.includes('4-8') || id.includes('4.8')) return 'opus-4.8';
+    if (id.includes('4-7') || id.includes('4.7')) return 'opus-4.7';
+    return 'opus';
+  }
+  return null;
+}
+
+// Backwards-compatible numeric accessor (input price only — used by old callsites).
+export const MODEL_INPUT_COST = Object.fromEntries(
+  Object.entries(MODEL_COSTS).map(([k, v]) => [k, v.input])
+);
+
+export function getModelCost(model) {
+  return MODEL_COSTS[model] || MODEL_COSTS.opus;
+}
+
+// ── Prompt-cache pricing ─────────────────────────────────────────────────────
+// Cache reads bill at 10% of the input price (2.5% on Fable 5.1, 5% on Opus 5.5); cache writes
+// at 125% for the 5-minute TTL and 200% for the 1-hour TTL Claude Code uses on
+// most sessions today (`usage.cache_creation.ephemeral_1h_input_tokens`).
+// Real Claude Code sessions are dominated by cache reads, so pricing every
+// input token at the full rate overstates cost by up to ~10×.
+export const CACHE_READ_MULT = 0.1;
+export const CACHE_WRITE_MULT = 1.25;
+export const CACHE_WRITE_1H_MULT = 2;
+
+/**
+ * Cache multipliers for a model + TTL: { read, write }. `ttl` is '5m' | '1h'.
+ * Both the cache-break cost (write − read, per re-warmed token) and the
+ * session bill depend on these, so every caller reads them from here.
+ */
+export function getCacheRates(model, ttl = '5m') {
+  const c = getModelCost(model);
+  return {
+    read: typeof c.cacheRead === 'number' ? c.cacheRead : CACHE_READ_MULT,
+    write: ttl === '1h' ? CACHE_WRITE_1H_MULT : CACHE_WRITE_MULT,
+  };
+}
+
+/**
+ * Dollar cost of a session given exact usage totals from the transcript.
+ * `totals` = { input, cacheRead, cacheCreation, cacheCreation1h?, output }
+ * (tokens; `cacheCreation1h` is the 1-hour-TTL share of `cacheCreation`).
+ * Returns { real, naive, cacheSavings } — `naive` prices all input-side tokens
+ * at the full input rate (what the cost would be without prompt caching).
+ */
+export function computeCacheAwareCost(totals, model, c = getModelCost(model)) {
+  const inRate = c.input / 1e6;
+  const { read } = getCacheRates(model);
+  const write1h = Math.min(totals.cacheCreation1h || 0, totals.cacheCreation || 0);
+  const write5m = (totals.cacheCreation || 0) - write1h;
+  const real =
+    (totals.input || 0) * inRate +
+    (totals.cacheRead || 0) * inRate * read +
+    write5m * inRate * CACHE_WRITE_MULT +
+    write1h * inRate * CACHE_WRITE_1H_MULT +
+    (totals.output || 0) * (c.output / 1e6);
+  const naive =
+    ((totals.input || 0) + (totals.cacheRead || 0) + (totals.cacheCreation || 0)) * inRate +
+    (totals.output || 0) * (c.output / 1e6);
+  return { real, naive, cacheSavings: Math.max(0, naive - real) };
+}
+
+// Fast mode (`usage.speed: "fast"`, Opus only) bills every token type at 2×
+// the standard rate: Opus 5.5 $8/$40, Opus 5 $10/$50.
+export const FAST_MODE_MULT = 2;
+
+/**
+ * Price a whole session from parseEconomicsFromLines output: each
+ * { model, speed } segment at its own rates, so /model switches and fast mode
+ * are billed correctly. Segments with an unrecognized model use `fallbackModel`.
+ */
+export function computeSessionCost(econ, fallbackModel) {
+  const segs = (econ && econ.segments && econ.segments.length)
+    ? econ.segments : [{ model: null, speed: 'standard', totals: (econ && econ.totals) || {} }];
+  const sum = { real: 0, naive: 0, cacheSavings: 0 };
+  for (const s of segs) {
+    const model = s.model || fallbackModel;
+    const base = getModelCost(model);
+    // Requests past a model's long-prompt threshold bill at its higher rate.
+    const rates = s.long && base.longPrompt
+      ? { ...base, input: base.longPrompt.input, output: base.longPrompt.output } : base;
+    const c = computeCacheAwareCost(s.totals, model, rates);
+    const mult = s.speed === 'fast' ? FAST_MODE_MULT : 1;
+    sum.real += c.real * mult;
+    sum.naive += c.naive * mult;
+    sum.cacheSavings += c.cacheSavings * mult;
+  }
+  return sum;
+}
+
+export function getModelContextWindow(model) {
+  return getModelCost(model).contextWindow;
+}
+
+// ── Token estimation ─────────────────────────────────────────────────────────
+// chars-per-token ratios — roughly calibrated against tiktoken cl100k_base.
+
+export const TOKEN_RATIOS = {
+  // Data / config
+  '.json': 3.2, '.yaml': 3.5, '.yml': 3.5, '.toml': 3.5, '.ini': 3.6, '.env': 3.6,
+  // JS / TS family
+  '.ts': 3.8, '.tsx': 3.8, '.js': 3.8, '.jsx': 3.8, '.mjs': 3.8, '.cjs': 3.8,
+  '.svelte': 3.6, '.vue': 3.6, '.astro': 3.7,
+  // Python / Ruby / Go / Rust
+  '.py': 4.0, '.pyi': 4.0, '.rb': 4.0, '.go': 3.7, '.rs': 3.7,
+  // C / C++
+  '.cpp': 3.6, '.c': 3.6, '.h': 3.6, '.hpp': 3.6, '.cc': 3.6, '.cxx': 3.6,
+  // Other compiled
+  '.java': 3.6, '.kt': 3.7, '.scala': 3.6, '.swift': 3.7, '.dart': 3.7, '.cs': 3.7,
+  // JVM / functional
+  '.clj': 3.8, '.cljs': 3.8, '.ex': 3.9, '.exs': 3.9, '.erl': 3.9, '.fs': 3.7, '.hs': 3.7,
+  // Shell / scripting
+  '.sh': 3.5, '.bash': 3.5, '.zsh': 3.5, '.fish': 3.5, '.ps1': 3.5,
+  '.lua': 3.8, '.pl': 3.8, '.r': 3.8, '.php': 3.7,
+  // Docs / markup
+  '.md': 4.2, '.mdx': 4.2, '.txt': 4.5, '.rst': 4.3, '.tex': 3.8,
+  '.html': 3.5, '.htm': 3.5, '.xml': 3.2,
+  // Styles
+  '.css': 3.8, '.scss': 3.8, '.sass': 3.8, '.less': 3.8, '.styl': 3.8,
+  // Other
+  '.svg': 3.0, '.proto': 3.6, '.graphql': 3.7, '.gql': 3.7, '.sql': 3.6,
+};
+
+// Average characters per LINE, by extension. Line count is what the hooks can
+// cheaply observe; chars/line is what turns it into a token estimate, so a flat
+// constant here biased the headline "tokens saved" figure per file.
+//
+// Values marked (m) were MEASURED over 6.3K real source files; the rest inherit
+// from the nearest measured sibling in the same family. Anything unlisted falls
+// back to AVG_CHARS_PER_LINE. Override any of these via config.charsPerLine.
+export const CHARS_PER_LINE = {
+  // Python family
+  '.py': 34.5, '.pyi': 35, '.pyx': 31, '.pxd': 22,                    // (m)
+  // JS / TS family
+  '.ts': 44, '.js': 39, '.mjs': 41,                                   // (m)
+  '.tsx': 40, '.jsx': 40, '.cjs': 39,
+  '.svelte': 42, '.vue': 42, '.astro': 42,                            // .svelte (m)
+  // Docs / markup
+  '.md': 36, '.txt': 28, '.html': 42, '.htm': 42,                     // (m)
+  '.mdx': 36, '.rst': 33, '.xml': 40,
+  // Data / config
+  '.json': 39, '.yml': 29, '.yaml': 29,                               // (m)
+  '.toml': 28, '.ini': 26, '.env': 26,
+  // Styles — notably SHORTER than the old flat 35
+  '.css': 25.3, '.scss': 26, '.sass': 24, '.less': 26, '.styl': 24,   // .css (m)
+  // Compiled / systems
+  '.go': 30, '.sql': 46, '.swift': 47, '.c': 40, '.h': 30,            // (m)
+  '.cpp': 40, '.cc': 40, '.cxx': 40, '.hpp': 30,
+  '.rs': 34, '.java': 40, '.kt': 38, '.cs': 38, '.scala': 38, '.dart': 38,
+  '.rb': 32, '.php': 38, '.lua': 32, '.pl': 34, '.r': 34,
+  // Shell
+  '.sh': 33.3, '.bash': 33, '.zsh': 33, '.fish': 33, '.ps1': 35,      // .sh (m)
+  // The big outlier: generated SVG runs ~3x the old flat assumption.
+  '.svg': 100.5,                                                       // (m)
+  '.proto': 32, '.graphql': 28, '.gql': 28,
+};
+
+const AVG_CHARS_PER_LINE = 35;
+
+let _charsPerLineOverrides = null;
+
+/**
+ * Chars-per-line for an extension: user override → measured default → 35.
+ * The config lookup is cached; hooks call this on every tracked file.
+ */
+export function charsPerLine(ext) {
+  if (_charsPerLineOverrides === null) {
+    const cfg = loadJSON(CONFIG_FILE);
+    _charsPerLineOverrides = (cfg && cfg.charsPerLine) || {};
+  }
+  const key = (ext || '').toLowerCase();
+  const override = _charsPerLineOverrides[key];
+  if (typeof override === 'number' && override > 0) return override;
+  return CHARS_PER_LINE[key] || AVG_CHARS_PER_LINE;
+}
+
+/** Test seam — drop the cached config overrides. */
+export function clearCharsPerLineCache() { _charsPerLineOverrides = null; }
+
+export function estimateTokens(lineCount, ext) {
+  const ratio = TOKEN_RATIOS[ext] || 3.7;
+  return Math.round((lineCount * charsPerLine(ext)) / ratio);
+}
+
+/** Estimate tokens directly from a string. Used by prompt-coach and budget. */
+export function estimateTokensFromString(str, ext = '') {
+  if (!str) return 0;
+  const ratio = TOKEN_RATIOS[ext] || 3.7;
+  return Math.round(str.length / ratio);
+}
+
+// ── Formatting ───────────────────────────────────────────────────────────────
+
+export function formatTokens(n) {
+  if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
+  return String(n);
+}
+
+/**
+ * Display a file path in a compact, disambiguated form.
+ * Shows last 2-3 path segments instead of just basename.
+ */
+export function displayPath(filePath, maxLen = 35) {
+  const home = homedir();
+  let display = filePath;
+  if (display.startsWith(home)) {
+    display = '~' + display.slice(home.length);
+  }
+  display = toPosixPath(display);
+  const parts = display.split('/');
+  if (parts.length > 3) {
+    display = parts.slice(-3).join('/');
+  }
+  if (display.length > maxLen) {
+    display = '...' + display.slice(-(maxLen - 3));
+  }
+  return display;
+}
+
+// ── JSON I/O (atomic writes) ─────────────────────────────────────────────────
+
+export function loadJSON(file) {
+  if (!existsSync(file)) return null;
+  try {
+    return JSON.parse(readFileSync(file, 'utf-8'));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Atomic JSON write: write to temp + rename.
+ * Prevents corruption when parallel hook processes write the same file
+ * (e.g. main session + subagent finalizing concurrently).
+ */
+export function saveJSON(file, data) {
+  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
+  try {
+    writeFileSync(tmp, JSON.stringify(data, null, 2));
+    renameSync(tmp, file);
+  } catch (err) {
+    // Best-effort: fall back to direct write so we don't lose data.
+    try { writeFileSync(file, JSON.stringify(data, null, 2)); } catch { /* drop */ }
+    try { if (existsSync(tmp)) { /* leave tmp for inspection */ } } catch { /* ignore */ }
+    throw err;
+  }
+}
+
+// ── Config ───────────────────────────────────────────────────────────────────
+
+const DEFAULT_CONFIG = {
+  budgetTokens: 200000,        // 200K — sane working default even on 1M-window models
+  warnAt: [50, 70, 85, 95],
+  autoCompactAt: 90,
+  model: 'opus-5.5',
+  bigFileDigest: true,         // on first full read of a very large file, show its
+  bigFileThreshold: 1500,      // map once (≈14K+ tokens) so Claude reads targeted
+};
+
+// ── Tunable thresholds (#39) ─────────────────────────────────────────────────
+// These decide how aggressive CCO is. They were scattered as magic numbers
+// across four modules; different context sizes and workflows want different
+// aggressiveness, and tuning should not mean editing source.
+// Each entry: [default, min, max, description].
+export const THRESHOLD_SPEC = {
+  rereadWarnAt:       [3,      2,    20,      'reads of an unedited file before the first re-read warning'],
+  rereadEscalateAt:   [5,      3,    50,      'reads before the "put it in CLAUDE.md" escalation'],
+  bigFileLines:       [500,    100,  10000,   'full-read line count that triggers the offset/limit warning'],
+  mediumFileLines:    [200,    50,   5000,    'full-read line count that triggers the soft hint'],
+  staleTokenRatio:    [0.10,   0.01, 1,       'share of budget loaded after a file before it counts as evicted'],
+  staleFiles:         [8,      2,    100,     'other files loaded after a file before it counts as evicted (at 200K)'],
+  staleTimeMs:        [600000, 60000, 86400000, 'ms since last read before a cached file counts as stale'],
+  promptMinWords:     [8,      1,    100,     'prompt word count below which the coach calls it too vague'],
+  promptIdealMaxWords:[200,    20,   2000,    'upper bound of the coach\'s "ideal length" band'],
+  promptTooLongWords: [500,    50,   5000,    'prompt word count above which the ask is considered buried'],
+  packBudgetPercent:  [25,     1,    90,      'max share of the budget /cco pack may consume'],
+};
+
+export const DEFAULT_THRESHOLDS = Object.fromEntries(
+  Object.entries(THRESHOLD_SPEC).map(([k, [d]]) => [k, d])
+);
+
+/**
+ * Validate a threshold value against its spec.
+ * Returns { ok, value, error } — callers decide whether to warn or throw.
+ */
+export function validateThreshold(key, raw) {
+  const spec = THRESHOLD_SPEC[key];
+  if (!spec) return { ok: false, error: `unknown key "${key}"` };
+  const [, min, max] = spec;
+  const value = typeof raw === 'string' ? Number(raw) : raw;
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
+    return { ok: false, error: `${key} must be a number` };
+  }
+  if (value < min || value > max) {
+    return { ok: false, error: `${key} must be between ${min} and ${max} (got ${value})` };
+  }
+  return { ok: true, value };
+}
+
+let _thresholds = null;
+
+/**
+ * Resolved thresholds: config.thresholds over defaults, invalid values
+ * ignored (a typo must never make a hook behave wildly). Cached — hooks call
+ * this on the hot path.
+ */
+export function getThresholds() {
+  if (_thresholds) return _thresholds;
+  const cfg = loadJSON(CONFIG_FILE);
+  const out = { ...DEFAULT_THRESHOLDS };
+  for (const [k, v] of Object.entries((cfg && cfg.thresholds) || {})) {
+    const r = validateThreshold(k, v);
+    if (r.ok) out[k] = r.value;
+  }
+  _thresholds = out;
+  return out;
+}
+
+/** Test seam — drop the cached thresholds. */
+export function clearThresholdCache() { _thresholds = null; }
+
+export function loadConfig() {
+  const config = loadJSON(CONFIG_FILE);
+  if (config) return { ...DEFAULT_CONFIG, ...config };
+  mkdirSync(DATA_DIR, { recursive: true });
+  saveJSON(CONFIG_FILE, DEFAULT_CONFIG);
+  return { ...DEFAULT_CONFIG };
+}
+
+export function saveConfig(config) {
+  saveJSON(CONFIG_FILE, { ...DEFAULT_CONFIG, ...config });
+}
+
+// ── Estimate self-calibration ────────────────────────────────────────────────
+// The chars-per-token heuristic drifts per codebase (dense JSON vs airy MD).
+// Sessions where the transcript gave ground truth teach us the local drift:
+// at session end we EMA the real/estimated ratio into config, and the budget
+// hook multiplies its estimates by it. Estimates get more honest by themselves.
+
+/** One EMA step of the calibration factor. Pure — exported for tests. */
+export function emaCalibration(prevFactor, ratio, alpha = 0.3) {
+  const clamped = Math.min(2, Math.max(0.5, ratio));
+  const next = (prevFactor || 1) * (1 - alpha) + clamped * alpha;
+  return Math.round(Math.min(2, Math.max(0.5, next)) * 100) / 100;
+}
+
+let _calibrationFactor = null;
+export function getCalibrationFactor() {
+  if (_calibrationFactor !== null) return _calibrationFactor;
+  const cfg = loadJSON(CONFIG_FILE);
+  const f = cfg && cfg.calibration && cfg.calibration.factor;
+  _calibrationFactor = (typeof f === 'number' && f >= 0.5 && f <= 2) ? f : 1;
+  return _calibrationFactor;
+}
+
+/**
+ * Learn from one finished session. Only trusts sessions big enough for the
+ * ratio to be signal, not noise. Returns the new factor or null if skipped.
+ */
+export function updateCalibrationFromSession(realTokens, estimatedTokens) {
+  if (!(realTokens > 20_000) || !(estimatedTokens > 5_000)) return null;
+  const config = loadConfig();
+  const prev = (config.calibration && config.calibration.factor) || 1;
+  const samples = (config.calibration && config.calibration.samples) || 0;
+  const factor = emaCalibration(prev, realTokens / estimatedTokens);
+  config.calibration = { factor, samples: samples + 1, updatedAt: new Date().toISOString() };
+  saveConfig(config);
+  _calibrationFactor = factor;
+  return factor;
+}
+
+/**
+ * Effective budget — model-aware. Honours explicit budgetTokens but caps to
+ * the model's context window if user hasn't customised it.
+ */
+export function getEffectiveBudget(config, sessionModel) {
+  const cfg = config || loadConfig();
+  const window = getModelContextWindow(normalizeModelId(sessionModel) || cfg.model);
+  return Math.min(cfg.budgetTokens || DEFAULT_CONFIG.budgetTokens, window);
+}
+
+/** Raw model id detected for a session (written by the budget hook), or null. */
+export function getSessionModel(sessionId) {
+  if (!sessionId) return null;
+  const state = loadJSON(join(BUDGET_STATE_DIR, `${sessionId}.json`));
+  return (state && state.model) || null;
+}
+
+// ── Session resolution (shared by skills that have no event stdin) ───────────
+// Slash-command skills run as plain processes without the hook's session_id,
+// so they resolve "the current session" as the most-recently-updated session
+// file — the same convention tracker/report/digest already use.
+
+export function getLatestSessionId() {
+  try {
+    const files = readdirSync(SESSIONS_DIR)
+      .filter(f => f.endsWith('.json'))
+      .map(f => ({ name: f, mtime: statSync(join(SESSIONS_DIR, f)).mtimeMs }))
+      .sort((a, b) => b.mtime - a.mtime);
+    return files.length ? files[0].name.replace(/\.json$/, '') : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Total estimated tokens spent in a session (from budget state), or 0. */
+export function getSessionTokenTotal(sessionId) {
+  if (!sessionId) return 0;
+  const state = loadJSON(join(BUDGET_STATE_DIR, `${sessionId}.json`));
+  return (state && state.totalTokensEstimated) || 0;
+}
+
+// ── Budget config (auto-compact settings) ────────────────────────────────────
+
+const DEFAULT_BUDGET_CONFIG = {
+  autoCompactEnabled: true,
+  autoCompactThreshold: 80,
+  criticalThreshold: 90
+};
+
+let _budgetConfigCache = null;
+
+export function loadBudgetConfig() {
+  if (_budgetConfigCache) return _budgetConfigCache;
+  const config = loadJSON(BUDGET_CONFIG_FILE);
+  if (config) {
+    _budgetConfigCache = { ...DEFAULT_BUDGET_CONFIG, ...config };
+  } else {
+    mkdirSync(DATA_DIR, { recursive: true });
+    saveJSON(BUDGET_CONFIG_FILE, DEFAULT_BUDGET_CONFIG);
+    _budgetConfigCache = { ...DEFAULT_BUDGET_CONFIG };
+  }
+  return _budgetConfigCache;
+}
+
+export function saveBudgetConfig(config) {
+  const merged = { ...DEFAULT_BUDGET_CONFIG, ...config };
+  saveJSON(BUDGET_CONFIG_FILE, merged);
+  _budgetConfigCache = merged;
+}
+
+export function clearBudgetConfigCache() {
+  _budgetConfigCache = null;
+}
+
+// ── Usefulness scoring ───────────────────────────────────────────────────────
+
+export function computeUsefulness(fileData) {
+  let score = 0;
+  score += (fileData.edits || 0) * 3;
+  if (fileData.reads > 1) {
+    score += Math.min(3, (fileData.reads - 1) * 0.5);
+  }
+  if ((fileData.partialReads || 0) > 0) {
+    score += 1;
+  }
+  if (fileData.reads >= 3 && !fileData.wasEdited && (fileData.lines || 0) > 100) {
+    score -= 1;
+  }
+  return score;
+}
+
+// ── Confidence scoring ──────────────────────────────────────────────────────
+
+export function computeConfidence(freqData, daysSinceLastSession = 0) {
+  if (!freqData || !freqData.sessions) return 0;
+  const sessionScore = Math.min(1, freqData.sessions / 10);
+  const usefulRatio = freqData.sessions > 0
+    ? (freqData.usefulness || 0) / freqData.sessions
+    : 0;
+  const decayFactor = Math.max(0, 1 - (daysSinceLastSession / 300));
+  const confidence = (sessionScore * 0.4 + usefulRatio * 0.5 + decayFactor * 0.1);
+  return Math.round(confidence * 100) / 100;
+}
+
+// ── Unified file classification (single source of truth) ─────────────────────
+
+export const SOURCE_EXTS = new Set([
+  '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs',
+  '.py', '.pyi', '.go', '.rs', '.cpp', '.c', '.h', '.hpp', '.cc', '.cxx',
+  '.rb', '.java', '.kt', '.scala', '.swift', '.dart', '.cs',
+  '.clj', '.cljs', '.ex', '.exs', '.erl', '.fs', '.hs',
+  '.lua', '.pl', '.r', '.php',
+  '.svelte', '.vue', '.astro',
+]);
+export const CONFIG_EXTS = new Set(['.json', '.yaml', '.yml', '.toml', '.ini', '.env', '.proto', '.graphql', '.gql']);
+export const STYLE_EXTS = new Set(['.css', '.scss', '.sass', '.less', '.styl']);
+export const DOC_EXTS = new Set(['.md', '.mdx', '.txt', '.rst', '.tex']);
+export const SHELL_EXTS = new Set(['.sh', '.bash', '.zsh', '.fish', '.ps1']);
+
+export const SKIP_EXTS = new Set([
+  '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', '.webp', '.bmp', '.tiff',
+  '.woff', '.woff2', '.ttf', '.eot', '.otf',
+  '.lock', '.map',
+  '.zip', '.tar', '.gz', '.bz2', '.7z', '.rar', '.br', '.zst',
+  '.mp3', '.mp4', '.wav', '.ogg', '.webm', '.avi', '.mov',
+  '.pdf', '.doc', '.docx', '.xls', '.xlsx',
+]);
+
+export const SKIP_NAMES = new Set([
+  'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml',
+  'bun.lockb', 'Cargo.lock', 'Gemfile.lock', 'poetry.lock', 'composer.lock',
+]);
+
+export const SKIP_DIRS = new Set([
+  'node_modules', '.git', 'dist', 'build', '.next', '.nuxt', '.turbo',
+  '__pycache__', '.venv', 'venv', 'vendor', 'target', '.cache',
+]);
+
+export function categorizeFile(filePath) {
+  const ext = extname(filePath);
+  const name = basename(filePath);
+  const lower = filePath.toLowerCase();
+
+  // Test files first (before source, since .test.ts is also .ts)
+  if (/\.(test|spec)\./.test(name) || /\/__tests__\//.test(lower) || /\/tests?\//.test(lower)) {
+    return 'test';
+  }
+  if (DOC_EXTS.has(ext) || /\/docs?\//.test(lower)) return 'docs';
+  if (SOURCE_EXTS.has(ext)) return 'source';
+  if (STYLE_EXTS.has(ext) || /\.styled\./.test(name)) return 'style';
+  if (SHELL_EXTS.has(ext)) return 'script';
+  if (CONFIG_EXTS.has(ext) || /\.config\./.test(name) || /\.env/.test(name) ||
+      name.startsWith('tsconfig') || name === 'Makefile' || name === 'CMakeLists.txt' ||
+      name === 'Dockerfile' || name === '.eslintrc' || name === '.prettierrc') {
+    return 'config';
+  }
+  return 'other';
+}
+
+export function shouldSkipFile(filePath) {
+  const ext = extname(filePath);
+  const name = basename(filePath);
+  if (SKIP_EXTS.has(ext)) return true;
+  if (SKIP_NAMES.has(name)) return true;
+  if (name.endsWith('.min.js') || name.endsWith('.min.css')) return true;
+  return false;
+}
+
+/**
+ * Tracker-level ignore: also covers transient/system paths and binary blobs.
+ * Used by the PostToolUse tracker to drop noise events.
+ */
+const TRACKER_IGNORE_PATTERNS = [
+  /^toolu_/,
+  /^\/dev\//,
+  /^\/proc\//,
+  /^\/tmp\/claude/,
+  /^data:/,
+  /node_modules\//,
+  /\.git\//,
+];
+
+export function shouldIgnoreForTracking(filePath) {
+  if (!filePath) return true;
+  if (TRACKER_IGNORE_PATTERNS.some(p => p.test(filePath))) return true;
+  return shouldSkipFile(filePath);
+}
+
+// ── File metadata helpers ────────────────────────────────────────────────────
+
+export function getFileLines(filePath, maxBytes = 10 * 1024 * 1024) {
+  try {
+    const stat = statSync(filePath);
+    if (stat.size > maxBytes) return 0;
+    // Hot path (called from Pre/PostToolUse hooks): don't slurp multi-MB files
+    // just to count lines — estimate from size instead. Exact only when small.
+    if (stat.size > 1024 * 1024) {
+      // +1 for the newline itself. Per-extension, so a 5MB .svg isn't counted
+      // as if its lines were 35 chars long when they average ~100.
+      return Math.round(stat.size / (charsPerLine(extname(filePath)) + 1));
+    }
+    const content = readFileSync(filePath, 'utf-8');
+    return content.split('\n').length;
+  } catch {
+    return 0;
+  }
+}
+
+export function getProjectRoot(filePath) {
+  try {
+    let dir = filePath;
+    // If filePath is a file, walk from its dir. `dirname` is separator-aware,
+    // so this also terminates correctly at `C:\` on Windows, not just `/`.
+    try { if (statSync(dir).isFile()) dir = dirname(dir); } catch { /* ignore */ }
+    for (let i = 0; i < 10; i++) {
+      if (existsSync(join(dir, '.git'))) return dir;
+      if (existsSync(join(dir, 'package.json'))) return dir;
+      if (existsSync(join(dir, 'Cargo.toml'))) return dir;
+      if (existsSync(join(dir, 'go.mod'))) return dir;
+      if (existsSync(join(dir, 'pyproject.toml'))) return dir;
+      const parent = dirname(dir);
+      if (parent === dir || !parent) break;
+      dir = parent;
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
+// ── Donation / quiet mode ────────────────────────────────────────────────────
+
+export const DONATION_ADDRESSES = {
+  btc: 'bc1q428exz5t2h9rzk7z5ya70madh0j3rs6h4gfgyd',
+  eth: '0xB3f0C8e42B7cA9d65920cEfe82e3fef1B5C9d0C9',
+  sol: '8ctK8nt3CBkPZGfWQXX8TsnqUYUy4JAbT1EMhr8rsQxm',
+};
+
+/**
+ * Suppress the donation banner and the prompt coach: `"quiet": true` in
+ * config.json. The plugin reads no environment variables.
+ */
+export function isQuietMode() {
+  return loadJSON(CONFIG_FILE)?.quiet === true;
+}
+
+export function getDonationMessage() {
+  if (isQuietMode()) return '';
+  return [
+    '',
+    '  ─────────────────────────────────────────────────────────────',
+    '  Like saving tokens? Support the project:',
+    `  BTC: ${DONATION_ADDRESSES.btc}`,
+    `  ETH: ${DONATION_ADDRESSES.eth}`,
+    `  SOL: ${DONATION_ADDRESSES.sol}`,
+    '  ─────────────────────────────────────────────────────────────',
+  ].join('\n');
+}
+
+// ── Cross-process file lock ──────────────────────────────────────────────────
+// mkdir() is atomic: it either creates the directory or throws EEXIST. Used to
+// serialize read-modify-write of shared files (global stats / patterns) between
+// concurrently-finalizing sessions. Best-effort: if the lock can't be acquired
+// within ~600ms the caller proceeds unlocked (a rare lost update beats a hung
+// hook), and locks older than staleMs are stolen (crashed holder).
+
+export function acquireFileLock(name, { retries = 40, delayMs = 15, staleMs = 5000 } = {}) {
+  const lockDir = join(DATA_DIR, `.${name}.lock`);
+  mkdirSync(DATA_DIR, { recursive: true });
+  for (let i = 0; i < retries; i++) {
+    try {
+      mkdirSync(lockDir);
+      return () => { try { rmdirSync(lockDir); } catch { /* already gone */ } };
+    } catch {
+      try {
+        if (Date.now() - statSync(lockDir).mtimeMs > staleMs) {
+          rmdirSync(lockDir);
+          continue;
+        }
+      } catch { continue; } // lock vanished between mkdir and stat — retry now
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs);
+    }
+  }
+  return () => {}; // could not acquire — proceed unlocked (best-effort)
+}
+
+// ── Retention ────────────────────────────────────────────────────────────────
+// One file per session lands in each of these dirs, forever — ~80MB after a few
+// months of daily use. Aggregates (global-stats.json, patterns.json) already
+// hold what's learned, so per-session files only need to outlive the windows
+// that read them: history/ROI (30 days) and coach trends. Live-session state
+// (budget, read cache, notices) is dead the moment the session ends.
+export const RETENTION_DAYS = {
+  sessions: 90, summaries: 90, prompts: 90,
+  budget: 14, 'read-cache': 14, notices: 14,
+};
+const PRUNE_MARKER = join(DATA_DIR, '.last-prune');
+
+/**
+ * Delete per-session files older than RETENTION_DAYS. Runs at most once a
+ * day unless `force`. Returns the number of files removed.
+ */
+export function pruneOldData({ now = Date.now(), force = false, dataDir = DATA_DIR, marker = PRUNE_MARKER } = {}) {
+  // The marker holds the last prune time; read it, never stat-then-write it.
+  let last = 0;
+  try { last = Number(readFileSync(marker, 'utf-8')) || 0; } catch { /* first run */ }
+  if (!force && now - last < 86_400_000) return 0;
+  let removed = 0;
+  for (const [dir, days] of Object.entries(RETENTION_DAYS)) {
+    const full = join(dataDir, dir);
+    if (!existsSync(full)) continue;
+    const cutoff = now - days * 86_400_000;
+    for (const f of readdirSync(full)) {
+      const fp = join(full, f);
+      try {
+        const st = statSync(fp);
+        if (st.isFile() && st.mtimeMs < cutoff) { unlinkSync(fp); removed++; }
+      } catch { /* raced with another session — skip */ }
+    }
+  }
+  try { writeFileSync(marker, String(now)); } catch { /* best effort */ }
+  return removed;
+}
+
+// ── Data directory initialization ────────────────────────────────────────────
+
+export function ensureDataDirs() {
+  mkdirSync(SESSIONS_DIR, { recursive: true });
+  mkdirSync(BUDGET_STATE_DIR, { recursive: true });
+  mkdirSync(READ_CACHE_DIR, { recursive: true });
+  mkdirSync(TEMPLATES_DIR, { recursive: true });
+  mkdirSync(EXPORTS_DIR, { recursive: true });
+  mkdirSync(SUMMARIES_DIR, { recursive: true });
+  mkdirSync(PROMPTS_DIR, { recursive: true });
+  mkdirSync(NOTICES_DIR, { recursive: true });
+}
+
+// ── Plugin version (single source of truth) ─────────────────────────────────
+
+let _pluginVersion = null;
+export function getPluginVersion() {
+  if (_pluginVersion) return _pluginVersion;
+  try {
+    const here = new URL('../package.json', import.meta.url);
+    const pkg = JSON.parse(readFileSync(here, 'utf-8'));
+    _pluginVersion = pkg.version;
+  } catch {
+    _pluginVersion = '0.0.0';
+  }
+  return _pluginVersion;
+}

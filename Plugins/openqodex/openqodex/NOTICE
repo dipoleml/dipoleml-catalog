@@ -1,0 +1,81 @@
+OpenQodex
+Copyright 2026 The OpenQodex Authors
+
+This product is licensed under the Apache License, Version 2.0. See LICENSE.
+
+Scanners
+
+OpenQodex does not include any scanner. It downloads each scanner at run
+time onto the user's machine, from the scanner's own release or package
+registry. Each scanner keeps its own licence:
+
+- semgrep, LGPL-2.1: https://github.com/semgrep/semgrep
+- gitleaks, MIT: https://github.com/gitleaks/gitleaks
+- bandit, Apache-2.0: https://github.com/PyCQA/bandit
+- ruff, MIT: https://github.com/astral-sh/ruff
+- oxlint, MIT: https://github.com/oxc-project/oxc
+- osv-scanner, Apache-2.0: https://github.com/google/osv-scanner
+- actionlint, MIT: https://github.com/rhysd/actionlint
+- hadolint, GPL-3.0: https://github.com/hadolint/hadolint
+- shellcheck, GPL-3.0: https://github.com/koalaman/shellcheck
+- golangci-lint, GPL-3.0: https://github.com/golangci/golangci-lint
+- brakeman, Brakeman Public Use License: https://github.com/presidentbeef/brakeman
+  This is not an open source licence. OpenQodex does not bundle brakeman.
+  It downloads brakeman at run time onto the user's machine.
+- rubocop, MIT: https://github.com/rubocop/rubocop
+- rubocop-rails, MIT: https://github.com/rubocop/rubocop-rails
+- rubocop-performance, MIT: https://github.com/rubocop/rubocop-performance
+- uv, Apache-2.0 or MIT: https://github.com/astral-sh/uv
+
+Semgrep rules
+
+semgrep fetches its rule packs from the Semgrep registry at run time, onto
+the user's machine, for the user's own code. The rules are licensed under
+the Semgrep Rules License v1.0: https://semgrep.dev/legal/rules-license
+OpenQodex never bundles, vendors or redistributes them.
+
+Code graph
+
+The code graph parses source files with tree-sitter. The package ships the
+tree-sitter runtime and six grammar files as WebAssembly in wasm/, unchanged
+from the npm packages below. Each keeps its own licence:
+
+- web-tree-sitter, MIT, Copyright (c) 2018 Max Brunsfeld:
+  https://github.com/tree-sitter/tree-sitter
+- @vscode/tree-sitter-wasm, MIT, Copyright (c) Microsoft Corporation:
+  https://github.com/microsoft/vscode-tree-sitter-wasm
+  It builds the grammar files from these grammars, each MIT licensed:
+  - tree-sitter-typescript (typescript and tsx): https://github.com/tree-sitter/tree-sitter-typescript
+  - tree-sitter-javascript: https://github.com/tree-sitter/tree-sitter-javascript
+  - tree-sitter-python: https://github.com/tree-sitter/tree-sitter-python
+  - tree-sitter-go: https://github.com/tree-sitter/tree-sitter-go
+  - tree-sitter-ruby: https://github.com/tree-sitter/tree-sitter-ruby
+
+Benchmark data
+
+The review benchmark in this repository (benchmark/, not part of the npm
+package) reads the datasets below at run time, each from a pinned commit,
+onto the machine that runs it. The repository commits only references to
+that data: pull request links, commit ids, languages, change sizes, counts
+and hashes, and Martian's short notes on five of its pull requests, never
+the text of a review or golden comment.
+
+- AACR-Bench, Apache-2.0, by the AACR-Bench authors:
+  https://github.com/alibaba/aacr-bench (dataset/positive_samples.json and
+  dataset/negative_samples.json at commit
+  68a569759289a83654a59d06db2a72910edf0a4a)
+- Code Review Bench (offline), MIT, by Martian:
+  https://github.com/withmartian/code-review-benchmark
+  (offline/golden_comments/*.json at commit
+  e616e849755441da38f18bf3adba2c9583b03803)
+
+Bundled libraries
+
+The CLI file bundles the code of these npm packages. Each keeps its own licence:
+
+- smol-toml 1.9.0, BSD-3-Clause, Copyright (c) Squirrel Chat et al.:
+  https://github.com/squirrelchat/smol-toml
+- yaml, ISC, Copyright Eemeli Aro: https://github.com/eemeli/yaml
+- zod, MIT, Copyright (c) 2025 Colin McDonnell: https://github.com/colinhacks/zod
+- picocolors, ISC, Copyright (c) 2021-2024 Oleksii Raspopov, Kostiantyn
+  Denysov, Anton Verinov: https://github.com/alexeyraspopov/picocolors

@@ -1,0 +1,1301 @@
+"""The postgres adapter: the operational-database connector (db-load paradigm).
+
+Postgres bills no dollars; the guarded quantity is load on the database dex is
+pointed at, which is often a production OLTP primary. The budget is therefore
+denominated in database-seconds, and every billed statement is capped
+server-side by a ``statement_timeout`` wound down to what remains of the
+budget, so a wrong estimate cannot overrun the ceiling: Postgres kills the
+statement. Actual spend is wall-clock seconds per statement, recorded to the
+ledger as ``billed_seconds``.
+
+The cost split mirrors Snowflake's inversion, not BigQuery's: metadata is
+cheap (``pg_catalog`` lookups, no table scans), while any data scan loads the
+server. Inventory, ``connect test``, ``pg_stats`` reads, and ``EXPLAIN`` stay
+free; profiling aggregates, distinct-count escalations, and agent queries are
+metered. Unlike Snowflake, Postgres has a genuinely free planner preflight:
+query estimates come from ``EXPLAIN (FORMAT JSON)`` (which knows about
+indexes), translated to seconds through a conservative scan-rate heuristic and
+labeled as such.
+
+Profiling is deliberately light on the primary: the billed batch is one cheap
+single-pass scan (COUNT(*), per-column non-null counts, min/max only for
+engine-cleared safe columns), and distinct counts come free from the planner's
+own statistics (``pg_stats.n_distinct``, never the value-carrying histogram
+columns). Near-unique keys then escalate to an exact COUNT(DISTINCT) inside
+the confirmed budget through the standard escalation flow.
+
+Read-only is enforced in depth: ``default_transaction_read_only = on`` on the
+session, the SELECT-only guard in the postgres dialect on every data statement
+through one execution door, an adapter that issues no mutating statements
+(catalog SELECTs / EXPLAIN / session SETs only), and the documented
+least-privilege read-only role.
+"""
+
+from __future__ import annotations
+
+import json
+import time
+from collections.abc import Callable
+from typing import Any
+
+from ..config import PostgresTarget
+from ..envelope import EstimateQuality, Paradigm
+from ..errors import ConnectorError
+from ..guards.cost_guard import CostGate, OverCeilingError
+from ..guards.sql_guard import assert_select_only
+from .base import (
+    ColumnAggregate,
+    ColumnMeta,
+    ObjectMeta,
+    QueryResult,
+    ValueDomainSample,
+    affordable_combinations,
+    blame,
+    distinct_combination_parts,
+    is_blob_type,
+    is_integer_type,
+    is_string_type,
+    json_safe,
+    key_shape_aggregate_kwargs,
+    key_shape_expressions,
+    name_list,
+    shape_stat_expressions,
+    shape_stat_value,
+    temporal_alignment_expressions,
+    temporal_continuity_aggregate_kwargs,
+    temporal_continuity_sql,
+    temporal_units_for,
+    type_contradiction_aggregate_kwargs,
+    type_contradiction_expressions,
+    warehouse_refusal,
+    with_dev_target,
+)
+
+PARADIGM = "db_load"
+DIALECT = "postgres"
+
+_BIGINT_TYPE = "BIGINT"
+
+# Columns are profiled in batches so one statement against a very wide table
+# does not balloon (up to 3 expressions per column).
+_COLUMN_BATCH = 50
+
+# The estimate heuristic: a deliberately conservative sequential scan rate.
+_SCAN_BYTES_PER_SECOND = 50 * 1024 * 1024
+
+# The planner's cost unit is calibrated so seq_page_cost = 1.0 is one page
+# read; translating plan cost through the page size errs conservative (CPU
+# cost components inflate the byte figure).
+_BYTES_PER_PLANNER_PAGE = 8192
+
+# Every billed statement estimates at least this much.
+_MIN_STATEMENT_SECONDS = 0.5
+
+# Types where distinct counts and min/max are invalid or meaningless: only a
+# non-null count is computed. Matched against format_type output (lowercase),
+# plus any array type by its [] suffix. The geometric types matter because
+# "point" contains "int", which the engine's numeric hint would otherwise
+# clear for min/max Postgres cannot order.
+_DEGRADED_TYPE_PREFIXES = (
+    "json",
+    "jsonb",
+    "bytea",
+    "xml",
+    "tsvector",
+    "tsquery",
+    "geometry",
+    "geography",
+    "point",
+    "line",
+    "lseg",
+    "box",
+    "path",
+    "polygon",
+    "circle",
+)
+
+_ESTIMATE_QUALITY_NOTE = (
+    "Postgres bills no dollars; the guarded quantity is load on the database, "
+    "expressed as database-seconds. Query estimates come from the free "
+    "planner (EXPLAIN); profile estimates from relation sizes. The confirmed "
+    "budget is hard-enforced per statement by a server-side statement_timeout"
+)
+
+
+def _regexp_predicate(qcol: str, pattern: str) -> str:
+    # ~ matches substrings; the shared patterns' anchors make it a full match.
+    return f"{qcol} ~ '{pattern}'"
+
+
+def _date_trunc_expr(qcol: str, unit: str) -> str:
+    return f"date_trunc('{unit}', {qcol})"
+
+
+def _date_diff_expr(unit: str, later: str, earlier: str) -> str:
+    # No native DATEDIFF. Both operands are already truncated to the same
+    # unit's boundary, so month arithmetic is exact via year/month fields
+    # (calendar months vary in length, ruling out a fixed-seconds divisor);
+    # day/hour use EXTRACT(EPOCH ...) scaled by seconds-per-unit.
+    if unit == "month":
+        return (
+            f"(EXTRACT(YEAR FROM {later})::bigint - "
+            f"EXTRACT(YEAR FROM {earlier})::bigint) * 12 "
+            f"+ (EXTRACT(MONTH FROM {later})::bigint - "
+            f"EXTRACT(MONTH FROM {earlier})::bigint)"
+        )
+    divisor = 86400 if unit == "day" else 3600
+    return f"(EXTRACT(EPOCH FROM ({later} - {earlier}))::bigint / {divisor})"
+
+
+class PostgresConnectionError(ConnectorError):
+    """Raised when a queried object cannot be resolved in the configured
+    scope. The message always names the fix, never a credential."""
+
+
+class PostgresAdapter:
+    """Holds one Postgres connection plus the cost gate for one command.
+
+    ``connection`` is injectable (class DI) so unit tests drive a fake; the
+    real connection is built by ``connect.py`` from discovered parameters
+    (autocommit, ``application_name=dex``). Credentials live only inside this
+    process and are never surfaced. ``clock`` is injectable so the fake can
+    simulate statement duration; it is what actual billed seconds are
+    measured with.
+
+    ``owns_connection`` is False when the connection came from outside dex (a host
+    supplying its own principal). Then :meth:`close` leaves it open, because
+    closing a handle the caller still holds would break the caller, and the session
+    settings on it are that caller's to choose.
+    """
+
+    name = "postgres"
+    dialect = DIALECT
+    paradigm = Paradigm.DB_LOAD
+    # Database-seconds from EXPLAIN, which prices a plan rather than a run.
+    estimate_quality = EstimateQuality.APPROXIMATE
+
+    def __init__(
+        self,
+        *,
+        connection: Any,
+        cost_gate: CostGate,
+        target: PostgresTarget | None = None,
+        auth_method: str = "unknown",
+        scope_origin: str | None = None,
+        clock: Callable[[], float] = time.monotonic,
+        owns_connection: bool = True,
+    ):
+        self._conn = connection
+        self._owns_connection = owns_connection
+        self.cost_gate = cost_gate
+        self.target = target or PostgresTarget()
+        self.auth_method = auth_method
+        # What the scope entries in the target came from, so a refusal names the
+        # thing the user has to go edit: a per-command flag or the committed
+        # allowlist. `narrow_target` has already collapsed the two by the time
+        # the adapter sees them, and the fix differs entirely.
+        self._scope_origin = scope_origin or "postgres.schemas in .dex/config.yml"
+        self._clock = clock
+        # Imported lazily (the caller constructed the connection, so the
+        # library is present); the error types drive refusal translation.
+        from psycopg import errors as pg_errors
+
+        self._pg_errors = pg_errors
+        self._dev_target: str | None = None
+        self.forget_metadata()
+        self._database: str | None = None
+        self._notes: dict[str, list[str]] = {}
+        # Columns the catalog had no planner statistics for, and columns an
+        # exact scan has since measured: `table_notes` reconciles the two so
+        # a measured column is never still reported as unavailable. Both
+        # survive `forget_metadata` like the notes themselves do.
+        self._missing_stats: dict[str, set[str]] = {}
+        self._exact_measured: dict[str, set[str]] = {}
+        self._session_prepared = False
+
+    # --- capabilities (free) ---------------------------------------------------
+
+    def capabilities(self) -> dict[str, object]:
+        # The probe round-trips to the server (current settings, not cached
+        # facts), so a stale or underprivileged credential fails here instead
+        # of reporting a healthy connection.
+        probe = self._catalog(
+            "SELECT current_database() AS db, "
+            "current_setting('server_version') AS server_version, "
+            "current_setting('default_transaction_read_only') AS read_only"
+        )[0]
+        self._database = str(probe["db"])
+        cost = self.cost_gate.cost()
+        return {
+            "connector": self.name,
+            "dialect": self.dialect,
+            "read_only": True,
+            "session_read_only": str(probe["read_only"]).lower() == "on",
+            "paradigm": self.paradigm.value,
+            "auth_method": self.auth_method,
+            "database": self._database,
+            "server_version": str(probe["server_version"]).split()[0],
+            "schema_count": len(self._schema_scope()),
+            "required_grants": [
+                "USAGE on source schemas and SELECT on their tables",
+                "write only on the dedicated dbt dev schema (transform build)",
+            ],
+            "budget": {
+                "ceiling_seconds": cost.ceiling,
+                "session_spent_today_seconds": self.cost_gate.session_spent_now(),
+            },
+        }
+
+    # --- introspection (free pg_catalog metadata; no scans) --------------------
+
+    def list_objects(self, *, include_views: bool = True) -> list[ObjectMeta]:
+        self._load_inventory()
+        objects = [
+            self._object_meta(entry)
+            for entry in self._objects.values()
+            if include_views or entry["object_type"] != "view"
+        ]
+        objects.sort(key=lambda o: o.identifier)
+        return objects
+
+    def table_metadata(self, identifier: str) -> tuple[ObjectMeta, list[ColumnMeta]]:
+        self._load_inventory()
+        entry = self._objects.get(identifier)
+        if entry is None:
+            raise PostgresConnectionError(
+                f"object '{identifier}' not found in the configured scope; "
+                "check postgres.schemas in .dex/config.yml (identifiers are "
+                "database.schema.table against the connected database)"
+            )
+        return self._object_meta(entry), list(self._columns.get(identifier, []))
+
+    def table_notes(self, identifier: str) -> list[str]:
+        """Data-quality notes the profiling run accumulated for one object
+        (sampling degradation, skipped escalations, missing planner stats).
+        Merged into the dataset's ``data_quality`` by the profile engine.
+
+        The missing-stats note is composed here, not at scan time: an exact
+        scan after the aggregate scan may have measured columns the catalog
+        had none for, and a note claiming those counts are unavailable until
+        ANALYZE runs would then be wrong. Columns still unmeasured keep
+        the unavailable note; measured ones get a note saying so.
+        """
+
+        notes = list(self._notes.get(identifier, []))
+        missing = self._missing_stats.get(identifier, set())
+        measured = self._exact_measured.get(identifier, set()) & missing
+        unmeasured = missing - measured
+        if unmeasured:
+            notes.append(
+                f"no planner statistics for {len(unmeasured)} column(s); distinct "
+                "counts are unavailable until ANALYZE runs on this table",
+            )
+        if measured:
+            notes.append(
+                "distinct counts for "
+                f"{', '.join(sorted(measured))} measured with an exact scan "
+                "because the catalog had none",
+            )
+        return notes
+
+    def _load_inventory(self) -> None:
+        if self._inventory_loaded:
+            return
+        database = self._current_database()
+        # The resolved scopes, not the raw config: an entry that names nothing is
+        # refused before this filter drops it, which is the silent-empty-inventory
+        # bug this connector was most exposed to.
+        allowed = set(self._schema_scope()) if self.target.schemas else set()
+        # relkind: r table, p partitioned table, f foreign table, m
+        # materialized view, v view. reltuples is the planner's estimate (-1
+        # means never analyzed); pg_total_relation_size is a catalog lookup,
+        # not a scan.
+        rows = self._catalog(
+            "SELECT n.nspname AS schema_name, c.relname AS object_name, "
+            "c.relkind AS kind, c.reltuples AS reltuples, "
+            "pg_catalog.pg_total_relation_size(c.oid) AS total_bytes "
+            "FROM pg_catalog.pg_class c "
+            "JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace "
+            "WHERE c.relkind IN ('r', 'p', 'f', 'm', 'v') "
+            "AND n.nspname <> 'information_schema' "
+            "AND n.nspname NOT LIKE 'pg\\_%'"
+        )
+        for row in rows:
+            schema = str(row["schema_name"])
+            if allowed and schema not in allowed:
+                continue
+            object_type = "view" if str(row["kind"]) in ("v", "m") else "table"
+            reltuples = float(row["reltuples"])
+            size = int(row["total_bytes"]) if row["total_bytes"] else None
+            identifier = f"{database}.{schema}.{row['object_name']}"
+            self._objects[identifier] = {
+                "identifier": identifier,
+                "object_type": object_type,
+                "schema": schema,
+                "name": str(row["object_name"]),
+                "row_count": int(reltuples) if reltuples >= 0 else None,
+                "byte_size": size if object_type == "table" or size else None,
+                "column_count": 0,
+            }
+        columns = self._catalog(
+            "SELECT n.nspname AS schema_name, c.relname AS object_name, "
+            "a.attname AS column_name, "
+            "pg_catalog.format_type(a.atttypid, a.atttypmod) AS data_type, "
+            "NOT a.attnotnull AS nullable "
+            "FROM pg_catalog.pg_attribute a "
+            "JOIN pg_catalog.pg_class c ON c.oid = a.attrelid "
+            "JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace "
+            "WHERE a.attnum > 0 AND NOT a.attisdropped "
+            "AND c.relkind IN ('r', 'p', 'f', 'm', 'v') "
+            "AND n.nspname <> 'information_schema' "
+            "AND n.nspname NOT LIKE 'pg\\_%' "
+            "ORDER BY n.nspname, c.relname, a.attnum"
+        )
+        for row in columns:
+            identifier = f"{database}.{row['schema_name']}.{row['object_name']}"
+            entry = self._objects.get(identifier)
+            if entry is None:
+                continue
+            metas = self._columns.setdefault(identifier, [])
+            metas.append(
+                ColumnMeta(
+                    name=str(row["column_name"]),
+                    data_type=str(row["data_type"]),
+                    nullable=bool(row["nullable"]),
+                    ordinal=len(metas),
+                )
+            )
+            entry["column_count"] = len(metas)
+        self._inventory_loaded = True
+
+    def _object_meta(self, entry: dict) -> ObjectMeta:
+        # An exact count from a profiling scan supersedes the planner estimate
+        # for the rest of the command, so uniqueness proofs and drift verdicts
+        # compare against real rows, not reltuples.
+        row_count = self._exact_rows.get(entry["identifier"], entry["row_count"])
+        return ObjectMeta(
+            identifier=entry["identifier"],
+            object_type=entry["object_type"],
+            schema=entry["schema"],
+            name=entry["name"],
+            row_count=row_count,
+            byte_size=entry["byte_size"],
+            column_count=entry["column_count"],
+        )
+
+    def _current_database(self) -> str:
+        if self._database is None:
+            row = self._catalog("SELECT current_database() AS db")[0]
+            self._database = str(row["db"])
+        return self._database
+
+    def _schema_scope(self) -> list[str]:
+        """Every source schema this command reads, proven to exist.
+
+        Resolution is free (one pg_catalog SELECT, no scan) and cached for the
+        command. It runs before anything is estimated, because a scope that
+        resolves to nothing and silently falls back to the whole allowlist is a
+        cost-safety bug: the estimate the user confirms would cover tables they
+        never named. Postgres was the worst of the connectors here, because an
+        allowlist entry was echoed back without ever asking the server, and the
+        inventory filter then dropped it silently: a typo simply returned nothing.
+        """
+
+        if self._resolved_schemas is None:
+            self._resolved_schemas = self._resolve_schemas()
+        return self._resolved_schemas
+
+    def forget_metadata(self) -> None:
+        """Drop everything this command has listed, because the warehouse changed.
+
+        Catalog results are cached per command: the estimate pass and the
+        confirmed run share table facts, and each lookup is free but a
+        round-trip. That holds while the warehouse holds still, and a build is
+        the one command where it does not: dbt writes between the pricing pass
+        and the verification that judges its output, so a schema that did not
+        exist, or a table's row estimate, is stale by then. The schema list goes
+        too, since dbt creates its dev schema.
+
+        What survives is what this command has paid for or prepared: the
+        session, the connected database, and its notes.
+        """
+
+        self._objects: dict[str, dict] = {}
+        self._columns: dict[str, list[ColumnMeta]] = {}
+        self._stats: dict[str, dict[str, float]] = {}
+        self._exact_rows: dict[str, int] = {}
+        self._inventory_loaded = False
+        self._resolved_schemas: list[str] | None = None
+        self._visible_schemas: set[str] | None = None
+
+    def read_dev_target(self, scope: str | None) -> None:
+        """Also read ``dev_schema``, the schema this command's build writes into,
+        or stop reading it with ``None``.
+
+        Kept apart from the committed allowlist because it is not a source the
+        user committed: it is dex reading its own output for one command, and it
+        may not exist yet (see :func:`~exmergo_dex_core.adapters.base.with_dev_target`).
+        A change forgets what was listed, since the scope that produced it has
+        changed.
+        """
+
+        scope = scope.strip() if scope else None
+        if scope != self._dev_target:
+            self._dev_target = scope
+            self.forget_metadata()
+
+    def _resolve_schemas(self) -> list[str]:
+        visible = self._schemas()
+        if not self.target.schemas:
+            # Every visible schema, which includes the dev target once it exists.
+            return sorted(visible)
+        with blame(self._scope_origin, PostgresConnectionError):
+            scopes = sorted(
+                {self._resolve_schema(entry, visible) for entry in self.target.schemas}
+            )
+        return with_dev_target(scopes, self._dev_target, visible.__contains__)
+
+    def _resolve_schema(self, entry: str, visible: set[str]) -> str:
+        """One scope entry, proven to exist. A Postgres scope is always a bare
+        schema in the connected database (dbt refuses cross-database references
+        outright), so there is nothing to qualify and nothing to disambiguate."""
+
+        token = entry.strip()
+        if not token:
+            raise PostgresConnectionError("empty scope entry")
+        if "." in token:
+            raise PostgresConnectionError(
+                f"scope '{entry}' has too many parts; a Postgres source scope is "
+                "a bare <schema> in the connected database "
+                f"({self._current_database()}), never a database or a table"
+            )
+        if token not in visible:
+            raise PostgresConnectionError(
+                f"scope '{entry}' names no schema in database "
+                f"{self._current_database()}; schemas there: "
+                f"{name_list(sorted(visible))}"
+            )
+        return token
+
+    def _schemas(self) -> set[str]:
+        """Every non-system schema in the connected database. Free (one catalog
+        SELECT, no scan), cached, and the live credential probe."""
+
+        if self._visible_schemas is None:
+            rows = self._catalog(
+                "SELECT nspname FROM pg_catalog.pg_namespace "
+                "WHERE nspname <> 'information_schema' "
+                "AND nspname NOT LIKE 'pg\\_%'"
+            )
+            self._visible_schemas = {str(row["nspname"]) for row in rows}
+        return self._visible_schemas
+
+    def missing_dev_namespaces(self, schema: str, *, role: str) -> list[str]:
+        """What stops ``role`` from building into the dev schema. Free: catalog
+        lookups and privilege predicates, no scan.
+
+        dbt creates the schema itself, so its absence is not fatal on its own:
+        what is fatal is the privilege to create it. Postgres therefore differs
+        from Snowflake and Databricks, where the missing *object* is the whole
+        problem. ``role`` is the one in the rendered profile rather than the
+        connected user, because dex may legitimately read as a read-only role
+        while dbt writes as another, and Postgres will answer a privilege
+        question about any role.
+        """
+
+        if not self._role_exists(role):
+            raise PostgresConnectionError(
+                f"the dbt role {role} does not exist in database "
+                f"{self._current_database()}; create it, or point the profile at "
+                "a role that exists"
+            )
+        who = f"'{_escape_literal(role)}'"
+        if schema not in self._schemas():
+            # dbt will issue CREATE SCHEMA IF NOT EXISTS on the first build, which
+            # needs CREATE on the database. Absent that, the build dies with a
+            # bare permission error naming neither the schema nor the grant.
+            row = self._catalog(
+                f"SELECT has_database_privilege({who}, current_database(), "
+                "'CREATE') AS may_create"
+            )[0]
+            return [] if bool(row["may_create"]) else [f'dev_schema "{schema}"']
+        where = f"{who}, '{_escape_literal(schema)}'"
+        row = self._catalog(
+            f"SELECT has_schema_privilege({where}, 'CREATE') AS may_create, "
+            f"has_schema_privilege({where}, 'USAGE') AS may_use"
+        )[0]
+        missing = [
+            privilege
+            for privilege, granted in (
+                ("USAGE", row["may_use"]),
+                ("CREATE", row["may_create"]),
+            )
+            if not bool(granted)
+        ]
+        return [f'{", ".join(missing)} on dev_schema "{schema}"'] if missing else []
+
+    def list_namespace_objects(self, schema: str) -> list[str]:
+        """Table and view names already in one schema. Free: one catalog SELECT,
+        no scan. A schema that does not exist yields no rows, i.e. nothing to
+        collide with. No role parameter: content is role-independent, unlike the
+        privilege question ``missing_dev_namespaces`` asks."""
+
+        rows = self._catalog(
+            "SELECT c.relname AS object_name "  # noqa: S608
+            "FROM pg_catalog.pg_class c "
+            "JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace "
+            "WHERE c.relkind IN ('r', 'p', 'f', 'm', 'v') "
+            f"AND n.nspname = '{_escape_literal(schema)}'"
+        )
+        return sorted(str(row["object_name"]) for row in rows)
+
+    def _role_exists(self, role: str) -> bool:
+        rows = self._catalog(
+            "SELECT 1 AS present FROM pg_catalog.pg_roles "  # noqa: S608
+            f"WHERE rolname = '{_escape_literal(role)}'"
+        )
+        return bool(rows)
+
+    def _table_stats(self, identifier: str) -> dict[str, float]:
+        """Free per-table distinct estimates from the planner's statistics.
+
+        Reads only ``attname`` and ``n_distinct``, never the value-carrying
+        statistics columns (most_common_vals, histogram_bounds), so no row
+        value can cross this door.
+        """
+
+        if identifier not in self._stats:
+            _db, schema, table = self._split(identifier)
+            # Interpolated parts are escaped identifiers that came from the
+            # catalog itself, never values; the door only accepts SELECTs.
+            rows = self._catalog(
+                "SELECT attname, n_distinct FROM pg_catalog.pg_stats "  # noqa: S608
+                f"WHERE schemaname = '{_escape_literal(schema)}' "
+                f"AND tablename = '{_escape_literal(table)}'"
+            )
+            self._stats[identifier] = {
+                str(row["attname"]): float(row["n_distinct"])
+                for row in rows
+                if row["n_distinct"] is not None
+            }
+        return self._stats[identifier]
+
+    # --- estimation (free; feeds the confirm handshake) -------------------------
+
+    def profile_estimate(
+        self, identifiers: list[str], *, include_blobs: set[str] | None = None
+    ) -> tuple[float, dict[str, float]]:
+        """The heuristic database-seconds estimate for profiling: per table,
+        its bytes over a conservative scan rate times the number of aggregate
+        batches. Free: everything comes from catalog metadata.
+
+        Blob-type columns are excluded from the batch count the same way
+        ``explore.profile.profile`` excludes them from the scan itself
+        (``include_blobs`` names the ``identifier.column`` paths a human
+        opted back in), so this estimate's batch count matches what the run
+        will actually issue."""
+
+        blob_paths = include_blobs or set()
+        per_table: dict[str, float] = {}
+        for identifier in identifiers:
+            meta, columns = self.table_metadata(identifier)
+            scan_columns = [
+                c
+                for c in columns
+                if not is_blob_type(c.data_type)
+                or f"{identifier}.{c.name}".lower() in blob_paths
+            ]
+            batches = max((len(scan_columns) + _COLUMN_BATCH - 1) // _COLUMN_BATCH, 1)
+            per_table[identifier] = batches * self._scan_seconds(meta.byte_size)
+        return sum(per_table.values()), per_table
+
+    def query_estimate(self, sql: str) -> float:
+        """The estimate for one firewall-approved query, from the free planner
+        preflight (EXPLAIN knows about indexes, so a point lookup on a huge
+        table is not quoted as a full scan), falling back to summed
+        referenced-table bytes when the plan cannot be read."""
+
+        checked = assert_select_only(sql, dialect=self.dialect)
+        return self._statement_estimate(checked)
+
+    def _statement_estimate(self, sql: str) -> float:
+        cost = self._plan_cost(sql)
+        if cost is not None:
+            return max(
+                cost * _BYTES_PER_PLANNER_PAGE / _SCAN_BYTES_PER_SECOND,
+                _MIN_STATEMENT_SECONDS,
+            )
+        total_bytes = 0
+        known = 0
+        self._load_inventory()
+        for identifier in self._referenced_tables(sql):
+            entry = self._objects.get(identifier)
+            if entry and entry["byte_size"] is not None:
+                total_bytes += entry["byte_size"]
+                known += 1
+        if known == 0:
+            return _MIN_STATEMENT_SECONDS
+        return self._scan_seconds(total_bytes)
+
+    def _plan_cost(self, sql: str) -> float | None:
+        """Total planner cost of one SELECT via the free EXPLAIN door, or
+        ``None`` when the plan cannot be produced or read (the caller then
+        falls back to the size heuristic)."""
+
+        try:
+            rows = self._explain(sql)
+            document = rows[0][0]
+            if isinstance(document, str):
+                document = json.loads(document)
+            return float(document[0]["Plan"]["Total Cost"])
+        except Exception:
+            return None
+
+    def _scan_seconds(self, byte_size: int | None) -> float:
+        if not byte_size:
+            return _MIN_STATEMENT_SECONDS
+        return max(byte_size / _SCAN_BYTES_PER_SECOND, _MIN_STATEMENT_SECONDS)
+
+    def _referenced_tables(self, sql: str) -> set[str]:
+        try:
+            import sqlglot
+            from sqlglot import expressions as sqlglot_exp
+
+            parsed = sqlglot.parse_one(sql, read=self.dialect)
+        except Exception:
+            return set()
+        database = self._current_database()
+        identifiers = set()
+        for table in parsed.find_all(sqlglot_exp.Table):
+            parts = [p for p in (table.catalog, table.db, table.name) if p]
+            if len(parts) == 2:
+                parts.insert(0, database)
+            identifiers.add(".".join(parts))
+        return identifiers
+
+    def describe_estimate(
+        self, estimate: float, per_table: dict[str, float] | None = None
+    ) -> dict:
+        """The db-load handshake payload: database-seconds are the binding
+        number; there is no currency translation because nothing is billed."""
+
+        data: dict[str, object] = {
+            "estimated_seconds": estimate,
+            "estimate_quality": "heuristic",
+            "hint": (
+                "review the estimate, then re-run with --confirm --budget "
+                "<seconds> (the ceiling in database-seconds; the same number "
+                "becomes the server-side statement_timeout)"
+            ),
+            "notes": [_ESTIMATE_QUALITY_NOTE],
+        }
+        if per_table:
+            data["per_table_seconds"] = per_table
+        return data
+
+    def spend_display(self) -> dict:
+        """No currency translation exists for database load; the seconds in
+        the spend summary are the whole story."""
+
+        return {}
+
+    # --- profiling (billed; every statement estimated and gated) ----------------
+
+    def column_aggregates(
+        self,
+        identifier: str,
+        columns: list[ColumnMeta],
+        *,
+        safe_min_max: set[str] | None = None,
+        shape_stats: set[str] | None = None,
+        type_stats: set[str] | None = None,
+        key_shape_stats: set[str] | None = None,
+        temporal_stats: set[str] | None = None,
+    ) -> list[ColumnAggregate]:
+        safe = safe_min_max or set()
+        shape = shape_stats or set()
+        type_req = type_stats or set()
+        key_shape_req = key_shape_stats or set()
+        temporal_req = temporal_stats or set()
+        meta, _ = self.table_metadata(identifier)
+        sample_percent = self._sample_percent(identifier, meta.byte_size)
+        stats = self._table_stats(identifier)
+        results: list[ColumnAggregate] = []
+        for start in range(0, len(columns), _COLUMN_BATCH):
+            batch = columns[start : start + _COLUMN_BATCH]
+            sql, plan = self._build_aggregate_sql(
+                identifier,
+                batch,
+                safe,
+                shape,
+                type_req,
+                key_shape_req,
+                temporal_req,
+                sample_percent=sample_percent,
+            )
+            rows, labels = self._execute(
+                sql, estimate=self._scan_seconds(meta.byte_size)
+            )
+            values = dict(zip(labels, rows[0], strict=True))
+            n_total = int(values["n_total"])
+            if sample_percent is None:
+                self._exact_rows[identifier] = n_total
+            results.extend(
+                self._read_aggregates(
+                    values,
+                    plan,
+                    stats,
+                    row_basis=self._distinct_row_basis(identifier, meta),
+                    sampled=sample_percent is not None,
+                )
+            )
+        self._record_missing_stats(identifier, columns, stats)
+        return results
+
+    def _distinct_row_basis(self, identifier: str, meta: ObjectMeta) -> int | None:
+        """The whole-table row count negative ``n_distinct`` ratios scale by:
+        the exact count when a full scan produced one, else the planner
+        estimate."""
+
+        return self._exact_rows.get(identifier, meta.row_count)
+
+    def _sample_percent(self, identifier: str, byte_size: int | None) -> float | None:
+        threshold = self.target.max_full_profile_bytes
+        if threshold is None or not byte_size or byte_size <= threshold:
+            return None
+        percent = max(round(100.0 * threshold / byte_size, 2), 0.01)
+        self._note(
+            identifier,
+            f"profiled from a ~{percent}% block sample (table exceeds "
+            "postgres.max_full_profile_bytes); counts and extremes are "
+            "approximate and uniqueness is not judged",
+        )
+        return percent
+
+    def _build_aggregate_sql(
+        self,
+        identifier: str,
+        columns: list[ColumnMeta],
+        safe: set[str],
+        shape: set[str],
+        type_req: set[str],
+        key_shape_req: set[str],
+        temporal_req: set[str],
+        *,
+        sample_percent: float | None = None,
+    ) -> tuple[str, list[tuple[int, ColumnMeta, bool, bool, bool, bool, bool, bool]]]:
+        # One aggregate statement per batch, a single cheap pass: COUNT(*)
+        # once, then per column a non-null count, min/max only where allowed,
+        # and value-shape/type-contradiction/key-shape/temporal-continuity
+        # fractions only where requested. Distinct counts deliberately do NOT
+        # scan here (they come free from pg_stats); COUNT(DISTINCT) across
+        # every column is exactly the sort/hash load a production primary
+        # should not carry. Pure (no connection), so the SELECT-only property
+        # is testable offline.
+        source = self._quote(identifier)
+        if sample_percent is not None:
+            source += f" TABLESAMPLE SYSTEM ({sample_percent})"
+        select_parts = ["COUNT(*) AS n_total"]
+        plan: list[tuple[int, ColumnMeta, bool, bool, bool, bool, bool, bool]] = []
+        for i, col in enumerate(columns):
+            qcol = _quote_ident(col.name)
+            degraded = self._is_degraded(col.data_type)
+            select_parts.append(f"COUNT({qcol}) AS nn_{i}")
+            wants_distinct = not degraded
+            wants_min_max = (col.name in safe) and not degraded
+            if wants_min_max:
+                select_parts.append(f"MIN({qcol}) AS mn_{i}")
+                select_parts.append(f"MAX({qcol}) AS mx_{i}")
+            wants_shape = (col.name in shape) and not degraded
+            if wants_shape:
+                select_parts.extend(shape_stat_expressions(qcol, i, _regexp_predicate))
+            wants_type = (col.name in type_req) and not degraded
+            if wants_type:
+                select_parts.extend(
+                    type_contradiction_expressions(
+                        qcol,
+                        i,
+                        is_string=is_string_type(col.data_type),
+                        is_integer=is_integer_type(col.data_type),
+                        regexp_predicate=_regexp_predicate,
+                        bigint_type=_BIGINT_TYPE,
+                    )
+                )
+            wants_key_shape = (col.name in key_shape_req) and not degraded
+            if wants_key_shape:
+                select_parts.extend(key_shape_expressions(qcol, i, _regexp_predicate))
+            wants_temporal = (col.name in temporal_req) and not degraded
+            if wants_temporal:
+                select_parts.extend(
+                    temporal_alignment_expressions(qcol, i, _date_trunc_expr)
+                )
+                for unit in temporal_units_for(col.data_type):
+                    select_parts.extend(
+                        temporal_continuity_sql(
+                            qcol,
+                            i,
+                            unit,
+                            source,
+                            _date_trunc_expr,
+                            _date_diff_expr,
+                        )
+                    )
+            plan.append(
+                (
+                    i,
+                    col,
+                    wants_distinct,
+                    wants_min_max,
+                    wants_shape,
+                    wants_type,
+                    wants_key_shape,
+                    wants_temporal,
+                )
+            )
+        # Interpolated parts are quoted identifiers and fixed aggregate
+        # keywords, never values; the result is guarded as a read-only SELECT.
+        sql = f"SELECT {', '.join(select_parts)} FROM {source}"  # noqa: S608
+        return assert_select_only(sql, dialect=self.dialect), plan
+
+    @staticmethod
+    def _is_degraded(data_type: str) -> bool:
+        lowered = data_type.lower()
+        return lowered.endswith("[]") or lowered.startswith(_DEGRADED_TYPE_PREFIXES)
+
+    @staticmethod
+    def _read_aggregates(
+        values: dict,
+        plan: list[tuple[int, ColumnMeta, bool, bool, bool, bool, bool, bool]],
+        stats: dict[str, float],
+        *,
+        row_basis: int | None,
+        sampled: bool,
+    ) -> list[ColumnAggregate]:
+        n_total = int(values["n_total"])
+        aggregates: list[ColumnAggregate] = []
+        for (
+            i,
+            col,
+            wants_distinct,
+            wants_min_max,
+            wants_shape,
+            wants_type,
+            wants_key_shape,
+            wants_temporal,
+        ) in plan:
+            nn = values.get(f"nn_{i}")
+            null_fraction = (
+                (1 - int(nn) / n_total) if nn is not None and n_total > 0 else None
+            )
+            distinct: int | None = None
+            if wants_distinct and n_total > 0:
+                n_distinct = stats.get(col.name)
+                if n_distinct is not None:
+                    if n_distinct >= 0:
+                        distinct = int(n_distinct)
+                    elif row_basis is not None:
+                        # Negative n_distinct is a ratio of the row count
+                        # (-1 means "all rows distinct").
+                        distinct = round(-n_distinct * row_basis)
+            aggregates.append(
+                ColumnAggregate(
+                    name=col.name,
+                    null_fraction=null_fraction,
+                    # pg_stats estimates are never a uniqueness verdict; the
+                    # near-unique escalation proves keys with an exact scan.
+                    distinct_count=distinct,
+                    is_unique=None,
+                    min_value=(
+                        json_safe(values.get(f"mn_{i}")) if wants_min_max else None
+                    ),
+                    max_value=(
+                        json_safe(values.get(f"mx_{i}")) if wants_min_max else None
+                    ),
+                    upper_vocab_fraction=shape_stat_value(
+                        values, f"su_{i}", wants_shape
+                    ),
+                    person_shape_fraction=shape_stat_value(
+                        values, f"sp_{i}", wants_shape
+                    ),
+                    avg_token_count=shape_stat_value(values, f"st_{i}", wants_shape),
+                    **type_contradiction_aggregate_kwargs(values, i, wants_type),
+                    **key_shape_aggregate_kwargs(values, i, wants_key_shape),
+                    **temporal_continuity_aggregate_kwargs(values, i, wants_temporal),
+                )
+            )
+        return aggregates
+
+    def _record_missing_stats(
+        self, identifier: str, columns: list[ColumnMeta], stats: dict[str, float]
+    ) -> None:
+        # Recorded, not noted: `table_notes` composes the note after any
+        # exact scan has had its chance to measure these columns, so a
+        # measured column is never reported as unavailable. A fresh
+        # aggregate scan starts a fresh measurement epoch: exact counts
+        # from an earlier run must not speak for this one.
+        self._exact_measured[identifier] = set()
+        self._missing_stats[identifier] = {
+            col.name
+            for col in columns
+            if not self._is_degraded(col.data_type) and col.name not in stats
+        }
+
+    def exact_distinct_counts(
+        self, identifier: str, columns: list[str]
+    ) -> dict[str, int]:
+        """Exact COUNT(DISTINCT) for near-unique columns, spent only within the
+        already-confirmed budget: when the remaining budget cannot cover the
+        extra scan, return nothing and let uniqueness verdicts stay
+        approximate. A metered adapter never self-escalates past its ceiling.
+
+        Columns the adapter degrades (json, xml and friends, which the
+        aggregate scan itself refuses to count) are skipped, not counted:
+        the engine also sends columns the catalog had no statistics for,
+        and a degraded column among them would fail the whole statement.
+        A column the inventory does not know is kept, since its type cannot
+        be proven degraded. Measured columns are recorded so `table_notes`
+        can say they were measured because the catalog had none.
+        """
+
+        if not columns:
+            return {}
+        meta, table_columns = self.table_metadata(identifier)
+        types = {col.name: col.data_type for col in table_columns}
+        measurable = [
+            name
+            for name in columns
+            if name not in types or not self._is_degraded(types[name])
+        ]
+        if not measurable:
+            return {}
+        estimate = self._scan_seconds(meta.byte_size)
+        if not self.cost_gate.try_charge(estimate):
+            self._note(
+                identifier,
+                "distinct-count escalation skipped: the remaining budget could "
+                "not cover the extra scan; uniqueness verdicts stay approximate",
+            )
+            return {}
+        # COUNT(*) rides along so the same scan also upgrades the planner's
+        # row estimate to an exact count (grain verdicts compare against it).
+        select_parts = ["COUNT(*) AS n_total"] + [
+            f"COUNT(DISTINCT {_quote_ident(name)}) AS d_{i}"
+            for i, name in enumerate(measurable)
+        ]
+        sql = assert_select_only(
+            f"SELECT {', '.join(select_parts)} FROM {self._quote(identifier)}",  # noqa: S608
+            dialect=self.dialect,
+        )
+        rows, labels = self._run(sql)
+        values = dict(zip(labels, rows[0], strict=True))
+        self._exact_rows[identifier] = int(values["n_total"])
+        self._exact_measured.setdefault(identifier, set()).update(measurable)
+        return {name: int(values[f"d_{i}"]) for i, name in enumerate(measurable)}
+
+    def distinct_combination_counts(
+        self, identifier: str, combinations: list[list[str]]
+    ) -> dict[tuple[str, ...], int]:
+        """Exact distinct count per column combination, spent only within the
+        already-confirmed budget. Each combination is a further scan, so when
+        the budget cannot cover all of them the probe narrows to the pairs it
+        can afford (they arrive best-ranked first) and says so, rather than
+        giving up the grain wholesale. A metered adapter never self-escalates
+        past its ceiling.
+
+        COUNT(*) rides along as one more scalar subquery in the same
+        statement, mirroring :meth:`exact_distinct_counts`: the grain
+        check reads the row count only after the scan ran, so a composite
+        grain on an unanalyzed table or a view is measured against the
+        exact total, never against the planner's estimate (#849).
+        """
+
+        if not combinations:
+            return {}
+        meta, _ = self.table_metadata(identifier)
+        unit = self._scan_seconds(meta.byte_size)
+        probed, note = affordable_combinations(
+            combinations,
+            lambda prefix: unit * len(prefix),
+            self.cost_gate.try_charge,
+        )
+        if note:
+            self._note(identifier, note)
+        if not probed:
+            return {}
+        # The only interpolation is the quoted+escaped identifier (never a
+        # value); the statement is parsed and refused if not a read-only
+        # SELECT.
+        parts = [
+            f"(SELECT COUNT(*) FROM {self._quote(identifier)}) AS n_total",  # noqa: S608
+            *distinct_combination_parts(self._quote(identifier), probed, _quote_ident),
+        ]
+        sql = assert_select_only(
+            f"SELECT {', '.join(parts)}",
+            dialect=self.dialect,
+        )
+        rows, labels = self._run(sql)
+        values = dict(zip(labels, rows[0], strict=True))
+        self._exact_rows[identifier] = int(values["n_total"])
+        return {tuple(combo): int(values[f"d_{i}"]) for i, combo in enumerate(probed)}
+
+    def value_domain_counts(
+        self, identifier: str, columns: list[str], *, limit: int
+    ) -> dict[str, ValueDomainSample]:
+        """Top ``limit`` values by frequency per column, plus each column's
+        exact distinct-group count, spent only within the already-confirmed
+        budget: when the remaining budget cannot cover the extra scan,
+        return nothing and report no value domain. A metered adapter never
+        self-escalates past its ceiling.
+        """
+
+        if not columns:
+            return {}
+        meta, _ = self.table_metadata(identifier)
+        estimate = self._scan_seconds(meta.byte_size)
+        if not self.cost_gate.try_charge(estimate):
+            self._note(
+                identifier,
+                "value-domain probe skipped: the remaining budget could not "
+                "cover the extra scan; no value domain reported",
+            )
+            return {}
+        table = self._quote(identifier)
+        parts = []
+        for i, name in enumerate(columns):
+            qcol = _quote_ident(name)
+            parts.append(
+                "(SELECT json_agg(json_build_object('v', v, 'c', c)) FROM "  # noqa: S608
+                f"(SELECT {qcol} AS v, COUNT(*) AS c FROM {table} "
+                f"WHERE {qcol} IS NOT NULL GROUP BY {qcol} ORDER BY c DESC, v "
+                f"LIMIT {limit}) AS q_{i}) AS d_{i}"
+            )
+            parts.append(
+                f"(SELECT COUNT(*) FROM (SELECT DISTINCT {qcol} FROM {table} "  # noqa: S608
+                f"WHERE {qcol} IS NOT NULL) AS n_{i}) AS n_{i}"
+            )
+        sql = assert_select_only(f"SELECT {', '.join(parts)}", dialect=self.dialect)
+        rows, labels = self._run(sql)
+        values = dict(zip(labels, rows[0], strict=True))
+        result = {}
+        for i, name in enumerate(columns):
+            domain = values[f"d_{i}"]
+            if isinstance(domain, str):
+                domain = json.loads(domain)
+            result[name] = ValueDomainSample(
+                values=[(entry["v"], entry["c"]) for entry in (domain or [])],
+                total_distinct=int(values[f"n_{i}"]),
+            )
+        return result
+
+    # --- execution (the single billed door) --------------------------------------
+
+    def run_query(
+        self,
+        sql: str,
+        *,
+        max_rows: int,
+        timeout_seconds: float,
+    ) -> QueryResult:
+        """Execute one firewall-approved SELECT, bounded in rows, wall time,
+        and database-seconds (client preflight plus the server-side statement
+        timeout, whichever is tighter)."""
+
+        checked = assert_select_only(sql, dialect=self.dialect)
+        self.cost_gate.charge(self._statement_estimate(checked))
+        rows, labels, types = self._run_rows(
+            checked, timeout_seconds=timeout_seconds, fetch_rows=max_rows + 1
+        )
+        return QueryResult(
+            columns=labels,
+            types=types,
+            cells=[[json_safe(v) for v in row] for row in rows[:max_rows]],
+            truncated=len(rows) > max_rows,
+        )
+
+    def _execute(self, sql: str, *, estimate: float) -> tuple[list, list[str]]:
+        """SELECT-only guard, heuristic charge, then the timeout-capped run."""
+
+        assert_select_only(sql, dialect=self.dialect)
+        self.cost_gate.charge(estimate)
+        return self._run(sql)
+
+    def _run(self, sql: str) -> tuple[list, list[str]]:
+        rows, labels, _types = self._run_rows(sql)
+        return rows, labels
+
+    def _run_rows(
+        self,
+        sql: str,
+        *,
+        timeout_seconds: float | None = None,
+        fetch_rows: int | None = None,
+    ) -> tuple[list, list[str], list[str]]:
+        """The single billed door past the gate: the server-side
+        statement_timeout is wound down to what remains of the budget (or the
+        wall-clock limit when that is tighter), and wall-clock elapsed is
+        recorded to the ledger."""
+
+        cursor, budget_bound = self._billed_cursor(timeout_seconds)
+        started = self._clock()
+        try:
+            cursor.execute(sql)
+            rows = (
+                cursor.fetchmany(fetch_rows)
+                if fetch_rows is not None
+                else cursor.fetchall()
+            )
+        except self._pg_errors.QueryCanceled as exc:
+            self._record_elapsed(started, sql)
+            raise self._timeout_refusal(budget_bound, timeout_seconds) from exc
+        except self._pg_errors.ReadOnlySqlTransaction as exc:
+            self._record_elapsed(started, sql)
+            raise PostgresConnectionError(
+                "the statement attempted a write and the session is read-only "
+                "by construction; dex never mutates the database"
+            ) from exc
+        except self._pg_errors.DatabaseError as exc:
+            # Everything else the server refused, after the two failures with
+            # a better answer above. `sqlstate` is what separates a server
+            # answer from a connection that died mid-statement (psycopg raises
+            # OperationalError with none for the latter), and only the first
+            # is an execution failure; a dead connection stays untyped so it
+            # is not reported as SQL the server rejected.
+            self._record_elapsed(started, sql)
+            if getattr(exc, "sqlstate", None) is None:
+                raise
+            raise warehouse_refusal(str(exc), code=exc.sqlstate) from exc
+        self._record_elapsed(started, sql)
+        labels = [str(d.name) for d in cursor.description]
+        types = [self._description_type(d) for d in cursor.description]
+        return rows, labels, types
+
+    def _billed_cursor(self, timeout_seconds: float | None) -> tuple[Any, bool]:
+        """A cursor prepared for spend: session read-only asserted, and the
+        server-side statement timeout wound down to what remains of the
+        budget, so even a wrong heuristic cannot overrun the ceiling. Returns
+        the cursor and whether the budget (not the wall clock) is the binding
+        bound."""
+
+        remaining = self.cost_gate.statement_cap(unit="database-second")
+        self._ensure_session()
+        cursor = self._conn.cursor()
+        timeout_ms: int | None = None
+        budget_bound = False
+        if remaining is not None:
+            timeout_ms = int(remaining) * 1000
+            budget_bound = True
+        if timeout_seconds is not None:
+            wall_ms = int(max(timeout_seconds, 1) * 1000)
+            if timeout_ms is None or wall_ms < timeout_ms:
+                timeout_ms = wall_ms
+                budget_bound = False
+        if timeout_ms is not None:
+            # dex-built session statement, not agent SQL: the value is a
+            # computed integer of milliseconds.
+            cursor.execute(f"SET statement_timeout = {timeout_ms}")
+        return cursor, budget_bound
+
+    def _timeout_refusal(
+        self, budget_bound: bool, timeout_seconds: float | None
+    ) -> Exception:
+        if budget_bound:
+            return OverCeilingError(
+                "the statement hit the server-side statement_timeout derived "
+                "from the remaining budget; raise --budget or narrow the work"
+            )
+        limit = f"{timeout_seconds:g}s" if timeout_seconds is not None else "its limit"
+        return TimeoutError(
+            f"query exceeded {limit} and was cancelled; narrow it (tighter "
+            "filter, fewer columns) and retry"
+        )
+
+    def _record_elapsed(self, started: float, sql: str) -> None:
+        elapsed = max(self._clock() - started, 0.0)
+        self.cost_gate.record_billed(elapsed, job_id=None, statement=sql)
+
+    def _ensure_session(self) -> None:
+        """Session preparation, once per command: reads stay reads even if a
+        later statement tried otherwise. dex-built constants, not agent
+        SQL."""
+
+        if self._session_prepared:
+            return
+        cursor = self._conn.cursor()
+        cursor.execute("SET default_transaction_read_only = on")
+        self._session_prepared = True
+
+    @staticmethod
+    def _description_type(description: Any) -> str:
+        type_code = getattr(description, "type_code", None)
+        try:
+            from psycopg import postgres
+
+            info = postgres.types.get(type_code)
+        except Exception:
+            info = None
+        if info is not None:
+            return str(info.name)
+        return str(getattr(type_code, "name", type_code))
+
+    # --- helpers ------------------------------------------------------------------
+
+    def _catalog(self, sql: str) -> list[dict]:
+        """Free metadata door: engine-built catalog SELECTs only (pg_catalog
+        lookups and session settings, no table scans). Results come back as
+        dicts keyed by the column names."""
+
+        if not sql.lstrip().upper().startswith("SELECT"):
+            raise ValueError("only SELECT statements pass through the catalog door")
+        self._ensure_session()
+        cursor = self._conn.cursor()
+        cursor.execute(sql)
+        labels = [str(d.name) for d in cursor.description]
+        return [dict(zip(labels, row, strict=True)) for row in cursor.fetchall()]
+
+    def _explain(self, sql: str) -> list:
+        """Free planner door: the statement is guarded SELECT-only, then
+        prefixed with EXPLAIN here, so nothing but a plan request can pass."""
+
+        checked = assert_select_only(sql, dialect=self.dialect)
+        self._ensure_session()
+        cursor = self._conn.cursor()
+        cursor.execute(f"EXPLAIN (FORMAT JSON) {checked}")
+        return cursor.fetchall()
+
+    def _note(self, identifier: str, note: str) -> None:
+        notes = self._notes.setdefault(identifier, [])
+        if note not in notes:
+            notes.append(note)
+
+    @staticmethod
+    def _split(identifier: str) -> tuple[str, str, str]:
+        parts = identifier.rsplit(".", 2)
+        if len(parts) != 3:
+            raise ValueError(f"expected database.schema.table, got '{identifier}'")
+        return parts[0], parts[1], parts[2]
+
+    def _quote(self, identifier: str) -> str:
+        # A three-part reference is valid Postgres only against the connected
+        # database, which is exactly what the namespace guarantees.
+        return ".".join(_quote_ident(p) for p in self._split(identifier))
+
+    def close(self) -> None:
+        # A host-supplied connection stays open: dex closes only what it opened.
+        if not self._owns_connection:
+            return
+        close = getattr(self._conn, "close", None)
+        if close is not None:
+            close()
+
+
+def _quote_ident(name: str) -> str:
+    """Quote one identifier component with double quotes (preserving case,
+    which unquoted Postgres identifiers would fold to lower), doubling
+    embedded quotes."""
+
+    escaped = name.replace('"', '""')
+    return f'"{escaped}"'
+
+
+def _escape_literal(value: str) -> str:
+    return value.replace("'", "''")

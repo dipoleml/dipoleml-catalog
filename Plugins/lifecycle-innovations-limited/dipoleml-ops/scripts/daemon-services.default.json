@@ -1,0 +1,150 @@
+{
+  "services": {
+    "mcp-watchdog": {
+      "enabled": true,
+      "command": "${CLAUDE_PLUGIN_ROOT}/scripts/ops-mcp-watchdog.py",
+      "cron": "*/5 * * * *",
+      "health_file": "~/.claude/state/mcp-watchdog/.health",
+      "_note": "MCP server connectivity watchdog. Auto-reconnects degraded servers, sends WhatsApp/email alert via supervisor-out-queue when manual reauth needed. Cron interval drives latency of degraded-state detection."
+    },
+    "briefing-pre-warm": {
+      "enabled": true,
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/ops-gather",
+      "cron": "*/2 * * * *",
+      "_note": "Pre-warms /ops:go briefing cache every 2 minutes. Runs immediately after daemon install so /ops:go is instant by the time setup finishes."
+    },
+    "whatsapp-bridge": {
+      "enabled": true,
+      "command": "${CLAUDE_PLUGIN_ROOT}/scripts/lib/whatsapp-bridge-up.sh",
+      "health_check": "lsof -i :8080 | grep LISTEN",
+      "pid_probe": "lsof -ti :8080 -sTCP:LISTEN 2>/dev/null | head -1",
+      "restart_delay": 60,
+      "max_restarts": 10,
+      "_note": "Cross-platform bridge starter. Looks at uname: macOS \u2192 launchctl kickstart gui/$UID/com.${USER}.whatsapp-bridge ; Linux \u2192 systemctl --user restart whatsapp-bridge.service. Install via `bash scripts/install-whatsapp-bridge-linux.sh --wa-phone <E.164>` on Linux hosts; on macOS the legacy launchctl plist still applies. Bridge source: github.com/lharries/whatsapp-mcp (with claude-ops patches applied by install script \u2014 see scripts/whatsapp/apply-patches.py)."
+    },
+    "whatsapp-backfill": {
+      "enabled": true,
+      "command": "curl -fsS -m 30 -X POST http://127.0.0.1:8080/api/backfill",
+      "cron": "0 */2 * * *",
+      "restart_delay": 0,
+      "max_restarts": 3,
+      "_note": "On-demand WhatsApp history backfill \u2014 POSTs to the bridge's /api/backfill endpoint added by claude-ops patches. Idempotent (whatsmeow dedups by message ID). On Linux installs the systemd timer `whatsapp-backfill.timer` (installed by the install script) is the primary trigger; this daemon entry is the fallback for hosts using the cron-driven claude-ops-daemon. Bridge auto-backfills 5s after every Connected event regardless."
+    },
+    "memory-extractor": {
+      "enabled": true,
+      "command": "${CLAUDE_PLUGIN_ROOT}/scripts/ops-memory-extractor.sh",
+      "health_file": "~/.claude/plugins/data/ops-ops-marketplace/memories/.health",
+      "restart_delay": 3600,
+      "cron": "*/30 * * * *"
+    },
+    "pocket-activity-notifier": {
+      "enabled": false,
+      "command": "${CLAUDE_PLUGIN_ROOT}/scripts/ops-pocket-activity-notifier.py",
+      "cron": "* * * * *",
+      "health_file": "~/.claude/state/pocket/.activity-notifier-health",
+      "restart_delay": 60,
+      "_note": "Watches pocket spawn-ledger + executor-results dir; emits START + DONE events to WhatsApp self-chat + email with the report attached. Requires whatsapp-config.json and/or email-config.json under ~/.claude/state/pocket/. Run `bash scripts/install-pocket-notifier.sh` to register the launchd job (preferred over the cron-via-daemon path for sub-minute latency)."
+    },
+    "fires-watcher": {
+      "enabled": false,
+      "command": "${CLAUDE_PLUGIN_ROOT}/scripts/ops-fires-watcher.sh",
+      "health_file": "~/.claude/plugins/data/ops-ops-marketplace/fires-watcher.health",
+      "restart_delay": 60,
+      "max_restarts": 20,
+      "_note": "Polls ops-infra + Sentry every 60s; pushes notifications on new CRITICAL/HIGH incidents. Requires at least one notify sink (Telegram bot, Discord webhook, ntfy, Pushover, or macOS). Run /ops:setup notifications to enable."
+    },
+    "gsd-registry-sync": {
+      "enabled": true,
+      "command": "${CLAUDE_PLUGIN_ROOT}/scripts/ops-gsd-registry-sync.sh",
+      "cron": "0 6,18 * * *",
+      "_note": "Discovers GSD .planning/ dirs anywhere under $HOME (extra roots via OPS_GSD_SCAN_ROOTS), updates central registry and projects_health cache. Runs at 6am and 6pm daily."
+    },
+    "inbox-digest": {
+      "enabled": false,
+      "command": "${CLAUDE_PLUGIN_ROOT}/scripts/ops-cron-inbox-digest.sh",
+      "cron": "0 */4 * * *",
+      "_note": "Aggregates all configured channels (WhatsApp, Email, Telegram, Slack) every 4 hours into a single digest. Enable after configuring at least one channel in /ops:settings."
+    },
+    "message-listener": {
+      "enabled": false,
+      "command": "${CLAUDE_PLUGIN_ROOT}/scripts/ops-message-listener.sh",
+      "interval": "continuous",
+      "health_file": "~/.claude/plugins/data/ops-ops-marketplace/listener-health.txt",
+      "restart_delay": 30,
+      "max_restarts": 20,
+      "_note": "Persistent poller for WhatsApp and Telegram. Writes incoming messages to the ops inbox queue for /ops:inbox processing. Enable after configuring channel credentials in /ops:settings."
+    },
+    "competitor-intel": {
+      "enabled": false,
+      "command": "${CLAUDE_PLUGIN_ROOT}/scripts/ops-cron-competitor-intel.sh",
+      "cron": "0 10 * * 1",
+      "_note": "Weekly competitor intelligence report every Monday at 10am. Fetches and summarises competitor activity across registered projects. Enable after configuring project registry."
+    },
+    "competitor-alert": {
+      "enabled": true,
+      "command": "${CLAUDE_PLUGIN_ROOT}/scripts/ops-competitor-alert.sh",
+      "cron": "*/10 * * * *",
+      "_note": "Drains queue/immediate.jsonl every 10 min. Pushes high-severity competitor signals to Telegram (if TELEGRAM_BOT_TOKEN+TELEGRAM_CHAT_ID set) and always persists to reports/competitor-intel/alerts.log."
+    },
+    "competitor-daily": {
+      "enabled": true,
+      "command": "${CLAUDE_PLUGIN_ROOT}/scripts/ops-cron-competitor-daily.sh",
+      "cron": "0 17 * * *",
+      "_note": "Daily 17:00 roll-up of med-severity competitor signals. Groups by competitor, writes daily-YYYY-MM-DD.md, pushes Telegram digest if creds present."
+    },
+    "marketing-prewarm": {
+      "enabled": false,
+      "command": "${CLAUDE_PLUGIN_ROOT}/scripts/ops-cron-marketing-prewarm.sh",
+      "cron": "*/15 * * * *",
+      "_note": "Pre-warms /ops:marketing cache every 15 minutes. Requires marketing credentials (Klaviyo, Meta Ads, GA4, GSC, Google Ads). Enable with /ops:setup marketing after credentials are configured."
+    },
+    "marketing-autopilot": {
+      "enabled": false,
+      "command": "${CLAUDE_PLUGIN_ROOT}/scripts/ops-cron-marketing-autopilot.sh",
+      "cron": "0 8 * * *",
+      "_note": "Autonomous per-project daily ad optimization (Meta + Google Ads) \u2014 mandatory per-project daily_spend_cap_usd, cap pre-flight, deterministic pause of underperformers (keeps >= min_live_creatives), creative-fatigue -> regen, weekly synthesis. Disabled by default; first run is forced dry. Opt-in via /ops:setup marketing (autopilot block). Cron is UTC: runs at 08:00 UTC."
+    },
+    "marketing-autopilot-calibrate": {
+      "enabled": false,
+      "command": "${CLAUDE_PLUGIN_ROOT}/scripts/ops-cron-marketing-autopilot-calibrate.sh",
+      "cron": "0 9 * * 1",
+      "_note": "Weekly Autopilot Studio self-learning calibration (Monday 09:00 UTC, after the 08:00 UTC daily pass). Joins each project's autopilot_state/<project>/creatives.jsonl pre-scores to realized KPIs (kpi.jsonl) and fits a monotone score->predicted_CPL calibrator.json consumed by the next daily pass. python3 stdlib only, no metered calls. Disabled by default; enabled alongside the autopilot block via /ops:setup marketing."
+    },
+    "marketing-auth-prewarm": {
+      "enabled": true,
+      "command": "${CLAUDE_PLUGIN_ROOT}/scripts/ops-cron-marketing-auth-prewarm.sh",
+      "cron": "23 4 * * *",
+      "_note": "Nightly at 04:23 UTC. Scans all Doppler projects + env + keychain for marketing creds and writes a cache at $OPS_DATA_DIR/marketing-auth-prewarm.json. /ops:marketing setup reads this to instantly auto-link new projects without per-credential prompts."
+    },
+    "marketing-health-check": {
+      "enabled": false,
+      "command": "${CLAUDE_PLUGIN_ROOT}/scripts/ops-cron-marketing-health-check.sh",
+      "cron": "0 8 * * 0",
+      "_note": "Weekly read-only health probe (Sunday 08:00 UTC) for all autopilot-enabled projects: Meta token TTL, Google Ads OAuth, ad account status, Doppler secret freshness, GA4 SA key, GSC site auth. Outputs JSON per project to reports/marketing-autopilot/<project>-health-<date>.json. Enable after credentials are configured. No mutations, no metered calls, OPS_DRY_RUN-safe."
+    },
+    "content-seo-blog": {
+      "enabled": false,
+      "cron": "0 9 * * 1",
+      "command": "${CLAUDE_PLUGIN_ROOT}/scripts/ops-cron-seo-blog-gen.sh",
+      "_note": "Weekly SEO blog draft generator (Monday 09:00 UTC). Pulls GSC queries (position 8-30, impressions >50, CTR <5%), drafts 1200-word articles via Claude. Persists to content/blog/<project>/. NEVER auto-publishes. Enable per project by setting marketing.projects.<key>.blog.enabled=true and gsc.site_url + brand.voice in prefs."
+    },
+    "content-email-draft": {
+      "enabled": false,
+      "cron": "0 10 * * 1",
+      "command": "${CLAUDE_PLUGIN_ROOT}/scripts/ops-cron-email-draft.sh",
+      "_note": "Weekly email draft generator (Monday 10:00 UTC). Drafts Klaviyo flow variants + next Resend broadcast via Claude. NEVER auto-sends \u2014 all drafts require per-message approval (Rule 6). Enable per project by setting marketing.projects.<key>.email_marketing.enabled=true + brand.voice in prefs."
+    },
+    "content-social-calendar": {
+      "enabled": false,
+      "cron": "0 11 * * 1",
+      "command": "${CLAUDE_PLUGIN_ROOT}/scripts/ops-cron-social-calendar.sh",
+      "_note": "Weekly social post calendar generator (Monday 11:00 UTC). Generates 5 LinkedIn + 5 X + 5 Instagram posts per project. NEVER auto-publishes \u2014 drafts require per-message approval (Rule 6). Enable per project by setting marketing.projects.<key>.social.enabled=true + brand.voice in prefs."
+    },
+    "update-check": {
+      "enabled": true,
+      "command": "${CLAUDE_PLUGIN_ROOT}/bin/ops-update-check --quiet",
+      "cron": "17 9 * * *",
+      "_note": "Detect-only daily check for a newer published plugin version. Writes ~/.claude/state/ops-update/update-available.json and exits 3 when an update exists. It never installs: applying stays a deliberate act via `ops-update`, so a background job can never swap the plugin out from under a running session. Off-hour minute avoids the :00 stampede."
+    }
+  }
+}

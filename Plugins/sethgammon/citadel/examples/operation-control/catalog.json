@@ -1,0 +1,39 @@
+{
+  "schema": 1,
+  "catalog_id": "example-local-catalog",
+  "adapters": {
+    "local-check-adapter": {
+      "protocol": "citadel-operation-adapter-v1",
+      "executable": "node",
+      "args": ["adapter.js"],
+      "timeout_ms": 10000,
+      "environment_allowlist": []
+    }
+  },
+  "plans": [
+    {
+      "plan_id": "local-filesystem-check",
+      "label": "Local deterministic filesystem check",
+      "adapter_id": "local-check-adapter",
+      "topology": "tool",
+      "model": null,
+      "tools": ["filesystem"],
+      "privacy": "local-only",
+      "feature_keys": ["repository-check"],
+      "prior": {
+        "success_probability": 0.98,
+        "strength": 25,
+        "source": "deterministic-example-contract"
+      },
+      "expected_duration_ms": 100,
+      "costs": {
+        "actual_cash": {"status": "known", "amount_usd": 0, "basis": "not-applicable", "source": "local-process"},
+        "marginal": {"status": "known", "amount_usd": 0, "basis": "not-applicable", "source": "local-process"},
+        "market_equivalent": {"status": "unknown", "amount_usd": null, "basis": "estimate", "source": "not-estimated"}
+      },
+      "retry_on": ["MALFORMED_OUTPUT"],
+      "max_retries": 1,
+      "fallback_plan_ids": []
+    }
+  ]
+}

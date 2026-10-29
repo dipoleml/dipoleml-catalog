@@ -1,0 +1,110 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.itssosunny.job-searcher",
+  "type": "plugin",
+  "name": "Job Searcher",
+  "slug": "job-searcher",
+  "vendor": "itssosunny",
+  "description": "잡써쳐 — 구직할 때, 여러 플랫폼을 찾아다니지 마세요. 자동으로 수집하세요. 22개 채용 플랫폼 → 하나의 정규화 JSON. DipoleML 스킬 팩, 읽기 전용, MIT.",
+  "version": "0.2.0",
+  "homepage": "https://github.com/itssosunny/job-searcher",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "claude-plugin",
+    "claude-skills",
+    "job-search",
+    "jobs",
+    "korea",
+    "recruiting"
+  ],
+  "tags": [
+    "claude-code",
+    "claude-plugin",
+    "claude-skills",
+    "job-search",
+    "jobs",
+    "korea",
+    "recruiting"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "itssosunny",
+    "brandName": "itssosunny",
+    "source": "https://github.com/itssosunny.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:13:23Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "itssosunny/job-searcher",
+    "url": "https://github.com/itssosunny/job-searcher",
+    "commit": "c1a095d12c3212300b7bd72ea67a80e8ea3a2aba",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 15,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:06:45Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Job Searcher | 잡써쳐 — 구직할 때, 여러 플랫폼을 찾아다니지 마세요. 자동으로 수집하세요. 22개 채용 플랫폼 → 하나의 정규화 JSON. Claude Code 스킬 팩, 읽기 전용, MIT.",
+        "after": "Job Searcher | 잡써쳐 — 구직할 때, 여러 플랫폼을 찾아다니지 마세요. 자동으로 수집하세요. 22개 채용 플랫폼 → 하나의 정규화 JSON. DipoleML 스킬 팩, 읽기 전용, MIT.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

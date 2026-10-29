@@ -1,0 +1,39 @@
+# OPTIONAL: GitHub Actions workflow for validating .flow/
+# All multi-user features work locally without this - CI is just an extra gate.
+# Copy to .github/workflows/flow-validate.yml if you want automated PR checks.
+
+name: Validate .flow
+
+on:
+  pull_request:
+    paths:
+      - '.flow/**'
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Validate .flow structure
+        # `shell: bash` on every runner (Git Bash ships on GitHub-hosted
+        # windows-latest too), so the interpreter probe below is portable.
+        shell: bash
+        run: |
+          # Nothing is installed into the repo, so CI fetches flowctl.py from the plugin.
+          curl -sL https://raw.githubusercontent.com/gmickel/gmickel-claude-marketplace/main/plugins/flow-next/scripts/flowctl.py -o flowctl.py
+          # Resolve a REAL interpreter first: on Windows `python3` is often the
+          # Microsoft Store alias stub (prints "Python was not found", exits 9009)
+          # even though it is on PATH, so probe with `-c "import sys"` and prefer
+          # the py launcher. Order matches flowctl's own launcher.
+          PY=""
+          for _cand in "py -3" python3 python; do
+            if $_cand -c "import sys" >/dev/null 2>&1; then PY="$_cand"; break; fi
+          done
+          [ -n "$PY" ] || { echo "no working Python interpreter found" >&2; exit 1; }
+          $PY flowctl.py validate --all --json

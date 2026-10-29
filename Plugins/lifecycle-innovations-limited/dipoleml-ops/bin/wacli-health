@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# wacli-health — DEPRECATED. Checks whatsapp-bridge health instead (wacli decommissioned).
+# Kept for backwards compatibility. Returns 0 if bridge is healthy, 1 if not.
+#
+# Usage: wacli-health            # exit code only
+#        wacli-health --json     # JSON output
+set -euo pipefail
+
+JSON_MODE=0
+for arg in "$@"; do
+  [[ "$arg" == "--json" ]] && JSON_MODE=1
+done
+
+healthy=1
+issues=()
+
+# Check bridge is listening
+if ! lsof -i :8080 2>/dev/null | grep -q LISTEN; then
+  healthy=0
+  issues+=("whatsapp-bridge not listening on :8080")
+fi
+
+# Check launchd registration
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  if ! launchctl list 2>/dev/null | grep -q "com.${USER}.whatsapp-bridge"; then
+    healthy=0
+    issues+=("com.${USER}.whatsapp-bridge not registered in launchd")
+  fi
+fi
+
+# Check bridge DB exists
+BRIDGE_DB="${WHATSAPP_BRIDGE_DB:-$HOME/.local/share/whatsapp-mcp/whatsapp-bridge/store/messages.db}"
+if [[ ! -f "$BRIDGE_DB" ]]; then
+  healthy=0
+  issues+=("bridge DB not found at $BRIDGE_DB")
+fi
+
+if [[ $JSON_MODE -eq 1 ]]; then
+  issues_json="["
+  first=1
+  for i in "${issues[@]+"${issues[@]}"}"; do
+    [[ $first -eq 0 ]] && issues_json+=","
+    first=0
+    issues_json+="\"$(echo "$i" | sed 's/"/\\"/g')\""
+  done
+  issues_json+="]"
+  echo "{\"healthy\": $([ $healthy -eq 1 ] && echo true || echo false), \"issues\": $issues_json, \"backend\": \"whatsapp-bridge\"}"
+else
+  if [[ $healthy -eq 1 ]]; then
+    echo "whatsapp-bridge: healthy"
+  else
+    echo "whatsapp-bridge: UNHEALTHY"
+    for i in "${issues[@]+"${issues[@]}"}"; do
+      echo "  - $i"
+    done
+    echo "Restart: launchctl kickstart -k gui/$(id -u)/com.${USER}.whatsapp-bridge"
+  fi
+fi
+
+exit $(( 1 - healthy ))

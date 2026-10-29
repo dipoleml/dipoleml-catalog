@@ -1,0 +1,30 @@
+{
+  "name": "content-repurpose-system",
+  "version": "1.2.0",
+  "description": "Plan video ideas, titles, hooks, and outlines. Turn finished videos into blog and social drafts, clip plans, vertical reels with filmed hook variants, and carousels, then package it all into a finished folder with a publish plan.",
+  "author": {
+    "name": "Samin Yasar",
+    "url": "https://github.com/Samin12"
+  },
+  "homepage": "https://github.com/AI-Answer/ContentRepurposeSystem",
+  "repository": "https://github.com/AI-Answer/ContentRepurposeSystem",
+  "license": "MIT",
+  "keywords": [
+    "youtube",
+    "content-repurposing",
+    "creator-tools",
+    "blog",
+    "twitter",
+    "linkedin",
+    "short-form",
+    "reels",
+    "shorts",
+    "hooks",
+    "skills",
+    "carousels",
+    "instagram",
+    "tiktok",
+    "publish-plan",
+    "content-calendar"
+  ]
+}

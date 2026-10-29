@@ -1,0 +1,4 @@
+# Project-level memory (each developer has their own)
+.autocode/
+__pycache__/
+*.pyc

@@ -1,0 +1,16 @@
+{
+  "name": "go-expert",
+  "displayName": "Go Expert",
+  "version": "1.0.10",
+  "description": "Expert Go 1.27+ — idioms, concurrency, backend services, cargo-grade tooling (golangci-lint v2, govulncheck), with SOLID principles",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Fusengine"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/fusengine/agents",
+  "repository": "https://github.com/Fusengine/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

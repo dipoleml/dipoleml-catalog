@@ -1,0 +1,16 @@
+{
+  "name": "pstack",
+  "displayName": "Pstack",
+  "version": "0.9.111",
+  "description": "If you want to go fast, go deep first. pstack helps you write less, but higher quality code. rigorous agent workflows you can parallelize with confidence. Ported from cursor/plugins/pstack to DipoleML. Original pstack by Lauren Tan (poteto).",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Michael Denyer"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/michael-denyer/pstack-claude",
+  "repository": "https://github.com/michael-denyer/pstack-claude",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

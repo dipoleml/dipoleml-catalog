@@ -1,0 +1,16 @@
+{
+  "name": "review",
+  "displayName": "Review",
+  "version": "2.2.4",
+  "description": "PR review, interactive git diff annotation review, and writing style guide",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Umputun"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/umputun/cc-thingz",
+  "repository": "https://github.com/umputun/cc-thingz",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

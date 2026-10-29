@@ -1,0 +1,201 @@
+<p align="center"><img src="assets/logo/gemini-agy.svg" width="440" alt="AGY-STAFF"></p>
+
+<p align="center"><a href="README.md">English</a> | <a href="README.zh-CN.md">Simplified Chinese</a></p>
+
+<p align="center"><a href="https://antigravity.google/product/antigravity-cli"><img src="assets/badges/powered-by-antigravity.svg" height="20" alt="powered by: Antigravity"></a> <img src="assets/badges/model-gemini-3-8-flash.svg" height="20" alt="model: Gemini 3.8 Flash"></p>
+
+<p align="center"><a href="https://claude.com/claude-code"><img src="assets/badges/claude-code-plugin.svg" height="20" alt="Claude Code plugin"></a> <a href="https://developers.openai.com/codex/"><img src="assets/badges/codex-plugin.svg" height="20" alt="Codex plugin"></a> <a href="LICENSE"><img src="assets/badges/license-mit.svg" height="20" alt="license: MIT"></a></p>
+
+Hire Google's Antigravity CLI (`agy`) as a staffer for **Claude Code**, **OpenAI Codex**, **Pi**, and **OpenCode**.
+
+![agy-staff design](assets/design.png)
+
+**[Bench](#-bench--harness--orchestration) · [Install](#install) · [Examples](#cujs) · [Core design](#core-design) · [Build your own](#build-one-for-another-cli) · [Upgrade](#upgrade)**
+
+## What & Why
+
+agy-staff lets your senior agents delegate to `agy`, which ships fast Gemini 3.8 Flash. Five personas: staffer (general-purpose), researcher, reviewer (code **and** plans/decisions), implementer, and ask — plus a model-facing jobs skill. Claude Code uses `/agy:<persona>` and Codex uses `$agy:<persona>`.
+
+If you use Codex you know the feeling: GPT-5.6-Sol is slow even with fast mode on. Claude Code is quicker but still not fast, and Fable quota is scarce enough that you want it orchestrating subagents, not grinding through every survey and review itself. An agy worker gives you a fast lane — second opinions in seconds, research and reviews at Flash speed, scoped implementation handled off to the side while you keep moving. And where speed isn't the point, a second model family looking at the same code buys coverage and robustness your main agent can't give itself.
+
+![two overloaded senior agents hand the baton to one fast agy worker](assets/why.png)
+
+## <img src="assets/logo/bench.svg" width="32" height="32" alt=""> Bench — Harness & Orchestration
+
+agy-staff Bench v1 runs Claude Code and Codex on three benchmarks, each task three ways: alone, with their own subagents, and with agy through `lead`.
+
+[![agy-staff Bench v1: Claude Code and Codex on SWE-bench Verified, SWE-Atlas QnA and DeepSearchQA, solo, with their own subagents and with agy](bench/results/v1/summary.png)](bench/README.md)
+
+> [!NOTE]
+> **Why a bench.** It runs the same tasks on different hosts, with and without agy, to answer three questions:
+> - **When to delegate.** Which tasks and which hosts gain from handing work to agy, and which are better left solo. The answers become best practices for using agy-staff.
+> - **What to fix in agy-staff.** Each run shows where delegation wastes time or tokens. Those findings go back into the plugin as fixes, and later bench versions check whether the fixes worked.
+> - **How harnesses differ.** Same prompt, same worker, different host. Gaps in the results trace back to design choices in each harness.
+
+**What v1 says** (one run per task and setup, so a first baseline, not a verdict):
+
+- **agy suits research best.** DeepSearchQA is the only benchmark where agy cut host spend on both hosts: Claude Code −39%, Codex −16%. Host spend is what your Claude or ChatGPT plan pays.
+- **Claude Code's harness suits agy better.** With agy, Claude Code's host spend fell on all three benchmarks (−16% to −39%). Codex's rose on two (SWE-bench +86%, QnA +22%). Claude Code waits in the background until the agy job ends; Codex polls, and every wake-up carries its full context.
+- **The price is time.** Median time per task rose from 2–8 minutes alone to 13–26 minutes with agy. Tasks solved matched solo or dropped by one.
+
+**Method, caveats and versions →** [bench/README.md](bench/README.md)
+
+## How
+
+### Invoke a persona
+
+Type `/agy:` in Claude Code and the five personas are right there:
+
+![the /agy: command menu in Claude Code](assets/claude-code-screenshot.png)
+
+Same plugin in Codex, invoked with `$agy`:
+
+![the $agy skill picker in Codex](assets/codex-desktop-screenshot.png)
+
+### Install
+
+#### For humans
+
+Step 1 — install the Antigravity CLI ([official docs](https://antigravity.google/docs/cli/install)), then verify with `agy --version`. Node.js is also required:
+
+```bash
+curl -fsSL https://antigravity.google/cli/install.sh | bash
+```
+
+Step 2 — install the plugin into your harness:
+
+```bash
+claude plugin marketplace add keli-wen/agy-staff
+claude plugin install agy@agy-staff
+```
+
+```bash
+codex plugin marketplace add https://github.com/keli-wen/agy-staff
+codex plugin add agy@agy-staff
+```
+
+<details>
+<summary>Using Pi?</summary>
+
+Install: `pi install git:github.com/keli-wen/agy-staff`.
+Skills are prefixed as `/skill:agy-<persona>` (e.g. `/skill:agy-ask reply with OK`), with `/skill:agy-jobs` for job management.
+Update with `pi update --extension git:github.com/keli-wen/agy-staff`, then run `/reload`.
+
+</details>
+
+<details>
+<summary>Using OpenCode?</summary>
+
+With OpenCode V1 (verified on 1.18.34), install the package through its native plugin manager:
+
+```bash
+opencode plugin 'agy-staff@git+https://github.com/keli-wen/agy-staff.git' --global
+```
+
+Restart OpenCode, then run `/agy-ask reply with OK`. The plugin automatically registers all seven `agy-*` skills and their native slash commands, including `/agy-lead` and `/agy-jobs`. No separate skills path or command wrappers are needed. Node.js and an authenticated `agy` are required, as above.
+
+OpenCode caches the complete package spec. Restarting does not refresh an unchanged Git spec. To upgrade, choose a newer Git tag or commit and run `opencode plugin 'agy-staff@git+https://github.com/keli-wen/agy-staff.git#<tag-or-commit>' --global --force`, then restart. See [the reference](docs/REFERENCE.md#opencode) for config and local development. OpenCode V2 is not covered by this adapter.
+
+</details>
+
+Restart Claude Code or Codex afterwards. First run: `/agy:ask reply with OK` (Claude Code) or `$agy:ask reply with OK` (Codex). Ask is tool-free and needs no setup.
+
+> [!IMPORTANT]
+> **There is no mandatory setup step.** `staffer`, `researcher`, `reviewer` and `implementer` run **unrestricted** by default: agy can inspect the repo, run commands, and edit files. agy-staff keeps that practical with prompts that adapt to the current repo state. For example, when `implementer` starts in a dirty workspace, the companion tells agy which files already had changes and reminds it not to overwrite or deliver unrelated user work. If the task asks for a commit, push, or PR, agy can do that delivery; otherwise it leaves a working-tree diff for review. These prompt instructions do not provide permission isolation.
+> `setup` + `--restricted` is **optional hardening** for untrusted input — per run (`--restricted`) or as a per-repo default (`setup --restrict review,research`). `setup` dry-runs and asks before writing anything ("set up agy" triggers it); read the [permission notes](docs/REFERENCE.md#optional-hardening-setup) first — the allowlist is prefix-matched, applies machine-wide, and a restricted run can return less than an unrestricted one.
+
+#### For agents
+
+Paste this into any coding agent:
+
+```
+Read the raw text of https://raw.githubusercontent.com/keli-wen/agy-staff/master/docs/INSTALL_FOR_AGENTS.md (curl it — do not
+work from a summary) and follow it to install and verify the agy-staff plugin for the harness you are running in.
+Respond in the user's language.
+```
+
+#### Upgrade
+
+Claude Code and Codex install a *copy*, so a new version only reaches you when you pull it in yourself:
+
+```bash
+claude plugin marketplace update agy-staff && claude plugin update agy@agy-staff
+```
+
+```bash
+codex plugin marketplace upgrade && codex plugin add agy@agy-staff  # then restart Codex
+```
+
+Claude Code and Codex cache per version directory, so an upgrade lands only if the plugin version changed; restart the harness afterwards. If a fix does not show up, see [upgrading](docs/REFERENCE.md#upgrading) — it has the force-refresh command.
+
+### CUJs
+
+Examples below use Claude Code's `/agy:…`; in Codex use `$agy:…`, in Pi `/skill:agy-…`, and in OpenCode `/agy-…`.
+
+| Use case | Invocation |
+|---|---|
+| Lead an ongoing task | `/agy:lead investigate the options, draft a proposal, and revise it with my feedback` |
+| Quick second opinion | `/agy:ask what's your backend model` |
+| A general task | `/agy:staffer summarize the open TODOs in this repo` |
+| Generate an image | `/agy:staffer generate a pixel-art robot mascot, save it as assets/mascot.png` |
+| Review the working tree | `/agy:reviewer Review the current working tree` |
+| Review a PR | `/agy:reviewer Review PR #730` |
+| Review a plan or decision | `/agy:reviewer Challenge the migration plan in docs/plan.md` |
+| Survey a topic | `/agy:researcher how does auth work in this repo` |
+| Implement a scoped fix | `/agy:implementer fix the flaky retry test` |
+| Job ops (wait/status/cancel/continue) | natural language: "is the agy job done?", "continue: also check the error path" |
+
+`reviewer` is fully prompt-based: you describe the subject and agy gathers the evidence itself (`gh pr view`, `git diff`, reading the file) — there is no flag for handing it a diff. It has two flavors, routed by subject: code review (severity-ranked findings) and general review (a multi-angle challenge of a plan, design, or decision).
+
+`staffer` also covers agy's native tools without a dedicated specialist persona, including **image generation** (`generate_image`). A trial on agy v1.1.15 produced a 1024×1024 PNG in about 30 seconds; actual time depends on the task and environment.
+
+## Core design
+
+`lead` adds task orchestration guidance for your current agent. Within lead, orient enough to frame the assignment, delegate substantive work to `staffer` by default, wait for the result, then assess it and integrate or follow up. Specialists provide dedicated guidance when useful, while `ask` is reserved for testing. The host owns cross-task decisions, acceptance, integration, and delivery, using the existing jobs workflow. Invoke `/agy:lead` in Claude Code, `$agy:lead` in Codex, `/skill:agy-lead` in Pi, or `/agy-lead` in OpenCode.
+
+`ask` answers in the same call. The other personas return a job id and a collection command, such as `wait <id> --timeout 10m`. Your agent waits using the host's available capabilities, with one independent background wait per job where supported.
+
+The main agent waits for the final result by default. If you explicitly ask about progress, it can use `observe` to read a snapshot of recent tool activity and response text; it does not query progress for routine updates. Once the task finishes, `wait` or `result` delivers the full report. Expiring a wait leaves the worker running.
+
+The timeline below follows a background task from delegation to completion. The host agent waits for the final result by default (or advances already-identified independent work), checks progress when asked, and collects the report.
+
+[![A background task over time: the host delegates, waits or observes, while the worker continuously saves AGY output and eventually delivers the full report](assets/integration.png)](assets/integration.svg)
+
+Jobs have a separate execution deadline: default 60 minutes, configurable at launch with `--timeout` up to 120 minutes. Use `cancel` to stop execution, or explicitly request `continue` or `restart` after inspecting the existing work. The host harness controls when your agent receives a background result.
+
+**Full reference →** [docs/REFERENCE.md](docs/REFERENCE.md) (flags, permission model, jobs/state, troubleshooting, upgrading). **Release notes →** [docs/releases/](docs/releases/).
+
+## Build one for another CLI
+
+agy-staff's design is portable: bash plus skills, with no hard dependency on a host, a worker CLI or a runtime library. [docs/DESIGN.md](docs/DESIGN.md) writes it down as best practice. To build the same kind of tool for another agent CLI, give your coding agent this prompt:
+
+```
+Read the raw text of https://raw.githubusercontent.com/keli-wen/agy-staff/master/docs/DESIGN.md
+(curl it — do not work from a summary). Then design an integration that lets this host agent delegate
+work to <CLI> the same way. First read `<CLI> --help`, map what the CLI supports to the section
+"What depends on the worker CLI", and list the principles it cannot support before writing any code.
+Ask me before any call that spends model quota. Respond in the user's language.
+```
+
+Before writing any code, the agent lists the principles your CLI cannot support, so you know up front where the tool will degrade.
+
+## Community
+
+- [LINUX DO](https://linux.do/) — A next-generation Linux community.
+
+## Contributing
+
+Contributions are welcome — issues, bug reports and pull requests all help.
+
+A few things worth knowing before you open a PR:
+
+- **Run the tests**: `npm test`. The standard suite uses temporary repos and HOME directories with fake `agy`, plus focused module tests. Keep regression tests offline and independent of personal settings. Real AGY validation is a separate opt-in suite described in [tests/README.md](tests/README.md).
+- **Docs come in pairs**: `README.md` / `README.zh-CN.md` and `docs/REFERENCE.md` / `docs/REFERENCE.zh-CN.md` are kept in sync. Change one, change its counterpart.
+- **Runtime code lives in `companion/`**: the entrypoint handles modes and job commands; separate modules handle streaming execution, observations and state locking. Skills call the companion, and `templates/` holds the shared prompts.
+- **Canonical skills are the source of truth**: edit personas in `skills/`, never in `pi-skills/` or `opencode-skills/`. Run `npm run generate:skills` to generate both host entrypoints, and `npm run check:skills` to verify consistency. The existing `generate:pi` and `check:pi` commands remain available. Use `npm run pack:checked` to check freshness before packing; publishing also runs the check.
+
+Adding a mode or a flag changes the public surface, so please open an issue first and we can agree on the shape.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

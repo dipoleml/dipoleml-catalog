@@ -1,0 +1,16 @@
+{
+  "name": "esp32-cpp",
+  "displayName": "Esp32 Cpp",
+  "version": "2.1.0",
+  "description": "Evidence-first ESP32 firmware guidance for hardware, FreeRTOS, memory, peripherals, and field failures",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Johnkozaris"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/johnkozaris/jko-claude-plugins",
+  "repository": "https://github.com/johnkozaris/jko-claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

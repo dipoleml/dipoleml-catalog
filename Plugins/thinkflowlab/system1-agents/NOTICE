@@ -1,0 +1,23 @@
+system1-agents
+Copyright 2026 ThinkFlowLab
+
+This product includes software developed by third parties:
+
+- s1a/browser/prompts.py: operation rules adapted from browser-use/jev-ultrafast
+  (MIT, Copyright (c) 2026 Browser Use). Full license text: THIRD_PARTY_LICENSES.md
+- s1a/agents/allrecipes.py: the task text is Allrecipes--0 of the WebVoyager task set,
+  MinorJerry/WebVoyager (He et al., 2024, arXiv:2401.13919), Apache-2.0; the license text
+  is this repository's LICENSE. Details: THIRD_PARTY_LICENSES.md
+- evals/2048: 2048 by Gabriele Cirulli (MIT, evals/2048/LICENSE.txt); fonts under
+  evals/2048/style/fonts are Clear Sans by Intel Corporation (Apache-2.0)
+- evals/millionaire/questions.json, fetched at first run: Open Trivia Database
+  (https://opentdb.com), CC BY-SA 4.0
+- evals/labelled/browsesafe-test-sample.json and scripts/build_browsesafe_set.py: row ids of, and a
+  converter for, BrowseSafe-Bench (perplexity-ai/browsesafe-bench; Zhang et al., 2025, arXiv:2511.20597),
+  MIT, Copyright 2025 Perplexity AI, Inc. The dataset itself is not included. Details: THIRD_PARTY_LICENSES.md
+- evals/labelled/injection-public.jsonl: tool outputs from InjecAgent,
+  uiuc-kang-lab/InjecAgent (MIT, Copyright (c) 2023 Qiusi Zhan). Full license text:
+  THIRD_PARTY_LICENSES.md
+- evals/labelled/injection-public.jsonl: tool outputs from AgentDojo, ethz-spylab/agentdojo
+  (MIT, Copyright (c) 2024 Edoardo Debenedetti, Jie Zhang, Mislav Balunovic, Luca
+  Beurer-Kellner, Marc Fischer, and Florian Tramèr). Full license text: THIRD_PARTY_LICENSES.md

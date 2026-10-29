@@ -1,0 +1,16 @@
+{
+  "name": "research-opportunity-investigator",
+  "displayName": "Research Opportunity Investigator",
+  "version": "1.0.0",
+  "description": "Research and opportunity investigation for protocols",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Ddunnock"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/ddunnock/claude-plugins",
+  "repository": "https://github.com/ddunnock/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

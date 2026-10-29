@@ -1,0 +1,16 @@
+{
+  "name": "beautifulrust",
+  "displayName": "Beautifulrust",
+  "version": "1.4.0",
+  "description": "Write, review, port, and enforce idiomatic Rust: three skills distilled from the Google Rust Style Guide, the Rust API Guidelines, Effective Rust, Rust Design Patterns, and Microsoft's Pragmatic Rust Guidelines, plus a drop-in clippy config.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Morganlinton"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/morganlinton/BeautifulRust",
+  "repository": "https://github.com/morganlinton/BeautifulRust",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

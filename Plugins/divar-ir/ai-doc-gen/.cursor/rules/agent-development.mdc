@@ -1,0 +1,63 @@
+---
+description: Guidelines for developing pydantic-ai agents, tools, and handlers
+globs:
+  - "src/agents/**/*.py"
+  - "src/handlers/**/*.py"
+alwaysApply: false
+---
+
+# Agent Development
+
+## Agent construction
+
+Agents are built as properties on coordinator classes (`AnalyzerAgent`, `DocumenterAgent`, `AIRulesGeneratorAgent`):
+
+```python
+@property
+def _structure_analyzer_agent(self) -> Agent:
+    model, model_settings = self._llm_model
+    return Agent(
+        name="Structure Analyzer",
+        model=model,
+        model_settings=model_settings,
+        system_prompt=self._render_prompt("agents.structure_analyzer.system_prompt"),
+        tools=[FileReadTool().get_tool(), ListFilesTool().get_tool()],
+        retries=config.ANALYZER_AGENT_RETRIES,
+    )
+```
+
+- Model setup is OpenAI-compatible only: `OpenAIChatModel(model_name, provider=OpenAIProvider(base_url=..., api_key=..., http_client=create_retrying_client()))`. There is no Gemini/custom provider path.
+- `ModelSettings`: temperature 0.0, `max_tokens`, `timeout`, `parallel_tool_calls` — all from `src/config.py` env constants.
+
+## Prompts
+
+- Jinja2 templates in YAML under `src/agents/prompts/` (keys like `agents.<name>.system_prompt` / `user_prompt`), loaded by `PromptManager` and rendered via `self._render_prompt(key)` with `repo_path` etc. as variables.
+- New agent → new prompt section in the matching YAML file, never inline prompt strings in Python.
+
+## Orchestration
+
+- Analyzer: build a dict of task callables (one per non-excluded analysis), run through `WorkerPool(max_workers=self._config.max_workers)`.
+- AI-rules generator: fixed pair of tasks via `asyncio.gather(*tasks, return_exceptions=True)`.
+- After the run, `validate_succession(files)`: raise `ValueError` only if NO output file exists; warn on partial success listing missing files.
+- Each agent writes its own output file (`.ai/docs/*.md`, README.md, CLAUDE.md/AGENTS.md, `.cursor/rules/*.mdc`); create parent dirs and clean absolute paths first.
+
+## Tools
+
+```python
+class FileReadTool:
+    def get_tool(self):
+        return Tool(self._run, name="Read-File", takes_ctx=False, max_retries=...)
+
+    def _run(self, file_path: str, line_number: int = 0, line_count: int = 200) -> str:
+        """Docstring is the LLM-facing description — keep Args/Returns accurate."""
+        ...
+        raise ModelRetry(message="File not found")  # recoverable errors → ModelRetry
+```
+
+- Tool docstrings are what the LLM sees; keep them precise.
+- Raise `ModelRetry` for recoverable failures (missing file, permission denied); set span attributes for inputs/outputs; log with `Logger.debug`.
+
+## Handlers
+
+- Subclass `AbstractHandler`, config = `BaseHandlerConfig` + agent config, construct the agent in `__init__`, and wrap `handle()` work in an OpenTelemetry span with `repo_path`/config-flag attributes.
+- Log token usage (`result.usage().total_tokens`) and execution time after each agent run.

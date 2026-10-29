@@ -1,0 +1,31 @@
+{
+  "schema": 1,
+  "kind": "citadel_operation_control_v2_prospective_freeze",
+  "frozen_at": "2026-07-31T00:00:00.000Z",
+  "repository": "https://github.com/SethGammon/Citadel.git",
+  "pinned_ref": "4a02265c206d992b556fc1b38c3c9487ced880d8",
+  "source_digests": {
+    "METHOD.md": "sha256:3002b3ffecee555a2b417cac54d9f41de9cd6961a59998f497f2474f2fa49cbf",
+    "CLAUDE_METHOD.md": "sha256:9dd2159f59889151b5fc6ab35ad3a0d47e2b32b7c5697ee8eb208756d88df28b",
+    "scenario.json": "sha256:8a59ac40a5f7e4857d627c2602919efec8fae5d8f14ad799e401b39bb4243cb8",
+    "claude-scenario.json": "sha256:ca3eea71c1bf70ee9a55e191f1742e0495b5fcc4a48bd3dfaea29f9efc532ca3",
+    "report.json": "sha256:81e40197df5acb8e9168448efe938c537041822ed380053337bd02b6da797998",
+    "history.jsonl": "sha256:1b29e4b8ab9664024277d4f97ddbb84bff5b1662e1ae05161aedbad109f0ab39",
+    "claude-report.json": "sha256:d1e0ec821b5c50e24da2775852eeee2f078c1806a88fe581fd4d5f53f530e91c",
+    "claude-history.jsonl": "sha256:837ccdde387aa79ffb8d0dc30e1ca7c1c8de6f01f28c96feb51b5a5da2b3ebe9",
+    "claude-attempt-3-report.json": "sha256:b0f0eea7b9cbac5c1b668d4d6a176ae64c8d0dfd751fc400561de38fd21da3d5",
+    "claude-attempt-3-history.jsonl": "sha256:b1a5a6c7e2d3e70669beccaf267ee76264fa7da0f8c95c5b9beef68d7210f2ef",
+    "claude-attempt-3.patch": "sha256:1943eca78990cb3b303066402c7acd5a5325b5e76a4cdc00240430e2a9eea5ea"
+  },
+  "report_digests": {
+    "codex_windowsapps": "sha256:1edecbe4fb3cf89af658a995fe4e2e2258d8c62082c42a3d7524515e38489dc2",
+    "claude_sandbox": "sha256:ee017921a00de67d009ff247dffc9324616241fe152f1341ebfeaedfda03e017",
+    "claude_public_clone": "sha256:87cd8dfed9ca5c74735aeeebe4b1b515272cc141093b9ff2af77ef0840691dcb"
+  },
+  "artifact_digests": {
+    "RESULTS.json": "sha256:816ffb04d418de49a30098a84942ff746d66af3fe59507ee74e28e1f574febc3",
+    "RESULTS.md": "sha256:246c476064b3d817156b4c5b1e4ec961b6b5978742560bb3009d2970b4ed3266"
+  },
+  "evidence_boundary": "prospective integration only; comparative performance, savings, and broad reliability remain open",
+  "freeze_digest": "sha256:46d2b12d3c3b656be4dc96459f09b64d27e2dd2514f17729686dcba268bb2dda"
+}

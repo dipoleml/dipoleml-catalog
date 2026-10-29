@@ -1,0 +1,400 @@
+# pdlc-skills
+
+**[English](./README.md)** · **中文**
+
+[![CI](https://github.com/kanfu-panda/pdlc-skills/actions/workflows/ci.yml/badge.svg)](https://github.com/kanfu-panda/pdlc-skills/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
+[![Version](https://img.shields.io/github/v/release/kanfu-panda/pdlc-skills?label=version&color=blue)](./CHANGELOG.md)
+[![GitHub stars](https://img.shields.io/github/stars/kanfu-panda/pdlc-skills?style=social)](https://github.com/kanfu-panda/pdlc-skills/stargazers)
+[![Claude Code](https://img.shields.io/badge/Claude%20Code-plugin-orange)](https://docs.anthropic.com/)
+[![Agent Skills](https://img.shields.io/badge/Agent%20Skills-Codex%20%C2%B7%20Copilot%20%C2%B7%20Cursor%20%C2%B7%20Gemini%20CLI-green)](https://agentskills.io/specification)
+
+> 作者：**kanfu-panda**
+> 仓库：[github.com/kanfu-panda/pdlc-skills](https://github.com/kanfu-panda/pdlc-skills)
+> License: [MIT](./LICENSE)
+
+**pdlc-skills** 只认一条规矩：**AI 说「做好了」不算，命令的退出码说了算。** 它是一套 skill，在 [Claude Code](https://docs.anthropic.com/) 里是插件，在 Codex、GitHub Copilot、Cursor、Gemini CLI 等支持 [Agent Skills 标准](https://agentskills.io/specification)的工具里也能一条命令装上。它提供分阶段的 PDLC（产品开发生命周期）工作流——PRD → 设计 → TDD → 实现 → 评审 → 发布 → 部署 → 复盘——底下是一台**可审计、落盘的状态机**：每个阶段都把产物落到 `docs/`、更新每功能状态文件、实现前必须有红灯测试、交接前自检、自动修复仅一轮。
+
+由此得到四样东西：
+
+- **可验证**——状态机里的测试 / lint / 覆盖率结果由脚本按**真实命令退出码**生成，模型无权填写；每次写状态文件后立刻做契约体检；行为评测拿真实模型跑 skill，抓模型悄悄不守规矩。见[怎么验证](#怎么验证)。
+- **可审计**——每份产物都落盘，`git diff` 就能看 AI 到底做了什么。
+- **自主**——检查是客观的，所以自主循环能把 `tdd → implement → review` 无人值守推到收敛，每一步都是全新进程，带 fail-stop、stuck-stop 和预算护栏。
+- **平台中立**——状态机长在你的仓库里，因而与工具无关。**Claude Code** 集成最全（38 个斜杠命令 + 状态栏 + 插件内循环引擎）；其它工具用 `npx skills add kanfu-panda/pdlc-skills` 装上 36 个 skill，驱动同一套方法论。见[多平台](#多平台其它-ai-编程工具)。
+
+---
+
+## 为什么需要 PDLC
+
+不带这个 plugin 时，AI 助手做功能时常见的问题：
+
+- 说"我把功能做完了"，但 PRD 只活在对话里，关掉就没了。
+- 直接写代码，没有先写测试。
+- 跳过设计阶段，架构腐烂悄无声息。
+- 跨会话没有记忆，不知道某个功能处于哪个阶段。
+
+**PDLC 把这些"软规范"升级为"硬契约"：**
+
+| 硬契约 | 给你什么 |
+|---|---|
+| 每份产物落到 `docs/` 目录 | 可以 `git diff` 看 AI 真的做了什么 |
+| 每个阶段写状态机文件 | `/pdlc-status` 永远知道当前进展 |
+| 实现前测试必须已存在且失败 | 真正的 TDD 红灯门禁，不是建议 |
+| 每条阶段交接前自检 | 阶段边界拦截偏差，而不是评审时才发现 |
+| 自动修复至多一轮 | 杜绝"修复 → 检查 → 再修复"的死循环 |
+| 每条阶段声明 `next_step` | 多阶段串联由命令驱动，不靠人脑记 |
+
+---
+
+## 怎么验证
+
+常见的 AI 工作流套件是「提示词 + 模板」：它**要求**模型先写测试、如实汇报，然后相信模型照做了。pdlc-skills 默认模型有时不会照做，分三层去查：
+
+| 层 | 谁说了算 | 抓什么 |
+|---|---|---|
+| **状态机里的检查结果** | `pdlc-checks.sh` 跑你 `docs/00_standards/test-commands.yml` 里的命令，按退出码生成 `tests_pass` / `coverage_pass` / `lint_clean`。三态：命令跑不起来记 `null`——既不记 `false`，更不记 `true` | 模型谎报「测试全过」 |
+| **状态推进** | 阶段收尾只能经 `pdlc-advance.sh`：它自己跑本阶段的检查，红了就不推进；tdd 写的测试在实现阶段被改，也不推进（除非写明理由，记进 `auto_decisions`）。Claude Code 里还可以开项目级护栏，拦下直接写状态文件 | 检查没过却推进阶段、改测试来过关 |
+| **状态契约体检** | 每个阶段写完状态文件立刻跑 `pdlc-state-lint.sh`（读状态的命令读之前也跑） | 缺字段、未知阶段名、ship / deploy 以外的阶段写了 `_done` |
+| **行为评测** | `evals/` 在一次性的样例项目里拿真实模型（Claude Code 和 Codex）跑真 skill；每个样例都设计成「老实干」和「偷懒」结果不一样 | 模型不守 skill 的规矩——比如照抄 schema 示例把检查全填绿，或者没有红灯测试就写实现 |
+
+确定性的部分——上面的脚本、循环驱动、安装器——由插件自己的本地测试套件覆盖。行为评测要耗模型额度，所以在发版前跑、不进 CI，结果仅供参考、不卡发版。场景清单和每个场景怎么区分老实与偷懒：[`evals/EVALS.md`](./evals/EVALS.md)。
+
+### 和常见的提示词型工作流比
+
+| | 常见的提示词型工作流 | pdlc-skills |
+|---|---|---|
+| 「测试过了」谁说了算 | 模型自己汇报 | 真实退出码 |
+| 进度存在哪 | 对话里，或一份自由格式的笔记 | 每功能一份机器可读的状态文件，每次写入都做契约体检 |
+| 管到哪一步 | 一般到代码评审为止 | 到发布、部署、复盘，外加一份由人签字的质量报告 |
+| 无人值守 | 限于一个会话之内 | 外部驱动：每步全新进程、git worktree 并行、预算 / 失败 / 卡住即停 |
+| 工作流本身有没有被测 | 很少拿真实模型测 | Claude Code 和 Codex 两边都有行为评测 |
+
+代价是结构更重：38 个命令加一套 `docs/` 目录，比单入口的套件要求得多。起步只用第一层（`/pdlc-feature`、`/pdlc-fix`、`/pdlc-status`）就够了；小功能用 `/pdlc-feature --lite`，跳过任务拆解、PRD 评审和技术设计，先红灯测试、按退出码判定、代码评审这几样照常。
+
+---
+
+## 一眼看效果
+
+![pdlc-skills 端到端演示](docs/assets/demo.gif)
+
+一个典型端到端流程：
+
+```text
+$ # 在 Claude Code 里：
+$ /pdlc-feature 给用户登录加手机号验证
+
+→ 分配功能 ID F20260502-090000（user-auth-phone）
+→ 阶段一：生成 PRD
+   ✓ docs/01_requirements/prd/F20260502-090000-user-auth-phone-prd.md
+   ✓ 自检 8/8 通过
+→ 阶段二：技术设计
+   ✓ docs/02_design/api/F20260502-090000-user-auth-phone-api.md
+   ✓ docs/02_design/database/F20260502-090000-user-auth-phone-db.md
+→ 阶段三：TDD 红灯
+   ✓ 写了 14 条测试，全部预期失败
+→ 阶段四：实现
+   ✓ 14/14 测试转绿
+→ 阶段五：代码评审 + 自动修复
+   ✓ 自动修复 3 个 lint 问题
+   ✓ docs/07_reviews/code/F20260502-090000-user-auth-phone-review.md
+→ 阶段六：交接
+   📦 docs/.pdlc-state/F20260502-090000.json 已更新
+   👉 下一步：/pdlc-ship
+```
+
+上面每一个产物都是磁盘上的真实文件，可以 `git diff` 看 AI 真正做了什么。任何时候用 `/pdlc-status` 看每个功能的当前阶段。*（输出是示意图，Claude Code 实际输出是 markdown 流式响应。）*
+
+---
+
+## 安装
+
+> 一行命令搞定，无需手动 clone。
+
+```bash
+# 全局安装（~/.claude/plugins/pdlc/）
+curl -fsSL https://raw.githubusercontent.com/kanfu-panda/pdlc-skills/main/install.sh \
+  | bash -s -- --global
+
+# 项目级安装（<project>/.claude/plugins/pdlc/）
+curl -fsSL https://raw.githubusercontent.com/kanfu-panda/pdlc-skills/main/install.sh \
+  | bash -s -- --project /path/to/my-project
+```
+
+就这一条。安装器是 `claude plugin marketplace add` + `claude plugin install` 的薄封装：注册 marketplace 源，把 plugin 装进你的 `.claude/plugins/pdlc/` 目录。
+
+用的不是 Claude Code？跳到[多平台](#多平台其它-ai-编程工具)，同样一条命令。
+
+### 升级
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kanfu-panda/pdlc-skills/main/install.sh \
+  | bash -s -- --upgrade --global
+```
+
+### 卸载
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kanfu-panda/pdlc-skills/main/install.sh \
+  | bash -s -- --uninstall --global
+```
+
+### 查看版本
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/kanfu-panda/pdlc-skills/main/install.sh \
+  | bash -s -- --version
+```
+
+### 等价的原生命令
+
+如果你想直接调 Claude Code 的 plugin CLI：
+
+```bash
+claude plugin marketplace add kanfu-panda/pdlc-skills
+claude plugin install pdlc@pdlc-skills
+```
+
+### 贡献者 / 自定义模板
+
+```bash
+git clone https://github.com/kanfu-panda/pdlc-skills.git
+cd pdlc-skills
+# 改 references/templates/*.md 或 skills/pdlc-*/SKILL.md
+python3 adapters/sync_skills.py   # 把共享片段 / 模板 / 脚本同步进各 skill 文件夹
+bash install.sh --global   # 从你本地的 clone 安装
+```
+
+---
+
+## 验证安装
+
+```bash
+claude plugin list | grep pdlc
+# 应该输出： pdlc@pdlc-skills  Version: 1.7.17（或更新）  Status: ✔ enabled
+```
+
+在 Claude Code 里（重启会话后），输入 `/` 然后开始打 `pdlc-`——下拉里应该出现全部 38 个子命令（`/pdlc-feature`、`/pdlc-prd`、`/pdlc-tdd` ...）。
+
+---
+
+## 多平台（其它 AI 编程工具）
+
+Claude Code **集成最全**——38 个斜杠命令 + 状态栏 + 插件内自主收敛循环。但 PDLC 的方法论、状态机、模板都是**平台中立**的：同一份 `docs/.pdlc-state/` 不管谁驱动都能延续，所以你可以换工具（或团队里不同人用不同工具推同一个仓库）而不丢 PDLC 状态。
+
+多数 AI 编程工具已支持 [Agent Skills 开放标准](https://agentskills.io/specification)。pdlc 把 skill 构建成一份符合标准的投影（36 个——除去 2 个 Claude Code 专属；全部通过官方校验器 `skills-ref`），装到你的工具读取的目录。两种装法，都不用克隆：
+
+```bash
+# ① 通用安装器：交互选择要装进哪些工具（Codex、Copilot、Cursor、Gemini CLI、OpenCode……几十种）
+npx skills add kanfu-panda/pdlc-skills
+
+# ② 本仓库的安装脚本：装的是上面那份标准投影（需 python3）
+curl -fsSL https://raw.githubusercontent.com/kanfu-panda/pdlc-skills/main/install.sh \
+  | bash -s -- --target agents                   # ~/.agents/skills/（Copilot、Gemini CLI、OpenCode、Amp、Goose）
+#   --target agents --project DIR                # DIR/.agents/skills/
+#   --target agents --dest DIR                   # 工具自己的目录，如 .cursor/skills、~/.gemini/config/skills（Antigravity CLI）
+#   --target codex                               # ~/.codex/skills/
+#   加 --uninstall 移除；只写入、只删除 pdlc-* 目录
+```
+
+两者的区别：① 装的是仓库里的 skill 原样（frontmatter 多了 Claude Code 用的参数提示，正文的参数行是 `$ARGUMENTS` 占位符），GitHub Copilot CLI 1.0.88 上实测能触发、能正确理解参数；② 装的是改写过参数行、补了触发提示的标准投影，通过官方校验器。拿不准就用 ①。**Claude Code 用户请装插件**，不要再用 ①，否则会多出一份同名 skill。
+
+skill 按描述触发：用自然语言驱动（`用 pdlc 写个 PRD：<一句话需求>`、「按 pdlc review 执行 F…」）。
+
+| 工具 | 安装 | 状态 |
+|---|---|---|
+| Claude Code | 插件（本仓库） | ✅ 一等公民 |
+| Codex | `--target codex`（`npx skills add` 装到 `~/.agents/skills/`，我们验证过的发行版读的是 `~/.codex/skills/`） | ✅ 已过状态完整性准入闸——[ADR 0004](./docs/decisions/0004-codex-loop-run.md)；验证的是读 `~/.codex/skills/` 的 Codex 发行版，原版 OpenAI Codex 未验证 |
+| GitHub Copilot | `npx skills add`，或 `--target agents`（`--project DIR`） | CLI 1.0.88：两种装法都能加载、能触发 · CLI 1.0.95 + v1.7.10：✅ **通过**状态完整性准入闸（3/3 轮，默认模型；此前 1.0.88 + v1.7.0 为 3/3 未过）——[ADR 0007 §6](./docs/decisions/0007-agent-skills-standard.md#6-真机准入闸) · 尚未内置进循环驱动（可用 `--platform custom`） · VS Code 未跑 |
+| Grok CLI | 不用另装——它会自己加载已装的 Claude Code 插件 | 1.0.41：✅ 已过状态完整性准入闸（3/3 轮）——[ADR 0007 §6](./docs/decisions/0007-agent-skills-standard.md#6-真机准入闸) · 暂未加进循环驱动 |
+| Antigravity CLI（`agy`） | `--target agents --dest ~/.gemini/config/skills`（1.2.9 不读工作区的 `.agents/skills/`） | 1.2.9：能加载、能触发 · ❌ **未过**准入闸——声称「完成、状态已更新」，实际一个文件都没写——[ADR 0007 §6](./docs/decisions/0007-agent-skills-standard.md#6-真机准入闸) |
+| Gemini CLI · OpenCode · Amp · Goose | `npx skills add`，或 `--target agents` | 按其文档可加载 · 我们没跑过 |
+| Cursor · Windsurf · Kiro · Roo Code | `npx skills add`，或 `--target agents --dest <它的 skills 目录>` | 按其文档可加载 · 我们没跑过 |
+
+「能加载」不等于「状态可信」：一个工具要先过**状态完整性准入闸**（`evals/` 的 `honest-checks`——故意造一个红灯测试，看 `checks` 是否来自真实退出码），我们才推荐把它交给自主循环。**其它工具**：把 [`docs/pdlc-methodology.md`](./docs/pdlc-methodology.md) 放进项目规则（`AGENTS.md` 等），用自然语言驱动。
+
+- **Claude Code 以外的自主收敛**：`adapters/codex-loop-run.sh <功能ID>... --project <目录>`（即 `bin/pdlc-loop.sh --platform codex`）把 `tdd → implement → review` 推到「评审通过、等发布」（`next_step: pdlc-ship`），发布留人。
+
+设计：[ADR 0007](./docs/decisions/0007-agent-skills-standard.md)（修订了 [ADR 0003](./docs/decisions/0003-multi-platform-adapters.md) 的逐平台转译器）。
+
+---
+
+## 自主收敛（Loop 工程）
+
+因为每个阶段都把**客观检查**——来自 `docs/00_standards/test-commands.yml` 的真实 `unit` / `lint` / `coverage` 退出码，绝非模型自评——写进机器可读的状态机，外层循环就能把机械阶段无人值守地推到收敛。
+
+每一步都是**全新进程**（`claude -p` / `codex exec`，在 Claude Code 内则是全新的 subagent），步与步之间靠落盘文件交接、不靠对话——所以长时间运行不会因为一个会话的上下文越塞越满而变差。
+
+- **`/pdlc-loop-run <功能ID>`** —— 收敛引擎：自动推进 `tdd → implement → review` 到「评审通过、等发布」（`next_step: pdlc-ship`），带迭代上限、**fail-stop**（某阶段报 `ok:false` → 停）、**stuck-stop**（状态未推进 → 停）。**发布永远留人**——绝不自动 ship。
+- **`/pdlc-loop-next <功能ID>`** —— 只读 helper，打印下一条收敛命令，供你自写 shell 循环消费。
+- **`bin/pdlc-loop.sh`** —— 一次推多个功能的外部驱动：给功能ID 或 `--ready`，选 `--platform claude|codex`——其它接受一句提示词的 CLI 用 `--platform custom --cmd '<模板>'`（标为未验证：驱动照样按状态机判停，但管不了它的花费）——`--parallel N` 让每个功能在自己的 git worktree 里跑。按 `depends_on` 排先后，绝不发布，也不提交、不合并；运行记录由 `--status` 和 `/pdlc-status --loop` 读出（每个功能在哪一步、本步已跑多久、卡住的提示，不给预计完成时间）。claude 平台真跑必须给 `--max-budget-usd`。
+- **Codex 上** —— `adapters/codex-loop-run.sh` 就是固定 `--platform codex` 的同一个驱动（Codex 已过真机状态完整性准入闸——见 [ADR 0004](./docs/decisions/0004-codex-loop-run.md)）。
+
+设计：[ADR 0001](./docs/decisions/0001-loop-engineering-integration.md) · 多功能驱动：[ADR 0006](./docs/decisions/0006-multi-feature-loop-driver.md)。
+
+---
+
+## 质量闸门
+
+同一套「客观 check」纪律，从单功能阶段升级为**常设闸门**：
+
+- **`/pdlc-test-setup`**——立地基：探测技术栈，**把每条候选命令真跑一次、看着退出码**，再写 `docs/00_standards/test-commands.yml`。跑不通的**留空并写明怎么补**，绝不猜——一条「看起来对但跑不了」的命令会让下游每个阶段的 `checks` 静默失真。
+- **`/pdlc-quality`**——跑真实 check、对照 `docs/00_standards/quality-targets.yml`、把带日期的报告写进 `docs/07_reviews/quality/`：`.md` 是真源（可 `git diff`，`/pdlc-ship` 拿它当发布闸门），外加一份零依赖自包含的 `.html` 视图——同一份数据，双击就开、可打印签字、可直接发给同事。**放行由人签字**，工具只陈述事实。
+
+有两样东西让「核心流程都覆盖了」不再是一句主观判断：
+
+1. **显式的 `核心流 → E2E 测试` 映射**（`docs/00_standards/e2e-flow-map.yml`），把覆盖变成可机械核对的矩阵。映射指向了本次没跑到的测试 = **映射腐烂**，判红而不是略过。
+2. **PRD 强制对账**——每次运行都拿 PRD 里的 P0/P1 流程与已声明的 `core_flows` 做 diff，**漂移即红灯**。清单过期才是真正危险的失效模式：矩阵全绿而现实有洞，把「我们不知道」打扮成「我们覆盖了」。
+
+量不到的一律如实报「**未测量**」，**绝不当作通过**。设计：[ADR 0005](./docs/decisions/0005-testing-and-quality-capability.md)。
+
+---
+
+## 阶段清单（三层结构）
+
+### Layer 1 · 入口（3 个，新手只学这 3 个）
+
+一句话需求驱动整条链路。
+
+| 斜杠命令 | 用途 |
+|---|---|
+| `/pdlc-feature` | 全自动新功能（PRD → 设计 → TDD → 实现 → 评审 → 发布）；小功能加 `--lite`，跳过任务拆解、PRD 评审和技术设计；Claude Code 里设计到评审各阶段各用一个全新子代理 |
+| `/pdlc-fix` | 全自动 Bug 修复（定位 → 复现 → 修复 → 测试 → 文档），下一步 `/pdlc-review` |
+| `/pdlc-status` | 项目 PDLC 状态总览 |
+
+### Layer 2 · 阶段（11 个，单阶段精细控制）
+
+| 斜杠命令 | 用途 |
+|---|---|
+| `/pdlc-prd` | 创建 PRD |
+| `/pdlc-design` | 技术设计；有技术取舍时先比较 2～3 个方案再选 |
+| `/pdlc-tdd` | 测试先行（TDD） |
+| `/pdlc-implement` | 按设计实现代码；任务清单里 4 个以上 feat 任务时按批实现，每批做一次小评审 |
+| `/pdlc-review` | 代码 + 文档评审；与项目类型不符的检查项标为「不适用」，不会据此改代码 |
+| `/pdlc-e2e` | 端到端测试 |
+| `/pdlc-refactor` | 代码重构 |
+| `/pdlc-ship` | 发布评审通过的功能（测试 → VERSION → CHANGELOG → 发布说明草稿 → tag；草稿可直接作 PR 描述）；不主动生成或修改 CI 配置 |
+| `/pdlc-deploy` | 部署文档——按版本（`/pdlc-deploy v1.2.0`，覆盖该版本全部功能）或按单个功能 |
+| `/pdlc-retro` | 迭代复盘（趋势对比；用过循环驱动的，另汇总各阶段被拦次数与卡点原因） |
+| `/pdlc-task` | 阶段内任务跟踪 |
+
+### Layer 3 · 工具（24 个，专项叠加）
+
+- **🎨 设计（4）**：`/pdlc-ui-design` · `/pdlc-ui-design-pro` · `/pdlc-db-design` · `/pdlc-arch`
+- **🔍 质量（5）**：`/pdlc-quality`（常设闸门——跑真实 check、按显式 flow→test 映射核对每条核心流都有通过的 E2E、拿 PRD 与流程清单强制对账，最后由人签字）· `/pdlc-test-setup`（立客观 check 地基——探测技术栈、逐条验证命令真能跑，再写 `test-commands.yml`；没验证通过的宁可留空也不猜）· `/pdlc-lint` · `/pdlc-perf` · `/pdlc-security`
+- **🔧 工程（7）**：`/pdlc-code-gen` · `/pdlc-add-service` · `/pdlc-add-app` · `/pdlc-api-mock` · `/pdlc-db-migrate` · `/pdlc-i18n` · `/pdlc-changelog`
+- **🔗 治理（2）**：`/pdlc-standard` · `/pdlc-relate`
+- **🏗️ 项目生命周期（3）**：`/pdlc-bootstrap` · `/pdlc-adopt` · `/pdlc-onboard`
+- **🔁 循环工具（2）**：`/pdlc-loop-next`（打印下一条机械收敛命令）· `/pdlc-loop-run`（收敛引擎：自动推进 `tdd → implement → review` 到「评审通过、等发布」（`next_step: pdlc-ship`），发布留人）——[设计文档](./docs/decisions/0001-loop-engineering-integration.md)
+- **⚙️ 设置（1）**：`/pdlc-settings`（交互式配置，当前含可选的 PDLC 状态栏 statusline——启用/停用/展示项）——[设计文档](./docs/decisions/0002-statusline-pdlc-status.md)
+
+---
+
+## 新手路径（3 步上手）
+
+1. **安装**（一行，免 clone）：
+   ```bash
+   curl -fsSL https://raw.githubusercontent.com/kanfu-panda/pdlc-skills/main/install.sh | bash -s -- --global
+   ```
+2. **写功能**：在 Claude Code 里 `/pdlc-feature 给登录加验证码`
+3. **修 bug**：`/pdlc-fix 修分页器在 0 条时崩溃的问题`
+
+任何时候看进度：`/pdlc-status`
+
+---
+
+## 目标项目契约
+
+执行命令时会在你项目下读写：
+
+```
+docs/00_standards/coding/            ← 编码规范（被 prd/implement/tdd/code-gen/onboard 读取，可选）
+docs/00_standards/test-commands.yml  ← check 命令唯一真源（unit/coverage/lint/e2e），被各阶段的状态推进脚本与循环驱动读取
+docs/00_standards/pdlc-hooks.yml     ← Claude Code 护栏开关（/pdlc-settings hooks 写入；没有它 = 护栏关闭，可选）
+docs/01_requirements/prd/            ← PRD
+docs/02_design/{api,database,architecture,ui-ux}/   ← 技术设计
+docs/03_development/                 ← 开发者手册（onboard 命令产出）
+docs/04_testing/{unit-tests,e2e-tests,defects,security,perf}/   ← 测试与缺陷
+docs/05_deployment/                  ← 部署；releases/v<版本>-release-notes.md 是 /pdlc-ship 写的 PR 描述草稿
+docs/06_tasks/                       ← 任务跟踪
+docs/07_reviews/{doc,code,design,retro,quality}/   ← 评审 + 复盘 + 质量报告
+docs/.pdlc-state/<feature-id>.json   ← 每个功能一个状态机文件（如 F20260419-090000.json）
+                                        current_stage 只有发布后才以 _done 结尾：ship_done / deploy_done
+.worktrees/pdlc-loop/<功能ID>/       ← 自动 · bin/pdlc-loop.sh 并行时每个功能一个 worktree（已写进 git 排除）
+.git/pdlc-loop/                     ← 自动 · 循环驱动的运行记录与日志（非 git 项目在 docs/.pdlc-state/_loop/）
+```
+
+---
+
+## 包含的文档模板
+
+`references/templates/` 下的 11 个标准模板会随 plugin 一起安装：
+
+- `prd-template.md` · `api-design-template.md` · `arch-design-template.md` · `architecture-overview-template.md`
+- `db-design-template.md` · `db-migrate-template.md` · `test-plan-template.md`
+- `deploy-doc-template.md` · `changelog-template.md` · `glossary-template.md` · `adopt-report-template.md`
+
+---
+
+## 执行铁律（IRON LAW）
+
+每个**产出文件**的 Layer 1/2 阶段都强制六条规则（`/pdlc-status` 这种只读阶段豁免）：
+
+1. **必须落盘**：所有产出必须作为真实文件写入磁盘，不可仅在对话中显示
+2. **必须更新状态机**：每个阶段完成后写入 `docs/.pdlc-state/<feature-id>.json`
+3. **必须有测试**：代码实现前测试必须已存在且失败（TDD 红灯）
+4. **必须自检**：每阶段结束前运行 self-check
+5. **修复仅一次**：自动修复循环最多一轮，失败则记录为待人工处理
+6. **状态必推进**：成功执行阶段后 `current_stage` 必须变更，未推进即报错、不静默返回（防自主循环拿滞后状态空转烧额度）；唯一例外是主动 block，此时状态不变但必须写 `blocked_reason`
+
+---
+
+## 提问 / 讨论
+
+使用问题、设计讨论、不确定是 bug 还是用法不对——请优先用 [GitHub Discussions](https://github.com/kanfu-panda/pdlc-skills/discussions)。
+
+确认的 bug 和功能建议——请用 [Issues](https://github.com/kanfu-panda/pdlc-skills/issues) 配合附带的模板。
+
+私密安全问题——见 [SECURITY.md](./SECURITY.md)。
+
+---
+
+## 开发者文档
+
+本地跑测试：
+
+```bash
+for f in tests/*.sh; do echo "== $f"; bash "$f" || break; done   # 全部 12 个脚本，遇红即停
+python3 adapters/sync_skills.py --check                         # 各 skill 与共享源头是否一致
+shellcheck install.sh tests/*.sh bin/*.sh adapters/*.sh evals/run.sh \
+  evals/fixtures/*/scenario.sh .githooks/pre-commit
+```
+
+各脚本覆盖什么，见 [CLAUDE.md](./CLAUDE.md) 的「Common commands」。
+
+- `docs/usage-guide.md` — 完整使用手册（含目录契约、状态机、典型场景、扩展方式）
+- `CONTRIBUTING.md` — 如何贡献
+- `CODE_OF_CONDUCT.md` — 行为准则
+- `SECURITY.md` — 安全策略
+- `CHANGELOG.md` — 版本变更记录
+
+---
+
+## 💖 支持本项目
+
+PDLC 是业余时间维护的开源项目。零成本的支持方式：[点个 ⭐ star](https://github.com/kanfu-panda/pdlc-skills)——star 是其他 Claude Code 用户发现这个项目的主要途径。如果它给你省下了几个小时（或者一点头发），也欢迎更进一步：
+
+**捐赠通道：**
+
+- 🇨🇳 **[爱发电](https://afdian.com/a/kanfu-panda)** — 中国大陆用户首选，支付宝 / 微信支付，原生支持档位订阅与一次性打赏
+- 🌍 **[PayPal](https://paypal.me/Leosh980)** — 国际用户专用，金额自定，一次性打赏
+
+**档位（爱发电按档订阅 / 一次性同价）：**
+
+| 档位 | 爱发电 | PayPal 等值 | 你将获得 |
+|---|---|---|---|
+| ☕ 打赏 | ¥10 一次性 | $1+ 一次性 | 真诚感谢，不进名单 |
+| 🌱 支持者 | ¥30/月 | $5+ 一次性 | 昵称登上 [SPONSORS.md](./SPONSORS.md) |
+| 🌳 长期赞助者 | ¥66/月 | $20+ 一次性 | 昵称 + 头像 + 个人链接登上 [SPONSORS.md](./SPONSORS.md) |
+| 🏢 企业赞助 | ¥888/月 | $100+/月 | 企业 Logo + 链接出现在 `README.md` 顶部 |
+
+通过 PayPal 赞助后，请在 [SPONSORS issue](https://github.com/kanfu-panda/pdlc-skills/issues/new?title=%5BSponsor%5D%20add%20me%20to%20the%20list) 留下你的 GitHub 用户名，方便加入名单。名单按月度同步，见 [SPONSORS.md](./SPONSORS.md)。

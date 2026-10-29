@@ -1,0 +1,132 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.skymanbp.cc-tree",
+  "type": "plugin",
+  "name": "CC Tree",
+  "slug": "cc-tree",
+  "vendor": "skymanbp",
+  "description": "DipoleML plugin: universal radial-tree exploration engine. One tree skill + swappable presets (brainstorm / attack / design / code-audit) for divergent ideation, adversarial critique, and design-space exploration. 12 framings × hard-ban-on-incomplete-leaves × stable convergence.",
+  "version": "0.7.4",
+  "homepage": "https://github.com/skymanbp/cc-tree",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "adversarial-review",
+    "anthropic",
+    "bilingual",
+    "brainstorming",
+    "claude-code-plugin",
+    "claude-code-skill",
+    "code-review",
+    "decision-making",
+    "design-exploration"
+  ],
+  "tags": [
+    "adversarial-review",
+    "ai-agent",
+    "anthropic",
+    "bilingual",
+    "brainstorming",
+    "claude-code",
+    "claude-code-plugin",
+    "claude-code-skill",
+    "code-review",
+    "decision-making",
+    "design-exploration",
+    "developer-tools",
+    "ideation",
+    "llm-agent",
+    "multi-agent",
+    "prompt-engineering",
+    "red-team",
+    "security-review",
+    "structured-reasoning",
+    "tree-of-thoughts"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "skymanbp",
+    "brandName": "skymanbp",
+    "source": "https://github.com/skymanbp.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:14:51Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "skymanbp/cc-tree",
+    "url": "https://github.com/skymanbp/cc-tree",
+    "commit": "f59249f4e30bbd338872335cdc6b6627bebbb337",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 94,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:49:12Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "CC Tree | Claude Code plugin: universal radial-tree exploration engine. One tree skill + swappable presets (brainstorm / attack / design / code-audit) for divergent ideation, adversarial critique, and design-space exploration. 12 framings × hard-ban-on-incomplete-leaves × stable convergence.",
+        "after": "CC Tree | DipoleML plugin: universal radial-tree exploration engine. One tree skill + swappable presets (brainstorm / attack / design / code-audit) for divergent ideation, adversarial critique, and design-space exploration. 12 framings × hard-ban-on-incomplete-leaves × stable convergence.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Universal radial-tree exploration engine for Claude Code. One `tree` skill + swappable presets (brainstorm / attack / design / code-audit) for divergent ideation, adversarial critique, and design-space exploration. 12 framings × hard-ban-on-incomplete-leaves × stable convergence. See CHANGELOG.md for per-version history.",
+        "after": "Universal radial-tree exploration engine for DipoleML. One `tree` skill + swappable presets (brainstorm / attack / design / code-audit) for divergent ideation, adversarial critique, and design-space exploration. 12 framings × hard-ban-on-incomplete-leaves × stable convergence. See CHANGELOG.md for per-version history.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [
+      "REPORT"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

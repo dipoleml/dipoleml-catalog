@@ -1,0 +1,76 @@
+---
+title: OpenAI 兼容 API 的通用调用格式
+domain: llm
+tags:
+- api
+- openai
+- llm
+- inference
+- chat
+status: published
+created: '2026-07-06'
+language: zh
+source: unknown
+domain_expert: unknown
+provenance:
+  source: "community"
+  contributor: "Community"
+  merged_at: "2026-08-23"
+  evidence: "post-publication"
+---
+
+---
+## Problem
+
+部署了 LLM 服务（vLLM/Ollama/本地推理）后，不知道怎么用 API 调用。各框架接口不一。
+
+## Root Cause
+
+大部分 LLM 服务实现了 OpenAI 兼容的 API 格式，但端点和参数细节有差异。
+
+## Solution
+
+```python
+import requests
+import json
+
+url = "http://localhost:11434/v1/chat/completions"  # Ollama 示例
+headers = {"Content-Type": "application/json"}
+
+payload = {
+    "model": "qwen2.5:7b",
+    "messages": [
+        {"role": "system", "content": "你是专业助手"},
+        {"role": "user", "content": "你好"}
+    ],
+    "temperature": 0.7,
+    "max_tokens": 1024,
+    "stream": False
+}
+
+resp = requests.post(url, headers=headers, json=payload)
+data = resp.json()
+print(data["choices"][0]["message"]["content"])
+```
+
+## 常见服务端点
+
+| 服务 | 端点 | 默认端口 |
+|------|------|---------|
+| OpenAI | `https://api.openai.com/v1` | — |
+| Ollama | `http://localhost:11434/v1` | 11434 |
+| vLLM | `http://localhost:8000/v1` | 8000 |
+| 任何 OpenAI 兼容服务 | `http://host:port/v1` | 自定义 |
+
+## Verification
+
+```bash
+echo "Lesson: OpenAI 兼容 API 的通用调用格式"
+wc -l lessons/contrib/openai-compatible-api-call.md
+```
+
+**Expected Output:**
+```
+Lesson: OpenAI 兼容 API 的通用调用格式
+# (line count)
+```

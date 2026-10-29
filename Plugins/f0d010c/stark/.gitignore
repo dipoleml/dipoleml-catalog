@@ -1,0 +1,61 @@
+# Node
+node_modules/
+dist/
+tmp-pack/
+.vite/
+*.log
+*.binlog
+__pycache__/
+*.py[cod]
+
+# Rust / Tauri
+target/
+*.rs.bk
+
+# .NET
+bin/
+obj/
+*.user
+*.suo
+.vs/
+
+# Electron
+release/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude
+.claude/
+
+# Build artifacts
+*.exe
+*.dll
+*.pdb
+
+# Local-only docs
+.github/ANNOUNCE_REDDIT.md
+
+# Local-only Playwright visual QA helper
+scripts/screenshot-tool/
+
+# Local-only maintainer checks
+scripts/public_readiness.py
+
+# Local visual QA artifacts
+screenshots/
+screenshots-*/
+**/screenshots/
+**/screenshots-*/
+design-previews/
+
+# Keep curated proof screenshots in the repo.
+!assets/screenshots/
+!assets/screenshots/**

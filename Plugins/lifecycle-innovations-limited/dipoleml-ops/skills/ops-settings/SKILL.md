@@ -1,0 +1,486 @@
+---
+name: ops-settings
+description: "OPS on-demand: This skill should be used when the user asks to \"update credentials\", \"ops settings\", or…"
+argument-hint: '[integration-name] [--status]'
+allowed-tools:
+  - Bash
+  - Read
+  - Write
+  - Edit
+  - AskUserQuestion
+effort: low
+maxTurns: 20
+---
+
+## Runtime Context
+
+```!
+PREFS="${CLAUDE_PLUGIN_DATA_DIR:-$HOME/.claude/plugins/data/ops-ops-marketplace}/preferences.json"
+cat "$PREFS" 2>/dev/null || echo '{}'
+```
+
+# OPS ► SETTINGS
+
+Load `ops-rules` before acting. Public repo (no personal data). Outbound: one draft → one approval → one send. If `AskUserQuestion` / `Workflow` are missing, follow Rule 10 in `ops-rules` (Hermes: numbered options / two-turn Telegram card; `delegate_task`).
+
+Manage credentials and integration config after initial setup.
+
+## Parse arguments
+
+- `--status` or empty → show full credential status dashboard
+- `<integration-name>` → jump directly to updating that integration (e.g. `/ops:settings stripe`)
+- `--status <integration-name>` → show status of one integration only
+
+## Credential Status Dashboard
+
+Read `preferences.json`. For each known integration, check whether the key exists and is non-empty. Also probe liveness where possible.
+
+Display as a table:
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ OPS ► SETTINGS — Integration Status
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ Integration         Status        Last Updated
+ ─────────────────── ────────────  ─────────────
+ GitHub (gh cli)     ✅ active     (always active if gh auth status)
+ Stripe              ✅ configured  2026-04-14
+ RevenueCat          ✅ configured  2026-04-14
+ Telegram            ✅ configured  2026-04-13
+ Slack               ⚠️  missing    —
+ Linear              ✅ configured  2026-04-11
+ Sentry              ⚠️  missing    —
+ AWS                 ✅ active     (always active if aws sts works)
+ Shopify             ⚠️  missing    —
+ Klaviyo             ⚠️  missing    —
+ Meta Ads            ⚠️  missing    —
+ GA4                 ⚠️  missing    —
+ Organic FB/IG       ⚠️  missing    —
+ YouTube             ⚠️  missing    —
+ Search Console      ⚠️  missing    —
+ Merchant Center     ⚠️  missing    —
+ ElevenLabs          ⚠️  missing    —
+ Datadog             ⚠️  missing    —
+ New Relic           ⚠️  missing    —
+ ...
+
+ ✅ N configured   ⚠️ N missing
+──────────────────────────────────────────────────────
+```
+
+## Probe liveness
+
+For integrations with a cheap health check, run it to distinguish "configured but expired" from "configured and active":
+
+| Integration | Probe                                                                                          | Active signal                         |
+| ----------- | ---------------------------------------------------------------------------------------------- | ------------------------------------- | --------- |
+| Stripe      | `curl -s -o /dev/null -w "%{http_code}" -u "${stripe_key}:" https://api.stripe.com/v1/balance` | 200                                   |
+| GitHub      | `gh auth status 2>&1`                                                                          | "Logged in"                           |
+| AWS         | `aws sts get-caller-identity --output text 2>/dev/null`                                        | exits 0                               |
+| Linear      | `cat "$PREFS"                                                                                  | jq -r .linear_team`                   | non-empty |
+| Doppler MCP | Check if DOPPLER_TOKEN is set and valid                                                        | Token present and MCP server responds |
+
+Show `🔴 expired` if probe fails for a previously-configured key.
+
+## Update an integration
+
+When a specific integration is selected (via argument or user pick from dashboard):
+
+1. Show current value (masked): `sk_live_••••••••••••••••` (last 4 chars visible)
+2. Use AskUserQuestion to confirm the update action:
+   ```
+   [Enter new value]  [Test current value]  [Clear this credential]  [Back to dashboard]
+   ```
+3. For "Enter new value": prompt with `AskUserQuestion` text input
+4. Write new value to `preferences.json` via `jq` update:
+   ```bash
+   tmp=$(mktemp)
+   jq --arg v "$NEW_VALUE" --arg k "$KEY_NAME" '.[$k] = $v' "$PREFS" > "$tmp" && mv "$tmp" "$PREFS"
+   ```
+5. Run smoke test immediately after update (see Smoke Tests section)
+6. Report: `✅ Stripe key updated — smoke test passed` or `⚠️ Key saved but smoke test failed: <reason>`
+
+## Smoke Tests
+
+| Integration | Smoke test command                                                                                                                 |
+| ----------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------ |
+| Stripe      | `curl -s -u "${new_key}:" https://api.stripe.com/v1/balance \| jq .object` → must be "balance"                                     |
+| RevenueCat  | `curl -s -H "Authorization: Bearer ${new_key}" "https://api.revenuecat.com/v2/projects" \| jq '.items \| length'` → non-zero       |
+| Telegram    | `node ${CLAUDE_PLUGIN_ROOT}/telegram-server/index.js --health 2>&1` → "healthy"                                                    |
+| Slack       | `curl -s -H "Authorization: Bearer ${new_token}" https://slack.com/api/auth.test \| jq .ok` → true                                 |
+| Shopify     | `curl -s -H "X-Shopify-Access-Token: ${new_token}" "https://${store_url}/admin/api/2024-01/shop.json" \| jq .shop.name` → non-null |
+| Klaviyo     | `curl -s -H "Authorization: Klaviyo-API-Key ${new_key}" https://a.klaviyo.com/api/accounts/ \| jq '.data[0].id'` → non-null        |
+| Datadog     | `curl -s -H "DD-API-KEY: ${new_key}" https://api.datadoghq.com/api/v1/validate \| jq .valid` → true                                |
+| New Relic   | `curl -s -H "Api-Key: ${new_key}" https://api.newrelic.com/v2/applications.json \| jq '.applications                               | length'` → numeric |
+| Doppler MCP | `npx -y @dopplerhq/mcp-server --help 2>&1` with DOPPLER_TOKEN set                                                                  | exits 0            |
+
+**Direct marketing surfaces** (per-project keys under `.marketing.projects.<p>` — see
+`docs/integrations/direct-channel-wiring.md` for the full key matrix). Status check:
+key group present and non-empty → configured, else missing. Smoke test each via
+`scripts/lib/organic-metrics-aggregator.sh` — a JSON object means live, `null` means
+missing/broken creds (never render `null` as zeros):
+
+| Surface        | Prefs keys                                             | Smoke test (after `. "${CLAUDE_PLUGIN_ROOT}/scripts/lib/organic-metrics-aggregator.sh"`) |
+| -------------- | ------------------------------------------------------ | ---------------------------------------------------------------------------------------- |
+| Organic FB/IG  | `meta.access_token` + `meta.page_id` / `meta.instagram_business_id` | `organic_meta <project> \| jq .` → object with `page_fans` / `ig_followers` |
+| YouTube        | `youtube.refresh_token/client_id/client_secret`        | `organic_youtube <project> \| jq .` → object with `views`                                |
+| Search Console | `gsc.site_url` (+ gcloud ADC or `$GOOGLE_ACCESS_TOKEN`) | `organic_searchconsole <project> \| jq .` → object with `clicks`                        |
+| Merchant Center | `merchant_center.merchant_id` (+ Google auth)         | `merchant_status <project> \| jq .` → object with `approved`/`disapproved`               |
+
+## Autopilot Studio (per-project)
+
+Lets an operator view and edit per-project autopilot config **without re-running setup**. See `skills/ops-marketing/SKILL.md` → `## autopilot` for the full field semantics.
+
+**List projects that have an autopilot block:**
+
+```bash
+jq -r '.marketing.projects | to_entries[] | select(.value.autopilot) | .key' "$PREFS"
+```
+
+If more than 4 projects, paginate the picker at 4 per `AskUserQuestion` page with `[More...]` as the bridge (Rule 1).
+
+**Show current config for the chosen project `$P`:**
+
+```bash
+jq --arg p "$P" '.marketing.projects[$p].autopilot' "$PREFS"
+```
+
+**Editor.** Drive edits via `AskUserQuestion`, batching the editable fields across multiple ≤4-option questions (Rule 1):
+
+- **Q1 — autonomy & kill switch:** `[autonomy_level]` `[envelope.kill_switch]` `[Back]`
+- **Q2 — envelope limits:** `[envelope.max_campaigns]` `[envelope.max_new_audiences]` `[envelope.max_daily_budget_usd]` `[More...]`
+- **Q3 — envelope allowlists:** `[envelope.objective_allowlist]` `[envelope.geo_allowlist]` `[Back]`
+- **Q4 — source & creative:** `[source.url]` `[creative_gen.daily_gen_spend_cap_usd]` `[creative_gen.neurons.enabled]` `[Back]`
+
+For `autonomy_level` offer the 4 fixed values across one question: `[create_once]` `[sandbox]` `[unrestricted]` `[Back]`. Allowlists are comma-separated free text; numeric/boolean fields are free text or a 2-option toggle.
+
+**Merge-write pattern** (mirrors the "Update an integration" jq pattern, nested under `.marketing.projects[$p].autopilot` — never clobber sibling keys):
+
+```bash
+tmp=$(mktemp)
+jq --arg p "$P" --arg v "$V" \
+  '.marketing.projects[$p].autopilot.autonomy_level = $v' "$PREFS" > "$tmp" && mv "$tmp" "$PREFS"
+```
+
+Use the matching jq path per field, e.g.:
+
+```bash
+# numeric envelope field (jq tonumber to keep it a number)
+jq --arg p "$P" --argjson v "$V" \
+  '.marketing.projects[$p].autopilot.envelope.max_campaigns = $v' "$PREFS" > "$tmp" && mv "$tmp" "$PREFS"
+
+# boolean kill switch
+jq --arg p "$P" --argjson v true \
+  '.marketing.projects[$p].autopilot.envelope.kill_switch = $v' "$PREFS" > "$tmp" && mv "$tmp" "$PREFS"
+
+# allowlist (comma-separated input -> JSON array)
+jq --arg p "$P" --arg v "NL,US" \
+  '.marketing.projects[$p].autopilot.envelope.geo_allowlist = ($v | split(","))' \
+  "$PREFS" > "$tmp" && mv "$tmp" "$PREFS"
+
+# source URL
+jq --arg p "$P" --arg v "https://example.com" \
+  '.marketing.projects[$p].autopilot.source.url = $v' "$PREFS" > "$tmp" && mv "$tmp" "$PREFS"
+
+# Gemini gen spend cap (must be <= daily_spend_cap_usd — validate before write)
+jq --arg p "$P" --argjson v "$V" \
+  '.marketing.projects[$p].autopilot.creative_gen.daily_gen_spend_cap_usd = $v' \
+  "$PREFS" > "$tmp" && mv "$tmp" "$PREFS"
+
+# Neurons external signal
+jq --arg p "$P" --argjson v false \
+  '.marketing.projects[$p].autopilot.creative_gen.neurons.enabled = $v' \
+  "$PREFS" > "$tmp" && mv "$tmp" "$PREFS"
+```
+
+**Safety note (surface this before writing):**
+
+- Lowering `autonomy_level` to `unrestricted` **removes the default creation guardrail** — autonomous campaign/audience/budget creation becomes bounded only by `daily_spend_cap_usd`. Confirm via `AskUserQuestion` (`[Set unrestricted]` / `[Keep current]`) before writing.
+- Setting `envelope.kill_switch: true` **hard-stops all mutations** on the next pass (stage-only, zero writes) regardless of `autonomy_level`.
+- The Credential Status Dashboard MUST surface `autonomy_level` and `kill_switch` for every project with `autopilot.enabled == true`.
+
+## Pocket
+
+Manages the voice-journal activity notifier (POCKET_API_KEY watcher + WhatsApp/email bridges + launchd agent).
+
+Route here when the user runs `/ops:settings pocket` or selects "Pocket" from the dashboard.
+
+### View status
+
+Read all four health files and print a compact status block:
+
+```bash
+STATE_DIR="$HOME/.claude/state/pocket"
+for f in .activity-notifier-health .out-queue-health .email-bridge-health .whatsapp-bridge-health; do
+  label="${f#.}"
+  label="${label%-health}"
+  content=$(cat "$STATE_DIR/$f" 2>/dev/null)
+  if [ -z "$content" ]; then
+    echo "$label: missing"
+  else
+    status=$(echo "$content" | jq -r '.status // "unknown"' 2>/dev/null)
+    msg=$(echo "$content"    | jq -r '.message // ""'       2>/dev/null)
+    last=$(echo "$content"   | jq -r '.last_run // ""'      2>/dev/null)
+    echo "$label: $status  $msg  ($last)"
+  fi
+done
+```
+
+For each service whose status is not `"ok"`, flag it:
+
+```
+activity-notifier: ok  (2026-05-20T12:34:56Z)
+out-queue:         ok  sent=3  (2026-05-20T12:34:55Z)
+email-bridge:      disabled  (2026-05-20T12:34:50Z)
+whatsapp-bridge:   ok  scanned=12 routed=1  (2026-05-20T12:34:54Z)
+```
+
+Show `✗ missing` for any health file that does not exist.
+
+### View task counts
+
+```bash
+STATE_DIR="$HOME/.claude/state/pocket"
+echo "tasks.jsonl:          $(wc -l < "$STATE_DIR/tasks.jsonl"         2>/dev/null || echo 0) lines"
+echo "pending-triage.jsonl: $(wc -l < "$STATE_DIR/pending-triage.jsonl" 2>/dev/null || echo 0) lines"
+echo "executor-results/:    $(ls "$STATE_DIR/executor-results/" 2>/dev/null | wc -l | tr -d ' ') files"
+```
+
+### Toggle channels
+
+Ask `AskUserQuestion`:
+
+```
+Which Pocket notification channel setting would you like to change?
+  [Toggle WhatsApp]  [Toggle Email]  [Edit self-address]  [Back]
+```
+
+**Toggle WhatsApp** — read `~/.claude/state/pocket/whatsapp-config.json`, flip `.enabled`, write back:
+
+```bash
+F="$HOME/.claude/state/pocket/whatsapp-config.json"
+CUR=$(jq -r '.enabled' "$F" 2>/dev/null || echo false)
+NEW=$([ "$CUR" = "true" ] && echo false || echo true)
+jq --argjson v "$NEW" '.enabled = $v' "$F" > "${F}.tmp" && mv "${F}.tmp" "$F"
+echo "WhatsApp notifications: $NEW"
+```
+
+**Toggle Email** — same pattern with `~/.claude/state/pocket/email-config.json`.
+
+**Edit self-address** — show current `email-config.json:.self_address`, ask for new value via `AskUserQuestion` text input, write back:
+
+```bash
+F="$HOME/.claude/state/pocket/email-config.json"
+jq --arg v "$NEW_ADDR" '.self_address = $v | .from_account = $v' "$F" > "${F}.tmp" && mv "${F}.tmp" "$F"
+```
+
+### Configure notifications (per-event)
+
+Fine-grained, per-event routing for the whole pocket module, dispatched by
+`ops-pocket-notify` and stored in `preferences.json → pocket.notifications`
+(schema + event list: `docs/pocket-notifications.md`). This is the interactive
+"which notifications, which channels, when" surface.
+
+1. **Pick the event to configure.** The event list can exceed 4, so paginate per
+   Rule 1 (`AskUserQuestion`, ≤4 options, `[More events…]` to advance):
+
+   ```
+   Which pocket event?
+     [env-broker.uid-rejected (security)]  [env-broker.denied]  [worker.failed]  [More events…]
+   ```
+
+   Page 2: `[worker.completed] [worker.spawned] [queue.stuck] [More events…]`,
+   page 3: `[daemon.down] [Done]`.
+
+2. **Pick channels for that event** (multi-select, ≤4 — only offer channels that
+   are configured per `View status` above):
+
+   ```
+   Notify on <event> via: (multi-select)
+     [Telegram]  [Email]  [WhatsApp]  [Slack]
+   ```
+
+3. **Set the schedule** for that event (one `AskUserQuestion` each, as needed):
+   - Severity: `[low] [medium] [high]` (high bypasses quiet hours).
+   - Cooldown: `[60s] [5 min] [30 min] [No limit]`.
+   - Quiet hours: `[22:00–08:00] [None] [Custom…]`.
+   - Active days: `[Every day] [Weekdays] [Custom…]`.
+
+4. **Write it** to `preferences.json` (create the path if absent):
+
+   ```bash
+   PREFS="${CLAUDE_PLUGIN_DATA_DIR:-$HOME/.claude/plugins/data/ops-ops-marketplace}/preferences.json"
+   tmp="$(mktemp)"
+   jq --arg ev "$EVENT" --argjson chans "$CHANNELS_JSON" --arg sev "$SEVERITY" \
+      --argjson cooldown "$COOLDOWN" \
+      '.pocket.notifications.events[$ev] = {channels: $chans, severity: $sev, schedule: {cooldown: $cooldown}}' \
+      "$PREFS" > "$tmp" && mv "$tmp" "$PREFS"
+   ```
+
+   (Merge `quiet_hours` / `active_days` into `.schedule` the same way when set.)
+
+5. **Test-send** the event so the operator confirms routing without waiting for a
+   real trigger:
+
+   ```bash
+   ops-pocket-notify "$EVENT" "test notification from /ops:setup" --severity "$SEVERITY" --dry-run --json
+   ```
+
+   Show the `fired` channels (or the `suppressed` reason). Offer a real send
+   (drop `--dry-run`) for the chosen event so they see it land on the device.
+
+Repeat from step 1 for the next event, or `[Done]`.
+
+### Force a fresh Pocket pull
+
+Run the watcher directly (picks up POCKET_API_KEY from keychain/env):
+
+```bash
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(ls -d "$HOME/.claude/plugins/cache/ops-marketplace/ops"/*/ 2>/dev/null | sort -V | tail -1)}"
+python3 "$PLUGIN_ROOT/scripts/ops-cron-pocket-watcher.py"
+```
+
+Report exit code and last line of `~/.claude/state/pocket/run.log`.
+
+### Restart notifier
+
+```bash
+launchctl kickstart -k "gui/$(id -u)/com.claude-ops.pocket-activity-notifier"
+```
+
+Wait 3 seconds then print the updated `.activity-notifier-health` status.
+
+### View last 3 outbound notifications
+
+```bash
+STATE_DIR="$HOME/.claude/state/pocket"
+echo "=== WhatsApp (out-queue-sent.jsonl) ==="
+tail -3 "$STATE_DIR/out-queue-sent.jsonl" 2>/dev/null | jq -r '"\(.sent_at // .ts // "?")  \(.message // .body // "" | .[0:80])"' 2>/dev/null || echo "(none)"
+echo "=== Email (email-sent.jsonl) ==="
+tail -3 "$STATE_DIR/email-sent.jsonl"     2>/dev/null | jq -r '"\(.sent_at // .ts // "?")  \(.subject // "" | .[0:80])"'                2>/dev/null || echo "(none)"
+```
+
+## Daemon Services
+
+Manage background daemon services declared in `daemon-services.default.json`. Route here when the user runs `/ops:settings daemons` or selects "Daemon services" from the dashboard.
+
+### Display the daemon services table
+
+```bash
+DAEMON_DEFAULT="${CLAUDE_PLUGIN_ROOT}/scripts/daemon-services.default.json"
+DAEMON_OVERRIDE="${CLAUDE_PLUGIN_DATA_DIR:-$HOME/.claude/plugins/data/ops-ops-marketplace}/daemon-services.override.json"
+
+# Merge: override file wins on matching service keys
+if [ -f "$DAEMON_OVERRIDE" ]; then
+  jq -s '.[0].services * .[1].services' "$DAEMON_DEFAULT" "$DAEMON_OVERRIDE" 2>/dev/null
+else
+  jq '.services' "$DAEMON_DEFAULT" 2>/dev/null
+fi
+```
+
+Display as a table (for each service, show enabled state, last_run age, and health status from the `health_file` if declared):
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ OPS ► SETTINGS — Daemon Services
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+ Service                   Enabled   Last Run      Health
+ ──────────────────────── ───────── ────────────  ────────────
+ briefing-pre-warm          ✅ on    2m ago        ✓ ok
+ memory-extractor           ✅ on    18m ago       ✓ ok
+ message-listener           ⏸ off   —             —
+ competitor-intel           ⏸ off   —             —
+ marketing-autopilot        ⏸ off   —             —
+
+──────────────────────────────────────────────────────────────────
+```
+
+For each `enabled: true` service with a `health_file`, expand `~` → `$HOME`, read the JSON file, extract `.last_run` and `.status`. Services with no `health_file` show `—`.
+
+### Toggle a service on or off
+
+Writes to the **override file only** — never edits `daemon-services.default.json`.
+
+Confirm each toggle via `AskUserQuestion` (`[Enable]` / `[Disable]` / `[Cancel]`) before writing.
+
+```bash
+DAEMON_OVERRIDE="${CLAUDE_PLUGIN_DATA_DIR:-$HOME/.claude/plugins/data/ops-ops-marketplace}/daemon-services.override.json"
+tmp=$(mktemp)
+# Enable:
+jq --arg svc "$SERVICE_NAME" '.services[$svc].enabled = true' \
+  "${DAEMON_OVERRIDE}" > "$tmp" 2>/dev/null \
+  || echo "{\"services\":{\"$SERVICE_NAME\":{\"enabled\":true}}}" > "$tmp"
+mv "$tmp" "$DAEMON_OVERRIDE"
+# Disable: same pattern with `= false`
+```
+
+If the override file does not exist yet, initialise it with `{"services":{}}` before writing.
+
+### View last 5 log lines for a service
+
+```bash
+OPS_DATA_DIR="${CLAUDE_PLUGIN_DATA_DIR:-$HOME/.claude/plugins/data/ops-ops-marketplace}"
+tail -n 5 "$OPS_DATA_DIR/logs/${SERVICE_NAME}.log" 2>/dev/null || echo "(no log file found)"
+```
+
+### Manually trigger a service
+
+- **launchd-registered** (plist-backed, e.g. `whatsapp-bridge`):
+  ```bash
+  launchctl kickstart -k "gui/$UID/com.<user>.${SERVICE_NAME}"
+  ```
+- **Cron-style / script-based** (have a `command` pointing to a `.sh` file):
+  ```bash
+  COMMAND=$(jq -r ".services[\"$SERVICE_NAME\"].command" "$DAEMON_DEFAULT" \
+    | sed "s|\${CLAUDE_PLUGIN_ROOT}|${CLAUDE_PLUGIN_ROOT}|g")
+  bash "$COMMAND"
+  ```
+
+Always confirm via `AskUserQuestion` (`[Run now]` / `[Cancel]`) before triggering.
+
+## Home Automation (Homey Pro)
+
+Route here when the user runs `/ops:settings home` or selects "Home Automation" from the dashboard.
+
+### View status
+
+```bash
+PREFS="${CLAUDE_PLUGIN_DATA_DIR:-$HOME/.claude/plugins/data/ops-ops-marketplace}/preferences.json"
+jq '.home_automation // empty' "$PREFS" 2>/dev/null
+```
+
+Display as a compact block:
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ OPS ► SETTINGS — Home Automation (Homey Pro)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ Status:        ✅ configured   (or ⚠️  not configured)
+ Local URL:     https://192.168.1.••• (mask all but last octet)
+ Local token:   ••••••••••••abcd  (last 4 chars only)
+ Cloud token:   ✅ present   (or ○ not set)
+ Homey ID:      ✅ present   (or ○ not set)
+──────────────────────────────────────────────────────
+ [r] reconfigure → /ops:setup --section home
+```
+
+URL masking: replace all octets except the last with `•••`, e.g. `https://192.168.1.42` → `https://•••.•••.•••.42`.
+Token masking: show last 4 characters only, prefix with `••••••••••••`.
+
+If `home_automation` key is absent from `preferences.json`, show:
+
+```
+ Status:  ○ not configured — run /ops:setup --section home
+```
+
+### Reconfigure
+
+When the user selects `[r] reconfigure`, route to `/ops:setup --section home` (invoke the `3k-home` sub-flow of the setup wizard).
+
+---
+
+## Additional resources
+
+Channel, CLI, and edge-case detail lives in `references/` next to this skill. Read those files before acting on a matching channel or sub-command. Do not skip them.

@@ -1,0 +1,20 @@
+{
+  "name": "claude-mem-sync",
+  "owner": {
+    "name": "lopadova"
+  },
+  "metadata": {
+    "description": "Team memory sharing plugins for claude-mem"
+  },
+  "plugins": [
+    {
+      "name": "claude-mem-sync",
+      "source": {
+        "source": "github",
+        "repo": "lopadova/claude-mem-sync"
+      },
+      "description": "Team memory sharing for claude-mem — tracks observation access for intelligent eviction scoring",
+      "version": "1.1.9"
+    }
+  ]
+}

@@ -1,0 +1,74 @@
+name: Brooks-Lint PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  brooks-lint:
+    name: Code Quality Review
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write   # required to post PR comments
+      # security-events: write  # uncomment to upload SARIF to Code Scanning (sarif-file)
+      # id-token: write         # uncomment for the Bedrock path: mints the OIDC token that assumes the AWS role
+
+    # Claude on Amazon Bedrock (step 0 of 3): uncomment id-token and env block with the three
+    # steps marked "Bedrock path" below. The Region is declared once, here, and
+    # everything else derives from it.
+    # env:
+    #   AWS_REGION: us-east-1   # the only place the Region appears
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0  # needed for git diff main...HEAD and to read .brooks-lint.yaml from the base ref
+
+      # Bedrock path (step 1 of 3) — assume the role allowed to invoke the model.
+      # - uses: aws-actions/configure-aws-credentials@v6
+      #   with:
+      #     role-to-assume: arn:aws:iam::111122223333:role/brooks-lint-bedrock
+      #     aws-region: ${{ env.AWS_REGION }}   # written out rather than left to the action's env-to-input translation
+      #
+      # Bedrock path (step 2 of 3) — mint a short-term Bedrock API key.
+      # - id: bedrock
+      #   working-directory: ${{ runner.temp }}
+      #   shell: bash
+      #   run: |
+      #     npm install --no-save @aws/bedrock-token-generator   # reads the AWS_REGION re-exported above
+      #     token=$(node --input-type=module -e '
+      #       import { getTokenProvider } from "@aws/bedrock-token-generator";
+      #       const provideToken = getTokenProvider();
+      #       process.stdout.write(await provideToken());
+      #     ')
+      #     echo "::add-mask::$token"   # keep it out of the log before it moves
+      #     echo "token=$token" >> "$GITHUB_OUTPUT"
+      #
+      # Prerequisites: model access enabled in that Region, and a role permitting
+      # `bedrock:InvokeModel` + `bedrock:CallWithBearerToken` (or
+      # `bedrock-mantle:CallWithBearerToken` on Mantle). Cannot review fork PRs.
+
+      # Pin to a release tag. `@main` would silently re-point at unreviewed
+      # changes on every run — including the Anthropic SDK version the action
+      # installs. Bump this deliberately.
+      - uses: hyhmrright/brooks-lint/.github/actions/brooks-lint@v1.9.1
+        with:
+          # review | audit | debt | test | health | sweep
+          mode: review
+          anthropic-api-key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # Bedrock path (step 3 of 3) — uncomment these three, replacing the line above
+          # anthropic-api-key: ${{ steps.bedrock.outputs.token }}
+          # api-base-url: https://bedrock-runtime.${{ env.AWS_REGION }}.amazonaws.com/anthropic  # or https://bedrock-mantle.${{ env.AWS_REGION }}.api.aws/anthropic for Mantle
+          # model: global.anthropic.claude-sonnet-5  # ids pass through unchanged
+          fail-below: 70  # fail the check if Health Score drops below 70
+          # .brooks-lint.yaml is read from the base ref by default, so a pull request
+          # cannot weaken the policy that reviews it (disabling every risk would score
+          # 100 and pass the gate before the config change was ever approved). Set
+          # `head` only if that file is CODEOWNERS-protected and config changes should
+          # take effect in the PR that makes them.
+          # config-ref: base             # where to read .brooks-lint.yaml from (base | head)
+          # fail-on: critical            # fail on any Critical finding (none | warning | critical)
+          # fail-on-regression: true     # fail if the Health Score dropped vs the last run
+          # sarif-file: brooks-lint.sarif  # also upload findings to GitHub Code Scanning
+          # api-base-url: https://your-gateway.example.com  # any Anthropic-compatible /v1/messages endpoint
+          # max-tokens: 8192             # raise the 4096 output ceiling; a truncated report scores too HIGH

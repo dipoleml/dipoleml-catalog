@@ -1,0 +1,59 @@
+{
+  "schema": 1,
+  "kind": "citadel-sentient-readiness-v1-matched-pair-sensitivity",
+  "source_bundle": "benchmarks/sentient-readiness/published-run/bundle.json",
+  "frozen_aggregate_unchanged": true,
+  "rationale": "The omitted pair used the same strong route under both policies; its 60-second baseline timeout is not a routing-policy difference.",
+  "omitted_pair": {
+    "scenario_id": "weighted-path",
+    "repetition": 1,
+    "cells": [
+      {
+        "cell_id": "000-weighted-path--always-strong-local--r1",
+        "policy_id": "always-strong-local",
+        "status": "unknown",
+        "request_wall_duration_ms": 60005,
+        "gpu_energy_kwh": 0.000702132,
+        "modeled_gpu_cost_usd": 0.000307107
+      },
+      {
+        "cell_id": "040-weighted-path--citadel-adaptive-local--r1",
+        "policy_id": "citadel-adaptive-local",
+        "status": "failed",
+        "request_wall_duration_ms": 6765,
+        "gpu_energy_kwh": 0.000113295,
+        "modeled_gpu_cost_usd": 0.000041451
+      }
+    ]
+  },
+  "sensitivity": {
+    "baseline": {
+      "policy_id": "always-strong-local",
+      "cells": 35,
+      "verified": 24,
+      "failed": 11,
+      "unknown": 0,
+      "attempts": 35,
+      "request_wall_duration_ms": 254875,
+      "gpu_energy_kwh": 0.003897104,
+      "modeled_gpu_cost_usd": 0.001487405
+    },
+    "adaptive": {
+      "policy_id": "citadel-adaptive-local",
+      "cells": 35,
+      "verified": 27,
+      "failed": 8,
+      "unknown": 0,
+      "attempts": 38,
+      "request_wall_duration_ms": 274061,
+      "gpu_energy_kwh": 0.004032122,
+      "modeled_gpu_cost_usd": 0.001567705
+    },
+    "quality_ratio": 1.125,
+    "gpu_energy_reduction": -0.034646,
+    "modeled_gpu_cost_reduction": -0.053987,
+    "request_wall_duration_reduction": -0.075276
+  },
+  "conclusion": "The economic direction reverses after excluding the matched timeout pair; v1 does not support a routing-policy savings claim.",
+  "report_digest": "sha256:75713af7fe729c44727cc21057a99200337969694dc093ce326f104c8d21f11a"
+}

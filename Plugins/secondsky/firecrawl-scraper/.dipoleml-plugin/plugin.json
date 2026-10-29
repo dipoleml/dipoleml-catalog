@@ -1,0 +1,16 @@
+{
+  "name": "firecrawl-scraper",
+  "displayName": "Firecrawl Scraper",
+  "version": "3.9.0",
+  "description": "Firecrawl v2.5 API for web scraping/crawling to LLM-ready markdown. Use for site extraction, dynamic content, or encountering JavaScript rendering, bot detection, content loading errors.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Secondsky"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/secondsky/claude-skills",
+  "repository": "https://github.com/secondsky/claude-skills",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,1648 @@
+# Changelog
+
+All notable changes to Platform Skills will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [1.45.10] - 2026-10-24
+
+### Fixed
+
+- **The bundled Flux validator disabled kustomize's file-loading restriction.** Retain the CLI default so generator files and patches outside a kustomization's root fail the build. Also recognize all three kustomization filenames and apply directory exclusions consistently for absolute and relative audit roots. A native kubectl regression checks that an outside-file fixture cannot enter the bundle while an in-root generator still works.
+- **Large Flux migration reports could falsely pass.** Match captured output through a here-string so early `grep` completion cannot trigger a producer SIGPIPE and hide deprecated APIs under `pipefail`.
+- **The handbook runner emitted two ShellCheck warnings.** Separate the independent identity and version comparisons into shell conditions while preserving failure on any mismatch.
+- **Flux audits cloned and executed remote scripts.** The migration and security references now run bundled helpers, as do both the FluxCD and GitOps skills. The three helpers come from `fluxcd/agent-skills` v0.2.0 at `9b05787530a3e200a9ac031fc8a477566e0b7adc`, with their license and provenance. Portable skills carry the same files. Tool prerequisites now match the pinned scripts: `flux-schema`, kustomize or kubectl, and Flux. Audits may fetch schema data or configured remote manifests, but do not fetch executable scripts.
+- **A failed deprecated-API check could report a clean audit.** The bundled helper preserves Flux CLI failures instead of treating missing migration output as success. Tests cover CLI errors, deprecated APIs, dependency failures, standalone and overlay validation, and documented setup from source and portable installations.
+- **Three examples used the `eval` keyword where it was not needed.** `examples/token-optimizer/optimize.sh` now calls `yq '<expr>'`, which is the same command as `yq eval '<expr>'` in yq v4. The shellcheck example in `references/composite-actions.md` no longer shows `eval $(...)`, and the preflight shell checklist states its two rules without the keyword. Behavior is unchanged.
+
+### Review notes
+
+- The 1.45.9 report no longer lists the Kingfisher download-and-run warning. It retains all 25 credential warnings and lists 10 download-and-run warnings, including three newly reported, pre-existing Flux paths. The two Flux references contained clone-and-run commands and are addressed here. The basic-monorepo README clones the user's own repository and runs an already bundled validator; that guidance remains.
+- Vendor authentication guidance remains. The directory still requires reviewer assessment of credential usage; this patch does not predict a warning count or claim directory approval.
+
+## [1.45.9] - 2026-10-24
+
+### Fixed
+
+- **The Kingfisher standalone hook setup still downloaded and ran a script.** The v1.45.8 directory report listed `references/kingfisher.md` after the earlier hook and CI fixes. Standalone setup now copies the bundled `skills/kingfisher/scripts/pre-commit.sh` instead. Its if/else guards skip an existing hook or configured `core.hooksPath` without changing shell options or exiting an interactive shell. The installed hook runs only the installed scanner and fails if it is absent. Tests cover installation, shell continuation, existing-hook protection, scanner arguments, working directory and exit codes.
+- **AWS profile discovery read raw credential caches and config files.** The skill and reference now use profile names and an allowlist of non-secret configuration fields, with STS for authentication checks. They do not read caches or export credentials to calculate TTL. Without an expiration timestamp shared separately from credentials, TTL is explicitly `unknown`; an authenticated profile is not assumed to have more than 30 minutes left. MCP configuration parsing returns only AWS profile and region metadata.
+- **The GitOps credential search printed matching secrets.** Its security-review search now lists file names only, and follow-up findings must redact values.
+- **Kingfisher hook reports were not redacted.** The bundled hook, pre-commit configuration and Husky example now pass `--redact`; `--quiet` only controls status/progress output. The pre-commit examples specify the full argument list because a consumer's `args` replaces the upstream defaults, including `scan`. Portable rendering now includes each skill's tracked `scripts/` files, and standalone setup locates the hook relative to the loaded Kingfisher skill. Tests exercise setup from both the source and rendered skill; with pre-commit installed, they also run both YAML examples against a local hook fixture to check scanner arguments and failure blocking.
+- **Session-based SSO profile generation required legacy fields.** `org-scan --generate-profiles` now reuses an existing `sso_session` reference. Legacy templates still copy their individual start URL and SSO region. Offline configuration checks cover both forms.
+
+### Review notes
+
+- **The other seven download-and-run warnings in the v1.45.8 report do not run downloaded code.** `dora` queries or posts metrics and dashboards; `linux` and the router skill use HTTP diagnostics; `preflight` describes a prohibition; `notify-slack` and the composite-actions reference post webhook/API payloads. The token-optimizer script has no downloader and never evaluates command text from its payload. These are retained.
+- **Credential warnings still need reviewer assessment.** The listed cloud, Kubernetes, GitHub, registry, monitoring and CI examples use selected CLI sessions, service-specific variables, secret references or caller inputs. Documentation and secret-scanning patterns also match the report's heuristic. The manifest has no hook or MCP server that reads or transmits credentials. This audit does not establish that these uses qualify for the directory's vendor exception, or guarantee that a rescan clears its hold. Adding sensitive `userConfig` placeholders to skill text would not fix authentication: Claude Code substitutes only non-sensitive values there. The plugin README now explains this limitation and the authentication boundary.
+- **The AWS TTL restriction is a deliberate data-exposure tradeoff.** Vendor authentication guidance remains: SSO, Granted, role chains and `credential_process` still work through the AWS CLI. The skill's description and wizard now say it checks authentication and uses an expiry timestamp only when the user shares one. Credential/cache path names remain in explanatory guidance. Without matched lines or a new directory scan, we cannot tell whether the scanner keys on those strings or the removed reads, and predict no finding-count reduction.
+- **The icon needs no change.** The report accepted the well-formed PNG and passed validation and the security scan. Publication remains subject to the directory review. The generated plugin folder is rebuilt in the release PR, as usual.
+
+## [1.45.8] - 2026-10-19
+
+Fixes the installed triage skill, which could not find its helper, and stops the kingfisher guide from running downloaded code in hooks and CI.
+
+### Fixed
+
+- **The installed triage skill could not find its helper.** `references/triage.md` runs `python3 "$CLAUDE_PLUGIN_ROOT/examples/triage/scripts/triage_helper.py"`, but the Bash tool does not set `CLAUDE_PLUGIN_ROOT` (plugins reference, "Where each variable resolves"). A probe plugin confirmed it on Claude Code 2.1.207: `${CLAUDE_PLUGIN_ROOT}` in skill text came back as the absolute install path, while the same variable in a Bash command was unset. So every helper call pointed at `/examples/triage/...`, and the reference's own rule turned that into a reported capability gap. The triage skill now states the root, which Claude Code fills in when it loads the skill, and each helper command starts with `CLAUDE_PLUGIN_ROOT='<that path>';`. Loaded from a built plugin folder, the skill ran the helper (`usage: triage_helper.py [-h] …`). The security rule is unchanged: the helper comes from the installed plugin, never the PR's working tree.
+- **The kingfisher guide ran downloaded code when hooks and CI jobs run.**
+  - **Husky:** the hook piped `kingfisher-pre-commit-auto.sh` into `bash` on every commit. It now runs the installed `kingfisher` with the flags upstream's hooks use (`scan . --staged --quiet --no-update-check`), so nothing downloads at commit time. The guide notes that upstream's `install-husky.sh` writes the same command by default. It warns against that script's `--auto-install` option, whose hook pipes the auto script from `main` into `bash`, and its `--use-docker` option, which runs `:latest`.
+  - **CI Option A:** piped `install-kingfisher.sh` into `bash`. It now downloads `kingfisher-linux-x64.tgz` for v2.13.0 and checks it with `sha256sum -c` against the SHA-256 in the release's signed SLSA provenance before installing it. Tested: the right checksum installs the binary, a wrong one fails before install.
+  - **pre-commit framework:** recommended `kingfisher-auto`, which downloads the binary on first use (`latest` unless `KINGFISHER_VERSION` is set, unverified). It now uses the `kingfisher` hook, which runs the installed binary, at `rev: v2.13.0`. The skill's `precommit` mode and `COMMANDS.md` match.
+  - **uv:** `uvx kingfisher-bin --help` could not work, because the package installs a `kingfisher` command, not `kingfisher-bin`. The guide and the skill now install a pinned `kingfisher-bin==2.13.0`.
+  - **Versions:** the guide pinned four versions (mise 1.113.0, Docker and CI 2.0.0, the standalone installer 2.13.0). All now use 2.13.0, the current release, which exists on GitHub, PyPI and GHCR.
+
+## [1.45.7] - 2026-10-18
+
+Replaces the remaining real download-and-run commands in what the plugin ships. A sweep of all 410 shipped files found them in five references, one skill and one example script. The plugin directory has listed exactly ten download-and-run findings in each of the last three scans, with new files taking the place of cleared ones. Four of the ten it listed for 1.45.6 are fixed here, plus the datadog reference and the dynatrace skill and reference, which it had not listed. The other six (dora, linux, the router skill, preflight, `notify-slack` and `references/composite-actions.md`) call APIs or webhooks with `curl` and download no code.
+
+### Fixed
+
+- **The kingfisher reference piped install scripts from `main` into bash.** The Linux, macOS and pre-commit installers ran `curl …/main/scripts/install-kingfisher*.sh | bash`. The Windows path ran the PowerShell installer from `main` under `ExecutionPolicy Bypass`. The install section now points to Homebrew, mise, uv, Docker and the release binaries. The pre-commit installer is fetched at the v2.13.0 tag, read, and then run.
+- **The trivy reference piped `contrib/install.sh` from `main` into sh**, locally and in CI. Linux now installs the pinned v0.76.0 release, checked against `trivy_0.76.0_checksums.txt`. CI uses `aquasecurity/setup-trivy` pinned to its v0.3.1 commit, with `version: v0.76.0`; its default is latest.
+- **The opa reference installed Conftest and Regal from `releases/latest` with no checksum**, in its CI template too. CI now pins Conftest 0.71.1 and Regal 0.43.0 and checks each against the release's `checksums.txt`. Regal's URLs point at `open-policy-agent/regal`, where the project moved. The local install keeps Homebrew and describes the pinned-release path.
+- **The datadog reference suggested the latest pup binary straight into `/usr/local/bin`.** It now describes a pinned, verified release.
+- **The dynatrace skill and reference applied the newest operator to the cluster.** Both ran `kubectl apply -f …/dynatrace-operator/releases/latest/download/kubernetes.yaml`, so what landed in the cluster changed with each upstream release. Both now apply the pinned v1.11.0 manifest.
+- **token-optimizer's `set_uint` assigned through `eval`.** It now uses `printf -v`, with the same result and no `eval`. The value was already validated as an unsigned integer. The token-optimizer tests pass, and `printf -v` works on macOS's bash 3.2.
+
+## [1.45.6] - 2026-10-18
+
+Fixes the composite-action release workflows, which failed on every tag, and stops two skills from installing software on their own. Together these remove the download-and-run commands behind six of the ten findings the plugin directory listed. The other four neither download nor run code: the Slack webhook POST in `notify-slack`, `curl -v` in the connectivity ladder of the linux and router skills, and a preflight checklist line. The directory says a match that only appears in documentation needs no change, so they stay.
+
+### Fixed
+
+- **Composite-action release workflows failed on every tag.** All eleven `examples/github-actions/composite-actions/*/.github/workflows/release.yml` ran `actionlint action.yml`. actionlint lints workflows, not action metadata. It read `action.yml` as a workflow, reported `"jobs" section is missing`, and exited 1 before the release was created. The step is now an `action.yml` check with `yq`, which the ubuntu runner image ships. It checks three things: `runs.using` is `composite`, every step key is one GitHub documents for a composite step, and every `run:` step has `shell:`. It passes on all eleven actions. It fails on a step-level `timeout-minutes`, a `run:` without `shell:`, a non-composite action, and invalid YAML. Nothing is downloaded, so the actionlint download the directory listed in four of these files is gone.
+- **The composite-actions reference taught the same broken check and piped an installer into bash.** `references/composite-actions.md` ran `actionlint action.yml` in three places. It also installed actionlint twice with `curl …/actionlint/main/scripts/download-actionlint.bash | bash`. Its release-workflow template expanded `${{ github.ref_name }}` straight into `run:`, which is template injection from a tag name, and pinned checkout v4.2.2 and github-script v7.0.1. The template now matches the example workflows, and the static-validation section uses the `yq` checks. actionlint is described as a workflow linter that also checks the inputs passed to a local action through `uses: ./`. The composite-actions skill and the examples README say the same.
+- **The ai-governance skill installed yq with `sudo`.** When yq was missing, the skill told the agent to download a release binary and `sudo install` it. It now stops and asks the user to install yq. The version it pinned (v4.53.6) was also behind the Renovate-tracked pin in `examples/ai-governance/ai-governance-check.yml`.
+- **The dora skill installed Pushgateway into the cluster on its own.** When no Pushgateway was found, it ran `helm upgrade --install` "before proceeding", with an unpinned chart and no `helm repo add`. It now stops and gives the user a pinned install (`--version 3.9.1`) to run.
+- **The composite-actions README still listed `timeout-minutes` on network-bound steps.** 1.45.5 removed those lines because a composite step does not accept the key. The row now names what bounds the waits: `curl --max-time` and `kubectl rollout status --timeout`.
+
+## [1.45.5] - 2026-10-18
+
+Pins and verifies the installers in the composite-action examples, which the plugin directory listed as download-and-run commands, and fixes two actions that failed to load.
+
+### Fixed
+
+- **Composite-action release workflows ran an unpinned installer.** All eleven `examples/github-actions/composite-actions/*/.github/workflows/release.yml` installed actionlint with `curl -sL …/actionlint/main/scripts/download-actionlint.bash | bash -s -- latest`: a script from a moving branch, piped straight into bash, fetching whatever release was newest. Each now downloads the pinned actionlint release tarball, checks its SHA-256, and installs it. The version and checksum carry a Renovate annotation, so `github-release-attachments` bumps both together, as in the Renovate Gate. The plugin directory listed three of these as "Contains a download-and-run command".
+- **`k8s-deploy` installed `kubectl` without verifying it.** The action downloaded the binary from `dl.k8s.io` and made it executable. It now fetches the `kubectl.sha256` published beside it and runs `sha256sum --check` before installing.
+- **`k8s-deploy` and `notify-slack` set `timeout-minutes` on composite steps.** GitHub accepts `timeout-minutes` only on a job, so each action failed to load ("Unexpected value 'timeout-minutes'"). The five lines are removed. The rollout wait keeps its own `--timeout`, and the Slack webhook call gains `--max-time 30`. Set `timeout-minutes` on the calling job.
+- **Two download-and-run false matches.** The preflight skill's security rule read "No `curl | bash`" and now says the same thing without the pattern. The dora skill piped a heredoc into `curl` to push metrics, and now feeds `curl` the heredoc directly, with no pipe and the same request.
+
+## [1.45.4] - 2026-10-18
+
+Trims the plugin directory's review holds: the image-file hold on the self-improve hook, and five false matches in the credential hold. Neither hold blocks submission. The credential hold stays on for review by design, because its remaining findings are vendor credentials used with that vendor's own service.
+
+### Fixed
+
+- **The directory held the plugin because the self-improve hook "names" the listing icon.** `examples/agent-self-improve/scripts/self-improve-hook.sh` never mentions `icon.png`, but `running_from_plugin` matched `$0` against a wildcard case pattern under `CLAUDE_PLUGIN_ROOT`. The directory's scanner reads a wildcard under the plugin root as naming every file there, `.claude-plugin/icon.png` included, and holds the plugin as `UNREAD_ASSET_REFERENCED`. The check is now a prefix strip with the same result, checked for a root with and without a trailing slash, a sibling directory sharing the prefix, the root itself, and an unset root. The `plugins/platform-guardrails` copy stays byte-identical, and all 240 hook tests pass in bash and pwsh.
+- **Five false matches in the "Uses a credential from the user's machine" hold.** Four validator scripts (`gateway-api`, `kubescape`, `kubescape-operator` and `terraform`) named their pass/fail helper `pass`, so `pass "$f …"` read as a password next to a URL in the same file. The helper is now `ok`, and the printed `PASS:` lines are unchanged. `references/kingfisher.md` mounted `"$PWD"`, which read as a password variable, and now uses `"$(pwd)"`.
+
+## [1.45.3] - 2026-10-18
+
+Clears the one issue that blocked the plugin directory submission (a sample token in the triage reference), adds a credential check to the plugin-folder gate, and repairs the gh-aw source scan.
+
+### Fixed
+
+- **The plugin directory blocked submission on a sample token.** `references/triage.md` showed a `state lock` result whose `lock_token` was a real-looking 32-hex value, and passed the same value to `state unlock --lock-token`. It is only a per-run lock nonce, but a credential-named key with a high-entropy value is what the directory blocks as `SECRET_IN_SCRIPT` ("Secret in a shipped file"), so validation of `plugins/platform-skills` at 1.45.2 stopped there. Both spots now use placeholders (`<32 hex characters, new on every acquire>`, `"<lock_token>"`).
+- **New check 7 in `tests/plugin-folder.sh`.** It fails on a credential-shaped literal in what the next release ships: a vendor token prefix (`ghp_`, `github_pat_`, `AKIA`, `xox…`, `sk_live_`, `glpat-`, `AIza`, a PEM private key), or a credential-named key or flag given a 16+ character value mixing letters and digits. Values marked as samples (`EXAMPLE`, `xxxx`, `YOUR_`, placeholder, `REDACTED`, dummy, fake) pass, as they do in the directory. It scans a fresh build, so a source fix passes on its PR before the release PR rebuilds the folder, and it fails closed if the scan cannot run. It prints only `file:line` with `[value redacted]`, so a real secret it finds is not copied into CI or release logs. Its pattern is defined in pieces so `tests/scan-secrets.sh` still scans the file.
+- **The gh-aw source check in `tests/scan-secrets.sh` scanned nothing.** Check 2 exists to catch hard-coded credentials in agentic workflow sources (`.github/workflows/*.md`), but `git ls-files -- '.github/workflows/**/*.md'` needs the `:(glob)` pathspec: without it `**/` means at least one subdirectory, so `renovate-gate.md` never matched and the check reported "No agentic workflow sources found" from August to October. Its keyword match was also case-sensitive, so an uppercase key such as `API_TOKEN: "…"` passed. Both are fixed; a planted credential in a gh-aw source is now caught in either case.
+
+## [1.45.2] - 2026-10-18
+
+Ships the composite-actions injection example fix in the plugin folder the directory lists, and records the marketplace's switch to installing that folder.
+
+### Changed
+
+- **The marketplace installs `platform-skills` from `plugins/platform-skills`.** Since #242, the entry is a `git-subdir` source pinned to the 1.45.1 content commit, not the whole repository. Installs get the same 410 files the plugin directory reviews, and no repository-root `CLAUDE.md`. The pin PR could not carry this note: `release.yml` rejects a tag if anything but `marketplace.json` differs from the pin.
+
+### Fixed
+
+- **The composite-actions "safe" injection example sent a token in a URL.** In `skills/composite-actions`, the ✅ example passed `inputs.token` through `env:` correctly, then sent it as `?token=` in a query string, where server and proxy logs keep it. The directory scan also flagged it as reading a credential and sending it to `example.com`. The example now deploys a Helm chart into `inputs.namespace`, a non-secret input. Both steps gained the `shell: bash` that composite-action `run:` steps require. A line after the example says to pass a secret the same way and send it in a request header.
+
+## [1.45.1] - 2026-10-18
+
+Moves the plugin directory listing to a plugin-only folder, `plugins/platform-skills/`, small enough for the directory to inspect every file, and fixes the Renovate GitHub Actions group.
+
+### Added
+
+- **`plugins/platform-skills/`, a plugin-only folder for the plugin directory.** The directory held v1.45.0 under "Files or downloads the validator couldn't inspect". It scans the whole submitted folder, which was the repository root: over 900 files against its 512-file limit. The website, evals, tests, plans and demo recordings were in the scan, and none of them ship. `scripts/build-plugin.sh` now generates the folder:
+  - the manifest, icon, `LICENSE` and `NOTICE`;
+  - a plugin `README.md` that says what the plugin runs, sends and fetches, with its command list generated from each skill's frontmatter;
+  - `skills/`, `references/`, `agents/` and `assets/`;
+  - the 267 of 462 example files that shipped content names.
+
+  That comes to 410 files, all text except the icon, none over 256 KiB. `claude plugin validate --strict` passes on it with no warnings, since no root `CLAUDE.md` comes along. `tests/plugin-folder.sh` gates the folder:
+  - the directory's file, size and binary limits, plus names that stop validation;
+  - a README and a license;
+  - every `$CLAUDE_PLUGIN_ROOT` path a skill runs, present in the folder;
+  - a fresh rebuild, compared strictly on a PR that touches the folder or the root manifest, and on every release tag.
+
+  Renovate ignores the copy, and the release PR rebuilds it (CONTRIBUTING.md, "The plugin folder"). The listing needs a new directory submission with plugin path `plugins/platform-skills`, because a submission's folder cannot change.
+
+### Fixed
+
+- **The checkov skill said private modules resolve "via gh CLI".** Since 1.45.0 they resolve only with a `GITHUB_PAT` the user exports. The description now says so, and the plugin README's command list quotes it.
+- **The token-optimizer benchmark pointed at fixtures an installed plugin lacks.** `evals/token-optimizer/` is a repository suite, so benchmark mode now says to run from a clone and stops if the manifest is missing.
+- **Two links in `examples/agent-self-improve/HOW_IT_WORKS.md` left the plugin folder.** They pointed at the repository's root guides with `../../`, and now use their GitHub URLs.
+- **Renovate's GitHub Actions group failed with "Error updating branch: update failure".** The group rule sets `pinDigests: true` for everything the github-actions manager extracts, including tool versions passed as action inputs (depType `uses-with`). #219 brought `cosign-release: v3.1.3` in `examples/kubescape/workflows/kubescape.yml` into scope, and Renovate tried to pin it to a commit digest. A `with:` value has nowhere to put a digest, so the update could not be written ("Digest is not updated" in the job log). That failed the whole group branch, along with every real update in it. `uses-with` dependencies now have `pinDigests: false`; their version updates still apply.
+- **The placeholder Copilot setup-steps template is no longer scanned.** Every `uses:` ref in `assets/copilot-setup-steps.template.yml` is a placeholder that `setup-agents` fills in, so Renovate has nothing to update there. The template is out of the github-actions patterns, and `assets/*.template.*` is listed in `ignorePaths` (#236).
+
+### Changed
+
+- Dependency updates. All of them are in examples only, and no skill behaviour changes:
+  - The example workflows' GitHub Actions: anchore/sbom-action v0.24.3, aquasecurity/trivy-action v0.36.0, aws-actions/configure-aws-credentials v6.3.0, bridgecrewio/checkov-action v12.3134.0, docker/build-push-action v7.4.0, docker/login-action v4.6.0, docker/metadata-action v6.2.0, docker/setup-buildx-action v4.4.1, fluxcd/flux2/action v2.9.6, github/codeql-action v4.39.0, hashicorp/setup-terraform v4.0.1, sigstore/cosign-installer v4.1.2, terraform-linters/setup-tflint v6.3.2 and the slsa-github-generator container workflow v2.1.0 (#238)
+  - Node.js 24 in the fixed supply-chain demo workflow (was 18) (#239)
+
+## [1.45.0] - 2026-10-18
+
+Clears the plugin directory review (no machine credentials, a marketplace description, a listing icon) and makes Renovate cover every pinned version in the repository, then lands the first batch of updates it found.
+
+### Fixed
+
+- **The marketplace had no description.** `.claude-plugin/marketplace.json` carried only `name`, `owner` and `plugins`, so `claude plugin validate --strict` failed on the marketplace manifest ("No marketplace description provided"). It now has a top-level `description`, as the official Claude plugins marketplace does.
+- **The plugin had no listing icon.** `.claude-plugin/icon.png` is the GitHub Pages logo (`website/static/img/logo.svg`) rendered to a 1024×1024 PNG with headless Chrome, so the directory listing and the docs site match. `tests/validate-skill.sh` checks it stays a square PNG of 512–2048 px under 2 MB.
+- **The plugin read GitHub credentials from the user's machine.** The directory review held the plugin for reading a credential instead of asking for it. `skills/zizmor`, `references/zizmor.md`, `references/trivy.md`, `references/checkov.md`, `references/setup-agents-schemas.md` and `examples/compliance/checkov-terraform-plan.sh` derived a token with `$(gh auth token)`. None of them do now. Each tool reads the variable the user sets in their own shell: zizmor reads `GH_TOKEN`, `GITHUB_TOKEN` or `ZIZMOR_GITHUB_TOKEN` and runs offline without one (v1.29.0 `cli.rs`); Trivy reads `TRIVY_USERNAME`/`TRIVY_PASSWORD` and, for private repositories, `GITHUB_TOKEN`; the Checkov script uses a `GITHUB_PAT` the user exported and stops with instructions otherwise. A `sensitive` userConfig option, the directory's generic suggestion, cannot reach a skill: Claude Code substitutes only non-sensitive values into skill content and exports `CLAUDE_PLUGIN_OPTION_*` only to hooks.
+- **`references/trivy.md` named the wrong variable for private repositories.** It said `TRIVY_GITHUB_TOKEN`; Trivy reads `GITHUB_TOKEN` (or `GITLAB_TOKEN`), per its repository-scanning docs.
+- **Renovate missed pins outside its default file patterns.**
+  - **Examples were not scanned.** The example workflows outside `.github/workflows` (14 of them, plus the Copilot setup-steps template) were never scanned, and some had already drifted (`flux-sync.yml` still pinned checkout v6.0.2). Flux `HelmRelease`, `OCIRepository` and `GitRepository` versions were not scanned either, because the flux manager defaults to `gotk-components.yaml` only. The same went for the two example manifests that use real public images, since the kubernetes manager matches nothing by default. `renovate.json` now adds patterns for each of these.
+  - **Tool versions in env blocks and download URLs were invisible to Renovate.** `ZIZMOR_VERSION` stayed at 1.29.0 while 1.31.1 shipped, under a comment that said "Renovate keeps it current". These pins now carry a `# renovate: datasource=... depName=...` annotation, which a new custom regex manager reads. When a `*_SHA256` line follows the version, Renovate updates the checksum with it through `github-release-attachments`.
+  - **Two kubeconform installs were unverified.** `validate.yml` downloaded kubeconform v0.6.4 with no checksum, next to a checksum-verified v0.8.0, and so did `examples/github-actions/flux-sync.yml`. Both now use the pinned, verified v0.8.0.
+  - **The gate's actionlint download hard-coded its version.** In `renovate-gate.md`, actionlint now builds its URL from an annotated version variable (lock recompiled with gh aw v0.86.2). A new package rule adds a note to any Renovate PR that touches a gh-aw source, because the lock file needs a recompile before merge.
+- **Duplicate Terraform PRs.** `terraform_version` was extracted twice, as `terraform` by the github-actions manager and as `hashicorp/terraform` by the custom manager, so one version line could get two PRs. The github-actions copy is disabled. The custom manager now also reads gh-aw `.md` sources, where the Renovate Gate pins Terraform 1.15.8.
+- **Fixtures that are outdated or broken on purpose are now ignored.** These are the eval evidence, the pr-review and triage scenarios, and the demo `bad.*` files. The two custom managers that matched nothing (the "Flux CLI (…)" and "Kubernetes cluster (…)" doc regexes) are removed.
+- **New gate: `tests/renovate-coverage.sh`.** `tests/handbook-consistency.sh` now runs it. It fails on an unannotated `*_VERSION:` pin, an annotation with no value below it, or a download URL that hard-codes a release version. It also fails on an empty scan.
+- **The velero plugin image was detected twice.** The flux manager reads images in HelmRelease values, and the kubernetes manager pattern also matched the velero HelmRelease, so one bump opened two PRs (#225, #226). The kubernetes pattern no longer lists HelmRelease files (#233).
+- **The Gateway API validator rejected every patch release.** `examples/gateway-api/gateway-api-validate.sh` required exactly `v1.6.1` and `v1.9.2`, so the Gateway API v1.6.3 bump failed CI. It now accepts any tag on the pinned lines (Gateway API v1.6.x, Envoy Gateway v1.9.x) and requires the Envoy Gateway CRDs to match the controller's tag exactly. A minor bump of either still fails on purpose, because it needs a compatibility check first.
+- **The kubescape-operator example was back on a pre-release chart.** The Renovate PR #223 moved it to `1.40.5`, which GitHub still marks as a pre-release (the Helm index has no pre-release flag). That contradicted `references/kubescape-operator.md`, which pins `1.40.4` for exactly this reason. The example is back on `1.40.4`, and a `renovate.json` rule excludes 1.40.5 until a stable release ships.
+
+### Changed
+
+- Dependency updates from the wider Renovate coverage. All of them are in examples or CI only, and no skill behaviour changes:
+  - Gateway API v1.6.3 (#222)
+  - Terraform 1.16.6 in the Renovate Gate (was 1.15.8; lock recompiled) and in the `terraform-cicd` example (was 1.7.0) (#228)
+  - yq v4.54.1, with its checksum updated by Renovate (#229)
+  - zizmor 1.31.1 (#230)
+  - flux CLI 2.9.6 in the flux-sync example (#227)
+  - opencost chart 2.5.33 (#224)
+  - velero-plugin-for-aws v1.14.4 (#225, #226)
+  - nginx 1.31.7 in the basic-monorepo app (#226)
+  - The example workflows' GitHub Actions majors: checkout v7, setup-node v7, github-script v9, configure-aws-credentials v6, build-push-action v7, login-action v4, codeql-action v4, infracost/actions v5, cosign-installer v4, and the `ubuntu-26.04` runner for the Kubescape workflow (#231)
+
+## [1.44.1] - 2026-10-17
+
+Fixes two problems in how `platform-guardrails` ships, the plugin that runs hooks in every session.
+
+### Fixed
+
+- **`platform-guardrails` was not pinned.** Its marketplace entry was `git-subdir` with `ref: main` and no `sha`, so new installs got whatever `main` held, with no tag and no release gate between a merge and code that runs on every session, tool call and compaction. Because the entry also sets a `version`, existing installs never refreshed, so two installs of "1.44.0" could run different hooks. The entry now carries `sha` (`git-subdir` accepts `url`, `path`, `ref` and `sha`), pointing at the content 1.44.0 shipped; the next pin PR moves both entries together.
+- **The release gate checked only `plugins[0]`.** The `source.sha` check in `release.yml` is now `tests/marketplace-pins.sh --release <tag>`, which checks every plugin entry for reachability and for content between the pin and the tag, and fails closed on a missing or malformed `sha` instead of skipping it. `tests/handbook-consistency.sh` runs its structure check on every PR, and `tests/guardrails-plugin.sh` proves it rejects a branch-only source, a relative path, a short and an uppercase sha.
+- **Self-improve hooks could run twice without warning.** With the hooks wired by hand in `settings.json` *and* `platform-guardrails` enabled, every event fired twice: two banners, every tool failure captured twice, every session counted twice. The self-improve skill warned about this only inside its own setup flow. The plugin's `SessionStart` now names any user or project settings file that still wires `self-improve-hook`. Only the plugin's copy can see both wirings, so the check runs only when the script is launched from `CLAUDE_PLUGIN_ROOT`; three new bash cases cover user and project files, a trailing slash on the plugin root, a hand-wired run, and another plugin's root.
+
+### Also in this release
+
+- React 19.3.1 for the docs site (#215) and a repository code-review skill for Copilot (#173), both merged after the 1.44.0 pin.
+
+## [1.44.0] - 2026-10-17
+
+Adds Kubescape (CNCF) as two skills, bringing the plugin to 51 commands: `/platform-skills:kubescape` for posture checks with the CLI and a PR gate, and `/platform-skills:kubescape-operator` for continuous security inside the cluster. Every command was run against Kubescape CLI v4.0.16 and the operator was installed through Flux on Kubernetes 1.36; four places where the official docs and the shipped code disagree are documented, and the examples are built around the code.
+
+### Added
+
+- **`/platform-skills:kubescape`**, **`references/kubescape.md`** and **`examples/kubescape/`**: framework choice (NSA, MITRE, CIS for EKS/AKS/GKE/vanilla picked from the node `providerID`, SOC2), measured gate exit codes (a scan without a gate always exits 0), a PR gate that fails only on new findings (`--baseline` against the base branch scanned from a `git worktree`, because the baseline compares by repository identity), exceptions, controls configuration, `kubescape fix` with what it cannot fix, the CEL `ValidatingAdmissionPolicy` library bound by control ID and promoted Warn → Deny, and one-off image scans. Interactive three-layer wizard with silent detection and a result card. The example workflow installs the CLI with `cosign verify-blob` instead of `kubescape/github-action`, whose latest release bundles CLI v3.0.21; runs on every pull request so it can be a required check; turns off inline `kubescape.io/skip-controls` annotations; builds Helm chart dependencies and fails on errors; and fails on `disable` exceptions that are expired or undated, and on any `actions` other than exactly `["disable"]` or `["alertOnly"]` (Kubescape suppresses unless an exception is explicitly `alertOnly`, so a mixed, empty, missing or unknown action list suppresses too).
+- **`/platform-skills:kubescape-operator`**, **`references/kubescape-operator.md`** and **`examples/kubescape-operator/`**: kernel and overlap preflight (Falco, Trivy Operator, Kyverno, Prometheus Operator), a capability matrix with four install profiles, chart 1.40.4 via Flux with every capability set explicitly, the mutating ones (`remediation`, `autoUpgrading`) off and cluster-wide Secret reads off, an opt-in two-step rollout (binding first, then a `postRenderers` patch) that narrows a noisy namespace (`ci-runners`) to signature rules without a coverage gap, relevancy-ranked vulnerabilities, runtime detection against learned container profiles, generated NetworkPolicies turned into reviewed Git changes, `SecurityException` with `expiresAt`, and a `PrometheusRule` checked with `promtool test rules`. Interactive wizard and a status card.
+- **`kubescape-validate.sh`** and **`kubescape-operator-validate.sh`**, registered in `tests/validate-skill.sh`: offline checks, plus the real gate behaviour when `kubescape` is on PATH and a chart render when `helm` is.
+- **`plugin-evals/kubescape-trigger`**: a CIS-on-EKS plus PR-gate request must load `kubescape`, not `kubescape-operator`, `trivy` or `kyverno`.
+
+### Changed
+
+- **Wired into existing skills.** `preflight` runs `kubescape scan` on manifests and charts when the CLI is installed and folds failed controls into its findings; `helmchart security` scans the rendered chart first; `compliance` maps Kubescape's SOC2 framework controls to criteria and adds a dated report to evidence collection; `pr-review` reports new failed controls with `--baseline` under CC6.8; `kubernetes`, `trivy`, `runtime-security`, `kyverno`, `supply-chain`, `github-actions` and `observability` route the overlapping questions.
+
+### Fixed
+
+- `tests/validate-skill.sh` no longer aborts silently when an example directory is missing (`find` under `pipefail`); it reports the missing domain as a failure.
+- `tests/validate-ci.sh`'s PyYAML fallback (used when `yamllint` is not installed) parsed with `yaml.safe_load`, which rejects multi-document files, so 25 valid manifests failed on every machine without yamllint; it now uses `yaml.safe_load_all`.
+- **Renovate Gate no longer fails on every Renovate PR.** Its approve-and-merge path could never succeed: `GITHUB_TOKEN` cannot approve a pull request (422, a platform rule, not a missing permission), and `main` requires an approving review, so `safe_outputs` went red each time (#158, #201, #203, #210). The gate now posts its verdict as a `COMMENT` review (`Renovate Gate: safe to merge (squash).` plus the matched category, green CI and a clean release-notes summary) and a maintainer approves and merges. `APPROVE` and `merge-pull-request` are removed from its safe outputs.
+
+### Notes
+
+- **Chart 1.40.4 bundles scanner v4.0.13, whose `all` framework scans fail** with `framework 'C-0042' not found` against the current controls (fixed in v4.0.14, kubescape#3768). Every scheduled and operator-triggered scan uses `all`, so the example overrides `kubescape.image.tag: v4.0.16`.
+- **`alertOnly` exceptions do not suppress.** The control stays failed and still fails every gate; `"actions": ["disable"]` suppresses. The docs list `alertOnly` as the only action.
+- **`applicationprofiles` and `networkneighborhoods` are gone** (deleted by storage v0.0.331); runtime profiles are `containerprofiles`, and `kubescape.io/status: ready` means still learning.
+- **Inline exceptions are on by default for local files.** A `kubescape.io/skip-controls` annotation suppresses a finding without a reason or review (measured: `privileged: true` plus `skip-controls: C-0057` passed the gate). CI passes `--honor-inline-exceptions=false`.
+- **Helm dependencies are fetched, and failures only warn.** v4.0.16 runs Helm's dependency build itself and scans without the subcharts if it fails; the workflow builds them first and fails on errors.
+- **The exporter's gauges always exist.** prometheus-exporter v0.2.23 registers them at start-up, so `absent()` only detects a missing exporter; failing scans show only in the scanner's logs.
+- **Bindings cannot reach excluded namespaces.** node-agent never traces pods in `excludeNamespaces`.
+- **The chart reads every Secret by default.** Chart 1.40.4 defaults `global.enableClusterWideSecretAccess: true`, giving the scanner and operator ClusterRoles `get/list/watch` on Secrets cluster-wide; the example sets it to `false` (verified live: results unchanged, Secret reads confined to `kubescape`).
+- **`providerID` names the cloud, not the distribution.** A self-managed cluster on EC2 reports `aws://`; the benchmark is picked from the API server `gitVersion` (`-eks-`, `-gke.`) and the AKS node label instead.
+- **node-agent needs `CONFIG_FANOTIFY_ACCESS_PERMISSIONS`.** Docker Desktop's kernel (7.0.14-linuxkit) lacks it, so node-agent crash-loops there and Flux's install remediation uninstalls the whole release; the operator reference starts with a kernel preflight and a no-node-agent profile.
+
+## [1.43.0] - 2026-10-11
+
+Replaces the retired ingress-nginx controller as the handbook's reference ingress and adds `/platform-skills:gateway-api` to migrate existing clusters. Also adds four domain skills (`cluster-upgrade`, `progressive-delivery`, `backup-dr`, `finops`), plugin settings (`userConfig`), a second plugin that ships the hooks, and behavioural evals (49 commands total). ingress-nginx best-effort maintenance ended in March 2026: no releases, bug fixes or security fixes since. Existing installs keep running, which is exactly why the handbook should stop recommending it.
+
+### Added
+
+- **Portable skills for Copilot, Cursor and Codex.** `scripts/render-skills.sh` (and `./install.sh --skills --target <project>`) renders every skill into `.agents/skills/platform-skills-<name>/SKILL.md`: names are prefixed because those tools do not namespace skills, frontmatter is reduced to `name`, `description` (with `when_to_use` folded in) and `argument-hint`, `/platform-skills:<name>` references are rewritten, and each referenced `references/*.md` is copied beside the skill so its relative path resolves, as is every tracked file under each `examples/<path>` a skill names (recursively, executable bits kept), so skills that run a helper or start from a working manifest (`triage`, `progressive-delivery`, `finops`, `backup-dr` and others) work outside the plugin. `tests/render-skills.sh` checks the Agent Skills limits (name equals directory, description up to 1024 characters), that every mentioned reference and example file was copied, and that re-rendering leaves other skills alone
+- **Trigger-specificity evals** for the overlapping domains: `secrets-trigger`, `kyverno-trigger` and `openshift-trigger` each fail unless that skill, not `kubernetes` or another neighbour, loads. All three pass
+- **`/platform-skills:gateway-api`** with seven modes: `assess` (annotation and controller-ConfigMap inventory, each item classified auto, decision or blocked), `convert` (ingress2gateway v1.2.0 per namespace, rewritten for a platform-owned shared Gateway), `scaffold`, `cutover` (per-hostname shadow test, TTL plan, soak criteria, a decommission gate kept out of the cutover change), `debug` (by Gateway API condition reason), `review` and `rollback`
+- **`references/gateway-api.md`**: implementation choice (Envoy Gateway default, Cilium, Istio, NGINX Gateway Fabric, AWS Load Balancer Controller), ownership model, CRD channel and deletion policy, the ingress2gateway annotation coverage table, cert-manager listener TLS, Flux layering, a seven-phase parallel-run migration, rollback by stage, and troubleshooting
+- **`plugin-evals/`: behavioural evals with `claude plugin eval`.** The flux-helmrelease, opa-policy and pr-triage checklists are ported as cases with free regex graders (same weights) plus a skill-fired check, registered via `experimental.evals` in `plugin.json`. `tests/plugin-evals.sh` runs only the domains a branch touched (`--changed <ref>`) or everything with a no-plugin baseline (`--all`), caps cost, and fails on a score below 0.7, more than 0.15 under `plugin-evals/baseline.json`, or a run where the plugin's skill did not fire (checked apart from the score, which a single missed skill barely moves and which `--ablation with-without` does not include). `tests/plugin-evals-structure.sh` checks the suite's files without a model call, including that every grader type is one the loader accepts, and runs in CI. The suite itself is not in CI yet: the repository has no model credential, so it runs locally before merging a change to a covered domain
+- **`/platform-skills:cluster-upgrade`** and **`references/cluster-upgrade.md`**: a phased minor-version upgrade plan (removed APIs, add-ons, control plane, nodes) with validation and rollback per phase. Removed APIs are scanned in three places with pluto v5.24.4 (Git, rendered Helm, the live cluster) plus EKS `UPGRADE_READINESS` insights; a `jq` query lists PodDisruptionBudgets that allow zero disruptions and will stall a drain. Rollback covers EKS version rollback (July 2026: one minor version back, within 7 days, in-place upgrades only, nodes and add-ons rolled back first, `ROLLBACK_READINESS` insights read first) and blue/green when that window has passed. The skill produces commands and never runs an upgrade or drain itself
+- **`/platform-skills:progressive-delivery`**, **`references/progressive-delivery.md`** and **`examples/progressive-delivery/`**: Flagger 1.45.0 via Flux from the signed OCI chart (`oci://ghcr.io/fluxcd/charts/flagger`, cosign keyless verification), `meshProvider: gatewayapi:v1` with a Canary that shifts HTTPRoute weights on the shared Gateway listener, Flagger's loadtester 0.39.0 to run its smoke-test webhook (non-root, read-only root filesystem, all capabilities dropped, 256Mi memory limit), MetricTemplates scoped to the canary pods, and rollback by revert, `skipAnalysis` or `suspend`. All manifests pass `kubeconform -strict` against the CRD catalog
+- **`/platform-skills:backup-dr`**, **`references/backup-dr.md`** and **`examples/backup-dr/`**: Velero chart 12.2.1 (Velero 1.18.2, AWS plugin v1.14.3) via Flux with IRSA and no static credentials, a nightly schedule, an IAM policy scoped to one bucket and one region, a deletion-protected backup bucket in Terraform (`bucket/main.tf`: versioning, noncurrent versions kept 30 days, `prevent_destroy`, and a bucket policy that denies version deletion, versioning suspension, lifecycle and policy changes and bucket deletion to everyone but named break-glass roles, so Velero's `s3:DeleteObject` only adds delete markers), and `restore-drill.sh`, which restores a namespace from the latest completed scheduled backup into `<namespace>-drill` with routes and Ingresses excluded and Services recreated as internal ClusterIP copies (a restored LoadBalancer would provision a public load balancer). The drill namespace is created first with a default-deny Ingress and Egress NetworkPolicy (pod-to-pod, DNS ports to the cluster DNS pods selected by namespace and label, an optional NodeLocal DNSCache address, plus explicit `--allow-egress` CIDRs) and the backup's NetworkPolicies are not restored, so workloads restored with production Secrets cannot reach production databases, APIs or queues. It then waits for Ready, prints the measured recovery time, and deletes the drill namespace on every exit, failures included, unless `--keep` is given. The reference lists what a Velero backup does not contain (managed databases and anything outside the cluster, transaction consistency without hooks, data written after the last backup) and what it is for under GitOps: the state Git does not hold
+- **`/platform-skills:finops`**, **`references/finops.md`** and **`examples/finops/`**: required cost tags enforced in four layers (Terraform provider `default_tags` with variable validation, a Conftest policy on the plan with six passing tests including a negative case, the AWS Config `REQUIRED_TAGS` rule, and a Kyverno namespace-label `ValidatingPolicy` that starts in Audit), OpenCost chart 2.5.32 via Flux, and an Infracost PR cost-diff workflow (`infracost/actions` pinned by SHA and the scanner pinned to 0.2.10, since the action otherwise downloads the latest scanner at run time, actionlint and zizmor clean)
+- **Plugin settings (`userConfig`).** Installing the plugin now asks for five optional, non-secret values: `gitops_engine`, `primary_cloud`, `aws_profile_convention`, `required_tag_keys` and `github_org`. The router skill and `finops` read them through `${user_config.*}` substitution; an empty value means "ask", never a guess. The portable skill renderer renders each placeholder empty, which every skill that reads one already treats as not configured, for tools that do not substitute it
+- **`platform-guardrails`, a second plugin in the same marketplace** (`plugins/platform-guardrails`), which ships the hooks that previously had to be merged into `settings.json` by hand: the self-improve `SessionStart`, `SessionEnd`, `PostToolUseFailure` and `PreCompact` hooks, and the AI governance `PreToolUse`/`PostToolUse` gate. The governance hook is opt-in per project: with no `.ai-governance.yaml` it allows everything, because the evaluator denies every call when its policy file is missing. `learnings.sh` is on `PATH` via the plugin's `bin/`. It is a separate plugin so that installing the handbook never adds hooks to a session without asking, and because a plugin with `bin/` cannot be installed on claude.ai. `tests/guardrails-plugin.sh` checks that its scripts match the examples byte for byte, that every hook command resolves, and the opt-in behaviour
+- **`platform-skills:platform-bulk-reader` agent** ships with the main plugin, so `/platform-skills:token-optimizer setup` no longer has to copy the agent file into the project
+- **`examples/gateway-api/`**: a before/after pair for one Ingress (timeout, CIDR allowlist with explicit client-IP detection, `configuration-snippet`), and `gateway-api-validate.sh`, which builds every Flux overlay, runs `kubeconform -strict` against the CRD catalog, and fails if any manifest outside the frozen evals still references ingress-nginx
+
+### Changed
+
+- **Every command is now a skill.** The 45 `commands/<name>.md` files moved to `skills/<name>/SKILL.md` (history kept). Commands are the older plugin format; a skill runs by the same name, so `/platform-skills:<name>` is unchanged for users, and each domain now carries its own trigger description that Claude can match without loading the router. `plugin.json` drops its `commands` and `skills` lists and relies on the default `skills/` scan. No command shims are kept: a skill wins over a same-named command, so a shim would never run, and the slash names did not change. The docs site generates its `/commands/<name>` pages from the skills, so its URLs are unchanged
+- **`triage` triggers on classification requests too.** A `when_to_use` line covers classifying review findings and drafting thread replies without a live PR; the `pr-triage` eval loaded no skill before it and loads `triage` after
+- **`examples/fluxcd/basic-monorepo` runs Gateway API on Envoy Gateway v1.9.2** with cert-manager v1.21.2, in three Flux layers: `infrastructure` (CRDs and controllers) → `infrastructure-configs` (GatewayClass, EnvoyProxy, shared Gateway, 308 HTTPS redirect, ClusterIssuer) → `apps` (HTTPRoute). The split is required because a Gateway cannot be dry-run before its CRDs exist. The configs layer gates on the Gateway's `Programmed` condition through `healthCheckExprs`
+- **Gateway API CRDs are the standard channel, applied as plain manifests by two Flux Kustomizations with `prune: false` and `deletionPolicy: Orphan`** (`clusters/<env>/gateway-crds.yaml`). Not a Helm release: the CRDs are about 3.7 MB rendered (EnvoyProxy alone is about 1.4 MB), too large for a Helm release Secret capped at 1 MiB, and Envoy Gateway's own CRD chart README says not to `helm install` it. The controller chart's bundled CRDs are the experimental channel plus an admission policy that rejects them over standard ones, so they stay off. Deleting a CRD deletes every Gateway and HTTPRoute in the cluster, so neither removing a CRD from the source nor deleting the Kustomization deletes one
+- **Production Envoy proxies are spread across nodes.** Two replicas and a PDB do not survive a node failure if both pods land on one node. The `EnvoyProxy` adds a `kubernetes.io/hostname` topology spread (`DoNotSchedule`), scoped per Gateway with `matchLabelKeys`. The production overlay no longer adds a CPU limit to the controller, matching the repository baseline of CPU requests plus memory-only limits
+- **Each HTTPS listener is bound to the namespace that owns its hostname**, via the immutable `kubernetes.io/metadata.name` label. A shared `gateway-access` opt-in label let every onboarded team attach to every listener and serve paths on another team's hostname. App namespaces are also created in the platform layer (`infrastructure/configs/base/app-namespaces.yaml`), not under `apps/`
+- **NetworkPolicies** in `examples/kubernetes` and `examples/helm/web-service` admit the Envoy proxy pods (namespace and pod selector) instead of the ingress-nginx namespace. In the web-service chart the source is `networkPolicy.ingressFrom`, so enabling the chart's optional `Ingress` with another controller does not silently drop its traffic
+- **`examples/demo/flux-stuck-release`** teaches the same lessons on trust-manager v0.25.0, with `demo.gif` re-recorded
+- The frozen `evals/token-optimizer/*/evidence/` fixtures are deliberately unchanged, so token baselines stay comparable
+- **Copilot and Cursor carry the same guidance**, not only Claude: `.github/copilot-instructions.md`, `.cursorrules`, `.cursor/rules/kubernetes.mdc` and `.cursor/rules/platform-skills.mdc` gain an ingress rule block (never ingress-nginx for new work, shared Gateway ownership, standard-channel CRDs with `keep`, cert-manager listener TLS, Flux layering, parallel-run migration). `EDITOR_INTEGRATIONS.md` adds natural-language `gateway-api` prompts for Copilot and Cursor chat. Codex links the repo as a skill and picks up `SKILL.md` and `references/gateway-api.md` directly
+
+### Fixed
+
+- **`basic-monorepo` infrastructure overlays did not build.** `namespaces.yaml` and each component's `namespace.yaml` declared the same Namespace twice, so `kustomize build` failed
+- **`HelmRepository` used `source.toolkit.fluxcd.io/v1beta2`**, which Flux 2.9 no longer serves
+- **`healthCheckExprs` samples in `references/fluxcd-kustomization.md` and `references/fluxcd-helmrelease.md` could never report a Deployment healthy.** They used `object.status` (Flux evaluates the expression against the resource itself, so it is `status`), and their `inProgress` on `Progressing=True` runs before `current` and stays true after a finished rollout. The samples now show a Gateway `Programmed` check and say to leave built-in kinds to kstatus
+- **The cutover shadow test used `curl --resolve`, which only accepts an IP.** Cloud load balancers often publish a hostname as the Gateway address. `--connect-to` accepts either and keeps the URL host for `Host` and TLS SNI
+- **CI never schema-checked the Flux examples, and skipped every custom resource.** The kubeconform step in `validate.yml` matched `./examples/flux/*`, a directory renamed to `examples/fluxcd` in May 2026, and `-ignore-missing-schemas` without a CRD schema source skipped every Flux, Gateway API, cert-manager and Flux Operator object. It now covers `examples/fluxcd` and `examples/gateway-api` and runs `-strict` against the datreeio CRDs catalog pinned to a commit (67 files, all passing)
+- **Flux Operator examples used fields the CRDs do not have**, which the API server silently drops: `FluxInstance` `cluster.clusterDomain` (the field is `cluster.domain`) and `ResourceSetInputProvider` `spec.interval` (the interval is the `fluxcd.controlplane.io/reconcileEvery` annotation). Fixed in `examples/fluxcd/flux-operator`, `examples/fluxcd/image-automation/gitless`, `references/fluxcd-operator.md` and `references/fluxcd.md`
+
+## [1.42.0] - 2026-09-27
+
+Rewrites `/platform-skills:triage` for reliability, the first of two capability-reliability passes in this release — replaces every hand-rolled `gh api`/jq call behind the command with a 12-subcommand stdlib-only helper CLI (17 operations counting `worktree`'s and `state`'s own nested actions), splits finding classification from fix-execution and discussion state, and adds `--dry-run`/`--no-resolve` controls.
+
+Rebuilds `/platform-skills:self-improve` on native Claude Code lifecycle events and gives learnings provenance, the second of two capability-reliability passes in this release (44 commands total). Every entry now records where a lesson came from, where it applies and when it was last verified. `recall` searches them, `lint` reports what has gone stale, and promotion writes traceable, path-scoped rule files instead of appending to `CLAUDE.md`.
+
+### Changed
+
+- **`examples/agent-self-improve/` now uses native Claude Code lifecycle events.** The four legacy scripts wired to `Stop`, `PreToolUse` and `PostToolUse` are replaced by one script with four subcommands: `SessionStart` → `session-start`, `SessionEnd` → `session-end`, `PostToolUseFailure` → `tool-failure`, `PreCompact` → `precompact`. Hook input is read as JSON on stdin. Every path exits 0, so a memory hook can never block a session, a tool call, or compaction
+- **`examples/agent-self-improve/settings.json.example` and `settings-windows.json.example`** — rewired to the four native events. `SessionEnd` carries `"timeout": 10` because all `SessionEnd` hooks share a 1.5-second budget by default and the error drain can exceed it; `PostToolUseFailure` carries `"async": true` so capture stays off the critical path of a tool call
+- **The Windows example uses a literal profile path** instead of `%USERPROFILE%`. A hook `command` is a raw string handed to a shell, so `%USERPROFILE%` expands only under `cmd`; the old example failed silently anywhere else. `references/agent-self-improve.md` and the README both say to substitute your own path
+- **Failure capture records the tool name, session id and `tool_use_id` only.** `error` and `tool_input` are deliberately never persisted: a failed `Bash` call can carry a token on its command line and a failed `Edit` can carry file contents, neither of which belongs in a notes file that may be committed. A failure whose `is_interrupt` is true is ignored
+- **`promote` writes to scoped rule files instead of appending to `CLAUDE.md`.** A global lesson lands in `~/.claude/rules/<domain>.md`, a project lesson in `.claude/rules/<domain>.md`, and a project lesson whose entry names `Paths` gets those globs as `paths:` frontmatter so the rule loads only when Claude reads a matching file. `CLAUDE.md`, `AGENTS.md` and `.github/copilot-instructions.md` remain available with `--target` for rules other tools must also read. Previously every promotion appended to an always-loaded instruction file, so a rule that mattered for three Terraform files was paid for in every session
+- **Promotion is refused rather than negotiated.** An entry that is not `resolved`, is missing `Source`, `Scope` or `Verified`, carries a value `lint` rejects in any of them, is stale or expired, comes from an `inferred` source without `--allow-inferred`, or belongs to another project cannot be promoted. An entry that already reads `promoted` can only be re-promoted to the target that already holds its marker, so one entry never owns two active rules. A rules file whose existing `paths:` differ from the entry's is never widened or narrowed; the refusal names the mismatch. Every refusal exits 4 and prints which rule it was, and `/platform-skills:self-improve` relays that line rather than guessing
+- **A rule file path is derived from scope and domain, never taken from the command line.** `--target` names one of exactly three project-local instruction files, matched literally. Matching a suffix pattern against `$PROJECT/$target` accepted both an absolute path and one containing `..`, which writes a rule outside the project that `unpromote` can never find
+- **`unpromote --revoke` refuses an entry that still reads `promoted` when no rule carries its marker.** That entry owns a rule promoted before markers existed, so recording it as revoked would retire it on paper while every session kept loading it. The refusal says to remove the pre-marker rule by hand first. A markerless entry in any other status owns no rule, so `--revoke` still works directly
+- **`log` records provenance for every new entry**, and runs `recall` first to find an existing entry for the same root cause instead of writing a near-duplicate. `review` and `status` run `lint`
+
+### Added
+
+- **`examples/triage/scripts/triage_helper.py`** — new stdlib-only (no third-party dependencies) helper CLI covering every mechanical Git/GitHub operation `/platform-skills:triage` used to perform by hand: `resolve-identity` (open/draft/fork detection before touching anything), `resolve-comment` (review vs. issue comment type plus a parent-PR ownership check), `snapshot` (one fully paginated thread-and-comment collection per run, with before/after head-SHA drift detection), `map-thread` (resolves any comment ID, root or reply, to its thread), `patch-context` (diff evidence for a flagged file, rename-aware, with a local `git diff` fallback when GitHub's own patch is empty), `worktree prepare`/`cleanup`/`preserve` (isolated checkout so a fix never touches the caller's own working tree, plus a verified capture of committed, uncommitted, and untracked work before that worktree is destroyed), `stage-commit` (refuses to commit unless the staged set exactly matches the intended path allowlist, with repository hooks disabled for both the `add` and the `commit`), `publish` (verifies the PR is open and that the push destination is the PR's own head repository and branch before pushing, explicit refspec, never force), `reply` (JSON-payload GraphQL or REST, dedup-marker check against the snapshot before posting), `resolve-thread` (idempotent, reads `isResolved` back from the mutation result rather than assuming it), and `state lock`/`unlock`/`read`/`write` (single-machine lock with a token-proved release, plus an atomically written, schema- and identity-checked JSON record). Every subcommand emits exactly one JSON object on stdout, `{"ok": true, ...}` or `{"ok": false, "error": {"code", "message"}}`, so the command treats a failure as a hard stop instead of parsing prose
+- **A three-layer state model** — finding classification (now seven values: `ACTIONABLE_FIX`, `ALREADY_FIXED`, `INFORMATIONAL`, `NOT_APPLICABLE`, `NEEDS_CLARIFICATION`, `OUT_OF_SCOPE`, `DUPLICATE`, up from three), fix execution state (`PLANNED` through `READY`/`BLOCKED`/`FAILED`), and discussion action state (`NOT_ATTEMPTED`, `CONFIRMED`, `FAILED`, `UNKNOWN`) are tracked and reported independently, so a run can legitimately end "fixed, pushed, thread still open pending CI" instead of collapsing to one flag. `UNKNOWN` is a deliberate fourth discussion value: a lost push or reply response is a different fact from a confirmed failure, and the two must not be handled the same way
+- **`--dry-run` and `--no-resolve`** — `--dry-run` runs only `resolve-identity`, `resolve-comment`, `snapshot`, and `patch-context`, then prints the classification, evidence, and proposed fix/reply/resolve plan with zero mutations. `--no-resolve` runs the full authorized fix-and-reply workflow (worktree, stage-commit, publish, and reply all execute) but never calls `resolve-thread`, for a reviewer who wants to keep control of closure
+- **`check-status`** — reads a published commit's combined-status contexts and check runs and folds them into one `overall_state` (`success`, `pending`, `failure`, or `undiscoverable` when neither read returns anything usable). The `✅ Fixed` reply suffix required this signal from the start; nothing previously collected it, so a run had no deterministic way to know whether required checks were failing before claiming a fix was done
+- **`references/triage.md`** — new reference: the tool-ownership boundary against `pr-review`, `commit`, `self-improve`, and `zizmor`; what triage structurally cannot do (treat comment text as authorization, distinguish a 404 from an inaccessible resource, validate anything on its own, coordinate across machines); phase-by-phase reasoning for identity, snapshot, evidence, isolation, validation, publish, and reply/resolve; the data model above; a failure-point recovery table (validation failure, commit failure, push rejected, push response lost, required CI pending, reply response lost, resolution fails, new reviewer reply — each with what to preserve and how to resume); and the helper's full flag-by-flag invocation reference
+- **`evals/pr-triage/` gained a second scenario** — a review comment names a function that was renamed before the pinned PR head, and the underlying bug persists under the new name. Scored separately: correct classification, that classification is not conflated with fix/publish/resolution status, and that the absent identifier alone was not treated as proof the bug is already fixed
+- **`examples/agent-self-improve/scripts/self-improve-hook.sh`** — bash 3.2+; `jq` optional, with a documented `sed` fallback for the handful of scalar payload fields the hooks read
+- **`examples/agent-self-improve/scripts/self-improve-hook.ps1`** — PowerShell 5.1+ port. ASCII-only source, because 5.1 reads a BOM-less script as ANSI. Writes UTF-8 without a BOM using LF endings, so the bash and PowerShell hooks can share one workspace
+- **`examples/agent-self-improve/tests/self_improve_hook_test.sh`** — 232 assertions run against both implementations, wired into `tests/handbook-consistency.sh`. The suite exits 1 rather than skipping when `pwsh` is absent and `CI` is set, so the PowerShell half cannot report green while going unexecuted
+- **Concurrency safety in `session-end`** — the error drain is guarded by an `O_EXCL` lock with a 10-minute staleness window, and a stale lock is reclaimed through an atomic rename whose claim is re-checked afterwards, so a racer that recreated the lock in the gap does not have its live lock destroyed. `learnings.sh` takes the same lock with the same reclaim, so the hook drain and a `promote` cannot write the workspace at once. `ERR` ids come from the highest number already used today rather than a heading count, so an id is not reused after a deletion
+- **Concurrency safety for appends in the PowerShell port** — every append is serialised through a named mutex. .NET opens an append handle by seeking to the end and writing at that remembered offset, so overlapping hooks overwrite each other's bytes and lose records with no exception raised. Twelve concurrent `tool-failure` hooks kept 7 of 12 lines before the guard and 12 of 12 after; the suite asserts this. The bash implementation needs no guard because `>>` is `O_APPEND`, which the kernel makes atomic for writes this small. A named mutex is used rather than a lock file because the OS releases it if the holder dies, and `tool-failure` runs with `"async": true`, so it can be killed mid-write
+- **A `precompact` subcommand wired to `PreCompact`.** `SessionEnd` is not guaranteed to run: kill the process or close the window and `.pending-errors.log` is never drained. Compaction is a second, safe consolidation point, and a long session compacts several times, so the drain becomes recurring rather than a single chance at the end. The drain is now one shared routine called from both events. `PreCompact` writes no daily note, records no session and does not flag a `PENDING` WAL entry, because mid-session that operation may simply be in flight. Every path returns 0: `PreCompact` is one of the events where exit 2 aborts the operation, and a memory hook that stopped compaction would strand the session with a full context window. No `PostCompact` hook is added — `SessionStart` already fires again with `source=compact` and its stdout rebuilds the workspace banner
+- **A "Migrating from the legacy hooks" section** in `examples/agent-self-improve/README.md`. `SessionStart` scans `settings.json` and `settings.local.json` at global and project scope and warns for each copy that still contains the old wiring
+- **`examples/agent-self-improve/scripts/learnings.sh`** — the deterministic helper the command calls instead of parsing entries and doing date arithmetic in the model. Seven subcommands: `whereami` (workspace, scope, project name, today), `entries` (one TSV record per entry), `lint`, `set-status`, `promote`, `unpromote`, `recall`. Exit codes are contractual: 0 ok, 1 lint errors, 2 usage or no workspace, 3 workspace busy, 4 refused. bash 3.2 and POSIX awk only, so it runs on stock macOS as well as CI. `tests/learnings_test.sh` adds 169 assertions, wired into `tests/handbook-consistency.sh`, each case running in a sandboxed `HOME` with the date pinned so no test depends on today
+- **Entry metadata: `Source`, `Scope`, `Paths`, `Verified`, `Expires`, `Supersedes`, `Status-Note`.** `Source` is one of `user`, `observed`, `ci`, `repo`, `vendor-docs` or `inferred`, which also sets the staleness window: `user` never goes stale, `inferred` after 30 days, everything else after 90. `Scope` is `global` or `project:<name>`, so a project-specific detail cannot leak into global memory. Both hook implementations write this metadata too, so an `ERR` entry drained from a captured tool failure is promotable without hand-editing; a directory name that is not a legal scope (a space, say) is normalised the same way in the hooks and in `learnings.sh`, so the project comparison `promote` makes still matches. Entries written before this release stay valid and readable; `lint` counts an entry as "without metadata" when `Source`, `Scope` or `Verified` is missing, and all three are required before it can be promoted
+- **`promote` and `unpromote` are all-or-nothing.** Each writes a rule file and then rewrites the entry that owns it, and both halves run under one lock, so a busy workspace cannot install a rule and leave the entry still `resolved`. The rule file is backed up before it is touched and restored if the status rewrite fails, so a failure leaves the workspace exactly as it was and says so. `unpromote` restores every target it had already edited, not just the one that failed. The lock is released on every exit path including a failure, and `set-status` reports a missing entry and a missing `**Status**` line as distinct failures rather than silently writing nothing
+- **`learnings.sh` handles a workspace whose path contains a space**, so a lesson can be logged from `~/Library/Application Support` or any other such directory. Entry files are passed to `awk` and `grep` as positional parameters rather than an unquoted word list. An option given without a value (`--limit` at the end of the argument list) is a usage error, exit 2: `shift 2` with one argument left is a no-op that the parse loop would otherwise spin on forever
+- **`lint`** — reports invalid entries as `ERROR` (unknown status, a date that is malformed or not a real calendar date such as `2026-02-30`, missing required field, `Paths` on a global entry, a `Supersedes` id that does not exist), plus `EXPIRED` and `STALE` lines and a summary. Exits 1 on any error. A stale *promoted* entry is reported first, because its rule is still loaded into every session while its evidence has gone unverified
+- **`recall`** — read-only search over the workspace. Ranks by term matches (+2 in `Content`, +1 in `Context`, +5 for an exact id), excludes revoked, superseded, discarded, expired and other-project entries while reporting how many it hid, and flags `STALE` and `verify before use` results so a remembered assumption is checked against current state before it is acted on
+- **`revoke` and the `superseded` / `revoked` / `discarded` statuses.** A lesson that turns out to be wrong is retired with a reason rather than deleted, so the history survives. For a promoted entry, `unpromote --revoke` removes the rule from every promotion target and sets the status in one step
+- **Every promoted rule carries a `<!-- self-improve:<ID> -->` marker**, which is what makes `unpromote` exact: it removes that line and nothing else, and it is how a rule stays traceable back to the evidence that produced it
+
+### Fixed
+
+- **A reply body could reach a shell** — the previous flow posted PR conversation replies with `gh pr comment <pr_number> --body "<reply>"`, interpolating comment-derived text directly into a shell command; a reply containing backticks, `$()`, or quotes could execute. `reply` now writes the body to a temp file and posts via `--body-file`/`--input`, so untrusted comment content never reaches an argv or a shell string
+- **GraphQL calls no longer depend on remembering `-f` vs `-F` per field** — the previous flow built every GraphQL query with inline CLI flags (`-f owner=<owner> -f repo=<repo> -F pr=<pr_number>`), where picking the wrong type flag for any field silently sends the wrong JSON type. `--input` payload files replace that for every GraphQL call (thread listing, reply, resolve), so a query's variables are typed once in the JSON payload and never depend on which shell flag happened to be used to pass them
+- **A renamed or moved file produced a false "not applicable"** — the previous flow read the flagged file directly by path at HEAD via the contents API and treated a search miss for the flagged identifier as grounds to classify `NOT_APPLICABLE` immediately; a rename made that lookup fail (or return unrelated content) with the same result. `patch-context` now matches on both `filename` and `previous_filename` from the PR's actual file list, reports `RENAMED` explicitly, and falls back to a local `git diff` when GitHub's own patch is empty, before any absence is treated as evidence of anything
+- **A reply resolved to nothing on a non-root comment** — the previous thread lookup fetched only `comments(first:1)` per thread and matched a comment ID against that first comment only, so an ID belonging to a reply (not the thread's root) never matched; it also fetched only the first 100 threads with no further pagination. `snapshot` now pages every thread and every comment within a thread until each `hasNextPage` is false, and `map-thread` scans every comment in a thread, not just the first, to resolve any comment ID to its thread
+- **`publish` had no guard against a stale or moved remote head** — the previous flow ran a bare `git push` with no pre-push recheck of the PR's actual head SHA and no post-push confirmation that the remote head matched what was sent. `publish` now rereads the PR head immediately before pushing and refuses with `HEAD_MOVED` if it no longer matches the plan's expected head, pushes an explicit `<sha>:refs/heads/<ref>` refspec instead of a bare push, classifies a rejected push by cause (`PUSH_REJECTED_NON_FASTFORWARD`, `PUSH_REJECTED_BY_POLICY`, `NO_PUSH_PERMISSION`, or `UNKNOWN_TRANSPORT_FAILURE`) instead of a raw exit code, and confirms the push against two independent reads before the caller may report `matches_pushed_commit: true`: `git ls-remote` against `--head-remote-url` (`remote_head_after`) and a fresh `repos/{repo}/pulls/{pr}` read of the PR's own head (`pr_head_after`). `ls-remote` reads back the same URL the push used and so agrees with itself by construction; only `pr_head_after` proves the PR moved. Both reads sit after an irreversible mutation and therefore cannot fail the call: when either errors or returns nothing usable (rate limit, 502, replication lag, a transient transport failure) the response is still `ok: true` with that field `null`, `verification_incomplete: true`, and `matches_pushed_commit: false`, so "the push failed" and "the push succeeded and could not be confirmed" stay two different facts. Neither may be retried, since a retry returns `HEAD_MOVED`
+- **Every triaged thread resolved unconditionally** — the command's own description previously said it "posts a reply on the thread, and resolves it," with no eligibility check. Resolution is now per-finding: only `ACTIONABLE_FIX` after successful remediation, `ALREADY_FIXED` with current evidence, or a verified `DUPLICATE` can close a thread; `INFORMATIONAL`, `NEEDS_CLARIFICATION`, `OUT_OF_SCOPE`, and disputed `NOT_APPLICABLE` no longer auto-resolve, and a mixed thread stays open while any substantive concern remains
+- **"No new human input since the snapshot" was an instruction with nothing enforcing it** — the eligibility gate told the caller to check that a thread had not moved, then resolved whatever thread node ID it was handed. `resolve-thread` now takes an optional `--snapshot <path>` and compares the thread's live comments against the set that snapshot recorded, on both identity (node IDs) and content (bodies), refusing with `THREAD_CHANGED_SINCE_SNAPSHOT` (carrying `unexpected_comment_node_ids`, `missing_comment_node_ids`, and `edited_comment_node_ids` for a comment whose body changed under the same node ID) when they disagree. The comparison is on comment identity and content rather than a count, because the mainline flow replies before resolving and therefore always adds one comment of its own: `--allow-new-comment-node-id <id>` (repeatable) names that addition explicitly, taking the `comment_node_id` from `reply`'s response, so this run's own reply is exempt while a comment someone else posted still blocks closure. A count comparison cannot tell those two apart. A snapshot with no entry for the requested thread raises `THREAD_NOT_IN_SNAPSHOT` before any API call rather than silently resolving unguarded, and the `ALREADY_RESOLVED` short-circuit runs before the comparison, so calling `resolve-thread` twice remains safe
+- **`stage-commit` ran the repository's commit hooks** — `git add` was already invoked with `-c core.hooksPath=<empty dir>`, but `git commit` was not, on the reasoning that a legitimate formatter hook was worth allowing because the post-commit drift checks would observe whatever it changed. That reasoning only covered content: a `pre-commit`, `prepare-commit-msg`, `commit-msg`, or `post-commit` hook is arbitrary code executing with the run's credentials, and one that makes a network call, reads an unrelated file, or writes outside the staged paths changes no staged bytes at all, so every drift check saw a clean commit and reported success while the side effect went unrecorded. Both the `add` and the `commit` now disable hooks. Hook-driven formatting or linting is still available, but only as an explicit, separately invoked Phase E step whose result is revalidated, never as an implicit consequence of committing. The two post-commit checks stay as defense in depth against any other source of index movement: `COMMIT_FILE_SET_DRIFTED_FROM_STAGED` (with `committed`, `intended`, `commit_sha`) when the commit's file set moved and `COMMIT_CONTENT_DRIFTED_FROM_STAGED` (with `drifted_paths`, `commit_sha`) when the set is identical but an intended file's bytes moved. `committed_paths` in the success response is read back from the sealed commit (`git diff-tree --root`), not the pre-commit index
+- **`publish` could mutate the wrong repository before anyone could tell** — the pre-push check compared a SHA and nothing else, and a SHA says nothing about which repository the URL in argv points at. Two repositories seeded from the same commit share a head SHA, so a wrong `--head-remote-url` — a caller mistake, or a destination suggested by untrusted comment text — passed the preflight, the push landed in an unrelated repository irreversibly, and the mismatch surfaced only afterwards as `matches_pushed_commit: false`. The single pre-push `pulls/{pr}` read now also yields `state`, `head.repo.full_name`, `head.repo.clone_url`, and `head.ref`, and four new refusals fire before the `git push` subprocess is invoked at all: `PR_READ_UNUSABLE` (that read was not a JSON object at all, so nothing downstream is verified), `PR_NOT_OPEN` (the PR closed or merged since the plan was built), `HEAD_REPO_UNAVAILABLE` (`head.repo` is `null` — a deleted or inaccessible fork, so there is no identity to verify against), and `PUBLISH_DESTINATION_MISMATCH` when `--head-remote-url` does not resolve to both the host and the `owner/repo` of the PR's own head repository, or `--head-ref` is not the PR's own head branch. Host and `owner/repo` are compared together, because the trailing path segments alone identify nothing: `https://evil.example.com/acme/widgets.git`, `git@evil.example.com:acme/widgets.git`, `file:///tmp/x/acme/widgets`, and a bare `../acme/widgets` all share the `acme/widgets` tail of the real head repository on `github.com`. Both URLs are split into a host and a path — `https://`/`ssh://` via `urllib.parse.urlsplit`, the scp-like `git@host:owner/repo` form explicitly, with or without a trailing slash or `.git`, userinfo excluded from the host — and both halves must agree case-insensitively. A URL with no host (a local path, a `file://` URL, a relative path) is a mismatch against a hosted head repository rather than a pass, two hostless paths match only when they resolve to the same filesystem location, a missing `clone_url` fails closed, and the `owner/repo` shape check requires exactly two non-empty path segments so `https://github.com/acme` yields no identity instead of the host-plus-owner pair `github.com/acme`. The error carries `expected_repo`, `given_repo`, `expected_host`, `given_host`, `expected_ref`, `given_ref`, and redacted `given_url`/`expected_url`
+- **A push destination check accepted a different port on the same host as a match** — `urlsplit(...).hostname` drops an explicit port, so `ssh://git@github.com:2222/acme/widgets.git` compared equal to `https://github.com/acme/widgets.git` even though git contacts a different endpoint for each. The host comparison now folds the port into the host string when one is present, so a mismatched port fails `PUBLISH_DESTINATION_MISMATCH` like a mismatched host would
+- **A push failure's stderr could misclassify an unrelated transport failure as a permission denial** — the classifier's `NO_PUSH_PERMISSION` check was a bare `"permission"`/`"403"` substring match over the whole stderr, and git always echoes the destination URL back into that stderr on any failure; a nonexistent remote path merely named something like `permission-403-widgets.git` was enough to trigger it even though no authorization response ever occurred. The check now requires git's own fixed diagnostic phrasing for an authorization failure (`permission denied (publickey)`, `remote: permission to ... denied to ...`, `authentication failed for`, `returned error: 403`), which a destination name cannot accidentally produce
+- **`publish`'s push left terminal credential prompting enabled** — unlike `worktree prepare`'s fetch, the push subprocess ran without `GIT_TERMINAL_PROMPT=0`, so a missing or expired credential could block indefinitely on a username/password prompt with stdin inherited, holding the triage lock and worktree open. The push now disables terminal prompts the same way the fetch already did, so a credential failure fails deterministically into the documented recovery path instead of hanging
+- **A failed run's untracked work was deleted with no way to notice** — the documented recovery step before `worktree cleanup` was `git format-patch <original>..HEAD --stdout` for a commit or `git diff HEAD` for an uncommitted edit, and `git diff HEAD` never shows untracked files. A brand-new implementation file or regression test that was written but never `git add`ed appeared in no capture at all, and the `git worktree remove --force` that followed deleted it permanently, silently. The new `worktree preserve --path <dir> --original-head-sha <sha> --out <dir>` subcommand captures all three channels in one call — `committed.patch`, `uncommitted.patch` (with `--binary`, so a binary change round-trips instead of degrading to "Binary files differ"), and byte-for-byte copies of every untracked file under `untracked/` (symlinks preserved as symlinks via `follow_symlinks=False`, including a symlink to a directory and a dangling one) — then verifies its own output against the full set of paths `git status` reported and raises one of two refusals rather than a success it cannot stand behind: `PRESERVATION_FAILED` with a `problems` list (`untracked_file_enumeration_failed`, `committed_changes_present_but_patch_capture_failed`, `untracked_copy_incomplete:<path>`, or `untracked_entry_not_preserved:<path>` for an enumerated entry that was not copied at all — an unreadable file, a nested repository), or `WORKTREE_NOT_FOUND` when `--path` is not a directory. On `PRESERVATION_FAILED` the agent must not call `worktree cleanup` at all; the worktree stays in place for manual recovery
+- **`state unlock` could release a lock it never acquired** — any lock file with a readable `pid`/`acquired_at` was removable by a plain `state unlock`, so run B could clear run A's active lock and both runs would then mutate the same PR, which is exactly what the lock exists to prevent. `state lock` now generates a random `lock_token` (`secrets.token_hex(16)`), records it in the lock file, and returns it in the `ACQUIRED` response for the caller to hold in its own run-scoped context; a normal release requires a matching `--lock-token` and is refused with `LOCK_TOKEN_MISMATCH` otherwise — including a lock file that records no token at all, which a tokenless caller would otherwise have released on a `None == None` comparison. `--force-unlock` remains the only bypass, for a lock whose acquiring run is confirmed ended — there is deliberately no age-based automatic bypass, because `age_seconds` informs a human judgment and never substitutes for it
+- **`state read` created the state directory it was only supposed to read** — `_state_dir` called `mkdir(parents=True, exist_ok=True)` unconditionally, so a `state read` under `--dry-run` left a `.git/triage-state/` behind on a repo that had never been triaged, contradicting the documented "`state read` is fine: it only reads" guarantee. Path resolution and directory creation are now separate: only `state write` and `state lock` create the directory, while `state read` and `state unlock` resolve the same path without creating anything (an absent directory already means "no record" and "no lock"), and the `REPO_ROOT_IS_LINKED_WORKTREE` check moved onto the pure resolution so all four verbs still report it. `state write` is also atomic now — the record goes to a `.tmp-state-*` file in the same directory and is moved into place with `os.replace`, so a process killed mid-write leaves the previous complete record readable instead of truncated JSON that would fail the next `state read`
+- **`worktree prepare` failed outright on a fork PR's head SHA** — `git worktree add --detach <sha>` requires the commit to already be a local object, which it commonly is not for a fork PR, or for any same-repo PR whose branch the caller never fetched. `--fetch-remote-url <url>` fetches that exact SHA from the head repository first; derive it from `resolve-identity`'s `host`/`head_repo`. That fetch runs with `GIT_TERMINAL_PROMPT=0`, so an inaccessible or private head repository fails fast instead of blocking on a credential prompt with stdin inherited
+- **`LOCK_HELD` pointed recovery at a liveness check that always lies** — `held_by_pid` names the short-lived `state lock` CLI process that wrote the lock file and exited, not a long-running triage run, so `ps -p <held_by_pid>` reports "not running" for a lock that is still validly held. The error now also carries `age_seconds` and says plainly to judge staleness from that instead. `age_seconds` is `null` whenever `acquired_at` is not a number (a hand-edited or foreign lock file), which reads as "staleness cannot be judged" rather than crashing the `LOCK_HELD` path into an opaque type error that would have discarded `lock_path` and the recovery guidance with it
+- **`commands/triage.md` told the agent to run `worktree preserve` unconditionally**, "on success and on failure alike," directly contradicting Phase H's own actual rule one section earlier: preserve only when the run did not end in a confirmed publish. Reworded to match Phase H — `state write` runs unconditionally, `worktree preserve` runs first only when publication was not confirmed
+- **The Kubernetes resource-limits walkthrough in `examples/triage/README.md` committed the exact CPU-limit mistake the project rule and this PR's own eval both forbid** — the "after" YAML and its reply text set `limits.cpu`, when `.github/copilot-instructions.md` and `evals/pr-triage/criteria.json` both say to omit it because CPU limits cause throttling. Removed from both the README walkthrough and the matching `examples/triage/actionable-fix/missing-resource-limits.yaml` fixture
+- **Session-close work ran once per assistant turn, not once per session.** `Stop` fires at the end of every turn, so the daily note gained a "Session closed" heading per turn and the session counter advanced at the same rate. Moved to `SessionEnd`
+- **Tool-failure capture recorded nothing at all.** The `PostToolUse` snippet tested `$CLAUDE_TOOL_EXIT_CODE`, an environment variable Claude Code does not set, and `PostToolUse` does not fire for a failed tool call in any case. Moved to `PostToolUseFailure`
+- **Two sessions ending together lost a session from the counter.** `memory/.session-count` held a single integer rewritten as read, add one, write, so the later writer overwrote the earlier increment and the every-fifth-session review reminder slipped. The file is now append-only: one UTC timestamp line per session end, counted with `wc`-style line matching. `>>` is `O_APPEND`, which the kernel makes atomic for a write this small, so no lock is needed. An existing integer file is not converted; line 1 is read as a baseline so the count carries over instead of restarting at 1, which also makes writing a bare integer the supported way to set or reset the count by hand. Converting in place was tried first and is worse: the rewrite truncates, and a truncate racing an append both drops records and can splice an appended timestamp back into the integer being re-read — measured, a count of 100 became 10020260926162208. Twelve concurrent session ends now land on the exact expected total across repeated runs, and the suite asserts it
+- **Crossing a review-reminder boundary concurrently emitted no reminder.** Making the counter append-only fixed record loss but not the decision that reads it: the total is read after the append, outside any critical section, so from a baseline of 4 two sessions ending together could both read 6 and `count % 5` matched for neither, dropping the session-5 reminder with both records intact. Both ports now compute the threshold just crossed and claim it with an exclusive create — `O_EXCL` in bash, `FileMode::CreateNew` in the PowerShell port, where the named mutex guarded the append but not `Get-SessionCount`. The reminder is decoupled from whichever total a racer observes, so a boundary reminds exactly once: never zero times, never twice. Markers below the one claimed are pruned, so `memory/` holds one rather than one per five sessions. On a counter that predates this, the first claim can emit one extra reminder, because no marker yet exists for a threshold already passed
+- **The `ERR` id counter crashed on a file with no match for today.** `grep -c … || echo 0` emitted `0\n0`, which then failed arithmetic expansion
+- **Every session end logged a false WAL error.** `grep 'Status.*PENDING'` matched the working-buffer template's own HTML comment (`**Status**: PENDING | COMMITTED | ROLLED_BACK`); the match is now anchored to a real status line
+
+## [1.41.0] - 2026-09-10
+
+Adds the `/platform-skills:token-optimizer` command (44 commands total) — routes broad repository discovery to a cheaper worker via subagent delegation where the client supports it.
+
+### Added
+
+- **`/platform-skills:token-optimizer`** — route broad repository discovery to a cheaper worker model. Eight modes: `inspect` detects installed clients (Claude Code, Copilot CLI, Copilot VS Code) and reports versions, existing agents, hooks, and coexistence notes; `setup` installs the core script, writes `.token-optimizer.yaml` with 18 config keys, copies agent templates to the right scope (repository or user), registers PreToolUse hooks without overwriting existing entries, and creates state directories (the core never creates its own directories, and bounded recovery requires the state directory or it refuses to redirect); `doctor` reports four separate states (delegation verified/unverified, resolved worker model, redirection on/off/unsupported, read limit) and never collapses them into one green line; `explain` dry-runs size classification for a file path or JSON payload and shows which rule would fire; `benchmark` runs fixture suites in isolated arms (baseline, concise, delegated, native) across randomized runs with declared cache state and appends JSONL; `report` aggregates the decision log into a summary table with measured/estimated/unavailable visually distinct; `disable` sets `enabled: false` in the config and deactivates owned routing-instruction blocks by marker; `remove` deletes assets carrying the ownership marker, reporting any whose content differs from what `setup` would generate as locally modified, and never touches an unmarked file
+- **`references/token-optimizer.md`** — the 18-key config schema (`version`, `enabled`, `mode`, `worker_agent`, `worker_model`, `max_lines`, `max_bytes`, `max_range_ratio`, `default_read_limit`, `summary_words`, `cumulative_lines`, `cumulative_bytes`, `max_delegations_per_task`, `max_worker_retries`, `max_worker_seconds`, `exempt_agent_types`, `log`, `state_dir`); the verified client capability matrix (Claude Code is the only client where redirection is architecturally possible because `agent_type` is documented on `PreToolUse` so the reader can be exempted reliably, but even there the shipped probe is un-run so `doctor` reports `no (runtime fixture required)` on a fresh install; Copilot CLI delegation unverified and redirection unsupported because the documented `preToolUse` payload carries no per-call worker identity; Copilot VS Code delegation unverified and redirection conditional on the `chat.useCustomAgentHooks` preview feature); size classification (requested line count and byte count against `max_lines` and `max_bytes` as absolute gates, plus `max_range_ratio` for reporting whole-file reads); platform capability caps (`effective_mode()` forces copilot and vscode to audit even when the config says redirect); fail-open rationale; why pass emits nothing; bounded recovery
+- **`examples/token-optimizer/`** — `optimize.sh` policy core (classifies requested read size, emits pass/audit/redirect), `token-optimizer.yaml` sample config, 59-assertion test suite wired into `tests/handbook-consistency.sh`, agent templates for Claude Code (`.claude/agents/platform-bulk-reader.md`), Copilot CLI (`.github/agents/platform-bulk-reader.agent.md` and `platform-coordinator.agent.md`), and VS Code (same as CLI), PreToolUse hook configs for `.claude/settings.json` with matcher-group merge logic and `.github/hooks/preToolUse.json`, delegation probe fixture at `claude/probe/fixture.json` shipped deliberately un-run (`delegation_verified: false`, `client_version: null`), and 12 benchmark fixtures under `evals/token-optimizer/`, each with its own `evidence/` directory so the fixture is self-contained, and no recorded measurements of any kind
+- **The delegation probe ships un-run for every client** — `doctor` requires ALL of: `delegation_verified == true`, `client_version` matches the installed client, and `probe_version == 1`. The shipped fixture fails all three, so on a fresh install `doctor` reports `no (runtime fixture required)` for Claude Code and `no (unsupported)` for Copilot CLI and VS Code. This is the honest state: no client's delegation is verified in this repository. Running the probe requires a live session and a human reading a transcript to confirm the parent received the worker's bounded answer
+- **The four-state `doctor` report** — delegation (verified / unverified), worker model (resolved name or unverified), redirection (yes / no (audit only) / no (unsupported on this client)), default read limit (measured / assumed / unknown). Never one "installed" green line, because that would hide: delegation unverified, redirection off because the client cannot support it, and a read limit misconfiguration that defeats the optimization
+- **Copilot CLI is audit-only** — `effective_mode()` caps both `copilot` and `vscode` to `audit` when the config says `redirect`. Copilot CLI cannot redirect because the documented `preToolUse` payload carries no per-call worker identity (no `agent` or `subagent` field), so the core cannot know whether a read is executing inside the worker it dispatched. The cap is enforced in the core, so a shared cross-client config cannot produce a redirect on a client that cannot support it
+- **`handoffs` is not confirmed to be a subagent dispatch** — `copilot help commands` lists subagent execution under `/fleet` and `/tasks`. `/agent` is "browse and select from available agents", a session transition that saves no parent context. `handoffs` appears in the Copilot templates as a frontmatter field, but presence of a field means the field parses, not that an execution model exists. No cost claim is made for Copilot CLI or VS Code in this release
+- **Pass emits nothing** — on pass the core emits NO JSON and never `permissionDecision: "allow"`. An explicit allow could contend with an `ai-governance` deny on the same `PreToolUse` event. Multiple hooks compose: the first to deny wins. A read that does not meet the size threshold exits 0 with no output
+- **Fails open, unlike `ai-governance` which fails closed** — `optimize.sh` fails open on every error path (parse failure, missing dependency, invalid config, state-write failure logs one degradation line, emits nothing, exits 0). `examples/ai-governance/evaluate.sh` fails closed (missing `yq`, invalid YAML, type error emits `policy_load_failed`, exits 2). Both directions are correct: a security gate that silently stops gating when its config breaks is worse than a broken session, while a cost optimizer that starts denying reads when its state management breaks gets uninstalled
+- **Bounded recovery** — at most one denial per target per session. The core writes a flat state file at `.token-optimizer/state/<hash of session|abspath>` containing an integer counter. The second attempt on the same file passes. No denial at all when the attempt cannot be persisted, because without persistence the counter never advances and the same read would be denied forever, deadlocking the parent
+- **No savings figure published** — the benchmark harness ships runnable so you can produce your own numbers. The design's acceptance targets are goals, not measured outcomes. No cost claim is made for any client in v1.41.0
+
+## [1.40.0] - 2026-08-30
+
+Adds the `/platform-skills:ai-governance` command (43 commands total) — Phase 1 of a policy gate for AI coding agents, with zero infrastructure dependency.
+
+### Added
+
+- **`/platform-skills:ai-governance`** — scaffold and enforce a policy gate for AI coding agents (GitHub Copilot, Claude Code) operating on a repo. Two layers over one shared bash evaluator: a real-time `preToolUse` session hook that denies an edit to a protected path or a dangerous shell command before it executes, and a merge-time GitHub Actions check that catches whatever bypasses the hook — a different tool, a manual push, or an edit to the governance files themselves. Modes: `generate`, `check`, `audit`, `explain`
+- **`references/ai-governance.md`** — the `.ai-governance.yaml` schema (`protected_paths`, `denied_commands`, `max_diff_files`, `require_disclosure`); the Copilot and Claude Code hook protocols verified against both vendors' docs, including each platform's fail-open cases and why the merge-time check is not redundant with the hook; the trusted-verifier design (the CI check runs the *base branch's* copy of the evaluator and policy, so a PR cannot weaken the rule meant to catch it); `denied_commands` word-tokenized prefix matching scoped explicitly as a deterrent rather than a security boundary; synchronous audit logging and why `postToolUse` structurally cannot log a denial
+- **`examples/ai-governance/`** — the evaluator (`evaluate.sh`, bash 3.2 compatible: portable `case`-glob matching, no `globstar`), a 108-assertion test suite wired into `tests/handbook-consistency.sh`, a sample policy, Copilot `preToolUse`/`postToolUse` hook configs, a Claude Code `.claude/settings.json` snippet in the correct three-level matcher-group shape, and the merge-time workflow with the base-branch fetch
+- **Three enforcement tiers** — `audit` (log only), `warn` (log plus a PR comment listing violations), `block` (deny for real). Default is `audit`: a global rollout that starts as a hard block gets uninstalled on day one. Self-disable — a diff touching both a governance asset and another protected path — denies regardless of tier, so a team onboarding under `audit` cannot have its own governance config quietly disabled
+- **`protected_paths` gates writes, not reads** — the evaluator inspects the tool name and payload, so a `Read` against a protected path is allowed while `Edit`/`Write`/`MultiEdit` against the same path is denied. Blocking reads is what makes `block` tier get uninstalled. An edit payload (`new_string`, `content`, `edits`) counts as write intent whatever the tool is called, and an unrecognised tool name fails closed
+- **A platform-neutral dry-run renderer** (`--platform=none`) behind `check` mode — prints `{"decision":…,"rule":…,"reason":…}` instead of a Copilot or Claude envelope, and writes nothing to `.ai-governance/audit.log`, so tuning a policy never leaves fake entries in the real audit trail. Audit lines carry a short, stable rule code (`protected_paths`, `denied_commands`, `max_diff_files`, `require_disclosure`, `self_disable`) in its own field, with the human-readable specifics in the next field, so log aggregation never parses prose
+
+## [1.39.0] - 2026-08-29
+
+Adds the `/platform-skills:kingfisher` command (42 total) and closes the CI-gate duplication and loose provider-constraint gaps behind the three consecutive broken v1.38.0 release attempts.
+
+### Added
+
+- **`/platform-skills:kingfisher`** — find, live-validate, map the blast radius of, and revoke leaked secrets using [Kingfisher](https://github.com/mongodb/kingfisher) (MongoDB). Covers a local repo and Git history, or a GitHub/GitLab/Bitbucket/Gitea/Azure Repos/Hugging Face org, S3/GCS bucket, Docker image, Slack, Jira, Confluence, Microsoft Teams, or Postman workspace. Interactive by default: a three-layer wizard routes intent → scan target and invasiveness → explicit trade-offs (CI gate threshold, suppression method, alert payload contents) before running anything. Modes: `scan`, `audit`, `validate`, `revoke`, `baseline`, `triage`, `config`, `ci`, `precommit`, `explain`
+- **`references/kingfisher.md`** — bootstrap across every install method; the full CLI surface (`scan`, `validate`, `revoke`, `config init`, `rules`, `view`) with verified flag syntax; the `betterleaks.*`/`veles.*` rule-namespace migration off Kingfisher's 1.x `kingfisher.*` IDs, including the compatibility-alias warning and its planned removal; validation-outcome semantics (`verified_active` vs `assumed` vs everything else) and why that distinction is the whole point of the tool; version-2 repository-aware baseline format and its update/pruning rules; the full `kingfisher.yaml` schema and CLI-flag/env-var/config precedence; diff-focused CI scanning (`--since-commit`, `--branch`, `--branch-root-commit`); a table of every platform-target subcommand with its auth env var; exit codes (`0`/`200`/`205`); SSRF protection and TLS modes; alert webhook payload shapes; pre-commit and Husky wiring; CI templates for a hard-fail gate, SARIF upload, and Docker — explicit that no official `mongodb/kingfisher-action` exists
+- **Explicit safety gates encoded in the command** — `revoke` requires three-part confirmation (validated live, owner identified, replacement ready) with no exception path; blast-radius mapping and any platform-target/SaaS-content scan (Slack, Jira, Confluence, Teams) require confirming authorization first, every time; a first-time CI rollout is steered toward gating on exit code `205` (confirmed-live) plus a baseline rather than `200` (any candidate), so an established repo's pre-existing test fixtures and documented example keys don't fail every PR on day one
+- **Ownership boundary against `/platform-skills:trivy`'s `secrets` mode, `/platform-skills:zizmor`, and `/platform-skills:secrets`** made explicit in all four commands: Trivy is a fast offline pattern check bundled with a CVE scan; Kingfisher live-validates, maps blast radius, and revokes; zizmor audits workflow-level `secrets:` context usage, not file contents; `/platform-skills:secrets` covers storing/rotating secrets already inside the cluster, not secrets that already leaked elsewhere
+- **`.github/workflows/terraform-drift.yml`** — runs the shared Terraform sweep weekly (Mondays 06:00 UTC) plus on demand. `validate.yml`'s Terraform job is path-gated on changed `*.tf`, so it reports `skipping` on any pull request touching no Terraform, while `release.yml` sweeps every directory unconditionally. That asymmetry is what let a provider major break a shipped example with nothing to review. Pinning constraints prevents it where a `required_providers` block exists; this catches it for the directories that declare none, within a week rather than at the next tag. `permissions: {}` at workflow level with `contents: read` on the single job, `persist-credentials: false` on checkout, and a `failure()` step that names the likely cause and the command to confirm a provider's real argument set
+
+### Changed
+
+- **The duplicated CI gates are now single scripts** — `tests/scan-secrets.sh` and `tests/validate-terraform.sh`, called by both `validate.yml` and `release.yml`. Four inline `run:` blocks became one call each. This closes the failure mode that blocked v1.38.0 three times over: the release gate is a second copy of the PR gate, it only executes when a tag is pushed, so any divergence is invisible until the most expensive possible moment. Both copies had already diverged in two ways at once. The secret scan's exclusion lists differed, which failed the release on false positives. And the Terraform sweep differed in what it checked at all: the PR gate ran `terraform fmt -check -recursive`, the release gate never did, so formatting was enforced on the way in but not on the way out. The scripts resolve the repository root themselves and are runnable directly, so the same gate can be run before pushing rather than discovered in CI
+- **`tests/scan-secrets.sh` scans tracked files rather than walking the working tree** — the inline `grep -r .` was equivalent in CI, where the scan runs immediately after a fresh checkout, but locally it also read gitignored build output and buried the result in minified `website/build` JavaScript. Enumerating from `git ls-files` makes a local run mean something, and "is there a credential in what we committed" is the more honest question. The one consequence is that a brand-new file needs `git add` before a local run sees it; CI is unaffected
+- **Example provider constraints pinned to a major** — 16 constraints across 15 example files moved from `>= N` to `~> N.0` (`aws` to `~> 6.0`, `azurerm` to `~> 5.0`, `tls` to `~> 4.0`, the DORA AMP example to `~> 6.28`). A `>=` constraint in a copy-paste example silently opts into every future major, which is how `azurerm 5.0.0` broke `examples/azure/workload-identity` with no commit to this repository. The repo already taught this exact lesson in `examples/pr-review/upgrade/terraform-loose-constraints.tf` while doing the opposite in 15 real examples. That demo file is deliberately left loose, since its `>= 3.0` is the anti-pattern being illustrated. Each pin targets the major that is currently validated green, so nothing changes today and the next major arrives as a Renovate pull request that runs the Terraform gate instead of as a broken release
+
+### Fixed
+
+- **The Terraform sweep validated third-party module sources** — the `find` in both workflows had no `.terraform/` exclusion, so once a directory using a registry module had been initialised, downloaded module code under `.terraform/modules/` was picked up as if it were part of this repository. That put two directories of someone else's Terraform inside a gate that blocks releases here. Now excluded, taking the sweep from 24 directories to the 22 that are actually ours
+
+## [1.38.1] - 2026-08-29
+
+Republishes the v1.38.0 content. No skill or command content changed; v1.38.0 shipped a tree that was one commit short of its own tag.
+
+### Fixed
+
+- **v1.38.0 installed the pre-fix Azure Workload Identity example.** `marketplace.json` `source.sha` selects the tree installers download, and v1.38.0 pinned `ad1950c` while the `v1.38.0` tag was `bd2e06c`. The excluded commit was the azurerm 5.x migration, so anyone who installed v1.38.0 got `examples/azure/workload-identity/main.tf` with `parent_id` + `resource_group_name` under `azurerm >= 3.87.0`. That constraint is open-ended, so `terraform init` resolves azurerm 5.x, where both arguments were replaced by `user_assigned_identity_id` — the example failed `terraform validate` as shipped. The root cause was structural, not a slip: `bd2e06c` repointed `source.sha` at its own parent *in the same commit* that carried the content fix, so the pin could never include it. `ad1950c` and `27d938e` did the same thing, meaning the newest commit's content was excluded from every one of those releases
+- **The release gate could not catch this.** Its `source.sha` check hard-failed only on unreachability, then warned when the pin was more than 1 commit behind the tag. A pin exactly 1 commit behind was assumed to be the sha-bump commit, so a lone *content* commit passed silently. The distance heuristic is now replaced by a hard check on the diff: every path other than `.claude-plugin/marketplace.json` that differs between `source.sha` and the tagged commit is content the release does not ship, and the job fails and lists those paths
+
+### Changed
+
+- **A sha-bump commit must now touch nothing but `.claude-plugin/marketplace.json`.** Land content first, merge it, then bump `source.sha` to that merge commit in a marketplace.json-only PR, then tag. The release gate enforces this
+
+## [1.38.0] - 2026-08-29
+
+Brings the count to 41 command workflows.
+
+### Added
+
+- **`/platform-skills:zizmor`** — audit GitHub Actions workflows, composite actions, Dependabot configs, and pre-commit configs with [zizmor](https://docs.zizmor.sh). Interactive by default: a three-layer wizard routes intent → scope → trade-offs before running anything. Modes: `scan`, `audit`, `fix`, `triage`, `config`, `ci`, `precommit`, `explain`. Complements actionlint rather than replacing it — zizmor answers "is this workflow *safe*", actionlint answers "is this workflow *valid*"
+- **`references/zizmor.md`** — full catalogue of all 41 audits (type, minimum version, online/offline, auto-fixable, configurable) grouped by theme; persona gating (`regular`/`pedantic`/`auditor`); `zizmor.yml` schema with all five configurable audits (`unpinned-uses`, `forbidden-uses`, `known-vulnerable-actions`, `secrets-outside-env`, `dependabot-cooldown`) and the repository-pattern specificity order; config discovery rules including the Git-repo-root trap; inline `# zizmor: ignore[rule]` suppression and why it must sit on the `run:` key line, not inside the block literal; exit-code severity gating (11/12/13/14) and the three cases that suppress those codes; `--fix` blast radius; SARIF and Security-tab CI integration via `zizmorcore/zizmor-action`; pre-commit hook wiring
+- **Explicit pinning-policy question** — the wizard asks whether `uses:` should be hash-pinned (full commit SHA) or ref-pinned (semver tag) before reporting `unpinned-uses` findings or writing a config, recommends SHA, and states what a tag pin costs: a tag is a mutable pointer the author can repoint at different code after review. `config` mode emits the three concrete `unpinned-uses.policies` shapes (hash-pin everything, ref-pin only owned namespaces, ref-pin broadly) and requires the trust reason as a comment. Relaxing to `ref-pin` purely to clear findings is disallowed
+- **Guardrails encoded in the command** so a run cannot report a misleading result: offline runs must name the four skipped online audits; SARIF-only workflows are never presented as merge blockers; `--fix` never sits inside a gate; `--strict-collection` is always on so "0 findings" cannot mean "0 files audited"; `auditor` persona is never used for gating
+- **`.github/workflows/zizmor.yml`** — this repository now audits its own GitHub Actions definitions on every relevant PR and push to `main`, via `zizmorcore/zizmor-action` v0.6.2 with zizmor pinned to 1.29.0. Scope is the whole repo: `.github/workflows/**` plus the composite actions and example workflows under `examples/`, since users copy those. One zizmor run drives three outputs — a single sticky PR comment (severity table split into "this repo's CI" vs "shipped examples", high/medium listed with docs links, long tail left in the Security tab), a SARIF upload to Security → Code scanning under category `zizmor`, and the job summary. Two jobs, so the third-party action never shares a token with PR write access: `audit` holds `contents: read` and `security-events: write`, uploads the rendered report as an artifact, and owns the gate; `comment` holds the only `pull-requests: write` grant and runs nothing but `download-artifact` and `github-script`. Its condition also excludes Dependabot by immutable actor id (49699333) — a Dependabot PR's head repository is not a fork, so the fork check misses it, but its token is read-only and the comment would 403. A first run reported 231 findings (31 high, 18 medium); those were fixed in the same release, so the gate ships at `ZIZMOR_FAIL_ON: high` and blocks only on new regressions. It is not at `medium` yet, and the reason is not obvious: `artipacked` reports low online but medium offline, because it downgrades when `actions/checkout` is v6.0.0+ and resolving a SHA pin to a version needs the network — so `medium` would pass online and fail every PR the moment the token is missing or rate-limited
+- **`references/zizmor.md` Option D** — one zizmor run, three outputs. Documents gating directly on the SARIF's `properties["zizmor/severity"]` instead of Options B/C's second audit pass, the sticky-comment pattern (including that `listComments` needs `github.paginate` or the marker is never found on a busy PR), the missing `--strict-collection` input on the action and what `fail-on-no-inputs: true` does and does not cover, and how to roll a first-time gate out advisory-first
+- Website landing page — version, command count, the GitHub Actions capability tile, and a new zizmor usage scenario
+
+### Fixed
+
+- **All 49 high- and medium-severity zizmor findings across this repo's CI and its shipped examples** — the audit went from 31 high / 18 medium to 0 / 0 at v1.29.0, regular persona. Five classes:
+  - **`template-injection` (22 high)** — the floating-major-tag step in 11 example `release.yml` files expanded `${{ github.ref_name }}` straight into `run:`; a tag name is attacker-controllable and `${{ }}` is substituted before bash parses the line. Also `inputs.version` in `.github/workflows/tessl-publish.yml`, three expressions in `docker-build-push/action.yml`, and `github.workflow` / the run URL inside `pr-comment/action.yml`'s `github-script` body, where a backtick or `${` in the expression escapes the template literal. All moved to `env:` vars read as `${VAR}` / `process.env.VAR`
+  - **`excessive-permissions` (7 high, 6 medium)** — `pages.yml` and `release.yml` moved to `permissions: {}` with per-job grants, so the jobs that run third-party npm and download linters no longer hold `pages: write`, `id-token: write`, or `contents: write`; `validate.yml` dropped an unused `pull-requests: write`; `configure-cloud` and `k8s-deploy` example tests moved `id-token: write` from the workflow down to the jobs that actually reach the OIDC exchange; `pr-comment` and `release-tag` example tests gained a deny-by-default block instead of inheriting the repository default
+  - **`github-env` (2 high)** — `docker-build-push` and `security-scan` wrote computed values to `GITHUB_ENV`. A newline in a written value injects variables into every later step's process environment (`LD_PRELOAD`, `NODE_OPTIONS`), which reaches code execution. Both now publish step outputs, which carry no such reach
+  - **`dependabot-cooldown` (11 medium)** — `cooldown.default-days: 7` added to all 11 example `dependabot.yml` files via `--fix=safe`
+  - **`ref-version-mismatch` (1 medium)** — `renovate-gate.lock.yml` pinned `hashicorp/setup-terraform` with the SHA repeated as its own version comment. Fixed at the gh-aw source, not the generated lock: the frontmatter now references `@v4.0.1` and gh-aw resolves it, writing the SHA pin into both the lock and `.github/aw/actions-lock.json`, so what runs is still immutable
+- **`references/zizmor.md` claimed offline mode only skips four audits** — it also changes severities on audits that do run. Documented with the mechanism and a reproduction command, since comparing a local `--offline` total against a CI total otherwise looks like a regression
+- **`.github/workflows/validate-renovate.yml` and its `commands/renovate.md` template** (#135) — the GitHub Actions ecosystem probe matched only `.github/workflows/*.yml`, so a repo using `.yaml` exclusively was reported as SKIPPED rather than checked; now matches both extensions. The coverage step also always exited 0, so `needs.validate-coverage.result` could not distinguish "all ecosystems covered" from "gaps found", and the summary table showed ✅ Passed either way; the step now publishes `uncovered_count` as a job output and the summary renders "⚠️ N uncovered". Coverage remains advisory and never blocks the PR. Summary and enforcement steps moved off inline `${{ }}` interpolation onto `env:` vars
+- **Managed-file marker placement** (#136) — `assets/frontmatter/copilot-vscode.tmpl`, `copilot-cloud.tmpl`, and `cursor.tmpl` emitted `<!-- generated by platform-skills -->` *above* the `---` frontmatter delimiter. Frontmatter parsers require `---` at byte 0, so `description`, `model`, `globs`, and `tools` risked never being parsed — a generated agent that loads but is silently inert. The marker moved inside the frontmatter as a YAML comment on line 2, and the `managed()` overwrite guard widened from `head -1` to `head -3` so `upgrade` and `add` no longer misclassify every generated `.agent.md` and `.mdc` as hand-authored and skip them
+- **Codex integration described a mechanism that does not exist** (#137) — `assets/AGENTS.md.template` claimed Codex agents are "registered in `agents/openai.yaml`" and activate on a `$` prefix. Codex discovers only `AGENTS.override.md` / `AGENTS.md`, walking from the project root down to the working directory, one instruction file per directory, concatenated root-first, capped by `project_doc_max_bytes` (32 KiB default). There is no repo-level roster and no activation prefix. `agents/openai.yaml` is reframed throughout as setup-agents' own tooling metadata — `verify-agents.sh` asserts it exists when the manifest carries the `codex` token and never parses it, roster completeness coming from the `## Agent roster` table in `AGENTS.md`, and `upgrade` mode reads it to re-surface model selections — and the `### Codex` subsection of `AGENTS.md` is now always kept, since it names no generated file
+- **`website` typecheck was broken by the TypeScript 7 bump** — `npm run typecheck` failed with `TS5102: Option 'baseUrl' has been removed`. TypeScript 7 dropped `baseUrl`, and `@docusaurus/tsconfig` 3.10.x still sets it; because the option arrives through `extends`, it cannot be unset in the local `tsconfig.json`. `typescript` pinned back to `~6.0.2` and a `renovate.json` rule caps it at `<7` with the reason inline, so the next major bump doesn't silently reintroduce it. This only ever affected `typecheck` and editor type-checking — `docusaurus build` does not read `tsconfig.json`, which is why CI stayed green and the break went unnoticed
+- **`.github/workflows/release.yml` blocked its own release on two false positives** — its `Validate no secrets in code` step was a stale fork of the identical scan in `validate.yml` and never picked up the exclusions added there, so it matched `validate.yml`'s own regex literals and `renovate-gate.lock.yml`'s generated firewall mega-line, failed the `Validate Release` job, and skipped `Create GitHub Release`. The two scans now carry the same exclusion list, and the tighter agentic-source scan is present in both so excluding `*.md` and `*.lock.yml` does not leave gh-aw workflow sources uncovered at release time
+- **`.github/workflows/release.yml` rejected every tag that was not `main`'s tip** — its `Ensure tagged commit is on main` step ran `git fetch origin main --depth=1`, which grafts a shallow boundary at main's tip with no parent history, so `git merge-base --is-ancestor` had no path to walk and reported that a genuine ancestor was unreachable. The check therefore only ever passed by accident, when the tag happened to be main HEAD, and failed as soon as a release was cut from an earlier commit so that the tagged tree matched its own changelog section. The `--depth=1` is dropped; the checkout already uses `fetch-depth: 0`, so full history is present and the ancestry test is meaningful. Because `push: tags` resolves the workflow definition from the tag ref, a fix here only takes effect for tags created after it lands
+- **`examples/azure/workload-identity/main.tf` no longer validated against a current provider** — `azurerm_federated_identity_credential` was written for azurerm 4.x and earlier, using `parent_id` and `resource_group_name`. Both were removed in azurerm **5.0.0** and replaced by a single required `user_assigned_identity_id`. The example's constraint was `>= 3.87.0`, so a fresh `terraform init` resolved 5.3.0 and `terraform validate` failed with one `Missing required argument` and two `Unsupported argument` errors — meaning anyone copying this example got a configuration that could not plan. Migrated to the 5.x argument, and the constraint raised to `>= 5.0.0` because no single argument set satisfies both majors. The same block in `commands/azure.md` is corrected too, with the version floor stated inline. This surfaced only at release time: `validate.yml`'s Terraform job is gated on changed `*.tf` paths, so it reports `skipping` on PRs that touch no Terraform, while `release.yml` validates every directory unconditionally
+- **`.github/workflows/renovate-gate.md` ran on human pull requests** — `bots: ["renovate[bot]"]` is an allowlist that lets Renovate past the bot-author check in `pre_activation`; it does not restrict the workflow to Renovate. Any PR from an account with write access satisfied the role check and started the agent, which then spent a Copilot request reaching Step 1 only to `noop` on the author. A frontmatter `if:` now gates on `github.event.pull_request.user.id == 29139614` (renovate[bot]'s immutable id, so a renamed or impersonated login cannot satisfy it), with `workflow_dispatch` allowed through for manual re-evaluation. gh-aw compiles the condition into both `pre_activation` and `activation`, so on a human PR every job skips before a runner starts
+- **`assets/verify-agents.sh` verification gaps** (#138) — four fixes: per-agent checks now parse the `## Agent roster` table in `AGENTS.md` and assert one file per roster entry, instead of `ls .github/agents/*.agent.md` passing on a single surviving file; a `claude` manifest token verifies the `## Agent Context` section in `CLAUDE.md`, so a deleted section is distinguishable from a repo that never had one; `hcl` joined the referenced-file extension allowlist; and a manifest listing both `copilot-vscode` and `copilot-cloud` no longer runs (or counts) the shared Copilot check twice. The dedupe flag is read and written in the current shell via process substitution rather than a pipe
+
+### Changed
+
+- `tests/release-consistency.sh` — `setup-agents-build` added to `SKIP_DOMAINS`; the alternation still listed the pre-rename `setup-agents-generate` alongside its siblings, so the README domain-coverage check failed on a sub-doc that has no domain of its own
+- `tests/validate-skill.sh` — `references/zizmor.md` added to `REQUIRED_REFERENCES`
+- `website` dependencies — Docusaurus 3.10.1 → 3.10.2 (`core`, `faster`, `preset-classic`, `module-type-aliases`, `tsconfig`, `types`), plus lock-only `react`/`react-dom` 19.2.7 → 19.2.8 and `@types/react` 19.2.17 → 19.2.18. Folded in from Renovate PR #160 after verifying it carried version bumps only
+- `commands/composite-actions.md` — dropped `--collect=all` from the PR checklist and the reference note. Default collection already finds `action.yml` alongside the workflows; `--collect=all` only adds `.gitignore`-excluded paths, at a real speed cost. `commands/zizmor.md` `audit` mode keeps it, and now explains why it belongs in a deep sweep and nowhere else
+
+## [1.37.0] - 2026-07-05
+
+### Fixed
+
+- **`assets/copilot-setup-steps.template.yml`** — wrapped the bare steps list in the required workflow structure (`name`, `on`, `jobs.copilot-setup-steps`) with a `concurrency` block; GitHub only invokes a job whose key is literally `copilot-setup-steps`
+- **Wrong output path** — `.github/copilot-setup-steps.yml` corrected to `.github/workflows/copilot-setup-steps.yml` in `references/setup-agents-schemas.md` and `assets/verify-agents.sh`; GitHub only reads the file from `.github/workflows/`
+- **`assets/render.sh`** — added `shopt -u patsub_replacement` guard; on bash 5.2+ an unescaped `&` in a substitution value was silently treated as a sed-style backreference, corrupting output
+- **`assets/verify-agents.sh`** — directory-reference regex widened to allow a leading dot (`.github/workflows/`, `.cursor/`) without misparsing it as a bare path; added `tpl` to the file-extension allowlist; replaced `eval` with `bash -c`; replaced non-portable BRE `\|` alternation with `grep -E`
+- **`references/setup-agents-build.md` / `references/setup-agents-template.md`** — `AGENTS.md`'s "How to invoke agents" section now prunes per-tool subsections (VS Code, Cursor, Codex) to the confirmed manifest instead of always including all of them, avoiding dead references like an unrendered `agents/openai.yaml` when Codex wasn't generated
+- **`commands/renovate.md` schedule example** — `weekday-morning` mapped to `["before 6am on weekdays"]`, which Renovate's migration rewrites to the unparseable `"before 6am on weekday"`; corrected to `["before 6am every weekday"]`
+- **Renovate docs** — replaced deprecated `regexManagers`/`fileMatch`/`matchPackagePatterns` with current `customManagers`/`managerFilePatterns`/`matchPackageNames` across `references/renovate.md` and `commands/renovate.md`; `managerFilePatterns` requires regex values wrapped in `/.../ ` delimiters
+- **Renovate Terraform module examples were unnecessary** — the native `terraform` manager already extracts `github.com/<org>/<repo>//<path>?ref=<tag>` sources (via `github-tags`) and `<hostname>/<namespace>/<module>/<provider>` sources with a `version` attribute (via `terraform-module`, for any hostname) without any custom manager; the removed examples also restricted `packageRules` to `matchManagers: ["custom.regex"]`, which can never match a `terraform`-manager dependency, so the grouping/automerge rules silently never applied. Replaced with plain `packageRules`/`hostRules` entries
+
+## [1.36.0] - 2026-06-21
+
+### Added
+
+- **`/platform-skills:github-actions`** — design reusable workflows and job graphs, harden with OIDC federation and SHA pinning, review for production readiness, and debug failing CI workflows; modes: `design`, `security`, `review`, `debug`
+- **`/platform-skills:kubernetes`** — generate cluster baseline scaffolds (namespace, RBAC, network policy, PDB, quota), diagnose 401/403 errors, harden Deployment specs, and debug crashloop/OOMKill/pending pods; modes: `baseline`, `rbac`, `workload`, `debug`
+- **`/platform-skills:azure`** — Workload Identity and OIDC federation for GitHub Actions and in-cluster pods, resource tagging with Azure Policy enforce/remediate, AKS provisioning, RBAC scoping, and production-readiness review; modes: `identity`, `tagging`, `aks`, `rbac`, `review`
+- **`/platform-skills:openshift`** — SCC rejection diagnosis and minimum SCC generation, Route TLS modes and 503/504 debug, OpenShift GitOps app delivery with sync waves, cluster upgrade validation; modes: `scc`, `route`, `gitops`, `upgrade`, `debug`
+- **`/platform-skills:secrets`** — ESO vs Sealed Secrets strategy decision, SecretStore/ExternalSecret scaffolding for AWS SM/Azure KV/Vault, seal/rotate/backup with controller interview, rotation runbooks, and Kubernetes-side secrets audit; modes: `design`, `eso`, `sealed`, `rotate`, `audit`
+- **`references/openshift.md` expanded** — added concrete SCC diagnostic commands, Route TLS YAML (edge/passthrough/reencrypt), OpenShift GitOps app-of-apps patterns, namespace quota/LimitRange baseline, and day-2 cluster upgrade runbook
+
+### Changed
+
+- `SKILL.md` "Pick the right tool" table updated with command pointers for Kubernetes, OpenShift, GitHub Actions, and Azure; new Secrets row added
+
+## [1.35.0] - 2026-06-20
+
+### Added
+
+- **`/platform-skills:preflight`** — production-readiness preflight check for a folder, repo, or single file; auto-detects 14 file types, runs type-specific checks, returns a per-file summary table with aggregated BLOCKED/NEEDS_FIX/MERGE_READY verdict; replaces `/platform-skills:review`
+- **`/platform-skills:helmchart`** — complete rewrite of `helmcheck`; 8 modes (create, lint, review, security, upgrade, schema, test, deps), 10-stage interactive create interview, official Helm best practices from helm.sh/docs/chart_best_practices/
+- **Website** — Docusaurus site with STAR-method landing page, dark mode by default, GitHub Pages deployment via OIDC
+
+### Changed
+
+- `/platform-skills:helmcheck` renamed to `/platform-skills:helmchart`
+- `/platform-skills:review` renamed to `/platform-skills:preflight`
+- Landing page redesigned with ProblemStatement + StarScenarios sections
+- Install section updated with marketplace and upgrade commands for all agents
+
+### Fixed
+
+- `helm rollback <release> 0` corrected to `helm rollback <release>` (revision 0 is invalid)
+- `busybox` test hook image pinned to `busybox:1.36`
+- `kubeconform -kubernetes-version` now reads from live cluster with fallback
+- Helm test hook scaffold split into Service-based and worker/CronJob patterns
+
+## [1.34.0] - 2026-06-20
+
+### Added
+
+- **`/platform-skills:trivy`** — new slash command for container image, filesystem, repo, SBOM, and live cluster CVE scanning with strict tool-ownership boundaries
+  - Three-layer interactive wizard: Layer 1 (developer intent → mode), Layer 2 (end goal: CLI / CI gate / continuous monitoring), Layer 3 (severity floor, `--ignore-unfixed`, `.trivyignore` template)
+  - Handoffs enforced at menu level: IaC misconfig → `/platform-skills:checkov`, admission posture → `/platform-skills:kyverno`, SBOM generation / image signing → `/platform-skills:supply-chain`
+  - Mode set: `image`, `fs`, `repo`, `secrets`, `sbom`, `k8s` — no `config` (overlaps Checkov), no SBOM generation (overlaps Syft), no manifest posture (overlaps Kyverno)
+  - Bootstrap: Homebrew (macOS), binary install (Linux), minimum version guard (≥ 0.50.0)
+  - Image mode: OS + library CVE scan, SARIF upload to GitHub Security tab, private-registry auth (`TRIVY_USERNAME`/`TRIVY_PASSWORD`, IRSA ECR, `TRIVY_GITHUB_TOKEN`)
+  - Filesystem mode: `--scanners vuln,secret,license` combined pass; repo mode for remote git URLs
+  - Secrets mode: standalone `--scanners secret` scan; custom rule sets via `trivy.yaml`
+  - SBOM mode: scan existing Syft-generated CycloneDX/SPDX files — does not generate SBOMs
+  - k8s mode: one-shot `trivy k8s --report summary cluster`; continuous monitoring via Trivy Operator deployed through Flux HelmRelease with `VulnerabilityReport` CRDs and Prometheus `serviceMonitor`
+  - Severity gating table: `HIGH,CRITICAL` recommended default; exit code 2 guard; `.trivyignore` expiry-date enforcement pattern
+  - Trivy Operator Flux HelmRelease with `serviceMonitor` for Prometheus; `kubectl` queries for `VulnerabilityReport` CRDs; PromQL examples
+  - `trivy.yaml` persistent config template
+  - Common mistakes table: 8 entries including `--exit-code 0` default, `CRITICAL`-only gate, `trivy config` on `.tf`, SBOM generation via Trivy, missing expiry dates, missing exit-code-2 check
+  - Pinned to `aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25` (v0.36.0)
+- `references/trivy.md` — deep reference with all mode logic, bootstrap, severity gating, Trivy Operator, `.trivyignore` policy, troubleshooting table
+- `examples/supply-chain/trivy-image-scan.sh` — production-ready image scan CI script with severity gate, SARIF output, optional GitHub Security tab upload, exit-code-2 guard, and guaranteed cleanup via trap
+- `examples/supply-chain/.trivyignore.example` — CVE suppression template with expiry-date headers and inline expiry checker
+- Cross-references added to `/checkov`, `/kyverno`, `/supply-chain`, and `/runtime-security` commands
+- Updated `examples/supply-chain/trivy-gate.yaml` pin from v0.30.0 to v0.36.0 (`ed142fd`)
+
+## [1.33.0] - 2026-06-14
+
+### Added
+
+- **`/platform-skills:checkov`** — new slash command for Checkov static and plan-level Terraform security scanning
+  - Bootstrap: Homebrew (macOS), pip/venv (Linux), minimum version enforcement (≥ 2.3.0), `jq` guard for plan mode
+  - Multi-cloud provider detection: reads `required_providers` to focus checks — `CKV_AWS_*`, `CKV_AZ_*`, `CKV_GCP_*`, EKS/AKS/GKE subsets
+  - Plan mode: cloud credential preflight (AWS/Azure/GCP), workspace confirmation, `*.tfvars` detection, `--deep-analysis`, auto-cleanup; `terraform init` by default, `--upgrade` only when explicitly passed
+  - Private GitHub module auth: `gh auth token` → `GITHUB_PAT` fallback chain; Terraform Cloud, Bitbucket, self-hosted VCS also supported
+  - Pre-commit generation: auto-appends `bridgecrewio/checkov` hook if `pre-commit` is installed; `checkov_diff` and `checkov_secrets` variants documented
+  - Output formats: cli, json, sarif, junitxml, all; SARIF upload to GitHub Security tab via `gh` CLI; severity/API-key warning (`--check HIGH` requires `--bc-api-key`)
+  - `--bot` PR comment mode with `<!-- checkov-results -->` marker and `BLOCKED / NEEDS_FIX / CLEAN / ERROR` result
+  - Baseline mode: `--create-baseline` for brownfield repos; HIGH/CRITICAL count shown before suppression
+  - Fix mode: AI-generated HCL patches with suggest or auto-apply; inline `#checkov:skip` syntax shown per finding; post-fix validation (fmt → validate → re-scan)
+  - Scaffold mode: `.checkov.yaml` config for SOC 2, CIS Benchmarks, PCI DSS, HIPAA compliance profiles (4 provider variants each); `custom-checks/` Python scaffold
+  - Secrets mode: `--framework secrets --enable-secret-scan-all-files` for whole-repo secrets scanning
+  - Audit mode: `--scan-secrets-history` one-time git history scan for leaked credentials
+  - Multi-framework mode: combined Terraform + GitHub Actions + Dockerfile + Helm/Kubernetes scan; `--skip-framework` for large repos
+  - Common mistakes table: 12 entries including `--check HIGH` without API key, `--use-enforcement-rules` without Prisma Cloud, `--scan-secrets-history` in pre-commit
+- `references/checkov.md` — deep reference with all mode logic, secrets scanning, multi-framework, compliance profiles
+- `examples/compliance/.pre-commit-checkov.yaml` — pre-commit hook template with `checkov`, `checkov_diff`, and `checkov_secrets` variants
+- `examples/compliance/checkov-terraform-plan.sh` — production-ready plan scan script with cloud auth preflight and guaranteed cleanup via trap
+- `examples/compliance/custom-checks/` — Python custom check scaffold with `CKV_<ORG>_<N>` naming convention
+- Cross-references added to `/terraform` and `/compliance` commands
+
+## [1.32.0] - 2026-06-09
+
+### Added
+
+- `setup-agents` command hardened with production-ready asset templates and CI coverage:
+  - `assets/verify-agents.sh` — canonical manifest-driven verify script; copy verbatim to target repos (no inline regeneration)
+  - `assets/render.sh` — `__TOKEN__` substitution engine for all template assets
+  - `assets/AGENTS.md.template` — canonical AGENTS.md structure with metadata block
+  - `assets/copilot-setup-steps.template.yml` — Copilot App setup steps template covering Terraform, AWS, Node, Python, Java/Kotlin/Spring Boot (conditional blocks)
+  - `assets/windsurfrules.template` — Windsurf rules template
+  - `assets/frontmatter/` — per-tool frontmatter templates (copilot-vscode, copilot-cloud, cursor, codex, claude-section)
+  - `assets/mcp/` — MCP wiring templates for VS Code and Claude Code
+  - `assets/agents/navigator.template.md` — navigator agent body template
+- `references/setup-agents-build.md` — unified generate/upgrade reference (replaces generate.md); includes widened language scan (9 runtimes: Go, Rust, Python, Node, Java, Kotlin/Spring Boot, Ruby, .NET, PHP), sed-based metadata read, manifest-driven coordinator discovery for all 5 tool targets, and asset-template render steps
+- Spring Boot and Kotlin detection added to the ranked language scan (`build.gradle.kts`, `settings.gradle.kts`, `pom.xml` with `spring-boot-starter`)
+- `tests/validate-skill.sh` — added 6 setup-agents reference files to `REQUIRED_REFERENCES`
+- `tests/handbook-consistency.sh` — added 5 asset files to `REQUIRED_PATHS`
+- Both SKILL.md files updated with setup-agents reference table entries
+
+### Fixed
+
+- `setup-agents-generate.md` replaced with a redirect shim to `setup-agents-build.md` — eliminates stale duplicate content
+- Upgrade mode coordinator discovery now covers all 5 tool targets with fallbacks to `agents/openai.yaml` and `CLAUDE.md` (previously could silently produce empty COORD on Codex-only repos)
+- Upgrade mode now reads `.platform-skills/manifest` for tool targets instead of scanning all possible paths
+- `setup-agents-template.md` is now a pointer to `assets/AGENTS.md.template` with render invocation — eliminates inline verbatim reproduction drift
+- `copilot-setup-steps.yml` schema section in `setup-agents-schemas.md` now points to asset template instead of inline YAML
+- `.platform-skills/` commit guidance added to `setup-agents.md` — manifest must be committed or CI silently skips all tool-target checks
+
+## [1.31.0] - 2026-06-07
+
+### Added
+
+- Command workflow count increases to 33 commands.
+- `/platform-skills:setup-agents` — scaffold a multi-agent AI setup for any repo:
+  - Interview-driven: ranked scan (stop-early) + "last change shipped" opening question; one answer replaces a 5-question form
+  - Generates agents for GitHub Copilot (`.github/agents/`), Claude Code (`CLAUDE.md`), Cursor (`.cursor/rules/`), Codex (`agents/openai.yaml`), and Windsurf (`.windsurfrules`) — any combination
+  - Navigator agent offered for every repo — the agent used every day, not just for tasks
+  - AGENTS.md as tool-neutral source of truth, including `## How to invoke agents` (@mentions, Copilot App, Claude Code, Cursor)
+  - Model selection step: fetches live pricing from provider docs at generate time; suggests a model tier per role (opus for infra/high-blast-radius, sonnet for coordinator/app, haiku for test-writer/navigator); `model:` written only to tools that support it in frontmatter (Copilot `.agent.md`, Codex YAML)
+  - Metadata block in AGENTS.md encodes interview answers and model choices; upgrade reads it — no cold start
+  - Minimum viability check: won't generate shallow agents if insufficient signal
+  - Monorepo support: asks about team ownership boundaries when multi-service detected
+  - Active staleness guard: verifies file paths (`test -f`) and directory references (`test -d`) before writing; CI-safe `scripts/verify-agents.sh` exits non-zero on missing references
+  - Tool migration detection in upgrade mode (abandoned agent files when AI tool no longer present)
+  - Per-item approval in upgrade mode: `y / n / apply-all / skip-all`
+  - Review mode: 6-dimension rubric (ownership, knowledge specificity, boundaries, autonomy, handoff, staleness); output options — commit to repo, GitHub PR comment, or chat only
+  - `commands/setup-agents.md` is ≤60 lines; all mode steps in lazy-loaded reference files
+
+### Fixed
+
+- Copilot agent files now generated at `.github/agents/` (not `.github/copilot/`) — the correct discovery path for VS Code and Copilot App
+- Copilot `.agent.md` frontmatter: removed invalid `target: all`; valid values are `vscode`, `github-copilot`, or omitted (both); `mcp-servers` block now only emitted for `target: github-copilot` profiles — VS Code agents use `.vscode/settings.json` for MCP
+- Copilot tool aliases corrected: `read`, `execute`, `edit`, `search`, `web` (not `read_file`, `run_terminal_command`, `create_file`, `edit_file`)
+- `mcp-servers` schema corrected to YAML object keyed by server name (not an array)
+- Staleness checker in `verify-agents.sh` and review mode now checks directory references with `test -d` in addition to file references with `test -f`
+
+## [1.30.0] - 2026-06-06
+
+### Changed
+
+- **Token efficiency across 21 commands** — removed 30+ redundant per-mode `Reference:` citations (datadog 8×, awesome-docs 6×, chaos 5×, runtime-security 5×, keda 4×); consolidated to one lazy citation in `debug`/`explain` mode per file. Collapsed identical 8-line "Log learnings" closing blocks in `chaos`, `dora`, `runtime-security`, `supply-chain` to a single delegation line. Scoped `conftest parse` output in `opa debug` to policy-referenced paths only via a `grep` + `jq` pipeline. Added conditional gate on `self-improve` Proactive Agent Protocols section (loads only after `init`).
+
+- **Safety gaps filled** — added `**Rollback:**` blocks to `karpenter` (generate/debug/migrate modes), `keda` (scale mode), and `runtime-security` (harden mode). Added warning that Kyverno blocks new admissions only — existing flagged pods must be manually drained. Added hard block in `renovate` preventing Terraform module automerge with a copy-paste override rule. Added safe-vs-unsafe input injection example in `composite-actions` covering `inputs.*`, `github.event.*`, and `steps.*.outputs.*`.
+
+- **Missing validation steps added** — `linkerd` (check, viz edges tls assertion, multicluster gateways); `linux` (dns: dig, disk: df/lsblk, network: ss/ip route/ping, process: ps/limits/systemctl); `dora` (Pushgateway receipt + Prometheus scrape confirmation); `mcp` (MCP Inspector smoke-test); `opa` (pass/fail conftest for generate, zero-skipped assertion for test); `helmcheck` (helm dry-run + kubeconform gate); `terraform` (plan on test workspace, stateful replacement gate).
+
+- **Correctness and version guards** — `karpenter`: replaced static chart version pin with `helm search repo` version check command. `fluxcd`: added bootstrap vs Flux Operator version guard with CRD detection. `terraform`: added tfsec v1.0+ flag change guard with `trivy config` fallback. `observability`: added k6 ≥ 1.0.0 version guard. `karpenter`: cluster-name wizard prompt before discovery tag.
+
+- **UX improvements** — `pr-review`: added interactive mode wizard (1–7 selector). `helmcheck`: added wizard Q3 (container image) and Q4 (namespace). `triage`: file-scoped diff via `gh api .../files | jq select(.filename)`, HEAD verification before classification, consistent thread resolution across all classification types.
+
+### Contributors
+
+- [@geetika-sv](https://github.com/geetika-sv) — token efficiency audit and triage/OPA improvements (issues #91, #92)
+
+## [1.29.0] - 2026-05-30
+
+### Added
+
+- `commands/karpenter.md`: new `/platform-skills:karpenter` command with seven modes — `generate` (EC2NodeClass + NodePool from workload requirements, with environment wizard asking EKS version, identity method, Spot tolerance, private cluster, and GitOps method), `debug` (evidence-first diagnosis of pending pods and stuck NodeClaims via decision tree), `review` (correctness / cost / reliability / security / GitOps safety priority-ordered review), `audit` (reconstruct scale-out/scale-in timeline from NodeClaim events, disruption-reason annotations, and controller logs — with CloudTrail fallback when kubectl events have aged out), `plan` (predict which NodePool would be selected, likely instance type and AZ, limits headroom, and cost estimate before deploying a workload), `migrate` (CA → Karpenter pre-migration checklist + cordon/drain sequence with blast radius), and `upgrade` (patch/minor + breaking v0.x → v1.x CRD migration with field-mapping table).
+- `references/karpenter.md`: comprehensive EKS admin reference — architecture, OCI Helm install, interruption queue setup, minimum controller IAM policy, Pod Identity vs IRSA comparison, EC2NodeClass (AMI families, AMI rotation, IMDSv2, EBS encryption), NodePool design (requirements, `minValues`, `limits`, `weight`, `expireAfter`, `startupTaints`), cost strategy (Spot diversity, Graviton, consolidation, node expiry), disruption strategy (disruption types, budgets, PDBs, `do-not-disrupt`, Spot interruption handling), security (tag protection, IMDSv2, EBS, node IAM role scope), private cluster VPC endpoints, Karpenter + KEDA interaction, CA migration risks, troubleshooting decision tree, GitOps Flux ordering, Prometheus metrics, alerting, version compatibility, and upgrade checklist.
+- `examples/karpenter/nodepool-default-al2023.yaml`: general-purpose NodePool with AL2023, mixed Spot/On-Demand, Graviton, multi-AZ, `minValues: 3`, business-hours disruption budget, and encrypted EBS with IMDSv2.
+- `examples/karpenter/nodepool-spot-flex.yaml`: Spot-optimised NodePool with 14 instance families, `minValues: 5`, `WhenEmpty` consolidation, and a workload-isolation taint for batch workloads.
+- `examples/karpenter/nodepool-critical-ondemand.yaml`: On-Demand NodePool with pinned AMI, conservative disruption budget, zero business-hours disruption, and companion PodDisruptionBudget example.
+- `examples/karpenter/nodepool-gpu.yaml`: GPU NodePool using Bottlerocket AMI, g4dn/g5/p3 instance families, `nvidia.com/gpu` taint, no disruption, and larger EBS data volume for model weights.
+- `examples/karpenter/karpenter-validate.sh`: validation script with offline field checks (v1.x API version, `limits`, `disruption`, IMDSv2, EBS encryption, `minValues`) and online `kubectl dry-run=server` + live NodePool/NodeClaim health checks. Also prints IAM and SQS reachability test commands.
+- `SKILL.md`: `Karpenter` row in tool table; `references/karpenter.md` row in reference file table; `/platform-skills:karpenter` slash command entry; Karpenter added to skill description.
+- `COMMANDS.md`: TOC entry and full `/platform-skills:karpenter` command section with mode table, example invocations, output format per mode, and enforced principles.
+
+## [1.28.0] - 2026-05-30
+
+### Added
+
+- Codex skill support: added `agents/openai.yaml` so Codex can display and invoke `platform-skills` with a default `$platform-skills` prompt.
+- Cursor support refresh: updated `.cursorrules` and `.cursor/rules/*.mdc` to the current release and documented project/global Cursor installation.
+- Adoption polish: added `install.sh`, a README install matrix, and copy-ready prompts for platform, DevOps, cloud, and SRE teams evaluating the skill.
+- Copilot instructions refresh: documented the installer path, added Copilot-specific response behavior, and validated referenced handbook files.
+- Community growth assets: added `PROMPTS.md` plus issue templates for agent/editor support, domain guide requests, and example contributions.
+- Codex and Cursor installation paths in README, Quick Start, Installation, Getting Started, How It Works, and Editor Integrations docs. The supported Codex install model is to clone the repository as `${CODEX_HOME:-$HOME/.codex}/skills/platform-skills` so `SKILL.md`, `references/`, `examples/`, and `agents/openai.yaml` stay together.
+- Release validation now checks Codex skill metadata and Cursor rule files in addition to Claude plugin structure.
+
+## [1.27.0] - 2026-05-28
+
+### Added
+
+- `commands/renovate.md`: new `/platform-skills:renovate` command with four modes — `generate` (scan repo for dep file types, emit renovate.json covering only detected ecosystems with per-manager automerge/schedule/grouping rules and `minimumReleaseAge: "3 days"`), `workflow` (emit `.github/workflows/validate-renovate.yml` for schema + config-validator + coverage validation on PRs that touch renovate.json), `precommit` (interactive semver/automerge wizard and best-practices adviser), and `all` (run all modes in sequence).
+- `references/renovate.md`: 11-section reference — manager catalog, preset reference, package rules patterns, dependency dashboard, GitOps integration (Renovate vs Flux Image Reflector ownership boundary), security hardening (pinDigests, osvVulnerabilityAlerts, minimumReleaseAge), regex manager templates, troubleshooting, private registries, custom regex managers, pre-commit hook.
+- `.github/workflows/validate-renovate.yml`: CI workflow triggering on PRs that touch `renovate.json` — three parallel jobs (JSON syntax via jq, config-validator via npx renovate-config-validator, coverage bash scan) with `GITHUB_STEP_SUMMARY` result table. No secrets required.
+- `renovate.json`: added `dependencyDashboard`, `osvVulnerabilityAlerts`, `minimumReleaseAge: "3 days"` on automerge rules, packageRules for `gomod`/`npm`/`pip`, `npmDedupe` postUpdateOption.
+- `SKILL.md`: `Renovate` row in tool table; `/platform-skills:renovate` slash command entry.
+- `COMMANDS.md`: TOC entry and full `/platform-skills:renovate` command section (31 commands total).
+
+### Contributors
+
+- [@geetika-sv](https://github.com/geetika-sv) — Renovate skill
+
+## [1.26.0] - 2026-05-26
+
+### Added
+
+- `commands/aws-profile.md`: new `/platform-skills:aws-profile` command with five modes — `discover` (profile table with TTL traffic-light), `status` (per-server credential health), `switch` (prod-gated profile patching across VS Code + Claude Code), `login` (type-aware auth command), `org-scan` (AWS Org account coverage).
+- `references/aws-mcp-profiles.md`: 15-section reference covering AWS MCP server catalog, context budget table, profile type detection, auth flows, credential lifecycle, `credential_process` pattern, config file locations, VS Code input variables, team sharing, multi-account EKS, health check checklist, and prod safety.
+- `commands/mcp.md`: new `configure-aws` mode with upfront cost/token warning, CLI-first alternative check, `credential_process` validation, version-pinned config generation for VS Code and Claude Code, `--multi-account` EKS named instances, and AWS MCP server catalog with 5 starter kits.
+- `examples/mcp/aws-multiprofile/`: 13 example files — VS Code global/workspace/input/template configs, Claude Code snippet, `aws-config-credential-process.ini`, `.gitignore.snippet`, and 5 starter-kit JSON files (eks-debug, observe, knowledge, deploy, cost) with real PyPI version pins.
+- `SKILL.md`: `AWS MCP Profiles` row in tool table; `/platform-skills:aws-profile` slash command entry.
+- `COMMANDS.md`: TOC entry and full `/platform-skills:aws-profile` command section (30 commands total).
+- `references/mcp.md`: AWS Multi-Account Profiles pointer section.
+- Tessl evaluation scenarios (`evals/`) for quality testing: `pr-triage`, `opa-policy`, `flux-helmrelease`. Each scenario includes `task.md`, `criteria.json`, and `capability.txt`.
+
+### Contributors
+
+- [@geetika-sv](https://github.com/geetika-sv) — AWS MCP profile management feature
+
+## [1.25.20] - 2026-05-24
+
+### Added
+
+- Tessl evaluation scenarios (`evals/`) for 3 skill domains: PR triage, OPA/Rego policy, and Flux CD HelmRelease diagnosis.
+- Tessl manual publish workflow with version input (`workflow_dispatch`).
+
+### Fixed
+
+- FluxCD HelmRelease ownership conflict: corrected remediation guidance to identify owning release via `meta.helm.sh` annotations; evidence commands use `helm list -A` for cross-namespace owner lookup.
+- OPA `references/opa.md`: added Terraform CI Pipeline Placement section.
+- Triage `commands/triage.md`: strengthened reply format with concrete example.
+- CI pipeline stabilisation: eval 500 handled with `continue-on-error`; publish now uses `--skip-evals` with separate eval step.
+
+## [1.26.14] - 2026-05-24
+
+### Fixed
+
+- CI: removed `--skip-evals` from publish step so eval results link to the registry version and appear on the Evals tab.
+
+## [1.26.13] - 2026-05-24
+
+### Fixed
+
+- Eval scores: 100% with-context average across all 3 scenarios (PR triage, OPA policy, HelmRelease).
+- OPA `ci_placement` criteria updated to check for runnable `conftest test` command presence.
+- FluxCD debug mode: error-pattern routing table prevents HelmRelease errors from being routed through installation check workflow.
+- HelmRelease ownership conflict (`rendered manifests contain a resource that already exists`) added to troubleshooting reference with evidence commands and fix.
+- Triage reply format: concrete example and literal `✅ Fixed` ending requirement added to `commands/triage.md`.
+
+## [1.25.4] - 2026-05-24
+
+### Changed
+
+- `SKILL.md` description updated to "as a system" framing — signals cross-cutting platform scope to reduce Tessl Distinctiveness conflict risk with single-technology skills.
+
+## [1.25.3] - 2026-05-24
+
+### Changed
+
+- `SKILL.md` description rewritten to lead with actions (troubleshoot, implement, review, audit) and explicit "Use when" trigger for improved Tessl Completeness score.
+
+## [1.25.2] - 2026-05-24
+
+### Fixed
+
+- `SKILL.md` frontmatter `description` value quoted to fix YAML parse error (unquoted colon in value caused `mapping values are not allowed` error).
+
+## [1.25.1] - 2026-05-24
+
+### Fixed
+
+- `SKILL.md` frontmatter `description` trimmed from 1,357 → 580 characters to pass marketplace 1-1024 character validation.
+- `plugin.json` `description` trimmed from 1,254 → 717 characters (same limit).
+
+## [1.25.0] - 2026-05-24
+
+### Added
+
+#### FluxCD reference suite — 8 new deep-dive references + Datadog/Dynatrace integration
+
+- `references/fluxcd-sources.md` — authoritative source CRD reference: GitRepository (auth options, sparse checkout, SSH note), OCIRepository (Cosign/Notation keyless verification, cloud OIDC, layerSelector), HelmRepository, HelmChart, Bucket, ExternalArtifact, ArtifactGenerator (monorepo decomposition + Helm chart composition, copy strategies: Overwrite/Merge/Extract). Source selection decision matrix for all 7 source kinds.
+- `references/fluxcd-resourcesets.md` — complete ResourceSet and ResourceSetInputProvider reference: template syntax (`<< >>` delimiters, slim-sprig functions), input strategies (Flatten/Permute with name normalization rules), all 8 provider types (Static, OCIArtifactTag, ECRArtifactTag, GitHubTag, GitHubPullRequest, GitLabTag, AzureContainerTag, ExternalService), CEL-based dependency readiness expressions, conditional resource inclusion, `copyFrom` annotation, built-in input fields, deduplication, gitless multi-tenant fleet pattern, preview environments per PR, gitless image automation with `limit: 1` warning.
+- `references/fluxcd-notifications.md` — notification-controller reference: Provider (all 4 categories: messaging, alerting/monitoring, event streaming, Git commit status; key spec fields), Alert (severity levels, inclusion/exclusion regex filtering, eventSources with wildcard/cross-namespace/matchLabels, eventMetadata), Receiver (HMAC webhook, CEL resourceFilter, webhookPath from status), common patterns: Slack error alerting, GitHub commit status on PRs, Datadog event forwarding, immediate Git sync on push.
+- `references/fluxcd-operator.md` — Flux Operator deep dive: FluxInstance rules (one per cluster, named `flux`), cluster sizing table (small/medium/large: concurrency and memory), multi-tenancy (SA impersonation, cross-namespace restrictions), sync modes (OCI gitless vs Git), kustomize patches for controller Deployments, optional components (image-reflector, image-automation, source-watcher), FluxReport (5-minute auto-update, reporting interval annotation), runtime ConfigMap (`flux-runtime-info`) with SSA `Merge` for Terraform co-ownership, reconciliation trigger annotation, migration path from `flux bootstrap`.
+- `references/fluxcd-kustomization.md` — Kustomization advanced reference: core fields with descriptions, CEL-based dependency `readyExpr`, postBuild `substituteFrom` with correct Kustomization scoping rule, SOPS decryption (age key + Cloud KMS workload identity), CEL health check expressions, remote cluster deployment (secret-based and secretless workload identity), SSA apply behaviour annotations (Override/Merge/IfNotPresent/Ignore/force/prune-Disabled), status inventory format, reconciliation triggers, common mistakes table.
+- `references/fluxcd-helmrelease.md` — HelmRelease deep dive: `spec.chartRef` vs `spec.chart.spec` mutual exclusivity, values merging order, install/upgrade `RetryOnFailure` strategy (legacy vs modern fields), drift detection modes (disabled/warn/enabled) with ignore rules for HPA-managed fields, CRD lifecycle table (Create/Skip/CreateReplace), dependencies, CEL health check expressions, post-renderers (Kustomize patches applied after Helm render, sequential pipeline), remote cluster deployment, status tracking with history, common mistakes table.
+- `references/fluxcd-terraform.md` — Terraform + Flux Operator bootstrap: ownership model (Terraform = ephemeral Job, Flux = steady state), repository layout, gitops resources (create-once) vs managed resources (every run), runtime info variable substitution, Terraform + Git co-ownership via SSA `Merge`, sync authentication (PAT/GitHub App/OCI), node scheduling at all 3 layers (Job/Operator/controllers), drift and revision counter, shared operator values file, debugging with `debug_on_failure`.
+- `references/fluxcd-mcp.md` — Flux MCP server (`flux-operator-mcp`): Homebrew install, JSON MCP config (absolute path warning, `--read-only` for production), 6 core workflows (cluster inspection, HelmRelease trace, Kustomization trace, ResourceSet trace, multi-cluster comparison, force reconciliation), log analysis steps, applying manifests with `overwrite: true` warning, key guidelines (always call `get_kubernetes_api_versions` first, secrets are masked, avoid modifying Flux-managed resources).
+- `references/datadog.md` — added FluxCD integration section: built-in Agent integration (7.51.0+, minimum 7.49.1), supported controllers (source/kustomize/helm/notification), pod annotation setup via FluxInstance kustomize patch, log collection config, key metrics table (reconcile duration, reconcile condition, workqueue depth/retries, active workers, process CPU/memory, leader election), three recommended monitors (HelmRelease failure, Kustomization failure, workqueue saturation), service check `fluxcd.openmetrics.health`, dashboard guidance.
+- `references/dynatrace.md` — added FluxCD integration section: Method 1 ActiveGate Prometheus scraping (DynaKube config + pod annotation patches via FluxInstance), Method 2 OTel Collector pipeline (scrape config + OTLP exporter to DT endpoint), key metrics under `gotk_` namespace, Dynatrace metric expression for reconciliation failure rate, Davis AI anomaly detection recommendations (gotk_reconcile_condition, workqueue_depth, process_resident_memory_bytes), log ingestion with field extraction, required token scope (`metrics.ingest`).
+
+#### FluxCD troubleshooting reference + cluster-debug improvements
+
+- `references/fluxcd-troubleshooting.md` — scannable incident cheat-sheet derived from fluxcd/agent-skills `gitops-cluster-debug` references. Organised by failure category: controller failures, source failures (GitRepository, OCIRepository, HelmChart/HelmRepository), Kustomization failures, HelmRelease failures, ResourceSet failures. Each entry: symptom → most likely cause → exact fix. Includes label-based ownership tracing section (how to find the managing Kustomization or ResourceSet from resource labels without guessing), and a 10-step general debugging checklist.
+- `commands/gitops.md` (debug mode) — Workflow 2 (HelmRelease trace) and Workflow 3 (Kustomization trace) now include explicit label-tracing steps: read `kustomize.toolkit.fluxcd.io/name` and `resourceset.fluxcd.io/name` labels to identify the managing object. Added reference pointer to `fluxcd-troubleshooting.md` at end of debug workflows.
+
+#### FluxCD audit tooling — upstream scripts, migration guide, security checklist
+
+- `references/fluxcd-migration.md` — Flux API migration guide: v2.7 `v1beta1` removals (all 5 toolkits), v2.8 `v1beta2` removals (4 toolkits), current stable apiVersion table, CLI 3-step upgrade (migrate files → migrate in-cluster → upgrade components), Flux Operator 3-step upgrade (upgrade operator → migrate files → update FluxInstance version), CI gate pattern, common post-migration issues.
+- `references/fluxcd-security.md` — Security audit checklist with grep commands: unencrypted secrets (Secret without `sops:`/`ENC[`), hardcoded credentials (`password:`, `token:`, `ACCESS_KEY=`), insecure sources (`insecure: true`), cloud registries without Workload Identity, cross-namespace source refs, OCIRepository without Cosign, cluster-admin bindings, image automation pushing to main. Automated scan via upstream `validate.sh` and `check-deprecated.sh`.
+- `commands/gitops.md` — merged `gitops-audit` into `gitops` as a subcommand. Command now has two modes: `debug` (five structured Flux debug workflows: installation check, source failures, HelmRelease trace, Kustomization trace, ResourceSet trace — plus Argo CD diagnostics, producing a 5-section report) and `audit` (six-phase read-only repo analysis: discovery via `discover.sh`, manifest validation via `validate.sh`, API compliance via `check-deprecated.sh`, best practices checklist, security grep patterns, Critical/Warning/Info report). `commands/gitops-audit.md` deleted — its content lives in the `audit` subcommand.
+- `references/fluxcd.md` — Repository patterns section expanded: three pattern descriptions (monorepo, multi-repo Git-based, multi-repo OCI-based), identification heuristics table (8 signals), layout rules (flux-system placement, no overlapping paths, no workloads in default namespace).
+
+#### FluxCD Skills Enhancement (Domain 29 — GitOps Audit)
+
+- `references/fluxcd.md` — major expansion from 194 → 430+ lines. New sections: full CRD reference table (18 CRDs with apiVersion and controller), source selection decision matrix, Flux Operator and FluxInstance (installation, upgrade lifecycle, FluxReport health, gitless OCI sync YAML, one-per-cluster rule), ResourceSet and ResourceSetInputProvider (N-input templating, `<< inputs.field >>` delimiters, OCIArtifactTag input provider for gitless image automation), gitless OCI delivery model (why to prefer it for Flux Operator deployments, CI push commands, OCIRepository source YAML, HelmRelease from OCI with `layerSelector`), `reconcile.fluxcd.io/watch: Enabled` label (what it does, when to use on `valuesFrom`/`substituteFrom` ConfigMaps), common mistakes table (5 entries: template delimiters, mutually exclusive chart fields, multiple FluxInstances, remediation strategy, OCIRepository layerSelector). Image automation section extended with gitless model (OCIArtifactTag + ResourceSet) alongside existing Git-based model, with comparison table (Git credentials, audit trail, PR approval, recommended for).
+- `commands/gitops.md` — major upgrade from 65 → 200+ lines. Replaced flat evidence-collection approach with 5 structured debug workflows: (1) Installation Check — FluxInstance status, FluxReport health, crashlooping controller logs; (2) HelmRelease trace — spec/status → managing object → `valuesFrom` references → chart source → inventory → pod logs; (3) Kustomization trace — spec/status → parent object → `substituteFrom` → source → managed resources; (4) ResourceSet trace — status → `inputsFrom` providers → `dependsOn` → generated resources; (5) Log analysis — Deployment → matchLabels → pods → logs. Added structured 5-section report format (Summary, Resource Analysis, Dependency Chain, Root Cause, Recommendations). Added edge cases: `spec.suspend: true`, `Ready: Unknown`, Flux-managed resource revert warning, stale status backpressure. Argo CD content retained.
+- `examples/fluxcd/multi-tenant/` — multi-tenant repo pattern: `clusters/production/tenants.yaml`, `tenants/team-a/` (namespace, ServiceAccount in flux-system, RoleBinding to tenant-reconciler ClusterRole, GitRepository, Kustomization with `serviceAccountName` and `targetNamespace` for RBAC isolation), `platform/rbac/tenant-role.yaml` (ClusterRole scoped to workload resources), `platform/network-policy/default-deny.yaml` (default-deny-all + allow-same-namespace + DNS egress per tenant namespace). README includes bootstrap instructions, troubleshooting, and RBAC can-i verification.
+- `examples/fluxcd/helm-releases/` — Helm chart management via OCI: `releases/base/cert-manager/ocirepository.yaml` (semver `1.x`, `layerSelector.mediaType`), `releases/base/cert-manager/helmrelease.yaml` (`spec.chartRef`, `RetryOnFailure`, `driftDetection.mode: enabled`, `valuesFrom`), `releases/base/cert-manager/values-configmap.yaml` (`reconcile.fluxcd.io/watch: Enabled`), `releases/staging/kustomization.yaml` (1 replica overlay), `releases/production/kustomization.yaml` (3 replicas, PDB, anti-affinity). README covers key patterns and common mistakes.
+- `examples/fluxcd/image-automation/` — both image automation models side-by-side: `git-based/imagerepository.yaml`, `git-based/imagepolicy.yaml` (semver range), `git-based/imageupdateautomation.yaml` (staging branch push, not main); `gitless/resourcesetinputprovider.yaml` (OCIArtifactTag, semver filter), `gitless/resourceset.yaml` (`<< inputs.tag >>` substitution). README includes comparison table, setup steps for both models, safety rules, and troubleshooting.
+- `examples/fluxcd/flux-operator/` — Flux Operator bootstrap: `fluxinstance.yaml` (gitless OCI sync, `networkPolicy: true`, all 6 components, reconcile annotations), `ocirepository.yaml` (Cosign verify), `verify-policy.yaml` (keyless Cosign with OIDC issuer + subject matching for GitHub Actions). README covers Flux Operator vs `flux bootstrap` comparison table, install steps, push-and-sign CI commands, health checks, and migration from `flux bootstrap`.
+- `examples/fluxcd/README.md` — updated from "planned patterns" stubs to full 5-example index table with pattern descriptions, choose-the-right-pattern guide, and shared best practices matrix.
+
+#### FluxCD command router + examples rename
+
+- `commands/fluxcd.md` — new `/platform-skills:fluxcd` slash command. Smart entry point that identifies the right workflow from input: error/logs/symptom → `/platform-skills:gitops debug` (5-workflow debug); repo path/audit intent → `/platform-skills:gitops audit` (6-phase audit); helm chart path → `/platform-skills:helmcheck`; manifest YAML → `/platform-skills:review`. Includes quick reference apiVersion table for all 18 FluxCD CRDs and links to all 11 `fluxcd-*.md` reference files.
+- `examples/flux/` → renamed to `examples/fluxcd/` — consistent naming with `references/fluxcd.md`, `commands/fluxcd.md`, and `examples/argocd/`. All 5 subdirectories preserved: `basic-monorepo/`, `multi-tenant/`, `helm-releases/`, `image-automation/`, `flux-operator/`.
+
+### Changed
+
+- `references/flux.md` → renamed to `references/fluxcd.md` — consistent naming with `argocd.md`, `datadog.md`, `kyverno.md`; all references updated across SKILL.md, HOW_IT_WORKS.md, GETTING_STARTED.md, README.md, COMMANDS.md, CONTRIBUTING.md, tests/*.sh, examples/fluxcd/README.md.
+- `SKILL.md` — Domain 29 updated to `GitOps` (debug + audit subcommands); updated Flux/FluxCD reference descriptions; added 8 new FluxCD reference pointers; added `/platform-skills:fluxcd` slash command; removed `/platform-skills:gitops-audit`; updated `examples/fluxcd/` path.
+- `skills/platform-skills/SKILL.md` — synced with root SKILL.md.
+- `COMMANDS.md` — added `/platform-skills:fluxcd` to command index table; updated `gitops` section to document `debug` and `audit` subcommands; removed `gitops-audit` section.
+- `HOW_IT_WORKS.md` — updated `gitops` row to `gitops debug` / `gitops audit`; removed `gitops-audit`; added `fluxcd` row.
+- `GETTING_STARTED.md` — updated `gitops` row to show `debug`/`audit` subcommands; replaced `gitops-audit` row with `fluxcd` entry; expanded FluxCD reference table with all 9 new fluxcd-*.md entries.
+- `INSTALLATION.md` — version string updated to `v1.25.0`.
+- `.claude-plugin/plugin.json` — version bumped to `1.25.0`; `./commands/fluxcd.md` added; `./commands/gitops-audit.md` removed (merged into `gitops`).
+- `.claude-plugin/marketplace.json` — version bumped to `1.25.0`; description rewritten to 628 chars (was 1,784 chars over the 1,024 limit); added `gitops-audit`, `flux-operator`, `fluxinstance`, `resourceset`, `gitless-delivery`, `oci-gitops` keywords.
+
+## [1.24.0] - 2026-05-24
+
+### Added
+
+#### Composite GitHub Actions (Domain 28)
+
+- `references/composite-actions.md` — comprehensive reference covering: decision matrix (composite vs JavaScript vs Docker action), `action.yml` anatomy, variables and secrets (full mechanism table: `${{ inputs.* }}`, `env:`, `$GITHUB_ENV`, `$GITHUB_OUTPUT`, `$GITHUB_PATH`, `$GITHUB_STEP_SUMMARY`, `::add-mask::` — with end-to-end secrets flow diagram), inputs and outputs (type annotations, boolean string comparison, multi-step `$GITHUB_OUTPUT` chaining), nine security requirements (SHA pinning, `shell:` on every run step, secrets as inputs, env isolation from shell injection, masking, `${{ github.action_path }}`, minimum token permissions), observability (`$GITHUB_STEP_SUMMARY` job summary, `::group::`/`::endgroup::` log grouping, `::error::`/`::warning::`/`::notice::` inline annotations, `RUNNER_DEBUG` debug mode), fail-fast input validation pattern (enum + regex + required check with `::error::` annotations), step control flow (IDs, conditionals, `continue-on-error`, `$GITHUB_ENV` sharing), file references and scripts, multi-OS patterns (`${{ runner.os }}`, `pwsh` vs `bash`), idempotency guidance (skip-if-exists, upsert, kubectl apply patterns), timeout and concurrency (step-level `timeout-minutes`, caller `concurrency:` recommendation), testing (local path test workflow, matrix strategy, `act` commands, `actionlint` verification), breaking changes (deprecation warnings, dual-input support, CHANGELOG migration notes), versioning and release (semver + floating major tag, release workflow with `actionlint` gate), `dependabot.yml` configuration for `github-actions` ecosystem, anti-patterns table (15 entries), and production checklist (security, correctness, observability, testing, documentation, release)
+- `commands/composite-actions.md` — slash command `/platform-skills:composite-actions` with four modes:
+  - `generate`: 9-question interview (purpose, repo destination, pinning strategy, inputs with secret flag, outputs, cloud credentials, notifications, job summary, confirm) → full scaffold: `action.yml` + `README.md` + `CHANGELOG.md` + `.gitignore` + `.github/dependabot.yml` + `.github/workflows/test-action.yml` + `.github/workflows/release.yml`; if existing repo: branches as `feat/add-<name>-composite-action`, commits all files, opens PR via `gh pr create` with inputs/outputs/secrets summary and test plan checklist; post-generation tip to run `/platform-skills:awesome-docs generate`
+  - `review`: audit existing `action.yml` — CRITICAL (unpinned tags, missing `shell:`, injection, direct secrets access) / WARNING (no validation, unmasked secrets, relative paths, no summary, no timeout) / INFORMATIONAL (branding, descriptions, dependabot, test workflow) — scored N/20
+  - `secure`: fix in place — resolve tags to SHAs via `gh api`, add `shell: bash`, move `inputs.*` to `env:` blocks, add `::add-mask::`, inject validation step, inject job summary step
+  - `test`: generate test workflow with local path reference and matrix, plus `act` commands for all key input variants
+- Eleven production-ready examples under `examples/github-actions/composite-actions/`:
+  - `docker-build-push/` — full repo structure: `action.yml` (multi-platform Buildx, GHCR via ephemeral `GITHUB_TOKEN`, GHA layer cache, SLSA provenance + SBOM attestations, input validation, `::group::` phases, `$GITHUB_STEP_SUMMARY`), `README.md` (architecture diagram, variables & secrets flow, build-args secret guidance), `CHANGELOG.md`, `.github/workflows/test-action.yml` (4 test jobs: defaults, multi-platform, validation failure assertion, custom Dockerfile), `.github/workflows/release.yml` (actionlint gate + SHA pinning check + floating major tag), `.github/dependabot.yml`, `.actionlint.yaml`
+  - `notify-slack/` — full repo structure: `action.yml` (webhook URL masked immediately with `::add-mask::`, payload built via `printf` to avoid quoting issues, channel override, `@mention` on failure, `status_emoji` + `http_status` outputs, 1-minute timeout on curl), `README.md` (secrets flow diagram, logged vs masked table, Slack webhook setup guide), `CHANGELOG.md`, `.github/workflows/test-action.yml` (3 test jobs: invalid webhook validation, invalid status validation, status/emoji matrix), `.github/workflows/release.yml`, `.github/dependabot.yml`, `.actionlint.yaml`
+  - `k8s-deploy/` — `action.yml` (base64 kubeconfig decoded to chmod-600 temp file, `::add-mask::` on decoded content, kubectl apply with `--dry-run=server` support, `rollout status` with configurable timeout, `kubectl events` on failure, cleanup post-step runs `if: always()`), `README.md` (kubeconfig secret flow, logged vs masked table, minimum RBAC snippet, base64 encoding commands, service account setup), `.github/workflows/test-action.yml`, `.github/workflows/release.yml`, `.github/dependabot.yml`, `.actionlint.yaml`
+  - `terraform-plan/` — `action.yml` (AWS + Azure OIDC dual-cloud support, Terraform provider cache, fmt → validate → plan pipeline with `-detailed-exitcode`, idempotent PR comment upsert via hidden marker `<!-- terraform-plan:<dir> -->` using `github-script`, plan truncated to 65,000 chars), `README.md` (OIDC auth flow, logged vs masked table, `has_changes` output usage), `.github/workflows/test-action.yml`, `.github/workflows/release.yml`, `.github/dependabot.yml`, `.actionlint.yaml`
+  - `security-scan/` — `action.yml` (Trivy image/fs/repo scan, severity enum validation, `registry_password` masked, `::error::` annotations for CRITICAL findings, `::warning::` for HIGH, SARIF output support, `fail_on_findings` gate), `README.md` (build → scan → deploy pipeline example, no-credentials pattern for GHCR), `.github/workflows/test-action.yml`, `.github/workflows/release.yml`, `.github/dependabot.yml`, `.actionlint.yaml`
+  - `release-tag/` — `action.yml` (conventional commit auto-detection: `feat!`/`BREAKING CHANGE` → major, `feat` → minor, `fix`/`perf`/etc → patch; `$GITHUB_OUTPUT` chaining across 4 steps: bump → git_tag → changelog → create_release; floating major tag update; draft + prerelease support; `is_new_release=false` skip path), `README.md` (output chaining diagram, secrets flow, idempotency note, combined release + notify example), `.github/workflows/test-action.yml`, `.github/workflows/release.yml`, `.github/dependabot.yml`, `.actionlint.yaml`
+  - `pr-comment/` — `action.yml` (idempotent upsert via hidden HTML marker, `listComments` pagination, collapsible `<details>` wrapper, `delete_on_close` for PR closed event, `update_existing` toggle, `github-script` with explicit token, `comment_id`/`comment_url`/`action_taken` outputs), `README.md` (unique marker pattern for multiple instances, delete-on-close example, token scoping), `.github/workflows/test-action.yml`, `.github/workflows/release.yml`, `.github/dependabot.yml`, `.actionlint.yaml`
+  - `setup-env/` — tutorial-baseline multi-runtime action: `action.yml` (Node.js/Python/Go runtime choice, per-runtime version defaults, dependency cache restore: `~/.npm`/`~/.cache/pip`/`~/go/pkg/mod`, optional `install_dependencies` flag, `runtime_version` + `cache_hit` outputs, input validation, `$GITHUB_STEP_SUMMARY`), `README.md` (runtime matrix usage example), `CHANGELOG.md`, `.github/workflows/test-action.yml` (4 test jobs: invalid runtime assertion, matrix across all runtimes/versions, default versions, cache disabled), `.github/workflows/release.yml`, `.github/dependabot.yml`, `.actionlint.yaml`
+  - `configure-cloud/` — `action.yml` (AWS + Azure + GKE OIDC via `cloud_provider` switch; GKE uses `google-github-actions/auth` WIF + `get-gke-credentials`; full required-input validation per provider; SHA-pinned actions; `aws_account_id` output), `README.md` (per-provider quick-start examples, OIDC trust prerequisites)
+  - `setup-terraform/` — `action.yml` (version install via `hashicorp/setup-terraform`, provider plugin cache at `~/.terraform.d/plugin-cache`, `terraform_wrapper` toggle, working directory support, `terraform_version` output), `README.md` (cache key strategy, workspace pattern)
+  - `db-migrate/` — `action.yml` (Flyway / Liquibase / golang-migrate; `::add-mask::` on `database_url`; `nc` health check with retry loop; advisory lock timeout; dry-run; post-migration verify; job summary), `README.md` (per-tool quick-start, rollback guide, connection URL format)
+- `examples/github-actions/composite-actions/README.md` — index with 11-example quick-reference table, decision guide ("Need to build a container image? → docker-build-push"), shared best-practices matrix (shell on every run step, SHA pinning, secrets-as-inputs, masking, env isolation, input validation, job summary, log groups, annotations, timeout, idempotency, dependabot, release workflow)
+- `commands/composite-actions.md` — extended with two new modes:
+  - `migrate`: scan `.github/workflows/` for repeated step sequences (3+ occurrences), rank by impact (count × step-count), extract to composite action, rewrite callers
+  - `publish`: GitHub Actions Marketplace checklist — prerequisite verification (root placement, unique name, description length, branding), Feather icon/color suggestions per action type, release tag commands, submit walkthrough
+- `references/composite-actions.md` — extended with five new sections:
+  - `$GITHUB_STATE` — passing data from main run to post-step cleanup; pure composite workaround using `$GITHUB_ENV` + `if: always()`
+  - Action composition — calling composite from composite: layered abstractions, secret threading constraints, SHA-pinning requirement for inner actions
+  - Self-hosted runner considerations — tool availability, persistent vs ephemeral state, network restrictions, runner requirement documentation pattern
+  - Ephemeral runner security — risk table (persistent vs ephemeral), GitHub Enterprise policy enforcement, README callout template
+  - Troubleshooting — 9 common errors with exact diagnosis and fix: missing `shell:`, empty `${{ secrets.* }}`, `::add-mask::` not working, `uses: ./` not found, actionlint shellcheck errors, empty step outputs (3 causes), floating tag not updated, boolean comparison always false
+- `references/github-actions.md` — extended with composite actions section: key rules summary, pointer to `references/composite-actions.md`, slash command, and links to all 11 examples
+
+### Contributors
+
+Thanks to [@geetika-sv](https://github.com/geetika-sv) for contributing the composite GitHub Actions skill — 11 production-ready examples, the `/platform-skills:composite-actions` command, and `references/composite-actions.md` in this release.
+
+## [1.23.0] - 2026-05-23
+
+### Changed
+
+#### Self-Improve: explicit `init global` / `init local` subcommands
+
+- `commands/self-improve.md` — `init` mode split into three explicit forms:
+  - `init global` — scaffolds `~/.claude/` directly, no prompt; offers to wire all three hooks and create `~/.claude/CLAUDE.md`; idempotent (reports existing state and stops if already set up)
+  - `init local` — scaffolds `.learnings/` and `memory/` in `$PWD`, no prompt; asks gitignore vs commit; idempotent
+  - `init` (no argument) — asks user to choose, then delegates to `init global` or `init local`
+- `commands/self-improve.md` — `argument-hint` updated to `[init [global|local]|log [LRN|ERR|FEAT]|promote <ID>|migrate [global|local]|status|resume|review|state]`
+- `commands/self-improve.md` — Path Resolution preamble updated to short-circuit on `init global` / `init local` before auto-detection
+- `references/agent-self-improve.md` — Bootstrap section updated with explicit subcommand examples; line 26 updated from bare `init` to `init global` / `init local` examples
+- `examples/agent-self-improve/HOW_IT_WORKS.md` — init section rewritten with both subcommands, idempotency note
+
+#### Self-Improve: new subcommands — `status` and `migrate`
+
+- `commands/self-improve.md` — new `## Mode: status` — read-only health summary: counts across all three log files, working-buffer age, sessions since last review, any WAL entries still PENDING, pending error count, and a prioritised action-item list
+- `commands/self-improve.md` — new `## Mode: migrate` — moves workspace between global and local scope; chooses merge or replace for conflicting entries; writes a WAL entry before moving any files; verifies write to new path and confirms deletion of old path; idempotent if already at target scope
+
+#### Self-Improve: `promote` supports global target
+
+- `commands/self-improve.md` — `promote` mode now includes `~/.claude/CLAUDE.md` as a valid target for rules that should apply across all projects (e.g. "never do X on any repo"); scope determination step added before drafting the promoted line
+- `references/agent-self-improve.md` — Promotion targets table updated with `~/.claude/CLAUDE.md` row
+
+#### Self-Improve: `review` flags stale resolved entries
+
+- `commands/self-improve.md` — `review` mode now reports entries with `Status: resolved` that are older than 30 days and have no `Action` containing "promoted", surfacing them as promotion candidates rather than silently aging out
+
+#### Self-Improve: `resume` warns on stale working buffer
+
+- `commands/self-improve.md` — `resume` mode now reads the `Last updated:` timestamp from `memory/working-buffer.md` before proceeding; warns if buffer is 3+ days old (task may be abandoned); blocks with an explicit confirmation prompt if 7+ days old
+
+#### Self-Improve: SKILL.md description updates
+
+- `SKILL.md` — self-improve reference line updated to mention global/project-local workspace, `init global`/`init local`, `status`/`migrate` subcommands
+- `SKILL.md` — `/platform-skills:self-improve` slash command description updated to reflect full capability set
+- `skills/platform-skills/SKILL.md` — same updates applied (kept in sync with root `SKILL.md`)
+
+#### Self-Improve: global path resolution for cross-project learnings
+
+- `commands/self-improve.md` — added `## Path Resolution` preamble that all modes evaluate before acting: detects global setup (`~/.claude/.learnings/` exists), project setup (`.learnings/` in `$PWD`), or auto-creates global on first use; all path references updated to use `LEARNINGS_BASE`
+- `commands/self-improve.md` — `init` mode now asks **global vs project-local** before creating any directories; step 4 skips `.gitignore` check for global setup; step 5 targets the correct `settings.json` (`~/.claude/` for global, `.claude/` for project) and enforces absolute paths in the PostToolUse hook command
+- `commands/self-improve.md` — `log` confirm message now shows resolved `$LEARNINGS_BASE` path instead of hardcoded `.learnings/`
+- `commands/self-improve.md` — `resume`, `review`, `promote`, `state`, WAL Protocol, Working Buffer, SESSION-STATE, and Daily Notes proactive protocols updated to use `$LEARNINGS_BASE`
+- `references/agent-self-improve.md` — new **Global vs project scope** section under Directory layout: scope comparison table, auto-detection order, promotion-targets-stay-local rule, working PostToolUse hook JSON example with absolute paths
+- `examples/agent-self-improve/HOW_IT_WORKS.md` — updated `init` description to mention global vs project choice; corrected "What This Skill Cannot Do" section which previously stated learnings cannot persist across projects
+- `examples/agent-self-improve/README.md` — updated setup instructions to reflect global scope option and hook wiring steps
+- `examples/agent-self-improve/scripts/session-end.sh` — Stop hook script: drains `.pending-errors.log` into ERR entries on every session close, saves daily notes, auto-logs PENDING WAL as ERR, clears session marker, increments session counter with review reminder every 5 sessions, nudges if no LRN logged today
+- `examples/agent-self-improve/scripts/session-start-reminder.sh` — PreToolUse hook script: marker-based session detection fires once per session; prints memory-load banner with active task and pending error count; silent on all subsequent tool calls
+- `examples/agent-self-improve/global-claude.md` — template for `~/.claude/CLAUDE.md`: temporary path override table, session-start instruction, in-session logging rules (`log LRN/ERR/FEAT at moment of discovery`), `VFM_THRESHOLD=60`, Agent Rules section
+- `examples/agent-self-improve/settings.json.example` — all 3 hooks wired: Stop (`session-end.sh`), PreToolUse (`session-start-reminder.sh`), PostToolUse (inline error capture to `.pending-errors.log`)
+
+#### Self-Improve: cross-platform support (Windows and Linux distributions)
+
+- `examples/agent-self-improve/scripts/session-end.ps1` — PowerShell 5.1+ equivalent of `session-end.sh` for Windows native; same logic (daily notes, error drain, WAL check, session counter, review reminder)
+- `examples/agent-self-improve/scripts/session-start-reminder.ps1` — PowerShell equivalent of `session-start-reminder.sh` for Windows native; marker-based once-per-session banner
+- `examples/agent-self-improve/settings-windows.json.example` — all 3 hooks wired with PowerShell commands for Windows native (`%USERPROFILE%` paths, `powershell -NonInteractive -File ...`)
+- `examples/agent-self-improve/scripts/session-end.sh` — shebang changed from `#!/bin/bash` to `#!/usr/bin/env bash` for portability on Linux distros where bash is not at `/bin/bash`
+- `examples/agent-self-improve/scripts/session-start-reminder.sh` — same shebang fix
+- `examples/agent-self-improve/README.md` — new Platform support table (macOS, Linux, Alpine, WSL, Git Bash, Windows native); Windows recommendation (WSL/Git Bash is simpler); PowerShell copy/setup instructions; execution policy note
+- `commands/self-improve.md` — Path Resolution preamble updated with cross-platform `~` resolution note; `init global` step 5 updated to detect platform and point to correct scripts (`session-end.sh` vs `.ps1`, `settings.json.example` vs `settings-windows.json.example`)
+- `references/agent-self-improve.md` — new **Platform Compatibility** section: global config path table per OS, hook script selection table, per-platform `settings.json` snippets (bash and PowerShell), Alpine install note, execution policy note; old inline hook JSON examples replaced with a pointer to the new section
+
+#### Self-Improve: path resolution and hook setup fixes
+
+- `commands/self-improve.md` — path resolution steps reordered: explicit `init global`/`init local` now short-circuit (steps 1–2) before auto-detection probes (steps 3–4), matching the changelog claim and preventing an existing `.learnings/` repo from hijacking an explicit `init global` call
+- `references/agent-self-improve.md` — copy command updated to copy both `session-end.sh` and `session-start-reminder.sh`; added `mkdir -p ~/.claude/scripts` to prevent hook wiring failure when the scripts directory doesn't exist yet
+- `examples/agent-self-improve/scripts/session-start-reminder.sh` — added `mkdir -p "$MEMORY_DIR"` before `touch "$SESSION_MARKER"` to prevent banner-on-every-tool-call when `~/.claude/memory` doesn't exist
+
+### Contributors
+
+Thanks to [@geetika-sv](https://github.com/geetika-sv) for contributing the self-improve global workspace, cross-platform support, and `init global`/`init local`/`status`/`migrate` subcommands in this release.
+
+## [1.22.0] - 2026-05-22
+
+### Added
+
+#### AWS CloudFront + WAF + Lambda@Edge (Domains 33–34)
+
+- `references/aws-cloudfront.md` — comprehensive reference covering: distribution anatomy, OAC (Origin Access Control replaces legacy OAI), cache policies, origin request policies, security headers (`aws_cloudfront_response_headers_policy` with HSTS preload + CSP + X-Frame + XSS), WAF integration (CLOUDFRONT scope requires us-east-1 — documented as the most common footgun), Lambda@Edge (all 4 event types with memory/timeout/body-access table), CloudFront Functions vs Lambda@Edge decision matrix (~6× cost difference), standard logging v2 + real-time logging + Athena partitioning, multi-account patterns (shared CDN account with cross-account OAC, per-account distributions + FMS enforcement), Organizations SCP, and production readiness checklist
+- `references/aws-waf.md` — comprehensive reference covering: scope section (CLOUDFRONT vs REGIONAL, prominent footgun callout), web ACL anatomy, full managed rule groups table (14 groups, free vs paid), rate-based rules with aggregation keys (IP, forwarded IP, HTTP header, query string, custom key combinations), custom rules (IP sets, geo match, regex, label matching), CAPTCHA/Challenge actions, WAF logging (CW log group must start with `aws-waf-logs-`), testing workflow (Count → Block), multi-account FMS (prerequisites, policy anatomy, FIRST/MIDDLE/LAST rule group ownership model, auto-remediation, compliance dashboard, cross-account central logging), and Shield Advanced integration
+- `commands/aws.md` — slash command `/platform-skills:aws` with six modes: `cloudfront` (distribution design, OAC, caching, security headers), `waf` (scope, managed rules, rate limiting, logging), `lambda-edge` (event type selection, constraints, deployment), `multi-account` (FMS policy design, OU targeting, audit mode), `review` (production-readiness checklist for CloudFront + WAF Terraform), `terraform` (module structure, provider aliases, validation blocks, best practices)
+- `examples/aws/cloudfront/` — production-ready Terraform module:
+  - `versions.tf` — provider constraints (`aws >= 5.0.0`, `archive ~> 2.4`), `us_east_1` alias, `required_version = ">= 1.7.0"`
+  - `variables.tf` — 15 variables with `validation{}` blocks for `price_class`, `geo_restriction_type`, and `name` (regex + length)
+  - `locals.tf` — origin IDs, `use_custom_domain`, `viewer_certificate`, `default_origin_id`, `use_alb` derived values
+  - `main.tf` — S3 bucket (versioning + SSE-KMS + public access block), OAC with `cloudfront.amazonaws.com` service principal + `AWS:SourceArn` condition, response headers policy, CloudFront Function, distribution with dynamic blocks for ALB origin + custom header enforcement, Lambda@Edge association via `qualified_arn`, geo restriction, standard logging v2
+  - `outputs.tf` — `distribution_id/arn/domain_name/hosted_zone_id`, `origin_bucket_name/arn`, `oac_id`
+  - `lambda-edge/main.tf` — Lambda@Edge: `publish = true`, `provider = aws.us_east_1`, dual trust policy (`lambda.amazonaws.com` + `edgelambda.amazonaws.com`), pre-created CloudWatch log group, `qualified_arn` output (with explicit note: do not use `.arn` which resolves to `$LATEST`)
+  - `lambda-edge/functions/viewer-request.js` — auth check (missing Bearer → 401), method restriction on `/api/`, A/B routing by cookie (20% to `/v2/`)
+  - `functions/url-rewrite.js` — CloudFront Functions JS 2.0: trailing slash → index.html, SPA deep-link rewrite, clean URL rewrite, path traversal blocking
+- `examples/aws/waf/` — production-ready Terraform module:
+  - `versions.tf` — `us_east_1` alias with comment explaining CLOUDFRONT scope requirement
+  - `variables.tf` — 9 variables with validation: `default_action` (allow/block), `rate_limit` (0 or 100–2B), `cloudwatch_log_retention_days` (validates against CloudWatch valid values list)
+  - `main.tf` — WebACL with: IP allowlist (priority 0, dynamic), IP reputation (5), AnonymousIpList (6), CRS with `SizeRestrictions_BODY` override to Count (10), KnownBadInputs (11), geo block (20, dynamic), rate limit with custom 429 + `Retry-After` header (30, dynamic), Bot Control with inspection level (40, dynamic), ATP with login path config (50, dynamic); logging config with field redaction (authorization, cookie headers) + filter to keep only BLOCK/COUNT actions
+  - `outputs.tf` — `web_acl_arn/id`, `web_acl_capacity` (WCU consumption), `log_group_name/arn`
+- `examples/aws/firewall-manager/main.tf` — self-contained FMS module: `aws_fms_admin_account`, `aws_fms_policy` for `AWS::CloudFront::Distribution` with OU include + excluded accounts, `preProcessRuleGroups` (IP reputation + CRS + KnownBadInputs at priorities 5/10/11), `overrideCustomerWebACLAssociation = false` to allow app-team local rules, `remediation_enabled` defaulting to `false` (audit mode) with explanation
+- `examples/aws/README.md` — updated index with cloudfront, waf, firewall-manager examples; quick-start snippets for single-account (WAF → CloudFront) and multi-account (FMS) patterns; key patterns summary and checklist
+
+## [1.21.0] - 2026-05-21
+
+### Added
+
+#### Awesome Docs (Domain 27)
+
+- `references/awesome-docs.md` — comprehensive reference covering: SVG Pattern A (architecture flow — `offset-path` animated dots, glow animations, arrowhead markers, legend), SVG Pattern B (decision/lifecycle loop — 3-state CSS cycling, status bar), SVG Pattern C (field explainer carousel — timing formula `slot = T/N`, `N × slot = T` invariant, tooltip structure), SVG Pattern D (timeline phases — bar math `y = bottom - (N/max)*height`), GitHub SVG animation constraints table (allowed vs blocked), theme system (`github-dark`, `docs-light`, `custom`), multi-platform export rules (GitHub SVG, Confluence/Notion HTML, PNG manual steps), quality checklist, and curated external references (MDN, GitHub Docs, Shields.io, SVGO, Primer CSS)
+- `commands/awesome-docs.md` — slash command `/platform-skills:awesome-docs` with seven modes: `generate` (doc-type-aware guided interview with outline/preview step → full animated doc with incremental SVG confirmation for any doc type — readme, architecture-guide, runbook, tutorial, api-reference, how-it-works, rfc, post-mortem, or custom), `convert` (8-type doc classification; batch mode for directory input; inject SVGs into existing Markdown with conflict detection), `update` (revise a single diagram), `diff` (detect stale diagrams; `--base <branch|tag|SHA>` flag, defaults to HEAD), `audit` (quality punch list), `preview` (cross-platform local browser preview via `python3 -m http.server`), `export` (GitHub SVG default; Confluence/Notion animated HTML; PNG manual step)
+- `references/awesome-docs.md` extended: SVG Pattern E (sequence diagram — actor lifelines, message arrows, CSS step animation, activation boxes), SVG Pattern F (state machine — state nodes, transition arrows, current-state cycling ring), field carousel multi-format syntax colors (YAML, HCL/Terraform, JSON, TOML)
+- `examples/awesome-docs/arch-flow.svg` — reusable architecture flow SVG template (github-dark, 3 boxes, 2 animated dot paths)
+- `examples/awesome-docs/lifecycle-loop.svg` — reusable lifecycle loop SVG template (3-state CSS, diamond gate, status bar)
+- `examples/awesome-docs/field-carousel.svg` — reusable field carousel SVG template (4 fields, 8s cycle, `N × slot = T` timing)
+- `examples/awesome-docs/timeline-phases.svg` — reusable timeline phases SVG template (3 phases, replica chart with correct bar math)
+- `examples/awesome-docs/sequence-diagram.svg` — auth token request flow demo (4-step CSS-sequenced messages with activation boxes)
+- `examples/awesome-docs/state-machine.svg` — deployment lifecycle demo (Pending → Deploying → Healthy, error/retry paths, current-state cycling ring)
+- `examples/awesome-docs/docs-audit-workflow.yml` — GitHub Actions workflow: SVG size check, caption check, broken-ref check, external-href check, stale-diagram diff report, PR comment
+
+## [1.20.0] - 2026-05-20
+
+### Added
+
+#### Datadog Labs + LLM Observability
+
+- `references/datadog.md` — two new sections: **pup CLI** (install, config, common operations, scripting post-deploy gates, troubleshooting table) and **Datadog Labs Claude Skills** (dd-pup, dd-apm, dd-logs, dd-monitors, dd-docs — install commands, capability table, when-to-use decision matrix)
+- `references/llm-observability.md` — new reference covering: LLMObs vs traditional APM decision matrix, Python instrumentation (`@llm`, `@workflow`, `@retrieval` decorators, `LLMObs.annotate()`), Node.js instrumentation (`llmobs.trace()` callback, `llmobs.annotate()`), environment variables, eval bootstrap workflow, `submit_evaluation()` pattern, pup-based CI quality gate, trace RCA with `dd-llmo-eval-trace-rca`, experiment analysis with `dd-llmo-experiment-analyzer`, manual pup fallback commands, troubleshooting table, and security guidance
+- `commands/datadog.md` — two new modes: **pup** (log search, metric query, monitor management, post-deploy gate generation) and **llmo** (instrument/evaluate/rca/experiment classification flow)
+- `examples/datadog/llm-observability/llmobs-python.py` — complete Python LLMObs example with `@llm`, `@workflow`, `@retrieval` decorators and faithfulness evaluation
+- `examples/datadog/llm-observability/llmobs-nodejs.js` — complete Node.js LLMObs example with `llmobs.trace()` and evaluation submission
+- `examples/datadog/llm-observability/evaluator-bootstrap.py` — faithfulness and quality evaluator stubs with LLM-as-judge pattern
+
+## [1.19.0] - 2026-05-20
+
+### Added
+
+#### Chaos Engineering (Domain 27)
+
+- `references/chaos.md` — comprehensive reference covering: decision matrix (Litmus Chaos v3 vs Chaos Mesh v2), fault taxonomy (pod/node/network/stress), steady-state hypothesis pattern (httpProbe and promProbe), blast radius scoping rules, ChaosEngine and NetworkChaos YAML, GitOps integration via ChaosSchedule, rollback semantics, DORA feedback loop, and troubleshooting for stuck experiments and RBAC gaps
+- `commands/chaos.md` — slash command `/platform-skills:chaos` with six modes: `install`, `experiment`, `schedule`, `gameday`, `debug`, `report`
+- `examples/chaos/` — eight working examples and one validator:
+  - `litmus-install-values.yaml` — Helm values for Litmus Chaos v3
+  - `chaos-mesh-install-values.yaml` — Helm values for Chaos Mesh v2
+  - `pod-delete-experiment.yaml` — Litmus ChaosEngine targeting a Deployment with HTTP probe
+  - `network-loss-experiment.yaml` — Chaos Mesh NetworkChaos with 20% packet loss
+  - `cpu-stress-experiment.yaml` — Litmus pod-cpu-hog with Prometheus steady-state probe
+  - `chaos-schedule.yaml` — weekly pod-delete ChaosSchedule (staging only)
+  - `gameday-runbook.md` — structured GameDay template (steady-state → blast radius → inject → observe → verdict → DORA impact)
+  - `chaos-validate.sh` — domain validator
+
+#### DORA Metrics (Domain 28)
+
+- `references/dora.md` — comprehensive reference covering: the four DORA metrics with exact definitions, 2023 performance bands (Elite/High/Medium/Low), GitHub Actions + Prometheus Pushgateway open-source instrumentation pattern, all four Prometheus recording rules, PagerDuty and OpsGenie incident webhook integration for MTTR, SaaS decision matrix (Sleuth, LinearB, Cortex, open-source), five anti-pattern detections (commits vs deploys, all alerts vs customer incidents, partial outages, staging vs production, PR open vs first commit), chaos engineering cross-reference for high change failure rate, and agent platform rules
+- `commands/dora.md` — slash command `/platform-skills:dora` with four modes: `instrument`, `dashboard`, `benchmark`, `debug`
+- `examples/dora/` — five working examples, one validator, and an AMP variant:
+  - `deployment-event-step.yaml` — GitHub Actions step pushing deploy timestamp and lead time to Pushgateway
+  - `incident-webhook-handler.yaml` — full GitHub Actions workflow triggered by PagerDuty/OpsGenie webhook for MTTR tracking
+  - `prometheus-recording-rules.yaml` — all four DORA Prometheus recording rules
+  - `grafana-dashboard.json` — Grafana dashboard with four DORA panels and Elite/High/Medium/Low threshold bands
+  - `dora-validate.sh` — domain validator
+  - `amp-variant/` — Amazon Managed Prometheus variant: `amp-workspace.tf` (Terraform module provisioning AMP workspace + recording rules via `terraform-aws-modules/managed-service-prometheus/aws`), `pushgateway-helm-values.yaml`, `prometheus-agent-values.yaml` (SigV4/IRSA remote_write), `amp-recording-rules-deploy.sh` (AWS CLI fallback), `grafana-amp-datasource.yaml`, `grafana-amg-datasource.json`
+
+## [1.18.0] - 2026-05-20
+
+### Added
+
+#### Self-Improvement: SESSION-STATE, Daily Notes, VBR, Context Threshold
+
+Four improvements to the proactive agent pattern in Domain 24:
+
+- **SESSION-STATE.md** — always-on capture file (`memory/SESSION-STATE.md`) for corrections, preferences, decisions, and proper nouns. Written before responding when any of these occur (not only before destructive ops). Second read in compaction recovery after working-buffer.
+- **Daily Notes** — rolling per-day log (`memory/YYYY-MM-DD.md`) of notable exchanges, discoveries, completed tasks, and errors. Survives compaction as a searchable history. Third read in compaction recovery.
+- **Context threshold trigger** — working buffer is written proactively at ~60% context, not only at task boundaries. Prevents silent context loss mid-task.
+- **Verify Before Reporting (VBR)** — explicit protocol: run the validation command and read the changed file before reporting done. Text change ≠ behavior change; test actual outcomes.
+- Updated compaction recovery order in `commands/self-improve.md` `resume` mode: working-buffer → SESSION-STATE → daily notes → resource verification. "Never ask where were we?" rule added.
+- New `state` mode in `commands/self-improve.md` — explicit slash command for capturing session state entries
+- Example scaffold updated: `memory/SESSION-STATE.md` and `memory/YYYY-MM-DD.md` templates added to `examples/agent-self-improve/memory/`
+- `.gitignore` recommendation updated: gitignore `memory/` entirely (daily notes grow fast)
+
+## [1.17.0] - 2026-05-20
+
+### Added
+
+- Closing `## Closing — Log learnings` section added to `commands/triage.md`, `commands/supply-chain.md`, and `commands/runtime-security.md` — each workflow now ends with an explicit step to log errors and learnings via `/platform-skills:self-improve log` immediately after completing work, preventing context loss across sessions
+- PostToolUse hook in `.claude/settings.json` (local, not committed) prompts incremental learning capture after every `git commit`
+
+### Changed
+
+- Promoted 10 learnings from v1.16.0 session to `CLAUDE.md` and reference guides (`references/supply-chain.md`, `references/runtime-security.md`, `references/kyverno.md`) as permanent agent rules
+
+## [1.16.0] - 2026-05-20
+
+### Added
+
+#### Supply Chain Security — Domain 25
+
+New Domain 25: `Supply Chain Security` — secure the build pipeline and image lifecycle.
+
+- `references/supply-chain.md` — comprehensive reference covering:
+  - Cosign keyless signing (Sigstore/Rekor, OIDC-based, no key management)
+  - SBOM generation and OCI attestation with Syft
+  - CVE scanning with Trivy and Grype, severity gate strategy
+  - SLSA Level 2 vs Level 3 provenance requirements
+  - Kyverno `ImageValidatingPolicy` for admission enforcement
+  - Gap classification table and recommended rollout order
+- `commands/supply-chain.md` — slash command `/platform-skills:supply-chain` with six modes: `audit`, `sign`, `sbom`, `scan`, `enforce`, `slsa`
+- `examples/supply-chain/` — five working GitHub Actions workflows and one Kyverno policy:
+  - `sign-and-push.yaml` — build → Cosign keyless sign → push
+  - `sbom-attest.yaml` — Syft SBOM generation and Cosign attestation
+  - `trivy-gate.yaml` — Trivy scan with CRITICAL+HIGH severity gate and GitHub Security tab upload
+  - `kyverno-verify-image.yaml` — `ImageValidatingPolicy` blocking unsigned images (Audit mode)
+  - `slsa-provenance.yaml` — SLSA Level 2 provenance via `slsa-github-generator`
+  - `supply-chain-validate.sh` — domain validator
+
+#### Runtime Security — Domain 26
+
+New Domain 26: `Runtime Security` — detect in-container threats with Falco.
+
+- `references/runtime-security.md` — comprehensive reference covering:
+  - Falco architecture: eBPF probe, rules engine, alert output
+  - Driver comparison: `modern_ebpf` vs `ebpf` vs `kmod` (kmod never on managed K8s)
+  - EKS and GKE installation with eBPF (Bottlerocket, COS, Fargate caveats)
+  - Built-in ruleset overview and noise reduction approach
+  - Custom rule syntax: condition fields, lists, macros
+  - Falcosidekick alert routing: Slack, webhook, SNS, PagerDuty
+  - Falco → Kyverno bridge pattern for blocking flagged workload re-admission
+  - Resource sizing and CPU limit guidance (do not set CPU limits)
+- `commands/runtime-security.md` — slash command `/platform-skills:runtime-security` with five modes: `install`, `rules`, `alerts`, `debug`, `harden`
+- `examples/runtime-security/` — four working Helm values and one Kyverno policy:
+  - `falco-values.yaml` — Falco Helm values with eBPF driver and resource limits
+  - `falco-custom-rules.yaml` — shell-in-container, privilege escalation, unexpected outbound
+  - `falcosidekick-values.yaml` — Slack + webhook routing with deduplication
+  - `falco-kyverno-bridge.yaml` — `ValidatingPolicy` blocking Falco-flagged workload re-admission
+  - `runtime-security-validate.sh` — domain validator
+
+## [1.15.0] - 2026-05-20
+
+### Added
+
+#### Agent Self-Improvement — Domain 24
+
+New Domain 24: `Agent Self-Improvement` — bootstrap and operate self-improving, proactive agent workspaces.
+
+- `references/agent-self-improve.md` — comprehensive reference guide covering:
+  - `.learnings/` directory layout and entry lifecycle (LRN/ERR/FEAT)
+  - WAL Protocol (append-only log, write-ahead before action)
+  - Working Buffer pattern for mid-session state persistence
+  - VFM Scoring (Value-Frequency Matrix) for evaluating unsolicited proactive actions
+  - ADL Protocol (Action Decision Logic) for choosing between competing implementation approaches
+  - Six Operating Pillars for proactive agent behavior
+  - Heartbeat pattern for session continuity
+  - Reverse Prompting to surface agent knowledge gaps
+- `commands/self-improve.md` — slash command definition for `/platform-skills:self-improve` with five modes: `init`, `log`, `resume`, `review`, `promote`
+- `examples/agent-self-improve/` — ready-to-copy workspace scaffold:
+  - `README.md` — overview and copy commands
+  - `.learnings/LEARNINGS.md` — positive learnings template
+  - `.learnings/ERRORS.md` — error log template
+  - `.learnings/FEATURE_REQUESTS.md` — feature request template
+  - `memory/working-buffer.md` — WAL scratchpad template
+- Updated `SKILL.md` (root and `skills/platform-skills/`) with Domain 24 entry, reference bullet, and `/platform-skills:self-improve` slash command
+- Updated `README.md` with Domain 26 badge and domain table row
+- Updated `COMMANDS.md` with ToC entry and full command reference section
+
+## [1.14.0] - 2026-05-16
+
+### Added
+
+#### KEDA — Kubernetes Event-Driven Autoscaling
+
+New Domain 23: `KEDA` — design, generate, debug, and review event-driven autoscaling with KEDA v2.14.
+
+- `references/keda.md` — comprehensive reference guide covering:
+  - KEDA vs HPA decision matrix (when to use each)
+  - Architecture (operator, metrics adapter, webhook)
+  - Helm installation with resource limits
+  - `ScaledObject` spec: minReplicaCount, maxReplicaCount, pollingInterval, cooldownPeriod, advanced HPA behavior overrides, scale-to-zero with cold-start guidance
+  - `ScaledJob` spec: batch processing per message with scaling strategies (accurate/default/custom)
+  - `TriggerAuthentication` and `ClusterTriggerAuthentication`: Kubernetes Secret reference, IRSA (AWS), Azure Workload Identity, GCP Workload Identity
+  - Scalers with full metadata reference: Prometheus, AWS SQS, Apache Kafka (SASL/TLS), Redis List, Cron, Azure Service Bus, HTTP Add-on
+  - Scaling lifecycle and tuning table (pollingInterval/cooldownPeriod by scenario)
+  - Security patterns: least-privilege IAM per scaler, namespace-scoped vs cluster-scoped auth, RBAC for ScaledObject management
+  - GitOps integration: Flux Kustomization with health checks, Argo CD ordering, ExternalSecret pairing
+  - Troubleshooting: 7 common failure patterns with diagnostic commands and exact fixes
+  - Observability: KEDA Prometheus metrics, Grafana dashboard import
+  - Version compatibility matrix and upgrade checklist
+- `/platform-skills:keda` (`commands/keda.md`) — four modes:
+  - `generate` — write a production-ready ScaledObject or ScaledJob from a description
+  - `debug` — diagnose scaling failures with a structured checklist
+  - `review` — correctness, security, and operational safety review
+  - `scale` — design the scaling strategy for a workload from requirements
+- `examples/keda/` — four working examples:
+  - `scaledobject-sqs.yaml` — SQS queue trigger with IRSA, scale-to-zero, HPA stabilization
+  - `scaledobject-prometheus.yaml` — HTTP request rate trigger with Cron floor for business hours
+  - `scaledobject-kafka.yaml` — Kafka consumer lag trigger with SASL/TLS auth
+  - `scaledjob-sqs.yaml` — batch ScaledJob (one Job per SQS message) with security hardening
+
+## [1.13.0] - 2026-05-16
+
+### Added
+
+#### Triage Command
+
+New command `/platform-skills:triage` — triages any PR comment (from a bot, CI tool, or human reviewer) using the `gh` CLI directly inside Claude Code. No workflow or secrets required.
+
+- `commands/triage.md` — full skill definition with two modes:
+  - `<PR number> <comment ID>` — triage one specific comment
+  - `--all <PR number>` — triage every unresolved thread on a PR in one pass
+- Classifies each comment as `ACTIONABLE_FIX`, `INFORMATIONAL`, or `NOT_APPLICABLE`
+- For `ACTIONABLE_FIX`: reads the referenced file, applies the minimal fix with the Edit tool, commits and pushes to the PR branch
+- Posts a reply on the thread explaining the decision with classification-specific closing lines
+- Resolves the thread via `gh api graphql` `resolveReviewThread` mutation
+- Prints a summary table when running `--all` mode
+- `examples/triage/` — 11 fully documented scenarios:
+  - `actionable-fix/` — wildcard IAM (SOC 2 CC6.1), missing resource limits, deprecated `networking.k8s.io/v1beta1` API, wrong liveness probe path, hardcoded secret reference
+  - `informational/` — replica count question, PDB follow-up suggestion, KMS rotation evidence request
+  - `not-applicable/` — CI status bot message, already-fixed-in-later-commit, comment on file not in PR diff
+
+#### Review Bot Comment Mode
+
+Enhanced `/platform-skills:review` with structured output for automated PR comment workflows.
+
+- `commands/review.md` — adds `--bot` flag and GitHub-flavoured markdown output format
+- Defines `MERGE_READY / NEEDS_FIX / BLOCKED` result values based on finding severity
+- Uses `<!-- platform-skills-review -->` HTML marker for idempotent comment updates on re-push
+- Severity table with emoji labels (🔴 Critical, 🟡 Improvement, 🔵 Note) and file/line references
+
+#### Wiki
+
+- Full GitHub wiki published at https://github.com/nitinjain999/platform-skills/wiki
+- 50 pages covering all 28 commands and 25 domains
+- Navigation index, Quick Start, Installation, Editor Integrations, How It Works, Contributing
+- One page per command with Claude Code slash syntax, Copilot Chat prompts, and what gets checked
+- One page per domain with key patterns, code examples, and links to the full reference guide
+
+## [1.12.0] - 2026-05-16
+
+### Added
+
+#### PR Review Domain
+
+New Domain 21: `PR Review` — comprehensive pre-merge risk review across six dimensions. Each mode inspects the diff and current file state, reports findings with severity, and recommends concrete fixes.
+
+- `references/pr-review.md` — cost impact (compute, storage, network spend delta with AWS pricing reference), environment drift detection (Kustomize overlay gaps, Helm values sibling mismatches, Terraform workspace drift, GitOps source drift, feature flag drift), ownership and governance (CODEOWNERS gaps, missing team labels, Terraform module README requirements, PR governance checklist), SOC 2 compliance mapping (CC6.1–CC8.1, A1.2 with Terraform patterns and `aws` CLI evidence collection commands), deprecated API / version hygiene (Kubernetes API removal timeline, Terraform provider constraint patterns, GitHub Actions SHA pinning, container digest pinning), rollback feasibility scoring (reversibility matrix: FULL/PARTIAL/MANUAL/NONE, blast radius: LOCAL/CLUSTER/PLATFORM/DATA, pre-merge requirements for high-risk changes, GitOps rollback patterns), and bot comment triage workflow with GH CLI commands for resolving threads
+- `/platform-skills:pr-review` (`commands/pr-review.md`) — six modes: `cost` (spend delta with severity per resource), `drift` (environment alignment across overlays, values files, Terraform workspaces), `ownership` (CODEOWNERS, team labels, module README, PR governance), `compliance` (SOC 2 control impact with remediation and auditor evidence commands), `upgrade` (deprecated Kubernetes APIs, loose Terraform constraints, floating action versions, `:latest` images), `rollback` (reversibility and blast radius score per change with Rollback Risk Score: 🟢/🟡/🔴), `full` (all six modes with Merge Readiness Summary)
+
+## [1.11.0] - 2026-05-16
+
+### Added
+
+#### Kyverno Domain
+
+New Domain 20: `Kyverno` — write and maintain Kubernetes-native admission policies using the CEL-based types (`ValidatingPolicy`, `MutatingPolicy`, `GeneratingPolicy`, `ImageValidatingPolicy`) introduced in Kyverno v1.14–v1.15. Covers Audit→Deny promotion, PolicyExceptions, PolicyReport analysis, and migration from legacy `ClusterPolicy` or PodSecurityPolicy. All policies use `apiVersion: policies.kyverno.io/v1`.
+
+- `references/kyverno.md` — all five new policy kinds with namespace-scoped variants, `matchConstraints`/`matchConditions` CEL filtering, `ValidatingPolicy` with `validations[].expression` and `messageExpression`, `MutatingPolicy` with `ApplyConfiguration` (`Object{...}`) and `JSONPatch` (`[JSONPatch{...}]`) patch types, container iteration with `.map()`/`.all()`, `mutateExisting`, `GeneratingPolicy` with `generator.Apply()` and `dyn()` inline resources, `ImageValidatingPolicy` with `verifyImageSignatures()`, Cosign keyless/key-based and Notary attestors, Audit→Deny promotion workflow with PolicyReport queries, PolicyException (`kyverno.io/v2`), kyverno-cli install and test manifest structure, PolicyReport export to CSV, GitHub Actions integration, three full annotated example policies, and a troubleshooting table covering 11 failure modes
+- `/platform-skills:kyverno` (`commands/kyverno.md`) — five modes: `generate` (write CEL-based policy from description, always Audit-first), `test` (write kyverno-test.yaml with pass/fail/skip fixtures), `audit` (rank PolicyReport violations and produce Deny promotion plan), `debug` (diagnose webhook registration, matchConstraints/matchConditions gaps, background scan, CEL errors, PolicyException suppression), `migrate` (legacy ClusterPolicy→new-type translation table, PSP field mapping, Gatekeeper ConstraintTemplate translation)
+- `examples/kyverno/` — two `ValidatingPolicy` examples (`require-team-labels.yaml`, `disallow-privileged-containers.yaml`), one `GeneratingPolicy` example (`generate-default-networkpolicy.yaml`), four test resource fixtures, and a `kyverno-test.yaml` that exercises pass and fail cases for each validate policy
+
+## [1.10.0] - 2026-05-09
+
+### Added
+
+#### OPA / Conftest Domain
+
+New Domain 19: `OPA / Conftest` — generate Rego policies, write unit tests, run the full validation pipeline (fmt → regal lint → conftest verify → integration test), explain existing policies in plain English, and debug why a rule is not firing.
+
+- `references/opa.md` — Rego v1 syntax, METADATA blocks, rule types (deny/warn/violation), package namespacing, input shape analysis with `conftest parse`, policy examples (Terraform IAM, Kubernetes pod security), unit test patterns with input fixtures, full validation pipeline (conftest fmt, regal lint, conftest verify, integration test), GitHub Actions workflow, shared `data.*` allow-lists, and troubleshooting table
+- `/platform-skills:opa` (`commands/opa.md`) — five modes: `generate` (write Rego from description with correct structure), `test` (write `_test.rego` unit tests with fixtures), `validate` (run fmt/regal/verify/integration pipeline), `explain` (translate policy to plain English), `debug` (diagnose namespace mismatch, wrong rule name, input shape issues)
+- `examples/opa/conftest/` — working S3 encryption policy (`deny_unencrypted_s3.rego`), full unit test suite (`deny_unencrypted_s3_test.rego`), sample Terraform input, and `.regal/config.yaml`
+
+## [1.9.0] - 2026-05-09
+
+### Added
+
+#### Conventional Commits Domain
+
+New Domain 18: `Conventional Commits` — analyze git diffs or staged changes, generate commit messages that explain WHY a change was made, intelligently stage files for atomic commits, and validate messages against the Conventional Commits 1.0.0 specification.
+
+- `references/conventional-commits.md` — message structure (subject/body/footer rules), type classification table with decision guidance, scope rules, breaking change patterns with examples, atomic commit strategy with `git add -p`, full examples for fix/feat/chore/breaking/revert, commitlint setup with scope allow-list, husky git hook configuration, GitHub Actions PR title lint workflow, semantic-release configuration with version bump rules, and a validation rules table
+- `/platform-skills:commit` (`commands/commit.md`) — four modes: `analyze` (classify type/scope/breaking from diff), `generate` (produce full conventional commit message), `stage` (intelligently group and stage files for atomic commits), `validate` (check an existing message against the spec)
+- `examples/conventional-commits/commitlint/` — commitlint config with scope allow-list, husky `commit-msg` hook, and `package.json` for installation
+
+#### Datadog Domain
+
+New Domain 16: `Datadog` — deploy and configure the Datadog Agent on Kubernetes, instrument services with APM and log correlation, and manage monitors, dashboards, SLOs, and synthetic tests as Terraform-managed resources.
+
+- `references/datadog.md` — Agent Helm setup, APM instrumentation (Node.js/Python), Unified Service Tagging, Log Management with processing rules, Monitors (Terraform), Dashboards (Terraform), SLOs, Synthetic tests, and troubleshooting table
+- `/platform-skills:datadog` (`commands/datadog.md`) — six modes: `setup`, `instrument`, `monitor`, `dashboard`, `slo`, `debug`
+- `examples/datadog/terraform/monitors.tf` — Terraform monitors for error rate and latency, plus SLO resource
+
+#### Dynatrace Domain
+
+New Domain 17: `Dynatrace` — deploy OneAgent via the Kubernetes Operator with automatic injection, configure anomaly detection, ingest custom metrics, define SLOs, and manage dashboards and alerting profiles with the Dynatrace Terraform provider.
+
+- `references/dynatrace.md` — Operator and DynaKube CR setup, Node.js/Python/Java SDK instrumentation, Log Monitoring, custom metrics via MINT API, SLOs, Terraform provider (anomaly detection, SLOs, alerting), Davis AI problem feeds, troubleshooting table, and token scopes
+- `/platform-skills:dynatrace` (`commands/dynatrace.md`) — six modes: `setup`, `instrument`, `monitor`, `slo`, `dashboard`, `debug`
+- `examples/dynatrace/operator/dynakube.yaml` — production DynaKube CR with cloudNativeFullStack injection and ActiveGate
+
+## [1.8.0] - 2026-05-08
+
+### Added
+
+#### MCP Domain (Model Context Protocol)
+
+New Domain 13: `MCP (Model Context Protocol)` — build, review, and debug MCP servers and clients covering TypeScript and Python SDKs, Zod/Pydantic schema validation, stdio/HTTP/SSE transports, protocol compliance, authentication, and rate limiting.
+
+- `references/mcp.md` — protocol fundamentals, TypeScript SDK patterns, Python FastMCP patterns, schema design, error handling, testing with MCP Inspector, security, and deployment checklist
+- `/platform-skills:mcp` (`commands/mcp.md`) — three modes: `create` (scaffold production-ready server), `review` (protocol compliance and security audit), `debug` (diagnose transport/protocol/schema/handler failures)
+- `examples/mcp/docs-server/` — complete TypeScript MCP server with `search_docs` and `get_doc` tools and a `docs://index` resource
+
+#### Observability Domain
+
+New Domain 14: `Observability` — instrument services with structured logging, Prometheus metrics, and OpenTelemetry tracing; build Grafana dashboards, write alerting rules, run k6 load tests, and plan capacity.
+
+- `references/observability.md` — Pino/structlog structured logging, prom-client/prometheus-client metrics, OpenTelemetry tracing, RED/USE method alerting rules, Grafana dashboard templates, k6 load testing, and capacity planning formulas
+- `/platform-skills:observability` (`commands/observability.md`) — five modes: `instrument`, `dashboard`, `alert`, `loadtest`, `capacity`
+- `examples/observability/prometheus-alerts/` — RED method Prometheus alerting rules for a production service
+
+#### Documentation Domain
+
+New Domain 15: `Documentation` — generate and validate inline docstrings (Google/NumPy/Sphinx/JSDoc), OpenAPI 3.1 specifications, documentation sites (MkDocs, TypeDoc), and developer getting started guides.
+
+- `references/documentation.md` — Google/NumPy/Sphinx docstring styles, TypeScript JSDoc, OpenAPI 3.1 spec with shared components, FastAPI and NestJS auto-documentation, coverage measurement, MkDocs site setup, and guide structure
+- `/platform-skills:document` (`commands/document.md`) — four modes: `docstrings`, `openapi`, `site`, `guide`
+- `examples/documentation/openapi-spec/` — complete OpenAPI 3.1 Orders API with shared components, security schemes, and response definitions
+
+## [1.7.0] - 2026-05-08
+
+### Added
+
+#### Helm Domain (Helmcheck)
+
+New Domain 12: `Helm (Helmcheck)` — production-grade Helm chart development covering scaffolding, values design, template patterns, dependency management, security hardening, and the full lint/validation pipeline.
+
+**Reference guide:**
+- `references/helm.md` — complete template patterns, standard `_helpers.tpl`, security-hardened Deployment baseline, conditional resource templates (Ingress, HPA, PDB, NetworkPolicy), `values.yaml` design principles, `values.schema.json` type safety, dependency management, lint/validation pipeline, and GitOps integration (Flux HelmRelease, Argo CD Application)
+
+**Slash command:**
+- `/platform-skills:helmcheck` (`commands/helmcheck.md`) — three modes: `create` (scaffold a production-ready chart), `review` (analyse chart structure and quality), `security` (audit RBAC, pod security, network policies, and secrets handling)
+
+**Example chart:**
+- `examples/helm/web-service/` — full production chart: security-hardened Deployment, Service, Ingress, ServiceAccount, HPA, PDB, NetworkPolicy, `values.schema.json`, and helm test pod compliant with `restricted` PodSecurity
+
+**Platform rules added:**
+- Helm lint pipeline rule: enforce `helm lint --strict` → `helm template --debug` → `kubeconform -strict -summary` → `checkov` → `helm test` in order; fail CI on any `helm lint --strict` warning
+
+**Tests:**
+- `tests/validate-helmcheck.sh` — 62 checks covering command structure, SKILL.md integration, reference guide sections, chart file presence, Chart.yaml correctness, schema validity, security baselines, template safety, and HOW_IT_WORKS completeness
+
+#### Documentation
+
+- `HOW_IT_WORKS.md` — explains how AI coding agents work, how skills activate, how to write effective prompts, how the review workflow runs, and what the agent cannot do
+
+## [1.6.0] - 2026-04-11
+
+### Added
+
+#### Compliance Domain (SOC 2 for Terraform)
+
+New Domain 11: `Compliance` — SOC 2 Trust Services Criteria mapped to Terraform patterns, covering 11 criteria across access, encryption, detection, logging, change management, and availability.
+
+**Reference guide:**
+- `references/compliance.md` — full SOC 2 TSC coverage with Terraform patterns, Checkov rule IDs, AWS CLI evidence commands, and a pre-audit readiness checklist
+
+**Criteria covered with Terraform patterns, Checkov rules, and evidence commands:**
+- `CC6.1` — IAM least privilege: scoped policies, IRSA, SCPs denying privilege escalation
+- `CC6.2` — Authentication: MFA-enforcement SCP, GitHub Actions OIDC (no static credentials)
+- `CC6.3` — Access removal: access key rotation via Config `access-keys-rotated` rule
+- `CC6.6` — Network security: security groups, private subnets, VPC flow logs, WAF (`aws_wafv2_web_acl`) with rate limiting and AWS managed rule groups
+- `CC6.7` — Encryption: S3, RDS, EBS, KMS; extended to DynamoDB, ECR, ElastiCache, OpenSearch, Kinesis, EFS, and Redshift
+- `CC6.8` — Vulnerability management: `aws_ecr_registry_scanning_configuration` (ENHANCED + CONTINUOUS_SCAN), `aws_inspector2_enabler`, `aws_ssm_patch_baseline`
+- `CC7.1` — Detection: `aws_guardduty_detector` (S3, EKS, malware sources), 14 CIS Benchmark CloudWatch metric filters and alarms (CIS 3.1–3.14), `aws_securityhub_account` with AWS Foundational and CIS standards
+- `CC7.2` — Audit logging: multi-region CloudTrail with KMS encryption, S3 object lock (COMPLIANCE mode, 365-day), AWS Config recorder with 12 SOC 2-relevant managed rules, VPC flow logs
+- `CC7.3` — Incident response: KMS-encrypted SNS topic with email and PagerDuty subscriptions, GuardDuty HIGH/CRITICAL findings → EventBridge → SNS pipeline, Config delivery channel with SNS notification
+- `CC8.1` — Change management: S3 + DynamoDB state locking, PR-gated Terraform plan/apply workflow with plan posted as PR comment
+- `A1.1` — Availability: multi-AZ EKS node groups, RDS multi-AZ
+- `A1.2 / A1.3` — Backup and recovery: `aws_backup_plan` (daily 35-day + monthly 1-year), `aws_backup_vault_lock_configuration` (COMPLIANCE mode, 35-day minimum), cross-region copy for DR, tag-based backup selection
+
+**Slash command:**
+- `/platform-skills:compliance` (`commands/compliance.md`) — five modes: `gap` (find audit blockers), `control` (implement a specific criterion), `evidence` (generate audit-ready CLI commands), `remediate` (fix a Checkov finding with blast-radius analysis), `checklist` (full SOC 2 readiness review)
+
+**Examples:**
+- `examples/compliance/checkov-config.yaml` — Checkov config with all SOC 2 check IDs grouped by criterion and documented suppression format
+- `examples/compliance/iam/` — IRSA application role, GitHub Actions OIDC trust (plan + apply), SCPs for MFA enforcement and privilege escalation prevention
+- `examples/compliance/logging/` — CloudTrail with object lock, AWS Config recorder with 12 managed rules, VPC flow logs
+- `examples/compliance/network/` — WAF, security groups, and VPC flow logs
+- `examples/compliance/encryption-data-services/` — DynamoDB, ECR, ElastiCache, OpenSearch, Kinesis, EFS, and Redshift encryption/logging controls
+- `examples/compliance/vulnerability/` — Inspector v2, ECR enhanced scanning, and SSM patching
+- `examples/compliance/detection/` — GuardDuty, CIS CloudWatch alarms, and Security Hub
+- `examples/compliance/incident-response/` — KMS-encrypted SNS, EventBridge alert routing, and PagerDuty subscription
+- `examples/compliance/backup/` — AWS Backup plan, vault lock, and cross-region DR copies
+
+**Infrastructure updates:**
+- Domain 11 (`Compliance`) added to `skills/platform-skills/SKILL.md` tool-routing and reference file list
+- `references/compliance.md` added to `REQUIRED_REFERENCES` in `tests/validate-skill.sh`
+- `examples/compliance` added to `EXAMPLE_DOMAINS` in `tests/validate-skill.sh`
+- `compliance`, `soc2`, `checkov`, `audit-logging`, `iam-least-privilege`, `cloudtrail` added to `marketplace.json` keywords
+
+## [1.5.0] - 2026-04-03
+
+### Added
+- `references/platform-mindset.md` — product mindset, developer experience (SPACE/DORA metrics, friction audits, golden paths, Backstage), collaboration and communication (RFC/ADR templates, incident updates, blameless post-mortems), and proactive problem-solving (systemic fixes, capacity planning, cost optimisation loop, quarterly platform health review)
+- `/platform-skills:product` command (`commands/product.md`) — applies product thinking to platform work across nine topics: devex, friction, rfc, adr, incident, postmortem, capacity, cost, review
+- `references/linux-networking.md` — Linux administration (process/service management, disk, memory/CPU, kernel tuning, permissions) and networking fundamentals (DNS record types, CoreDNS, Route 53, Azure Private DNS, ALB/NLB, Ingress/Gateway API, VPC/VNet CIDR design, subnet tiers, peering vs Transit Gateway, PrivateLink, NSGs, troubleshooting checklists)
+- `/platform-skills:linux` command (`commands/linux.md`) — structured guidance for dns, lb, vpc, process, disk, network, security-groups, and troubleshoot topics
+- Domain 8 added to SKILL.md tool-routing section: `Linux & Networking`
+- Domain 9 added to SKILL.md tool-routing section: `Platform Mindset`
+
+## [1.4.2] - 2026-04-02
+
+### Changed
+- Moved `SKILL.md` from the repository root to `skills/platform-skills/SKILL.md` to match the Claude Code proper skill directory format
+- Updated `.claude-plugin/plugin.json` to declare `"skills": ["./skills/platform-skills"]` (directory reference) instead of the old root-level path
+- Updated `tests/validate-skill.sh` to reference `skills/platform-skills/SKILL.md` in all three validation checks
+
+## [1.4.1] - 2026-04-02
+
+### Added
+- `.claude-plugin/plugin.json` — registration manifest explicitly declaring plugin name, version, author, skill (`SKILL.md`), and all 5 command paths so Claude Code uses consistent `/platform-skills:<name>` namespacing regardless of install directory name
+
+## [1.4.0] - 2026-04-02
+
+### Added
+
+#### Slash Commands
+
+Five explicit slash commands added under `commands/` — invoked as `/platform-skills:<name>`:
+
+- `/platform-skills:debug` — structured troubleshooting: classifies the problem layer, lists evidence commands, forms a root-cause hypothesis, proposes a fix with validation and rollback
+- `/platform-skills:review` — production-readiness review of any manifest, Terraform file, workflow, or Helm values: correctness, security, operational safety, deprecations
+- `/platform-skills:terraform` — full Terraform validation pipeline walkthrough (fmt, validate, tflint, tfsec/checkov), blast radius, IAM risk, state impact, module design
+- `/platform-skills:gitops` — Flux CD and Argo CD troubleshooting: classifies by source/artifact/reconciliation/runtime layer, provides exact evidence commands, fix, and rollback
+- `/platform-skills:linkerd` — Linkerd diagnostics: injection, mTLS, authorization policy, observability, traffic management, multi-cluster, control plane
+
+## [1.3.0] - 2026-04-02
+
+### Added
+
+#### Reference Guides
+- `references/linkerd.md`: mTLS, proxy injection, authorization policy, traffic management (HTTPRoute, retries, timeouts, canary splits), golden-signal observability (`linkerd viz stat/tap`), Prometheus PodMonitor integration, multi-cluster mirroring, and 5-scenario troubleshooting guide
+- Linkerd routing rule added to SKILL.md tool classification
+- `references/linkerd.md` added to `tests/validate-skill.sh` required references
+
+### Changed
+- CONTRIBUTING.md: fixed local install commands (`claude plugin install .` → `claude plugin marketplace add $(pwd)` + `claude plugin install platform-skills`); added upgrade flow; updated What We're Looking For to reflect current roadmap priorities
+
+## [1.2.0] - 2026-04-02
+
+### Added
+
+#### Reference Guides
+- Added RBAC troubleshooting to `references/kubernetes.md`: 401 vs 403 diagnosis, `kubectl auth can-i` evidence collection, binding scope matrix (Role/ClusterRole × RoleBinding/ClusterRoleBinding), `ClusterRoleBinding` audit query
+- Added image automation section to `references/fluxcd.md`: `ImageRepository`, `ImagePolicy`, `ImageUpdateAutomation` setup, registry auth table (GHCR/ECR/ACR/GAR/Docker Hub), troubleshooting table, safety rules for staging vs. production promotion
+- Added `references/secrets.md`: decision matrix (ESO vs. Sealed Secrets), ESO setup for AWS/Azure/Vault/static credentials, Sealed Secrets seal/rotate/backup workflow, troubleshooting tables for both patterns, least-privilege IAM example, operational rules
+- Added `references/secrets.md` to `REQUIRED_REFERENCES` in `tests/validate-skill.sh`
+
+#### Plugin
+- Bumped marketplace description and keywords to be developer-first (removed enterprise-only framing)
+- Added keywords: `helm`, `docker`, `containers`, `deployment`, `rbac`, `secrets`, `security`, `gke`
+- Updated SKILL.md activation description and body framing for discoverability by any developer
+- Fixed `assignees` format in `renovate.json` (removed `@` prefix)
+- Fixed `kubeconform` flag in `validate.yml`: `-skip-kinds` → `-skip` (correct flag name for v0.6.4)
+- Fixed `LICENSE` copyright placeholder `[yyyy] [name of copyright owner]` → `2026 Nitin Jain`
+
+## [1.1.0] - 2026-04-02
+
+### Added
+
+#### Reference Guides
+- Expanded AWS reference with tagging guidance: `default_tags` provider block, ASG `propagate_at_launch`, EBS/Lambda propagation gaps, AWS Config `required-tags` rule, cost allocation tag activation steps, org-level tag policy enforcement
+- Expanded Azure reference with tagging guidance: `merge(local.common_tags, {...})` pattern, tag inheritance gap explanation, Azure Policy `deny`/`modify` enforcement, remediation task for existing resources, AKS managed resource group tagging
+- Added tagging rule to SKILL.md: enforce a baseline via provider-level mechanisms; specific keys are an organizational decision
+
+#### Example Assets
+- Added real example assets for previously stub domains: `examples/kubernetes/*.yaml` (4 files), `examples/openshift/*.yaml` (2 files), `examples/aws/iam/*.json` (2 files), `examples/azure/workload-identity/` (`main.tf` + `serviceaccount.yaml`)
+
+#### Testing
+- Added `tests/validate-skill.sh` — checks SKILL.md frontmatter, all reference files exist, each example domain has at least one asset beyond README.md, SKILL.md references every reference file; wired into `validate.yml` as a blocking CI job
+
+#### Developer Experience
+- Added `.github/copilot-instructions.md` — GitHub Copilot automatically applies Platform Skills patterns (no Claude Code required)
+- Added `VSCODE_INTEGRATION.md` — comprehensive guide for VSCode with Claude Code extension, GitHub Copilot split-screen, and browser workflows
+- Added `QUICKSTART.md` — 5-minute install and first-use guide
+- Added `INSTALLATION.md` — full installation methods, team setup, troubleshooting
+
+#### Dependency Management
+- Scoped Renovate automerge catch-all rule to explicit managers (terraform, helmv3, kubernetes, docker-compose) to prevent accidental automerge of GitHub Actions
+
+### Fixed
+
+#### CI/CD Workflows
+- Fixed `validate.yml` and `release.yml` marketplace.json validation — field paths now match marketplace format (`plugins[0].version`, `plugins[0].description`, etc.)
+- Replaced deprecated `actions/create-release` (archived action) with `gh release create` CLI in `release.yml`
+- SHA-pinned `hashicorp/setup-terraform` in `validate.yml` — floating `@v4.0.0` tag was causing the workflow's own security check to fail
+- Removed unused `actions/setup-node` step from publish-marketplace job
+
+#### Documentation
+- Fixed dead Discord `#` placeholder link in README — replaced with real URL
+- Added `QUICKSTART.md`, `INSTALLATION.md`, and `VSCODE_INTEGRATION.md` to README navigation and repository structure table
+- Fixed hardcoded `v1.0.0` examples in CHANGELOG release checklist — replaced with `vX.Y.Z` placeholder
+- Fixed Argo CD example Application `path:` fields — were pointing at Flux monorepo paths instead of Argo CD-appropriate paths
+- Fixed Azure workload-identity `main.tf` — added `required_providers` block with minimum `azurerm >= 3.87.0`
+
+### Changed
+
+- README repositioned as handbook-first — skill layer described as optional, not the primary product
+- Updated README repository structure tree to show real example files rather than `README.md`-only entries
+- Trimmed VSCode install detail from README to a single pointer to VSCODE_INTEGRATION.md — install story now lives in one place
+- Marketplace distribution: personal marketplace now named `platform-skills` (was `platform-skills-marketplace`)
+- Owner contact updated to personal email
+- All CLI command references updated: binary is `claude`, subcommand is `claude plugin` (not `claude-code skill`)
+
+## [1.0.0] - 2026-04-02
+
+Initial release of Platform Skills - A comprehensive Claude Agent Skill for platform engineering across 8 domains: Kubernetes, OpenShift, Argo CD, Flux CD, AWS, Azure, Terraform, and GitHub Actions.
+
+### Added
+
+#### Automation & CI/CD
+- GitHub Actions workflow for automated releases (`.github/workflows/release.yml`)
+  - Version validation and consistency checks
+  - Quality checks (markdown, YAML, Terraform, security)
+  - Automatic GitHub Release creation
+  - Marketplace publication preparation
+- GitHub Actions workflow for continuous validation (`.github/workflows/validate.yml`)
+  - Repository structure validation
+  - Markdown linting and link checking
+  - YAML and Kubernetes manifest validation
+  - Terraform format and validation checks
+  - Security scanning for secrets and action pinning
+- Renovate configuration for automated dependency updates (`renovate.json`)
+  - GitHub Actions SHA pinning with automatic updates
+  - Terraform provider version management
+  - Helm chart version tracking
+  - Container image update monitoring
+  - Security vulnerability alerts
+- Consolidated release process documentation in CONTRIBUTING.md
+- Removed redundant internal documentation (QUALITY_ASSURANCE.md, WORKFLOWS_SUMMARY.md)
+- Cleaned up experimental files for production release
+- Clarified distribution model: GitHub repository as primary distribution
+- Fixed README structure (removed duplicate Installation headers)
+- Updated marketplace.json with accurate repository URL and description
+
+#### Core Features
+- Initial release of Platform Skills
+- Core skill definition in SKILL.md with activation triggers and troubleshooting framework
+- GETTING_STARTED.md for new user onboarding
+- Reference guides for 8 domains:
+  - Platform Operating Model - Cross-cutting architecture and ownership patterns
+  - Kubernetes - Cluster baselines, workload patterns, and policy defaults
+  - OpenShift - Routes, SCC-aware workload design, operators, and tenancy
+  - Argo CD - Projects, app-of-apps, ApplicationSet patterns, and promotion flows
+  - Flux CD - GitOps reconciliation and repository structure patterns
+  - AWS - Account model, EKS, IAM, and cloud foundations
+  - Azure - Subscription model, AKS, RBAC, and resource management
+  - Terraform - Module architecture, state management, and validation
+  - GitHub Actions - Workflow security, reusability, and promotion patterns
+- Working examples for all 8 domains:
+  - Kubernetes: Namespace baselines, deployment patterns, network policy, pod disruption budgets
+  - OpenShift: Routes, quotas, and platform-specific security adaptation
+  - Argo CD: App-of-apps root application manifest
+  - Flux CD: Complete monorepo structure with production and staging environments
+  - AWS: IAM, VPC, EKS patterns
+  - Azure: AKS, workload identity
+  - Terraform: Production EKS module, multi-environment structures
+  - GitHub Actions: Complete CI/CD pipelines, Flux sync validation, container builds
+- Comprehensive README with installation and usage instructions
+- Contributing guidelines for community participation
+- Skill development guide (CLAUDE.md) with philosophy and patterns
+- Apache-2.0 license with NOTICE file
+- Claude Code marketplace integration (dual distribution: marketplace + local install)
+
+### Core Principles Established
+- Production-first mindset with blast radius awareness
+- Root-cause analysis over symptom treatment
+- Explicit rollback plans for all risky operations
+- Security by default with least-privilege patterns
+- Progressive disclosure from quick answers to deep dives
+
+### Problem Classification Framework
+- Kubernetes: Baseline standards, workload patterns, security controls, operational consistency
+- OpenShift: Platform-specific constraints, GitOps integration, security and tenancy, day-2 operations
+- Argo CD: Repository patterns, reconciliation model, promotion model, safety rules
+- Flux CD: Source, Artifact, Reconciliation, Chart Rendering, Runtime issues
+- AWS: Access/Auth, Network, Service-Specific, Cost, Compliance
+- Azure: Access/Auth, Network, Service-Specific, Cost, Compliance
+- Terraform: State Conflicts, Plan Failures, Apply Failures, Drift, Module Design
+- GitHub Actions: Workflow Syntax, Permissions, Performance, Security, Reliability
+
+### Troubleshooting Structure
+- Symptom identification
+- Evidence collection commands
+- Hypothesis formation
+- Diagnostic validation
+- Specific fix with justification
+- Verification steps
+- Prevention strategies
+- Rollback procedures
+
+### Best Practices Documented
+- Kubernetes: Platform baselines, workload patterns, security policies, operational rules
+- OpenShift: Route patterns, SCC compatibility, operator usage, tenant isolation
+- Argo CD: App-of-apps design, ApplicationSet patterns, sync control, promotion flows
+- Flux CD: Reconciliation patterns, repository structures, multi-tenancy, progressive delivery
+- AWS: IAM least privilege, tagging standards, EKS patterns, OIDC federation
+- Azure: Managed identities, policy enforcement, AKS configuration, workload identity
+- Terraform: Module conventions, state isolation, validation pipelines, testing strategies
+- GitHub Actions: Security controls, reusable workflows, OIDC authentication, SHA-pinned actions
+
+### Quality & Security Improvements
+- Fixed workflow validation subshell issues - error counts now properly propagate
+- Made Terraform validation blocking in release workflow
+- SHA-pinned all GitHub Actions in examples (no mutable @v3/@v4 tags)
+- Fixed tflint_version from "latest" to specific version (v0.50.3)
+- Fixed malformed nested Markdown in contribution guidelines
+- Updated all reference files to be reconciler-agnostic (supports both Flux CD and Argo CD)
+- Fixed Argo CD example paths to reference existing repository structure
+- Clarified dual distribution model: Claude marketplace (primary) + local installation (customization)
+
+### Roadmap Items Completed
+- ✅ Added Argo CD patterns alongside Flux CD
+- ✅ Added Kubernetes platform baseline patterns
+- ✅ Added OpenShift operating patterns
+
+---
+
+## Release Process
+
+### Version Numbering
+
+- **Major (X.0.0)**: Breaking changes to skill interface or structure
+- **Minor (1.X.0)**: New patterns, reference guides, or significant enhancements
+- **Patch (1.0.X)**: Bug fixes, clarifications, or minor updates
+
+### What Warrants a Release
+
+**Major Release:**
+- Restructuring of core SKILL.md that changes skill behavior
+- Breaking changes to reference file structure
+- Removal of deprecated patterns
+
+**Minor Release:**
+- New reference guides (e.g., adding GCP patterns)
+- Significant new troubleshooting sections
+- New best practice patterns
+- Tool version updates requiring new approaches
+
+**Patch Release:**
+- Typo fixes and clarifications
+- Broken link fixes
+- Command syntax updates
+- Minor example improvements
+
+### Release Checklist
+
+Before releasing:
+
+- [ ] Update version in `.claude-plugin/marketplace.json`
+- [ ] Update this CHANGELOG with release notes
+- [ ] Verify all examples work with current tool versions
+- [ ] Test skill activation in Claude Code
+- [ ] Review all external links
+- [ ] Tag release in git: `git tag -a vX.Y.Z -m "Release vX.Y.Z"`
+- [ ] Push tag: `git push origin vX.Y.Z`
+- [ ] Create GitHub release with changelog excerpt
+- [ ] Update marketplace if applicable
+
+---
+
+## Tool Version Compatibility
+
+### Current Testing Matrix
+
+| Tool | Version | Last Verified |
+|------|---------|---------------|
+| Flux CD | 2.2+ | 2026-04-02 |
+| Terraform | 1.5+ | 2026-04-02 |
+| AWS CLI | 2.x | 2026-04-02 |
+| Azure CLI | 2.50+ | 2026-04-02 |
+| kubectl | 1.28+ | 2026-04-02 |
+| Helm | 3.12+ | 2026-04-02 |
+
+### Deprecation Notices
+
+None currently.
+
+---
+
+## Migration Guides
+
+### Upgrading from Pre-1.0
+
+N/A - Initial release
+
+---
+
+## Contributors
+
+Thank you to all contributors who helped build Platform Skills:
+
+- [@nitinjain999](https://github.com/nitinjain999) - Initial skill design and implementation
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) to join this list!
+
+---
+
+## Links
+
+- [Repository](https://github.com/nitinjain999/platform-skills)
+- [Issues](https://github.com/nitinjain999/platform-skills/issues)
+- [Discussions](https://github.com/nitinjain999/platform-skills/discussions)
+- [Claude Code Marketplace](https://claude.ai/marketplace/skills)

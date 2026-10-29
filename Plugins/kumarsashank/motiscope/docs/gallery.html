@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gallery — built with motiscope</title>
+<meta name="description" content="Real animations recreated with motiscope — with the full workflow shown. Source recording, raw analysis, and output for every build.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%A1%3C/text%3E%3C/svg%3E">
+<meta property="og:site_name" content="motiscope">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Gallery — built with motiscope">
+<meta property="og:description" content="Real animations recreated as code, with the whole workflow shown: the source recording, the raw unedited analysis, the output, and an honest note on what we got wrong.">
+<meta property="og:url" content="https://kumarsashank.github.io/motiscope/gallery.html">
+<meta property="og:image" content="https://kumarsashank.github.io/motiscope/og/gallery.png">
+<meta property="og:image:type" content="image/png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="Gallery of animations recreated with motiscope, each showing its full workflow.">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="Gallery — built with motiscope">
+<meta name="twitter:description" content="Real animations recreated as code, with the whole workflow shown: the source recording, the raw unedited analysis, the output, and an honest note on what we got wrong.">
+<meta name="twitter:image" content="https://kumarsashank.github.io/motiscope/og/gallery.png">
+<meta name="twitter:image:alt" content="Gallery of animations recreated with motiscope, each showing its full workflow.">
+<link rel="canonical" href="https://kumarsashank.github.io/motiscope/gallery.html">
+<style>
+  :root{--ground:#0a0c12;--panel:#10131c;--line:rgba(129,140,248,.14);--hair:rgba(129,140,248,.09);
+    --ink:#e7e9f2;--ink-dim:#9aa0b4;--ink-faint:#5c6380;--ind:#818cf8;--fuc:#e879f9;--cya:#22d3ee;--good:#34d399;--btn:#6366f1;
+    --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;--sans:system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;--maxw:900px}
+  @media (prefers-color-scheme: light){:root{--ground:#f6f7fb;--panel:#fff;--line:rgba(99,102,241,.16);--hair:rgba(99,102,241,.10);--ink:#14161f;--ink-dim:#4b5163;--ink-faint:#8b90a3;--ind:#6366f1;--fuc:#c026d3;--cya:#0891b2;--good:#059669}}
+  :root[data-theme="light"]{--ground:#f6f7fb;--panel:#fff;--line:rgba(99,102,241,.16);--hair:rgba(99,102,241,.10);--ink:#14161f;--ink-dim:#4b5163;--ink-faint:#8b90a3;--ind:#6366f1;--fuc:#c026d3;--cya:#0891b2;--good:#059669}
+  :root[data-theme="dark"]{--ground:#0a0c12;--panel:#10131c;--line:rgba(129,140,248,.14);--hair:rgba(129,140,248,.09);--ink:#e7e9f2;--ink-dim:#9aa0b4;--ink-faint:#5c6380;--ind:#818cf8;--fuc:#e879f9;--cya:#22d3ee;--good:#34d399}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--sans);line-height:1.6;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:var(--maxw);margin:0 auto;padding:0 24px}
+  a{color:var(--ind);text-decoration:none} a:hover{text-decoration:underline}
+  code{font-family:var(--mono);font-size:.86em}
+  .topbar{position:sticky;top:0;z-index:9;background:color-mix(in oklab,var(--ground) 88%,transparent);backdrop-filter:blur(8px);border-bottom:1px solid var(--hair)}
+  .topbar .wrap{display:flex;align-items:center;justify-content:space-between;height:54px;gap:16px}
+  .brandmark{font-family:var(--mono);font-weight:600;letter-spacing:.5px;font-size:15px;display:flex;align-items:center;gap:9px}
+  .dot{width:9px;height:9px;border-radius:50%;background:conic-gradient(from 0deg,var(--ind),var(--fuc),var(--cya),var(--ind));box-shadow:0 0 10px color-mix(in oklab,var(--fuc) 60%,transparent);animation:spin 6s linear infinite}
+  @keyframes spin{to{transform:rotate(360deg)}}
+  nav{display:flex;align-items:center;gap:18px} nav a{color:var(--ink-dim);font-size:14px} nav a:hover{color:var(--ink);text-decoration:none}
+  .toggle{font-family:var(--mono);font-size:12px;color:var(--ink-dim);background:var(--panel);border:1px solid var(--line);border-radius:7px;padding:6px 11px;cursor:pointer}
+  header{padding:48px 0 8px}
+  .eyebrow{font-family:var(--mono);font-size:12px;letter-spacing:2.5px;text-transform:uppercase;color:var(--fuc);margin:0 0 14px}
+  h1{font-size:clamp(30px,5vw,44px);margin:0 0 12px;letter-spacing:-.5px}
+  .lead{color:var(--ink-dim);font-size:18px;max-width:60ch;margin:0}
+  .promise{margin:26px 0 0;background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--cya);border-radius:10px;padding:16px 18px;font-size:14.5px;color:var(--ink-dim)}
+  .promise b{color:var(--ink)}
+  section{padding:44px 0;border-top:1px solid var(--hair)}
+  h2{font-size:22px;margin:0 0 6px} .sub{color:var(--ink-faint);font-family:var(--mono);font-size:12.5px;margin:0 0 20px}
+  .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:18px}
+  @media (max-width:640px){.grid{grid-template-columns:1fr}}
+  .ex{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
+  .ex .thumb{aspect-ratio:16/9;background:#0a0c12;display:grid;place-items:center;border-bottom:1px solid var(--hair);color:var(--ink-faint);font-family:var(--mono);font-size:12px;overflow:hidden}
+  a.ex{text-decoration:none} a.ex:hover{border-color:var(--ind)} a.ex:hover h3{color:var(--ind)}
+  .ex .body{padding:16px} .ex h3{margin:0 0 6px;font-size:16px} .ex p{margin:0;color:var(--ink-dim);font-size:13.5px}
+  .tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:12px}
+  .t{font-family:var(--mono);font-size:11px;padding:2px 8px;border-radius:5px;border:1px solid var(--line);color:var(--ink-faint)}
+  .t.t1{color:var(--good);border-color:color-mix(in oklab,var(--good) 40%,var(--line))}
+  .t.t2{color:var(--cya);border-color:color-mix(in oklab,var(--cya) 40%,var(--line))}
+  .t.t3{color:var(--fuc);border-color:color-mix(in oklab,var(--fuc) 40%,var(--line))}
+  .cta{display:inline-flex;gap:8px;align-items:center;font-weight:600;font-size:14px;padding:11px 18px;border-radius:9px;border:1px solid transparent;background:var(--btn);color:#fff}
+  .cta.ghost{background:var(--panel);color:var(--ink);border-color:var(--line)}
+  .ctas{display:flex;gap:12px;flex-wrap:wrap;margin-top:20px}
+  footer{padding:40px 0 64px;border-top:1px solid var(--hair);color:var(--ink-faint);font-family:var(--mono);font-size:12.5px}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important}}
+</style>
+</head>
+<body>
+<div class="topbar"><div class="wrap">
+  <a class="brandmark" href="index.html" style="color:var(--ink)"><span class="dot"></span>motiscope</a>
+  <nav>
+    <a href="index.html">Home</a>
+    <a href="how-it-works.html">How it works</a>
+    <a href="https://github.com/KumarSashank/motiscope/discussions">Community</a>
+    <a href="https://github.com/KumarSashank/motiscope">GitHub</a>
+    <button class="toggle" id="tg">&#9680; theme</button>
+  </nav>
+</div></div>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">gallery</div>
+    <h1>Built with motiscope.</h1>
+    <p class="lead">Real animations, recreated as code — <b>with the whole workflow shown</b>. The part people never share.</p>
+    <div class="promise">
+      <b>Every build shows the full chain:</b> the real source recording · motiscope's <b>raw, unedited</b> analysis (report + the frames it actually used) · the output code · and an honest note on what matched and what was tuned. If it got something wrong, we show it.
+    </div>
+  </header>
+
+  <section>
+    <h2>Featured builds</h2>
+    <p class="sub">Real recordings in, real code out.</p>
+
+    <div class="ex" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:0;align-items:stretch;margin-bottom:18px">
+      <a href="examples/parallax/" style="display:block;border-right:1px solid var(--hair)">
+        <img src="examples/parallax/scroll.gif" alt="scrolling the recreated parallax page: layers separate by depth and a train crosses the viaduct" style="width:100%;height:100%;object-fit:cover;min-height:230px;display:block">
+      </a>
+      <div class="body" style="display:flex;flex-direction:column;gap:14px">
+        <div>
+          <h3 style="font-size:19px;margin:0 0 6px">Parallax landscape — Beyond Limits</h3>
+          <p>Six layers, one scroll, <b>and a train</b>. One clip, two clocks: the parallax is <em>scroll</em>-driven (so the recording's seconds belong to whoever scrolled), while the train ran on a clock at a measured <b>1501&nbsp;px/s</b> &mdash; here it is <b>bound to your scroll</b> at the recording&rsquo;s own 3.58:1 ratio, so it reverses when you scroll back up. Ridgelines traced from the frames; layer speeds <b>0.72&times;</b> / <b>0.86&times;</b> reproduced at two scales. The sky, honestly, isn't recoverable.</p>
+        </div>
+        <div class="tags"><span class="t t1">parallax</span><span class="t t1">scroll-driven</span><span class="t t2">traced terrain</span><span class="t t2">moving train</span><span class="t t3">SVG layers</span></div>
+        <div class="ctas" style="margin-top:auto">
+          <a class="cta" href="examples/parallax/">Open live recreation &#8594;</a>
+          <a class="cta ghost" href="https://www.svgator.com/blog/website-animation-examples-and-effects/">Original on SVGator &#8599;</a>
+        </div>
+      </div>
+    </div>
+    <div class="ex" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:0;align-items:stretch;margin-bottom:18px">
+      <a href="examples/ambient/" style="display:grid;place-items:center;border-right:1px solid var(--hair);background:#0a0c12">
+        <img src="examples/ambient/compare.gif" alt="left: the original ambient geometric loop; right: the recreation with a new palette" style="width:100%;height:auto;display:block">
+      </a>
+      <div class="body" style="display:flex;flex-direction:column;gap:14px">
+        <div>
+          <h3 style="font-size:19px;margin:0 0 6px">Ambient geometric loop</h3>
+          <p><em>Left: original. Right: recreated.</em> Fifteen tiles spin, scroll and ripple on one shared <b>0.75s beat</b> — measured to &plusmn;0.02s across three independent tiles. The output is <b>14&nbsp;KB</b> of animated SVG, no JavaScript. Same shapes, same motion, <b>new palette</b>.</p>
+        </div>
+        <div class="tags"><span class="t t1">loop</span><span class="t t1">grid</span><span class="t t2">eased ticks</span><span class="t t3">animated SVG</span></div>
+        <div class="ctas" style="margin-top:auto">
+          <a class="cta" href="examples/ambient/">Open live recreation &#8594;</a>
+          <a class="cta ghost" href="https://www.svgator.com/blog/website-animation-examples-and-effects/">Original on SVGator &#8599;</a>
+        </div>
+      </div>
+    </div>
+    <div class="ex" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:0;align-items:stretch;margin-bottom:18px">
+      <div style="border-right:1px solid var(--hair);display:grid;place-items:center;background:#0a0c12">
+        <img src="examples/banana/compare.gif" alt="left: original tomato animation; right: banana recreated with motiscope" style="width:100%;height:auto;display:block">
+      </div>
+      <div class="body" style="display:flex;flex-direction:column;gap:14px">
+        <div>
+          <h3 style="font-size:19px;margin:0 0 6px">Wake-up loop — tomato → banana</h3>
+          <p><em>Left: original. Right: recreated.</em> A character sleeps in the dark, a light comes on, it wakes and waves. motiscope measured the 4.45s clock and each beat's easing — the <b>banana is an original character</b> built on that motion, as an 11&nbsp;KB animated SVG. <em>The timing transfers; the artwork doesn't have to.</em></p>
+        </div>
+        <div class="tags"><span class="t t1">loop</span><span class="t t1">character</span><span class="t t3">animated SVG</span></div>
+        <div class="ctas" style="margin-top:auto">
+          <a class="cta" href="https://github.com/KumarSashank/motiscope/tree/main/docs/examples/banana">View example →</a>
+          <a class="cta ghost" href="https://www.svgator.com/blog/website-animation-examples-and-effects/">Original on SVGator ↗</a>
+        </div>
+      </div>
+    </div>
+    <div class="ex" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:0;align-items:stretch">
+      <a href="examples/landing/" style="display:block;border-right:1px solid var(--hair)"><img src="examples/landing/source.gif" alt="a walkthrough of the Cadence landing page, pausing on each section" style="width:100%;height:100%;object-fit:cover;min-height:230px"></a>
+      <div class="body" style="display:flex;flex-direction:column;gap:14px">
+        <div>
+          <h3 style="font-size:19px;margin:0 0 6px">Cadence — a whole page, walked through</h3>
+          <p><b>Our page, our numbers.</b> A time-driven hero entrance, a scroll-zoom, a staggered feature reveal, a wipe and an FAQ — recorded as a walkthrough and measured back. <b>Every scroll boundary lands on the authored millisecond.</b> The staggered entrance under-reads and a dark footer reads as a fade; both are published with the reason. No third-party artwork.</p>
+        </div>
+        <div class="tags"><span class="t t1">sections exact</span><span class="t t1">scroll-zoom</span><span class="t t2">stagger</span><span class="t t3">entrance under-reads</span><span class="t">original</span></div>
+        <div class="ctas" style="margin-top:auto">
+          <a class="cta" href="examples/landing/">Read the case study &#8594;</a>
+          <a class="cta ghost" href="examples/landing/site.html">Open the live page &#8599;</a>
+        </div>
+      </div>
+    </div>
+    <div class="ex" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:0;align-items:stretch;margin-top:18px">
+      <a href="examples/alterfx/" style="display:block;border-right:1px solid var(--hair)"><img src="examples/alterfx/source.gif" alt="source recording of the Alterfx concept from Dribbble" style="width:100%;height:100%;object-fit:cover;min-height:230px"></a>
+      <div class="body" style="display:flex;flex-direction:column;gap:14px">
+        <div>
+          <h3 style="font-size:19px;margin:0 0 6px">Alterfx — a design-to-code study</h3>
+          <p>Hero, scroll-zoom into the phone, a staggered feature grid, sparkle transition and FAQ — rebuilt from a 10s screen recording. Timing from motiscope, photos by Imagen&nbsp;4, GSAP&nbsp;+&nbsp;ScrollTrigger. <b>The UI concept is not ours.</b> It is <a href="https://dribbble.com/shots/26592174-Landing-Page-Animation-for-AI-Video-Production-Platform">someone else&rsquo;s Dribbble shot</a>, credited on the page and here, published as a study rather than a product — not affiliated with the original designer.</p>
+        </div>
+        <div class="tags"><span class="t t1">scroll-zoom</span><span class="t t1">stagger</span><span class="t t2">sparkle wipe</span><span class="t t3">credited study</span><span class="t">GSAP</span></div>
+        <div class="ctas" style="margin-top:auto">
+          <a class="cta" href="examples/alterfx/">Open live recreation &#8594;</a>
+          <a class="cta ghost" href="https://dribbble.com/shots/26592174-Landing-Page-Animation-for-AI-Video-Production-Platform">Original on Dribbble &#8599;</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>What's recreatable</h2>
+    <p class="sub">We authored these four with known constants, recorded them, and measured them back. The error is published.</p>
+    <div class="promise" style="margin:0 0 22px">
+      <b>Ground truth, not a brochure.</b> These are our own animations, so the authored numbers aren't estimates — they're in the source. Two of the four are partly wrong, and both failures are the ones the docs already warned about. <a href="examples/basics/">Read the full comparison &#8594;</a>
+    </div>
+    <div class="grid">
+      <a class="ex" href="examples/basics/#hero-entrance" style="color:inherit">
+        <div class="thumb" style="padding:0"><img src="examples/basics/hero.gif" alt="a card fades in, rises and scales up" style="width:100%;height:100%;object-fit:cover;display:block"></div>
+        <div class="body"><h3>Hero entrance</h3><p>Authored 700ms <code>cubic-bezier(.16,1,.3,1)</code>. Measured 520ms, <b>ease-out</b>. The class is exact; the duration under-reads because a strong ease-out's tail is sub-pixel.</p>
+        <div class="tags"><span class="t t1">Tier 1</span><span class="t t3">−26% duration</span><span class="t">CSS</span></div></div></a>
+      <a class="ex" href="examples/basics/#staggered-grid" style="color:inherit">
+        <div class="thumb" style="padding:0"><img src="examples/basics/stagger.gif" alt="six cards animating in one after another" style="width:100%;height:100%;object-fit:cover;display:block"></div>
+        <div class="body"><h3>Staggered grid</h3><p>Authored <b>120ms</b> between cards. Measured <b>117ms</b> — within 2.5%, under a frame at 25fps. The direction it names is the dominant axis, not the whole truth.</p>
+        <div class="tags"><span class="t t1">Tier 1 · nails it</span><span class="t">CSS</span></div></div></a>
+      <a class="ex" href="examples/basics/#loader-loop" style="color:inherit">
+        <div class="thumb" style="padding:0"><img src="examples/basics/loop.gif" alt="a ring scaling and fading, over and over" style="width:100%;height:100%;object-fit:cover;display:block"></div>
+        <div class="body"><h3>Loader / loop</h3><p>Authored <b>1200ms</b>. Measured <b>1200ms</b> at conf 0.83 — but only with six cycles. Three cycles score 0.66 and are <em>rejected</em>. A rejected loop is an unproven one.</p>
+        <div class="tags"><span class="t t1">Tier 1 · exact</span><span class="t t3">needs ≥ ~4 cycles</span><span class="t">SVG</span></div></div></a>
+      <a class="ex" href="examples/basics/#scroll-reveal" style="color:inherit">
+        <div class="thumb" style="padding:0"><img src="examples/basics/scroll.gif" alt="a card fading and rising as the page scrolls" style="width:100%;height:100%;object-fit:cover;display:block"></div>
+        <div class="body"><h3>Scroll reveal</h3><p>There is <em>no duration</em> in the source. motiscope reports 1120ms <code>ease-out</code> — a perfect description of the recording, and useless as a description of the design.</p>
+        <div class="tags"><span class="t t2">Tier 2 · you add the trigger</span><span class="t">GSAP</span></div></div></a>
+    </div>
+  </section>
+
+  <section>
+    <h2>Share yours</h2>
+    <p class="sub">Recreated something? Add it — real source, raw analysis, output.</p>
+    <div class="ctas">
+      <a class="cta" href="https://github.com/KumarSashank/motiscope/issues/new?template=share-your-build.yml">Submit your build</a>
+      <a class="cta ghost" href="https://github.com/KumarSashank/motiscope/discussions">Show &amp; tell &#8599;</a>
+      <a class="cta ghost" href="https://github.com/KumarSashank/motiscope/tree/main/examples">Examples on GitHub &#8599;</a>
+    </div>
+  </section>
+
+  <footer>motiscope · MIT · <a href="https://github.com/KumarSashank/motiscope">github.com/KumarSashank/motiscope</a></footer>
+</div>
+<script>
+  (function(){var r=document.documentElement,b=document.getElementById('tg');
+   function c(){return r.dataset.theme||(matchMedia('(prefers-color-scheme: dark)').matches?'dark':'light')}
+   b.addEventListener('click',function(){r.dataset.theme=c()==='dark'?'light':'dark'})})();
+</script>
+</body>
+</html>

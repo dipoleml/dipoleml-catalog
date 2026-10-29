@@ -1,0 +1,73 @@
+---
+created: '2026-07-06'
+domain: git
+language: zh
+source: unknown
+status: published
+provenance:
+  evidence: "post-publication"
+tags:
+- github
+- api
+- credential
+- '401'
+- auth
+- pat
+title: GitHub API 401 后本地凭证查找顺序
+verification: metadata-normalized
+---
+## Problem
+
+调用 GitHub API 时收到 `{"message": "Bad credentials"}` 或 HTTP 401/403，第一反应是 token 无效要去问用户要新的。但本地往往已经有可用凭证，跳过检查会让用户白跑一趟。
+
+## Root Cause
+
+Agent 倾向于在外部寻找新资源（问用户要 PAT），而不是先检查本地已有资产。这是"资源获取"思维 vs "资源盘点"思维的偏差。
+
+## Solution
+
+**强制查找顺序（GitHub API 认证失败后必查）：**
+
+```bash
+# GitHub API 401 后本地凭证查找顺序
+cat ~/.git-credentials
+# 格式: https://<username>:<token>@github.com（占位符示例，非真实凭证）
+
+# 2. netrc
+cat ~/.netrc
+
+# 3. GitHub CLI
+gh auth status
+
+# 4. 环境变量
+echo $GITHUB_TOKEN
+
+# 5. git credential helper 配置
+git config --global --list | grep credential
+```
+
+**只有以上全部失败才让用户提供新 token。**
+
+**从 git-credentials 提取 token：**
+```bash
+grep -oP 'https://[^:]+:([^@]+)@' ~/.git-credentials | sed 's/https:\/\/[^:]\+://;s/@$//'
+```
+
+## Verification
+
+```bash
+git status --short | head -5
+git log --oneline -3
+```
+
+**Expected Output:**
+```
+# (status)
+# (recent)
+```
+
+## Related经验
+
+本教训与 `git-credentials-automation` 互补：后者解决 push/pull 时的交互式认证，本条解决 API 调用时的编程式认证。
+
+> English: [`lessons/en/github-401-credential-lookup.md`](../../lessons/en/github-401-credential-lookup.md)

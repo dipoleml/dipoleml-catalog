@@ -1,0 +1,16 @@
+{
+  "name": "ralph",
+  "displayName": "Ralph",
+  "version": "2.0.0",
+  "description": "Autonomous development loop with fresh context per iteration, Hat-lite builder/verifier system, task sets, and persistent memories",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Joaquimscosta"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/joaquimscosta/arkhe-claude-plugins",
+  "repository": "https://github.com/joaquimscosta/arkhe-claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,14 @@
+{
+  "_readme": "ContentForge MCP examples — ALL OPTIONAL (the pipeline runs with zero MCP servers; local file tracking is the fallback). This file holds the one local stdio/npx server ContentForge offers a command for, because the vendor of the service publishes it: DeepL (translation). Every other service is either an HTTP entry in '.mcp.json.connectors-reference' (Cowork-compatible; prefer those) or has no verified connector: ContentForge writes no command and no credentials setup for a community npm package. SECURITY NOTE: 'npx -y' downloads and executes remote code with your API keys in its environment. config/verified-npx-packages.json lists the only packages ContentForge offers a command for (name, expected npm publisher, vendor repository), and a weekly check confirms they still match.",
+  "_removed": "The former google-sheets and google-drive entries were removed in July 2026, and the stability-ai, nanobanana and imagenate entries in October 2026: those packages are published by third parties, not by the vendors of the services. Use the HTTP equivalents in '.mcp.json.connectors-reference' instead ('pipedream-google-sheets', 'pipedream-google-drive', the Composio equivalents, or 'fal-ai' / 'replicate' for image generation), or the Anthropic platform-level Google Drive integration in Cowork (Settings → Integrations).",
+  "mcpServers": {
+    "deepl": {
+      "command": "npx",
+      "args": ["-y", "deepl-mcp-server@1.3.14"],
+      "env": {
+        "DEEPL_API_KEY": "${DEEPL_API_KEY}"
+      },
+      "description": "Optional: DeepL translation, published by DeepL (github.com/DeepL/deepl-mcp-server). Claude Code only."
+    }
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "name": "audio-hooks",
+  "displayName": "Audio Hooks",
+  "version": "7.1.0",
+  "description": "Audio notifications + AI-controlled config for DipoleML, Cursor IDE, and Codex CLI events. 39 hook events across DipoleML, Cursor and Codex (30 registered on DipoleML) + 47 matcher variants, each with its own sound. Desktop toasts, TTS, webhooks, status line + per-subagent rows, rate-limit alerts. Auto-bridges to Cursor IDE 3.2.16+; native install via 'audio-hooks install --cursor' or 'audio-hooks install --codex'.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Chanmeng666"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/ChanMeng666/echook",
+  "repository": "https://github.com/ChanMeng666/echook",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

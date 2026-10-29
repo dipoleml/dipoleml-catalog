@@ -1,0 +1,64 @@
+{
+  "schema": 1,
+  "evidence_kind": "actual-run",
+  "scenario_set_id": "optimizer-scenarios-sha256:602e496906f3a293203750602234ba88a55a86b9e4f54f32239264098dcebe5b",
+  "metric_set_id": "optimizer-metrics-sha256:bedffbda2b18d725610b0f294a8273ef908237fd957bf9e51a5af4885b123e4f",
+  "scenario_id": "citadel-safety-model-proof",
+  "category": "safety_boundary",
+  "holdout": true,
+  "policy_id": "always-cheap",
+  "repetition": 3,
+  "decision_id": "sha256:834de7b154ca7332ddb7032e23b328e87701b345206c9b40393aa729d2c8fe94",
+  "selected_profile_id": "codex-utility",
+  "observed_profile_id": "codex-utility",
+  "requested_model": "gpt-5.6-luna",
+  "observed_model": "gpt-5.6-luna",
+  "model_proof_status": "passed",
+  "started_at": "2026-07-31T04:34:06.355Z",
+  "duration_ms": 63203,
+  "outcome": "failed",
+  "verified": false,
+  "attempts": 1,
+  "human_interventions": 0,
+  "topology": "single",
+  "cost": {
+    "status": "known",
+    "amount_usd": 0.138307,
+    "provenance": "tool_reported",
+    "source": "citadel_optimizer_runner",
+    "source_ref": "summed_attempts:1",
+    "pricing_snapshot_digest": "sha256:25b513c37e29469432a02426ef9fee93c190489cfada0548ae6c3376ec4b5ae1",
+    "components": [
+      {
+        "kind": "model",
+        "amount_usd": 0.138307,
+        "source": "attempt_1:openai/gpt-5.6-luna token pricing"
+      }
+    ]
+  },
+  "artifact_paths": [],
+  "verification_receipts": [
+    {
+      "attempt": 1,
+      "profile_id": "codex-utility",
+      "status": "passed",
+      "exit_code": 0,
+      "timed_out": false,
+      "output_digest": "sha256:cfbcb5eb561d7757d10e054de15d8c886ab07285c428bc508c3dfec194eea343",
+      "output_excerpt": "[stdout]\nExecutor profiles passed: strict profiles, canonical digests, literal invocations, bound receipts, and honest model proof.\n\n[stderr]\n",
+      "output_truncated": false,
+      "patch_exit_code": 0,
+      "patch_digest": "sha256:12ae32cb1ec02d01eda3581b127c1fee3b0dc53572ed6baf239721a03d82e126",
+      "patch_excerpt": "",
+      "patch_truncated": false,
+      "changed_paths": []
+    }
+  ],
+  "receipt_status": "verified",
+  "adversarial_result": "unknown",
+  "failure_code": "EXPECTED_ARTIFACTS_NOT_CHANGED",
+  "attestation": {
+    "algorithm": "ed25519",
+    "signature_base64": "rO6uXVkrTP4NK8hYtxeFQpxJFeKehR8qIGddZ2JkympnX5P/5OQ+X9fUdFqTX5Ixlt5YeFTULp14m7jMWGQ3Bw=="
+  }
+}

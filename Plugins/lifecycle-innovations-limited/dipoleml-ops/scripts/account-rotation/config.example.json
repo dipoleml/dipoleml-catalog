@@ -1,0 +1,50 @@
+{
+  "_comment": "Copy to config.json and add your Claude Max accounts. The rotator does NOT ship with any accounts — you opt in by populating this file via /ops:rotate add-account or by editing it directly. See README.md for details.",
+  "accounts": [],
+  "_account_schema_example": {
+    "email": "user@example.com",
+    "label": "optional-disambiguator",
+    "orgName": "Required Workspace or Personal Account Name",
+    "orgUuid": "required-organization-uuid",
+    "dashlaneTokenPath": "dl://claude-max-user@example.com/password",
+    "dashlaneGooglePath": null,
+    "googleSmsPhone": "+1234567890",
+    "automatedCredentialMutation": false,
+    "extraUsageEnabled": false,
+    "capacityMultiplier": 1.0
+  },
+  "rateLimits": {
+    "tokensPerWindow": 220000,
+    "windowHours": 5,
+    "messagesPerWindow": 900,
+    "weeklyCapMultiplier": 1.0,
+    "extraUsageSafetyMargin": 0.75,
+    "note": "Max 20x defaults: ~220K tokens / ~900 messages per 5h window. extraUsageSafetyMargin: accounts with paid overage enabled rotate at 75% of their threshold to avoid incurring charges."
+  },
+  "magicLinkGmailAccount": "shared-inbox@example.com",
+  "_magicLinkGmailAccount_note": "Single Gmail inbox that ALL accounts' Claude magic-link login emails forward to. The rotator polls only this inbox (via gog --account) for every account's link, then disambiguates by target email. Leave unset to poll each account's own mailbox. Real value belongs in the gitignored override config or CLAUDE_ROT_GMAIL_ACCOUNT / GOG_ACCOUNT env, never here.",
+  "toolUseThreshold": 800,
+  "maxHoursPerAccount": 4,
+  "autoRotate": true,
+  "refreshSession": false,
+  "notifyOnRotation": true,
+  "rotation": {
+    "_comment": "Optional rotation tunables. Multi-account seats and OAuth seat management run through CLIProxyAPI; this block holds only the rotator's own settings. A pre-existing \"crs\" block from an older install is still read.",
+    "fileVaultPath": "~/.claude/.credentials.json",
+    "stateDir": null,
+    "_stateDir_note": "Optional absolute path (no ~ expansion) for reconciler state files. Defaults to <plugin-data-dir>/account-rotation if unset.",
+    "proxyEnabled": false,
+    "proxyProvider": "2captcha,brightdata",
+    "_proxy_note": "Per-account egress proxy for the captcha cascade. Set CLAUDE_ROTATION_PROXY_ENABLED=1 with EFG_PROXY_URL or BRIGHTDATA_PROXY_URL, or configure providers here. Credentials never live in this file.",
+    "enableMagicLinkRecovery": false,
+    "_enableMagicLinkRecovery_note": "Deprecated and fail-closed. Unattended reauthentication is disabled; use the signed staged-enrollment workflow. No environment variable re-enables direct auth writes.",
+    "magicLinkRetryCooldownMs": 21600000,
+    "_magicLinkRetryCooldownMs_note": "Minimum time between unattended retry attempts for the SAME account, success or failure, so a persistently-broken account isn't retried in a tight loop (default 6h).",
+    "magicLinkDispatch": "disabled",
+    "_magicLinkDispatch_note": "Retained for config compatibility only. The autoloop never dispatches authentication; staged enrollment is required.",
+    "magicLinkHeaded": true,
+    "_magicLinkHeaded_note": "Pass CLAUDE_ROT_HEADED=1 to the rotate child (default true). Interactive captcha walls need a headed browser on CLAUDE_DESKTOP_DISPLAY. Override with $CLAUDE_ROT_HEADED=0 only for pure headless experiments.",
+    "magicLinkRotateTimeoutMs": 1200000,
+    "_magicLinkRotateTimeoutMs_note": "Wall-clock ms before the autoloop kills a stuck rotate child (default 20m). Override with $CLAUDE_REAUTH_TIMEOUT_MS. Captcha cascade (visual + desktop-act) needs more room than a pure token refresh."
+  }
+}

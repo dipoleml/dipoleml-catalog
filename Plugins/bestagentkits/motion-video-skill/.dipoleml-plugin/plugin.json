@@ -1,0 +1,16 @@
+{
+  "name": "motion-video-skill",
+  "displayName": "Motion Video Skill",
+  "version": "1.0.0",
+  "description": "Beat-synced 1080p motion-graphic videos in HyperFrames (HTML + GSAP) with an AI voice-over, karaoke captions, SFX and generated music.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Bestagentkits"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/bestagentkits/motion-video-skill",
+  "repository": "https://github.com/bestagentkits/motion-video-skill",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

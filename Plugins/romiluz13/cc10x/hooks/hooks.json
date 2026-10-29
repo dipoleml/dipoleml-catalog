@@ -1,0 +1,113 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact|fork",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh \"${CLAUDE_PLUGIN_ROOT}/scripts/cc10x_preflight.sh\"",
+            "timeout": 5,
+            "statusMessage": "CC10X Python preflight"
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/cc10x_sessionstart_context.py\"",
+            "timeout": 10,
+            "statusMessage": "CC10X workflow resume context"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/cc10x_posttooluse_artifact_guard.py\"",
+            "timeout": 10,
+            "statusMessage": "CC10X workflow artifact audit"
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/cc10x_event_logger.py\" postcompact",
+            "timeout": 10,
+            "statusMessage": "CC10X compaction event capture"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/cc10x_event_logger.py\" subagent_stop",
+            "timeout": 10,
+            "statusMessage": "CC10X subagent contract audit"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/cc10x_state_persist.py\" precompact",
+            "timeout": 5,
+            "statusMessage": "CC10X pre-compaction state snapshot"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/cc10x_state_persist.py\" stop",
+            "timeout": 3,
+            "statusMessage": "CC10X session state persistence"
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/cc10x_event_logger.py\" stop_failure",
+            "timeout": 3,
+            "async": true,
+            "statusMessage": "CC10X failure event logging"
+          }
+        ]
+      }
+    ],
+    "InstructionsLoaded": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/cc10x_event_logger.py\" instructions_loaded",
+            "timeout": 5,
+            "async": true,
+            "statusMessage": "CC10X instruction audit"
+          }
+        ]
+      }
+    ]
+  },
+  "modules": [
+    "./register.tsx"
+  ]
+}

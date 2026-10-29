@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "scenario_id": "citadel-short-executor-proof-v2-claude",
+  "repository": "https://github.com/SethGammon/Citadel.git",
+  "pinned_ref": "4a02265c206d992b556fc1b38c3c9487ced880d8",
+  "objective_source": "scenario.json",
+  "verification_command": ["node", "scripts/test-executor-profiles.js"],
+  "required_changed_paths": ["scripts/test-executor-profiles.js"],
+  "requested_runtime": "claude",
+  "requested_model": "claude-opus-5",
+  "topology": "direct",
+  "planned_tools": ["filesystem", "shell"],
+  "fallbacks": [],
+  "claim_boundary": "prospective integration only; not performance or savings"
+}

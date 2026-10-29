@@ -1,0 +1,95 @@
+# first-pass
+
+Claude Code does not load this file on its own here: a CLAUDE.md at a plugin root fails `claude plugin validate --strict`. The breaker and the working rules read it; read it before changing this repo.
+
+<!-- first-pass:project:start (written once by the setup-first-pass skill; yours to edit, re-runs keep it) -->
+
+### This repo (first-pass)
+
+- **What it is:** first-pass itself: a Claude Code plugin (`.claude-plugin/`, `hooks/hooks.json`,
+  `scripts/`) and a skills pack (`skills/`) that other tools install with `npx skills`. The
+  setup skill's assets (`skills/setup-first-pass/assets/`) are the rules block, profile block,
+  default words block, machine block, workspace block, project block, INVARIANTS template and the breaker
+  agent. The `habit-words` skill reads the user's own session transcripts
+  (`scripts/lib/words.mjs`). The `sharpen` skill runs only when the user types it
+  (`disable-model-invocation`) and rewrites the prompt given with it; its gate
+  (`scripts/lib/sharpen-gate.mjs`) holds back edits, shell commands, subagents, MCP tools,
+  publishing, scheduling and other skills until the rewrite is shown. The `review` skill,
+  also typed by hand, reviews the user's own branch (nothing typed) or someone else's PRs
+  through the breaker, never posts to GitHub or the ticket, runs a fork's or an outside
+  author's code only on a yes, and fixes and pushes only what the user picks after the
+  report. The `jev` skill, typed by hand, sets up the optional Jev judge (`scripts/lib/jev.mjs`,
+  `cli.mjs jev`), the plugin's only network call: `ship-check` asks TypeSafe's model about
+  review findings, and code, not the model, holds the policy (it can add harm, never clear
+  it; a failed or unsure answer leaves the call to the rules). The `hulk` skill, typed by
+  hand, lifts the rules' "Stay in the task's scope" for one task, so reviews and
+  `fix-the-class` look across the whole codebase again. The `quick` skill, typed by hand, turns on
+  quick mode until `/first-pass:quick off`: the checks a change can affect stand in for CI's full
+  checks, and the rest of the suite is left for a full run. `cli.mjs parts` (`scripts/lib/parts.mjs`)
+  runs a repo's CI checks on this machine from the recipe in its `.first-pass/parts.json`: stages
+  in order, a stage's parts side by side, each through the main folder's `partWrapper` when it
+  has one; `--tests` gives a part whose steps take `{{tests}}` only chosen test files, `--no-tests`
+  runs its other steps without them, and neither run counts as its full pass; `ship-check` step 4 runs it and setup step 5 drafts the recipe.
+- **CI's checks** (`.github/workflows/validate.yml`, job `validate`): `claude plugin validate
+  --strict .` and on `.claude-plugin/plugin.json` (Claude Code pinned to 2.1.280), skill names
+  match folders, the skills the rules name (`premortem`, `ship-check`, `fix-the-class`,
+  `setup-first-pass`, `habit-words`, `sharpen`, `review`, `jev`, `hulk`, `quick`) and the breaker asset exist, every
+  block has one start and one end marker, the rules, profile, words and machine block versions equal
+  `plugin.json`'s, the hooks point at scripts that exist, `node --test test/*.test.mjs`, and
+  the private-name check.
+- **Run one test file:** `node --test test/lib.test.mjs` (also `hooks.test.mjs`,
+  `setup.test.mjs`, `machine.test.mjs`, `words.test.mjs`, `sharpen.test.mjs`, `jev.test.mjs`, `parts.test.mjs`).
+- **Real tests** (the layer that catches what mocks miss): `test/hooks.test.mjs` runs
+  `scripts/hooks.mjs` the way Claude Code does, against throwaway main folders in the system
+  temp folder; `test/jev.test.mjs` runs the judge and `cli.mjs jev` against a fake Jev
+  server on 127.0.0.1 (never the real one); `test/parts.test.mjs` runs the parts runner on
+  throwaway git checkouts with real processes, servers and ports (from 41000). Before a release, an end-to-end run: `claude -p "/first-pass:setup-first-pass"`
+  with `--plugin-dir .` on a fake main folder, then fresh sessions that check the rules load,
+  a bridged hook denies, and the done check fires once.
+- **What they need running, and how to start and stop it:** nothing; the tests create and
+  leave temp folders only.
+- **Test limits** (what never to run here, and how much at once): tests only ever write
+  under the system temp folder; never point one at a real workspace, or at the real
+  `~/.claude` (the tests set `CLAUDE_CONFIG_DIR` to a temp folder). The parts tests take ports
+  from 41000 to 49010 only, with lock files beside real runs' in `first-pass-parts/ports`.
+- **Heavy runs** (databases, browsers, media tools, builds): none.
+- **Local runs that reach real people** (what a local server, worker or test run sends for real, and the empty keys or switches that stop it): none found: the plugin sends nothing; the Jev tests use a fake server on 127.0.0.1, and `jev test` and `jev ask` reach TypeSafe only once the owner has set up a key.
+- **Monitoring** (where a swallowed error must end up): a failing bridged hook becomes a
+  `systemMessage` the user sees (`scripts/lib/merge.mjs`); a crash in first-pass itself is a
+  Claude Code hook error.
+- **Words live in:** `README.md`, every `skills/*/SKILL.md`, and the assets, which are loaded
+  into every user's sessions once setup writes them.
+- **The same job in two places** (a change to one needs the other): the timeouts in
+  `hooks/hooks.json` and `EVENT_LIMITS` in `scripts/lib/bridge.mjs` (a test enforces it); the
+  block versions in the assets and `plugin.json`'s version (CI enforces it); the setup skill's
+  steps and `scripts/cli.mjs`'s subcommands; the survey's repo finder and the drift check's
+  (`scripts/lib/repos.mjs`, shared); the words marker the `habit-words` skill writes and
+  `WORDS_MARKER` in `scripts/lib/drift.mjs`; the default habit words and their checks in
+  `skills/setup-first-pass/assets/words-block.md` and the table in `skills/sharpen/SKILL.md`;
+  the PreToolUse matchers in `hooks/hooks.json` (a named list and `mcp__.*`) and
+  `GATED_TOOLS`/`isGated` in `scripts/lib/sharpen-gate.mjs` (a test enforces it), and
+  `gateOnly` in `scripts/hooks.mjs`, which keeps repo hooks off the tools only the gate needs;
+  `SHELL_TOOLS` in `scripts/lib/shell-edits.mjs` and the PreToolUse, PostToolUse and
+  PostToolUseFailure matchers in `hooks/hooks.json` (a test enforces it); what the breaker
+  rates high and its Worst case words (`skills/setup-first-pass/assets/breaker.md`), what is
+  fixed right away in the rules block and `skills/ship-check/SKILL.md`, and `FIX_NOW` in
+  `scripts/lib/jev.mjs` (a test enforces it); the word
+  **Sharpened** in `skills/sharpen/SKILL.md` step 5 and `SHOWN` in the gate; the transcript row shapes `typedText` in
+  `scripts/lib/words.mjs` knows and what Claude Code writes (a new row kind is silently left
+  out or wrongly kept); the recipe fields `loadRecipe` in `scripts/lib/parts.mjs` accepts and
+  the list in setup step 5, `VARS` there and the placeholders setup step 5 names, and
+  `WRAPPER_VARS` and setup step 4's `partWrapper` placeholders.
+- **Extra pre-mortem cases** (this repo's own ways to run twice, end, or scale): a plugin
+  update with an unchanged version is not picked up by `claude plugin update`, so every
+  release bumps `plugin.json`; a change to a managed block reaches a user only when they
+  re-run setup; users are on Windows, macOS and Linux (paths, shells, `\r\n`, and process trees: the
+  parts runner stops one with `taskkill /T` on Windows and by process group elsewhere); the Jev judge
+  is an outside call on every finding asked about (a deadline, bounded retries, and a
+  fallback to the rules on any failure).
+- **Owner rules:** never name the private projects first-pass came from (CI checks); the
+  GitHub account is the owner's personal one, and nothing is pushed before the owner creates
+  the repo.
+- **Invariants:** `INVARIANTS.md`
+
+<!-- first-pass:project:end -->
+

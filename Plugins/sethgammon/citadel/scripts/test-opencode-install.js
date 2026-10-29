@@ -1,0 +1,837 @@
+#!/usr/bin/env node
+
+'use strict';
+
+// Verifies the opencode installer: the plugin stub, the opencode.json merge, and
+// the agent projection. opencode hard-fails on invalid config, so the merge is
+// asserted key by key against opencode's real schemas.
+
+const assert = require('assert');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { spawnSync } = require('child_process');
+
+const CITADEL_ROOT = path.resolve(__dirname, '..');
+const {
+  MCP_SERVER_NAME,
+  PLUGIN_STUB_NAME,
+  citadelMcpServer,
+  citadelSkillNames,
+  citadelSkillsPath,
+  installOpencodePlugin,
+  mergeOpencodeConfig,
+  renderOpenCodeSkill,
+  renderPluginStub,
+  renderSkillCommand,
+} = require(path.join(CITADEL_ROOT, 'runtimes', 'opencode', 'generators', 'install-plugin'));
+const { ensureProjectDelegate, withGuidanceOwner } = require(path.join(CITADEL_ROOT, 'core', 'runtime', 'install-contract'));
+const {
+  projectOpencodeAgents,
+  renderOpencodeAgent,
+  yamlString,
+} = require(path.join(CITADEL_ROOT, 'runtimes', 'opencode', 'generators', 'project-agents'));
+const {
+  OPENCODE_GUIDANCE_TARGET,
+  renderOpencodeGuidance,
+} = require(path.join(CITADEL_ROOT, 'runtimes', 'opencode', 'guidance', 'render'));
+const { projectOpencodeGuidance } = require(path.join(CITADEL_ROOT, 'runtimes', 'opencode', 'generators', 'project-guidance'));
+const DELEGATE_SCRIPTS = require(path.join(CITADEL_ROOT, 'hooks_src', 'delegate-scripts.json'));
+const CANONICAL_ROUTE = /\bnode(?:\.exe)?\s+(["']?)scripts[\\/]([A-Za-z0-9_.-]+\.(?:js|cjs))\1/g;
+const TARGET_OR_MAINTAINER_SCRIPTS = new Set([
+  'generate-routing.js',
+  'skill-lint.js',
+  'test-all.js',
+  'test-deploy-steward.js',
+  'test-routing-sync.js',
+  'test-telemetry-otlp.js',
+]);
+
+// Deliberately bare. An earlier version of this fixture hand-created AGENTS.md
+// and .claude/skills/do/SKILL.md and then asserted that the readiness check
+// passed — which encoded the assumption instead of testing it, and hid the fact
+// that a correct install produces neither. Anything the installer does not write
+// must not appear here.
+function scratchProject() {
+  return fs.mkdtempSync(path.join(os.tmpdir(), 'citadel-oc-install-'));
+}
+
+// A project that additionally has the things Citadel does not project, for the
+// case where every advisory check should also pass.
+function furnishedProject() {
+  const root = scratchProject();
+  fs.mkdirSync(path.join(root, '.claude', 'skills', 'do'), { recursive: true });
+  fs.writeFileSync(path.join(root, '.claude', 'skills', 'do', 'SKILL.md'), '---\nname: do\ndescription: d\n---\nbody\n');
+  fs.writeFileSync(path.join(root, 'AGENTS.md'), '# Demo\n');
+  return root;
+}
+
+// opencode's McpLocalConfig is a plain Struct: `command` is one argv array, there
+// is no `args` key, env is `environment`. An unknown key fails the decode and
+// opencode hard-fails at startup, so this is asserted precisely.
+function testMcpShape() {
+  const server = citadelMcpServer('/citadel', '/project');
+  assert.deepStrictEqual(Object.keys(server).sort(), ['command', 'enabled', 'environment', 'type']);
+  assert.equal(server.type, 'local');
+  assert(Array.isArray(server.command), 'command must be an argv array');
+  assert.equal(server.command[0], 'node');
+  assert(!('args' in server), 'opencode has no args key; command carries argv');
+  assert(!('env' in server), 'opencode uses environment, not env');
+  assert.equal(server.environment.CITADEL_RUNTIME, 'opencode');
+}
+
+// The config file is user-owned. Every key Citadel does not own must survive.
+function testMergePreservesUserConfig() {
+  const existing = {
+    $schema: 'https://opencode.ai/config.json',
+    theme: 'tokyonight',
+    model: 'anthropic/claude-opus-5',
+    mcp: { 'user-server': { type: 'local', command: ['echo', 'hi'] } },
+    permission: { edit: 'ask' },
+  };
+  const { config, changes } = mergeOpencodeConfig(existing, { citadelRoot: '/citadel', projectRoot: '/project' });
+
+  assert.equal(config.theme, 'tokyonight');
+  assert.equal(config.model, 'anthropic/claude-opus-5');
+  assert.deepStrictEqual(config.permission, { edit: 'ask' });
+  assert.deepStrictEqual(config.mcp['user-server'], { type: 'local', command: ['echo', 'hi'] });
+  assert(config.mcp[MCP_SERVER_NAME], 'the Citadel MCP server must be added');
+  assert.deepStrictEqual(changes, [`set mcp.${MCP_SERVER_NAME}`, 'added skills.paths entry for Citadel skills']);
+
+  // skills.paths is user-owned too: Citadel appends, never replaces.
+  assert.deepStrictEqual(config.skills.paths, [citadelSkillsPath('/citadel', '/project')]);
+
+  // Merging again changes nothing: the installer must be idempotent.
+  const second = mergeOpencodeConfig(config, { citadelRoot: '/citadel', projectRoot: '/project' });
+  assert.deepStrictEqual(second.changes, [], 'a second merge must be a no-op');
+
+  // A fresh project still gets a schema reference.
+  const fresh = mergeOpencodeConfig(null, { citadelRoot: '/citadel', projectRoot: '/project' });
+  assert.equal(fresh.config.$schema, 'https://opencode.ai/config.json');
+  assert(fresh.changes.includes('added $schema'));
+}
+
+function testRefusesUnparseableConfig(root) {
+  const configPath = path.join(root, 'opencode.json');
+  fs.writeFileSync(configPath, '{ not json');
+  assert.throws(
+    () => installOpencodePlugin({ citadelRoot: CITADEL_ROOT, projectRoot: root, dryRun: true }),
+    /not valid JSON/,
+    'an unparseable opencode.json must be refused, never clobbered',
+  );
+  assert.equal(fs.readFileSync(configPath, 'utf8'), '{ not json', 'the bad file must be left untouched');
+  fs.rmSync(configPath);
+}
+
+function testDryRunWritesNothing(root) {
+  const result = installOpencodePlugin({ citadelRoot: CITADEL_ROOT, projectRoot: root, dryRun: true });
+  assert(result.writes.length > 0, 'a dry run must still report the writes it would make');
+  assert.equal(fs.existsSync(path.join(root, '.opencode')), false, 'a dry run must not create .opencode');
+  assert.equal(fs.existsSync(path.join(root, 'opencode.json')), false, 'a dry run must not create opencode.json');
+}
+
+async function testInstallAndStub(root) {
+  const result = installOpencodePlugin({ citadelRoot: CITADEL_ROOT, projectRoot: root });
+  const stubPath = path.join(root, '.opencode', 'plugin', PLUGIN_STUB_NAME);
+  assert.equal(result.pluginPath, stubPath);
+  assert(fs.existsSync(stubPath), 'the plugin stub must be written');
+
+  // opencode auto-discovers .opencode/plugin/*.js, so the stub must be a loadable
+  // ES module exporting the plugin factory.
+  const loaded = await import(`file://${stubPath}`);
+  assert.equal(typeof loaded.CitadelPlugin, 'function', 'the stub must export CitadelPlugin');
+  assert.equal(typeof loaded.default, 'function', 'the stub must have a default export');
+
+  // The stub points at the checkout so a Citadel upgrade needs no reinstall.
+  const stub = fs.readFileSync(stubPath, 'utf8');
+  assert(stub.includes('runtimes/opencode/plugin/index.mjs'), 'the stub must re-export from the checkout');
+  assert(stub.includes('Generated by Citadel'), 'generated files must be marked');
+
+  const again = installOpencodePlugin({ citadelRoot: CITADEL_ROOT, projectRoot: root });
+  assert.deepStrictEqual(again.writes, [], 'a second install must be a no-op');
+
+  // Windows path separators must not break the import specifier.
+  const winStub = renderPluginStub('C:\\Users\\dev\\citadel');
+  assert(winStub.includes('file://C:/Users/dev/citadel/'), 'backslashes must be normalized for the file URL');
+}
+
+function testInstalledSkillRoutesHaveDelegates(root) {
+  const skillRoot = path.join(CITADEL_ROOT, 'skills');
+  const referenced = new Set();
+  for (const entry of fs.readdirSync(skillRoot, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const skillPath = path.join(skillRoot, entry.name, 'SKILL.md');
+    if (!fs.existsSync(skillPath)) continue;
+    const body = fs.readFileSync(skillPath, 'utf8');
+    for (const match of body.matchAll(/\bnode\s+scripts[\\/]([A-Za-z0-9_.-]+\.(?:js|cjs))\b/g)) {
+      referenced.add(match[1]);
+    }
+  }
+
+  const missing = [...referenced].filter((name) => (
+    !DELEGATE_SCRIPTS.includes(name) && !TARGET_OR_MAINTAINER_SCRIPTS.has(name)
+  ));
+  assert.deepStrictEqual(missing, [], `every Citadel script named by a skill needs an installed delegate: ${missing.join(', ')}`);
+  for (const name of TARGET_OR_MAINTAINER_SCRIPTS) {
+    assert(referenced.has(name), `${name}: stale target/maintainer exemption`);
+    assert(!DELEGATE_SCRIPTS.includes(name), `${name}: target/maintainer commands must not become installed delegates`);
+  }
+  for (const name of DELEGATE_SCRIPTS) {
+    assert(fs.existsSync(path.join(root, '.citadel', 'scripts', name)), `${name}: installer must create the delegate before a session starts`);
+  }
+}
+
+function canonicalRoutes(text) {
+  return [...text.matchAll(CANONICAL_ROUTE)].map((match) => match[2]);
+}
+
+function listFiles(dir, prefix = '') {
+  return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => (
+    entry.isDirectory()
+      ? listFiles(path.join(dir, entry.name), `${prefix}${entry.name}/`)
+      : [`${prefix}${entry.name}`]
+  ));
+}
+
+// The renderer is pure and only understands the route forms skills are written in.
+function testRenderOpenCodeSkill() {
+  const source = [
+    'Run `node scripts/dashboard.js` now.',
+    'Windows: node.exe scripts\\campaign.js, node "scripts/health.js", node \'scripts\\grid.cjs\'.',
+    'Wrapped: node scripts/run-with-timeout.js 300 node scripts/test-all.js',
+    'Maintainer: node scripts/skill-lint.js demo',
+    'Checkout: node {citadelRoot}/scripts/dashboard.js',
+    'Mismatched quotes: node "scripts/dashboard.js\'',
+    'Already explicit: node .citadel/scripts/dashboard.js',
+    '',
+  ].join('\n');
+  const expected = [
+    'Run `node .citadel/scripts/dashboard.js` now.',
+    'Windows: node.exe .citadel/scripts/campaign.js, node ".citadel/scripts/health.js", node \'.citadel/scripts/grid.cjs\'.',
+    'Wrapped: node .citadel/scripts/run-with-timeout.js 300 node scripts/test-all.js',
+    'Maintainer: node scripts/skill-lint.js demo',
+    'Checkout: node {citadelRoot}/scripts/dashboard.js',
+    'Mismatched quotes: node "scripts/dashboard.js\'',
+    'Already explicit: node .citadel/scripts/dashboard.js',
+    '',
+  ].join('\n');
+  assert.equal(renderOpenCodeSkill(source), expected);
+  assert.equal(renderOpenCodeSkill(expected), expected, 'rendering must be idempotent');
+}
+
+// Rewriting is scoped to SKILL.md: anything else bundled beside a skill is copied
+// byte for byte, and a dry run reports the projection without writing it.
+function testSkillProjectionScope() {
+  const fixtureCitadel = scratchProject();
+  const project = scratchProject();
+  try {
+    const skillDir = path.join(fixtureCitadel, 'skills', 'demo');
+    fs.mkdirSync(path.join(skillDir, 'references'), { recursive: true });
+    const skillBody = '---\r\nname: demo\r\n---\r\nRun node scripts/dashboard.js\r\nThen node scripts/skill-lint.js\r\n';
+    const bundled = 'Reference: node scripts/dashboard.js\n';
+    fs.writeFileSync(path.join(skillDir, 'SKILL.md'), skillBody);
+    fs.writeFileSync(path.join(skillDir, 'notes.md'), bundled);
+    fs.writeFileSync(path.join(skillDir, 'references', 'guide.md'), bundled);
+
+    const dry = installOpencodePlugin({ citadelRoot: fixtureCitadel, projectRoot: project, dryRun: true });
+    assert(dry.skills.writes.length > 0, 'a dry run must report the skill projection it would write');
+    assert.equal(fs.existsSync(path.join(project, '.citadel', 'skills')), false, 'a dry run must not write the projection');
+
+    installOpencodePlugin({ citadelRoot: fixtureCitadel, projectRoot: project });
+    const projected = path.join(project, '.citadel', 'skills', 'demo');
+    assert.equal(
+      fs.readFileSync(path.join(projected, 'SKILL.md'), 'utf8'),
+      '---\r\nname: demo\r\n---\r\nRun node .citadel/scripts/dashboard.js\r\nThen node scripts/skill-lint.js\r\n',
+      'SKILL.md routes are rewritten and its line endings preserved',
+    );
+    assert.equal(fs.readFileSync(path.join(projected, 'notes.md'), 'utf8'), bundled, 'bundled files must not be rewritten');
+    assert.equal(fs.readFileSync(path.join(projected, 'references', 'guide.md'), 'utf8'), bundled);
+    assert.equal(fs.readFileSync(path.join(skillDir, 'SKILL.md'), 'utf8'), skillBody, 'the source skill must not be modified');
+  } finally {
+    fs.rmSync(fixtureCitadel, { recursive: true, force: true });
+    fs.rmSync(project, { recursive: true, force: true });
+  }
+}
+
+// Provenance lives at the projection boundary: `.citadel/skills` is generated
+// from Citadel's skills, so its SKILL.md files carry explicit delegate routes
+// while the canonical sources stay runtime-neutral.
+function testSkillProjectionRoutes(root) {
+  const sourceRoot = path.join(CITADEL_ROOT, 'skills');
+  const projectedRoot = path.join(root, '.citadel', 'skills');
+  const read = (filePath) => fs.readFileSync(filePath, 'utf8');
+
+  const sourceDo = read(path.join(sourceRoot, 'do', 'SKILL.md'));
+  const projectedDo = read(path.join(projectedRoot, 'do', 'SKILL.md'));
+  assert(sourceDo.includes('node scripts/dashboard.js'), 'the canonical do skill must keep its runtime-neutral route');
+  assert(!sourceDo.includes('node .citadel/scripts/dashboard.js'), 'the canonical do skill must not be rewritten');
+  assert(projectedDo.includes('node .citadel/scripts/dashboard.js'), 'the projected do skill must name the delegate');
+  assert(!projectedDo.includes('node scripts/dashboard.js'), 'the projected do skill must not keep the canonical route');
+
+  const projectedScripts = new Set();
+  for (const file of listFiles(sourceRoot)) {
+    const source = fs.readFileSync(path.join(sourceRoot, file));
+    const projected = fs.readFileSync(path.join(projectedRoot, file));
+    if (path.basename(file) !== 'SKILL.md') {
+      assert(projected.equals(source), `${file}: only SKILL.md may be transformed`);
+      continue;
+    }
+    assert.equal(projected.toString('utf8'), renderOpenCodeSkill(source.toString('utf8')), `${file}: projection is the pure render`);
+    const before = canonicalRoutes(source.toString('utf8'));
+    const after = canonicalRoutes(projected.toString('utf8'));
+    assert.deepStrictEqual(
+      after,
+      before.filter((name) => !DELEGATE_SCRIPTS.includes(name)),
+      `${file}: exactly the allowlisted routes move to delegates`,
+    );
+    for (const name of after) projectedScripts.add(name);
+  }
+
+  // Not rewritten merely because the filename looks like a script route.
+  for (const name of TARGET_OR_MAINTAINER_SCRIPTS) {
+    assert(projectedScripts.has(name), `${name}: target/maintainer route must survive projection unchanged`);
+  }
+  assert(
+    read(path.join(projectedRoot, 'evolve', 'SKILL.md'))
+      .includes('node .citadel/scripts/run-with-timeout.js 300 node scripts/test-all.js'),
+    'a wrapper delegate moves while the maintainer script it wraps stays put',
+  );
+}
+
+function testSkillProjectionIsIdempotent(root) {
+  const projectedRoot = path.join(root, '.citadel', 'skills');
+  const snapshot = () => Object.fromEntries(
+    listFiles(projectedRoot).map((file) => [file, fs.readFileSync(path.join(projectedRoot, file), 'utf8')]),
+  );
+  const before = snapshot();
+
+  const written = [];
+  const realWrite = fs.writeFileSync;
+  fs.writeFileSync = function recordWrite(file, ...rest) {
+    written.push(String(file));
+    return realWrite.call(this, file, ...rest);
+  };
+  let again;
+  try {
+    again = installOpencodePlugin({ citadelRoot: CITADEL_ROOT, projectRoot: root });
+  } finally {
+    fs.writeFileSync = realWrite;
+  }
+
+  assert.equal(again.skills.action, 'up-to-date', 'a second install must report the projection as up to date');
+  assert.deepStrictEqual(again.skills.writes, []);
+  assert.deepStrictEqual(written.filter((file) => file.startsWith(projectedRoot)), [], 'no projected file may be rewritten');
+  assert.deepStrictEqual(snapshot(), before, 'the projected content must be unchanged');
+}
+
+// A projection written before routes were made explicit is refreshed, not kept.
+function testReinstallRefreshesStaleSkillProjection(root) {
+  const projectedDo = path.join(root, '.citadel', 'skills', 'do', 'SKILL.md');
+  const explicit = fs.readFileSync(projectedDo, 'utf8');
+  fs.copyFileSync(path.join(CITADEL_ROOT, 'skills', 'do', 'SKILL.md'), projectedDo);
+
+  const dry = installOpencodePlugin({ citadelRoot: CITADEL_ROOT, projectRoot: root, dryRun: true });
+  assert.equal(dry.skills.action, 'sync');
+  assert.deepStrictEqual(dry.skills.writes.map((item) => item.path), [projectedDo]);
+  assert.equal(
+    fs.readFileSync(projectedDo, 'utf8'),
+    fs.readFileSync(path.join(CITADEL_ROOT, 'skills', 'do', 'SKILL.md'), 'utf8'),
+    'a dry run must leave the stale file alone',
+  );
+
+  const refreshed = installOpencodePlugin({ citadelRoot: CITADEL_ROOT, projectRoot: root });
+  assert.equal(refreshed.skills.action, 'sync');
+  assert.equal(fs.readFileSync(projectedDo, 'utf8'), explicit, 'reinstall must restore the explicit delegate routes');
+}
+
+// projected SKILL.md -> `node .citadel/scripts/dashboard.js` -> the real utility,
+// launched the way OpenCode's shell.env launches it in a mixed-runtime project.
+function testProjectedSkillRouteRunsFromMixedRuntimeProject(root) {
+  fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
+  const projectedDo = fs.readFileSync(path.join(root, '.citadel', 'skills', 'do', 'SKILL.md'), 'utf8');
+  const route = projectedDo.match(/\bnode (\.citadel\/scripts\/dashboard\.js)\b/);
+  assert(route, 'the projected do skill must contain the dashboard delegate route');
+
+  const result = spawnSync(process.execPath, [path.join(root, route[1])], {
+    cwd: root,
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      CITADEL_RUNTIME: 'opencode',
+      CITADEL_PROJECT_ROOT: root,
+      CLAUDE_PROJECT_DIR: root,
+    },
+    timeout: 15000,
+  });
+  assert.equal(result.error, undefined, result.error?.message);
+  assert.equal(result.status, 0, `dashboard delegate failed:\n${result.stderr || result.stdout}`);
+  assert(!/MODULE_NOT_FOUND|CITADEL_RUNTIME_AMBIGUOUS/.test(`${result.stdout}\n${result.stderr}`));
+}
+
+function testAgentProjection(root) {
+  const results = projectOpencodeAgents({ citadelRoot: CITADEL_ROOT, projectRoot: root });
+  assert(results.length > 0, 'agents must be projected');
+
+  for (const item of results) {
+    const content = fs.readFileSync(item.targetPath, 'utf8');
+    assert(content.startsWith('---\n'), `${item.name}: must open with frontmatter`);
+    const end = content.indexOf('\n---\n', 4);
+    assert(end > 0, `${item.name}: frontmatter must be closed`);
+    const frontmatter = content.slice(4, end);
+
+    // opencode takes the agent name from the file path, so a name key is noise.
+    assert(!/^name:/m.test(frontmatter), `${item.name}: name comes from the filename, not frontmatter`);
+    assert(/^mode: subagent$/m.test(frontmatter), `${item.name}: Citadel agents are subagents`);
+
+    const description = frontmatter.match(/^description: "(.*)"$/m);
+    assert(description, `${item.name}: description must be a quoted single-line scalar`);
+    // A description reaches opencode's @ autocomplete, so stray YAML comment text
+    // from the source frontmatter must not leak into it.
+    assert(!description[1].includes('# '), `${item.name}: YAML comments must not leak into the description`);
+    assert(!/\n/.test(description[1]), `${item.name}: description must not contain a raw newline`);
+    assert(content.slice(end + 5).trim().length > 0, `${item.name}: prompt body must not be empty`);
+  }
+}
+
+function testYamlQuoting() {
+  assert.equal(yamlString('plain'), '"plain"');
+  assert.equal(yamlString('has "quotes"'), '"has \\"quotes\\""');
+  assert.equal(yamlString('line\nbreak'), '"line\\nbreak"');
+  assert.equal(yamlString('back\\slash'), '"back\\\\slash"');
+  assert.equal(yamlString(undefined), '""');
+
+  // A description full of YAML metacharacters must still render on one line.
+  const rendered = renderOpencodeAgent({
+    name: 'x',
+    frontmatter: { name: 'x', description: 'a: b # c "d"\nnext' },
+    body: 'prompt',
+  });
+  const line = rendered.split('\n').find((item) => item.startsWith('description:'));
+  assert.equal(line, 'description: "a: b # c \\"d\\"\\nnext"');
+}
+
+const SPEC_FIXTURE = Object.freeze({
+  version: 1,
+  project: { name: 'Demo', summary: 'A demo project.' },
+  conventions: ['convention one'],
+  workflows: ['workflow one'],
+  constraints: ['constraint one'],
+});
+
+function testGuidanceTarget() {
+  assert.equal(OPENCODE_GUIDANCE_TARGET.filePath, 'AGENTS.md');
+  assert.equal(OPENCODE_GUIDANCE_TARGET.runtime, 'opencode');
+  assert.equal(typeof OPENCODE_GUIDANCE_TARGET.render, 'function');
+
+  const rendered = renderOpencodeGuidance(SPEC_FIXTURE);
+  assert(rendered.includes('# Demo'), 'the project name must head the file');
+  assert(rendered.includes('A demo project.'));
+  for (const item of ['convention one', 'workflow one', 'constraint one']) {
+    assert(rendered.includes(`- ${item}`), `${item} must be rendered`);
+  }
+
+  // This renderer used to be a re-export of the Codex one, whose output announces
+  // itself as the Codex projection and tells the reader to invoke skills as
+  // `$skill-name`. opencode exposes them as `/` commands, so Codex wording here
+  // would actively mislead an opencode agent.
+  assert(!/Codex/i.test(rendered), 'no Codex wording may leak into opencode guidance');
+  assert(!rendered.includes('$skill-name'), 'opencode skills are / commands, not $ invocations');
+  assert(rendered.includes('`/` slash commands'), 'the real invocation syntax must be stated');
+
+  // The degradations an agent working in the project needs to know about.
+  assert(rendered.includes('`!` prefix'), 'the ungated shell must be called out');
+  assert(/stop event cannot block/i.test(rendered));
+  assert(/fails to load/i.test(rendered), 'the fail-open must be stated');
+
+  // Readers must be pointed at the spec, not at the generated file.
+  assert(rendered.includes('.citadel/project.md'));
+}
+
+// An existing AGENTS.md is the project's own and opencode's primary guidance file.
+// Replacing it would silently change how every agent behaves there, so it is only
+// overwritten on explicit request.
+function testGuidanceNeverClobbers() {
+  const root = scratchProject();
+  try {
+    const mine = '# Hand written\nKeep me.\n';
+    const filePath = path.join(root, 'AGENTS.md');
+    fs.writeFileSync(filePath, mine);
+
+    const kept = projectOpencodeGuidance({ citadelRoot: CITADEL_ROOT, projectRoot: root });
+    assert.equal(kept.written, false);
+    assert.equal(kept.skipped, true);
+    assert.match(kept.reason, /--overwrite-guidance/);
+    assert.equal(fs.readFileSync(filePath, 'utf8'), mine, 'the existing file must be byte-identical');
+
+    const replaced = projectOpencodeGuidance({
+      citadelRoot: CITADEL_ROOT,
+      projectRoot: root,
+      overwriteGuidance: true,
+    });
+    assert.equal(replaced.written, true);
+    assert.notEqual(fs.readFileSync(filePath, 'utf8'), mine);
+    assert(fs.readFileSync(filePath, 'utf8').includes('Citadel Project Guidance'));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+function testGuidanceRefreshesCitadelOwnedProjection() {
+  const root = scratchProject();
+  try {
+    const filePath = path.join(root, 'AGENTS.md');
+    fs.writeFileSync(filePath, withGuidanceOwner('# Codex-specific guidance\n'));
+    const refreshed = projectOpencodeGuidance({ citadelRoot: CITADEL_ROOT, projectRoot: root });
+    const content = fs.readFileSync(filePath, 'utf8');
+    assert.equal(refreshed.written, true);
+    assert.equal(refreshed.skipped, false);
+    assert(!/Codex-specific guidance/.test(content));
+    assert(content.includes('`/` slash commands'));
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+// The renderer needs a spec, so the generator bootstraps the canonical one rather
+// than inventing its own copy. A dry run must still create nothing.
+function testGuidanceBootstrapsSpec() {
+  const root = scratchProject();
+  try {
+    const dry = projectOpencodeGuidance({ citadelRoot: CITADEL_ROOT, projectRoot: root, dryRun: true });
+    assert.equal(dry.written, false);
+    assert.equal(dry.action, 'create');
+    assert.equal(fs.existsSync(path.join(root, 'AGENTS.md')), false, 'a dry run must not write AGENTS.md');
+    assert.equal(fs.existsSync(path.join(root, '.citadel', 'project.md')), false, 'a dry run must not write the spec');
+
+    const written = projectOpencodeGuidance({ citadelRoot: CITADEL_ROOT, projectRoot: root });
+    assert.equal(written.written, true);
+    assert.equal(written.specCreated, true, 'the canonical spec must be bootstrapped');
+    assert(fs.existsSync(written.specPath), 'the spec must exist on disk');
+    // The project name comes from the bootstrapped spec, not a hardcoded default.
+    assert(fs.readFileSync(written.filePath, 'utf8').startsWith(`# ${path.basename(root)}`));
+
+    // Citadel-owned guidance is a projection and refreshes deterministically.
+    const second = projectOpencodeGuidance({ citadelRoot: CITADEL_ROOT, projectRoot: root });
+    assert.equal(second.written, false);
+    assert.equal(second.skipped, false);
+    assert.equal(second.action, 'up-to-date');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+function testCommandProjection(root) {
+  const commandDir = path.join(root, '.opencode', 'commands');
+  const skillNames = citadelSkillNames(CITADEL_ROOT);
+  assert(skillNames.length > 0, 'Citadel must have skills to wrap as commands');
+  for (const skillName of skillNames) {
+    const commandPath = path.join(commandDir, `${skillName}.md`);
+    assert(fs.existsSync(commandPath), `${skillName}: command wrapper must be projected`);
+    const command = fs.readFileSync(commandPath, 'utf8');
+    assert(command.includes('$ARGUMENTS'), `${skillName}: wrapper must preserve slash-command arguments`);
+    assert(command.includes(`Use the \`${skillName}\` skill`), `${skillName}: wrapper must invoke its skill`);
+  }
+  assert.equal(renderSkillCommand('demo').includes('$ARGUMENTS'), true);
+}
+
+function testCommandProjectionRefusesUserConflict() {
+  const root = scratchProject();
+  try {
+    const commandPath = path.join(root, '.opencode', 'commands', 'do.md');
+    fs.mkdirSync(path.dirname(commandPath), { recursive: true });
+    fs.writeFileSync(commandPath, '---\ndescription: Mine\n---\nMine\n');
+    assert.throws(
+      () => installOpencodePlugin({ citadelRoot: CITADEL_ROOT, projectRoot: root }),
+      /user-owned and conflicts/,
+      'a Citadel install must not overwrite a user command with the same name',
+    );
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+function testInstallerCli(root) {
+  const install = require(path.join(CITADEL_ROOT, 'scripts', 'opencode-install'));
+  const result = install.run(['--project-root', root, '--dry-run']);
+  assert.equal(result.ok, true);
+  assert.equal(result.dryRun, true);
+  assert(result.degradations.some((item) => item.startsWith('stop-cannot-block')));
+  assert(result.degradations.some((item) => item.startsWith('plugin-load-failure-fails-open')));
+  assert(install.render(result).includes('forward slash-command arguments'));
+
+  const missing = install.run(['--project-root', path.join(root, 'nope'), '--dry-run']);
+  assert.equal(missing.ok, false);
+  assert.match(missing.error, /does not exist/);
+}
+
+// A correct install must not fail its own readiness check. Everything the
+// installer guarantees is REQUIRED; the things it deliberately does not write are
+// ADVISORY, reported but not fatal. Before this split, `opencode:verify` exited 1
+// on a fresh correct install, which teaches operators to ignore the tool.
+async function testReadinessOnBareInstall() {
+  const readiness = require(path.join(CITADEL_ROOT, 'scripts', 'opencode-readiness-check'));
+  const install = require(path.join(CITADEL_ROOT, 'scripts', 'opencode-install'));
+
+  // Run the real installer entry point rather than the individual generators, so
+  // this asserts what a user actually gets from `opencode-install.js` with no
+  // flags. Calling the generators piecemeal is how the test drifted from the
+  // installer before and hid a gap for a phase.
+  const root = scratchProject();
+  try {
+  fs.mkdirSync(path.join(root, '.claude'), { recursive: true });
+  const installed = install.run(['--project-root', root]);
+  assert.equal(installed.ok, true, 'the default install must succeed');
+
+  const checks = await readiness.collect(root);
+
+  const blocking = checks.filter((item) => !item.pass && item.severity === readiness.REQUIRED);
+  assert.deepStrictEqual(
+    blocking.map((item) => item.name), [],
+    `a bare correct install must have no required failures: ${JSON.stringify(blocking)}`,
+  );
+  assert.equal(readiness.summarize(checks).ok, true, 'a bare correct install must be READY');
+
+  // A default install leaves nothing advisory failing either: guidance is rendered,
+  // skills are wired through skills.paths, agents are projected. So it is fully
+  // READY, including under --strict.
+  const warnings = checks.filter((item) => !item.pass && item.severity === readiness.ADVISORY);
+  assert.deepStrictEqual(warnings.map((item) => item.name), []);
+  assert.equal(readiness.summarize(checks, { strict: true }).ok, true, 'a default install must pass --strict');
+
+  // --strict still has teeth: opting out of a projection produces an advisory gap
+  // that it refuses. Exercised with a real --skip flag rather than by hand.
+  const optedOut = scratchProject();
+  try {
+    install.run(['--project-root', optedOut, '--skip-guidance', '--skip-skills']);
+    const partial = await readiness.collect(optedOut);
+    assert.equal(readiness.summarize(partial).ok, true, 'opting out must not be a required failure');
+    const optedOutWarnings = partial.filter((item) => !item.pass && item.severity === readiness.ADVISORY);
+    assert.deepStrictEqual(
+      optedOutWarnings.map((item) => item.name).sort(),
+      ['argument-bearing skill commands projected', 'guidance file present', 'skills discoverable by opencode'],
+    );
+    for (const item of optedOutWarnings) {
+      assert(item.remedy, `${item.name} must tell the operator what to do`);
+      assert.equal(readiness.statusOf(item), 'WARN');
+    }
+    assert.equal(readiness.summarize(partial, { strict: true }).ok, false, '--strict must refuse advisory gaps');
+  } finally {
+    fs.rmSync(optedOut, { recursive: true, force: true });
+  }
+
+  // Discovery without executable delegates is a broken install, not READY.
+  const dashboardDelegate = path.join(root, '.citadel', 'scripts', 'dashboard.js');
+  fs.rmSync(dashboardDelegate);
+  const brokenRoute = await readiness.collect(root);
+  const routeCheck = brokenRoute.find((item) => item.name === 'skill route executes from project root');
+  assert.equal(routeCheck.pass, false);
+  assert.equal(routeCheck.severity, readiness.REQUIRED);
+  assert.equal(readiness.summarize(brokenRoute).ok, false, 'a broken executable skill route must be NOT READY');
+
+  install.run(['--project-root', root]);
+  assert(fs.existsSync(dashboardDelegate), 'reinstall must restore the missing delegate');
+  assert.equal(
+    (await readiness.collect(root)).find((item) => item.name === 'skill route executes from project root').pass,
+    true,
+    'a restored delegate must make the route check pass again',
+  );
+
+  // Nothing rewrites bash commands at runtime, so a projection that still holds
+  // canonical routes is broken even though its delegate exists.
+  const projectedDo = path.join(root, '.citadel', 'skills', 'do', 'SKILL.md');
+  fs.copyFileSync(path.join(CITADEL_ROOT, 'skills', 'do', 'SKILL.md'), projectedDo);
+  const staleRoute = (await readiness.collect(root)).find((item) => item.name === 'skill route executes from project root');
+  assert.equal(staleRoute.pass, false);
+  assert.equal(staleRoute.severity, readiness.REQUIRED);
+  assert.match(staleRoute.detail, /canonical script routes/);
+  install.run(['--project-root', root]);
+  const refreshedRoute = (await readiness.collect(root)).find((item) => item.name === 'skill route executes from project root');
+  assert.equal(refreshedRoute.pass, true, 'reinstall must refresh a stale projection');
+
+  // A genuinely broken plugin install is still a hard failure.
+  const stub = path.join(root, '.opencode', 'plugin', PLUGIN_STUB_NAME);
+  fs.rmSync(stub);
+  const broken = await readiness.collect(root);
+  const brokenBlocking = broken.filter((item) => !item.pass && item.severity === readiness.REQUIRED);
+  assert.deepStrictEqual(brokenBlocking.map((item) => item.name), ['plugin stub present']);
+  assert.equal(readiness.summarize(broken).ok, false, 'a missing plugin stub must be NOT READY');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+// With guidance and skills present, nothing should be left to warn about.
+async function testReadinessOnFurnishedInstall() {
+  const root = furnishedProject();
+  try {
+    installOpencodePlugin({ citadelRoot: CITADEL_ROOT, projectRoot: root });
+    projectOpencodeAgents({ citadelRoot: CITADEL_ROOT, projectRoot: root });
+
+    const readiness = require(path.join(CITADEL_ROOT, 'scripts', 'opencode-readiness-check'));
+    const checks = await readiness.collect(root);
+    const failed = checks.filter((item) => !item.pass);
+    assert.deepStrictEqual(failed.map((item) => item.name), [], `furnished project should be clean: ${JSON.stringify(failed)}`);
+    assert.equal(readiness.summarize(checks, { strict: true }).ok, true, 'a furnished project must pass --strict');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+// Skills reach opencode through a project-local `.citadel/skills` projection.
+// opencode scans each configured path with `**/SKILL.md` (skill/index.ts:211-219),
+// so the shared config remains portable while reinstall refreshes the projection.
+function testSkillsPathMerge() {
+  // An existing user path must survive, and Citadel's must be appended.
+  const withUserPath = mergeOpencodeConfig(
+    { skills: { paths: ['/user/own/skills'], urls: ['https://example.test/skills'] } },
+    { citadelRoot: '/citadel', projectRoot: '/project' },
+  );
+  assert.deepStrictEqual(withUserPath.config.skills.paths, ['/user/own/skills', citadelSkillsPath('/citadel', '/project')]);
+  assert.deepStrictEqual(
+    withUserPath.config.skills.urls, ['https://example.test/skills'],
+    'sibling keys under skills must survive',
+  );
+
+  // Appending twice must not duplicate the entry.
+  const second = mergeOpencodeConfig(withUserPath.config, { citadelRoot: '/citadel', projectRoot: '/project' });
+  assert.deepStrictEqual(second.changes, [], 'a second merge must not re-add the skills path');
+
+  // --skip-skills must leave the key absent entirely rather than writing an empty
+  // array, so the user's config is untouched.
+  const skipped = mergeOpencodeConfig(null, { citadelRoot: '/citadel', projectRoot: '/project', skipSkills: true });
+  assert.equal(skipped.config.skills, undefined);
+  assert(!skipped.changes.some((item) => item.includes('skills')));
+}
+
+function testReinstallMigratesStaleAbsoluteSkillsPath() {
+  const project = scratchProject();
+  const oldCitadel = scratchProject();
+  const newCitadel = scratchProject();
+  try {
+    installOpencodePlugin({ citadelRoot: oldCitadel, projectRoot: project });
+    const configPath = path.join(project, 'opencode.json');
+    const legacy = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    legacy.skills.paths = [path.join(oldCitadel, 'skills')];
+    fs.writeFileSync(configPath, JSON.stringify(legacy, null, 2));
+
+    // Exercise the legacy stub fallback as well as the pointer path used by
+    // current installs.
+    fs.rmSync(path.join(project, '.citadel', 'plugin-root.txt'));
+    const reinstalled = installOpencodePlugin({ citadelRoot: newCitadel, projectRoot: project });
+    assert(!reinstalled.config.skills.paths.includes(path.join(oldCitadel, 'skills')),
+      'reinstall must remove the prior Citadel checkout skill path');
+    assert.deepStrictEqual(reinstalled.config.skills.paths, ['./.citadel/skills']);
+  } finally {
+    fs.rmSync(project, { recursive: true, force: true });
+    fs.rmSync(oldCitadel, { recursive: true, force: true });
+    fs.rmSync(newCitadel, { recursive: true, force: true });
+  }
+}
+
+function testReinstallMigratesStaleOpenCodeStubPathAfterSharedPointerChanges() {
+  const project = scratchProject();
+  const oldCitadel = scratchProject();
+  const sharedRuntimeCitadel = scratchProject();
+  const newCitadel = scratchProject();
+  try {
+    installOpencodePlugin({ citadelRoot: oldCitadel, projectRoot: project });
+    const configPath = path.join(project, 'opencode.json');
+    const legacy = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    legacy.skills.paths = [path.join(oldCitadel, 'skills')];
+    fs.writeFileSync(configPath, JSON.stringify(legacy, null, 2));
+
+    // Another runtime can update the shared pointer after OpenCode's stub was
+    // installed. The OpenCode stub remains the ownership evidence for oldCitadel.
+    const delegate = ensureProjectDelegate(project, sharedRuntimeCitadel, 'citadel-state.js');
+    assert.equal(fs.readFileSync(delegate.pointerPath, 'utf8').trim(), sharedRuntimeCitadel);
+
+    const reinstalled = installOpencodePlugin({ citadelRoot: newCitadel, projectRoot: project });
+    assert(!reinstalled.config.skills.paths.includes(path.join(oldCitadel, 'skills')),
+      'reinstall must remove the prior OpenCode stub checkout skill path after another runtime changes the pointer');
+    assert.deepStrictEqual(reinstalled.config.skills.paths, ['./.citadel/skills']);
+  } finally {
+    fs.rmSync(project, { recursive: true, force: true });
+    fs.rmSync(oldCitadel, { recursive: true, force: true });
+    fs.rmSync(sharedRuntimeCitadel, { recursive: true, force: true });
+    fs.rmSync(newCitadel, { recursive: true, force: true });
+  }
+}
+
+// The projection has to actually resolve to Citadel's real skills, and a stale
+// path — the realistic failure after a checkout moves — must be called out rather
+// than silently counting zero.
+async function testSkillsReadiness() {
+  const readiness = require(path.join(CITADEL_ROOT, 'scripts', 'opencode-readiness-check'));
+  const root = scratchProject();
+  try {
+    installOpencodePlugin({ citadelRoot: CITADEL_ROOT, projectRoot: root });
+
+    const checks = await readiness.collect(root);
+    const skills = checks.find((item) => item.name === 'skills discoverable by opencode');
+    assert(skills.pass, `a default install must discover skills: ${skills.detail}`);
+    // Every Citadel skill directory holds a SKILL.md, so the count is the real one.
+    const expected = fs.readdirSync(path.join(CITADEL_ROOT, 'skills'), { withFileTypes: true })
+      .filter((entry) => entry.isDirectory() && fs.existsSync(path.join(CITADEL_ROOT, 'skills', entry.name, 'SKILL.md')))
+      .length;
+    assert(expected > 0, 'Citadel must actually have skills to project');
+    assert(skills.detail.startsWith(`${expected} `), `expected ${expected} skills, got: ${skills.detail}`);
+
+    // A stale configured path must be reported, with a different remedy from the
+    // not-installed case.
+    const configPath = path.join(root, 'opencode.json');
+    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+    config.skills.paths = [path.join(root, 'gone', 'skills')];
+    fs.writeFileSync(configPath, JSON.stringify(config, null, 2));
+
+    const stale = (await readiness.collect(root)).find((item) => item.name === 'skills discoverable by opencode');
+    assert(!stale.pass, 'a skills.paths entry resolving to nothing must not pass');
+    assert.match(stale.detail, /resolve to nothing/);
+    assert.match(stale.remedy, /re-run opencode-install/);
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+async function main() {
+  testMcpShape();
+  testMergePreservesUserConfig();
+  testSkillsPathMerge();
+  testReinstallMigratesStaleAbsoluteSkillsPath();
+  testReinstallMigratesStaleOpenCodeStubPathAfterSharedPointerChanges();
+  testYamlQuoting();
+  testRenderOpenCodeSkill();
+  testSkillProjectionScope();
+  testGuidanceTarget();
+  testGuidanceNeverClobbers();
+  testGuidanceRefreshesCitadelOwnedProjection();
+  testGuidanceBootstrapsSpec();
+
+  const root = scratchProject();
+  try {
+    testRefusesUnparseableConfig(root);
+    testDryRunWritesNothing(root);
+    testInstallerCli(root);
+    await testInstallAndStub(root);
+    testInstalledSkillRoutesHaveDelegates(root);
+    testSkillProjectionRoutes(root);
+    testSkillProjectionIsIdempotent(root);
+    testProjectedSkillRouteRunsFromMixedRuntimeProject(root);
+    testReinstallRefreshesStaleSkillProjection(root);
+    testAgentProjection(root);
+    testCommandProjection(root);
+    testCommandProjectionRefusesUserConflict();
+
+    await testSkillsReadiness();
+    await testReadinessOnBareInstall();
+    await testReadinessOnFurnishedInstall();
+
+    console.log('opencode install tests pass.');
+  } finally {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

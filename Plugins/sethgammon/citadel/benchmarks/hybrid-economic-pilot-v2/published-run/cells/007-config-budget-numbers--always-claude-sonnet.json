@@ -1,0 +1,111 @@
+{
+  "schema": 1,
+  "cell_id": "007-config-budget-numbers--always-claude-sonnet",
+  "order": 7,
+  "scenario_id": "config-budget-numbers",
+  "task_class": "config-migration",
+  "risk": "low",
+  "policy_id": "always-claude-sonnet",
+  "repetition": 1,
+  "route": {
+    "initial_tier": "cloud",
+    "escalation_tier": null,
+    "reason_code": "BASELINE_ALWAYS_CLAUDE"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "cloud",
+      "started_at": "2026-08-02T01:10:20.734Z",
+      "duration_ms": 4077,
+      "output_text": "{\"files\":{\"config/budget.json\":\"{\\\"schema\\\":5,\\\"account\\\":\\\"research\\\",\\\"enabled\\\":true,\\\"max_attempts\\\":6,\\\"ceiling_cents\\\":1200}\\n\"}}",
+      "output_digest": "sha256:f683e3247440066c0849e0ce8d2a15f1b88e70fa1d350635909fe3c957ec5ad4",
+      "verification": {
+        "status": "passed",
+        "code": null,
+        "changed_paths": [
+          "config/budget.json"
+        ],
+        "applied_file_digests": {
+          "config/budget.json": "sha256:c40baca250e09bb7789fc1a0af5c95e366df3c0ac171756c88a7e8499feda8f1"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 0,
+          "signal": null,
+          "stdout": "",
+          "stderr": "",
+          "error": null
+        },
+        "patch_digest": "sha256:0b6f742b67296d0cbfdd185443c2cf75746084f45ae011fc7c0478dc9ecfa44a"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "claude-code-print",
+        "requested_model": "sonnet",
+        "canonical_model": "claude-sonnet-5",
+        "cli_version": "2.1.219",
+        "response_digest": "sha256:b2a8f62e1bf7833cae9c7f191ebf718439e30189894a175bb6e2fecdccf1e806",
+        "exit_status": 0,
+        "terminal_reason": "completed",
+        "error": null
+      },
+      "usage": {
+        "input_tokens": 437,
+        "output_tokens": 74,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0
+      },
+      "economics": {
+        "comparison_cost": {
+          "status": "provider-reported-equivalent",
+          "total_usd": 0.003177,
+          "source": "claude_code_total_cost_usd"
+        },
+        "provider_reported_equivalent_cost": {
+          "status": "provider-reported-equivalent",
+          "amount_usd": 0.003177,
+          "source": "claude_code_total_cost_usd"
+        },
+        "local_gpu_energy": {
+          "status": "not-applicable",
+          "energy_kwh": 0,
+          "samples": 0,
+          "average_watts": null
+        },
+        "actual_subscription_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "pro_subscription_cost_not_allocated_per_request"
+        }
+      }
+    }
+  ],
+  "status": "passed",
+  "final_verification": {
+    "status": "passed",
+    "code": null,
+    "changed_paths": [
+      "config/budget.json"
+    ],
+    "applied_file_digests": {
+      "config/budget.json": "sha256:c40baca250e09bb7789fc1a0af5c95e366df3c0ac171756c88a7e8499feda8f1"
+    },
+    "verifier": {
+      "command": "node verifier.js",
+      "status": 0,
+      "signal": null,
+      "stdout": "",
+      "stderr": "",
+      "error": null
+    },
+    "patch_digest": "sha256:0b6f742b67296d0cbfdd185443c2cf75746084f45ae011fc7c0478dc9ecfa44a"
+  },
+  "previous_cell_digest": "sha256:a5293df7412cc88e8bb56cf932fb500f7458d23371a9d2ad60d5e8296f095654",
+  "receipt_digest": "sha256:2189b05358955a735aa05f4da8bdb0f942c1a1292ce8d961e68e3c13e168fd83",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:3eb1d12a433ffd19011c6d00fd071c8680fcd5aa83de0aaa607855da176868cf",
+    "signature": "FEgO9zVL3YQLHsHDL1rOK9syxWEGN83xNwX0OwmuJoWoB/8I9Ra6onIFs4jo+LgkNfjMgh1fSUJIU1HjtZGFCg=="
+  }
+}

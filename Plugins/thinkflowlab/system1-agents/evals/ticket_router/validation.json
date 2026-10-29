@@ -1,0 +1,1519 @@
+{
+  "date": "2026-09-22",
+  "language": "English",
+  "dataset_sha256": "18608fa642c5d40d665003cba9318dca1593894d1e17b31b91fbd54fcfc37062",
+  "probe_sha256": "f5af40ce093a4c4fea9e4c5094b27caa08dc9fc87cbc574a3d948f4000170da2",
+  "independent_tickets": 30,
+  "seeds": [
+    0,
+    1,
+    2
+  ],
+  "probe": {
+    "status": "blocked",
+    "error": "decisions connection failed",
+    "accuracy": null
+  },
+  "jev": {
+    "status": "not run; English fit probe blocked"
+  },
+  "llm": {
+    "status": "not run; English fit probe blocked"
+  },
+  "baselines": {
+    "random": {
+      "summary": {
+        "env": "ticket_router",
+        "policy": "random",
+        "episodes": 3,
+        "scored": 3,
+        "mean_score": 5.667,
+        "mean_score_ci95": [
+          4.0,
+          8.0
+        ],
+        "wins": 3,
+        "losses": 0,
+        "mean_steps": 30,
+        "mean_elapsed_s": 0.9,
+        "decisions": 90,
+        "median_decision_ms": 0,
+        "chat_calls": 0,
+        "jev_input_tokens": 0,
+        "chat_input_tokens": 0,
+        "chat_output_tokens": 0,
+        "chat_cache_tokens": 0,
+        "invalid_keys": 0,
+        "cost_usd": 0.0,
+        "rethinks": 0,
+        "errors": 0,
+        "total_s": 2.6,
+        "job_dir": "evals/results/ticket_router/2026-09-22__13-22-45-983908__random"
+      },
+      "batches": [
+        {
+          "seed": 0,
+          "total": 30,
+          "processed": 30,
+          "correct": 4,
+          "accuracy": 0.13333333333333333,
+          "coverage": 1.0,
+          "per_class_support": {
+            "logistics": 6,
+            "payment": 6,
+            "returns": 6,
+            "account": 6,
+            "human": 6
+          },
+          "per_class_recall": {
+            "logistics": 0.16666666666666666,
+            "payment": 0.16666666666666666,
+            "returns": 0.16666666666666666,
+            "account": 0.16666666666666666,
+            "human": 0.0
+          },
+          "ticket_ids": [
+            "t_a5a229edd810",
+            "t_c85ca34669b1",
+            "t_55ac1dd8d045",
+            "t_6892a5546a24",
+            "t_97415027853c",
+            "t_52586863f51e",
+            "t_1a6847ba8b66",
+            "t_fac102ef66cc",
+            "t_30a6dedb9828",
+            "t_f21a8be4a071",
+            "t_507d761b520a",
+            "t_d6e0fd840d60",
+            "t_46f559df489a",
+            "t_8f0ec563a91a",
+            "t_f5251390fb88",
+            "t_e4351833c8c8",
+            "t_5b12b66a4428",
+            "t_07772aa5f822",
+            "t_ace2461b953a",
+            "t_9f4c2e9e9fc4",
+            "t_c8fd45b69015",
+            "t_c72f978e4f83",
+            "t_2ff652a83e3b",
+            "t_ec027c12e4da",
+            "t_609c2a02ab84",
+            "t_6cb98186dde0",
+            "t_273060d164f5",
+            "t_892cab266e67",
+            "t_afe6633569aa",
+            "t_c5314933eb53"
+          ],
+          "unprocessed_ids": [],
+          "batch_sha256": "b239df1d7ad0457d692560a77d2e346703ee7aff5e2631e4bcd55eb1ab7d1ec8",
+          "routes": [
+            {
+              "id": "t_a5a229edd810",
+              "expected": "logistics",
+              "predicted": "returns",
+              "correct": false
+            },
+            {
+              "id": "t_c85ca34669b1",
+              "expected": "payment",
+              "predicted": "payment",
+              "correct": true
+            },
+            {
+              "id": "t_55ac1dd8d045",
+              "expected": "account",
+              "predicted": "logistics",
+              "correct": false
+            },
+            {
+              "id": "t_6892a5546a24",
+              "expected": "returns",
+              "predicted": "account",
+              "correct": false
+            },
+            {
+              "id": "t_97415027853c",
+              "expected": "logistics",
+              "predicted": "payment",
+              "correct": false
+            },
+            {
+              "id": "t_52586863f51e",
+              "expected": "logistics",
+              "predicted": "logistics",
+              "correct": true
+            },
+            {
+              "id": "t_1a6847ba8b66",
+              "expected": "payment",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_fac102ef66cc",
+              "expected": "human",
+              "predicted": "logistics",
+              "correct": false
+            },
+            {
+              "id": "t_30a6dedb9828",
+              "expected": "human",
+              "predicted": "payment",
+              "correct": false
+            },
+            {
+              "id": "t_f21a8be4a071",
+              "expected": "returns",
+              "predicted": "account",
+              "correct": false
+            },
+            {
+              "id": "t_507d761b520a",
+              "expected": "account",
+              "predicted": "returns",
+              "correct": false
+            },
+            {
+              "id": "t_d6e0fd840d60",
+              "expected": "human",
+              "predicted": "payment",
+              "correct": false
+            },
+            {
+              "id": "t_46f559df489a",
+              "expected": "account",
+              "predicted": "logistics",
+              "correct": false
+            },
+            {
+              "id": "t_8f0ec563a91a",
+              "expected": "logistics",
+              "predicted": "payment",
+              "correct": false
+            },
+            {
+              "id": "t_f5251390fb88",
+              "expected": "account",
+              "predicted": "account",
+              "correct": true
+            },
+            {
+              "id": "t_e4351833c8c8",
+              "expected": "logistics",
+              "predicted": "payment",
+              "correct": false
+            },
+            {
+              "id": "t_5b12b66a4428",
+              "expected": "account",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_07772aa5f822",
+              "expected": "payment",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_ace2461b953a",
+              "expected": "payment",
+              "predicted": "account",
+              "correct": false
+            },
+            {
+              "id": "t_9f4c2e9e9fc4",
+              "expected": "account",
+              "predicted": "payment",
+              "correct": false
+            },
+            {
+              "id": "t_c8fd45b69015",
+              "expected": "payment",
+              "predicted": "account",
+              "correct": false
+            },
+            {
+              "id": "t_c72f978e4f83",
+              "expected": "human",
+              "predicted": "logistics",
+              "correct": false
+            },
+            {
+              "id": "t_2ff652a83e3b",
+              "expected": "returns",
+              "predicted": "logistics",
+              "correct": false
+            },
+            {
+              "id": "t_ec027c12e4da",
+              "expected": "returns",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_609c2a02ab84",
+              "expected": "payment",
+              "predicted": "logistics",
+              "correct": false
+            },
+            {
+              "id": "t_6cb98186dde0",
+              "expected": "logistics",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_273060d164f5",
+              "expected": "returns",
+              "predicted": "payment",
+              "correct": false
+            },
+            {
+              "id": "t_892cab266e67",
+              "expected": "human",
+              "predicted": "payment",
+              "correct": false
+            },
+            {
+              "id": "t_afe6633569aa",
+              "expected": "returns",
+              "predicted": "returns",
+              "correct": true
+            },
+            {
+              "id": "t_c5314933eb53",
+              "expected": "human",
+              "predicted": "payment",
+              "correct": false
+            }
+          ]
+        },
+        {
+          "seed": 1,
+          "total": 30,
+          "processed": 30,
+          "correct": 5,
+          "accuracy": 0.16666666666666666,
+          "coverage": 1.0,
+          "per_class_support": {
+            "logistics": 6,
+            "payment": 6,
+            "returns": 6,
+            "account": 6,
+            "human": 6
+          },
+          "per_class_recall": {
+            "logistics": 0.16666666666666666,
+            "payment": 0.3333333333333333,
+            "returns": 0.0,
+            "account": 0.16666666666666666,
+            "human": 0.16666666666666666
+          },
+          "ticket_ids": [
+            "t_fac102ef66cc",
+            "t_ec027c12e4da",
+            "t_ace2461b953a",
+            "t_c85ca34669b1",
+            "t_5b12b66a4428",
+            "t_6cb98186dde0",
+            "t_97415027853c",
+            "t_30a6dedb9828",
+            "t_1a6847ba8b66",
+            "t_507d761b520a",
+            "t_c8fd45b69015",
+            "t_c72f978e4f83",
+            "t_6892a5546a24",
+            "t_273060d164f5",
+            "t_52586863f51e",
+            "t_f5251390fb88",
+            "t_9f4c2e9e9fc4",
+            "t_07772aa5f822",
+            "t_afe6633569aa",
+            "t_46f559df489a",
+            "t_f21a8be4a071",
+            "t_2ff652a83e3b",
+            "t_a5a229edd810",
+            "t_609c2a02ab84",
+            "t_8f0ec563a91a",
+            "t_892cab266e67",
+            "t_d6e0fd840d60",
+            "t_c5314933eb53",
+            "t_55ac1dd8d045",
+            "t_e4351833c8c8"
+          ],
+          "unprocessed_ids": [],
+          "batch_sha256": "3213dc4193fc96fc743074d5515996d6f4d58c2b19b2b79490edbf0cce14f480",
+          "routes": [
+            {
+              "id": "t_fac102ef66cc",
+              "expected": "human",
+              "predicted": "human",
+              "correct": true
+            },
+            {
+              "id": "t_ec027c12e4da",
+              "expected": "returns",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_ace2461b953a",
+              "expected": "payment",
+              "predicted": "account",
+              "correct": false
+            },
+            {
+              "id": "t_c85ca34669b1",
+              "expected": "payment",
+              "predicted": "account",
+              "correct": false
+            },
+            {
+              "id": "t_5b12b66a4428",
+              "expected": "account",
+              "predicted": "returns",
+              "correct": false
+            },
+            {
+              "id": "t_6cb98186dde0",
+              "expected": "logistics",
+              "predicted": "account",
+              "correct": false
+            },
+            {
+              "id": "t_97415027853c",
+              "expected": "logistics",
+              "predicted": "account",
+              "correct": false
+            },
+            {
+              "id": "t_30a6dedb9828",
+              "expected": "human",
+              "predicted": "returns",
+              "correct": false
+            },
+            {
+              "id": "t_1a6847ba8b66",
+              "expected": "payment",
+              "predicted": "returns",
+              "correct": false
+            },
+            {
+              "id": "t_507d761b520a",
+              "expected": "account",
+              "predicted": "logistics",
+              "correct": false
+            },
+            {
+              "id": "t_c8fd45b69015",
+              "expected": "payment",
+              "predicted": "payment",
+              "correct": true
+            },
+            {
+              "id": "t_c72f978e4f83",
+              "expected": "human",
+              "predicted": "payment",
+              "correct": false
+            },
+            {
+              "id": "t_6892a5546a24",
+              "expected": "returns",
+              "predicted": "payment",
+              "correct": false
+            },
+            {
+              "id": "t_273060d164f5",
+              "expected": "returns",
+              "predicted": "logistics",
+              "correct": false
+            },
+            {
+              "id": "t_52586863f51e",
+              "expected": "logistics",
+              "predicted": "payment",
+              "correct": false
+            },
+            {
+              "id": "t_f5251390fb88",
+              "expected": "account",
+              "predicted": "account",
+              "correct": true
+            },
+            {
+              "id": "t_9f4c2e9e9fc4",
+              "expected": "account",
+              "predicted": "payment",
+              "correct": false
+            },
+            {
+              "id": "t_07772aa5f822",
+              "expected": "payment",
+              "predicted": "payment",
+              "correct": true
+            },
+            {
+              "id": "t_afe6633569aa",
+              "expected": "returns",
+              "predicted": "payment",
+              "correct": false
+            },
+            {
+              "id": "t_46f559df489a",
+              "expected": "account",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_f21a8be4a071",
+              "expected": "returns",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_2ff652a83e3b",
+              "expected": "returns",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_a5a229edd810",
+              "expected": "logistics",
+              "predicted": "account",
+              "correct": false
+            },
+            {
+              "id": "t_609c2a02ab84",
+              "expected": "payment",
+              "predicted": "account",
+              "correct": false
+            },
+            {
+              "id": "t_8f0ec563a91a",
+              "expected": "logistics",
+              "predicted": "logistics",
+              "correct": true
+            },
+            {
+              "id": "t_892cab266e67",
+              "expected": "human",
+              "predicted": "logistics",
+              "correct": false
+            },
+            {
+              "id": "t_d6e0fd840d60",
+              "expected": "human",
+              "predicted": "returns",
+              "correct": false
+            },
+            {
+              "id": "t_c5314933eb53",
+              "expected": "human",
+              "predicted": "returns",
+              "correct": false
+            },
+            {
+              "id": "t_55ac1dd8d045",
+              "expected": "account",
+              "predicted": "payment",
+              "correct": false
+            },
+            {
+              "id": "t_e4351833c8c8",
+              "expected": "logistics",
+              "predicted": "human",
+              "correct": false
+            }
+          ]
+        },
+        {
+          "seed": 2,
+          "total": 30,
+          "processed": 30,
+          "correct": 8,
+          "accuracy": 0.26666666666666666,
+          "coverage": 1.0,
+          "per_class_support": {
+            "logistics": 6,
+            "payment": 6,
+            "returns": 6,
+            "account": 6,
+            "human": 6
+          },
+          "per_class_recall": {
+            "logistics": 0.3333333333333333,
+            "payment": 0.5,
+            "returns": 0.16666666666666666,
+            "account": 0.16666666666666666,
+            "human": 0.16666666666666666
+          },
+          "ticket_ids": [
+            "t_a5a229edd810",
+            "t_9f4c2e9e9fc4",
+            "t_6892a5546a24",
+            "t_2ff652a83e3b",
+            "t_52586863f51e",
+            "t_d6e0fd840d60",
+            "t_e4351833c8c8",
+            "t_1a6847ba8b66",
+            "t_f21a8be4a071",
+            "t_ec027c12e4da",
+            "t_507d761b520a",
+            "t_892cab266e67",
+            "t_afe6633569aa",
+            "t_55ac1dd8d045",
+            "t_c85ca34669b1",
+            "t_273060d164f5",
+            "t_5b12b66a4428",
+            "t_c72f978e4f83",
+            "t_07772aa5f822",
+            "t_f5251390fb88",
+            "t_609c2a02ab84",
+            "t_c8fd45b69015",
+            "t_46f559df489a",
+            "t_97415027853c",
+            "t_ace2461b953a",
+            "t_fac102ef66cc",
+            "t_8f0ec563a91a",
+            "t_6cb98186dde0",
+            "t_30a6dedb9828",
+            "t_c5314933eb53"
+          ],
+          "unprocessed_ids": [],
+          "batch_sha256": "34ff84e9fea27a15be4a91b107c72f60d58c8364273f4a2fb5629f32989e021f",
+          "routes": [
+            {
+              "id": "t_a5a229edd810",
+              "expected": "logistics",
+              "predicted": "logistics",
+              "correct": true
+            },
+            {
+              "id": "t_9f4c2e9e9fc4",
+              "expected": "account",
+              "predicted": "returns",
+              "correct": false
+            },
+            {
+              "id": "t_6892a5546a24",
+              "expected": "returns",
+              "predicted": "returns",
+              "correct": true
+            },
+            {
+              "id": "t_2ff652a83e3b",
+              "expected": "returns",
+              "predicted": "payment",
+              "correct": false
+            },
+            {
+              "id": "t_52586863f51e",
+              "expected": "logistics",
+              "predicted": "payment",
+              "correct": false
+            },
+            {
+              "id": "t_d6e0fd840d60",
+              "expected": "human",
+              "predicted": "account",
+              "correct": false
+            },
+            {
+              "id": "t_e4351833c8c8",
+              "expected": "logistics",
+              "predicted": "payment",
+              "correct": false
+            },
+            {
+              "id": "t_1a6847ba8b66",
+              "expected": "payment",
+              "predicted": "returns",
+              "correct": false
+            },
+            {
+              "id": "t_f21a8be4a071",
+              "expected": "returns",
+              "predicted": "payment",
+              "correct": false
+            },
+            {
+              "id": "t_ec027c12e4da",
+              "expected": "returns",
+              "predicted": "logistics",
+              "correct": false
+            },
+            {
+              "id": "t_507d761b520a",
+              "expected": "account",
+              "predicted": "account",
+              "correct": true
+            },
+            {
+              "id": "t_892cab266e67",
+              "expected": "human",
+              "predicted": "payment",
+              "correct": false
+            },
+            {
+              "id": "t_afe6633569aa",
+              "expected": "returns",
+              "predicted": "account",
+              "correct": false
+            },
+            {
+              "id": "t_55ac1dd8d045",
+              "expected": "account",
+              "predicted": "payment",
+              "correct": false
+            },
+            {
+              "id": "t_c85ca34669b1",
+              "expected": "payment",
+              "predicted": "payment",
+              "correct": true
+            },
+            {
+              "id": "t_273060d164f5",
+              "expected": "returns",
+              "predicted": "account",
+              "correct": false
+            },
+            {
+              "id": "t_5b12b66a4428",
+              "expected": "account",
+              "predicted": "payment",
+              "correct": false
+            },
+            {
+              "id": "t_c72f978e4f83",
+              "expected": "human",
+              "predicted": "payment",
+              "correct": false
+            },
+            {
+              "id": "t_07772aa5f822",
+              "expected": "payment",
+              "predicted": "returns",
+              "correct": false
+            },
+            {
+              "id": "t_f5251390fb88",
+              "expected": "account",
+              "predicted": "returns",
+              "correct": false
+            },
+            {
+              "id": "t_609c2a02ab84",
+              "expected": "payment",
+              "predicted": "payment",
+              "correct": true
+            },
+            {
+              "id": "t_c8fd45b69015",
+              "expected": "payment",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_46f559df489a",
+              "expected": "account",
+              "predicted": "payment",
+              "correct": false
+            },
+            {
+              "id": "t_97415027853c",
+              "expected": "logistics",
+              "predicted": "payment",
+              "correct": false
+            },
+            {
+              "id": "t_ace2461b953a",
+              "expected": "payment",
+              "predicted": "payment",
+              "correct": true
+            },
+            {
+              "id": "t_fac102ef66cc",
+              "expected": "human",
+              "predicted": "payment",
+              "correct": false
+            },
+            {
+              "id": "t_8f0ec563a91a",
+              "expected": "logistics",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_6cb98186dde0",
+              "expected": "logistics",
+              "predicted": "logistics",
+              "correct": true
+            },
+            {
+              "id": "t_30a6dedb9828",
+              "expected": "human",
+              "predicted": "returns",
+              "correct": false
+            },
+            {
+              "id": "t_c5314933eb53",
+              "expected": "human",
+              "predicted": "human",
+              "correct": true
+            }
+          ]
+        }
+      ]
+    },
+    "rule": {
+      "summary": {
+        "env": "ticket_router",
+        "policy": "keywords",
+        "episodes": 3,
+        "scored": 3,
+        "mean_score": 17.0,
+        "mean_score_ci95": [
+          17.0,
+          17.0
+        ],
+        "wins": 3,
+        "losses": 0,
+        "mean_steps": 30,
+        "mean_elapsed_s": 0.9,
+        "decisions": 90,
+        "median_decision_ms": 0,
+        "chat_calls": 0,
+        "jev_input_tokens": 0,
+        "chat_input_tokens": 0,
+        "chat_output_tokens": 0,
+        "chat_cache_tokens": 0,
+        "invalid_keys": 0,
+        "cost_usd": 0.0,
+        "rethinks": 0,
+        "errors": 0,
+        "total_s": 2.7,
+        "job_dir": "evals/results/ticket_router/2026-09-22__13-23-05-526774__keywords"
+      },
+      "batches": [
+        {
+          "seed": 0,
+          "total": 30,
+          "processed": 30,
+          "correct": 17,
+          "accuracy": 0.5666666666666667,
+          "coverage": 1.0,
+          "per_class_support": {
+            "logistics": 6,
+            "payment": 6,
+            "returns": 6,
+            "account": 6,
+            "human": 6
+          },
+          "per_class_recall": {
+            "logistics": 0.3333333333333333,
+            "payment": 0.5,
+            "returns": 0.3333333333333333,
+            "account": 0.6666666666666666,
+            "human": 1.0
+          },
+          "ticket_ids": [
+            "t_a5a229edd810",
+            "t_c85ca34669b1",
+            "t_55ac1dd8d045",
+            "t_6892a5546a24",
+            "t_97415027853c",
+            "t_52586863f51e",
+            "t_1a6847ba8b66",
+            "t_fac102ef66cc",
+            "t_30a6dedb9828",
+            "t_f21a8be4a071",
+            "t_507d761b520a",
+            "t_d6e0fd840d60",
+            "t_46f559df489a",
+            "t_8f0ec563a91a",
+            "t_f5251390fb88",
+            "t_e4351833c8c8",
+            "t_5b12b66a4428",
+            "t_07772aa5f822",
+            "t_ace2461b953a",
+            "t_9f4c2e9e9fc4",
+            "t_c8fd45b69015",
+            "t_c72f978e4f83",
+            "t_2ff652a83e3b",
+            "t_ec027c12e4da",
+            "t_609c2a02ab84",
+            "t_6cb98186dde0",
+            "t_273060d164f5",
+            "t_892cab266e67",
+            "t_afe6633569aa",
+            "t_c5314933eb53"
+          ],
+          "unprocessed_ids": [],
+          "batch_sha256": "b239df1d7ad0457d692560a77d2e346703ee7aff5e2631e4bcd55eb1ab7d1ec8",
+          "routes": [
+            {
+              "id": "t_a5a229edd810",
+              "expected": "logistics",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_c85ca34669b1",
+              "expected": "payment",
+              "predicted": "payment",
+              "correct": true
+            },
+            {
+              "id": "t_55ac1dd8d045",
+              "expected": "account",
+              "predicted": "account",
+              "correct": true
+            },
+            {
+              "id": "t_6892a5546a24",
+              "expected": "returns",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_97415027853c",
+              "expected": "logistics",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_52586863f51e",
+              "expected": "logistics",
+              "predicted": "logistics",
+              "correct": true
+            },
+            {
+              "id": "t_1a6847ba8b66",
+              "expected": "payment",
+              "predicted": "payment",
+              "correct": true
+            },
+            {
+              "id": "t_fac102ef66cc",
+              "expected": "human",
+              "predicted": "human",
+              "correct": true
+            },
+            {
+              "id": "t_30a6dedb9828",
+              "expected": "human",
+              "predicted": "human",
+              "correct": true
+            },
+            {
+              "id": "t_f21a8be4a071",
+              "expected": "returns",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_507d761b520a",
+              "expected": "account",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_d6e0fd840d60",
+              "expected": "human",
+              "predicted": "human",
+              "correct": true
+            },
+            {
+              "id": "t_46f559df489a",
+              "expected": "account",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_8f0ec563a91a",
+              "expected": "logistics",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_f5251390fb88",
+              "expected": "account",
+              "predicted": "account",
+              "correct": true
+            },
+            {
+              "id": "t_e4351833c8c8",
+              "expected": "logistics",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_5b12b66a4428",
+              "expected": "account",
+              "predicted": "account",
+              "correct": true
+            },
+            {
+              "id": "t_07772aa5f822",
+              "expected": "payment",
+              "predicted": "payment",
+              "correct": true
+            },
+            {
+              "id": "t_ace2461b953a",
+              "expected": "payment",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_9f4c2e9e9fc4",
+              "expected": "account",
+              "predicted": "account",
+              "correct": true
+            },
+            {
+              "id": "t_c8fd45b69015",
+              "expected": "payment",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_c72f978e4f83",
+              "expected": "human",
+              "predicted": "human",
+              "correct": true
+            },
+            {
+              "id": "t_2ff652a83e3b",
+              "expected": "returns",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_ec027c12e4da",
+              "expected": "returns",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_609c2a02ab84",
+              "expected": "payment",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_6cb98186dde0",
+              "expected": "logistics",
+              "predicted": "logistics",
+              "correct": true
+            },
+            {
+              "id": "t_273060d164f5",
+              "expected": "returns",
+              "predicted": "returns",
+              "correct": true
+            },
+            {
+              "id": "t_892cab266e67",
+              "expected": "human",
+              "predicted": "human",
+              "correct": true
+            },
+            {
+              "id": "t_afe6633569aa",
+              "expected": "returns",
+              "predicted": "returns",
+              "correct": true
+            },
+            {
+              "id": "t_c5314933eb53",
+              "expected": "human",
+              "predicted": "human",
+              "correct": true
+            }
+          ]
+        },
+        {
+          "seed": 1,
+          "total": 30,
+          "processed": 30,
+          "correct": 17,
+          "accuracy": 0.5666666666666667,
+          "coverage": 1.0,
+          "per_class_support": {
+            "logistics": 6,
+            "payment": 6,
+            "returns": 6,
+            "account": 6,
+            "human": 6
+          },
+          "per_class_recall": {
+            "logistics": 0.3333333333333333,
+            "payment": 0.5,
+            "returns": 0.3333333333333333,
+            "account": 0.6666666666666666,
+            "human": 1.0
+          },
+          "ticket_ids": [
+            "t_fac102ef66cc",
+            "t_ec027c12e4da",
+            "t_ace2461b953a",
+            "t_c85ca34669b1",
+            "t_5b12b66a4428",
+            "t_6cb98186dde0",
+            "t_97415027853c",
+            "t_30a6dedb9828",
+            "t_1a6847ba8b66",
+            "t_507d761b520a",
+            "t_c8fd45b69015",
+            "t_c72f978e4f83",
+            "t_6892a5546a24",
+            "t_273060d164f5",
+            "t_52586863f51e",
+            "t_f5251390fb88",
+            "t_9f4c2e9e9fc4",
+            "t_07772aa5f822",
+            "t_afe6633569aa",
+            "t_46f559df489a",
+            "t_f21a8be4a071",
+            "t_2ff652a83e3b",
+            "t_a5a229edd810",
+            "t_609c2a02ab84",
+            "t_8f0ec563a91a",
+            "t_892cab266e67",
+            "t_d6e0fd840d60",
+            "t_c5314933eb53",
+            "t_55ac1dd8d045",
+            "t_e4351833c8c8"
+          ],
+          "unprocessed_ids": [],
+          "batch_sha256": "3213dc4193fc96fc743074d5515996d6f4d58c2b19b2b79490edbf0cce14f480",
+          "routes": [
+            {
+              "id": "t_fac102ef66cc",
+              "expected": "human",
+              "predicted": "human",
+              "correct": true
+            },
+            {
+              "id": "t_ec027c12e4da",
+              "expected": "returns",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_ace2461b953a",
+              "expected": "payment",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_c85ca34669b1",
+              "expected": "payment",
+              "predicted": "payment",
+              "correct": true
+            },
+            {
+              "id": "t_5b12b66a4428",
+              "expected": "account",
+              "predicted": "account",
+              "correct": true
+            },
+            {
+              "id": "t_6cb98186dde0",
+              "expected": "logistics",
+              "predicted": "logistics",
+              "correct": true
+            },
+            {
+              "id": "t_97415027853c",
+              "expected": "logistics",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_30a6dedb9828",
+              "expected": "human",
+              "predicted": "human",
+              "correct": true
+            },
+            {
+              "id": "t_1a6847ba8b66",
+              "expected": "payment",
+              "predicted": "payment",
+              "correct": true
+            },
+            {
+              "id": "t_507d761b520a",
+              "expected": "account",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_c8fd45b69015",
+              "expected": "payment",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_c72f978e4f83",
+              "expected": "human",
+              "predicted": "human",
+              "correct": true
+            },
+            {
+              "id": "t_6892a5546a24",
+              "expected": "returns",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_273060d164f5",
+              "expected": "returns",
+              "predicted": "returns",
+              "correct": true
+            },
+            {
+              "id": "t_52586863f51e",
+              "expected": "logistics",
+              "predicted": "logistics",
+              "correct": true
+            },
+            {
+              "id": "t_f5251390fb88",
+              "expected": "account",
+              "predicted": "account",
+              "correct": true
+            },
+            {
+              "id": "t_9f4c2e9e9fc4",
+              "expected": "account",
+              "predicted": "account",
+              "correct": true
+            },
+            {
+              "id": "t_07772aa5f822",
+              "expected": "payment",
+              "predicted": "payment",
+              "correct": true
+            },
+            {
+              "id": "t_afe6633569aa",
+              "expected": "returns",
+              "predicted": "returns",
+              "correct": true
+            },
+            {
+              "id": "t_46f559df489a",
+              "expected": "account",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_f21a8be4a071",
+              "expected": "returns",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_2ff652a83e3b",
+              "expected": "returns",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_a5a229edd810",
+              "expected": "logistics",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_609c2a02ab84",
+              "expected": "payment",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_8f0ec563a91a",
+              "expected": "logistics",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_892cab266e67",
+              "expected": "human",
+              "predicted": "human",
+              "correct": true
+            },
+            {
+              "id": "t_d6e0fd840d60",
+              "expected": "human",
+              "predicted": "human",
+              "correct": true
+            },
+            {
+              "id": "t_c5314933eb53",
+              "expected": "human",
+              "predicted": "human",
+              "correct": true
+            },
+            {
+              "id": "t_55ac1dd8d045",
+              "expected": "account",
+              "predicted": "account",
+              "correct": true
+            },
+            {
+              "id": "t_e4351833c8c8",
+              "expected": "logistics",
+              "predicted": "human",
+              "correct": false
+            }
+          ]
+        },
+        {
+          "seed": 2,
+          "total": 30,
+          "processed": 30,
+          "correct": 17,
+          "accuracy": 0.5666666666666667,
+          "coverage": 1.0,
+          "per_class_support": {
+            "logistics": 6,
+            "payment": 6,
+            "returns": 6,
+            "account": 6,
+            "human": 6
+          },
+          "per_class_recall": {
+            "logistics": 0.3333333333333333,
+            "payment": 0.5,
+            "returns": 0.3333333333333333,
+            "account": 0.6666666666666666,
+            "human": 1.0
+          },
+          "ticket_ids": [
+            "t_a5a229edd810",
+            "t_9f4c2e9e9fc4",
+            "t_6892a5546a24",
+            "t_2ff652a83e3b",
+            "t_52586863f51e",
+            "t_d6e0fd840d60",
+            "t_e4351833c8c8",
+            "t_1a6847ba8b66",
+            "t_f21a8be4a071",
+            "t_ec027c12e4da",
+            "t_507d761b520a",
+            "t_892cab266e67",
+            "t_afe6633569aa",
+            "t_55ac1dd8d045",
+            "t_c85ca34669b1",
+            "t_273060d164f5",
+            "t_5b12b66a4428",
+            "t_c72f978e4f83",
+            "t_07772aa5f822",
+            "t_f5251390fb88",
+            "t_609c2a02ab84",
+            "t_c8fd45b69015",
+            "t_46f559df489a",
+            "t_97415027853c",
+            "t_ace2461b953a",
+            "t_fac102ef66cc",
+            "t_8f0ec563a91a",
+            "t_6cb98186dde0",
+            "t_30a6dedb9828",
+            "t_c5314933eb53"
+          ],
+          "unprocessed_ids": [],
+          "batch_sha256": "34ff84e9fea27a15be4a91b107c72f60d58c8364273f4a2fb5629f32989e021f",
+          "routes": [
+            {
+              "id": "t_a5a229edd810",
+              "expected": "logistics",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_9f4c2e9e9fc4",
+              "expected": "account",
+              "predicted": "account",
+              "correct": true
+            },
+            {
+              "id": "t_6892a5546a24",
+              "expected": "returns",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_2ff652a83e3b",
+              "expected": "returns",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_52586863f51e",
+              "expected": "logistics",
+              "predicted": "logistics",
+              "correct": true
+            },
+            {
+              "id": "t_d6e0fd840d60",
+              "expected": "human",
+              "predicted": "human",
+              "correct": true
+            },
+            {
+              "id": "t_e4351833c8c8",
+              "expected": "logistics",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_1a6847ba8b66",
+              "expected": "payment",
+              "predicted": "payment",
+              "correct": true
+            },
+            {
+              "id": "t_f21a8be4a071",
+              "expected": "returns",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_ec027c12e4da",
+              "expected": "returns",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_507d761b520a",
+              "expected": "account",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_892cab266e67",
+              "expected": "human",
+              "predicted": "human",
+              "correct": true
+            },
+            {
+              "id": "t_afe6633569aa",
+              "expected": "returns",
+              "predicted": "returns",
+              "correct": true
+            },
+            {
+              "id": "t_55ac1dd8d045",
+              "expected": "account",
+              "predicted": "account",
+              "correct": true
+            },
+            {
+              "id": "t_c85ca34669b1",
+              "expected": "payment",
+              "predicted": "payment",
+              "correct": true
+            },
+            {
+              "id": "t_273060d164f5",
+              "expected": "returns",
+              "predicted": "returns",
+              "correct": true
+            },
+            {
+              "id": "t_5b12b66a4428",
+              "expected": "account",
+              "predicted": "account",
+              "correct": true
+            },
+            {
+              "id": "t_c72f978e4f83",
+              "expected": "human",
+              "predicted": "human",
+              "correct": true
+            },
+            {
+              "id": "t_07772aa5f822",
+              "expected": "payment",
+              "predicted": "payment",
+              "correct": true
+            },
+            {
+              "id": "t_f5251390fb88",
+              "expected": "account",
+              "predicted": "account",
+              "correct": true
+            },
+            {
+              "id": "t_609c2a02ab84",
+              "expected": "payment",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_c8fd45b69015",
+              "expected": "payment",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_46f559df489a",
+              "expected": "account",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_97415027853c",
+              "expected": "logistics",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_ace2461b953a",
+              "expected": "payment",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_fac102ef66cc",
+              "expected": "human",
+              "predicted": "human",
+              "correct": true
+            },
+            {
+              "id": "t_8f0ec563a91a",
+              "expected": "logistics",
+              "predicted": "human",
+              "correct": false
+            },
+            {
+              "id": "t_6cb98186dde0",
+              "expected": "logistics",
+              "predicted": "logistics",
+              "correct": true
+            },
+            {
+              "id": "t_30a6dedb9828",
+              "expected": "human",
+              "predicted": "human",
+              "correct": true
+            },
+            {
+              "id": "t_c5314933eb53",
+              "expected": "human",
+              "predicted": "human",
+              "correct": true
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "source_base_revision": "e4815e888d1dc477713ce99b88ba22164a9ddde2",
+  "source_note": "English random/rule rerun on this base plus the two pending changes; the model probe connection failure was recorded before the s1a package rename."
+}

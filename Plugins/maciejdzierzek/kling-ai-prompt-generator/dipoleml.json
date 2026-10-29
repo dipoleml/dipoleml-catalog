@@ -1,0 +1,119 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.maciejdzierzek.kling-ai-prompt-generator",
+  "type": "plugin",
+  "name": "Kling Ai Prompt Generator",
+  "slug": "kling-ai-prompt-generator",
+  "vendor": "maciejdzierzek",
+  "description": "DipoleML plugin for Kling AI video prompts. Works with DipoleML.ai, DipoleML Desktop & DipoleML. I2V, T2V, Motion Control, Storyboards. Try live: maciejdzierzek.com",
+  "version": "1.2.0",
+  "homepage": "https://github.com/maciejdzierzek/kling-ai-prompt-generator",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "ai-video",
+    "claude-skill",
+    "generative-ai",
+    "image-to-video",
+    "kling-ai",
+    "prompt-engineering",
+    "prompt-generator",
+    "text-to-video",
+    "video-generation"
+  ],
+  "tags": [
+    "ai-tools",
+    "ai-video",
+    "claude-code",
+    "claude-skill",
+    "generative-ai",
+    "image-to-video",
+    "kling-ai",
+    "prompt-engineering",
+    "prompt-generator",
+    "text-to-video",
+    "video-generation"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "maciejdzierzek",
+    "brandName": "maciejdzierzek",
+    "source": "https://github.com/maciejdzierzek.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:13:56Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "maciejdzierzek/kling-ai-prompt-generator",
+    "url": "https://github.com/maciejdzierzek/kling-ai-prompt-generator",
+    "commit": "248b9a275fedd511a1f0d9c32dc42a233ffb6357",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 34,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:50:05Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Kling Ai Prompt Generator | Claude plugin for Kling AI video prompts. Works with Claude.ai, Claude Desktop & Claude Code. I2V, T2V, Motion Control, Storyboards. Try live: maciejdzierzek.com",
+        "after": "Kling Ai Prompt Generator | DipoleML plugin for Kling AI video prompts. Works with DipoleML.ai, DipoleML Desktop & DipoleML. I2V, T2V, Motion Control, Storyboards. Try live: maciejdzierzek.com",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [
+      "KEYWORDS"
+    ],
+    "credentials": [
+      "KEYWORDS"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

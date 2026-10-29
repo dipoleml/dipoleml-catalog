@@ -1,0 +1,16 @@
+{
+  "name": "knowl",
+  "displayName": "Knowl",
+  "version": "5.28.1",
+  "description": "Persistent memory for DipoleML. Facts are typed, sourced, and retired when they change, so a query returns the current answer rather than every answer it has ever held. Local SQLite in your repository — no API key, nothing uploaded.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Dat999zx"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/dat999zx/knowl",
+  "repository": "https://github.com/dat999zx/knowl",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

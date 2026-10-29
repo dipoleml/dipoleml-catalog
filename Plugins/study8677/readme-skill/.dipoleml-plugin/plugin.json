@@ -1,0 +1,16 @@
+{
+  "name": "readme-skill",
+  "displayName": "Readme Skill",
+  "version": "2.5.3",
+  "description": "Generate an AI-Native developer profile or monthly/time-window report from local DipoleML + Codex CLI + Kiro (AWS) + Trae (ByteDance) + Gemini Antigravity (Google) + Cursor composer metadata, GitHub contributions, and git log. Local-only, read-only, anonymized by default.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Study8677"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/study8677/Readme.skill",
+  "repository": "https://github.com/study8677/Readme.skill",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

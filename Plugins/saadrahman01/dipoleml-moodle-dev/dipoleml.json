@@ -1,0 +1,118 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.saadrahman01.dipoleml-moodle-dev",
+  "type": "plugin",
+  "name": "DipoleML Moodle Dev",
+  "slug": "dipoleml-moodle-dev",
+  "vendor": "saadrahman01",
+  "description": "Moodle development toolkit for AI coding assistants. Skills for XMLDB, Hooks API, PHPUnit, Behat, AMD, privacy/GDPR, security, accessibility. Native DipoleML plugin + adapters.",
+  "version": "0.5.0",
+  "homepage": "https://github.com/SaadRahman01/claude-moodle-dev",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "ai-coding-assistant",
+    "claude-plugin",
+    "cluade-ai",
+    "edtech",
+    "lms",
+    "moodle",
+    "moodle-plugin",
+    "php"
+  ],
+  "tags": [
+    "ai-coding-assistant",
+    "claude",
+    "claude-plugin",
+    "cluade-ai",
+    "edtech",
+    "lms",
+    "moodle",
+    "moodle-plugin",
+    "php"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "saadrahman01",
+    "brandName": "saadrahman01",
+    "source": "https://github.com/SaadRahman01.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:14:42Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "SaadRahman01/claude-moodle-dev",
+    "url": "https://github.com/SaadRahman01/claude-moodle-dev",
+    "commit": "18bf1180d236889d686ff683e37333c9544b662d",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 42,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:50:00Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Claude Moodle Dev | Moodle development toolkit for AI coding assistants. Skills for XMLDB, Hooks API, PHPUnit, Behat, AMD, privacy/GDPR, security, accessibility. Native Claude Code plugin + adapters.",
+        "after": "DipoleML Moodle Dev | Moodle development toolkit for AI coding assistants. Skills for XMLDB, Hooks API, PHPUnit, Behat, AMD, privacy/GDPR, security, accessibility. Native DipoleML plugin + adapters.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "claude-moodle-dev",
+        "after": "dipoleml-moodle-dev",
+        "reason": "provider token neutralized in slug/id"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

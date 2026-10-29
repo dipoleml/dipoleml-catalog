@@ -1,0 +1,13 @@
+{
+  "name": "citadel",
+  "description": "Claude Code harness for routing requests, preserving run state, enforcing hooks, and recording evidence",
+  "version": "1.4.4",
+  "author": {
+    "name": "SethGammon"
+  },
+  "homepage": "https://github.com/SethGammon/Citadel",
+  "repository": "https://github.com/SethGammon/Citadel",
+  "license": "MIT",
+  "keywords": ["intent-routing", "durable-state", "evidence", "hooks", "skills", "claude-code"],
+  "mcpServers": "./.claude-plugin/.mcp.json"
+}

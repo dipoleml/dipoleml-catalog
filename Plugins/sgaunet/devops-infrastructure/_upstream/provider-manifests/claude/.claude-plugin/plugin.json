@@ -1,0 +1,21 @@
+{
+  "name": "devops-infrastructure",
+  "version": "0.7.0",
+  "description": "Infrastructure as Code (Terraform, Ansible, CloudFormation), CI/CD pipelines (GitHub Actions, GitLab CI, Forgejo Actions via fgj), and database specialists (PostgreSQL, MySQL) for DevOps workflows. Skills: analyze-db-performance (PostgreSQL query and index analysis).",
+  "keywords": [
+    "terraform",
+    "ansible",
+    "cicd",
+    "forgejo",
+    "postgresql",
+    "aws",
+    "kubernetes"
+  ],
+  "author": {
+    "name": "Sylvain",
+    "email": "1552102+sgaunet@users.noreply.github.com"
+  },
+  "license": "MIT",
+  "repository": "https://github.com/sgaunet/claude-plugins",
+  "homepage": "https://github.com/sgaunet/claude-plugins#readme"
+}

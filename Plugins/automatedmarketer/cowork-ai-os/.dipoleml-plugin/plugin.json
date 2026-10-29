@@ -1,0 +1,16 @@
+{
+  "name": "cowork-ai-os",
+  "displayName": "Cowork Ai Os",
+  "version": "0.10.3",
+  "description": "AI operating system for DipoleML Cowork. 9-phase onboarding wizard, daily brief, voice writer, audit, tune-up, browse-skills, browse-connectors, file organizer. Mac and Windows.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Automatedmarketer"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/AutomatedMarketer/cowork-ai-os",
+  "repository": "https://github.com/AutomatedMarketer/cowork-ai-os",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

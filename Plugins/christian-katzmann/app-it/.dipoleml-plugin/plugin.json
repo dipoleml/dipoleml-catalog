@@ -1,0 +1,16 @@
+{
+  "name": "app-it",
+  "displayName": "App It",
+  "version": "0.2.0",
+  "description": "Turn local web projects or hosted web URLs into macOS Dock apps on a local agent host.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Christian Katzmann"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/Christian-Katzmann/app-it",
+  "repository": "https://github.com/Christian-Katzmann/app-it",
+  "skills": "./skills/",
+  "commands": [],
+  "agents": []
+}

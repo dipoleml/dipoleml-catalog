@@ -1,0 +1,484 @@
+// switchXprovider — request forwarding, model rewriting, failover, cooldowns.
+//
+// Claude Code talks to this proxy with sentinel model names (switchx:opus /
+// switchx:sonnet / switchx:haiku — set by the installer in settings.json).
+// The proxy rewrites the model to the active provider's real model ID and
+// forwards the request. On retryable errors it marks the provider down and
+// retries the same request on the next provider by priority.
+
+import { Readable, Transform } from 'node:stream';
+import { StringDecoder } from 'node:string_decoder';
+import { statsFor, logEvent, persistSoon, recordUsage, pushRequest, countFailover } from './config.mjs';
+import { anthropicToOpenAI, openaiToAnthropicStream } from './translate.mjs';
+import { compressBody } from './compress.mjs';
+import { sessionFromMetadata, sessionProject, projectDisplayName } from './chaptions.mjs';
+import { gatewayHeaders, applyFingerprint, canonicalizeSession, mintSessionId, isCanonicalSession } from './freelane.mjs';
+
+// Time allowed for upstream to send response headers (streams may run much longer).
+const HEADER_TIMEOUT_MS = 60_000;
+
+// Base cooldowns per failure kind. Auto-learning: multiplied by up to 8x
+// based on consecutive failures, and extended by upstream `retry-after`.
+export const COOLDOWNS = {
+  auth: 60 * 60_000,     // 401/403 — key invalid, give it an hour
+  payment: 30 * 60_000,  // 402 — out of credits
+  rate: 5 * 60_000,      // 429 — rate limited / usage window
+  notfound: 2 * 60_000,  // 404 — model missing on this provider
+  server: 60_000,        // 5xx/529 — provider trouble, short cooldown
+  network: 30_000,       // connect failure / timeout
+};
+
+const RETRYABLE_STATUS = new Set([401, 402, 403, 404, 408, 429, 500, 502, 503, 504, 529]);
+
+export function enabledSorted(cfg) {
+  return cfg.providers
+    .filter((p) => p.enabled)
+    .slice()
+    .sort((a, b) => (a.priority || 99) - (b.priority || 99));
+}
+
+export function isDown(stats) {
+  return (stats.deadUntil || 0) > Date.now();
+}
+
+function classify(status) {
+  if (status === 401 || status === 403) return 'auth';
+  if (status === 402) return 'payment';
+  if (status === 429) return 'rate';
+  if (status === 404) return 'notfound';
+  return 'server';
+}
+
+function cooldownMs(kind, retryAfterSec, stats) {
+  let ms = COOLDOWNS[kind];
+  if (retryAfterSec && Number.isFinite(retryAfterSec)) {
+    ms = Math.max(ms, retryAfterSec * 1000);
+  }
+  const backoff = Math.min(2 ** Math.min(stats.consecutiveFailures || 0, 3), 8);
+  return ms * backoff;
+}
+
+function markDown(cfg, p, kind, detail, retryAfterSec) {
+  const s = statsFor(cfg, p.id);
+  s.consecutiveFailures = (s.consecutiveFailures || 0) + 1;
+  s.deadUntil = Date.now() + cooldownMs(kind, retryAfterSec, s);
+  s.deadReason = `${kind}: ${String(detail).slice(0, 200)}`;
+  s.lastError = { ts: Date.now(), kind, detail: String(detail).slice(0, 300) };
+  logEvent(
+    cfg,
+    `Provider "${p.name}" down (${kind}${retryAfterSec ? `, retry-after ${retryAfterSec}s` : ''}) — cooldown ${Math.round((s.deadUntil - Date.now()) / 1000)}s. Detail: ${String(detail).slice(0, 120)}`
+  );
+}
+
+function markSuccess(cfg, p, latencyMs) {
+  const s = statsFor(cfg, p.id);
+  s.requests++;
+  s.successes++;
+  s.consecutiveFailures = 0;
+  s.deadUntil = 0;
+  s.deadReason = null;
+  s.emaLatencyMs = s.emaLatencyMs == null
+    ? latencyMs
+    : Math.round(s.emaLatencyMs * 0.7 + latencyMs * 0.3);
+  persistSoon(cfg);
+}
+
+// Rewrite sentinel model names to the provider's real model IDs.
+export function mapModel(p, model) {
+  if (typeof model !== 'string') return model;
+  const m = /^switchx:(opus|sonnet|haiku)$/i.exec(model);
+  if (!m) return model;
+  const slot = m[1].toLowerCase();
+  const models = p.models || {};
+  return models[slot] || models.sonnet || model;
+}
+
+// Join provider base URL with the incoming path, avoiding /v1 duplication
+// for bases like https://openrouter.ai/api/v1.
+function targetUrl(baseUrl, url) {
+  let base = String(baseUrl || '').replace(/\/+$/, '');
+  const path = url; // includes pathname + search
+  if (/\/v\d+$/.test(base) && /^\/v\d+\//.test(path)) {
+    base = base.replace(/\/v\d+$/, '');
+  }
+  return base + path;
+}
+
+function buildHeaders(p, req, protocolOpenai = false) {
+  if (protocolOpenai) {
+    // OpenAI-protocol providers: Bearer auth, no Anthropic headers.
+    const headers = {
+      'content-type': 'application/json',
+      'user-agent': req.headers['user-agent'] || 'claude-cli/2.0.14 (external, cli)',
+    };
+    const hasKey = typeof p.apiKey === 'string' && p.apiKey.trim() !== '';
+    if (hasKey && p.authStyle !== 'none') {
+      headers.authorization = `Bearer ${p.apiKey}`;
+    }
+    return headers;
+  }
+  const h = {
+    'content-type': req.headers['content-type'] || 'application/json',
+    accept: req.headers['accept'] || '*/*',
+  };
+  for (const k of ['anthropic-beta', 'anthropic-version']) {
+    if (req.headers[k]) h[k] = req.headers[k];
+  }
+  // Forward the client's user-agent (this is Claude Code traffic). Fall back
+  // to a claude-cli UA — some gateways fingerprint and reject other clients.
+  h['user-agent'] = req.headers['user-agent'] || 'claude-cli/2.0.14 (external, cli)';
+  const style = p.authStyle || 'auto';
+  const hasKey = typeof p.apiKey === 'string' && p.apiKey.trim() !== '';
+  if (style === 'none' || !hasKey) {
+    // No credential on this lane (keyless free tier). The freelane protocol
+    // injects its own pooled cred via gatewayHeaders(); keyless OpenAI gateways
+    // rely on the upstream accepting anonymous traffic.
+  } else if (style === 'bearer') {
+    h['authorization'] = `Bearer ${p.apiKey}`;
+  } else if (style === 'anthropic') {
+    h['x-api-key'] = p.apiKey;
+    if (!h['anthropic-version']) h['anthropic-version'] = '2023-06-01';
+  } else {
+    // auto: send both — each provider reads the header it knows and ignores
+    // the other, so no configuration is needed. Harmless in practice.
+    h['x-api-key'] = p.apiKey;
+    h['authorization'] = `Bearer ${p.apiKey}`;
+    if (!h['anthropic-version']) h['anthropic-version'] = '2023-06-01';
+  }
+  return h;
+}
+
+// Pass-through stream that reads token usage out of the response while it
+// flows to the client. Handles both SSE (`data:` lines: message_start carries
+// input/cache tokens, message_delta carries the final output token count)
+// and plain JSON responses (top-level `usage`).
+//
+// SSE re-emission: upstream providers (VyceAI, APInex, etc.) frequently split
+// a single `data: {...}` line across TCP chunk boundaries. Claude Code's SSE
+// parser rejects partial JSON on a data: line as "malformed stream". This
+// transform reassembles complete lines before forwarding, so the client only
+// ever sees whole SSE events.
+export function usageTap(onDone) {
+  const dec = new StringDecoder('utf8');
+  let buf = '';
+  let sawSse = false;
+  let input = 0, output = 0, cacheRead = 0, cacheCreation = 0;
+  let done = false;
+
+  const take = (j) => {
+    const u = j?.usage || j?.message?.usage;
+    if (!u) return;
+    if (u.input_tokens) input = u.input_tokens;
+    if (u.cache_read_input_tokens) cacheRead = u.cache_read_input_tokens;
+    if (u.cache_creation_input_tokens) cacheCreation = u.cache_creation_input_tokens;
+    if (u.output_tokens) output = Math.max(output, u.output_tokens); // message_delta is cumulative
+  };
+
+  // Idempotent final report — called from flush() on normal completion AND
+  // from the stream's 'close' so a client cancel / upstream drop still
+  // records the usage parsed so far.
+  const finalize = () => {
+    if (done) return;
+    done = true;
+    onDone({ input, output, cacheRead, cacheCreation });
+  };
+
+  const t = new Transform({
+    transform(chunk, _enc, cb) {
+      buf += dec.write(chunk);
+      let i;
+      let out = '';
+      while ((i = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, i);
+        buf = buf.slice(i + 1);
+        // Preserve the line ending (LF) so client SSE parsers see whole events.
+        out += line + '\n';
+        const trimmed = line.replace(/\r$/, '');
+        if (trimmed.startsWith('data:')) {
+          sawSse = true;
+          const d = trimmed.slice(5).trim();
+          if (d && d !== '[DONE]') {
+            try { take(JSON.parse(d)); } catch { /* partial/keepalive line */ }
+          }
+        }
+      }
+      if (out) cb(null, out);
+      else cb();
+    },
+    flush(cb) {
+      buf += dec.end();
+      if (!sawSse && buf.trim()) {
+        try { take(JSON.parse(buf)); } catch { /* not JSON */ }
+      }
+      finalize();
+      cb();
+    },
+  });
+  t.finalize = finalize;
+  return t;
+}
+
+function sanitizeRespHeaders(headers) {
+  const h = {};
+  for (const [k, v] of headers) {
+    const lk = k.toLowerCase();
+    // fetch already decoded the body; forwarded lengths/encodings would lie.
+    if (lk === 'content-encoding' || lk === 'content-length' || lk === 'transfer-encoding') continue;
+    h[k] = v;
+  }
+  return h;
+}
+
+async function attempt(p, req, rawBody, cfg) {
+  let body;
+  let mappedModel = null;
+  let sessionId = null;
+  let projectName = null;
+  let projectDir = null;
+  let protocolOpenai = p.protocol === 'openai';
+  const protocolFreelane = p.protocol === 'freelane';
+  let targetPath = null; // protocol-translated requests target a different path
+  let savedChars = 0;    // token saver — reported to the caller on success
+  if (rawBody && rawBody.length && req.method !== 'GET' && req.method !== 'HEAD') {
+    const ct = String(req.headers['content-type'] || '');
+    if (ct.includes('json')) {
+      try {
+        const json = JSON.parse(rawBody.toString('utf8'));
+        if (typeof json.model === 'string') {
+          mappedModel = mapModel(p, json.model);
+          json.model = mappedModel;
+        }
+        // Token saver — shrink oversized tool_result text before upstream.
+        // Runs before protocol translation (operates on Anthropic shape),
+        // deterministic so failover retries send identical bytes. Counters
+        // are accumulated by the CALLER on success only — attempts that
+        // fail over must not double-count the same request.
+        if (cfg.compression?.enabled !== false) {
+          savedChars = compressBody(json, cfg.compression).savedChars;
+        }
+        sessionId = sessionFromMetadata(json);
+        if (sessionId) {
+          const proj = sessionProject(sessionId);
+          projectName = proj ? projectDisplayName(proj) : null;
+          projectDir = proj;
+        }
+        if (protocolOpenai) {
+          // Claude Code speaks Anthropic Messages; OpenAI-protocol providers
+          // need the request translated and pointed at /chat/completions.
+          body = JSON.stringify(anthropicToOpenAI(json));
+          targetPath = '/chat/completions';
+        } else if (protocolFreelane) {
+          // Free lane speaks OpenAI-style /chat/completions under /inference/v1.
+          // The fingerprint layer injects the v2 OpenCode tool definitions and
+          // session headers that gate the anonymous lane.
+          applyFingerprint(json);
+          body = JSON.stringify(anthropicToOpenAI(json));
+          targetPath = '/inference/v1/chat/completions';
+        } else {
+          body = JSON.stringify(json);
+        }
+      } catch {
+        body = rawBody; // not valid JSON — pass through untouched
+      }
+    } else {
+      body = rawBody;
+    }
+  }
+
+  // Free lane: mint a canonical session id and synthesize v2 OpenCode headers.
+  let upstreamSession = null;
+  if (protocolFreelane) {
+    upstreamSession = isCanonicalSession(sessionId) ? sessionId.trim() : canonicalizeSession(sessionId);
+  }
+
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), HEADER_TIMEOUT_MS);
+  try {
+    const url = targetPath
+      ? String(p.baseUrl || '').replace(/\/+$/, '') + targetPath
+      : targetUrl(p.baseUrl, req.url);
+    const resp = await fetch(url, {
+      method: req.method,
+      headers: protocolFreelane
+        ? gatewayHeaders(upstreamSession, { stream: true })
+        : buildHeaders(p, req, protocolOpenai),
+      body,
+      signal: ac.signal,
+    });
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => '');
+      let retryAfterSec;
+      const ra = resp.headers.get('retry-after');
+      if (ra) {
+        const asInt = parseInt(ra, 10);
+        retryAfterSec = Number.isFinite(asInt) && String(asInt) === ra.trim()
+          ? asInt
+          : (Date.parse(ra) - Date.now()) / 1000;
+      }
+      return { ok: false, status: resp.status, text, retryAfterSec, ac };
+    }
+    return {
+      ok: true, resp, ac,
+      mappedModel, protocolOpenai: protocolOpenai || protocolFreelane,
+      sessionId, projectName, projectDir, savedChars,
+    };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+// All-down stale-cooldown safety net: reset at most once per window. Without
+// the throttle every incoming request re-zeroed every deadUntil, defeating
+// retry-after and the exponential cooldowns completely.
+let lastAllDownReset = 0;
+const ALL_DOWN_RESET_MS = 60_000;
+
+export async function handleProxy(req, res, cfg, rawBody) {
+  let candidates = enabledSorted(cfg).filter((p) => !isDown(statsFor(cfg, p.id)));
+
+  // All providers down: reset cooldowns once per window and try again rather
+  // than hard-failing — a stale cooldown is worse than one retry round-trip.
+  let allDownCooling = false;
+  if (!candidates.length) {
+    const all = enabledSorted(cfg);
+    if (all.length && Date.now() - lastAllDownReset > ALL_DOWN_RESET_MS) {
+      lastAllDownReset = Date.now();
+      logEvent(cfg, 'All providers down — resetting cooldowns and retrying');
+      for (const p of all) statsFor(cfg, p.id).deadUntil = 0;
+      candidates = all;
+    } else if (all.length) {
+      allDownCooling = true; // providers exist, all in cooldown, reset throttled
+    }
+  }
+
+  if (!candidates.length) {
+    res.writeHead(529, { 'content-type': 'application/json' });
+    res.end(JSON.stringify({
+      type: 'error',
+      error: {
+        type: 'overloaded_error',
+        message: allDownCooling
+          ? `switchXprovider: all providers are down — retrying them at most once per minute (auto-recovery re-probes every 30s). Open http://127.0.0.1:${cfg.port} to check status.`
+          : `switchXprovider: no enabled providers configured. Open http://127.0.0.1:${cfg.port} to add one.`,
+      },
+    }));
+    return;
+  }
+
+  let lastErr = null;
+  for (const p of candidates) {
+    const t0 = Date.now();
+    try {
+      const r = await attempt(p, req, rawBody, cfg);
+      if (r.ok) {
+        markSuccess(cfg, p, Date.now() - t0);
+        // Token saver counters — once per served request, not per attempt
+        // (failover retries compress the same body again; bytes identical).
+        if (r.savedChars > 0 && cfg.compression) {
+          cfg.compression.savedChars = (cfg.compression.savedChars || 0) + r.savedChars;
+          cfg.compression.savedEstTokens = (cfg.compression.savedEstTokens || 0) + Math.round(r.savedChars / 4);
+          cfg.compression.requests = (cfg.compression.requests || 0) + 1;
+          persistSoon(cfg);
+        }
+        const rec = {
+          ts: Date.now(),
+          provider: p.name,
+          model: r.mappedModel || '—',
+          status: r.resp.status,
+          latencyMs: Date.now() - t0,
+          project: r.projectName || null,
+          inTok: 0,
+          outTok: 0,
+        };
+        res.writeHead(r.resp.status, sanitizeRespHeaders(r.resp.headers));
+        let stream = Readable.fromWeb(r.resp.body);
+        if (r.protocolOpenai) {
+          // Translate the OpenAI body (SSE or JSON — auto-detected) into
+          // Anthropic wire format before it reaches usageTap / Claude Code.
+          stream = stream.pipe(openaiToAnthropicStream(r.mappedModel || ''));
+        } else if (r.resp.headers.get('content-type')?.includes('application/json')) {
+          // Some non-OpenAI upstreams (e.g. bynara) ignore stream/Accept and
+          // return plain JSON even for /v1/messages — Claude Code requires
+          // text/event-stream. Reuse the JSON-buffering path to emit a valid
+          // Anthropic SSE event stream (it self-selects the JSON branch).
+          stream = stream.pipe(openaiToAnthropicStream(r.mappedModel || ''));
+        }
+        const tap = usageTap((u) => {
+          rec.inTok = u.input + u.cacheRead + u.cacheCreation;
+          rec.outTok = u.output;
+          recordUsage(cfg, p.id, p.name, u, r.mappedModel, r.projectDir, r.projectName);
+          pushRequest(cfg, rec);
+        });
+        // If the client hangs up, stop pulling from upstream — drain the
+        // upstream body so its keep-alive socket doesn't enter the pool dirty
+        // and crash the next request with `TypeError: terminated` — and still
+        // record the usage parsed so far (finalize is idempotent).
+        res.on('close', () => {
+          try { r.ac.abort(); } catch {}
+          try { r.resp.body?.cancel().catch(() => {}); } catch {}
+          tap.finalize();
+        });
+        // A dead pipe must never go unhandled: an AbortError from the cancel
+        // above or an upstream mid-body drop would otherwise crash the
+        // process / leave the client hanging with no failover signal.
+        //
+        // Critical: abort AND drain the upstream. Node's undici keeps HTTP
+        // keep-alive sockets in a pool; if the downstream (Claude Code) closes
+        // mid-stream without us draining the upstream response, the proxy is
+        // left holding a broken socket. The next request that reuses it throws
+        // `TypeError: terminated` and kills the proxy mid-answer.
+        stream.on('error', (err) => {
+          if (err?.name !== 'AbortError') {
+            logEvent(cfg, `Stream from "${p.name}" broke mid-body (${err?.message || err}) — closing client connection`);
+          }
+          try { r.ac.abort(); } catch {}
+          try { r.resp.body?.cancel().catch(() => {}); } catch {}
+          try { if (!res.writableEnded) res.end(); } catch { /* already gone */ }
+          tap.finalize();
+        });
+        tap.on('error', () => { try { stream.destroy(); } catch { /* already gone */ } });
+        stream.pipe(tap).pipe(res);
+        return;
+      }
+
+      const s = statsFor(cfg, p.id);
+      s.requests++;
+      s.failures++;
+      lastErr = r;
+
+      if (RETRYABLE_STATUS.has(r.status)) {
+        markDown(cfg, p, classify(r.status), `${r.status} ${r.text.slice(0, 200)}`, r.retryAfterSec);
+        countFailover(cfg);
+        continue;
+      }
+
+      // Non-retryable client error (400/413/422...) — the request itself is
+      // bad; forwarding the error beats looping through every provider.
+      persistSoon(cfg);
+      res.writeHead(r.status, { 'content-type': 'application/json' });
+      res.end(r.text);
+      return;
+    } catch (err) {
+      const s = statsFor(cfg, p.id);
+      s.requests++;
+      s.failures++;
+      const code = err.cause?.code || (err.name === 'AbortError' ? 'timeout' : err.message);
+      markDown(cfg, p, 'network', code);
+      countFailover(cfg);
+      lastErr = { status: 502, text: code };
+      continue;
+    }
+  }
+
+  res.writeHead(lastErr?.status || 502, {
+    'content-type': 'application/json',
+    'x-switchx-error': 'all providers failed',
+  });
+  res.end(JSON.stringify({
+    type: 'error',
+    error: {
+      type: 'api_error',
+      message: `switchXprovider: all providers failed. Last error: ${lastErr?.status || 'unknown'} ${String(lastErr?.text || '').slice(0, 200)}`,
+    },
+  }));
+}

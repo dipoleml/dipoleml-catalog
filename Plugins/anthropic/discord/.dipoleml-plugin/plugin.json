@@ -1,0 +1,16 @@
+{
+  "name": "discord",
+  "displayName": "Discord",
+  "version": "0.0.4",
+  "description": "Discord channel for DipoleML — messaging bridge with built-in access control. Manage pairing, allowlists, and policy via /discord:access.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Anthropic"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/anthropics/claude-plugins-official",
+  "repository": "https://github.com/anthropics/claude-plugins-official",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

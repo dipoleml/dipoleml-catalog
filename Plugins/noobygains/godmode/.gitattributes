@@ -1,0 +1,20 @@
+# Everything text is LF in the repository and in working copies on every OS
+* text=auto eol=lf
+
+# Shell scripts and the polyglot wrapper are parsed by bash and cmd: always LF
+hooks/* text eol=lf
+*.sh text eol=lf
+*.cmd text eol=lf
+
+# Text
+*.md text eol=lf
+*.json text eol=lf
+*.js text eol=lf
+*.py text eol=lf
+*.yml text eol=lf
+*.svg text eol=lf
+
+# Binary
+*.png binary
+*.gif binary
+*.jpg binary

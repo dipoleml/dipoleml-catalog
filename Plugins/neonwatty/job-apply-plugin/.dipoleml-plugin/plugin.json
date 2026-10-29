@@ -1,0 +1,16 @@
+{
+  "name": "job-apply-plugin",
+  "displayName": "Job Apply Plugin",
+  "version": "0.0.0",
+  "description": "AI-powered job application assistant for DipoleML and Codex covering LinkedIn, Greenhouse, Ashby, Lever, Rippling, and Workday",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Neonwatty"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/neonwatty/job-apply-plugin",
+  "repository": "https://github.com/neonwatty/job-apply-plugin",
+  "skills": "./skills",
+  "commands": [],
+  "agents": []
+}

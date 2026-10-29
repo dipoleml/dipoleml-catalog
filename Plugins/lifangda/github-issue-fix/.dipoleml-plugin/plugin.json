@@ -1,0 +1,16 @@
+{
+  "name": "github-issue-fix",
+  "displayName": "GitHub Issue Fix",
+  "version": "1.0.0",
+  "description": "This is a detailed way you can analyze the GitHub issues and let DipoleML handle them in best possible way.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Lifangda"
+  },
+  "license": "MIT",
+  "homepage": "https://claudecodecommands.directory/commands/github-issue-fix",
+  "repository": "https://github.com/lifangda/claude-plugins",
+  "skills": [],
+  "commands": "./commands/",
+  "agents": []
+}

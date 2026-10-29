@@ -1,0 +1,105 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.testdouble.han-coding",
+  "type": "plugin",
+  "name": "Han Coding",
+  "slug": "han-coding",
+  "vendor": "testdouble",
+  "description": "Han: AI skills and agents for \"Solo\" product engineers and small teams",
+  "version": "3.4.0",
+  "homepage": "https://github.com/testdouble/han",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "claude-code-plugin",
+    "claude-skills",
+    "code-review",
+    "documentation",
+    "investigation",
+    "planning",
+    "review"
+  ],
+  "tags": [
+    "claude",
+    "claude-code",
+    "claude-code-plugin",
+    "claude-skills",
+    "code-review",
+    "documentation",
+    "investigation",
+    "planning",
+    "review"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "testdouble",
+    "brandName": "testdouble",
+    "source": "https://github.com/testdouble.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:15:06Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "testdouble/han",
+    "url": "https://github.com/testdouble/han",
+    "commit": "abba73a773528905a8f3d15956029394746e5c7f",
+    "path": "han-coding",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 327,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:01:08Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

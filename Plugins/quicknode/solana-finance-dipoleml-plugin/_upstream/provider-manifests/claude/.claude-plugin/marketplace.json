@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "quicknode",
+  "owner": {
+    "name": "Quicknode",
+    "url": "https://www.quicknode.com"
+  },
+  "description": "Develop financial products as Solana Programs in Anchor 1, 2 or Quasar. The companion plugin to the book \"Building Financial Software on Solana\".",
+  "plugins": [
+    {
+      "name": "solana-finance",
+      "source": "./",
+      "description": "Develop financial products as Solana Programs in Anchor 1, 2 or Quasar. The companion plugin to the book \"Building Financial Software on Solana\"."
+    }
+  ]
+}

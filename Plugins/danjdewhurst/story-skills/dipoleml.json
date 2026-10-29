@@ -1,0 +1,134 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.danjdewhurst.story-skills",
+  "type": "plugin",
+  "name": "Story Skills",
+  "slug": "story-skills",
+  "vendor": "danjdewhurst",
+  "description": "Agent Skills for end-to-end story writing in markdown, packaged as Codex and DipoleML plugins.",
+  "version": "0.24.1",
+  "homepage": "https://github.com/danjdewhurst/story-skills",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agent-skills",
+    "claude-code-plugin",
+    "claude-skills",
+    "codex",
+    "codex-plugin",
+    "continuity",
+    "creative-writing",
+    "fiction-writing",
+    "markdown"
+  ],
+  "tags": [
+    "agent-skills",
+    "ai-agents",
+    "claude-code-plugin",
+    "claude-skills",
+    "codex",
+    "codex-plugin",
+    "continuity",
+    "creative-writing",
+    "fiction-writing",
+    "markdown",
+    "novel-writing",
+    "plot-structure",
+    "skill-md",
+    "storytelling",
+    "worldbuilding",
+    "writing-tools"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "danjdewhurst",
+    "brandName": "danjdewhurst",
+    "source": "https://github.com/danjdewhurst.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:12:44Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "danjdewhurst/story-skills",
+    "url": "https://github.com/danjdewhurst/story-skills",
+    "commit": "e44c97ce8eee4db3bbc82db05c4f7982e470e2bd",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 363,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:10:24Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Story Skills | Agent Skills for end-to-end story writing in markdown, packaged as Codex and Claude Code plugins.",
+        "after": "Story Skills | Agent Skills for end-to-end story writing in markdown, packaged as Codex and DipoleML plugins.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=18"
+    ],
+    "packages": [
+      "story-skills"
+    ],
+    "env": [
+      "ANTHROPIC_API_KEY"
+    ],
+    "credentials": [
+      "ANTHROPIC_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

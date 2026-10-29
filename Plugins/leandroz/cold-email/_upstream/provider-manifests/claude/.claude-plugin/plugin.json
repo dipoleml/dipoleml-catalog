@@ -1,0 +1,10 @@
+{
+  "name": "cold-email",
+  "description": "Draft a cold email that gets a reply from someone influential — an investor, founder, hiring manager, podcast host, or potential collaborator. Use whenever the user wants to reach out to someone they don't know personally.",
+  "version": "1.1.0",
+  "author": {
+    "name": "Leandro Zubrezki"
+  },
+  "repository": "https://github.com/leandroz/claude-plugins",
+  "license": "MIT"
+}

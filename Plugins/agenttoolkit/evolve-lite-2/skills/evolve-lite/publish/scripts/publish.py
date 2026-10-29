@@ -1,0 +1,402 @@
+#!/usr/bin/env python3
+"""Publish a private entity to a write-scope repo.
+
+Private entities live in ``.evolve/entities/<type>/<name>.md``. The type is
+whatever saved them: ``guideline`` from learn/save, or a native memory type
+(``user``, ``feedback``, ``project``, ``reference``) from adapt-memory and the
+EVOLVE.md save flow. The published copy keeps that layout in the shared repo,
+at ``<clone>/<type>/<name>.md``.
+"""
+
+import argparse
+import datetime
+import os
+import re
+import sys
+import tempfile
+from pathlib import Path, PurePath
+
+# Walk up from the script location to find the installed plugin lib directory.
+# Every host installs the shared lib under lib/evolve-lite/ so multiple
+# plugins can coexist side by side (e.g. .bob/lib/evolve-lite/).
+_script = Path(__file__).resolve()
+_lib = None
+for _ancestor in _script.parents:
+    _candidate = _ancestor / "lib" / "evolve-lite"
+    if (_candidate / "entity_io.py").is_file():
+        _lib = _candidate
+        break
+if _lib is None:
+    raise ImportError(f"Cannot find plugin lib directory above {_script}")
+sys.path.insert(0, str(_lib))
+from audit import append as audit_append  # noqa: E402
+from entity_io import entity_to_markdown, markdown_to_entity, sanitize_type  # noqa: E402
+from config import get_repo, load_config, normalize_repos, write_repos  # noqa: E402
+
+
+def _resolve_source(repo, effective_user):
+    remote = repo.get("remote") if isinstance(repo, dict) else None
+    if isinstance(remote, str):
+        match = re.search(r"[:/]([^/:]+/[^/]+?)(?:\.git)?$", remote)
+        if match:
+            return match.group(1)
+    return effective_user
+
+
+# Subdirectories of entities/ that never hold private entities.
+_NON_PRIVATE_DIRS = {"subscribed"}
+
+
+def _subscribed_dirs(entities_dir):
+    """`entities/subscribed/` and every clone in it, symlinked clones included."""
+    root = entities_dir / "subscribed"
+    if not root.is_dir():
+        return []
+    return [root, *(child for child in root.iterdir() if child.is_dir())]
+
+
+def _inside_any(path, roots):
+    """True if `path` or one of its parents is the same directory as one of `roots`.
+
+    Compared by device and inode rather than by spelling, so neither a symlinked
+    clone, a differently-cased name on a case-insensitive filesystem, nor an
+    alternate mount path makes a subscribed clone look like a private type dir.
+    """
+    for ancestor in (path, *path.parents):
+        if ancestor.exists() and any(os.path.samefile(ancestor, root) for root in roots):
+            return True
+    return False
+
+
+def _find_private_entity(entities_dir, filename, requested_type):
+    """Locate the private entity `filename` under ``entities/<type>/``.
+
+    Searches every private type directory unless `requested_type` names one.
+    Returns ``(type, path, None)`` on success or ``(None, None, error)``.
+    """
+    private = (
+        sorted(d.name for d in entities_dir.iterdir() if d.is_dir() and d.name not in _NON_PRIVATE_DIRS and not d.name.startswith("."))
+        if entities_dir.is_dir()
+        else []
+    )
+    if requested_type is not None:
+        entity_type = sanitize_type(requested_type)
+        if not entity_type or entity_type in _NON_PRIVATE_DIRS:
+            return None, None, f"invalid entity type: {requested_type!r}"
+        # An exact dir name wins, so `my_notes` and `my-notes` can be told apart;
+        # otherwise match on the sanitized name so `--type My_Notes` still finds `my_notes`.
+        types = [d for d in private if d == requested_type] or [d for d in private if sanitize_type(d) == entity_type] or [entity_type]
+    else:
+        types = private
+
+    protected = _subscribed_dirs(entities_dir)
+    matches = []
+    for entity_type in types:
+        type_dir = (entities_dir / entity_type).resolve()
+        path = (entities_dir / entity_type / filename).resolve()
+        if not path.is_relative_to(type_dir) or _inside_any(path, protected):
+            continue
+        if path.is_file():
+            matches.append((entity_type, path))
+
+    if not matches:
+        where = entities_dir / types[0] if requested_type is not None else entities_dir / "<type>"
+        return None, None, f"entity file not found or is a directory: {where / filename}"
+    if len(matches) > 1:
+        found = ", ".join(f"{t}/{filename}" for t, _ in matches)
+        return None, None, f"entity name {filename!r} is ambiguous ({found}); pass --type to pick one"
+    entity_type, path = matches[0]
+    return entity_type, path, None
+
+
+def _portable_trajectory(value, project_root):
+    """The `trajectory` link to publish, or None to drop it.
+
+    The manual learn flow stores save_trajectory's absolute path, which names the
+    publisher's home directory and project path. Publish it relative to the project
+    instead, the form the stop-hook flow already writes
+    (``.evolve/trajectories/<file>``); drop it if it points outside the project,
+    where no relative form is meaningful. Relative values pass through unchanged.
+    """
+    if not isinstance(value, str) or not value or not Path(value).is_absolute():
+        return value
+    try:
+        return Path(os.path.realpath(value)).relative_to(project_root).as_posix()
+    except ValueError:
+        return None
+
+
+def _published_owner(path):
+    """The `owner` frontmatter of an already-published file, or None if absent or unreadable."""
+    try:
+        owner = markdown_to_entity(path).get("owner")
+    except (OSError, UnicodeDecodeError, ValueError):
+        return None
+    return owner.strip() if isinstance(owner, str) and owner.strip() else None
+
+
+def _select_target_repo(cfg, requested_name):
+    write = write_repos(cfg)
+
+    if requested_name:
+        repo = get_repo(cfg, requested_name)
+        if repo is None:
+            available = ", ".join(r["name"] for r in normalize_repos(cfg)) or "(none)"
+            return None, f"no repo named '{requested_name}' is configured. Configured repos: {available}"
+        if repo.get("scope") != "write":
+            return None, f"repo '{requested_name}' has scope={repo.get('scope')!r}; publish requires scope=write"
+        return repo, None
+
+    if not write:
+        return None, ("no write-scope repo configured. Run evolve-lite:subscribe with --scope write to set up a publish target.")
+    if len(write) > 1:
+        names = ", ".join(r["name"] for r in write)
+        return None, f"multiple write-scope repos configured; pick one with --repo. Available: {names}"
+    return write[0], None
+
+
+def _unpublish(evolve_dir, project_root, target, effective_user, args):
+    """Restore an owned publication without overwriting a newer private mirror."""
+    clone = evolve_dir / "entities" / "subscribed" / target["name"]
+    if not (clone / ".git").exists():
+        raise SystemExit("Error: target repo clone not found")
+    entity_type, published, err = _find_private_entity(clone, args.entity, args.type)
+    if err:
+        raise SystemExit(f"Error: {err}")
+    if (
+        not published.is_relative_to(clone.resolve())
+        or (clone / entity_type).is_symlink()
+        or (clone / entity_type / args.entity).is_symlink()
+    ):
+        raise SystemExit("Error: refusing symlinked publication")
+    if not effective_user or _published_owner(published) != effective_user:
+        raise SystemExit("Error: unpublish requires a known matching owner")
+    private = evolve_dir / "entities" / entity_type / args.entity
+    if private.exists() or private.is_symlink():
+        raise SystemExit(f"Error: private copy already exists at {private}; reconcile it before unpublishing")
+    if _inside_any(private.parent.resolve(), _subscribed_dirs(evolve_dir / "entities")):
+        raise SystemExit("Error: refusing private type directory inside a subscribed clone")
+    entity = markdown_to_entity(published)
+    entity["visibility"] = "private"
+    for key in ("published_at", "source"):
+        entity.pop(key, None)
+    private.parent.mkdir(parents=True, exist_ok=True)
+    # Prepare a complete file before exposing it to readers. A hard link installs
+    # it exclusively: unlike replace(), it cannot overwrite a concurrent mirror.
+    temp_path = None
+    restored_content = entity_to_markdown(entity)
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w", encoding="utf-8", dir=private.parent, prefix=".unpublish-", suffix=".tmp", delete=False
+        ) as output:
+            temp_path = Path(output.name)
+            output.write(restored_content)
+            output.flush()
+            os.fsync(output.fileno())
+        os.link(temp_path, private)
+        try:
+            published.unlink()
+        except OSError:
+            # Undo only our unchanged restoration, never a newer private mirror.
+            try:
+                if private.samefile(temp_path) and private.read_text(encoding="utf-8") == restored_content:
+                    private.unlink()
+            except OSError as rollback_error:
+                print(f"Warning: failed to roll back private restoration: {rollback_error}", file=sys.stderr)
+            raise
+    finally:
+        if temp_path is not None:
+            try:
+                temp_path.unlink(missing_ok=True)
+            except OSError as cleanup_error:
+                print(f"Warning: failed to remove temporary restoration: {cleanup_error}", file=sys.stderr)
+    try:
+        audit_append(
+            project_root=project_root, action="unpublish", actor=effective_user, entity=args.entity, type=entity_type, repo=target["name"]
+        )
+    except Exception as exc:
+        print(f"Warning: failed to append audit entry for unpublish: {exc}", file=sys.stderr)
+    print(f"Unpublished: {published} -> {private}. Commit and push the deletion to remove the remote copy.")
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--entity", required=True, help="Basename of the .md file to publish")
+    parser.add_argument("--type", default=None, help="Entity type directory to publish from (optional unless the name is ambiguous)")
+    parser.add_argument("--user", default=None, help="Username to stamp as owner")
+    parser.add_argument("--repo", default=None, help="Write-scope repo name (optional if exactly one is configured)")
+    actions = parser.add_mutually_exclusive_group()
+    actions.add_argument("--update", action="store_true", help="Replace an existing publication owned by the configured user")
+    actions.add_argument("--unpublish", action="store_true", help="Restore an owned publication to private storage")
+    args = parser.parse_args()
+
+    evolve_dir = Path(os.environ.get("EVOLVE_DIR", ".evolve"))
+    resolved_evolve_dir = evolve_dir.resolve()
+    project_root = str(resolved_evolve_dir) if evolve_dir.name != ".evolve" else str(resolved_evolve_dir.parent)
+
+    if PurePath(args.entity).name != args.entity or args.entity in {".", ".."}:
+        print(f"Error: invalid entity name: {args.entity!r}", file=sys.stderr)
+        sys.exit(1)
+
+    if not args.unpublish:
+        entity_type, src_path, err = _find_private_entity(evolve_dir / "entities", args.entity, args.type)
+        if err is not None:
+            print(f"Error: {err}", file=sys.stderr)
+            sys.exit(1)
+
+    config = load_config(project_root)
+    target, err = _select_target_repo(config, args.repo)
+    if err is not None:
+        print(f"Error: {err}", file=sys.stderr)
+        sys.exit(1)
+
+    identity = config.get("identity", {})
+    configured_user = identity.get("user") if isinstance(identity, dict) else None
+    if (args.update or args.unpublish) and configured_user and args.user and args.user != configured_user:
+        raise SystemExit("Error: --user must match configured identity.user for update or unpublish")
+    effective_user = args.user or configured_user
+
+    if args.unpublish:
+        _unpublish(evolve_dir, project_root, target, effective_user, args)
+        return
+
+    if entity_type.casefold() == "user":
+        print(
+            "Error: user memories are private; rewrite the content as an explicitly attributed project or reference entity before publishing.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    entity = markdown_to_entity(src_path)
+    # Where the publisher's native memory lives on their machine; meaningless to
+    # subscribers and it exposes the publisher's home directory and project path.
+    entity.pop("native_path", None)
+    trajectory = _portable_trajectory(entity.get("trajectory"), project_root)
+    if trajectory is None:
+        entity.pop("trajectory", None)
+    else:
+        entity["trajectory"] = trajectory
+    entity["visibility"] = "public"
+    if effective_user:
+        entity["owner"] = effective_user
+    entity["published_at"] = datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    source = _resolve_source(target, effective_user)
+    if source:
+        entity["source"] = source
+
+    clone_root = evolve_dir / "entities" / "subscribed" / target["name"]
+    if not (clone_root / ".git").exists():
+        print(
+            f"Error: target repo clone not found at {clone_root}. "
+            f"Run evolve-lite:subscribe with --scope write first, or evolve-lite:sync "
+            f"to clone it.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    # Publishing moves the entity: the private copy is removed once the shared one is
+    # written. Check that is possible first, so a read-only type dir fails cleanly
+    # instead of leaving two copies behind.
+    if not os.access(src_path.parent, os.W_OK | os.X_OK):
+        print(
+            f"Error: cannot publish {args.entity}: {src_path.parent} is not writable, so the private copy "
+            f"could not be removed afterwards. Fix its permissions and publish again. Nothing was published.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    dest_dir = clone_root / entity_type
+    # The clone is a shared repo: anyone with push access can commit `<type> -> elsewhere`.
+    # Following it would write outside the clone (or to a path `git add` then refuses), so
+    # the type dir must be a real directory that stays inside the clone.
+    if dest_dir.is_symlink():
+        print(f"Error: refusing to publish into {dest_dir}: it is a symlink in the target repo clone.", file=sys.stderr)
+        sys.exit(1)
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    dest_base = dest_dir.resolve()
+    if not dest_base.is_relative_to(clone_root.resolve()):
+        print(f"Error: refusing to publish into {dest_dir}: it resolves outside the target repo clone.", file=sys.stderr)
+        sys.exit(1)
+    if (dest_dir / args.entity).is_symlink():
+        raise SystemExit("Error: refusing symlinked publication")
+    dest_path = (dest_dir / args.entity).resolve()
+    if not dest_path.is_relative_to(dest_base):
+        print(f"Error: invalid entity name: {args.entity!r}", file=sys.stderr)
+        sys.exit(1)
+    if dest_path.exists():
+        existing_owner = _published_owner(dest_path)
+        if existing_owner and existing_owner != effective_user:
+            # Same name, someone else's entity (adapt-memory names entities after the
+            # native memory, so teammates' `user-role` memories collide). Theirs is not
+            # ours to unpublish or delete.
+            print(
+                f"Error: name collision: {entity_type}/{args.entity} is already published by {existing_owner!r} "
+                f"in repo {target['name']!r} ({dest_path}).\n"
+                f"Rename your memory or entity, then publish it again.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        if not args.update:
+            print(f"Error: already published: {dest_path}\nUnpublish it first or use --update with the same owner.", file=sys.stderr)
+            sys.exit(1)
+        if not effective_user or existing_owner != effective_user:
+            print("Error: --update requires a known matching owner.", file=sys.stderr)
+            sys.exit(1)
+    elif args.update:
+        print("Error: --update requires an existing publication.", file=sys.stderr)
+        sys.exit(1)
+
+    temp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            "w",
+            encoding="utf-8",
+            dir=dest_dir,
+            # The destination may already use the full filename byte budget.
+            prefix=".publish-",
+            suffix=".tmp",
+            delete=False,
+        ) as temp_file:
+            temp_file.write(entity_to_markdown(entity))
+            temp_file.flush()
+            os.fsync(temp_file.fileno())
+            temp_path = Path(temp_file.name)
+
+        temp_path.replace(dest_path)
+    finally:
+        if temp_path is not None and temp_path.exists():
+            temp_path.unlink()
+
+    # The shared copy is in place, so the publish has happened; a failure to remove the
+    # private copy (checked above, but permissions can still change or lie) is reported
+    # rather than raised, and the publish is still audited.
+    unlink_error = None
+    try:
+        src_path.unlink()
+    except OSError as exc:
+        unlink_error = exc
+
+    audit_fields = {"source_removed": False} if unlink_error is not None else {}
+    try:
+        audit_append(
+            project_root=project_root,
+            action="publish",
+            actor=effective_user or "unknown",
+            entity=args.entity,
+            type=entity_type,
+            repo=target["name"],
+            **audit_fields,
+        )
+    except Exception as exc:
+        print(f"Warning: failed to append audit entry for publish: {exc}", file=sys.stderr)
+
+    print(f"Published: {args.entity} -> {dest_path} (repo: {target['name']})")
+    if unlink_error is not None:
+        print(
+            f"Warning: published, but could not remove the private copy {src_path}: {unlink_error}\n"
+            f"Delete it yourself; the shared copy at {dest_path} is now the one to keep.",
+            file=sys.stderr,
+        )
+
+
+if __name__ == "__main__":
+    main()

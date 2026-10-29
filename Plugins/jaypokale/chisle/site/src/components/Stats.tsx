@@ -1,0 +1,27 @@
+// Each figure carries where it comes from. The point of the site is that the
+// numbers survive being checked, so the source sits right under the number.
+const STATS = [
+  { v: "−44%", k: "answer length in Claude Code, shorter than caveman and ponytail", src: "26 live prompts, Claude Code 2.1.285 + Haiku 4.5, tools off; benchmarks/results/" },
+  { v: "−63%", k: "answer length on Pi + GPT-5.5, the shortest of any arm", src: "6 tasks, Pi 0.85.1; benchmarks/results/raw-pi/" },
+  { v: "−46%", k: "per oversized tool output, before Claude reads it", src: "PostToolUse hook replayed over 171 real Claude Code sessions; Read/Edit never touched" },
+  { v: "0", k: "dependencies, network calls, LLM calls", src: "the plugin itself; the marketing site you are reading has its own" },
+];
+
+export default function Stats() {
+  return (
+    <section className="border-y border-line bg-surface">
+      <dl className="mx-auto grid max-w-6xl grid-cols-2 lg:grid-cols-4">
+        {STATS.map((s) => (
+          <div key={s.k} className="group border-line px-6 py-10 odd:border-r lg:border-r lg:last:border-r-0 [&:nth-child(-n+2)]:border-b lg:[&:nth-child(-n+2)]:border-b-0">
+            <dt className="sr-only">{s.k}</dt>
+            <dd>
+              <p className="text-4xl font-bold tracking-tight text-gradient w-fit">{s.v}</p>
+              <p className="mt-2 text-sm text-fg">{s.k}</p>
+              <p className="mt-2 text-xs leading-snug text-dim">{s.src}</p>
+            </dd>
+          </div>
+        ))}
+      </dl>
+    </section>
+  );
+}

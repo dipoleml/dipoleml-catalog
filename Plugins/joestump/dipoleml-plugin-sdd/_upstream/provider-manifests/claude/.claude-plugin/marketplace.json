@@ -1,0 +1,17 @@
+{
+  "name": "claude-plugin-sdd",
+  "owner": {
+    "name": "Joe Stump",
+    "url": "https://github.com/joestump"
+  },
+  "plugins": [
+    {
+      "name": "sdd",
+      "source": {
+        "source": "github",
+        "repo": "joestump/claude-plugin-sdd"
+      },
+      "description": "Spec-Driven Development: ADRs, specifications, and Docusaurus documentation generation."
+    }
+  ]
+}

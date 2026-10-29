@@ -1,0 +1,16 @@
+{
+  "name": "handbook-context7",
+  "displayName": "Handbook Context7",
+  "version": "1.19.5",
+  "description": "Context7 MCP server for fetching latest library documentation from official sources",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Nikiforovall"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://nikiforovall.blog/claude-code-rules/",
+  "repository": "https://github.com/NikiforovAll/claude-code-rules",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

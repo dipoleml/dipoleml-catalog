@@ -1,0 +1,20 @@
+# Hashed build outputs are safe to cache forever.
+/_astro/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# Stable but unhashed assets revalidate daily.
+/fonts/*
+  Cache-Control: public, max-age=86400, must-revalidate
+
+/favicon/*
+  Cache-Control: public, max-age=86400, must-revalidate
+
+/loop-night.webp
+  Cache-Control: public, max-age=86400, must-revalidate
+
+/og.jpg
+  Cache-Control: public, max-age=3600
+
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin

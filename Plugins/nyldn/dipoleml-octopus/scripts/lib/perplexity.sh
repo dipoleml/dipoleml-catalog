@@ -1,0 +1,522 @@
+#!/usr/bin/env bash
+# Perplexity & OpenRouter API execution
+# Extracted from orchestrate.sh — v9.7.5
+# Hardened in v9.7.8: timeout, HTTP status handling, 429 retry, dedup
+
+# OpenRouter model-specific agent wrapper (v8.11.0, hardened v9.7.8)
+# Used by openrouter-glm5, openrouter-kimi, openrouter-deepseek
+# First arg is the fixed model ID, remaining args are prompt/task/complexity/output
+# Features: --max-time 60, HTTP status code handling (429 retry w/ Retry-After,
+#           502/503/524 error reporting)
+openrouter_execute_model() {
+    local model="$1"
+    local prompt="$2"
+    local task_type="${3:-general}"
+    local complexity="${4:-2}"
+    local output_file="${5:-}"
+
+    # stdin fallback: probe_single_agent pipes prompt via stdin (#305)
+    if [[ -z "$prompt" && ! -t 0 ]]; then
+        prompt=$(cat)
+    fi
+
+    if [[ -z "${OPENROUTER_API_KEY:-}" ]]; then
+        log ERROR "OPENROUTER_API_KEY not set"
+        return 1
+    fi
+
+    [[ "$VERBOSE" == "true" ]] && log DEBUG "OpenRouter request: model=$model" || true
+
+    # Build JSON payload
+    local escaped_prompt
+    escaped_prompt=$(json_escape "$prompt")
+
+    local payload
+    payload=$(cat << EOF
+{
+  "model": "$model",
+  "messages": [
+    {"role": "user", "content": "$escaped_prompt"}
+  ]
+}
+EOF
+)
+
+    # Temporary file for response headers (needed for Retry-After parsing)
+    local header_file
+    header_file=$(mktemp "${TMPDIR:-/tmp}/octo-or-headers.XXXXXX")
+
+    local raw_response http_code response
+    local attempt=0
+    local max_attempts=2  # Initial + 1 retry on 429
+
+    while (( attempt < max_attempts )); do
+        raw_response=$(curl -s -X POST "https://openrouter.ai/api/v1/chat/completions" \
+            --max-time 60 \
+            -w "%{http_code}" \
+            -D "$header_file" \
+            -H "Authorization: Bearer ${OPENROUTER_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Connection: keep-alive" \
+            -H "HTTP-Referer: https://github.com/nyldn/claude-octopus" \
+            -H "X-Title: Claude Octopus" \
+            -d "$payload") || {
+            log ERROR "OpenRouter curl failed (timeout or network error, model=$model)"
+            rm -f "$header_file"
+            return 1
+        }
+
+        # Split response body from HTTP status code (last 3 chars)
+        http_code="${raw_response: -3}"
+        response="${raw_response:0:${#raw_response}-3}"
+
+        case "$http_code" in
+            200) break ;;  # Success
+            429)
+                if (( attempt + 1 >= max_attempts )); then
+                    log ERROR "OpenRouter rate limited (429) after retry (model=$model)"
+                    rm -f "$header_file"
+                    return 1
+                fi
+                # Parse Retry-After header (seconds); default to 5s if absent
+                local retry_after=5
+                local header_val
+                header_val=$(grep -i '^retry-after:' "$header_file" 2>/dev/null | tr -d '\r' | sed 's/[^:]*: *//' | head -n1) || true
+                if [[ -n "$header_val" && "$header_val" =~ ^[0-9]+$ ]]; then
+                    retry_after="$header_val"
+                    # Cap at 30s to avoid hanging
+                    (( retry_after > 30 )) && retry_after=30
+                fi
+                log WARN "OpenRouter rate limited (429), retrying in ${retry_after}s (model=$model)"
+                sleep "$retry_after"
+                ;;
+            502)
+                log ERROR "OpenRouter bad gateway (502) — upstream provider down (model=$model)"
+                rm -f "$header_file"
+                return 1
+                ;;
+            503)
+                log ERROR "OpenRouter service unavailable (503) — model may be overloaded (model=$model)"
+                rm -f "$header_file"
+                return 1
+                ;;
+            524)
+                log ERROR "OpenRouter timeout (524) — upstream request took too long (model=$model)"
+                rm -f "$header_file"
+                return 1
+                ;;
+            *)
+                if [[ "${http_code:0:1}" != "2" ]]; then
+                    log ERROR "OpenRouter HTTP $http_code (model=$model)"
+                    rm -f "$header_file"
+                    return 1
+                fi
+                break ;;
+        esac
+        (( ++attempt ))
+    done
+
+    rm -f "$header_file"
+
+    # Extract content from OpenAI-compatible nested path .choices[0].message.content.
+    # `json_extract` only reads top-level keys, so it silently returned empty and the
+    # caller got the raw JSON dumped to its result file. Fixed in v9.29 (issue #307).
+    local content=""
+    if command -v jq &>/dev/null; then
+        content=$(printf '%s' "$response" | jq -re '.choices[0].message.content // empty' 2>/dev/null) || content=""
+    fi
+
+    if [[ -z "$content" ]]; then
+        if [[ "$response" =~ \"error\":\{([^\}]*)\} ]]; then
+            log ERROR "OpenRouter error: ${BASH_REMATCH[1]}"
+            return 1
+        fi
+        log WARN "Empty response from OpenRouter ($model)"
+        echo "$response"
+    else
+        local result
+        result=$(echo "$content" | sed 's/\\n/\n/g; s/\\t/\t/g; s/\\"/"/g')
+        if [[ -n "$output_file" ]]; then
+            echo "$result" > "$output_file"
+        else
+            echo "$result"
+        fi
+    fi
+}
+
+# OpenRouter agent wrapper for spawn_agent compatibility (v9.7.8: delegates to openrouter_execute_model)
+# Resolves model from task_type/complexity, then calls the core implementation
+openrouter_execute() {
+    local prompt="$1"
+    local task_type="${2:-general}"
+
+    # stdin fallback: probe_single_agent pipes prompt via stdin (#305)
+    if [[ -z "$prompt" && ! -t 0 ]]; then
+        prompt=$(cat)
+    fi
+    local complexity="${3:-2}"
+    local output_file="${4:-}"
+
+    # Prefer the configured model (OCTOPUS_OPENROUTER_MODEL / providers.json) over
+    # the hardcoded task-type table, so the roster's advertised model actually runs
+    # instead of silently duplicating the Anthropic chair's lab (#738).
+    local model="${OCTOPUS_OPENROUTER_MODEL:-}"
+    if [[ -z "$model" ]] && declare -f resolve_octopus_model >/dev/null 2>&1; then
+        model="$(resolve_octopus_model openrouter openrouter "" "" 2>/dev/null || true)"
+    fi
+    [[ -z "$model" ]] && model=$(get_openrouter_model "$task_type" "$complexity")
+
+    openrouter_execute_model "$model" "$prompt" "$task_type" "$complexity" "$output_file"
+}
+
+# OrcaRouter model-specific agent wrapper
+# Mirrors openrouter_execute_model against the OrcaRouter gateway
+# (https://api.orcarouter.ai), which is OpenAI-compatible on
+# /v1/chat/completions and accepts namespaced model IDs (anthropic/*, etc.).
+# First arg is the fixed model ID, remaining args are prompt/task/complexity/output
+# Features: --max-time 60, HTTP status code handling (429 retry w/ Retry-After,
+#           502/503/524 error reporting)
+orcarouter_execute_model() (
+    local model="$1"
+    local prompt="$2"
+    local task_type="${3:-general}"
+    local complexity="${4:-2}"
+    local output_file="${5:-}"
+
+    # stdin fallback: probe_single_agent pipes prompt via stdin (#305)
+    if [[ -z "$prompt" && ! -t 0 ]]; then
+        prompt=$(cat)
+    fi
+
+    if [[ -z "${ORCAROUTER_API_KEY:-}" ]]; then
+        log ERROR "ORCAROUTER_API_KEY not set"
+        return 1
+    fi
+
+    [[ "$VERBOSE" == "true" ]] && log DEBUG "OrcaRouter request: model=$model" || true
+
+    # Build JSON payload
+    local escaped_prompt
+    escaped_prompt=$(json_escape "$prompt")
+
+    local payload
+    payload=$(cat << EOF
+{
+  "model": "$model",
+  "messages": [
+    {"role": "user", "content": "$escaped_prompt"}
+  ]
+}
+EOF
+)
+
+    # Temporary file for response headers (needed for Retry-After parsing)
+    local header_file
+    header_file=$(mktemp "${TMPDIR:-/tmp}/octo-orca-headers.XXXXXX") || return 1
+    trap 'rm -f "$header_file"' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+
+    local raw_response http_code response
+    local attempt=0
+    local max_attempts=2  # Initial + 1 retry on 429
+
+    while (( attempt < max_attempts )); do
+        raw_response=$(curl -s -X POST "https://api.orcarouter.ai/v1/chat/completions" \
+            --max-time 60 \
+            -w "%{http_code}" \
+            -D "$header_file" \
+            -H "Authorization: Bearer ${ORCAROUTER_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -H "Connection: keep-alive" \
+            -H "HTTP-Referer: https://github.com/nyldn/claude-octopus" \
+            -H "X-Title: Claude Octopus" \
+            -d "$payload") || {
+            log ERROR "OrcaRouter curl failed (timeout or network error, model=$model)"
+            return 1
+        }
+
+        # Split response body from HTTP status code (last 3 chars)
+        http_code="${raw_response: -3}"
+        response="${raw_response:0:${#raw_response}-3}"
+
+        case "$http_code" in
+            200) break ;;  # Success
+            429)
+                if (( attempt + 1 >= max_attempts )); then
+                    log ERROR "OrcaRouter rate limited (429) after retry (model=$model)"
+                    return 1
+                fi
+                # Parse Retry-After header (seconds); default to 5s if absent
+                local retry_after=5
+                local header_val
+                header_val=$(grep -i '^retry-after:' "$header_file" 2>/dev/null | tr -d '\r' | sed 's/[^:]*: *//' | head -n1) || true
+                if [[ -n "$header_val" && "$header_val" =~ ^[0-9]+$ ]]; then
+                    retry_after="$header_val"
+                    # Cap at 30s to avoid hanging
+                    (( retry_after > 30 )) && retry_after=30
+                fi
+                log WARN "OrcaRouter rate limited (429), retrying in ${retry_after}s (model=$model)"
+                sleep "$retry_after"
+                ;;
+            502)
+                log ERROR "OrcaRouter bad gateway (502) — upstream provider down (model=$model)"
+                return 1
+                ;;
+            503)
+                log ERROR "OrcaRouter service unavailable (503) — model may be overloaded (model=$model)"
+                return 1
+                ;;
+            524)
+                log ERROR "OrcaRouter timeout (524) — upstream request took too long (model=$model)"
+                return 1
+                ;;
+            *)
+                if [[ "${http_code:0:1}" != "2" ]]; then
+                    log ERROR "OrcaRouter HTTP $http_code (model=$model)"
+                    return 1
+                fi
+                break ;;
+        esac
+        (( ++attempt ))
+    done
+
+    # Extract content from OpenAI-compatible nested path .choices[0].message.content.
+    local content=""
+    if command -v jq &>/dev/null; then
+        content=$(printf '%s' "$response" | jq -re '.choices[0].message.content // empty' 2>/dev/null) || content=""
+    fi
+
+    if [[ -z "$content" ]]; then
+        if [[ "$response" =~ \"error\":\{([^\}]*)\} ]]; then
+            log ERROR "OrcaRouter error: ${BASH_REMATCH[1]}"
+            return 1
+        fi
+        log WARN "Empty response from OrcaRouter ($model)"
+        echo "$response"
+        return 1
+    else
+        local result
+        result=$(echo "$content" | sed 's/\\n/\n/g; s/\\t/\t/g; s/\\"/"/g')
+        if [[ -n "$output_file" ]]; then
+            echo "$result" > "$output_file"
+        else
+            echo "$result"
+        fi
+    fi
+)
+
+# OrcaRouter agent wrapper for spawn_agent compatibility
+# Resolves model from task_type/complexity, then calls the core implementation
+orcarouter_execute() {
+    local prompt="$1"
+    local task_type="${2:-general}"
+
+    # stdin fallback: probe_single_agent pipes prompt via stdin (#305)
+    if [[ -z "$prompt" && ! -t 0 ]]; then
+        prompt=$(cat)
+    fi
+    local complexity="${3:-2}"
+    local output_file="${4:-}"
+
+    # Prefer the configured model (OCTOPUS_ORCAROUTER_MODEL / providers.json) over
+    # the hardcoded task-type table, so the roster's advertised model actually runs.
+    local model="${OCTOPUS_ORCAROUTER_MODEL:-}"
+    if [[ -z "$model" ]] && declare -f resolve_octopus_model >/dev/null 2>&1; then
+        model="$(resolve_octopus_model orcarouter orcarouter "" "" 2>/dev/null || true)"
+    fi
+    [[ -z "$model" ]] && model=$(get_orcarouter_model "$task_type" "$complexity")
+
+    if declare -f _octopus_allowed_model_or_fallback >/dev/null 2>&1; then
+        model=$(_octopus_allowed_model_or_fallback "orcarouter" "$model") || return 1
+    elif declare -f validate_model_allowed >/dev/null 2>&1; then
+        local fallback=""
+        if fallback=$(validate_model_allowed "orcarouter" "$model"); then
+            : # The configured model is allowed; keep it unchanged.
+        elif [[ -n "$fallback" ]]; then
+            model="$fallback"
+        else
+            return 1
+        fi
+    elif [[ -n "${OCTOPUS_ORCAROUTER_ALLOWED_MODELS:-}" ]]; then
+        log ERROR "Cannot enforce OCTOPUS_ORCAROUTER_ALLOWED_MODELS: validator unavailable"
+        return 1
+    fi
+
+    orcarouter_execute_model "$model" "$prompt" "$task_type" "$complexity" "$output_file"
+}
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PERPLEXITY AGENT API (v8.24.0 - Issue #22; Agent API since Sonar retirement)
+# Web-grounded research provider — live internet search with citations
+# Env: PERPLEXITY_API_KEY required
+# Endpoint: POST https://api.perplexity.ai/v1/agent. Sonar chat completions
+#   support ended on 2026-09-27; synchronous calls are gradually reformulated
+#   as Agent API requests. This provider uses the Agent API directly.
+# Models: sonar-pro, sonar (mapped to Agent API presets per Perplexity's
+#   migration guide), a bare preset (fast|low|medium|high|xhigh), or an explicit
+#   provider/model id such as perplexity/sonar (sent with the web_search tool).
+#   Presets inherit Perplexity's tools; explicitly choosing xhigh enables
+#   Perplexity's remote code sandbox as well as web and finance search.
+# ═══════════════════════════════════════════════════════════════════════════════
+
+perplexity_execute() {
+    local model="$1"
+    local prompt="$2"
+    local output_file="${3:-}"
+
+    # stdin fallback: probe_single_agent pipes prompt via stdin (#305)
+    if [[ -z "$prompt" && ! -t 0 ]]; then
+        prompt=$(cat)
+    fi
+
+    if [[ -z "${PERPLEXITY_API_KEY:-}" ]]; then
+        log ERROR "PERPLEXITY_API_KEY not set — get one at https://www.perplexity.ai/settings/api"
+        return 1
+    fi
+
+    # Map the configured model onto an Agent API request target. Legacy Sonar ids
+    # take the presets Perplexity's migration guide recommends (sonar and
+    # sonar-pro -> fast, sonar-reasoning-pro -> low, sonar-deep-research -> high).
+    # An explicit provider/model id is sent as "model" together with the
+    # web_search tool, because direct-model requests only search when the tool is
+    # present; presets carry their own tools.
+    local target_field target_value tools_json=""
+    case "$model" in
+        sonar|sonar-pro)            target_field="preset"; target_value="fast" ;;
+        sonar-reasoning-pro)        target_field="preset"; target_value="low" ;;
+        sonar-deep-research)        target_field="preset"; target_value="high" ;;
+        fast|low|medium|high|xhigh) target_field="preset"; target_value="$model" ;;
+        *)
+            if [[ "$model" =~ ^[A-Za-z0-9._-]+/[A-Za-z0-9._:-]+$ ]]; then
+                target_field="model"; target_value="$model"
+                tools_json=',
+  "tools": [{"type": "web_search"}]'
+            else
+                log ERROR "Perplexity: model '$model' has no Agent API mapping (use sonar, sonar-pro, a preset such as fast, or a provider/model id)"
+                return 1
+            fi
+            ;;
+    esac
+
+    [[ "$VERBOSE" == "true" ]] && log DEBUG "Perplexity Agent API request: model=$model ${target_field}=${target_value}" || true
+
+    # Build JSON payload for the Agent API (input + instructions replace messages)
+    local escaped_prompt
+    escaped_prompt=$(json_escape "$prompt")
+
+    # Sanitize max_tokens to a positive integer before splicing into JSON; a
+    # non-numeric OCTOPUS_PERPLEXITY_MAX_TOKENS would otherwise produce invalid
+    # JSON or inject extra fields (codex review).
+    local max_tokens="${OCTOPUS_PERPLEXITY_MAX_TOKENS:-4096}"
+    [[ "$max_tokens" =~ ^[1-9][0-9]*$ ]] || max_tokens=4096
+
+    local payload
+    payload=$(cat << EOF
+{
+  "${target_field}": "${target_value}",
+  "instructions": "You are a research assistant with live web access. Provide detailed, factual answers with citations. Always include source URLs when referencing specific information.",
+  "input": "$escaped_prompt",
+  "max_output_tokens": ${max_tokens}${tools_json}
+}
+EOF
+)
+
+    local response curl_exit=0
+    # -sS: silent progress but keep curl errors on stderr so the spawn error log
+    # captures them; --max-time bounds hung connections. A failed or empty
+    # request previously fell through silently and produced an empty result
+    # file with "(no output captured)" and no actionable error (bug 260609).
+    response=$(curl -sS --max-time "${OCTOPUS_PERPLEXITY_TIMEOUT:-120}" -X POST "https://api.perplexity.ai/v1/agent" \
+        -H "Authorization: Bearer ${PERPLEXITY_API_KEY}" \
+        -H "Content-Type: application/json" \
+        -H "Connection: keep-alive" \
+        -d "$payload") || curl_exit=$?
+    if [[ $curl_exit -ne 0 ]]; then
+        log ERROR "Perplexity request failed (curl exit ${curl_exit}, model=$model)"
+        return 1
+    fi
+    if [[ -z "$response" ]]; then
+        log ERROR "Perplexity returned an empty response body (model=$model)"
+        return 1
+    fi
+
+    # Only a completed run with no API error may supply a successful answer.
+    # Failed and incomplete runs can still contain partial output_text parts.
+    local content=""
+    if command -v jq &>/dev/null; then
+        content=$(printf '%s' "$response" | jq -re '
+            select(type == "object" and .status == "completed" and .error == null)
+            | .output | select(type == "array")
+            | [.[] | select(.type == "message") | .content | select(type == "array")
+                | .[] | select(.type == "output_text") | .text | select(type == "string")]
+            | join("\n\n") | select(length > 0)' 2>/dev/null) || content=""
+    fi
+
+    # Map annotation URLs to search-result IDs without renumbering them.
+    # When no reliable ID exists, list the URL without a numbered label.
+    # Read the answer from stdin JSON rather than putting it in process arguments.
+    local citations=""
+    if command -v jq &>/dev/null; then
+        citations=$(printf '%s' "$response" | jq -r '
+            select(type == "object" and .status == "completed" and .error == null)
+            | select(.output | type == "array")
+            | ([.output[] | select(.type == "message") | .content | select(type == "array")
+                | .[] | select(.type == "output_text") | .text | select(type == "string")]
+                | join("\n\n")) as $text
+            | [.output[]? | select(.type == "message") | .content[]? | .annotations[]? | select(.type == "url_citation") | .url] as $cited
+            | ($cited | map(select(type == "string" and length > 0))) as $urls
+            | [.output[]? | select(.type == "search_results") | .results[]?
+                | select(.url | type == "string" and length > 0)] as $results
+            | (if ($urls | length) > 0 then
+                [$urls[] as $url | ($results | map(select(.url == $url))) as $matches
+                    | if ($matches | length) > 0 then $matches[] else {url: $url} end]
+                else $results end)
+            | map({url, id: (.id | if type == "number" and . > 0 and floor == . then tostring
+                elif type == "string" and test("^[1-9][0-9]*$") then . else null end)})
+            | reduce .[] as $source ([]; if any(.[]; . == $source) then . else . + [$source] end)
+            | .[] | .id as $id | if $id == null then "- \(.url)"
+                elif ($text | contains("[web:\($id)]")) then "[web:\($id)] \(.url)"
+                else "[\(.id)] \(.url)" end' 2>/dev/null) || true
+    fi
+
+    if [[ -z "$content" ]]; then
+        if [[ "$response" =~ \"error\":\{([^\}]*)\} ]]; then
+            local _ppx_err="${BASH_REMATCH[1]}"
+            # Terminal quota/auth (HTTP 401 insufficient_quota) returns faster than
+            # the 2s quota-watcher poll, so mark the provider dead directly here
+            # (oco-cbb) and emit a quota-watcher-matchable keyword (oco-48z) so
+            # preflight + is_agent_available skip perplexity for the rest of the run.
+            if [[ "$_ppx_err" == *insufficient_quota* || "$_ppx_err" == *'"code":401'* || "$_ppx_err" == *quota* ]]; then
+                log ERROR "Perplexity TerminalQuotaError (insufficient_quota / HTTP 401): ${_ppx_err}"
+                declare -f octo_quota_mark_dead >/dev/null 2>&1 && octo_quota_mark_dead "perplexity" || true
+                return 1
+            fi
+            log ERROR "Perplexity error: ${_ppx_err}"
+            return 1
+        fi
+        # No completed answer and no parseable error: surface the body and fail
+        # so the agent is marked FAILED instead of "succeeding" with JSON noise.
+        log ERROR "Perplexity response was not a completed answer ($model)"
+        echo "$response"
+        return 1
+    else
+        local result
+        result=$(echo "$content" | sed 's/\\n/\n/g; s/\\t/\t/g; s/\\"/"/g')
+
+        # Append citations if present
+        if [[ -n "$citations" ]]; then
+            result="${result}
+
+---
+**Sources:**
+${citations}"
+        fi
+
+        if [[ -n "$output_file" ]]; then
+            echo "$result" > "$output_file"
+        else
+            echo "$result"
+        fi
+    fi
+}

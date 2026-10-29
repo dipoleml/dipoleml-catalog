@@ -1,0 +1,666 @@
+[
+  {
+    "task_id": "lesson-auto-merge-ci-pipeline",
+    "title": "Auto-Merge CI Pipeline — DCO, Quality Score, Shadow Branch, Dynamic Deps, Auto-Merge",
+    "domain": "devops",
+    "tags": [
+      "github-actions",
+      "ci",
+      "auto-merge",
+      "shadow-branch",
+      "quality-score"
+    ],
+    "source": "lessons/core/auto-merge-ci-pipeline.md"
+  },
+  {
+    "task_id": "lesson-anthropic-proxy-internal-gateway",
+    "title": "Anthropic Proxy Internal Gateway",
+    "domain": "general",
+    "tags": [
+      "contrib"
+    ],
+    "source": "lessons/contrib/anthropic-proxy-internal-gateway.md"
+  },
+  {
+    "task_id": "lesson-api-rate-limit-handling-best-practices",
+    "title": "API限流处理最佳实践",
+    "domain": "devops",
+    "tags": [
+      "api",
+      "rate-limit",
+      "backoff",
+      "batch"
+    ],
+    "source": "lessons/contrib/api-rate-limit-handling-best-practices.md"
+  },
+  {
+    "task_id": "lesson-api-rate-limit-handling",
+    "title": "API 请求限流 (Rate Limit) 处理方案",
+    "domain": "devops",
+    "tags": [
+      "api",
+      "rate-limit",
+      "retry",
+      "429"
+    ],
+    "source": "lessons/contrib/api-rate-limit-handling.md"
+  },
+  {
+    "task_id": "lesson-audit-sampling-stratified-sampling-for-k",
+    "title": "巡检题库分层抽样策略",
+    "domain": "rag",
+    "tags": [
+      "rag",
+      "audit",
+      "sampling",
+      "quality",
+      "test-bank"
+    ],
+    "source": "lessons/contrib/audit-sampling-stratified-sampling-for-kb-inspection.md"
+  },
+  {
+    "task_id": "lesson-chrome-relay-browser-automation",
+    "title": "Chrome Relay 浏览器自动化 — CDP over WebSocket 控制无头浏览器",
+    "domain": "development",
+    "tags": [
+      "chrome",
+      "browser",
+      "automation",
+      "cdp",
+      "websocket"
+    ],
+    "source": "lessons/contrib/chrome-relay-browser-automation.md"
+  },
+  {
+    "task_id": "lesson-cloudflare-email-worker-registration-tra",
+    "title": "Cloudflare Email Worker 邮件注册踩坑记录 — message.raw、MIME 与 SPF",
+    "domain": "devops",
+    "tags": [
+      "cloudflare",
+      "email-worker",
+      "kv",
+      "turnstile",
+      "registration"
+    ],
+    "source": "lessons/contrib/cloudflare-email-worker-registration-trap.md"
+  },
+  {
+    "task_id": "lesson-cron-job-not-running",
+    "title": "Cron 作业不执行 / 不生效排障",
+    "domain": "devops",
+    "tags": [
+      "cron",
+      "scheduler",
+      "not-running",
+      "debug"
+    ],
+    "source": "lessons/contrib/cron-job-not-running.md"
+  },
+  {
+    "task_id": "lesson-curl-request-troubleshoot",
+    "title": "curl / wget 请求失败通用排查",
+    "domain": "devops",
+    "tags": [
+      "network",
+      "curl",
+      "wget",
+      "debug",
+      "troubleshoot"
+    ],
+    "source": "lessons/contrib/curl-request-troubleshoot.md"
+  },
+  {
+    "task_id": "lesson-disk-space-cleanup",
+    "title": "Disk Space Cleanup",
+    "domain": "general",
+    "tags": [
+      "contrib"
+    ],
+    "source": "lessons/contrib/disk-space-cleanup.md"
+  },
+  {
+    "task_id": "lesson-fanuc-r-2000ic-retrieval-fix",
+    "title": "Fanuc R 2000Ic Retrieval Fix",
+    "domain": "general",
+    "tags": [
+      "contrib"
+    ],
+    "source": "lessons/contrib/fanuc-r-2000ic-retrieval-fix.md"
+  },
+  {
+    "task_id": "lesson-feishu-markdown-table-not-rendered",
+    "title": "飞书 post 消息中 Markdown 表格不渲染",
+    "domain": "development",
+    "tags": [
+      "feishu",
+      "markdown",
+      "table",
+      "post",
+      "lark"
+    ],
+    "source": "lessons/contrib/feishu-markdown-table-not-rendered.md"
+  },
+  {
+    "task_id": "lesson-git-credential-helper-gh-path-mismatch",
+    "title": "gh credential helper 路径错误导致 git push 静默失败",
+    "domain": "devops",
+    "tags": [
+      "git",
+      "github",
+      "credential",
+      "gh",
+      "auth"
+    ],
+    "source": "lessons/contrib/git-credential-helper-gh-path-mismatch.md"
+  },
+  {
+    "task_id": "lesson-git-credentials-automation",
+    "title": "Git 凭证配置 — 自动化 push 免密码",
+    "domain": "devops",
+    "tags": [
+      "git",
+      "credentials",
+      "auth",
+      "github"
+    ],
+    "source": "lessons/contrib/git-credentials-automation.md"
+  },
+  {
+    "task_id": "lesson-git-merge-conflict-resolution",
+    "title": "Git 合并冲突处理 — 手动解决最佳实践",
+    "domain": "development",
+    "tags": [
+      "git",
+      "merge",
+      "conflict",
+      "rebase"
+    ],
+    "source": "lessons/contrib/git-merge-conflict-resolution.md"
+  },
+  {
+    "task_id": "lesson-git-tls-handshake-failure",
+    "title": "GitHub TLS 握手失败 — gnutls_handshake() 错误",
+    "domain": "devops",
+    "tags": [
+      "git",
+      "github",
+      "TLS",
+      "SSL",
+      "network"
+    ],
+    "source": "lessons/contrib/git-tls-handshake-failure.md"
+  },
+  {
+    "task_id": "lesson-github-401-credential-lookup",
+    "title": "GitHub API 401 后本地凭证查找顺序",
+    "domain": "devops",
+    "tags": [
+      "github",
+      "api",
+      "credential",
+      "401",
+      "auth"
+    ],
+    "source": "lessons/contrib/github-401-credential-lookup.md"
+  },
+  {
+    "task_id": "lesson-github-dns-443-block-hosts-workaround",
+    "title": "GitHub DNS 污染/443端口不通 — hosts 备用 IP 方案",
+    "domain": "devops",
+    "tags": [
+      "git",
+      "github",
+      "TLS",
+      "network",
+      "DNS"
+    ],
+    "source": "lessons/contrib/github-dns-443-block-hosts-workaround.md"
+  },
+  {
+    "task_id": "lesson-issue-comment-newbie-welcome",
+    "title": "利用 issue_comment 事件实现新手自动欢迎",
+    "domain": "devops",
+    "tags": [
+      "github-actions",
+      "ci",
+      "community",
+      "newbie",
+      "good-first-issue"
+    ],
+    "source": "lessons/contrib/issue-comment-newbie-welcome.md"
+  },
+  {
+    "task_id": "lesson-js-dead-code-chain-break",
+    "title": "JavaScript 执行链断裂：一个未捕获 TypeError 如何让整个页面静默失效",
+    "domain": "frontend",
+    "tags": [
+      "js",
+      "runtime",
+      "typeerror",
+      "execution-model",
+      "defensive"
+    ],
+    "source": "lessons/contrib/js-dead-code-chain-break.md"
+  },
+  {
+    "task_id": "lesson-json-parse-failure-handling",
+    "title": "JSON 解析失败处理 — 截断 / 格式错误",
+    "domain": "devops",
+    "tags": [
+      "json",
+      "parse",
+      "truncated",
+      "llm",
+      "output"
+    ],
+    "source": "lessons/contrib/json-parse-failure-handling.md"
+  },
+  {
+    "task_id": "lesson-knowledge-graph-ux-patterns-from-high-st",
+    "title": "知识图谱 UX 增强: 从高星项目提炼的 7 个交互模式",
+    "domain": "development",
+    "tags": [
+      "knowledge-graph",
+      "d3js",
+      "ux",
+      "graph-visualization",
+      "force-directed"
+    ],
+    "source": "lessons/contrib/knowledge-graph-ux-patterns-from-high-star-projects.md"
+  },
+  {
+    "task_id": "lesson-model-output-fix",
+    "title": "Model Output Fix",
+    "domain": "general",
+    "tags": [
+      "contrib"
+    ],
+    "source": "lessons/contrib/model-output-fix.md"
+  },
+  {
+    "task_id": "lesson-openai-compatible-api-call",
+    "title": "OpenAI 兼容 API 的通用调用格式",
+    "domain": "development",
+    "tags": [
+      "api",
+      "openai",
+      "llm",
+      "inference",
+      "chat"
+    ],
+    "source": "lessons/contrib/openai-compatible-api-call.md"
+  },
+  {
+    "task_id": "lesson-openclaw-prefer-cli-and-policy-over-dire",
+    "title": "OpenClaw优先CLI和官方策略",
+    "domain": "agentops",
+    "tags": [
+      "openclaw",
+      "cli",
+      "policy",
+      "config"
+    ],
+    "source": "lessons/contrib/openclaw-prefer-cli-and-policy-over-direct-edit.md"
+  },
+  {
+    "task_id": "lesson-oss-refactor-lessons",
+    "title": "Oss Refactor Lessons",
+    "domain": "general",
+    "tags": [
+      "contrib"
+    ],
+    "source": "lessons/contrib/oss-refactor-lessons.md"
+  },
+  {
+    "task_id": "lesson-permission-denied-fix",
+    "title": "Permission Denied Fix",
+    "domain": "general",
+    "tags": [
+      "contrib"
+    ],
+    "source": "lessons/contrib/permission-denied-fix.md"
+  },
+  {
+    "task_id": "lesson-phase-0-output-gate",
+    "title": "Phase 0 Output Gate — Agent 的硬性知识检索规则",
+    "domain": "methodology",
+    "tags": [
+      "output-gate",
+      "knowledge-reuse",
+      "methodology",
+      "core"
+    ],
+    "source": "lessons/contrib/phase-0-output-gate.md"
+  },
+  {
+    "task_id": "lesson-pip-install-timeout-ssl",
+    "title": "pip install 网络超时 / SSL 错误修复",
+    "domain": "devops",
+    "tags": [
+      "pip",
+      "network",
+      "SSL",
+      "timeout",
+      "proxy"
+    ],
+    "source": "lessons/contrib/pip-install-timeout-ssl.md"
+  },
+  {
+    "task_id": "lesson-python-gbk-encoding-error",
+    "title": "Python GBK 编码错误 — Windows/WSL 跨平台",
+    "domain": "devops",
+    "tags": [
+      "python",
+      "encoding",
+      "gbk",
+      "windows",
+      "wsl"
+    ],
+    "source": "lessons/contrib/python-gbk-encoding-error.md"
+  },
+  {
+    "task_id": "lesson-python-pycache-stale",
+    "title": "Python 代码修改不生效 — stale .pyc 缓存",
+    "domain": "devops",
+    "tags": [
+      "python",
+      "pyc",
+      "cache",
+      "debug"
+    ],
+    "source": "lessons/contrib/python-pycache-stale.md"
+  },
+  {
+    "task_id": "lesson-python-sandbox-path-isolation",
+    "title": "Python 沙箱/受限环境 — PATH 和 sys.path 隔离",
+    "domain": "development",
+    "tags": [
+      "python",
+      "sandbox",
+      "path",
+      "import",
+      "venv"
+    ],
+    "source": "lessons/contrib/python-sandbox-path-isolation.md"
+  },
+  {
+    "task_id": "lesson-python-venv-tiktoken-module-not-found",
+    "title": "Python venv 中 tiktoken 安装后仍报 ModuleNotFoundError",
+    "domain": "development",
+    "tags": [
+      "python",
+      "venv",
+      "tiktoken",
+      "pip",
+      "setuptools"
+    ],
+    "source": "lessons/contrib/python-venv-tiktoken-module-not-found.md"
+  },
+  {
+    "task_id": "lesson-python-venv-troubleshoot",
+    "title": "Python venv 激活失败或路径不匹配",
+    "domain": "devops",
+    "tags": [
+      "python",
+      "venv",
+      "virtualenv",
+      "path"
+    ],
+    "source": "lessons/contrib/python-venv-troubleshoot.md"
+  },
+  {
+    "task_id": "lesson-rag-brand-contamination-detection-and-fi",
+    "title": "RAG 知识库品牌污染检测与治理",
+    "domain": "rag",
+    "tags": [
+      "rag",
+      "chromadb",
+      "brand-contamination",
+      "data-quality",
+      "metadata"
+    ],
+    "source": "lessons/contrib/rag-brand-contamination-detection-and-fix.md"
+  },
+  {
+    "task_id": "lesson-rag-kb-quality-flywheel-self-loop",
+    "title": "RAG 知识库质量飞轮：自闭环建设",
+    "domain": "rag",
+    "tags": [
+      "rag",
+      "flywheel",
+      "quality",
+      "audit",
+      "feedback"
+    ],
+    "source": "lessons/contrib/rag-kb-quality-flywheel-self-loop.md"
+  },
+  {
+    "task_id": "lesson-regex-greedy-matching",
+    "title": "正则表达式 debugging — 贪婪匹配造成的意外结果",
+    "domain": "development",
+    "tags": [
+      "regex",
+      "debug",
+      "greedy",
+      "pattern"
+    ],
+    "source": "lessons/contrib/regex-greedy-matching.md"
+  },
+  {
+    "task_id": "lesson-registration-chain-worker-fallback",
+    "title": "注册链路设计 — Worker 只创建 Issue，其余交给 Workflow",
+    "domain": "devops",
+    "tags": [
+      "registration",
+      "worker",
+      "register",
+      "github-actions",
+      "feishu"
+    ],
+    "source": "lessons/contrib/registration-chain-worker-fallback.md"
+  },
+  {
+    "task_id": "lesson-shared-json-needs-atomic-write",
+    "title": "共享JSON状态需要原子写入",
+    "domain": "devops",
+    "tags": [
+      "json",
+      "atomic",
+      "race-condition",
+      "runtime"
+    ],
+    "source": "lessons/contrib/shared-json-needs-atomic-write.md"
+  },
+  {
+    "task_id": "lesson-shell-script-debugging",
+    "title": "Shell 脚本调试 — set -x 与常见陷阱",
+    "domain": "development",
+    "tags": [
+      "shell",
+      "bash",
+      "debug",
+      "script"
+    ],
+    "source": "lessons/contrib/shell-script-debugging.md"
+  },
+  {
+    "task_id": "lesson-slugify-path-traversal-deep-coverage",
+    "title": "Slugify: deep coverage of path traversal, null bytes, and reserved names",
+    "domain": "scripts",
+    "tags": [
+      "slugify",
+      "path-traversal",
+      "windows-reserved",
+      "null-byte",
+      "test-coverage"
+    ],
+    "source": "lessons/contrib/slugify-path-traversal-deep-coverage.md"
+  },
+  {
+    "task_id": "lesson-slugify-windows-path-sanitation",
+    "title": "Slugify filename sanitation crash on Windows and WSL",
+    "domain": "scripts",
+    "tags": [
+      "slugify",
+      "windows",
+      "wsl",
+      "sanitation",
+      "path-errors"
+    ],
+    "source": "lessons/contrib/slugify-windows-path-sanitation.md"
+  },
+  {
+    "task_id": "lesson-static-page-width-consistency",
+    "title": "静态页面多组件宽度一致性——各自定义 max-width 导致视觉割裂",
+    "domain": "frontend",
+    "tags": [
+      "css",
+      "layout",
+      "ux",
+      "responsive"
+    ],
+    "source": "lessons/contrib/static-page-width-consistency.md"
+  },
+  {
+    "task_id": "lesson-tmux-session-management",
+    "title": "tmux 终端复用 — 断开不丢失会话",
+    "domain": "development",
+    "tags": [
+      "tmux",
+      "terminal",
+      "session",
+      "background"
+    ],
+    "source": "lessons/contrib/tmux-session-management.md"
+  },
+  {
+    "task_id": "lesson-wechat-pubacct-fetch-separate-search-fro",
+    "title": "微信公众号抓取失败处理（搜索与抓取分离）",
+    "domain": "wechat",
+    "tags": [
+      "wechat",
+      "fetch",
+      "search",
+      "crawl"
+    ],
+    "source": "lessons/contrib/wechat-pubacct-fetch-separate-search-from-retrieval.md"
+  },
+  {
+    "task_id": "lesson-wsl-proxy-setup",
+    "title": "WSL 代理配置 — 通过 Windows 梯子访问外网",
+    "domain": "devops",
+    "tags": [
+      "wsl",
+      "proxy",
+      "network",
+      "windows"
+    ],
+    "source": "lessons/contrib/wsl-proxy-setup.md"
+  },
+  {
+    "task_id": "lesson-wsl-terminal-underscore-corruption",
+    "title": "Wsl Terminal Underscore Corruption",
+    "domain": "general",
+    "tags": [
+      "contrib"
+    ],
+    "source": "lessons/contrib/wsl-terminal-underscore-corruption.md"
+  },
+  {
+    "task_id": "lesson-wsl2-memory-leak-fix",
+    "title": "WSL2 内存泄漏 / 内存占用过高",
+    "domain": "devops",
+    "tags": [
+      "wsl",
+      "memory",
+      "leak",
+      "performance"
+    ],
+    "source": "lessons/contrib/wsl2-memory-leak-fix.md"
+  },
+  {
+    "task_id": "lesson-wxauto-im-feedback-collection-jsonl-queu",
+    "title": "IM 机器人反馈收集与 JSONL 队列审核模式",
+    "domain": "rag",
+    "tags": [
+      "rag",
+      "feedback",
+      "queue",
+      "jsonl",
+      "wechat"
+    ],
+    "source": "lessons/contrib/wxauto-im-feedback-collection-jsonl-queue.md"
+  },
+  {
+    "task_id": "lesson-contributor-engagement-retention",
+    "title": "AI Agent 贡献者关系维护 — 降低流失率的轻量策略",
+    "domain": "devops",
+    "tags": [
+      "open-source",
+      "community",
+      "contributor-retention",
+      "ai-agent",
+      "misakanet"
+    ],
+    "source": "lessons/en/contributor-engagement-retention.md"
+  },
+  {
+    "task_id": "lesson-cronjob-one-shot-race-condition-duplicat",
+    "title": "Cronjob One-Shot Race Condition - Duplicate Execution",
+    "domain": "agent-network",
+    "tags": [
+      "node:ZKA",
+      "project:Hermes-Agent",
+      "severity:critical"
+    ],
+    "source": "lessons/core/cronjob-one-shot-race-condition-duplicate-execution.md"
+  },
+  {
+    "task_id": "lesson-dco-auto-fix-workflow",
+    "title": "DCO 自动修复工作流 — /fix-dco 命令设计与实现",
+    "domain": "devops",
+    "tags": [
+      "github-actions",
+      "dco",
+      "signoff",
+      "issue_comment",
+      "auto-fix"
+    ],
+    "source": "lessons/en/dco-auto-fix-workflow.md"
+  },
+  {
+    "task_id": "lesson-freellmapi-session-context-mixing-cross-",
+    "title": "FReeLLMAPI Session Context Mixing - Cross-Thread Delivery",
+    "domain": "agent-network",
+    "tags": [
+      "node:ZKA",
+      "project:Hermes-Agent",
+      "severity:high"
+    ],
+    "source": "lessons/core/freellmapi-session-context-mixing-cross-thread-delivery.md"
+  },
+  {
+    "task_id": "lesson-github-actions-code-injection",
+    "title": "GitHub Actions Script Injection — 通过 env 变量替代内联插值",
+    "domain": "security",
+    "tags": [
+      "github-actions",
+      "security",
+      "code-injection",
+      "codeql",
+      "ci"
+    ],
+    "source": "lessons/en/github-actions-code-injection.md"
+  },
+  {
+    "task_id": "lesson-hermes-state-database-lock-issues-cleanu",
+    "title": "Hermes State Database Lock Issues - Cleanup Protocol",
+    "domain": "agent-network",
+    "tags": [
+      "node:ZKA",
+      "project:Hermes-Agent",
+      "severity:high"
+    ],
+    "source": "lessons/core/hermes-state-database-lock-issues-cleanup-protocol.md"
+  }
+]

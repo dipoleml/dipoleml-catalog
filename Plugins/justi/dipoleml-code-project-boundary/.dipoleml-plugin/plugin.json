@@ -1,0 +1,16 @@
+{
+  "name": "dipoleml-code-project-boundary",
+  "displayName": "DipoleML Project Boundary",
+  "version": "1.11.0",
+  "description": "Blocks destructive commands outside the project directory. Allows file operations within the project (refactoring, cleanup) but prevents accidental damage outside it.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Justi"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/justi/claude-code-project-boundary",
+  "repository": "https://github.com/justi/claude-code-project-boundary",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

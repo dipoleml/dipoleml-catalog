@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "kind": "citadel_optimizer_matrix_intent",
+  "authorization_digest": "sha256:b17292a5a08b6ea705f82d5c265e047aa65bb9f774d2fc5ea085648e0fdab1eb",
+  "ordinal": 62,
+  "run_key": "citadel-context-receipt-recovery/always-frontier/2",
+  "scenario_id": "citadel-context-receipt-recovery",
+  "policy_id": "always-frontier",
+  "repetition": 2,
+  "state": "completed",
+  "started_at": "2026-07-31T02:16:21.712Z",
+  "completed_at": "2026-07-31T02:21:44.577Z",
+  "output_file": "records/062-citadel-context-receipt-recovery-always-frontier-2.json",
+  "error": null
+}

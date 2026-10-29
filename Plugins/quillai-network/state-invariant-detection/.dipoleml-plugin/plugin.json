@@ -1,0 +1,16 @@
+{
+  "name": "state-invariant-detection",
+  "displayName": "State Invariant Detection",
+  "version": "1.0.0",
+  "description": "Detects broken mathematical relationships between state variables in smart contracts. Automatically infers invariants (sum, conservation, ratio, monotonic, synchronization) then finds functions that violate them. Catches unauthorized minting, broken tokenomics, and accounting desynchronization.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Quillai Network"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/quillai-network/quillshield_skills",
+  "repository": "https://github.com/quillai-network/quillshield_skills",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

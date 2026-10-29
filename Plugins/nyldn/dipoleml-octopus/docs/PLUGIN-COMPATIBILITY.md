@@ -1,0 +1,115 @@
+# Plugin compatibility
+
+Octopus supports local Claude Code and Codex plugin installations. It is not a
+hosted ChatGPT plugin: provider execution requires local CLIs and a filesystem.
+
+## Process cancellation
+
+Worker cancellation uses Python and native process identities. Linux requires
+an interpreter build with both `os.pidfd_open` and
+`signal.pidfd_send_signal`, Linux 5.3+, and readable process metadata in
+`/proc`. The Python version alone does not prove those APIs are present. macOS
+uses the system `libproc`
+`proc_signal_with_audittoken` API, which checks the PID and its version during
+signal delivery. No compiler or additional Python package is needed.
+
+Octopus probes installed interpreters once in each parent shell and passes the
+selection into worker subshells. It checks the shell's `python3` before
+`/usr/bin/python3`, so Homebrew, pyenv, and other configured runtimes take
+priority without triggering the macOS developer-tools shim. Set
+`OCTOPUS_PYTHON` to require a specific executable; an incompatible explicit
+override fails closed rather than falling back. `octopus doctor state` shows
+the interpreter selected for the PID ledger.
+
+Missing APIs, inaccessible identities and permission failures stop cleanup with
+an `unverified` result. This helper never falls back to numeric PID or process-group
+signals. An exited group leader alone is not proof that its former group still
+belongs to Octopus. Cancellation can clean descendants it captured while the
+original worker was alive, but cannot safely recover an already-orphaned group
+from its numeric group ID alone.
+
+Worker registration checks native cancellation support before provider dispatch.
+If cleanup later fails, workflow cancellation retains the worker ledger for retry
+instead of waiting indefinitely or discarding the remaining registration.
+
+The shared helper freezes workers before enumerating descendants, retains their
+identities through TERM/KILL escalation, and stops waiting once they exit.
+Interrupted or failed enumeration resumes processes it stopped, using those
+same identities. Native-handle tests run on Linux and macOS in CI; mocked API
+boundary tests cover identity changes without attempting to force PID reuse.
+
+API references: [Python PID handles](https://docs.python.org/3/library/os.html#os.pidfd_open),
+[PID-handle signaling](https://docs.python.org/3/library/signal.html#signal.pidfd_send_signal),
+and [Apple's audit-token signaling implementation](https://github.com/apple-oss-distributions/xnu/blob/main/bsd/kern/proc_info.c).
+
+## Durable event, run-contract and installation receipt locking
+
+Event-lock acquisition, durable run-contract writes and installation receipt
+transactions require `python3` on PATH. Lock
+admission uses its kernel `os.mkdir` result instead of trusting a directory
+utility's success status. Existing directories remain contention; unavailable
+Python or other creation errors stop durable writes with an infrastructure
+failure. No additional Python package is needed. Optional event logging keeps
+its existing best-effort unlocked fallback when a lock cannot be acquired.
+
+## Claude Code
+
+Architecture, TDD, debugging, and prototype skills remain explicit-only. Routine
+architecture, TDD, and debugging run on the current Claude host unless the user
+requests `--peer-review` or a multi-model workflow. `/octo:setup` uses a separate
+revisioned resume receipt and leaves browser login to the user.
+
+`.claude-plugin/plugin.json` retains the `octo` namespace and its explicit
+command/skill paths. Root `hooks/hooks.json` is discovered by the host. Skills
+use `disable-model-invocation: true` to keep provider workflows explicitly
+invoked. Native plugin and marketplace validation passes; Claude's warning
+that root `CLAUDE.md` is not loaded as plugin context is expected. Runtime
+instructions belong in skills and hooks, not that maintainer file.
+
+## Codex
+
+Generated Codex skills carry `policy.allow_implicit_invocation: false` for the
+same methods. Shared references, notices, setup helpers, and routing-preview
+helpers ship in the package. Native discovery proves installation only; it does
+not prove provider login, model entitlement, billing mode, or hosted ChatGPT
+directory eligibility.
+
+`.codex-plugin/plugin.json` retains `claude-octopus`, points to `./skills/`, and
+uses relative icon paths. Codex discovers `hooks/hooks.json` without a redundant
+manifest field. Its runtime supplies `CLAUDE_PLUGIN_ROOT` for compatibility.
+Users must review and trust hook definitions; installation alone does not
+activate them. See [OpenAI's package contract](https://developers.openai.com/plugins/build/plugins)
+and [hook runtime](https://learn.chatgpt.com/docs/hooks).
+
+Careful mode asks for confirmation in Claude Code. In Codex it denies the
+matched command with an explanation, because Codex does not support the hook
+`ask` decision. Freeze mode checks all Add/Update/Delete/Move paths in Codex
+`apply_patch` calls. Both guards parse JSON structurally and need Python 3;
+when active, they fail closed if the helper or input cannot be validated.
+These are opt-in guardrails, not a sandbox for arbitrary shell commands.
+
+Every skill also declares `policy.allow_implicit_invocation: false` in
+`agents/openai.yaml`. This is Codex's documented invocation control, distinct
+from Claude's frontmatter. Explicit skill mentions still work. See
+[OpenAI's skill metadata](https://learn.chatgpt.com/docs/build-skills).
+
+Verified with Codex CLI 0.153.4: installation from an isolated local marketplace
+and native `skills/list` discovery, without a model request. The runtime loaded
+63 packaged skills and 20 converted command entries without skill-load errors.
+This checks installation and discovery, not a live multi-provider workflow.
+
+The bundled OpenAI plugin-creator ingestion validator rejects the shared
+Claude frontmatter's explicit-invocation flag and the nested starter/block
+layout. That validator targets public-directory ingestion; a successful Codex
+runtime installation does not imply eligibility for OpenAI's universal public
+directory. Do not remove invocation safeguards merely to satisfy that separate
+submission contract. A hosted distribution would need its own package and
+execution architecture; see [OpenAI's Claude plugin migration guide](https://developers.openai.com/plugins/guides/submit-claude-plugin).
+
+## MCP and other editors
+
+The root `.mcp.json` is intentionally empty: MCP is opt-in. Configure the server
+using [IDE integration](IDE-INTEGRATION.md) and supply per-call `project_root`
+as described in [the v11 migration guide](MIGRATING-V11.md). Do not advertise
+unconfigured servers or translate Claude's camel-case MCP configuration into a
+Codex bundled-server manifest without checking Codex's schema.

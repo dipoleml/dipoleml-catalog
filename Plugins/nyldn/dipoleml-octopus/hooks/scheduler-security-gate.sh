@@ -1,0 +1,97 @@
+#!/bin/bash
+# Native Windows has no supported Octopus runtime.
+case "$(uname -s 2>/dev/null)" in
+    MINGW*|MSYS*|CYGWIN*) exit 0 ;;
+esac
+# Claude Octopus Scheduler - Security Gate Hook (v8.15.0)
+# PreToolUse hook active when OCTOPUS_JOB_ID is set.
+# Blocks tools not in the job's allowed list and restricts filesystem access.
+# Returns JSON decision: {"decision": "continue|block", "reason": "..."}
+
+set -euo pipefail
+# EXIT trap — emits diagnostic stderr ONLY when the hook exits non-zero, so
+# the Claude Code harness error "No stderr output" can never recur. EXIT (not
+# ERR) avoids over-firing on intermediate `grep -o`/`cmd | ...` inside $() that
+# the hook's logic already handles. See issue #313.
+_octo_hook_exit() { local c=$?; if [[ $c -ne 0 ]]; then echo "[hook:$(basename "$0")] exit $c" >&2 2>/dev/null || true; fi; return 0; }
+trap _octo_hook_exit EXIT
+
+
+# Note: this gate enforces per-job allowlists the user set in their scheduled
+# job config — bypassPermissions (a global CC prompt-skip setting) should not
+# silently weaken that per-job policy, so the bypass check has been removed.
+
+# Only active during scheduled job execution
+if [[ -z "${OCTOPUS_JOB_ID:-}" ]]; then
+    : # pass-through — current hook schema treats silence as continue
+    exit 0
+fi
+
+# Read tool input from stdin
+if command -v timeout &>/dev/null; then
+    INPUT=$(timeout 3 cat 2>/dev/null || true)
+else
+    INPUT=$(cat 2>/dev/null || true)
+fi
+[[ -z "$INPUT" ]] && INPUT='{}'
+
+SCHEDULER_DIR="${HOME}/.claude-octopus/scheduler"
+JOB_FILE="${SCHEDULER_DIR}/jobs/${OCTOPUS_JOB_ID}.json"
+
+# If job file not found, block for safety
+if [[ ! -f "$JOB_FILE" ]]; then
+    echo "{\"decision\": \"block\", \"reason\": \"Scheduler security gate: job file not found for ${OCTOPUS_JOB_ID}\"}"
+    exit 0
+fi
+
+# Get workspace from job definition
+WORKSPACE=$(jq -r '.execution.workspace // ""' "$JOB_FILE" 2>/dev/null)
+
+# Get tool name from hook input
+TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // ""' 2>/dev/null || echo "")
+
+# Block dangerous flags in Bash commands
+if [[ "$TOOL_NAME" == "Bash" ]]; then
+    COMMAND=$(echo "$INPUT" | jq -r '.tool_input.command // ""' 2>/dev/null || echo "")
+
+    # Block --dangerously-skip-permissions in any form
+    if echo "$COMMAND" | grep -qi 'dangerously.skip.permissions'; then
+        echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Scheduler security gate: --dangerously-skip-permissions is prohibited in scheduled jobs"}}'
+        exit 0
+    fi
+
+    # Block rm -rf on sensitive paths
+    if echo "$COMMAND" | grep -qE 'rm\s+-[a-zA-Z]*r[a-zA-Z]*f.*(/|~|\$HOME)'; then
+        echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Scheduler security gate: destructive rm -rf on sensitive path blocked"}}'
+        exit 0
+    fi
+fi
+
+# Validate file access is within workspace (for Read, Write, Edit tools)
+if [[ "$TOOL_NAME" == "Read" ]] || [[ "$TOOL_NAME" == "Write" ]] || [[ "$TOOL_NAME" == "Edit" ]]; then
+    if [[ -n "$WORKSPACE" ]]; then
+        FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // .tool_input.path // ""' 2>/dev/null || echo "")
+
+        if [[ -n "$FILE_PATH" ]]; then
+            # Security: use realpath for symlink-safe canonicalization
+            resolved_path=$(realpath "$FILE_PATH" 2>/dev/null) || {
+                echo '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"Scheduler security gate: cannot resolve file path"}}'
+                exit 0
+            }
+
+            # Normalize allowed paths with trailing slash for safe prefix matching
+            safe_workspace="${WORKSPACE%/}/"
+            safe_octopus="${HOME}/.claude-octopus/"
+
+            # Allow access to workspace and octopus config only (not ~/.claude)
+            if [[ "$resolved_path" != "${safe_workspace}"* ]] && \
+               [[ "$resolved_path" != "${safe_octopus}"* ]]; then
+                echo "{\"decision\": \"block\", \"reason\": \"Scheduler security gate: file access outside workspace blocked: ${FILE_PATH}\"}"
+                exit 0
+            fi
+        fi
+    fi
+fi
+
+: # pass-through — current hook schema treats silence as continue
+exit 0

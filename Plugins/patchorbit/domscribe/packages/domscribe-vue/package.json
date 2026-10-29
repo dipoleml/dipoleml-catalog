@@ -1,0 +1,47 @@
+{
+  "name": "@domscribe/vue",
+  "version": "0.7.0",
+  "description": "Vue adapter for Domscribe",
+  "type": "module",
+  "main": "src/index.ts",
+  "publishConfig": {
+    "access": "public"
+  },
+  "distExports": {
+    "./vite": "./vite/index.js",
+    "./webpack": "./webpack/index.js",
+    "./auto-init": "./auto-init.js"
+  },
+  "dependencies": {
+    "@domscribe/core": "workspace:*",
+    "@domscribe/runtime": "workspace:*",
+    "@domscribe/transform": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/webpack": "^5.28.5",
+    "happy-dom": "^21.0.4",
+    "vue": "^3.5.44",
+    "webpack": "^5.112.2"
+  },
+  "peerDependencies": {
+    "vite": "^5.0.0 || ^6.0.0 || ^7.0.0 || ^8.0.0",
+    "vue": ">=3.3.0",
+    "webpack": "^5.0.0"
+  },
+  "peerDependenciesMeta": {
+    "vite": {
+      "optional": true
+    },
+    "webpack": {
+      "optional": true
+    }
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/patchorbit/domscribe.git",
+    "directory": "packages/domscribe-vue"
+  }
+}

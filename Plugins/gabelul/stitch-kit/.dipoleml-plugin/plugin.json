@@ -1,0 +1,16 @@
+{
+  "name": "stitch-kit",
+  "displayName": "Stitch Kit",
+  "version": "1.12.0",
+  "description": "Your agent designs terrible UI. stitch-kit wires it into Google Stitch MCP and teaches it the whole pipeline — ideation, screen generation, design systems, and production components across 7 frameworks.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Gabelul"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/gabelul/stitch-kit",
+  "repository": "https://github.com/gabelul/stitch-kit",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

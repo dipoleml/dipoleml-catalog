@@ -1,0 +1,16 @@
+{
+  "name": "blog-style-guide-creator",
+  "displayName": "Blog Style Guide Creator",
+  "version": "1.0.0",
+  "description": "AI-powered editorial style guide generation from blog content and article compliance review system. Analyze published blog articles to extract consistent patterns, then review content with 8 specialized agents in parallel.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Animalzinc"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/animalzinc/claude-plugins",
+  "repository": "https://github.com/animalzinc/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

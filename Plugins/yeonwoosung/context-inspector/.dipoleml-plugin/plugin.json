@@ -1,0 +1,16 @@
+{
+  "name": "context-inspector",
+  "displayName": "Context Inspector",
+  "version": "0.1.4",
+  "description": "Context waste analyzer for DipoleML: what fills the window, re-reads, near-duplicate outputs, what compaction kept, advice",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Yeonwoosung"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/YeonwooSung/my-claude-code-mods",
+  "repository": "https://github.com/YeonwooSung/my-claude-code-mods",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

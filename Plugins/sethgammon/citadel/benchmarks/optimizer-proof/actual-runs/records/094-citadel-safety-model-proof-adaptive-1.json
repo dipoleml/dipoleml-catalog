@@ -1,0 +1,68 @@
+{
+  "schema": 1,
+  "evidence_kind": "actual-run",
+  "scenario_set_id": "optimizer-scenarios-sha256:602e496906f3a293203750602234ba88a55a86b9e4f54f32239264098dcebe5b",
+  "metric_set_id": "optimizer-metrics-sha256:bedffbda2b18d725610b0f294a8273ef908237fd957bf9e51a5af4885b123e4f",
+  "scenario_id": "citadel-safety-model-proof",
+  "category": "safety_boundary",
+  "holdout": true,
+  "policy_id": "adaptive",
+  "repetition": 1,
+  "decision_id": "sha256:e19d41a5a2bfd9e480eb61da7b5aaa39714c1a07cca8c89e7057dac55f410d61",
+  "selected_profile_id": "claude-frontier",
+  "observed_profile_id": "claude-frontier",
+  "requested_model": "claude-opus-5",
+  "observed_model": "claude-opus-5",
+  "model_proof_status": "passed",
+  "started_at": "2026-07-31T04:45:41.858Z",
+  "duration_ms": 345299,
+  "outcome": "passed",
+  "verified": true,
+  "attempts": 1,
+  "human_interventions": 0,
+  "topology": "single",
+  "cost": {
+    "status": "known",
+    "amount_usd": 0.941569,
+    "provenance": "tool_reported",
+    "source": "citadel_optimizer_runner",
+    "source_ref": "summed_attempts:1",
+    "pricing_snapshot_digest": null,
+    "components": [
+      {
+        "kind": "model",
+        "amount_usd": 0.9415695,
+        "source": "attempt_1:claude total_cost_usd"
+      }
+    ]
+  },
+  "artifact_paths": [
+    "scripts/test-executor-profiles.js"
+  ],
+  "verification_receipts": [
+    {
+      "attempt": 1,
+      "profile_id": "claude-frontier",
+      "status": "passed",
+      "exit_code": 0,
+      "timed_out": false,
+      "output_digest": "sha256:cfbcb5eb561d7757d10e054de15d8c886ab07285c428bc508c3dfec194eea343",
+      "output_excerpt": "[stdout]\nExecutor profiles passed: strict profiles, canonical digests, literal invocations, bound receipts, and honest model proof.\n\n[stderr]\n",
+      "output_truncated": false,
+      "patch_exit_code": 0,
+      "patch_digest": "sha256:7c2f33d1316905192f5ffedbb36ddcf0a199c8fedb03fe864dc7bed7111f0498",
+      "patch_excerpt": "diff --git a/scripts/test-executor-profiles.js b/scripts/test-executor-profiles.js\nindex 3178834..c09a682 100644\n--- a/scripts/test-executor-profiles.js\n+++ b/scripts/test-executor-profiles.js\n@@ -170,6 +170,83 @@ assert.equal(profiles.evaluateModelProof(local, { model: local.model, trusted: t\n assert.equal(profiles.evaluateModelProof(local, { model: 'other-model', trusted: true }).status, 'failed');\n assert.equal(profiles.evaluateModelProof(local, { model: local.model, trusted: false }).status, 'unknown');\n \n+// Adversarial model substitution: the adapter ran a cheaper model than the\n+// profile requested and reported it honestly under a verified receipt. The\n+// substitution must read as failed -- never passed, never unknown -- and the\n+// telemetry the adapter never sent must stay unknown instead of defaulting.\n+const substituted = Object.freeze({\n+  schema_version: 1,\n+  branch_id: profiles.branchIdForProfile(local),\n+  runtime: local.runtime,\n+  model: 'qwen3-coder:7b',\n+  trusted: true,\n+  cost: null,\n+  duration_ms: null,\n+  tokens: null,\n+  source: 'codex-jsonl',\n+  branch_result_digest: `sha256:${'e'.repeat(64)}`,\n+});\n+assert.deepEqual(profiles.evaluateModelProof(local, substituted), {\n+  requested_model: local.model,\n+  observed_model: 'qwen3-coder:7b',\n+  status: 'failed',\n+  reason_code: 'MODEL_OBSERVATION_MISMATCH',\n+});\n+const verified = { status: 'verified', reason_code: 'FORK_RECEIPT_VERIFIED' };\n+const substitutedState = profiles.missionControlExecutorState({\n+  profile: local, observation: substituted, wrapper, verification: verified,\n+});\n+assert.equal(substitutedState.requested_model, local.model);\n+assert.equal(substitutedState.observed_model, 'qwen3-coder:7b');\n+assert.equal(substitutedState.model_status, 'failed');\n+assert.equal(substitutedState.model_reason_code, 'MODEL_OBSERVATION_MISMATCH');\n+// A verified receipt binds the branch; it never launders the substituted model.\n+assert.equal(substitutedState.receipt_status, 'verified');\n+for (const [value, status] of [\n+  [substitutedState.cost, substitutedState.cost_status],\n+  [substitutedState.duration_ms, substitutedState.duration_status],\n+  [substitutedState.tokens, substitutedState.tokens_status],\n+]) {\n+  assert.equal(value, null);\n+  assert.equal(status, 'unknown');\n+}\n+// Telemetry that is present but malformed is missing telemetry, not evidence.\n+const malformedState = profiles.missionControlExecutorState({\n+  profile: local,\n+  observation: {\n+    ...copy(substituted),\n+    cost: { amount: 3, unit: 'USD', source: 'codex-jsonl' },\n+    duration_ms: '120',\n+    tokens: -1,\n+  },\n+  wrapper,\n+  verification: verified,\n+});\n+assert.equal(malformedState.model_status, 'failed');\n+assert.deepEqual(\n+  [malformedState.cost_status, malformedState.duration_status, malformedState.tokens_status],\n+  ['unknown', 'unknown', 'unknown'],\n+);\n+// The public replay reports the same failure and leaks nothing new.\n+const substitutedReplay = profiles.publicExecutorReplay({\n+  profile: local, observation: substituted, wrapper, verification: verified,\n+});\n+assert.equal(substitutedReplay.requested_model, local.model);\n+assert.equal(substitutedReplay.observed_model, 'qwen3-coder:7b');\n+assert.equal(substitutedReplay.model_status, 'failed');\n+assert.equal(substitutedReplay.model_reason_code, 'MODEL_OBSERVATION_MISMATCH');\n+assert.deepEqual(\n+  [substitutedReplay.cost_status, substitutedReplay.duration_status, substitutedReplay.tokens_status],\n+  ['unknown', 'unknown', 'unknown'],\n+);\n+// An unverified substitution is unknown, and a path-like model is never echoed.\n+assert.deepEqual(profiles.evaluateModelProof(local, { ...copy(substituted), trusted: false }), {\n+  requested_model: local.model, observed_model: null, status: 'unknown', reason_code: 'MODEL_OBSERVATION_UNTRUSTED',\n+});\n+assert.deepEqual(profiles.evaluateModelProof(local, { ...copy(substituted), model: '../../secret-model' }), {\n+  requested_model: local.model, observed_model: null, status: 'unknown', reason_code: 'MODEL_OBSERVATION_UNPARSABLE',\n+});\n+\n const missionUnknown = profiles.missionControlExecutorState({ profile: local, observation: null, wrapper: null });\n assert.equal(missionUnknown.requested_model, local.model);\n assert.equal(missionUnknown.observed_model, null);\n",
+      "patch_truncated": false,
+      "changed_paths": [
+        "scripts/test-executor-profiles.js"
+      ]
+    }
+  ],
+  "receipt_status": "verified",
+  "adversarial_result": "detected",
+  "failure_code": null,
+  "attestation": {
+    "algorithm": "ed25519",
+    "signature_base64": "LMNoG+tU43wsvh5ctSf/KTHUScnbekwei4D+O4ymXrTFR2usXzhCfXU9U0aFmJfMVX+gDGa1wxzNVNp1sQCZCQ=="
+  }
+}

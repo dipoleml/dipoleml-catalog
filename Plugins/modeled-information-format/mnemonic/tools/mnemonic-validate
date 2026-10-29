@@ -1,0 +1,917 @@
+#!/usr/bin/env python3
+"""
+mnemonic-validate: Validate mnemonic memory files against MIF Level 3 schema.
+
+This tool parses the MIF schema from skills/format/SKILL.md and validates
+all memory files against it.
+
+MIF 1.4.2 forms (camelCase frontmatter keys, kebab-case relationship types,
+`citationType`, body `## Relationships` markdown links) are preferred.
+Legacy forms written by earlier mnemonic releases (snake_case keys,
+`compressed_at`, `relates_to`, citation `type`, `[[uuid]]` wiki-links) are
+still accepted and reported as warnings, never as errors. See
+tools/mnemonic-migrate-mif for an opt-in rewrite.
+
+Usage:
+    mnemonic-validate [options] [path]
+
+Options:
+    --format json|markdown   Output format (default: markdown)
+    --check TYPE            Only validate: code_refs|citations|links|schema
+    --skip-http             Skip HTTP checks (offline mode)
+    --fast-fail             Stop on first error
+    --changed               Only validate git-modified files
+    --capture               Capture validation run as episodic memory
+    -v, --verbose           Verbose output
+    -h, --help              Show this help
+"""
+
+import argparse
+import json
+import re
+import subprocess
+import sys
+import uuid
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Optional
+
+# Add project root to path for lib imports
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
+import yaml
+
+from lib.config import get_memory_root
+from lib.mif_compat import (
+    LEGACY_SOURCE_TYPES,
+    MIF_SOURCE_TYPES,
+    body_has_relationship,
+    find_legacy_keys,
+    get_compat,
+    is_kebab_type,
+    parse_body_relationships,
+    to_kebab,
+)
+
+
+@dataclass
+class ValidationError:
+    """A validation error."""
+
+    file: str
+    field: str
+    message: str
+    line: Optional[int] = None
+    severity: str = "error"  # error, warning
+
+    def to_dict(self):
+        return {
+            "file": self.file,
+            "field": self.field,
+            "message": self.message,
+            "line": self.line,
+            "severity": self.severity,
+        }
+
+
+@dataclass
+class ValidationResult:
+    """Result of validating a single memory file."""
+
+    file: str
+    valid: bool
+    errors: list[ValidationError] = field(default_factory=list)
+    warnings: list[ValidationError] = field(default_factory=list)
+
+    def to_dict(self):
+        return {
+            "file": self.file,
+            "valid": self.valid,
+            "errors": [e.to_dict() for e in self.errors],
+            "warnings": [e.to_dict() for e in self.warnings],
+        }
+
+
+@dataclass
+class MIFSchema:
+    """Parsed MIF schema rules."""
+
+    required_fields: list[str] = field(default_factory=list)
+    type_values: list[str] = field(default_factory=list)
+    source_types: list[str] = field(default_factory=list)
+    code_ref_types: list[str] = field(default_factory=list)
+    citation_types: list[str] = field(default_factory=list)
+
+
+def find_plugin_root() -> Path:
+    """Find the mnemonic plugin root directory."""
+    # Check relative to script location
+    script_dir = Path(__file__).parent.resolve()
+    if (script_dir.parent / ".claude-plugin" / "plugin.json").exists():
+        return script_dir.parent
+
+    # Check current directory
+    cwd = Path.cwd()
+    if (cwd / ".claude-plugin" / "plugin.json").exists():
+        return cwd
+
+    # Check git root
+    result = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        git_root = Path(result.stdout.strip())
+        if (git_root / ".claude-plugin" / "plugin.json").exists():
+            return git_root
+
+    raise FileNotFoundError("Cannot find mnemonic plugin root directory")
+
+
+def parse_mif_schema(skill_path: Path) -> MIFSchema:
+    """Parse MIF schema from format SKILL.md."""
+    content = skill_path.read_text()
+    schema = MIFSchema()
+
+    # Extract required fields from Required Fields table
+    required_match = re.search(
+        r"### Required Fields\s*\n\s*\|[^\n]+\n\s*\|[-\s|]+\n((?:\|[^\n]+\n)+)",
+        content,
+    )
+    if required_match:
+        for line in required_match.group(1).strip().split("\n"):
+            if "|" in line:
+                parts = [p.strip() for p in line.split("|")]
+                if len(parts) >= 2 and parts[1].startswith("`"):
+                    field_name = parts[1].strip("`")
+                    schema.required_fields.append(field_name)
+
+    # If no required fields found, use defaults
+    if not schema.required_fields:
+        schema.required_fields = ["id", "type", "namespace", "created", "title"]
+
+    # These enums are fixed by the MIF spec; the regex checks above were
+    # aspirational (both branches assigned the same values). Assign directly.
+    schema.type_values = ["semantic", "episodic", "procedural"]
+    schema.source_types = list(MIF_SOURCE_TYPES)
+    schema.code_ref_types = ["function", "class", "method", "variable", "type", "module"]
+    # MIF 1.4.2 citationType enum (spec 5.4.3) plus legacy mnemonic values
+    schema.citation_types = [
+        "article", "book", "paper", "website", "documentation", "repository",
+        "video", "podcast", "specification", "dataset", "tool", "other",
+        "blog", "github", "stackoverflow",
+    ]
+
+    return schema
+
+
+def parse_frontmatter(content: str) -> tuple[Optional[dict], str, int]:
+    """Parse YAML frontmatter from memory content.
+
+    Returns: (frontmatter_dict, body, frontmatter_end_line)
+    """
+    if not content.startswith("---"):
+        return None, content, 0
+
+    # Find end of frontmatter
+    end_match = re.search(r"\n---\s*\n", content[3:])
+    if not end_match:
+        return None, content, 0
+
+    frontmatter_text = content[4 : end_match.start() + 3]
+    body = content[end_match.end() + 3 :]
+    frontmatter_end_line = frontmatter_text.count("\n") + 2
+
+    try:
+        frontmatter = yaml.safe_load(frontmatter_text)
+        return frontmatter, body, frontmatter_end_line
+    except yaml.YAMLError:
+        return None, content, 0
+
+
+def validate_uuid(value: str) -> bool:
+    """Validate UUID v4 format."""
+    uuid_pattern = r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
+    return bool(re.match(uuid_pattern, value.lower()))
+
+
+def validate_iso8601(value) -> bool:
+    """Validate ISO 8601 timestamp (string or datetime object)."""
+    # YAML may parse timestamps as datetime objects
+    if hasattr(value, 'isoformat'):
+        return True  # datetime objects are valid
+
+    if not isinstance(value, str):
+        return False
+
+    iso_pattern = r"^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}(Z|[+-]\d{2}:\d{2})?)?$"
+    return bool(re.match(iso_pattern, value))
+
+
+def validate_url(value: str) -> bool:
+    """Validate URL format."""
+    url_pattern = r"^https?://[^\s/$.?#].[^\s]*$"
+    return bool(re.match(url_pattern, value, re.IGNORECASE))
+
+
+def validate_namespace(value: str) -> bool:
+    """Validate namespace format: _?{namespace}/{scope}."""
+    namespace_pattern = r"^_?[a-z]+/[a-z]+$"
+    return bool(re.match(namespace_pattern, value))
+
+
+def validate_memory(
+    file_path: Path,
+    schema: MIFSchema,
+    git_root: Optional[Path] = None,
+    skip_http: bool = True,
+    check_type: Optional[str] = None,
+) -> ValidationResult:
+    """Validate a single memory file against the schema."""
+    result = ValidationResult(file=str(file_path), valid=True)
+    content = file_path.read_text()
+    frontmatter, body, fm_end_line = parse_frontmatter(content)
+
+    if frontmatter is None:
+        result.errors.append(
+            ValidationError(
+                file=str(file_path),
+                field="frontmatter",
+                message="Missing or invalid YAML frontmatter",
+                line=1,
+            )
+        )
+        result.valid = False
+        return result
+
+    # Schema validation
+    if check_type is None or check_type == "schema":
+        # Required fields
+        for field_name in schema.required_fields:
+            if field_name not in frontmatter or frontmatter[field_name] is None:
+                result.errors.append(
+                    ValidationError(
+                        file=str(file_path),
+                        field=field_name,
+                        message=f"Missing required field: {field_name}",
+                    )
+                )
+                result.valid = False
+
+        # Validate id format
+        if "id" in frontmatter:
+            if not validate_uuid(str(frontmatter["id"])):
+                result.errors.append(
+                    ValidationError(
+                        file=str(file_path),
+                        field="id",
+                        message=f"Invalid UUID format: {frontmatter['id']}",
+                    )
+                )
+                result.valid = False
+
+        # Validate type enum
+        if "type" in frontmatter:
+            if frontmatter["type"] not in schema.type_values:
+                result.errors.append(
+                    ValidationError(
+                        file=str(file_path),
+                        field="type",
+                        message=f"Invalid type: {frontmatter['type']}. Must be one of: {schema.type_values}",
+                    )
+                )
+                result.valid = False
+
+        # Validate namespace format
+        if "namespace" in frontmatter:
+            if not validate_namespace(str(frontmatter["namespace"])):
+                result.warnings.append(
+                    ValidationError(
+                        file=str(file_path),
+                        field="namespace",
+                        message=f"Namespace should follow pattern {{namespace}}/{{scope}}: {frontmatter['namespace']}",
+                        severity="warning",
+                    )
+                )
+
+        # Validate created timestamp
+        if "created" in frontmatter:
+            if not validate_iso8601(frontmatter["created"]):
+                result.errors.append(
+                    ValidationError(
+                        file=str(file_path),
+                        field="created",
+                        message=f"Invalid ISO 8601 timestamp: {frontmatter['created']}",
+                    )
+                )
+                result.valid = False
+
+        # Validate title is non-empty
+        if "title" in frontmatter:
+            if not frontmatter["title"] or not str(frontmatter["title"]).strip():
+                result.errors.append(
+                    ValidationError(
+                        file=str(file_path),
+                        field="title",
+                        message="Title must be non-empty",
+                    )
+                )
+                result.valid = False
+
+        # Legacy snake_case keys: still read, but MIF 1.4.2 uses camelCase (spec 3.3)
+        for legacy_key, new_key in find_legacy_keys(frontmatter):
+            result.warnings.append(
+                ValidationError(
+                    file=str(file_path),
+                    field=legacy_key,
+                    message=f"Legacy key; MIF 1.4.2 spells it {new_key}",
+                    severity="warning",
+                )
+            )
+
+        # Validate compressedAt (legacy: compressed_at) timestamp
+        compressed_at = get_compat(frontmatter, "compressedAt")
+        if compressed_at is not None and not validate_iso8601(compressed_at):
+            result.errors.append(
+                ValidationError(
+                    file=str(file_path),
+                    field="compressedAt",
+                    message=f"Invalid ISO 8601 timestamp: {compressed_at}",
+                )
+            )
+            result.valid = False
+
+        # Validate provenance.sourceType enum (legacy: source_type)
+        if "provenance" in frontmatter and isinstance(frontmatter["provenance"], dict):
+            provenance = frontmatter["provenance"]
+            source_type = get_compat(provenance, "sourceType")
+            if source_type is not None and source_type not in schema.source_types:
+                if source_type in LEGACY_SOURCE_TYPES:
+                    message = (
+                        f"Legacy sourceType value: {source_type} "
+                        f"(MIF 1.4.2 values: {', '.join(schema.source_types)})"
+                    )
+                else:
+                    message = f"Unknown sourceType: {source_type}"
+                result.warnings.append(
+                    ValidationError(
+                        file=str(file_path),
+                        field="provenance.sourceType",
+                        message=message,
+                        severity="warning",
+                    )
+                )
+
+            # Validate confidence range
+            if "confidence" in provenance:
+                conf = provenance["confidence"]
+                if not (isinstance(conf, (int, float)) and 0.0 <= conf <= 1.0):
+                    result.warnings.append(
+                        ValidationError(
+                            file=str(file_path),
+                            field="provenance.confidence",
+                            message=f"Confidence should be between 0.0 and 1.0: {conf}",
+                            severity="warning",
+                        )
+                    )
+
+        # Validate tags format
+        if "tags" in frontmatter and frontmatter["tags"]:
+            for tag in frontmatter["tags"]:
+                if not re.match(r"^[a-z0-9-]+$", str(tag)):
+                    result.warnings.append(
+                        ValidationError(
+                            file=str(file_path),
+                            field="tags",
+                            message=f"Tag should be lowercase with hyphens: {tag}",
+                            severity="warning",
+                        )
+                    )
+
+    # Code refs validation
+    if check_type is None or check_type == "code_refs":
+        code_refs = get_compat(frontmatter, "codeRefs")
+        if isinstance(code_refs, list) and code_refs:
+            for i, ref in enumerate(code_refs):
+                if not isinstance(ref, dict):
+                    continue
+                # Validate type enum
+                if "type" in ref and ref["type"] not in schema.code_ref_types:
+                    result.warnings.append(
+                        ValidationError(
+                            file=str(file_path),
+                            field=f"code_refs[{i}].type",
+                            message=f"Unknown code_ref type: {ref['type']}",
+                            severity="warning",
+                        )
+                    )
+
+                # Validate file exists (if git_root provided)
+                if "file" in ref and git_root:
+                    ref_path = git_root / ref["file"]
+                    if not ref_path.exists():
+                        result.warnings.append(
+                            ValidationError(
+                                file=str(file_path),
+                                field=f"code_refs[{i}].file",
+                                message=f"Referenced file not found: {ref['file']}",
+                                severity="warning",
+                            )
+                        )
+                    elif "line" in ref:
+                        # Check line number is valid
+                        try:
+                            lines = ref_path.read_text().split("\n")
+                            if ref["line"] > len(lines):
+                                result.warnings.append(
+                                    ValidationError(
+                                        file=str(file_path),
+                                        field=f"code_refs[{i}].line",
+                                        message=f"Line {ref['line']} exceeds file length ({len(lines)} lines)",
+                                        severity="warning",
+                                    )
+                                )
+                        except Exception:
+                            pass
+
+    # Citations validation
+    if check_type is None or check_type == "citations":
+        if "citations" in frontmatter and frontmatter["citations"]:
+            for i, citation in enumerate(frontmatter["citations"]):
+                if not isinstance(citation, dict):
+                    continue
+                # Required citation fields. MIF 1.4.2 spells the category
+                # citationType; the legacy mnemonic spelling `type` is accepted.
+                citation_type = citation.get("citationType", citation.get("type"))
+                if citation_type is None:
+                    result.errors.append(
+                        ValidationError(
+                            file=str(file_path),
+                            field=f"citations[{i}].citationType",
+                            message="Citation missing required field: citationType",
+                        )
+                    )
+                    result.valid = False
+                elif citation_type not in schema.citation_types:
+                    result.warnings.append(
+                        ValidationError(
+                            file=str(file_path),
+                            field=f"citations[{i}].citationType",
+                            message=f"Unknown citation type: {citation_type}",
+                            severity="warning",
+                        )
+                    )
+                if "citationType" not in citation and "type" in citation:
+                    result.warnings.append(
+                        ValidationError(
+                            file=str(file_path),
+                            field=f"citations[{i}].type",
+                            message="Legacy key; MIF 1.4.2 spells it citationType",
+                            severity="warning",
+                        )
+                    )
+                if "citationRole" not in citation:
+                    result.warnings.append(
+                        ValidationError(
+                            file=str(file_path),
+                            field=f"citations[{i}].citationRole",
+                            message="MIF 1.4.2 requires citationRole (e.g. supports, background)",
+                            severity="warning",
+                        )
+                    )
+
+                if "title" not in citation or not citation["title"]:
+                    result.errors.append(
+                        ValidationError(
+                            file=str(file_path),
+                            field=f"citations[{i}].title",
+                            message="Citation missing required field: title",
+                        )
+                    )
+                    result.valid = False
+
+                if "url" not in citation or not citation["url"]:
+                    result.errors.append(
+                        ValidationError(
+                            file=str(file_path),
+                            field=f"citations[{i}].url",
+                            message="Citation missing required field: url",
+                        )
+                    )
+                    result.valid = False
+                elif not validate_url(str(citation["url"])):
+                    result.warnings.append(
+                        ValidationError(
+                            file=str(file_path),
+                            field=f"citations[{i}].url",
+                            message=f"Invalid URL format: {citation['url']}",
+                            severity="warning",
+                        )
+                    )
+
+                # Optional: relevance range
+                if "relevance" in citation:
+                    rel = citation["relevance"]
+                    if not (isinstance(rel, (int, float)) and 0.0 <= rel <= 1.0):
+                        result.warnings.append(
+                            ValidationError(
+                                file=str(file_path),
+                                field=f"citations[{i}].relevance",
+                                message=f"Relevance should be between 0.0 and 1.0: {rel}",
+                                severity="warning",
+                            )
+                        )
+
+    # Memory links validation
+    if check_type is None or check_type == "links":
+        # Legacy [[uuid]] patterns in body (still accepted)
+        link_pattern = r"\[\[([a-f0-9-]+)\]\]"
+        for match in re.finditer(link_pattern, body):
+            linked_id = match.group(1)
+            # We would need to search for this memory - simplified check
+            if not validate_uuid(linked_id):
+                result.warnings.append(
+                    ValidationError(
+                        file=str(file_path),
+                        field="body",
+                        message=f"Invalid memory link format: [[{linked_id}]]",
+                        severity="warning",
+                    )
+                )
+
+        # MIF 1.4.2 relationships: kebab-case type tokens, mirrored as
+        # markdown links in the body `## Relationships` section (spec 5.3).
+        rels = frontmatter.get("relationships")
+        if isinstance(rels, list):
+            for i, rel in enumerate(rels):
+                if not isinstance(rel, dict):
+                    continue
+                rel_type = rel.get("type")
+                target = rel.get("target")
+                if not rel_type or not target:
+                    continue
+                if not is_kebab_type(str(rel_type)):
+                    result.warnings.append(
+                        ValidationError(
+                            file=str(file_path),
+                            field=f"relationships[{i}].type",
+                            message=f"Legacy relationship type {rel_type}; MIF 1.4.2 token is {to_kebab(str(rel_type))}",
+                            severity="warning",
+                        )
+                    )
+                if "label" in rel:
+                    result.warnings.append(
+                        ValidationError(
+                            file=str(file_path),
+                            field=f"relationships[{i}].label",
+                            message="Legacy key; MIF 1.4.2 keeps it under metadata.label",
+                            severity="warning",
+                        )
+                    )
+                # target may be a str or a JSON-LD {"@id": ...} node
+                if not body_has_relationship(body, str(rel_type), target):
+                    result.warnings.append(
+                        ValidationError(
+                            file=str(file_path),
+                            field=f"relationships[{i}]",
+                            message="Not mirrored as a body link under ## Relationships (MIF 1.4.2 section 5.3)",
+                            severity="warning",
+                        )
+                    )
+        for entry in parse_body_relationships(body):
+            if entry["form"] == "wiki":
+                result.warnings.append(
+                    ValidationError(
+                        file=str(file_path),
+                        field="body",
+                        message=(
+                            f"Legacy wiki-link relationship [[{entry['target']}]]; "
+                            "MIF 1.4.2 uses markdown links, e.g. [Title](urn:mif:<uuid>)"
+                        ),
+                        severity="warning",
+                    )
+                )
+
+    return result
+
+
+def find_memory_files(
+    paths: list[Path], changed_only: bool = False
+) -> list[Path]:
+    """Find all memory files to validate."""
+    files = []
+
+    if changed_only:
+        # Get git-modified .memory.md files
+        result = subprocess.run(
+            ["git", "diff", "--name-only", "--cached", "HEAD"],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            for line in result.stdout.strip().split("\n"):
+                if line.endswith(".memory.md"):
+                    files.append(Path(line))
+
+        # Also check unstaged changes
+        result = subprocess.run(
+            ["git", "diff", "--name-only"], capture_output=True, text=True
+        )
+        if result.returncode == 0:
+            for line in result.stdout.strip().split("\n"):
+                if line.endswith(".memory.md"):
+                    p = Path(line)
+                    if p not in files:
+                        files.append(p)
+        return files
+
+    for path in paths:
+        if path.is_file() and path.suffix == ".md" and ".memory." in path.name:
+            files.append(path)
+        elif path.is_dir():
+            files.extend(path.rglob("*.memory.md"))
+
+    return files
+
+
+def _summarize(results: list[ValidationResult]) -> dict:
+    """Compute summary statistics for validation results."""
+    return {
+        "total": len(results),
+        "valid": sum(1 for r in results if r.valid),
+        "errors": sum(len(r.errors) for r in results),
+        "warnings": sum(len(r.warnings) for r in results),
+    }
+
+
+def format_markdown(results: list[ValidationResult]) -> str:
+    """Format results as markdown."""
+    s = _summarize(results)
+
+    lines = [
+        "# Mnemonic Validation Report",
+        "",
+        f"**Date:** {datetime.now(timezone.utc).isoformat()}",
+        "",
+        "## Summary",
+        "",
+        f"- **Memories validated:** {s['total']}",
+        f"- **Valid:** {s['valid']}",
+        f"- **Errors:** {s['errors']}",
+        f"- **Warnings:** {s['warnings']}",
+        "",
+    ]
+
+    # Errors section
+    error_results = [r for r in results if r.errors]
+    if error_results:
+        lines.append("## Errors")
+        lines.append("")
+        for result in error_results:
+            lines.append(f"### {Path(result.file).name}")
+            lines.append("")
+            for error in result.errors:
+                line_info = f" (line {error.line})" if error.line else ""
+                lines.append(f"- **{error.field}**{line_info}: {error.message}")
+            lines.append("")
+
+    # Warnings section
+    warning_results = [r for r in results if r.warnings]
+    if warning_results:
+        lines.append("## Warnings")
+        lines.append("")
+        for result in warning_results:
+            lines.append(f"### {Path(result.file).name}")
+            lines.append("")
+            for warning in result.warnings:
+                line_info = f" (line {warning.line})" if warning.line else ""
+                lines.append(f"- **{warning.field}**{line_info}: {warning.message}")
+            lines.append("")
+
+    if not error_results and not warning_results:
+        lines.append("## Result")
+        lines.append("")
+        lines.append("All memories passed validation.")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
+def format_json(results: list[ValidationResult]) -> str:
+    """Format results as JSON."""
+    output = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "summary": _summarize(results),
+        "results": [r.to_dict() for r in results if r.errors or r.warnings],
+    }
+    return json.dumps(output, indent=2)
+
+
+def capture_as_memory(
+    results: list[ValidationResult], mnemonic_path: Path
+) -> Path:
+    """Capture validation run as episodic memory."""
+    s = _summarize(results)
+
+    now = datetime.now(timezone.utc)
+    memory_id = str(uuid.uuid4())
+    date_str = now.strftime("%Y-%m-%d")
+    timestamp = now.isoformat().replace("+00:00", "Z")
+
+    # Choose namespace based on errors
+    namespace = "blockers/project" if s["errors"] > 0 else "_episodic/project"
+
+    # Build memory content
+    content_lines = [
+        "---",
+        f"id: {memory_id}",
+        "type: episodic",
+        f"namespace: {namespace}",
+        f"created: {timestamp}",
+        f'title: "Validation Run: {date_str}"',
+        "tags:",
+        "  - validation",
+        "  - maintenance",
+        "temporal:",
+        f"  validFrom: {timestamp}",
+        f"  recordedAt: {timestamp}",
+        "provenance:",
+        "  sourceType: system_generated",
+        "  agent: mnemonic-validate",
+        "  confidence: 1.0",
+        "---",
+        "",
+        f"# Validation Run: {date_str}",
+        "",
+        "## Summary",
+        "",
+        f"- **Memories validated:** {s['total']}",
+        f"- **Valid:** {s['valid']}",
+        f"- **Errors:** {s['errors']}",
+        f"- **Warnings:** {s['warnings']}",
+        "",
+    ]
+
+    # Add errors
+    error_results = [r for r in results if r.errors]
+    if error_results:
+        content_lines.append("## Errors")
+        content_lines.append("")
+        for result in error_results:
+            content_lines.append(f"### {Path(result.file).name}")
+            content_lines.append("")
+            for error in result.errors:
+                content_lines.append(f"- **{error.field}**: {error.message}")
+            content_lines.append("")
+
+    # Add warnings (limit to first 10)
+    warning_results = [r for r in results if r.warnings][:10]
+    if warning_results:
+        content_lines.append("## Warnings (first 10)")
+        content_lines.append("")
+        for result in warning_results:
+            content_lines.append(f"### {Path(result.file).name}")
+            content_lines.append("")
+            for warning in result.warnings:
+                content_lines.append(f"- **{warning.field}**: {warning.message}")
+            content_lines.append("")
+
+    content = "\n".join(content_lines)
+
+    # Write memory file
+    ns_path = mnemonic_path / namespace
+    ns_path.mkdir(parents=True, exist_ok=True)
+
+    slug = f"validation-run-{date_str}"[:50]
+    filename = f"{slug}.memory.md"
+    memory_path = ns_path / filename
+
+    memory_path.write_text(content)
+    return memory_path
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Validate mnemonic memory files against MIF Level 3 schema"
+    )
+    parser.add_argument(
+        "path",
+        nargs="*",
+        default=[],
+        help="Paths to validate (default: ${MNEMONIC_ROOT} and ./.claude/mnemonic)",
+    )
+    parser.add_argument(
+        "--format",
+        choices=["json", "markdown"],
+        default="markdown",
+        help="Output format (default: markdown)",
+    )
+    parser.add_argument(
+        "--check",
+        choices=["code_refs", "citations", "links", "schema"],
+        help="Only validate specific check type",
+    )
+    parser.add_argument(
+        "--skip-http", action="store_true", help="Skip HTTP checks (offline mode)"
+    )
+    parser.add_argument(
+        "--fast-fail", action="store_true", help="Stop on first error"
+    )
+    parser.add_argument(
+        "--changed", action="store_true", help="Only validate git-modified files"
+    )
+    parser.add_argument(
+        "--capture", action="store_true", help="Capture validation run as episodic memory"
+    )
+    parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output")
+
+    args = parser.parse_args()
+
+    try:
+        plugin_root = find_plugin_root()
+    except FileNotFoundError:
+        plugin_root = Path(__file__).parent.parent
+
+    # Load schema
+    skill_path = plugin_root / "skills" / "format" / "SKILL.md"
+    if not skill_path.exists():
+        print(f"Error: Cannot find MIF schema at {skill_path}", file=sys.stderr)
+        sys.exit(1)
+
+    schema = parse_mif_schema(skill_path)
+
+    # Determine search paths
+    memory_root = get_memory_root()
+    if args.path:
+        search_paths = [Path(p) for p in args.path]
+    else:
+        search_paths = []
+        if memory_root.exists():
+            search_paths.append(memory_root)
+
+    if not search_paths and not args.changed:
+        print("No mnemonic directories found", file=sys.stderr)
+        sys.exit(1)
+
+    # Find files
+    files = find_memory_files(search_paths, args.changed)
+
+    if not files:
+        if args.format == "json":
+            print(json.dumps({"summary": {"total": 0}, "results": []}))
+        else:
+            print("No memory files found to validate")
+        sys.exit(0)
+
+    if args.verbose:
+        print(f"Found {len(files)} memory files to validate", file=sys.stderr)
+
+    # Get git root for code_refs validation
+    git_root = None
+    result = subprocess.run(
+        ["git", "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode == 0:
+        git_root = Path(result.stdout.strip())
+
+    # Validate files
+    results = []
+    for file_path in files:
+        if args.verbose:
+            print(f"Validating: {file_path}", file=sys.stderr)
+
+        result = validate_memory(
+            file_path,
+            schema,
+            git_root=git_root,
+            skip_http=args.skip_http,
+            check_type=args.check,
+        )
+        results.append(result)
+
+        if args.fast_fail and not result.valid:
+            break
+
+    # Output results
+    if args.format == "json":
+        print(format_json(results))
+    else:
+        print(format_markdown(results))
+
+    # Capture as memory if requested
+    if args.capture:
+        if memory_root.exists():
+            memory_path = capture_as_memory(results, memory_root)
+            print(f"\nCaptured validation run as: {memory_path}", file=sys.stderr)
+
+    # Exit code based on errors
+    has_errors = any(r.errors for r in results)
+    sys.exit(1 if has_errors else 0)
+
+
+if __name__ == "__main__":
+    main()

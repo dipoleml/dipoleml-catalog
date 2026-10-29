@@ -1,0 +1,16 @@
+{
+  "name": "data-analytics",
+  "displayName": "Data Analytics",
+  "version": "1.0.0",
+  "description": "Data governance, warehouse and semantic modeling, business intelligence, and AI/ML governance.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Cbrock84"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/cbrock84/headcount",
+  "repository": "https://github.com/cbrock84/headcount",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

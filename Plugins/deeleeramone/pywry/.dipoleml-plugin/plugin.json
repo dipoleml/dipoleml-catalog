@@ -1,0 +1,16 @@
+{
+  "name": "pywry",
+  "displayName": "Pywry",
+  "version": "0.1.1",
+  "description": "Native DipoleML integration for PyWry — MCP tools for generating and rendering HTML components, chat artifacts, and building native, web, or Jupyter applications with live preview. Built-in support for AgGrid, Plotly, TradingView, and more.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Deeleeramone"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/deeleeramone/PyWry",
+  "repository": "https://github.com/deeleeramone/PyWry",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

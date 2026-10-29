@@ -1,0 +1,16 @@
+{
+  "name": "lockedin",
+  "displayName": "Lockedin",
+  "version": "1.2.1",
+  "description": "Personal experience knowledge graph for DipoleML. Build the graph by talking. Renders English resumes and Korean cover letters from the same vault.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Daypunk"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/daypunk/LockedIn",
+  "repository": "https://github.com/daypunk/LockedIn",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

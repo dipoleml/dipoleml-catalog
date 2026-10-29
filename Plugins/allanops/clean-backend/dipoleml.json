@@ -1,0 +1,118 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.allanops.clean-backend",
+  "type": "plugin",
+  "name": "Clean Backend",
+  "slug": "clean-backend",
+  "vendor": "allanops",
+  "description": "DipoleML agent skill for production-hardening practices whenever you're designing, writing, or reviewing your backend code. Featuring endpoints, payment flows, deletes, background jobs, and alerting.",
+  "version": "2.0.1",
+  "homepage": "https://github.com/AllanOps/Clean-Backend",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agent-skills",
+    "backend",
+    "backend-development",
+    "best-practices",
+    "claude-code-plugin",
+    "claude-code-skill",
+    "claude-code-skills",
+    "claude-plugin",
+    "claude-skills"
+  ],
+  "tags": [
+    "agent-skills",
+    "ai-agents",
+    "backend",
+    "backend-development",
+    "best-practices",
+    "claude",
+    "claude-code",
+    "claude-code-plugin",
+    "claude-code-skill",
+    "claude-code-skills",
+    "claude-plugin",
+    "claude-skills"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "allanops",
+    "brandName": "allanops",
+    "source": "https://github.com/AllanOps.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:12:09Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "AllanOps/Clean-Backend",
+    "url": "https://github.com/AllanOps/Clean-Backend",
+    "commit": "4b49becb89727ae71d5299f171de49f50239186f",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 9,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:07:13Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Clean Backend | Claude agent skill for production-hardening practices whenever you're designing, writing, or reviewing your backend code. Featuring endpoints, payment flows, deletes, background jobs, and alerting.",
+        "after": "Clean Backend | DipoleML agent skill for production-hardening practices whenever you're designing, writing, or reviewing your backend code. Featuring endpoints, payment flows, deletes, background jobs, and alerting.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [
+      "IMPORTANT"
+    ],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

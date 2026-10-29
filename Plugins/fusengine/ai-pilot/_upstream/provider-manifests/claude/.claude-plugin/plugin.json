@@ -1,0 +1,21 @@
+{
+  "name": "fuse-ai-pilot",
+  "version": "1.2.46",
+  "description": "AI Pilot workflow agents: sniper (code quality), research-expert, explore-codebase, websearch",
+  "author": {
+    "name": "Fusengine",
+    "email": "hello@fusengine.ch",
+    "url": "https://github.com/fusengine"
+  },
+  "homepage": "https://github.com/fusengine/agents",
+  "repository": "https://github.com/fusengine/agents",
+  "license": "MIT",
+  "keywords": [
+    "ai-pilot",
+    "workflow",
+    "apex",
+    "code-quality",
+    "research",
+    "seo"
+  ]
+}

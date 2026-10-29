@@ -1,0 +1,2011 @@
+# AWS Cost Optimization - Complete Check Registry
+# 180 checks across 11 domains with AWS CLI commands for scanning
+# Focused on direct cost savings (removed compliance-only checks)
+
+version: "5.2"
+total_checks: 180
+
+# ============================================================================
+# COMPUTE DOMAIN (28 checks)
+# ============================================================================
+compute:
+  - id: EC2-001
+    name: Idle Instances
+    description: EC2 instances with CPU utilization < 5% for 14+ days
+    severity: high
+    category: idle
+    aws_cli:
+      - aws ec2 describe-instances --filters "Name=instance-state-name,Values=running"
+      - aws cloudwatch get-metric-statistics --namespace AWS/EC2 --metric-name CPUUtilization --dimensions Name=InstanceId,Value={instance_id} --start-time {14_days_ago} --end-time {now} --period 86400 --statistics Average
+    thresholds:
+      cpu_percent: 5
+      days: 14
+    recommendation: Consider terminating or stopping this instance
+
+  - id: EC2-002
+    name: Over-provisioned Instances
+    description: Instances with average CPU < 40%
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws ec2 describe-instances --filters "Name=instance-state-name,Values=running"
+      - aws cloudwatch get-metric-statistics --namespace AWS/EC2 --metric-name CPUUtilization --dimensions Name=InstanceId,Value={instance_id} --start-time {7_days_ago} --end-time {now} --period 86400 --statistics Average
+    thresholds:
+      cpu_percent: 40
+    recommendation: Downsize to smaller instance type
+
+  - id: EC2-003
+    name: Previous Generation Instances
+    description: Instances using previous or aging generation types (current generations as of mid-2026 are 8th-gen x86 m8i/c8i/r8i and Graviton4/5 m8g/c8g/r8g/m9g)
+    severity: medium
+    category: previous_generation
+    aws_cli:
+      - aws ec2 describe-instances --filters "Name=instance-state-name,Values=running"
+    previous_gen_prefixes: [m4, c4, r4, t2, i2, d2, m3, c3, r3]
+    aging_gen_prefixes: [m5, c5, r5, m6i, c6i, r6i]
+    upgrade_targets:
+      m5/m6i/m7i: m8i (x86) or m8g (Graviton)
+      c5/c6i/c7i: c8i (x86) or c8g (Graviton)
+      r5/r6i/r7i: r8i (x86) or r8g (Graviton)
+      t2/t3: t4g (still the latest burstable generation)
+    note: "previous_gen_prefixes are officially previous generation (flag HIGH). aging_gen_prefixes are 2+ generations behind (flag MEDIUM). Savings must come from a per-SKU Pricing API delta, never from marketing price-performance percentages."
+    recommendation: Upgrade to current generation for better price/performance
+
+  - id: EC2-004
+    name: RI/Savings Plan Candidate
+    description: On-demand instances with steady usage patterns
+    severity: high
+    category: coverage
+    aws_cli:
+      - aws ec2 describe-instances --filters "Name=instance-state-name,Values=running"
+      - aws ce get-reservation-coverage --time-period Start={30_days_ago},End={now} --granularity MONTHLY
+    recommendation: Consider Reserved Instance or Savings Plan coverage
+
+  - id: EC2-005
+    name: Stopped Instances with EBS
+    description: Stopped instances with attached EBS volumes (still incurring costs)
+    severity: medium
+    category: idle
+    aws_cli:
+      - aws ec2 describe-instances --filters "Name=instance-state-name,Values=stopped"
+      - aws ec2 describe-volumes --filters "Name=attachment.instance-id,Values={instance_id}"
+    thresholds:
+      stopped_days: 7
+    recommendation: Snapshot and terminate, or restart if needed
+
+  - id: EC2-006
+    name: GP2 to GP3 Migration
+    description: GP2 volumes that should be migrated to GP3 (20% savings)
+    severity: medium
+    category: previous_generation
+    aws_cli:
+      - aws ec2 describe-volumes --filters "Name=volume-type,Values=gp2"
+    recommendation: Migrate to gp3 for 20% cost savings
+
+  - id: EC2-007
+    name: Spot Instance Opportunity
+    description: Stateless workloads that could use Spot instances
+    severity: medium
+    category: coverage
+    aws_cli:
+      - aws ec2 describe-instances --filters "Name=instance-state-name,Values=running"
+      - aws autoscaling describe-auto-scaling-groups
+    recommendation: Use Spot instances for fault-tolerant workloads (up to 90% savings)
+
+  - id: EC2-008
+    name: Unused AMIs
+    description: AMIs not used to launch instances in 90+ days
+    severity: low
+    category: lifecycle
+    aws_cli:
+      - aws ec2 describe-images --owners self
+      - aws ec2 describe-instances
+    thresholds:
+      unused_days: 90
+    recommendation: Deregister unused AMIs and delete associated snapshots
+
+  - id: EC2-009
+    name: Old EBS Snapshots
+    description: EBS snapshots older than 90 days
+    severity: low
+    category: lifecycle
+    aws_cli:
+      - aws ec2 describe-snapshots --owner-ids self
+    thresholds:
+      age_days: 90
+    recommendation: Review and delete outdated snapshots
+
+  - id: EC2-010
+    name: Untagged Instances
+    description: Instances missing required tags for cost allocation
+    severity: info
+    category: compliance
+    aws_cli:
+      - aws ec2 describe-instances
+    required_tags: [Environment, Owner, CostCenter]
+    recommendation: Add required tags for cost allocation
+
+  - id: EC2-011
+    name: Over-provisioned EBS IOPS
+    description: io1/io2 volumes with unused IOPS capacity
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws ec2 describe-volumes --filters "Name=volume-type,Values=io1,io2"
+      - aws cloudwatch get-metric-statistics --namespace AWS/EBS --metric-name VolumeReadOps --dimensions Name=VolumeId,Value={volume_id}
+    thresholds:
+      iops_utilization_percent: 50
+    recommendation: Reduce provisioned IOPS or switch to gp3
+
+  - id: EC2-012
+    name: Unattached EBS Volumes
+    description: EBS volumes not attached to any instance
+    severity: high
+    category: idle
+    aws_cli:
+      - aws ec2 describe-volumes --filters "Name=status,Values=available"
+    thresholds:
+      unattached_days: 7
+    recommendation: Snapshot and delete unattached volumes
+
+  - id: EC2-013
+    name: Oversized EBS Volumes
+    description: EBS volumes with < 20% utilization
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws ec2 describe-volumes
+      - aws cloudwatch get-metric-statistics --namespace AWS/EBS --metric-name VolumeReadBytes
+    thresholds:
+      utilization_percent: 20
+    recommendation: Resize volumes to match actual usage
+
+  - id: EC2-014
+    name: Missing Detailed Monitoring
+    description: Instances without detailed monitoring (limits visibility)
+    severity: info
+    category: compliance
+    aws_cli:
+      - aws ec2 describe-instances
+    recommendation: Enable detailed monitoring for better cost visibility
+
+  - id: EC2-015
+    name: Non-EBS Optimized Instances
+    description: Instances that support but don't use EBS optimization
+    severity: low
+    category: previous_generation
+    aws_cli:
+      - aws ec2 describe-instances --filters "Name=instance-state-name,Values=running"
+    recommendation: Enable EBS optimization for better I/O performance
+
+  - id: EC2-016
+    name: Single AZ Placement
+    description: Production workloads in single AZ
+    severity: info
+    category: compliance
+    aws_cli:
+      - aws ec2 describe-instances
+      - aws autoscaling describe-auto-scaling-groups
+    recommendation: Consider multi-AZ for high availability
+
+  - id: EC2-017
+    name: Missing Auto Scaling
+    description: Variable workloads without auto-scaling
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws ec2 describe-instances
+      - aws autoscaling describe-auto-scaling-groups
+      - aws cloudwatch get-metric-statistics --namespace AWS/EC2 --metric-name CPUUtilization
+    recommendation: Implement auto-scaling to match demand
+
+  - id: EC2-018
+    name: Unused Elastic IPs
+    description: Elastic IPs not associated with running instances
+    severity: low
+    category: idle
+    aws_cli:
+      - aws ec2 describe-addresses
+    recommendation: Release unused Elastic IPs ($3.65/month each)
+
+  - id: EC2-019
+    name: Cross-AZ Data Transfer
+    description: High data transfer between availability zones
+    severity: medium
+    category: data_transfer
+    aws_cli:
+      - aws ce get-cost-and-usage --time-period Start={30_days_ago},End={now} --granularity MONTHLY --metrics BlendedCost --filter '{"Dimensions":{"Key":"USAGE_TYPE","Values":["DataTransfer-Regional-Bytes"]}}'
+    recommendation: Co-locate resources or use placement groups
+
+  - id: EC2-020
+    name: Launch Template Not Used
+    description: Instances not using launch templates
+    severity: info
+    category: compliance
+    aws_cli:
+      - aws ec2 describe-instances
+      - aws ec2 describe-launch-templates
+    recommendation: Use launch templates for consistent configurations
+
+  - id: EC2-021
+    name: IO1 to IO2 Migration
+    description: io1 volumes eligible for io2 migration
+    severity: medium
+    category: previous_generation
+    aws_cli:
+      - aws ec2 describe-volumes --filters "Name=volume-type,Values=io1"
+    recommendation: Migrate to io2 for better durability at same price
+
+  - id: EC2-022
+    name: Graviton Migration Opportunity
+    description: x86 instances that could use ARM-based Graviton
+    severity: medium
+    category: previous_generation
+    aws_cli:
+      - aws ec2 describe-instances --filters "Name=instance-state-name,Values=running"
+    recommendation: Migrate to Graviton for up to 40% cost savings
+
+  - id: EC2-023
+    name: AMD Migration Opportunity
+    description: Intel instances that could use AMD
+    severity: low
+    category: previous_generation
+    aws_cli:
+      - aws ec2 describe-instances --filters "Name=instance-state-name,Values=running"
+    recommendation: Consider AMD instances for 10% cost savings
+
+  - id: EC2-024
+    name: Compute Optimizer ML Rightsizing
+    description: ML-powered rightsizing from AWS Compute Optimizer (free, must be opted in)
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws compute-optimizer get-enrollment-status
+      - aws compute-optimizer get-ec2-instance-recommendations
+    note: "Requires opt-in via: aws compute-optimizer update-enrollment-status --status Active"
+    recommendation: Apply Compute Optimizer rightsizing recommendations (ML-based, more accurate than CPU thresholds)
+
+  - id: EC2-025
+    name: Scheduled Scaling Not Used
+    description: Predictable workloads without scheduled scaling
+    severity: low
+    category: overprovisioned
+    aws_cli:
+      - aws autoscaling describe-scheduled-actions
+      - aws cloudwatch get-metric-statistics --namespace AWS/EC2 --metric-name CPUUtilization
+    recommendation: Use scheduled scaling for predictable patterns
+
+  - id: EC2-026
+    name: Compute Optimizer Idle Detection
+    description: Idle resources detected by AWS Compute Optimizer ML (free, must be opted in)
+    severity: high
+    category: idle
+    aws_cli:
+      - aws compute-optimizer get-enrollment-status
+      - aws compute-optimizer get-idle-recommendations
+    note: "get-idle-recommendations (dedicated API) covers EC2, ASG, EBS, ECS, RDS, and since Jun 2026 also DynamoDB, ElastiCache, MemoryDB, DocumentDB, WorkSpaces, and SageMaker endpoints. Prefer it over filtering get-ec2-instance-recommendations by Finding=Idle."
+    recommendation: Terminate or stop idle resources identified by Compute Optimizer
+
+  - id: EC2-027
+    name: Memory Utilization Check
+    description: Check if CloudWatch Agent memory metrics available for better idle detection
+    severity: info
+    category: idle
+    aws_cli:
+      - aws cloudwatch list-metrics --namespace CWAgent --metric-name mem_used_percent --dimensions Name=InstanceId,Value={instance_id}
+    note: "Graceful degradation - if mem_used_percent exists, use it. If not, note unavailable."
+    recommendation: High-memory instances at low CPU may be cache servers, not idle
+
+  - id: COH-001
+    name: Cost Optimization Hub Recommendations
+    description: Free AWS-native aggregator of rightsizing, idle, upgrade, and commitment recommendations across 25 resource types, deduplicated and discount-aware
+    severity: high
+    category: coverage
+    aws_cli:
+      - aws cost-optimization-hub list-enrollment-statuses --region us-east-1
+      - aws cost-optimization-hub list-recommendation-summaries --group-by ResourceType --region us-east-1
+      - aws cost-optimization-hub list-recommendations --include-all-recommendations --region us-east-1
+    note: "Free. Single endpoint in us-east-1 covers all regions and (from a management account) all member accounts. Savings estimates are after existing RI/SP discounts and deduplicated across overlapping actions - prefer these numbers over locally computed ones for the same resource. Covers EC2/ASG/EBS/Lambda/ECS/RDS/Aurora rightsizing, idle detection (incl. DynamoDB, ElastiCache, MemoryDB, DocumentDB, WorkSpaces, SageMaker endpoints, NAT gateways), GP2->GP3 upgrades, Graviton migration, and RI/SP purchases."
+    recommendation: Enroll in Cost Optimization Hub and treat its recommendations as the primary source for rightsizing, idle, and commitment savings
+
+# ============================================================================
+# STORAGE DOMAIN (24 checks) - includes logs optimization
+# ============================================================================
+storage:
+  - id: S3-001
+    name: No Lifecycle Policy
+    description: S3 buckets without lifecycle policies
+    severity: high
+    category: lifecycle
+    aws_cli:
+      - aws s3api list-buckets
+      - aws s3api get-bucket-lifecycle-configuration --bucket {bucket_name}
+    recommendation: Configure lifecycle policies to transition/expire objects
+
+  - id: S3-002
+    name: Standard to IA Opportunity
+    description: Objects in Standard that should be in Infrequent Access
+    severity: medium
+    category: lifecycle
+    aws_cli:
+      - aws s3api list-buckets
+      - aws s3 ls s3://{bucket_name} --summarize
+      - aws cloudwatch get-metric-statistics --namespace AWS/S3 --metric-name NumberOfObjects
+    thresholds:
+      days_since_access: 30
+    recommendation: Move infrequently accessed data to S3-IA (40% savings)
+
+  - id: S3-003
+    name: IA to Glacier Opportunity
+    description: Objects in IA that should be in Glacier
+    severity: medium
+    category: lifecycle
+    aws_cli:
+      - aws s3api list-buckets
+      - aws s3api get-bucket-lifecycle-configuration --bucket {bucket_name}
+    thresholds:
+      days_since_access: 90
+    recommendation: Move rarely accessed data to Glacier (up to 90% savings)
+
+  - id: S3-004
+    name: Incomplete Multipart Uploads
+    description: Incomplete multipart uploads consuming storage
+    severity: low
+    category: lifecycle
+    aws_cli:
+      - aws s3api list-multipart-uploads --bucket {bucket_name}
+    recommendation: Abort incomplete multipart uploads or add lifecycle rule
+
+  - id: S3-005
+    name: Excessive Versioning
+    description: Buckets with many object versions consuming storage
+    severity: medium
+    category: lifecycle
+    aws_cli:
+      - aws s3api list-buckets
+      - aws s3api get-bucket-versioning --bucket {bucket_name}
+      - aws s3api list-object-versions --bucket {bucket_name}
+    recommendation: Add noncurrent version expiration rule
+
+  - id: S3-006
+    name: Unused Buckets
+    description: S3 buckets with no recent access
+    severity: medium
+    category: idle
+    aws_cli:
+      - aws s3api list-buckets
+      - aws cloudwatch get-metric-statistics --namespace AWS/S3 --metric-name AllRequests
+    thresholds:
+      days_without_access: 90
+    recommendation: Archive or delete unused buckets
+
+  - id: S3-007
+    name: Cross-Region Replication Cost
+    description: CRR enabled without clear business need
+    severity: medium
+    category: data_transfer
+    aws_cli:
+      - aws s3api get-bucket-replication --bucket {bucket_name}
+    recommendation: Review CRR necessity and costs
+
+  - id: S3-008
+    name: Request Pricing Optimization
+    description: High request costs relative to storage
+    severity: low
+    category: overprovisioned
+    aws_cli:
+      - aws ce get-cost-and-usage --time-period Start={30_days_ago},End={now} --granularity MONTHLY --filter '{"Dimensions":{"Key":"SERVICE","Values":["Amazon Simple Storage Service"]}}'
+    recommendation: Review request patterns and caching strategies
+
+  - id: S3-009
+    name: Intelligent-Tiering Opportunity
+    description: Buckets with unpredictable access patterns
+    severity: medium
+    category: lifecycle
+    aws_cli:
+      - aws s3api list-buckets
+      - aws cloudwatch get-metric-statistics --namespace AWS/S3 --metric-name AllRequests
+    recommendation: Use Intelligent-Tiering for automatic optimization
+
+  - id: S3-010
+    name: Object Lock Cost Review
+    description: Object Lock enabled with high storage costs
+    severity: low
+    category: compliance
+    aws_cli:
+      - aws s3api get-object-lock-configuration --bucket {bucket_name}
+    recommendation: Review Object Lock necessity
+
+  - id: EBS-001
+    name: Unattached Volumes
+    description: EBS volumes not attached to any instance
+    severity: high
+    category: idle
+    aws_cli:
+      - aws ec2 describe-volumes --filters "Name=status,Values=available"
+    recommendation: Snapshot and delete unattached volumes
+
+  - id: EBS-002
+    name: GP2 to GP3 Migration
+    description: GP2 volumes eligible for GP3 migration
+    severity: medium
+    category: previous_generation
+    aws_cli:
+      - aws ec2 describe-volumes --filters "Name=volume-type,Values=gp2"
+    recommendation: Migrate to GP3 for 20% savings with same performance
+
+  - id: EBS-003
+    name: Over-provisioned IOPS
+    description: Provisioned IOPS volumes with low utilization
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws ec2 describe-volumes --filters "Name=volume-type,Values=io1,io2"
+      - aws cloudwatch get-metric-statistics --namespace AWS/EBS --metric-name VolumeReadOps
+    recommendation: Reduce provisioned IOPS or switch volume type
+
+  - id: EBS-004
+    name: Orphaned Snapshots
+    description: Snapshots without source volume or AMI
+    severity: medium
+    category: lifecycle
+    aws_cli:
+      - aws ec2 describe-snapshots --owner-ids self
+      - aws ec2 describe-volumes
+      - aws ec2 describe-images --owners self
+    recommendation: Delete orphaned snapshots
+
+  - id: EBS-005
+    name: Oversized Volumes
+    description: EBS volumes significantly larger than needed
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws ec2 describe-volumes
+      - aws cloudwatch get-metric-statistics --namespace AWS/EBS --metric-name VolumeReadBytes
+    recommendation: Resize volumes to match actual usage
+
+  - id: EBS-006
+    name: Throughput Optimization
+    description: Volumes with suboptimal throughput configuration
+    severity: low
+    category: overprovisioned
+    aws_cli:
+      - aws ec2 describe-volumes
+      - aws cloudwatch get-metric-statistics --namespace AWS/EBS --metric-name VolumeThroughputPercentage
+    recommendation: Optimize throughput settings
+
+  - id: EFS-001
+    name: Unused File Systems
+    description: EFS file systems with no mount targets or no I/O
+    severity: high
+    category: idle
+    aws_cli:
+      - aws efs describe-file-systems
+      - aws efs describe-mount-targets --file-system-id {fs_id}
+      - aws cloudwatch get-metric-statistics --namespace AWS/EFS --metric-name TotalIOBytes
+    recommendation: Delete unused EFS file systems
+
+  - id: EFS-002
+    name: IA Transition Opportunity
+    description: EFS without Infrequent Access enabled
+    severity: medium
+    category: lifecycle
+    aws_cli:
+      - aws efs describe-file-systems
+      - aws efs describe-lifecycle-configuration --file-system-id {fs_id}
+    recommendation: Enable IA lifecycle policy (up to 92% savings on cold data)
+
+  - id: EFS-003
+    name: Throughput Mode Optimization
+    description: EFS with suboptimal throughput mode
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws efs describe-file-systems
+      - aws cloudwatch get-metric-statistics --namespace AWS/EFS --metric-name PermittedThroughput
+    recommendation: Switch to Elastic throughput for variable workloads
+
+  - id: EFS-004
+    name: Bursting vs Provisioned
+    description: Provisioned throughput not fully utilized
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws efs describe-file-systems
+      - aws cloudwatch get-metric-statistics --namespace AWS/EFS --metric-name PercentIOLimit
+    recommendation: Switch to bursting mode if throughput is underutilized
+
+  - id: LOG-001
+    name: CloudWatch Logs Retention
+    description: Log groups with infinite or excessive retention (major cost driver)
+    severity: high
+    category: lifecycle
+    aws_cli:
+      - aws logs describe-log-groups
+    thresholds:
+      max_retention_days: 90
+    recommendation: Set appropriate retention periods ($0.03/GB storage)
+
+  - id: LOG-002
+    name: CloudTrail Duplication
+    description: Multiple CloudTrail trails with overlapping coverage
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws cloudtrail describe-trails
+      - aws cloudtrail get-trail-status --name {trail_name}
+    recommendation: Consolidate CloudTrail trails to reduce storage costs
+
+  - id: CT-001
+    name: CloudTrail Data Event Costs
+    description: CloudTrail data events (S3/Lambda) can be expensive at high volume
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws cloudtrail describe-trails
+      - aws cloudtrail get-event-selectors --trail-name {trail_name}
+      - aws ce get-cost-and-usage --time-period Start={30_days_ago},End={now} --granularity MONTHLY --metrics UnblendedCost --filter '{"Dimensions":{"Key":"SERVICE","Values":["AWS CloudTrail"]}}'
+    recommendation: Review data event logging necessity - consider disabling for high-volume S3 buckets
+
+  - id: SECRETS-001
+    name: Unused Secrets Manager Secrets
+    description: Secrets not accessed in 90+ days ($0.40/secret/month)
+    severity: low
+    category: idle
+    aws_cli:
+      - aws secretsmanager list-secrets
+      - aws secretsmanager describe-secret --secret-id {secret_id}
+    thresholds:
+      days_since_access: 90
+    recommendation: Delete unused secrets ($0.40/secret/month)
+
+# ============================================================================
+# DATABASE DOMAIN (17 checks)
+# ============================================================================
+database:
+  - id: RDS-001
+    name: Idle Databases
+    description: RDS instances with minimal connections
+    severity: high
+    category: idle
+    aws_cli:
+      - aws rds describe-db-instances
+      - aws cloudwatch get-metric-statistics --namespace AWS/RDS --metric-name DatabaseConnections --dimensions Name=DBInstanceIdentifier,Value={db_id}
+    thresholds:
+      connections: 1
+      days: 14
+    recommendation: Stop or delete idle databases
+
+  - id: RDS-002
+    name: Over-provisioned Instances
+    description: RDS instances with low CPU/memory utilization
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws rds describe-db-instances
+      - aws cloudwatch get-metric-statistics --namespace AWS/RDS --metric-name CPUUtilization
+      - aws cloudwatch get-metric-statistics --namespace AWS/RDS --metric-name FreeableMemory
+    thresholds:
+      cpu_percent: 40
+    recommendation: Downsize to smaller instance class
+
+  - id: RDS-003
+    name: Single-AZ in Production
+    description: Production databases without Multi-AZ
+    severity: info
+    category: compliance
+    aws_cli:
+      - aws rds describe-db-instances
+    recommendation: Enable Multi-AZ for production databases
+
+  - id: RDS-004
+    name: Previous Generation Types
+    description: RDS using previous generation instance types (current generation is db.m8g/db.r8g Graviton4, GA since Nov 2024)
+    severity: medium
+    category: previous_generation
+    aws_cli:
+      - aws rds describe-db-instances
+    previous_gen_prefixes: [db.m4, db.r4, db.t2, db.m3, db.r3]
+    aging_gen_prefixes: [db.m5, db.r5, db.m6i, db.r6i]
+    upgrade_targets:
+      db.m5/db.m6i: db.m8g (Graviton, OSS engines) or db.m7i
+      db.r5/db.r6i: db.r8g (Graviton, OSS engines) or db.r7i
+      db.t2/db.t3: db.t4g
+    note: "Graviton (db.*g) targets apply to open-source engines (MySQL, PostgreSQL, MariaDB) - SQL Server and Oracle stay on x86. Savings must come from per-SKU Pricing API deltas."
+    recommendation: Upgrade to current generation instances
+
+  - id: RDS-005
+    name: No RI Coverage
+    description: RDS instances without Reserved Instance coverage
+    severity: high
+    category: coverage
+    aws_cli:
+      - aws rds describe-db-instances
+      - aws rds describe-reserved-db-instances
+      - aws ce get-reservation-coverage --time-period Start={30_days_ago},End={now} --service "Amazon Relational Database Service"
+    recommendation: Purchase Reserved Instances for steady-state workloads
+
+  - id: RDS-006
+    name: Excessive Storage
+    description: RDS instances with significantly oversized storage
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws rds describe-db-instances
+      - aws cloudwatch get-metric-statistics --namespace AWS/RDS --metric-name FreeStorageSpace
+    thresholds:
+      free_storage_percent: 50
+    recommendation: Right-size storage allocation
+
+  - id: RDS-007
+    name: Old Snapshots
+    description: RDS snapshots older than retention policy
+    severity: low
+    category: lifecycle
+    aws_cli:
+      - aws rds describe-db-snapshots --snapshot-type manual
+    thresholds:
+      age_days: 90
+    recommendation: Delete old manual snapshots
+
+  - id: RDS-008
+    name: Multi-AZ for Non-Production
+    description: Multi-AZ enabled for dev/test databases
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws rds describe-db-instances
+    recommendation: Disable Multi-AZ for non-production (50% savings)
+
+  - id: RDS-009
+    name: Extended Support Charges
+    description: RDS/Aurora engines past community EOL bill RDS Extended Support per vCPU-hour ($0.100 years 1-2, $0.200 year 3) on top of the instance price
+    severity: high
+    category: previous_generation
+    aws_cli:
+      - aws rds describe-db-instances --query 'DBInstances[].{id:DBInstanceIdentifier,engine:Engine,version:EngineVersion,class:DBInstanceClass}'
+      - aws rds describe-db-major-engine-versions
+    note: "As of Jul 2026: MySQL 5.7 and PostgreSQL 11 are in year-3 pricing ($0.200/vCPU-hr); PostgreSQL 12/13 and Aurora PostgreSQL 13 are in year 1-2; MySQL 8.0 enters extended support Aug 1, 2026 - flag every MySQL 8.0 instance now. Use describe-db-major-engine-versions for authoritative dates. Instances created with --engine-lifecycle-support open-source-rds-extended-support-disabled are not billed."
+    recommendation: Upgrade the engine major version to stop per-vCPU extended-support charges, prioritizing year-3 engines (double rate)
+
+  - id: DDB-001
+    name: Provisioned vs On-Demand
+    description: DynamoDB tables with wrong capacity mode
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws dynamodb list-tables
+      - aws dynamodb describe-table --table-name {table_name}
+      - aws cloudwatch get-metric-statistics --namespace AWS/DynamoDB --metric-name ConsumedReadCapacityUnits
+    recommendation: Switch capacity mode based on traffic patterns
+
+  - id: DDB-002
+    name: Unused Tables
+    description: DynamoDB tables with no recent activity
+    severity: high
+    category: idle
+    aws_cli:
+      - aws dynamodb list-tables
+      - aws cloudwatch get-metric-statistics --namespace AWS/DynamoDB --metric-name ConsumedReadCapacityUnits
+      - aws cloudwatch get-metric-statistics --namespace AWS/DynamoDB --metric-name ConsumedWriteCapacityUnits
+    thresholds:
+      days_without_activity: 30
+    recommendation: Delete unused tables
+
+  - id: DDB-003
+    name: Over-provisioned Capacity
+    description: DynamoDB tables with unused provisioned capacity
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws dynamodb describe-table --table-name {table_name}
+      - aws cloudwatch get-metric-statistics --namespace AWS/DynamoDB --metric-name ProvisionedReadCapacityUnits
+      - aws cloudwatch get-metric-statistics --namespace AWS/DynamoDB --metric-name ConsumedReadCapacityUnits
+    thresholds:
+      utilization_percent: 50
+    recommendation: Reduce provisioned capacity or switch to on-demand
+
+  - id: DDB-004
+    name: GSI Optimization
+    description: Global Secondary Indexes with low utilization
+    severity: low
+    category: overprovisioned
+    aws_cli:
+      - aws dynamodb describe-table --table-name {table_name}
+      - aws cloudwatch get-metric-statistics --namespace AWS/DynamoDB --metric-name ConsumedReadCapacityUnits --dimensions Name=GlobalSecondaryIndexName,Value={gsi_name}
+    recommendation: Remove unused GSIs or optimize capacity
+
+  - id: CACHE-001
+    name: Oversized ElastiCache
+    description: ElastiCache clusters with low memory utilization
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws elasticache describe-cache-clusters --show-cache-node-info
+      - aws cloudwatch get-metric-statistics --namespace AWS/ElastiCache --metric-name BytesUsedForCache
+    thresholds:
+      memory_utilization_percent: 40
+    recommendation: Downsize to smaller node type
+
+  - id: CACHE-002
+    name: Reserved Node Opportunity
+    description: ElastiCache clusters without reserved node coverage
+    severity: medium
+    category: coverage
+    aws_cli:
+      - aws elasticache describe-cache-clusters
+      - aws elasticache describe-reserved-cache-nodes
+    recommendation: Purchase reserved nodes for steady-state clusters
+
+  - id: CACHE-003
+    name: Unused Clusters
+    description: ElastiCache clusters with no connections
+    severity: high
+    category: idle
+    aws_cli:
+      - aws elasticache describe-cache-clusters
+      - aws cloudwatch get-metric-statistics --namespace AWS/ElastiCache --metric-name CurrConnections
+    thresholds:
+      days_without_connections: 14
+    recommendation: Delete unused clusters
+
+  - id: CACHE-004
+    name: Redis OSS Extended Support / Valkey Migration
+    description: ElastiCache nodes on Redis OSS 4.x/5.x pay an extended-support surcharge (+80% of node price since Feb 2026, +160% from Feb 2028); Redis OSS 6.x follows Feb 2027. Valkey nodes are ~20% cheaper (serverless ~33%)
+    severity: high
+    category: previous_generation
+    aws_cli:
+      - aws elasticache describe-cache-clusters
+      - aws elasticache describe-replication-groups
+    note: "Check Engine and EngineVersion fields. A Redis 4/5 -> Valkey migration removes the surcharge AND applies the Valkey discount. Do not recommend node types newer than m7g/r7g - ElastiCache has no 8th-generation Graviton nodes."
+    recommendation: Migrate Redis OSS 4.x/5.x clusters to Valkey (in-place engine switch supported) to stop extended-support charges and cut node cost ~20%
+
+# ============================================================================
+# NETWORKING DOMAIN (19 checks)
+# ============================================================================
+networking:
+  - id: NET-001
+    name: Unused Elastic IPs
+    description: Elastic IPs not associated with running instances
+    severity: low
+    category: idle
+    aws_cli:
+      - aws ec2 describe-addresses
+    recommendation: Release unused Elastic IPs ($3.65/month each)
+
+  - id: NET-002
+    name: NAT Gateway Optimization
+    description: NAT Gateway with high data transfer costs
+    severity: high
+    category: data_transfer
+    aws_cli:
+      - aws ec2 describe-nat-gateways
+      - aws cloudwatch get-metric-statistics --namespace AWS/NATGateway --metric-name BytesOutToDestination
+    recommendation: Consider NAT instances or VPC endpoints
+
+  - id: NET-003
+    name: Idle Load Balancers
+    description: Load balancers with no healthy targets or traffic
+    severity: high
+    category: idle
+    aws_cli:
+      - aws elbv2 describe-load-balancers
+      - aws elbv2 describe-target-groups
+      - aws elbv2 describe-target-health --target-group-arn {tg_arn}
+      - aws cloudwatch get-metric-statistics --namespace AWS/ApplicationELB --metric-name RequestCount
+    thresholds:
+      days_without_traffic: 7
+    recommendation: Delete unused load balancers
+
+  - id: NET-004
+    name: Cross-AZ Data Transfer
+    description: High data transfer between availability zones
+    severity: medium
+    category: data_transfer
+    aws_cli:
+      - aws ce get-cost-and-usage --time-period Start={30_days_ago},End={now} --granularity MONTHLY --metrics BlendedCost --filter '{"Dimensions":{"Key":"USAGE_TYPE","Values":["DataTransfer-Regional-Bytes"]}}'
+    recommendation: Co-locate resources in same AZ
+
+  - id: NET-005
+    name: Inter-Region Transfer
+    description: High data transfer between regions
+    severity: medium
+    category: data_transfer
+    aws_cli:
+      - aws ce get-cost-and-usage --time-period Start={30_days_ago},End={now} --granularity MONTHLY --filter '{"Dimensions":{"Key":"USAGE_TYPE","Values":["DataTransfer-Out-Bytes"]}}'
+    recommendation: Use CloudFront or replicate data closer to users
+
+  - id: NET-006
+    name: Internet Egress Optimization
+    description: High internet egress costs
+    severity: medium
+    category: data_transfer
+    aws_cli:
+      - aws ce get-cost-and-usage --time-period Start={30_days_ago},End={now} --granularity MONTHLY --filter '{"Dimensions":{"Key":"USAGE_TYPE","Values":["DataTransfer-Out-Bytes"]}}'
+    recommendation: Use CloudFront for cacheable content
+
+  - id: NET-007
+    name: VPC Endpoint Opportunity
+    description: S3/DynamoDB traffic going through NAT Gateway
+    severity: high
+    category: data_transfer
+    aws_cli:
+      - aws ec2 describe-vpc-endpoints
+      - aws ec2 describe-nat-gateways
+      - aws cloudwatch get-metric-statistics --namespace AWS/NATGateway --metric-name BytesOutToDestination
+    recommendation: Create VPC Gateway Endpoints (free for S3/DynamoDB)
+
+  - id: NET-008
+    name: CloudFront Opportunity
+    description: High S3 or ALB direct access costs
+    severity: medium
+    category: data_transfer
+    aws_cli:
+      - aws cloudfront list-distributions
+      - aws ce get-cost-and-usage --time-period Start={30_days_ago},End={now} --filter '{"Dimensions":{"Key":"SERVICE","Values":["Amazon Simple Storage Service"]}}'
+    recommendation: Use CloudFront for frequently accessed content
+
+  - id: NET-009
+    name: Direct Connect Utilization
+    description: Direct Connect with low utilization
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws directconnect describe-connections
+      - aws cloudwatch get-metric-statistics --namespace AWS/DX --metric-name ConnectionBpsEgress
+    recommendation: Downsize or consolidate Direct Connect ports
+
+  - id: NET-010
+    name: Transit Gateway Optimization
+    description: Transit Gateway with suboptimal routing
+    severity: medium
+    category: data_transfer
+    aws_cli:
+      - aws ec2 describe-transit-gateways
+      - aws ec2 describe-transit-gateway-attachments
+    recommendation: Optimize Transit Gateway attachments
+
+  - id: NET-011
+    name: PrivateLink Opportunity
+    description: Services that could use PrivateLink
+    severity: low
+    category: data_transfer
+    aws_cli:
+      - aws ec2 describe-vpc-endpoint-services
+      - aws ec2 describe-vpc-endpoints
+    recommendation: Use PrivateLink for secure, cost-effective connectivity
+
+  - id: NET-012
+    name: Route 53 Optimization
+    description: Route 53 with suboptimal configuration
+    severity: low
+    category: overprovisioned
+    aws_cli:
+      - aws route53 list-hosted-zones
+      - aws route53 list-health-checks
+      - aws route53 get-hosted-zone-count
+    recommendation: Review health checks and query patterns
+
+  - id: NET-013
+    name: Global Accelerator Review
+    description: Global Accelerator usage and costs
+    severity: low
+    category: overprovisioned
+    aws_cli:
+      - aws globalaccelerator list-accelerators
+    recommendation: Review Global Accelerator necessity
+
+  - id: NET-014
+    name: Unused VPCs
+    description: VPCs with no resources
+    severity: low
+    category: idle
+    aws_cli:
+      - aws ec2 describe-vpcs
+      - aws ec2 describe-subnets
+      - aws ec2 describe-instances
+    recommendation: Delete unused VPCs
+
+  - id: NET-015
+    name: Security Group Cleanup
+    description: Unused security groups
+    severity: info
+    category: compliance
+    aws_cli:
+      - aws ec2 describe-security-groups
+      - aws ec2 describe-network-interfaces
+    recommendation: Delete unused security groups
+
+  - id: NET-016
+    name: NAT Gateway Data Processing Cost
+    description: NAT Gateway data processing charges ($0.045/GB on top of egress)
+    severity: high
+    category: data_transfer
+    aws_cli:
+      - aws ce get-cost-and-usage --time-period Start={30_days_ago},End={now} --granularity MONTHLY --metrics UnblendedCost --group-by Type=DIMENSION,Key=USAGE_TYPE --filter '{"Dimensions":{"Key":"SERVICE","Values":["Amazon Elastic Compute Cloud - Compute"]}}'
+    usage_type_filter: NatGateway-Bytes
+    recommendation: Use VPC endpoints for S3/DynamoDB, consider NAT instances for high-volume
+
+  - id: NET-017
+    name: Data Transfer Cost Breakdown
+    description: Full data transfer cost analysis via USAGE_TYPE grouping
+    severity: medium
+    category: data_transfer
+    aws_cli:
+      - aws ce get-cost-and-usage --time-period Start={30_days_ago},End={now} --granularity MONTHLY --metrics UnblendedCost --group-by Type=DIMENSION,Key=USAGE_TYPE --filter '{"Dimensions":{"Key":"USAGE_TYPE","Values":["DataTransfer-Regional-Bytes","DataTransfer-Out-Bytes","NatGateway-Bytes","DataTransfer-In-Bytes"]}}'
+    note: "Surfaces hidden data transfer costs most tools miss. Cross-AZ = $0.02/GB roundtrip, NAT = $0.045/GB processing"
+    recommendation: Review data transfer patterns and optimize placement, caching, or VPC endpoints
+
+  - id: NET-018
+    name: Public IPv4 Address Charges
+    description: In-use public IPv4 addresses incur hourly charges even when attached to running resources
+    severity: high
+    category: overprovisioned
+    aws_cli:
+      - aws ec2 describe-network-interfaces
+      - aws ec2 describe-addresses
+      - aws ec2 describe-ipam-resource-discoveries
+      - aws ec2 get-ipam-discovered-public-addresses --ipam-resource-discovery-id {resource_discovery_id} --address-region {region}
+    note: "Use Public IP Insights when IPAM is enabled for the most complete view. Exact rate is $0.005 per public IPv4 address-hour."
+    recommendation: Remove unnecessary public IPv4 addresses, prefer private subnets, and front workloads with ALB/NLB, CloudFront, or IPv6 where possible
+
+  - id: R53-001
+    name: Unused Route 53 Hosted Zones
+    description: Route 53 hosted zones with no records beyond defaults ($0.50/zone/month)
+    severity: low
+    category: idle
+    aws_cli:
+      - aws route53 list-hosted-zones
+      - aws route53 list-resource-record-sets --hosted-zone-id {zone_id}
+    thresholds:
+      max_record_count: 2
+    recommendation: Delete hosted zones with only SOA/NS records ($0.50/zone/month)
+
+# ============================================================================
+# SERVERLESS DOMAIN (11 checks)
+# ============================================================================
+serverless:
+  - id: LAMBDA-001
+    name: Memory Over-provisioning
+    description: Lambda functions with excessive memory allocation
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws lambda list-functions
+      - aws cloudwatch get-metric-statistics --namespace AWS/Lambda --metric-name Duration --dimensions Name=FunctionName,Value={function_name}
+      - aws lambda get-function-configuration --function-name {function_name}
+    recommendation: Right-size memory using AWS Lambda Power Tuning
+
+  - id: LAMBDA-002
+    name: Timeout Optimization
+    description: Lambda functions with timeout set too high
+    severity: low
+    category: overprovisioned
+    aws_cli:
+      - aws lambda list-functions
+      - aws cloudwatch get-metric-statistics --namespace AWS/Lambda --metric-name Duration
+    recommendation: Set timeout closer to actual execution time
+
+  - id: LAMBDA-003
+    name: Provisioned Concurrency Review
+    description: Provisioned concurrency with low utilization
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws lambda list-provisioned-concurrency-configs --function-name {function_name}
+      - aws cloudwatch get-metric-statistics --namespace AWS/Lambda --metric-name ProvisionedConcurrencyUtilization
+    recommendation: Reduce or remove provisioned concurrency
+
+  - id: LAMBDA-004
+    name: Unused Functions
+    description: Lambda functions with no invocations
+    severity: high
+    category: idle
+    aws_cli:
+      - aws lambda list-functions
+      - aws cloudwatch get-metric-statistics --namespace AWS/Lambda --metric-name Invocations --dimensions Name=FunctionName,Value={function_name}
+    thresholds:
+      days_without_invocations: 30
+    recommendation: Delete unused Lambda functions
+
+  - id: LAMBDA-005
+    name: ARM64 Migration Opportunity
+    description: x86 Lambda functions that could use ARM64 (Graviton2)
+    severity: medium
+    category: previous_generation
+    aws_cli:
+      - aws lambda list-functions
+    recommendation: Migrate to ARM64 for 34% cost savings
+
+  - id: APIGW-001
+    name: Unused APIs
+    description: API Gateway APIs with no traffic
+    severity: medium
+    category: idle
+    aws_cli:
+      - aws apigateway get-rest-apis
+      - aws apigatewayv2 get-apis
+      - aws cloudwatch get-metric-statistics --namespace AWS/ApiGateway --metric-name Count
+    thresholds:
+      days_without_traffic: 30
+    recommendation: Delete unused API Gateway APIs
+
+  - id: APIGW-002
+    name: Caching Opportunity
+    description: API Gateway without caching enabled
+    severity: low
+    category: overprovisioned
+    aws_cli:
+      - aws apigateway get-stages --rest-api-id {api_id}
+    recommendation: Enable API caching for frequently accessed endpoints
+
+  - id: APIGW-003
+    name: HTTP API Migration
+    description: REST APIs that could use HTTP APIs
+    severity: medium
+    category: previous_generation
+    aws_cli:
+      - aws apigateway get-rest-apis
+      - aws apigatewayv2 get-apis
+    recommendation: Migrate to HTTP API for up to 71% cost savings
+
+  - id: SQS-001
+    name: Unused Queues
+    description: SQS queues with no messages
+    severity: medium
+    category: idle
+    aws_cli:
+      - aws sqs list-queues
+      - aws cloudwatch get-metric-statistics --namespace AWS/SQS --metric-name NumberOfMessagesSent
+    thresholds:
+      days_without_messages: 30
+    recommendation: Delete unused SQS queues
+
+  - id: STEP-001
+    name: Express Workflow Opportunity
+    description: Standard workflows that could be Express
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws stepfunctions list-state-machines
+      - aws cloudwatch get-metric-statistics --namespace AWS/States --metric-name ExecutionsStarted
+    recommendation: Use Express workflows for high-volume, short-duration workloads
+
+  - id: LAMBDA-006
+    name: Idle SQS Event Source Provisioned Mode
+    description: Lambda SQS event source mappings in Provisioned Mode bill a minimum of 2 event poller units (~$13.50/month) even with zero traffic
+    severity: medium
+    category: idle
+    aws_cli:
+      - aws lambda list-event-source-mappings
+      - aws cloudwatch get-metric-statistics --namespace AWS/Lambda --metric-name Invocations --dimensions Name=FunctionName,Value={function_name}
+    note: "Provisioned Mode for SQS ESM launched Nov 2025 ($0.00925/EPU-hour, 2 EPU minimum). Check ProvisionedPollerConfig on each mapping; if present with low/no invocations, the floor cost is pure waste."
+    recommendation: Remove ProvisionedPollerConfig from low-traffic SQS event source mappings and fall back to standard polling
+
+# ============================================================================
+# RESERVATIONS DOMAIN (13 checks)
+# ============================================================================
+reservations:
+  - id: RI-001
+    name: EC2 Coverage Gaps
+    description: EC2 on-demand usage without RI coverage
+    severity: high
+    category: coverage
+    aws_cli:
+      - aws ce get-reservation-coverage --time-period Start={30_days_ago},End={now} --granularity MONTHLY --filter '{"Dimensions":{"Key":"SERVICE","Values":["Amazon Elastic Compute Cloud - Compute"]}}'
+    recommendation: Purchase EC2 Reserved Instances
+
+  - id: RI-002
+    name: RDS Coverage Gaps
+    description: RDS on-demand usage without RI coverage
+    severity: high
+    category: coverage
+    aws_cli:
+      - aws ce get-reservation-coverage --time-period Start={30_days_ago},End={now} --granularity MONTHLY --filter '{"Dimensions":{"Key":"SERVICE","Values":["Amazon Relational Database Service"]}}'
+    recommendation: Purchase RDS Reserved Instances
+
+  - id: RI-003
+    name: ElastiCache Coverage Gaps
+    description: ElastiCache on-demand usage without reserved node coverage
+    severity: medium
+    category: coverage
+    aws_cli:
+      - aws elasticache describe-reserved-cache-nodes
+      - aws elasticache describe-cache-clusters
+    recommendation: Purchase ElastiCache reserved nodes
+
+  - id: RI-004
+    name: Redshift Coverage Gaps
+    description: Redshift on-demand usage without reserved node coverage
+    severity: medium
+    category: coverage
+    aws_cli:
+      - aws redshift describe-reserved-nodes
+      - aws redshift describe-clusters
+    recommendation: Purchase Redshift reserved nodes
+
+  - id: RI-005
+    name: Unused Reservations
+    description: Reserved capacity not being utilized
+    severity: high
+    category: idle
+    aws_cli:
+      - aws ce get-reservation-utilization --time-period Start={30_days_ago},End={now} --granularity MONTHLY
+    recommendation: Modify or sell unused reservations
+
+  - id: RI-006
+    name: Expiring Reservations
+    description: Reservations expiring soon without renewal plan
+    severity: medium
+    category: coverage
+    aws_cli:
+      - aws ec2 describe-reserved-instances
+      - aws rds describe-reserved-db-instances
+    thresholds:
+      days_until_expiry: 30
+    recommendation: Plan renewal or purchase new reservations
+
+  - id: SP-001
+    name: Compute Savings Plan Opportunity
+    description: Workloads that would benefit from Compute Savings Plans
+    severity: high
+    category: coverage
+    aws_cli:
+      - aws ce get-savings-plans-coverage --time-period Start={30_days_ago},End={now}
+      - aws savingsplans describe-savings-plans
+    recommendation: Purchase Compute Savings Plans for flexible savings
+
+  - id: SP-002
+    name: EC2 Savings Plan Opportunity
+    description: Workloads that would benefit from EC2 Instance Savings Plans
+    severity: medium
+    category: coverage
+    aws_cli:
+      - aws ce get-savings-plans-coverage --time-period Start={30_days_ago},End={now}
+      - aws savingsplans describe-savings-plans
+    recommendation: Purchase EC2 Instance Savings Plans for maximum savings
+
+  - id: SP-003
+    name: SageMaker Savings Plan Opportunity
+    description: SageMaker usage that would benefit from Savings Plans
+    severity: medium
+    category: coverage
+    aws_cli:
+      - aws sagemaker list-notebook-instances
+      - aws sagemaker list-training-jobs
+    recommendation: Purchase SageMaker Savings Plans
+
+  - id: SP-004
+    name: Unused Commitment
+    description: Savings Plan commitment not fully utilized
+    severity: high
+    category: idle
+    aws_cli:
+      - aws ce get-savings-plans-utilization --time-period Start={30_days_ago},End={now}
+    recommendation: Review and optimize Savings Plan usage
+
+  - id: RI-007
+    name: EC2 RI Purchase Recommendation
+    description: AWS-generated Reserved Instance purchase recommendations based on usage
+    severity: high
+    category: coverage
+    aws_cli:
+      - aws ce get-reservation-purchase-recommendation --service "Amazon Elastic Compute Cloud - Compute" --term-in-years ONE_YEAR --payment-option PARTIAL_UPFRONT --lookback-period-in-days SIXTY_DAYS
+    note: "$0.01 per CE API request. Returns specific instance types and estimated savings."
+    recommendation: Review and purchase recommended Reserved Instances
+
+  - id: SP-005
+    name: Savings Plan Purchase Recommendation
+    description: AWS-generated Savings Plan purchase recommendations based on usage
+    severity: high
+    category: coverage
+    aws_cli:
+      - aws ce get-savings-plans-purchase-recommendation --savings-plans-type COMPUTE_SP --term-in-years ONE_YEAR --payment-option PARTIAL_UPFRONT --lookback-period-in-days SIXTY_DAYS
+    note: "$0.01 per CE API request. Returns specific commitment amounts and estimated savings."
+    recommendation: Review and purchase recommended Savings Plans
+
+  - id: SP-006
+    name: Database Savings Plan Purchase Recommendation
+    description: Database Savings Plans (launched Dec 2025) save up to 35% on Aurora, RDS, DynamoDB, ElastiCache (Valkey), DocumentDB, Neptune, Keyspaces, Timestream, DMS, and OpenSearch
+    severity: high
+    category: coverage
+    aws_cli:
+      - aws ce get-savings-plans-purchase-recommendation --savings-plans-type DATABASE_SP --term-in-years ONE_YEAR --payment-option NO_UPFRONT --lookback-period-in-days SIXTY_DAYS
+    note: "$0.01 per CE API request. Database SPs are 1-year no-upfront only. ElastiCache coverage applies to the Valkey engine only - another reason to migrate off Redis OSS."
+    recommendation: Review and purchase recommended Database Savings Plans for steady-state database spend
+
+# ============================================================================
+# CONTAINERS DOMAIN (17 checks) - ECS, EKS, Fargate
+# ============================================================================
+containers:
+  - id: ECS-001
+    name: Idle ECS Services
+    description: ECS services with desired count = 0 or no running tasks
+    severity: high
+    category: idle
+    aws_cli:
+      - aws ecs list-clusters
+      - aws ecs list-services --cluster {cluster_arn}
+      - aws ecs describe-services --cluster {cluster_arn} --services {service_arn}
+    thresholds:
+      running_tasks: 0
+      days: 7
+    recommendation: Delete idle ECS services
+
+  - id: ECS-002
+    name: Over-provisioned Task Definitions
+    description: ECS tasks with CPU/memory significantly higher than usage
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws ecs list-task-definitions
+      - aws ecs describe-task-definition --task-definition {task_def}
+      - aws cloudwatch get-metric-statistics --namespace AWS/ECS --metric-name CPUUtilization --dimensions Name=ClusterName,Value={cluster} Name=ServiceName,Value={service}
+    thresholds:
+      cpu_utilization_percent: 30
+      memory_utilization_percent: 30
+    recommendation: Reduce task CPU/memory allocation
+
+  - id: ECS-003
+    name: EC2 Capacity Provider Underutilization
+    description: ECS EC2 capacity providers with low instance utilization
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws ecs describe-capacity-providers
+      - aws ecs describe-clusters --clusters {cluster} --include STATISTICS
+    thresholds:
+      utilization_percent: 50
+    recommendation: Reduce capacity provider target capacity or use Fargate
+
+  - id: ECS-004
+    name: Spot Instance Opportunity
+    description: ECS services running on On-Demand that could use Spot
+    severity: medium
+    category: coverage
+    aws_cli:
+      - aws ecs describe-services --cluster {cluster} --services {service}
+      - aws ecs describe-capacity-providers
+    recommendation: Use Fargate Spot or EC2 Spot for fault-tolerant workloads (up to 70% savings)
+
+  - id: ECS-005
+    name: Unused Task Definitions
+    description: Task definition revisions not used in any service
+    severity: low
+    category: lifecycle
+    aws_cli:
+      - aws ecs list-task-definitions
+      - aws ecs list-services --cluster {cluster}
+    thresholds:
+      unused_days: 90
+    recommendation: Deregister unused task definition revisions
+
+  - id: EKS-001
+    name: Idle EKS Clusters
+    description: EKS clusters with no node groups or no running pods
+    severity: high
+    category: idle
+    aws_cli:
+      - aws eks list-clusters
+      - aws eks list-nodegroups --cluster-name {cluster}
+      - aws eks describe-nodegroup --cluster-name {cluster} --nodegroup-name {nodegroup}
+    thresholds:
+      node_count: 0
+    recommendation: Delete idle EKS clusters ($73/month standard control plane, $438/month if the version is in extended support)
+
+  - id: EKS-002
+    name: Over-provisioned Node Groups
+    description: EKS node groups with low CPU/memory utilization
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws eks describe-nodegroup --cluster-name {cluster} --nodegroup-name {nodegroup}
+      - aws cloudwatch get-metric-statistics --namespace ContainerInsights --metric-name node_cpu_utilization --dimensions Name=ClusterName,Value={cluster}
+    thresholds:
+      cpu_utilization_percent: 40
+    recommendation: Reduce node group size or use smaller instance types
+
+  - id: EKS-003
+    name: Spot Node Opportunity
+    description: EKS node groups using On-Demand that could use Spot
+    severity: medium
+    category: coverage
+    aws_cli:
+      - aws eks describe-nodegroup --cluster-name {cluster} --nodegroup-name {nodegroup}
+    recommendation: Use Spot instances for non-critical workloads (up to 90% savings)
+
+  - id: EKS-004
+    name: Graviton Node Opportunity
+    description: EKS nodes using x86 that could use Graviton (ARM64)
+    severity: medium
+    category: previous_generation
+    aws_cli:
+      - aws eks describe-nodegroup --cluster-name {cluster} --nodegroup-name {nodegroup}
+    recommendation: Migrate to Graviton-based instances for 20-40% savings
+
+  - id: EKS-005
+    name: Add-ons Cost Review
+    description: EKS add-ons that may have cost implications
+    severity: low
+    category: overprovisioned
+    aws_cli:
+      - aws eks list-addons --cluster-name {cluster}
+      - aws eks describe-addon --cluster-name {cluster} --addon-name {addon}
+    recommendation: Review add-on necessity and configuration
+
+  - id: EKS-006
+    name: Extended Support Version Charges
+    description: EKS clusters on a Kubernetes version in extended support pay $0.60/hour instead of $0.10/hour - an extra ~$365/month per cluster
+    severity: high
+    category: previous_generation
+    aws_cli:
+      - aws eks list-clusters
+      - aws eks describe-cluster --name {cluster} --query 'cluster.version'
+      - aws eks describe-cluster-versions
+    note: "Use describe-cluster-versions for authoritative support dates instead of a hardcoded version list - the window moves roughly every 4 months (as of Jul 2026: 1.30-1.32 are in extended support, 1.33 flips Jul 29, 2026; latest is 1.36)."
+    recommendation: Upgrade clusters to a standard-support Kubernetes version, or budget the $438/month extended-support control plane rate
+
+  - id: FARGATE-001
+    name: Over-provisioned Fargate Tasks
+    description: Fargate tasks with excessive vCPU/memory allocation
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws ecs list-tasks --cluster {cluster} --launch-type FARGATE
+      - aws ecs describe-tasks --cluster {cluster} --tasks {task_arns}
+      - aws cloudwatch get-metric-statistics --namespace AWS/ECS --metric-name MemoryUtilization
+    thresholds:
+      memory_utilization_percent: 40
+      cpu_utilization_percent: 40
+    recommendation: Reduce Fargate task CPU/memory allocation
+
+  - id: FARGATE-002
+    name: Fargate Spot Opportunity
+    description: Fargate tasks that could use Fargate Spot
+    severity: medium
+    category: coverage
+    aws_cli:
+      - aws ecs describe-services --cluster {cluster} --services {service}
+    recommendation: Use Fargate Spot for fault-tolerant workloads (up to 70% savings)
+
+  - id: FARGATE-003
+    name: Fargate vs EC2 Comparison
+    description: Fargate tasks that might be cheaper on EC2
+    severity: low
+    category: overprovisioned
+    aws_cli:
+      - aws ecs list-tasks --cluster {cluster} --launch-type FARGATE
+      - aws ecs describe-tasks --cluster {cluster} --tasks {task_arns}
+    recommendation: Compare Fargate vs EC2 costs for long-running, predictable workloads
+
+  - id: FARGATE-004
+    name: Ephemeral Storage Optimization
+    description: Fargate tasks with excessive ephemeral storage
+    severity: low
+    category: overprovisioned
+    aws_cli:
+      - aws ecs describe-task-definition --task-definition {task_def}
+    thresholds:
+      storage_gb: 21
+    recommendation: Reduce ephemeral storage if not needed (charged above 20GB)
+
+  - id: FARGATE-005
+    name: Compute Savings Plan Coverage
+    description: Fargate usage without Savings Plan coverage
+    severity: high
+    category: coverage
+    aws_cli:
+      - aws ce get-savings-plans-coverage --time-period Start={30_days_ago},End={now} --filter '{"Dimensions":{"Key":"SERVICE","Values":["Amazon Elastic Container Service"]}}'
+    recommendation: Purchase Compute Savings Plans for steady Fargate usage
+
+  - id: ECR-001
+    name: ECR Image Lifecycle
+    description: ECR repositories without lifecycle policies (untagged images accumulate)
+    severity: medium
+    category: lifecycle
+    aws_cli:
+      - aws ecr describe-repositories
+      - aws ecr get-lifecycle-policy --repository-name {repo_name}
+      - aws ecr describe-images --repository-name {repo_name} --filter tagStatus=UNTAGGED
+    recommendation: Add lifecycle policy to expire untagged images and limit image count
+
+# ============================================================================
+# ADVANCED DATABASES DOMAIN (18 checks) - Aurora, DocumentDB, Neptune, Redshift
+# ============================================================================
+advanced_databases:
+  - id: AURORA-001
+    name: Idle Aurora Clusters
+    description: Aurora clusters with no connections for extended period
+    severity: high
+    category: idle
+    aws_cli:
+      - aws rds describe-db-clusters --filters "Name=engine,Values=aurora-mysql,aurora-postgresql"
+      - aws cloudwatch get-metric-statistics --namespace AWS/RDS --metric-name DatabaseConnections --dimensions Name=DBClusterIdentifier,Value={cluster_id}
+    thresholds:
+      connections: 0
+      days: 7
+    recommendation: Stop or delete idle Aurora clusters
+
+  - id: AURORA-002
+    name: Over-provisioned Aurora Instances
+    description: Aurora instances with low CPU utilization
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws rds describe-db-instances --filters "Name=engine,Values=aurora-mysql,aurora-postgresql"
+      - aws cloudwatch get-metric-statistics --namespace AWS/RDS --metric-name CPUUtilization --dimensions Name=DBInstanceIdentifier,Value={instance_id}
+    thresholds:
+      cpu_percent: 30
+    recommendation: Downsize Aurora instances or use Aurora Serverless
+
+  - id: AURORA-003
+    name: Aurora Serverless v2 Opportunity
+    description: Provisioned Aurora that could benefit from Serverless v2
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws rds describe-db-clusters --filters "Name=engine,Values=aurora-mysql,aurora-postgresql"
+      - aws cloudwatch get-metric-statistics --namespace AWS/RDS --metric-name CPUUtilization
+    recommendation: Consider Aurora Serverless v2 for variable workloads
+
+  - id: AURORA-004
+    name: Excessive Read Replicas
+    description: Aurora read replicas with minimal traffic
+    severity: medium
+    category: idle
+    aws_cli:
+      - aws rds describe-db-clusters
+      - aws rds describe-db-instances
+      - aws cloudwatch get-metric-statistics --namespace AWS/RDS --metric-name ReadIOPS
+    thresholds:
+      read_iops: 100
+    recommendation: Remove underutilized read replicas
+
+  - id: AURORA-005
+    name: Aurora I/O Optimization
+    description: Aurora clusters that could benefit from I/O-Optimized
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws rds describe-db-clusters
+      - aws cloudwatch get-metric-statistics --namespace AWS/RDS --metric-name VolumeReadIOPs
+    thresholds:
+      io_cost_percent: 25
+    recommendation: Switch to Aurora I/O-Optimized if I/O > 25% of database cost
+
+  - id: AURORA-006
+    name: Cross-Region Aurora Replication
+    description: Aurora Global Database with high replication costs
+    severity: medium
+    category: data_transfer
+    aws_cli:
+      - aws rds describe-global-clusters
+    recommendation: Review necessity of cross-region replication
+
+  - id: DOCDB-001
+    name: Idle DocumentDB Clusters
+    description: DocumentDB clusters with no connections
+    severity: high
+    category: idle
+    aws_cli:
+      - aws docdb describe-db-clusters
+      - aws cloudwatch get-metric-statistics --namespace AWS/DocDB --metric-name DatabaseConnections
+    thresholds:
+      connections: 0
+      days: 7
+    recommendation: Stop or delete idle DocumentDB clusters
+
+  - id: DOCDB-002
+    name: Over-provisioned DocumentDB
+    description: DocumentDB instances with low CPU utilization
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws docdb describe-db-instances
+      - aws cloudwatch get-metric-statistics --namespace AWS/DocDB --metric-name CPUUtilization
+    thresholds:
+      cpu_percent: 30
+    recommendation: Downsize DocumentDB instance class
+
+  - id: DOCDB-003
+    name: Excessive DocumentDB Replicas
+    description: DocumentDB replicas with minimal read traffic
+    severity: medium
+    category: idle
+    aws_cli:
+      - aws docdb describe-db-clusters
+      - aws docdb describe-db-instances
+    recommendation: Remove underutilized replicas
+
+  - id: NEPTUNE-001
+    name: Idle Neptune Clusters
+    description: Neptune clusters with no queries
+    severity: high
+    category: idle
+    aws_cli:
+      - aws neptune describe-db-clusters
+      - aws cloudwatch get-metric-statistics --namespace AWS/Neptune --metric-name GremlinRequestsPerSec
+    thresholds:
+      requests: 0
+      days: 7
+    recommendation: Stop or delete idle Neptune clusters
+
+  - id: NEPTUNE-002
+    name: Over-provisioned Neptune
+    description: Neptune instances with low CPU utilization
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws neptune describe-db-instances
+      - aws cloudwatch get-metric-statistics --namespace AWS/Neptune --metric-name CPUUtilization
+    thresholds:
+      cpu_percent: 30
+    recommendation: Downsize Neptune instance class
+
+  - id: NEPTUNE-003
+    name: Neptune Serverless Opportunity
+    description: Neptune provisioned that could use Serverless
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws neptune describe-db-clusters
+    recommendation: Consider Neptune Serverless for variable workloads
+
+  - id: REDSHIFT-001
+    name: Idle Redshift Clusters
+    description: Redshift clusters with no queries
+    severity: high
+    category: idle
+    aws_cli:
+      - aws redshift describe-clusters
+      - aws cloudwatch get-metric-statistics --namespace AWS/Redshift --metric-name DatabaseConnections
+    thresholds:
+      connections: 0
+      days: 7
+    recommendation: Pause or delete idle Redshift clusters
+
+  - id: REDSHIFT-002
+    name: Over-provisioned Redshift Nodes
+    description: Redshift clusters with low CPU utilization
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws redshift describe-clusters
+      - aws cloudwatch get-metric-statistics --namespace AWS/Redshift --metric-name CPUUtilization
+    thresholds:
+      cpu_percent: 30
+    recommendation: Reduce node count or downsize node type
+
+  - id: REDSHIFT-003
+    name: Redshift RA3 Migration
+    description: DC2 clusters that should migrate to RA3
+    severity: medium
+    category: previous_generation
+    aws_cli:
+      - aws redshift describe-clusters
+    node_types_to_migrate: [dc2.large, dc2.8xlarge, ds2.xlarge, ds2.8xlarge]
+    recommendation: Migrate to RA3 for managed storage and better price/performance
+
+  - id: REDSHIFT-004
+    name: Redshift Serverless Opportunity
+    description: Provisioned Redshift that could use Serverless
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws redshift describe-clusters
+      - aws cloudwatch get-metric-statistics --namespace AWS/Redshift --metric-name CPUUtilization
+    recommendation: Consider Redshift Serverless for variable workloads
+
+  - id: REDSHIFT-005
+    name: Concurrency Scaling Costs
+    description: High concurrency scaling usage and costs
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws redshift describe-clusters
+      - aws cloudwatch get-metric-statistics --namespace AWS/Redshift --metric-name ConcurrencyScalingSeconds
+    thresholds:
+      scaling_seconds_per_day: 3600
+    recommendation: Review concurrency scaling configuration
+
+  - id: REDSHIFT-006
+    name: Redshift Spectrum Review
+    description: Redshift Spectrum with high data scanning costs
+    severity: medium
+    category: data_transfer
+    aws_cli:
+      - aws ce get-cost-and-usage --time-period Start={30_days_ago},End={now} --filter '{"Dimensions":{"Key":"USAGE_TYPE","Values":["Spectrum"]}}'
+    recommendation: Optimize Spectrum queries or move frequently queried data to cluster
+
+# ============================================================================
+# ANALYTICS & ML DOMAIN (15 checks) - SageMaker, EMR, OpenSearch, QuickSight
+# ============================================================================
+analytics:
+  - id: SAGEMAKER-001
+    name: Idle Notebook Instances
+    description: SageMaker notebook instances in 'InService' with no activity
+    severity: high
+    category: idle
+    aws_cli:
+      - aws sagemaker list-notebook-instances
+      - aws sagemaker describe-notebook-instance --notebook-instance-name {name}
+    thresholds:
+      days_without_activity: 7
+    recommendation: Stop or delete idle notebook instances
+
+  - id: SAGEMAKER-002
+    name: Over-provisioned Notebooks
+    description: Notebook instances with larger instance type than needed
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws sagemaker list-notebook-instances
+      - aws sagemaker describe-notebook-instance --notebook-instance-name {name}
+    recommendation: Downsize notebook instance type (ml.t3.medium often sufficient)
+
+  - id: SAGEMAKER-003
+    name: Unused Endpoints
+    description: SageMaker endpoints with no invocations
+    severity: high
+    category: idle
+    aws_cli:
+      - aws sagemaker list-endpoints
+      - aws cloudwatch get-metric-statistics --namespace AWS/SageMaker --metric-name Invocations --dimensions Name=EndpointName,Value={endpoint}
+    thresholds:
+      days_without_invocations: 7
+    recommendation: Delete unused SageMaker endpoints
+
+  - id: SAGEMAKER-004
+    name: Over-provisioned Endpoints
+    description: SageMaker endpoints with low utilization
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws sagemaker describe-endpoint --endpoint-name {endpoint}
+      - aws cloudwatch get-metric-statistics --namespace AWS/SageMaker --metric-name CPUUtilization
+    thresholds:
+      cpu_utilization_percent: 30
+    recommendation: Reduce endpoint instance count or use smaller instance type
+
+  - id: SAGEMAKER-005
+    name: Serverless Inference Opportunity
+    description: Endpoints that could use Serverless Inference
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws sagemaker list-endpoints
+      - aws cloudwatch get-metric-statistics --namespace AWS/SageMaker --metric-name Invocations
+    recommendation: Consider Serverless Inference for infrequent, unpredictable traffic
+
+  - id: EMR-001
+    name: Idle EMR Clusters
+    description: EMR clusters running with no active steps
+    severity: high
+    category: idle
+    aws_cli:
+      - aws emr list-clusters --active
+      - aws emr describe-cluster --cluster-id {cluster_id}
+      - aws emr list-steps --cluster-id {cluster_id}
+    thresholds:
+      hours_without_steps: 24
+    recommendation: Terminate idle EMR clusters or use auto-termination
+
+  - id: EMR-002
+    name: Over-provisioned Core Nodes
+    description: EMR clusters with underutilized core nodes
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws emr list-instance-groups --cluster-id {cluster_id}
+      - aws cloudwatch get-metric-statistics --namespace AWS/ElasticMapReduce --metric-name YARNMemoryAvailablePercentage
+    thresholds:
+      memory_available_percent: 60
+    recommendation: Reduce core node count or use smaller instance types
+
+  - id: EMR-003
+    name: Spot Instance Opportunity
+    description: EMR task nodes using On-Demand that could use Spot
+    severity: medium
+    category: coverage
+    aws_cli:
+      - aws emr list-instance-groups --cluster-id {cluster_id}
+    recommendation: Use Spot instances for task nodes (up to 90% savings)
+
+  - id: EMR-004
+    name: Auto-termination Not Enabled
+    description: Long-running EMR clusters without auto-termination
+    severity: medium
+    category: idle
+    aws_cli:
+      - aws emr describe-cluster --cluster-id {cluster_id}
+    recommendation: Enable auto-termination for transient workloads
+
+  - id: OPENSEARCH-001
+    name: Idle OpenSearch Domains
+    description: OpenSearch domains with no search requests
+    severity: high
+    category: idle
+    aws_cli:
+      - aws opensearch list-domain-names
+      - aws cloudwatch get-metric-statistics --namespace AWS/ES --metric-name SearchableDocuments
+    thresholds:
+      days_without_requests: 14
+    recommendation: Delete idle OpenSearch domains
+
+  - id: OPENSEARCH-002
+    name: Over-provisioned OpenSearch
+    description: OpenSearch domains with low CPU/memory utilization
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws opensearch describe-domain --domain-name {domain}
+      - aws cloudwatch get-metric-statistics --namespace AWS/ES --metric-name CPUUtilization
+    thresholds:
+      cpu_percent: 30
+    recommendation: Reduce node count or downsize instance type
+
+  - id: OPENSEARCH-003
+    name: UltraWarm Opportunity
+    description: OpenSearch with infrequently accessed indexes
+    severity: medium
+    category: lifecycle
+    aws_cli:
+      - aws opensearch describe-domain --domain-name {domain}
+    recommendation: Move cold indexes to UltraWarm for up to 90% savings
+
+  - id: OPENSEARCH-004
+    name: Serverless Opportunity
+    description: OpenSearch that could use Serverless
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws opensearch list-domain-names
+      - aws opensearchserverless list-collections
+    recommendation: Consider OpenSearch Serverless for variable workloads
+
+  - id: QUICKSIGHT-001
+    name: Unused SPICE Capacity
+    description: QuickSight SPICE capacity not being utilized
+    severity: medium
+    category: idle
+    aws_cli:
+      - aws quicksight describe-account-settings --aws-account-id {account_id}
+      - aws quicksight list-data-sets --aws-account-id {account_id}
+    recommendation: Reduce SPICE capacity or delete unused datasets
+
+  - id: QUICKSIGHT-002
+    name: Inactive Users
+    description: QuickSight users with no recent activity
+    severity: medium
+    category: idle
+    aws_cli:
+      - aws quicksight list-users --aws-account-id {account_id} --namespace default
+    thresholds:
+      days_inactive: 90
+    recommendation: Remove inactive QuickSight users
+
+# ============================================================================
+# DATA PIPELINES DOMAIN (12 checks) - Kinesis, MSK, Glue, EventBridge
+# ============================================================================
+data_pipelines:
+  - id: KINESIS-001
+    name: Over-provisioned Kinesis Shards
+    description: Kinesis streams with low shard utilization
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws kinesis list-streams
+      - aws kinesis describe-stream-summary --stream-name {stream}
+      - aws cloudwatch get-metric-statistics --namespace AWS/Kinesis --metric-name IncomingBytes
+    thresholds:
+      shard_utilization_percent: 30
+    recommendation: Reduce shard count or use On-Demand mode
+
+  - id: KINESIS-002
+    name: Idle Kinesis Streams
+    description: Kinesis streams with no incoming data
+    severity: high
+    category: idle
+    aws_cli:
+      - aws kinesis list-streams
+      - aws cloudwatch get-metric-statistics --namespace AWS/Kinesis --metric-name IncomingRecords
+    thresholds:
+      days_without_records: 14
+    recommendation: Delete idle Kinesis streams
+
+  - id: KINESIS-003
+    name: On-Demand Mode Opportunity
+    description: Provisioned streams with variable throughput
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws kinesis describe-stream-summary --stream-name {stream}
+      - aws cloudwatch get-metric-statistics --namespace AWS/Kinesis --metric-name IncomingBytes
+    recommendation: Switch to On-Demand mode for variable workloads
+
+  - id: KINESIS-004
+    name: Extended Retention Cost
+    description: Kinesis streams with extended retention enabled
+    severity: low
+    category: lifecycle
+    aws_cli:
+      - aws kinesis describe-stream-summary --stream-name {stream}
+    thresholds:
+      retention_hours: 24
+    recommendation: Review necessity of extended retention ($0.02/shard-hour)
+
+  - id: FIREHOSE-001
+    name: Idle Firehose Streams
+    description: Kinesis Firehose delivery streams with no data
+    severity: high
+    category: idle
+    aws_cli:
+      - aws firehose list-delivery-streams
+      - aws cloudwatch get-metric-statistics --namespace AWS/Firehose --metric-name IncomingBytes
+    thresholds:
+      days_without_data: 14
+    recommendation: Delete idle Firehose delivery streams
+
+  - id: MSK-001
+    name: Idle MSK Clusters
+    description: MSK clusters with minimal message throughput
+    severity: high
+    category: idle
+    aws_cli:
+      - aws kafka list-clusters
+      - aws cloudwatch get-metric-statistics --namespace AWS/Kafka --metric-name BytesInPerSec
+    thresholds:
+      bytes_per_sec: 1000
+      days: 7
+    recommendation: Delete idle MSK clusters
+
+  - id: MSK-002
+    name: Over-provisioned MSK Brokers
+    description: MSK clusters with oversized broker instances
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws kafka describe-cluster --cluster-arn {arn}
+      - aws cloudwatch get-metric-statistics --namespace AWS/Kafka --metric-name CpuUser
+    thresholds:
+      cpu_percent: 30
+    recommendation: Downsize broker instance type
+
+  - id: MSK-003
+    name: MSK Serverless Opportunity
+    description: MSK provisioned that could use Serverless
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws kafka list-clusters
+      - aws kafka list-clusters-v2
+    recommendation: Consider MSK Serverless for variable workloads
+
+  - id: GLUE-001
+    name: Idle Glue Jobs
+    description: Glue jobs that haven't run in extended period
+    severity: medium
+    category: idle
+    aws_cli:
+      - aws glue list-jobs
+      - aws glue get-job-runs --job-name {job}
+    thresholds:
+      days_since_last_run: 30
+    recommendation: Delete idle Glue jobs
+
+  - id: GLUE-002
+    name: Over-provisioned Glue DPUs
+    description: Glue jobs with excessive DPU allocation
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws glue get-job --name {job}
+      - aws glue get-job-runs --job-name {job}
+    recommendation: Right-size DPU allocation based on job metrics
+
+  - id: EVENTBRIDGE-001
+    name: Unused EventBridge Rules
+    description: EventBridge rules with no invocations
+    severity: medium
+    category: idle
+    aws_cli:
+      - aws events list-rules
+      - aws cloudwatch get-metric-statistics --namespace AWS/Events --metric-name Invocations --dimensions Name=RuleName,Value={rule}
+    thresholds:
+      days_without_invocations: 30
+    recommendation: Delete unused EventBridge rules
+
+  - id: EVENTBRIDGE-002
+    name: Unused Event Buses
+    description: Custom event buses with no events
+    severity: low
+    category: idle
+    aws_cli:
+      - aws events list-event-buses
+      - aws events list-rules --event-bus-name {bus}
+    thresholds:
+      days_without_events: 30
+    recommendation: Delete unused custom event buses
+
+# ============================================================================
+# STORAGE EXPANSION (6 checks) - FSx, Backup
+# ============================================================================
+storage_advanced:
+  - id: FSX-001
+    name: Idle FSx File Systems
+    description: FSx file systems with no I/O activity
+    severity: high
+    category: idle
+    aws_cli:
+      - aws fsx describe-file-systems
+      - aws cloudwatch get-metric-statistics --namespace AWS/FSx --metric-name DataReadBytes
+    thresholds:
+      days_without_io: 14
+    recommendation: Delete idle FSx file systems
+
+  - id: FSX-002
+    name: Over-provisioned FSx Throughput
+    description: FSx with provisioned throughput significantly above usage
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws fsx describe-file-systems
+      - aws cloudwatch get-metric-statistics --namespace AWS/FSx --metric-name ThroughputUtilization
+    thresholds:
+      utilization_percent: 30
+    recommendation: Reduce provisioned throughput
+
+  - id: FSX-003
+    name: FSx Storage Optimization
+    description: FSx with excessive storage allocation
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws fsx describe-file-systems
+      - aws cloudwatch get-metric-statistics --namespace AWS/FSx --metric-name StorageUsed
+    thresholds:
+      storage_utilization_percent: 30
+    recommendation: Resize storage or enable data deduplication
+
+  - id: BACKUP-001
+    name: Redundant Backup Rules
+    description: Resources backed up by multiple backup plans
+    severity: medium
+    category: overprovisioned
+    aws_cli:
+      - aws backup list-backup-plans
+      - aws backup list-backup-selections --backup-plan-id {plan_id}
+    recommendation: Consolidate backup rules to avoid redundancy
+
+  - id: BACKUP-002
+    name: Excessive Backup Retention
+    description: Backup vaults with very long retention periods
+    severity: low
+    category: lifecycle
+    aws_cli:
+      - aws backup list-backup-vaults
+      - aws backup get-backup-vault-access-policy --backup-vault-name {vault}
+    thresholds:
+      retention_days: 365
+    recommendation: Review backup retention requirements
+
+  - id: BACKUP-003
+    name: Cross-Region Backup Review
+    description: Cross-region backup copies with high costs
+    severity: medium
+    category: data_transfer
+    aws_cli:
+      - aws backup list-copy-jobs
+    recommendation: Review necessity of cross-region backup copies
+
+# ============================================================================
+# REMOVED: Tags domain (compliance-focused, not direct cost savings)
+# REMOVED: Security domain (moved cost checks to Storage as LOG-001, LOG-002)
+# ============================================================================
+# ADDED in v5.0: EC2-026 (CO Idle), EC2-027 (Memory), NET-016 (NAT Data),
+#   NET-017 (DT Breakdown), R53-001 (Unused Zones), RI-007 (RI Purchase Rec),
+#   SP-005 (SP Purchase Rec), CT-001 (CloudTrail Data Events),
+#   SECRETS-001 (Unused Secrets), ECR-001 (Image Lifecycle)
+# Total: 180 checks
+# ============================================================================

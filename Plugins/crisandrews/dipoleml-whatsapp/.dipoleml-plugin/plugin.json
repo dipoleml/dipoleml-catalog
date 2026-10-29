@@ -1,0 +1,16 @@
+{
+  "name": "dipoleml-whatsapp",
+  "displayName": "DipoleML WhatsApp",
+  "version": "1.21.1",
+  "description": "WhatsApp channel for DipoleML — messaging bridge via QR code with built-in access control.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Crisandrews"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/crisandrews/claude-whatsapp#quick-setup",
+  "repository": "https://github.com/crisandrews/claude-whatsapp",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

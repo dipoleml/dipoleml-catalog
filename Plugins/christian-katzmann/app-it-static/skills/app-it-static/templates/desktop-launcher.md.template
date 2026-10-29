@@ -1,0 +1,71 @@
+# Desktop launcher (static)
+
+Click an icon in `~/Applications/App It/` (or its Dock Stack) to launch.
+
+This app serves a **finished build** — it does **not** run a dev server. It uses
+either the tiny bundled static server (~15 MB) or, when safe, loads the build
+directly from disk over `file://` (no server at all).
+
+## First launch
+
+1. Right-click the app icon and choose **Open**, then click **Open** in the dialog. macOS remembers and skips this on subsequent launches (Gatekeeper, unsigned bundle).
+2. Launch is fast — there is no dev-server cold start. The window shows the built site within a moment.
+3. If a "couldn't be opened" alert appears citing the static server, open `~/Library/Logs/app-it/<slug>/server.log`.
+
+## Apps
+
+- **__APP_NAME__** (`__APP_NAME__.app`) — serves `__STATIC_DIR__/` *(__serve_mode__ mode)*
+
+Each `.app` runs as a real macOS app with its own Dock icon and window — not a Chrome `--app` window. It embeds the same small Swift WebKit shell app-it uses, so the Dock icon stays yours and macOS handles single-instance activation natively.
+
+## It serves a SNAPSHOT — refresh after you change code
+
+This is the one thing to remember. A static launcher serves the build that
+existed when you last built it. Change your source and the app keeps showing the
+old version until you refresh it:
+
+```bash
+./scripts/desktop-rebuild.sh   # runs your build, then rebuilds + reinstalls the .app
+```
+
+That is the deliberate trade for not running a dev server. If you want live
+reload while actively developing, use the `/app-it` skill instead (it wraps your
+dev server); use this static launcher for finished or rarely-changing apps.
+
+## Launch behavior
+
+- **server mode:** the static server starts on first click, stays warm if you close the window, and is torn down on **Cmd+Q** (or `desktop:quit`). Sibling apps coexist — if the preferred port is taken, the launcher scans upward and records the runtime port to `~/Library/Application Support/app-it/<slug>/server.port`.
+- **file mode:** there is no server. The window loads the build from disk; **Cmd+Q** just closes it. Nothing to clean up.
+- **Re-clicking the icon while open** brings the existing window forward — no second window.
+
+To stop any running static servers from the terminal:
+
+```bash
+./scripts/desktop-quit.sh
+```
+
+## Install / update
+
+```bash
+./scripts/desktop-build.sh    # assemble .app bundle(s) under desktop/ (does NOT run your build)
+./scripts/desktop-install.sh  # copy them into ~/Applications/App It/, refresh Dock
+```
+
+`~/Applications/App It/` is the same Dock Stack app-it uses — your finished
+(static) and in-progress (dev-server) apps live side by side.
+
+## Replace an app icon
+
+Replace the source PNG (square, ≥ 1024×1024 ideal):
+
+- __APP_NAME__: `assets/__APP_SLUG__-icon.png`
+
+Then `./scripts/desktop-build.sh && ./scripts/desktop-install.sh`.
+
+## Known limitations
+
+- **Serves a snapshot, not live source.** Run `desktop:rebuild` after code changes.
+- **Unsigned bundle.** First launch triggers Gatekeeper — right-click → Open once.
+- **Repo path is baked in.** Moving the repo means re-running `desktop:build && desktop:install`.
+- **file:// mode is restricted.** Client-side routing, `fetch()` of local files, and service workers do not work over `file://`. The build picks `server` mode when any of those are present.
+- **Not for SSR/ISR apps.** A Next.js app without `output: 'export'` (or any app that needs a live Node backend) is not static — use `/app-it`.

@@ -1,0 +1,126 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.beefiker.superloopy",
+  "type": "plugin",
+  "name": "Superloopy",
+  "slug": "superloopy",
+  "vendor": "beefiker",
+  "description": "Lightweight Codex/DipoleML loop harness with strict evidence gates.",
+  "version": "0.27.0",
+  "homepage": "https://github.com/beefiker/superloopy",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "claude-code-plugin",
+    "claude-code-skill",
+    "codex",
+    "codex-plugin",
+    "codex-skills",
+    "developer-tools",
+    "evidence-gates",
+    "superloopy",
+    "workflow-automation"
+  ],
+  "tags": [
+    "ai-agents",
+    "claude",
+    "claude-code",
+    "claude-code-plugin",
+    "claude-code-skill",
+    "codex",
+    "codex-plugin",
+    "codex-skills",
+    "developer-tools",
+    "evidence-gates",
+    "superloopy",
+    "workflow-automation"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "beefiker",
+    "brandName": "beefiker",
+    "source": "https://github.com/beefiker.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:12:18Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "beefiker/superloopy",
+    "url": "https://github.com/beefiker/superloopy",
+    "commit": "46580e6acbd0dad4ebaa523b72dd0517e70c124c",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 112,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:03:58Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Superloopy | Lightweight Codex/Claude loop harness with strict evidence gates.",
+        "after": "Superloopy | Lightweight Codex/DipoleML loop harness with strict evidence gates.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Lightweight loop harness with strict evidence gates — Claude Code edition.",
+        "after": "Lightweight loop harness with strict evidence gates — DipoleML edition.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=22.0.0"
+    ],
+    "packages": [
+      "superloopy"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

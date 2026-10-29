@@ -1,0 +1,16 @@
+{
+  "name": "config-watch",
+  "displayName": "Config Watch",
+  "version": "1.0.0",
+  "description": "Tripwire for out-of-band config changes in DipoleML. A ConfigChange hook fires whenever settings (user, project, local, policy) or skills change mid-session, from an installer script, an npm postinstall payload, or any other process rewriting settings while a session runs, and makes the change loudly visible via systemMessage. Opt into CONFIG_WATCH_BLOCK=true to stop the change from taking effect (exit 2); policy_settings cannot be blocked by hooks, so those still warn. Pairs with config-guard, which blocks the agent's own writes.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Karanb192"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/karanb192/claude-code-hooks",
+  "repository": "https://github.com/karanb192/claude-code-hooks",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

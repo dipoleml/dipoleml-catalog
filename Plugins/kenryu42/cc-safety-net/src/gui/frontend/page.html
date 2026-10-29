@@ -1,0 +1,428 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CC Safety Net</title>
+  <link rel="icon" href="./favicon.svg">
+  <script id="ccsn-data" type="application/json"></script>
+  <script src="./head.ts"></script>
+  <link rel="stylesheet" href="./custom.css">
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <h1 class="brand-logo"><a class="brand-home" href="#overview" data-i18n-title="navOverview"></a></h1>
+      </div>
+      <nav class="sidenav" data-i18n-aria-label="navSections">
+        <a href="#overview" data-nav="overview" data-i18n-title="navOverview"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="7" height="9" rx="1.5"></rect><rect x="14" y="3" width="7" height="5" rx="1.5"></rect><rect x="14" y="12" width="7" height="9" rx="1.5"></rect><rect x="3" y="16" width="7" height="5" rx="1.5"></rect></svg><span class="sr-only-collapse" data-i18n="navOverview"></span></a>
+        <a href="#activity" data-nav="activity" data-i18n-title="navActivity"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12h4l3-8 4 16 3-8h4"></path></svg><span class="sr-only-collapse" data-i18n="navActivity"></span></a>
+        <a href="#policy" data-nav="policy" data-i18n-title="navProtections"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3 5 6v5c0 4.4 3 8.4 7 10 4-1.6 7-5.6 7-10V6l-7-3Z"></path></svg><span class="sr-only-collapse" data-i18n="navProtections"></span><span class="nav-dirty" id="nav-dirty" data-i18n="navUnsaved" hidden></span></a>
+        <a href="#rules" data-nav="rules" data-i18n-title="navCustomRules"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h9l4 4v14H6z"></path><path d="M15 3v4h4"></path><path d="M9 12h6M9 16h4"></path></svg><span class="sr-only-collapse" data-i18n="navCustomRules"></span></a>
+        <a href="#integrations" data-nav="integrations" data-i18n-title="navAgents"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 2v6M15 2v6M6 8h12v3a6 6 0 0 1-12 0V8ZM12 17v5"></path></svg><span class="sr-only-collapse" data-i18n="navAgents"></span></a>
+        <a href="#settings" data-nav="settings" data-i18n-title="navSettings"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 8h10M18 8h2M4 16h2M10 16h10"></path><circle cx="16" cy="8" r="2.2"></circle><circle cx="8" cy="16" r="2.2"></circle></svg><span class="sr-only-collapse" data-i18n="navSettings"></span></a>
+      </nav>
+      <div class="sidebar-foot">
+        <a href="https://github.com/kenryu42/cc-safety-net" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://ccsafetynet.com/docs" target="_blank" rel="noopener" data-i18n="documentation"></a>
+        <label class="language-picker"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18M12 3c2.5 2.7 3.8 5.7 3.8 9s-1.3 6.3-3.8 9c-2.5-2.7-3.8-5.7-3.8-9S9.5 5.7 12 3Z"></path></svg><select data-language-select data-i18n-aria-label="language"><option value="en" lang="en">English</option><option value="ja" lang="ja">日本語</option><option value="zh-CN" lang="zh-CN">简体中文</option></select></label>
+      </div>
+    </aside>
+    <div class="content">
+      <main>
+        <div class="banner" id="protection-banner" role="alert" hidden></div>
+
+        <section class="view" data-view="overview">
+          <header class="page-head">
+            <div>
+              <h2 data-i18n="navOverview"></h2>
+              <p data-i18n="overviewIntro"></p>
+            </div>
+          </header>
+          <div class="card status-card" id="status-card" aria-live="polite"><p class="muted" data-i18n="loading"></p></div>
+          <section class="section" id="attention" hidden>
+            <div class="section-head"><h3 class="section-title" data-i18n="needsAttention"></h3></div>
+            <ul class="card list" id="attention-list"></ul>
+          </section>
+          <div class="tiles" id="overview-tiles"></div>
+          <section class="section">
+            <div class="section-head">
+              <h3 class="section-title" data-i18n="recentBlocks"></h3>
+              <a class="link-button" href="#activity" data-i18n="allActivity"></a>
+            </div>
+            <div id="recent-blocks"></div>
+          </section>
+          <section class="section">
+            <div class="section-head">
+              <h3 class="section-title" id="top-rules-title" data-i18n="topRules"></h3>
+            </div>
+            <div id="top-rules"></div>
+          </section>
+          <div class="star-row" id="star-row" hidden>
+            <p class="star-pitch"><span id="star-pitch-text"></span></p>
+            <span id="star-slot"></span>
+          </div>
+        </section>
+
+        <section class="view" data-view="activity" hidden>
+          <header class="page-head">
+            <div>
+              <h2 data-i18n="navActivity"></h2>
+              <p data-i18n="activityIntro"></p>
+            </div>
+            <button type="button" class="quiet icon-button" id="activity-refresh" data-i18n-aria-label="refreshActivity" data-i18n-title="refreshActivity"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"></path><path d="M20 4v7h-7"></path></svg></button>
+          </header>
+          <div class="toolbar">
+            <div class="pills" id="activity-decision" role="group" data-i18n-aria-label="decisionFilter"></div>
+            <span class="toolbar-spacer"></span>
+            <label class="toolbar-search"><span class="sr-only" data-i18n="searchActivity"></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg><input type="search" id="activity-search" autocomplete="off" data-i18n-placeholder="searchActivityPlaceholder"></label>
+            <label class="toolbar-select"><span class="sr-only" data-i18n="agentFilter"></span><select id="activity-agent"></select></label>
+            <label class="toolbar-select"><span class="sr-only" data-i18n="timeWindow"></span><select id="activity-days"></select></label>
+          </div>
+          <div class="filter-line" id="activity-command-filter" hidden></div>
+          <div class="card list" id="activity-feed"><p class="empty" data-i18n="loadingActivity"></p></div>
+          <p class="footnote" id="activity-count"></p>
+        </section>
+
+        <section class="view" data-view="policy" hidden>
+          <header class="page-head">
+            <div>
+              <h2 data-i18n="navProtections"></h2>
+              <p data-i18n="policyIntro"></p>
+            </div>
+            <div class="page-actions">
+              <div class="pills" role="group" data-i18n-aria-label="policyScope">
+                <button type="button" id="scope-user" aria-pressed="true" data-i18n="myPolicy"></button>
+                <button type="button" id="project-draft-enter" aria-pressed="false" data-i18n="projectPolicy"></button>
+              </div>
+              <button type="button" id="tester-open" aria-haspopup="dialog" data-i18n="testCommand"></button>
+            </div>
+          </header>
+          <div class="project-bar" id="project-draft-bar" hidden>
+            <div>
+              <strong data-i18n="editingProjectPolicy"></strong> <code id="project-draft-path"></code>
+              <p data-i18n-html="projectBarHelp"></p>
+            </div>
+            <button type="button" id="project-draft-change" data-i18n="changeFolder" hidden></button>
+          </div>
+          <p class="notice error" id="project-draft-diagnostics" hidden></p>
+          <div class="recovery" id="recovery" hidden>
+            <div>
+              <strong data-i18n="statusRepair"></strong>
+              <p data-i18n="repairHelp"></p>
+              <p class="notice error" id="policy-errors"></p>
+            </div>
+            <button class="primary" id="repair" type="button" data-i18n="repair"></button>
+          </div>
+
+          <section class="section">
+            <div class="section-head">
+              <div>
+                <h3 class="section-title" data-i18n="safetyPreset"></h3>
+                <p class="section-sub" data-i18n="safetyPresetSub"></p>
+              </div>
+              <span class="preset-status" id="safety-preset-status"></span>
+              <span class="project-chip-slot" id="safety-level-chip"></span>
+            </div>
+            <div class="preset-grid" id="safety-level"></div>
+            <p class="notice" id="environment-overrides" hidden></p>
+            <details class="card disclosure">
+              <summary><span class="disclosure-title" data-i18n="advancedSettings"></span><span class="disclosure-sub" data-i18n="advancedSettingsSub"></span></summary>
+              <div class="disclosure-body">
+                <div id="safety-overrides"></div>
+                <div id="workflow"></div>
+              </div>
+            </details>
+          </section>
+
+          <div class="toolbar policy-toolbar">
+            <label class="toolbar-search primary-search"><span class="sr-only" data-i18n="searchProtections"></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"></circle><path d="m20 20-3.5-3.5"></path></svg><input type="search" id="policy-search" autocomplete="off" aria-keyshortcuts="/" data-i18n-placeholder="searchProtectionsPlaceholder"></label>
+            <div class="pills" role="group" data-i18n-aria-label="protectionsShown">
+              <button type="button" data-policy-show="all" aria-pressed="true" data-i18n="filterAll"></button>
+              <button type="button" data-policy-show="changed" aria-pressed="false"><span data-i18n="showChanged"></span> <span class="count" id="changed-count"></span></button>
+            </div>
+          </div>
+
+          <section class="card panel" id="destructive-panel">
+            <div class="panel-head">
+              <div>
+                <h3 class="section-title" id="destructive-label" data-i18n="commandProtection"></h3>
+                <p class="section-sub" id="destructive-command-summary"></p>
+              </div>
+              <div class="section-actions">
+                <button type="button" class="quiet" id="reset-rule-customizations" data-i18n="resetAll"></button>
+                <span class="project-chip-slot" id="destructive-enabled-chip"></span>
+                <label class="master-switch"><span class="master-state"><span class="state-on" data-i18n="switchOn"></span><span class="state-off" data-i18n="switchOff"></span></span><input type="checkbox" class="switch" id="destructive-enabled" aria-labelledby="destructive-label"></label>
+              </div>
+            </div>
+            <div class="panel-list" id="destructive-command-rules"></div>
+          </section>
+
+          <section class="card panel" id="secret-panel">
+            <div class="panel-head">
+              <div>
+                <h3 class="section-title" id="secret-label" data-i18n="secretProtection"></h3>
+                <p class="section-sub" id="secret-summary"></p>
+              </div>
+              <div class="section-actions">
+                <button type="button" class="quiet" id="reset-secret-customizations" data-i18n="resetAll"></button>
+                <span class="project-chip-slot" id="secret-enabled-chip"></span>
+                <label class="master-switch"><span class="master-state"><span class="state-on" data-i18n="switchOn"></span><span class="state-off" data-i18n="switchOff"></span></span><input type="checkbox" class="switch" id="secret-enabled" aria-labelledby="secret-label"></label>
+              </div>
+            </div>
+            <div class="panel-list" id="secret-patterns"></div>
+          </section>
+
+          <section class="card panel">
+            <div class="panel-head">
+              <div>
+                <h3 class="section-title" data-i18n="pathsTitle"></h3>
+                <p class="section-sub" data-i18n-html="pathsSub"></p>
+              </div>
+            </div>
+            <div class="panel-rows">
+              <div class="path-list">
+                <div class="path-list-head"><strong id="allow-paths-label" data-i18n="allowPathsLabel"></strong><span class="count" id="allow-paths-count"></span><span class="project-chip-slot" id="allow-paths-chip"></span></div>
+                <p class="path-list-help" data-i18n-html="allowPathsHelp"></p>
+                <div class="input-row"><input type="text" class="mono" id="allow-paths-input" data-path-input="allow-paths" autocomplete="off" spellcheck="false" data-i18n-placeholder="allowPathsPlaceholder" aria-labelledby="allow-paths-label"><button type="button" id="allow-paths-add-button" data-path-add="allow-paths" data-i18n="add"></button></div>
+                <p class="field-error" id="allow-paths-hint" hidden></p>
+                <ul class="paths" id="allow-paths-list"></ul>
+              </div>
+              <div class="path-list">
+                <div class="path-list-head"><strong id="deny-paths-label" data-i18n="denyPathsLabel"></strong><span class="count" id="deny-paths-count"></span><span class="project-chip-slot" id="deny-paths-chip"></span></div>
+                <p class="path-list-help" data-i18n="denyPathsHelp"></p>
+                <div class="input-row"><input type="text" class="mono" id="deny-paths-input" data-path-input="deny-paths" autocomplete="off" spellcheck="false" data-i18n-placeholder="denyPathsPlaceholder" aria-labelledby="deny-paths-label"><button type="button" id="deny-paths-add-button" data-path-add="deny-paths" data-i18n="add"></button></div>
+                <p class="field-error" id="deny-paths-hint" hidden></p>
+                <ul class="paths" id="deny-paths-list"></ul>
+              </div>
+              <div class="path-list">
+                <div class="path-list-head"><strong id="secret-allow-paths-label" data-i18n="secretAllowPathsLabel"></strong><span class="count" id="secret-allow-paths-count"></span><span class="project-chip-slot" id="secret-allow-paths-chip"></span></div>
+                <p class="path-list-help" data-i18n-html="secretAllowPathsHelp"></p>
+                <div class="input-row"><input type="text" class="mono" id="secret-allow-paths-input" data-path-input="secret-allow-paths" autocomplete="off" spellcheck="false" placeholder="~/code/**/.env.local" aria-labelledby="secret-allow-paths-label"><button type="button" id="secret-allow-paths-add-button" data-path-add="secret-allow-paths" data-i18n="add"></button></div>
+                <p class="field-error" id="secret-allow-paths-hint" hidden></p>
+                <ul class="paths" id="secret-allow-paths-list"></ul>
+              </div>
+            </div>
+          </section>
+
+          <details class="card disclosure">
+            <summary><span class="disclosure-title" data-i18n="policyJson"></span><span class="disclosure-sub" id="raw-source" data-i18n="rawReadOnly"></span></summary>
+            <div class="disclosure-body json-body">
+              <button type="button" class="quiet" id="raw-copy"></button>
+              <textarea id="raw" data-i18n-aria-label="policyJson" aria-describedby="raw-source" readonly></textarea>
+            </div>
+          </details>
+
+          <div class="savebar" id="policy-savebar" hidden>
+            <div class="savebar-text">
+              <strong id="savebar-title" data-i18n="unsavedChanges"></strong>
+              <span id="savebar-summary"></span>
+            </div>
+            <div class="savebar-actions">
+              <button type="button" id="discard-changes" data-i18n="discard"></button>
+              <button type="button" class="primary" id="save" data-i18n="save"></button>
+            </div>
+          </div>
+        </section>
+
+        <section class="view" data-view="rules" hidden>
+          <header class="page-head">
+            <div>
+              <h2 data-i18n="navCustomRules"></h2>
+              <p data-i18n="rulesIntro"></p>
+            </div>
+            <button type="button" class="quiet icon-button" id="rules-refresh" data-i18n-aria-label="refreshRules" data-i18n-title="refreshRules"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"></path><path d="M20 4v7h-7"></path></svg></button>
+          </header>
+          <section class="section" id="rules-diagnostics-panel" hidden>
+            <div class="section-head">
+              <div>
+                <h3 class="section-title" data-i18n="problems"></h3>
+                <p class="section-sub" data-i18n="problemsSub"></p>
+              </div>
+            </div>
+            <div class="notices" id="rules-diagnostics"></div>
+          </section>
+          <section class="section">
+            <div class="section-head">
+              <div>
+                <h3 class="section-title" data-i18n="rulebooks"></h3>
+                <p class="section-sub" data-i18n="rulebooksSub"></p>
+              </div>
+            </div>
+            <div id="rules-list"><p class="empty" data-i18n="loadingRules"></p></div>
+          </section>
+          <section class="section" id="rules-composer-panel">
+            <div class="section-head">
+              <div>
+                <h3 class="section-title" data-i18n="createRule"></h3>
+                <p class="section-sub" data-i18n="createRuleSub"></p>
+              </div>
+            </div>
+            <div class="card pad">
+              <div class="form-grid">
+                <div class="field">
+                  <span class="field-label" data-i18n="appliesTo"></span>
+                  <div class="pills" role="group" data-i18n-aria-label="ruleScope">
+                    <button type="button" data-rules-scope="project" aria-pressed="true" data-i18n="thisProject"></button>
+                    <button type="button" data-rules-scope="user" aria-pressed="false" data-i18n="allProjects"></button>
+                  </div>
+                </div>
+                <div class="field" id="rules-project-path-field">
+                  <label class="field-label" id="rules-project-path-label" for="rules-project-path" data-i18n="projectFolder"></label>
+                  <div class="input-row">
+                    <input type="text" class="mono" id="rules-project-path" spellcheck="false" autocomplete="off" aria-describedby="rules-project-path-hint">
+                    <button type="button" id="rules-choose-directory" data-i18n="chooseFolder" hidden></button>
+                  </div>
+                  <small id="rules-project-path-hint" data-i18n="projectFolderHint"></small>
+                </div>
+                <div class="field">
+                  <label class="field-label" id="rules-composer-label" for="rules-composer-input" data-i18n="ruleRequest"></label>
+                  <textarea id="rules-composer-input" spellcheck="false" data-i18n-placeholder="ruleRequestPlaceholder" aria-describedby="rules-composer-hint"></textarea>
+                  <small id="rules-composer-hint" data-i18n="ruleRequestHint"></small>
+                  <div class="chip-row">
+                    <span class="chip-row-label" data-i18n="tryExamples"></span>
+                    <button type="button" class="chip" data-rules-example="suggest" data-i18n="exampleSuggest"></button>
+                    <button type="button" class="chip" data-rules-example="block" data-i18n="exampleBlock"></button>
+                    <button type="button" class="chip" data-rules-example="verify" data-i18n="exampleVerify"></button>
+                  </div>
+                </div>
+              </div>
+              <div class="form-actions">
+                <button type="button" class="primary" id="rules-copy-prompt" data-i18n="copyPrompt"></button>
+              </div>
+            </div>
+          </section>
+        </section>
+
+        <section class="view" data-view="integrations" hidden>
+          <header class="page-head">
+            <div>
+              <h2 data-i18n="navAgents"></h2>
+              <p data-i18n="agentsIntro"></p>
+            </div>
+            <button type="button" class="quiet icon-button" id="integrations-refresh" data-i18n-aria-label="refreshAgents" data-i18n-title="refreshAgents"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7"></path><path d="M20 4v7h-7"></path></svg></button>
+          </header>
+          <div class="agent-groups" id="integrations-list"><p class="empty" data-i18n="checkingAgents"></p></div>
+        </section>
+
+        <section class="view" data-view="settings" hidden>
+          <header class="page-head">
+            <div>
+              <h2 data-i18n="navSettings"></h2>
+              <p data-i18n="settingsIntro"></p>
+            </div>
+          </header>
+          <section class="section">
+            <div class="section-head"><h3 class="section-title" data-i18n="appearance"></h3></div>
+            <div class="card rows">
+              <div class="setting-row">
+                <div class="setting-text"><strong data-i18n="theme"></strong><small data-i18n="preferenceHint"></small></div>
+                <div class="pills" id="settings-theme" role="group" data-i18n-aria-label="theme">
+                  <button type="button" data-theme-choice="auto" aria-pressed="true" data-i18n="themeAuto"></button>
+                  <button type="button" data-theme-choice="light" aria-pressed="false" data-i18n="themeLight"></button>
+                  <button type="button" data-theme-choice="dark" aria-pressed="false" data-i18n="themeDark"></button>
+                </div>
+              </div>
+            </div>
+          </section>
+          <section class="section">
+            <div class="section-head"><h3 class="section-title" data-i18n="auditLog"></h3></div>
+            <div class="card rows">
+              <div class="setting-row">
+                <div class="setting-text"><label for="retention-days"><strong data-i18n="keepLogsFor"></strong></label><small id="retention-note" data-i18n="retentionNote"></small></div>
+                <span class="retention-input"><input type="number" id="retention-days" min="1" max="365" step="1" inputmode="numeric" aria-describedby="retention-note"><span id="retention-unit"></span></span>
+              </div>
+              <div class="setting-row info"><span class="setting-label" data-i18n="logFolder"></span><code id="logs-path"></code><button type="button" class="quiet small" data-copy-path="logs-path" data-i18n-aria-label="copyLogFolder"></button></div>
+            </div>
+          </section>
+          <section class="section">
+            <div class="section-head"><h3 class="section-title" data-i18n="files"></h3></div>
+            <div class="card rows">
+              <div class="setting-row info"><span class="setting-label" data-i18n="policyFile"></span><code id="policy-path"></code><button type="button" class="quiet small" data-copy-path="policy-path" data-i18n-aria-label="copyPolicyPath"></button></div>
+              <div class="setting-row info" id="project-policy-row" hidden><span class="setting-label" data-i18n="projectPolicy"></span><code id="project-policy-path"></code><button type="button" class="quiet small" data-copy-path="project-policy-path" data-i18n-aria-label="copyProjectPolicyPath"></button></div>
+            </div>
+            <p class="notice" id="project-policy-notice" hidden></p>
+          </section>
+          <section class="section">
+            <div class="section-head"><h3 class="section-title" data-i18n="about"></h3></div>
+            <div class="card rows">
+              <div class="setting-row info"><span class="setting-label">CC Safety Net</span><code id="app-version"></code></div>
+              <div class="setting-row info"><span class="setting-label">Node.js</span><code id="integrations-node-version"></code></div>
+              <div class="setting-row info"><span class="setting-label" data-i18n="platform"></span><code id="integrations-platform"></code></div>
+            </div>
+          </section>
+          <section class="section">
+            <div class="section-head"><h3 class="section-title" data-i18n="dangerZone"></h3></div>
+            <div class="card rows">
+              <div class="setting-row">
+                <div class="setting-text"><strong data-i18n="resetPolicy"></strong><small data-i18n="resetPolicyHelp"></small></div>
+                <button type="button" class="danger-quiet" id="reset" data-i18n="resetPolicy"></button>
+              </div>
+            </div>
+          </section>
+        </section>
+      </main>
+      <footer class="app-foot">
+        <a href="https://github.com/kenryu42/cc-safety-net" target="_blank" rel="noopener">GitHub</a>
+        <a href="https://ccsafetynet.com/docs" target="_blank" rel="noopener" data-i18n="documentation"></a>
+        <label class="language-picker"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18M12 3c2.5 2.7 3.8 5.7 3.8 9s-1.3 6.3-3.8 9c-2.5-2.7-3.8-5.7-3.8-9S9.5 5.7 12 3Z"></path></svg><select data-language-select data-i18n-aria-label="language"><option value="en" lang="en">English</option><option value="ja" lang="ja">日本語</option><option value="zh-CN" lang="zh-CN">简体中文</option></select></label>
+      </footer>
+    </div>
+  </div>
+  <div class="toast" id="toast" role="status" aria-live="polite" hidden>
+    <div class="toast-text">
+      <strong id="toast-title"></strong>
+      <p id="toast-detail" hidden></p>
+    </div>
+    <button type="button" class="quiet icon-only" id="toast-close" data-i18n-aria-label="dismissMessage">✕</button>
+  </div>
+  <div class="rule-example-popover" id="rule-example-popover" popover="auto" role="dialog" aria-labelledby="rule-example-title" aria-describedby="rule-example-command">
+    <span class="rule-example-label" id="rule-example-label"></span>
+    <strong id="rule-example-title"></strong>
+    <p id="rule-example-description"></p>
+    <code id="rule-example-command"></code>
+  </div>
+  <dialog class="confirm-dialog" id="confirm-dialog" aria-labelledby="confirm-dialog-title" aria-describedby="confirm-dialog-body confirm-dialog-detail">
+    <form method="dialog">
+      <h2 id="confirm-dialog-title"></h2>
+      <p id="confirm-dialog-body"></p>
+      <div class="dialog-rows" id="confirm-dialog-rows" hidden></div>
+      <p class="dialog-detail"><code id="confirm-dialog-detail"></code></p>
+      <div class="dialog-actions">
+        <button type="submit" id="confirm-dialog-cancel" value="cancel" data-i18n="cancel"></button>
+        <button type="submit" class="danger" id="confirm-dialog-confirm" value="confirm"></button>
+      </div>
+    </form>
+  </dialog>
+  <dialog class="confirm-dialog tester-dialog" id="tester-dialog" aria-labelledby="tester-label" aria-describedby="tester-help">
+    <form id="tester-form">
+      <h2 id="tester-label" data-i18n="testCommand"></h2>
+      <p id="tester-help" data-i18n="testerHelp"></p>
+      <div class="input-row">
+        <label class="prompt-field"><span class="prompt" aria-hidden="true">$</span><input type="text" id="tester-input" class="mono" autocomplete="off" spellcheck="false" placeholder="git push --force" aria-labelledby="tester-label"></label>
+        <button type="submit" class="primary" id="tester-run" data-i18n="test"></button>
+      </div>
+      <div id="tester-result" class="notice" aria-live="polite" hidden></div>
+      <div class="dialog-actions">
+        <button type="button" id="tester-close" data-i18n="close"></button>
+      </div>
+    </form>
+  </dialog>
+  <dialog class="confirm-dialog report-dialog" id="report-dialog" aria-labelledby="report-dialog-title" aria-describedby="report-dialog-body">
+    <form method="dialog">
+      <h2 id="report-dialog-title" data-i18n="reportDialogTitle"></h2>
+      <p id="report-dialog-body" data-i18n-html="reportDialogBody"></p>
+      <label class="report-field"><span data-i18n="reportWhy"></span><textarea id="report-why" data-i18n-placeholder="reportWhyPlaceholder"></textarea></label>
+      <label class="report-field"><span data-i18n="reportTitleField"></span><input id="report-title" type="text" spellcheck="false"></label>
+      <label class="report-field"><span data-i18n="reportCommandField"></span><textarea id="report-command" spellcheck="false"></textarea></label>
+      <label class="report-field"><span data-i18n="reportEntryField"></span><textarea id="report-entry" spellcheck="false"></textarea></label>
+      <div class="dialog-actions">
+        <button type="submit" id="report-dialog-cancel" value="cancel" data-i18n="cancel"></button>
+        <button type="submit" class="primary" id="report-dialog-open" value="report" data-i18n="openGitHubForm"></button>
+      </div>
+    </form>
+  </dialog>
+  <script src="./main.ts"></script>
+</body>
+</html>

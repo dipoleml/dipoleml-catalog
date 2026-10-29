@@ -1,0 +1,28 @@
+{
+  "name": "pya",
+  "displayName": "PYA: Protect Your Ass",
+  "version": "2.0.0",
+  "description": "Security audit for Claude Code: parallel read-only specialist agents plus a verifier, a dated threat feed, optional offline scanners, OWASP Top 10:2025, CWE Top 25 2025, MITRE ATT&CK v20 and AI agent and MCP checks.",
+  "author": {
+    "name": "AgriciDaniel",
+    "url": "https://github.com/AgriciDaniel"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/AgriciDaniel/pya",
+  "repository": "https://github.com/AgriciDaniel/pya",
+  "icon": "./.claude-plugin/icon.png",
+  "keywords": [
+    "security",
+    "code-review",
+    "appsec",
+    "sast",
+    "owasp",
+    "cwe",
+    "mitre-attack",
+    "supply-chain",
+    "secret-detection",
+    "mcp-security",
+    "ai-agent-security",
+    "threat-modeling"
+  ]
+}

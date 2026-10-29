@@ -1,0 +1,4 @@
+interface:
+  display_name: "Purple Team Automation"
+  short_description: "Adversary emulation tied to detection validation"
+  default_prompt: "Use $purple-team-automation to run safe ATT&CK-mapped campaigns and score detection coverage."

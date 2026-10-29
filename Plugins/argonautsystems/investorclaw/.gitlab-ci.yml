@@ -1,0 +1,116 @@
+# GitLab CI/CD for InvestorClaw
+#
+# Per fleet policy (2026-04-25): nas = source of truth, gitlab = CI/CD,
+# github = OSS surface. This pipeline is the canonical CI surface; the
+# .github/workflows/ files exist for public visibility on github.com/argonautsystems
+# but the authoritative test runs live here.
+#
+# Uses `uv` as the canonical install path (per project CLAUDE.md):
+# `uv sync` reads pyproject.toml and uv.lock for reproducible builds.
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH
+    - if: $CI_COMMIT_TAG
+
+stages:
+  - lint
+  - smoke
+  - build
+
+# ---------------------------------------------------------------------------
+# Lint gate (ruff) — runs first, fails fast
+# ---------------------------------------------------------------------------
+lint:
+  stage: lint
+  tags: [argos, ncz-os]
+  variables:
+    UV_LINK_MODE: copy
+    UV_CACHE_DIR: .uv-cache
+  before_script:
+    - export PATH="/home/jasonperlow/.local/bin:$PATH"
+    - uv sync --frozen --group dev
+  script:
+    - uv run ruff check .
+    - uv run ruff format --check .
+  cache:
+    key:
+      files:
+        - uv.lock
+    paths:
+      - .uv-cache
+
+# ---------------------------------------------------------------------------
+# Smoke matrix — verifies the slim adapter installs cleanly and the shim
+# delegates to ic-engine across the supported Python versions.
+#
+# Phase 2 of IC_DECOMPOSITION (v2.3.0) deleted InvestorClaw's Python tests/
+# directory; the engine tests live in the ic-engine repo and run under its
+# own CI. The adapter has no Python source today beyond the shim, so this
+# stage only smoke-checks the install and CLI dispatch.
+# ---------------------------------------------------------------------------
+smoke:
+  stage: smoke
+  tags: [argos, ncz-os]
+  variables:
+    UV_LINK_MODE: copy
+    UV_CACHE_DIR: .uv-cache
+  before_script:
+    - export PATH="/home/jasonperlow/.local/bin:$PATH"
+    - uv --version
+    - uv sync --frozen --group dev
+  script:
+    # Shim imports clean and exposes the back-compat surface
+    - uv run python -c "from investorclaw import get_version, main; print(f'shim get_version() = {get_version()}')"
+    # CLI delegates to ic-engine and reports the engine version
+    - uv run investorclaw --version
+    # `python3 investorclaw.py help` path used by server/ + index.ts dispatch.
+    # No pipe to head — gitlab shell reports the rightmost exit status, so a
+    # piped truncation would mask CLI failure. Let the help output flow.
+    - uv run python3 investorclaw.py help
+  cache:
+    key:
+      files:
+        - uv.lock
+    paths:
+      - .uv-cache
+
+# ---------------------------------------------------------------------------
+# TypeScript / OpenClaw plugin build + manifest consistency
+# ---------------------------------------------------------------------------
+plugin-build:
+  stage: build
+  tags: [argos, ncz-os]
+  before_script:
+    - export PATH="/home/jasonperlow/.local/bin:$PATH"
+  script:
+    - npm ci
+    - node_modules/.bin/tsc --noEmit
+    - node_modules/.bin/tsc
+    - git diff --exit-code dist/ || (echo "dist/ is stale — run 'npm run build' and commit" && exit 1)
+    - |
+      python3 - <<'EOF'
+      import json, sys
+      pkg  = json.load(open("package.json"))
+      plug = json.load(open("openclaw.plugin.json"))
+      pkg_ext  = (pkg.get("openclaw",{}).get("extensions") or [""])[0]
+      plug_ext = (plug.get("openclaw",{}).get("extensions") or [""])[0]
+      pkg_ver  = pkg.get("version")
+      plug_ver = plug.get("version")
+      errors = []
+      if pkg_ext != plug_ext:
+          errors.append(f"extension mismatch: package.json={pkg_ext!r} openclaw.plugin.json={plug_ext!r}")
+      if pkg_ver != plug_ver:
+          errors.append(f"version mismatch: package.json={pkg_ver!r} openclaw.plugin.json={plug_ver!r}")
+      if errors:
+          for e in errors: print("ERROR:", e)
+          sys.exit(1)
+      print("OK: manifests consistent")
+      EOF
+  cache:
+    key:
+      files:
+        - package-lock.json
+    paths:
+      - node_modules/

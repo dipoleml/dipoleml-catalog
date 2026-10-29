@@ -1,0 +1,9 @@
+{
+  "name": "skill-conductor",
+  "version": "3.2.0",
+  "description": "Create, edit, evaluate, and package Claude Code agent skills — full draft→test→review→improve lifecycle.",
+  "author": { "name": "smixs", "email": "shimaozb@gmail.com" },
+  "homepage": "https://github.com/smixs/skill-conductor",
+  "license": "MIT",
+  "keywords": ["claude-code", "agent-skills", "skill-authoring", "eval", "packaging"]
+}

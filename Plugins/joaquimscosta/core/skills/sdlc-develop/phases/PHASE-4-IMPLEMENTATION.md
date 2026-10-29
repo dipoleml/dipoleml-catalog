@@ -1,0 +1,428 @@
+# Phase 4: Implementation
+
+**Goal**: Build the feature using quality gates, confession-driven review, and two-stage wave review
+
+**Model tier**: sonnet for implementation, sonnet for reviewers (opus if `--validate`)
+
+---
+
+## Step 4.0: Ticket Selection
+
+**Gate: Tier 2** (skippable with `--auto` — auto-selects all tasks)
+
+**Skip if:** RESUME_MODE and user selected "All remaining tasks" at the Resume gate (tasks already marked SELECTED, `selection_scope = ALL`, proceed directly to Step 4.1).
+
+Before executing any wave, allow the user to select which tasks to implement in this session.
+
+### 1. Load and Present Tasks
+
+Read `tasks.md` and present all tasks grouped by wave. Show COMPLETED waves as read-only context:
+
+```markdown
+## Wave 1 (3 tasks) — COMPLETED
+- T-01: [title] (Effort: M) — Status: COMPLETED
+- T-02: [title] (Effort: S) — Status: COMPLETED
+- T-03: [title] (Effort: S) — Status: COMPLETED
+
+## Wave 2 (2 tasks, depends on Wave 1)
+- T-04: [title] (Effort: L) — Status: SELECTED
+- T-05: [title] (Effort: M) — Status: SELECTED
+```
+
+**Note:** Completed waves are shown for context but are not selectable. Only non-COMPLETED tasks can be selected or deferred.
+
+### 2. Ask for Selection
+
+Use `AskUserQuestion`:
+
+- **header**: "Task Selection"
+- **question**: "{total_count} tasks across {wave_count} waves. Which tasks to implement this session?"
+- **options**:
+  - { label: "Select All (Recommended)", description: "Implement all tasks across all waves" }
+  - { label: "Select by Wave", description: "Choose which waves to include" }
+  - { label: "Custom Selection", description: "Provide specific task IDs via text input" }
+
+**Response Handling:**
+
+- **Select All**: Mark all tasks as `Status: SELECTED`. Set `selection_scope = ALL` (Step 4.1b will auto-proceed for each wave).
+- **Select by Wave**: Set `selection_scope = BY_WAVE`. For each wave, use `AskUserQuestion` with yes/no:
+  - **header**: "Wave {N}"
+  - **question**: "Wave {N} has {count} tasks ({effort}). Include this wave?"
+  - **options**:
+    - { label: "Include", description: "Select all tasks in Wave {N}" }
+    - { label: "Skip", description: "Defer all tasks in Wave {N}" }
+- **Custom Selection**: Set `selection_scope = CUSTOM`. User provides task IDs (e.g., "T-01, T-02, T-04") via "Other" text input
+
+### 3. Update tasks.md
+
+For each task, update the `**Status**:` field:
+
+- Selected tasks → `Status: SELECTED`
+- Non-selected tasks → `Status: DEFERRED`
+- Previously completed tasks remain → `Status: COMPLETED`
+
+### 4. Handle Edge Cases
+
+- **All tasks already COMPLETED**: Skip to Step 4.2 (Quality & Completion Gate)
+- **Resume with completed waves**: Show completed waves as read-only context, only allow selection on remaining (non-COMPLETED) waves
+- **Resume with no Status fields**: Auto-add `Status: SELECTED` to all tasks (backward compatibility)
+- **`--auto` mode**: Auto-select all non-COMPLETED tasks, skip this step
+
+---
+
+## Step 4.1: Wave Execution Loop
+
+Execute selected tasks wave by wave. Each wave iterates through sub-steps 4.1a → 4.1f.
+
+### Step 4.1a: Context Refresh (Fresh Context Pattern)
+
+**Every wave starts here, including Wave 1.**
+
+Re-read from disk to prevent context drift:
+
+1. `{spec_path}/spec.md` — Extract FR-XXX requirements relevant to this wave's tasks
+2. `{spec_path}/plan.md` — Extract architecture decisions and key patterns to follow
+3. `{spec_path}/tasks.md` — Verify current Status fields, load this wave's task details
+4. If `wave-{N-1}-context.md` exists — Read previous wave's summary, confessions, and review notes
+
+This ensures each wave works from disk truth, not accumulated context.
+
+### Step 4.1b: Wave Confirmation
+
+**Gate: Conditional**
+
+- **Tier 3 (auto-proceed, log only)** if `selection_scope = ALL` — log "Wave {N}: auto-proceeded (Select All)" and continue to Step 4.1c
+- **Tier 2 (skippable with `--auto`)** if `selection_scope = BY_WAVE` or `CUSTOM`
+
+**Auto-skip if:** Wave has no SELECTED tasks (all DEFERRED or COMPLETED).
+
+Present the wave's selected tasks:
+
+```markdown
+## Wave {N}: {selected_count} tasks
+
+| Task | Title | Effort | Files |
+|------|-------|--------|-------|
+| T-XX | [title] | M | `path/to/file` |
+| T-YY | [title] | S | `path/to/file` |
+
+**Total effort:** {effort_sum}
+```
+
+Use `AskUserQuestion`:
+
+- **header**: "Wave {N}"
+- **question**: "Wave {N} has {selected_count} selected tasks ({effort}). How to proceed?"
+- **options**:
+  - { label: "PROCEED (Recommended)", description: "Implement all selected tasks in this wave" }
+  - { label: "SKIP TASKS", description: "Defer specific tasks from this wave" }
+  - { label: "SKIP WAVE", description: "Defer entire wave, move to next" }
+
+**Response Handling:**
+
+- **PROCEED**: Continue to Step 4.1c
+- **SKIP TASKS**: User provides task IDs to defer, update `tasks.md`, re-present wave
+- **SKIP WAVE**: Mark all wave tasks as DEFERRED in `tasks.md`, skip to next wave's Step 4.1a
+
+### Step 4.1c: Implementation (Backpressure Pattern)
+
+Implement all SELECTED tasks in this wave. The builder chooses HOW — the quality gates define WHAT must be true when done.
+
+#### Wave Quality Gates
+
+All 6 gates must pass before proceeding to Step 4.1d:
+
+| # | Gate | Check Method | Pass Criteria | Evidence Required |
+|---|------|-------------|---------------|-------------------|
+| 1 | Task completion | Read tasks.md | All wave tasks: `Status: COMPLETED` | tasks.md content from disk |
+| 2 | File evidence | `git diff --stat` (fresh) | Changed files match task `Files` metadata | Fresh command output |
+| 3 | Tests green | Run test suite (fresh) | All tests pass, exit code 0 | Fresh test output with pass/fail counts |
+| 4 | No placeholders | Grep changed files (fresh) | Zero `TODO`/`FIXME`/`NotImplementedError` matches | Fresh grep output |
+| 5 | Acceptance criteria | Map criteria to code | Each criterion has `file:line` evidence | Line references per criterion |
+| 6 | Confessions recorded | Check wave-context.md | Each task has a confession block | wave-context.md content |
+
+**Evidence rules:**
+- ALL gate checks must produce **fresh command output**. Cached or remembered results are not valid.
+- Gate results must include the actual command output, not a summary of what "should" be true.
+- If a check cannot produce fresh evidence, it FAILS (or escalates as BLOCKED/NEEDS_CONTEXT).
+
+**Rationalization guards** (common false passes — if you think any of these, STOP and run the check):
+- "Tests should pass because I only changed X" — RUN the tests
+- "No placeholders because I didn't add any" — RUN the grep
+- "Files match because I followed the plan" — RUN `git diff --stat`
+- "Acceptance criteria met because the code implements it" — SHOW file:line evidence
+
+See [EVIDENCE-GATES.md](../EVIDENCE-GATES.md) for the full rationalization prevention guide and evidence capture format.
+
+**Status returns** (replaces binary pass/fail):
+- **PASS**: Gate passed with fresh evidence
+- **FAIL**: Gate failed, fix required
+- **BLOCKED**: Cannot verify (e.g., no test framework detected) — escalate to user
+- **NEEDS_CONTEXT**: Gate requires information not available — escalate to user
+
+**Gate failure:** Fix and re-run check with fresh output. Gates are checked once after all wave tasks are implemented, not per-task.
+
+#### Recommended: Test-Driven Development
+
+When implementing tasks, RED-GREEN-REFACTOR is the recommended workflow:
+
+1. **RED**: Write a failing test that describes the desired behavior
+2. **Verify RED**: Run the test, confirm it fails for the *expected* reason (not a typo or import error)
+3. **GREEN**: Write minimal code to make the test pass
+4. **Verify GREEN**: Run the full test suite, confirm all tests pass
+5. **REFACTOR**: Clean up while keeping tests green
+
+**This is a recommendation, not a hard gate.** Quality Gate #3 (Tests green) enforces that tests pass. TDD enforces that tests are *meaningful*.
+
+**Anti-patterns to avoid:**
+- Writing implementation first, tests after — tests that pass immediately prove nothing
+- "Too simple to test" — simple code breaks; the test takes 30 seconds
+- "I'll test after" — tests written after verify the *implementation*, not the *requirement*
+
+**When to skip TDD:** Configuration-only changes, generated code, prototype/spike tasks (but add tests before marking COMPLETED).
+
+**Task tracking:** Use `TaskCreate`/`TaskUpdate` for real-time progress visibility. Update `tasks.md` Status fields as tasks complete.
+
+#### Subagent Mode (Conditional)
+
+**Activates when:** `--subagent` flag is set. Replaces default Step 4.1c behavior for task implementation.
+
+When in subagent mode, instead of the orchestrator implementing all tasks in the wave, dispatch a **fresh subagent per task** within the wave. Tasks are executed sequentially (not in parallel, to avoid conflicts).
+
+Read [SUBAGENT-MODE.md](../SUBAGENT-MODE.md) for the complete per-task execution protocol, including:
+- Context preparation and dispatch
+- Status handling (DONE/DONE_WITH_CONCERNS/NEEDS_CONTEXT/BLOCKED)
+- Per-task two-stage review (spec compliance + code quality)
+- Per-task confession recording
+- Model selection by task complexity
+
+**After all tasks in wave complete (subagent mode):** Skip Step 4.1e (already reviewed per task). Proceed to Step 4.1d (aggregate confessions) then Step 4.1f (wave checkpoint).
+
+**Default mode (no `--subagent`):** Step 4.1c and 4.1e work as described below — wave-level implementation and wave-level two-stage review.
+
+#### UI Implementation with Stitch (Conditional)
+
+**Skip this section if:** No `## Design Assets` section in plan.md or status is "Skipped".
+
+When starting a UI-related task, check if Stitch exports are available:
+
+1. Read plan.md and locate `## Design Assets` section
+2. If exports exist (`stitch_exports_path` is set):
+   - For each UI component task, match to corresponding Stitch export
+   - Use `AskUserQuestion` to offer `stitch-to-react` conversion
+   - If accepted: invoke `Skill` tool with `skill: "stitch-to-react"`
+3. If exports don't exist but were expected (status "Pending generation"):
+   - Warn user, continue with manual implementation
+
+### Step 4.1d: Confession Recording (Confession Pattern)
+
+After implementation passes quality gates, record confessions before the two-stage wave review.
+
+For each completed task in this wave, write a confession block to `{spec_path}/wave-{N}-context.md` under `## Confessions — Wave {N}`:
+
+```markdown
+### T-{XX}: {Task Title}
+- **Shortcuts**: [What was done expediently vs. ideally, or "None"]
+- **Assumptions**: [Unverified beliefs the code depends on, or "None"]
+- **Uncertainties**: [Areas where confidence is low, or "None"]
+- **Deviations**: [Where implementation diverged from plan.md, or "None"]
+```
+
+**Incentive framing:** The confessor is rewarded for surfacing problems, not for appearing competent. Honest confessions lead to focused, efficient review. Minimal confessions lead to broader, slower review.
+
+### Step 4.1e: Two-Stage Wave Review (Critic-Actor Pattern)
+
+Launch two sequential review stages for this wave's implementation. Stage 1 must pass before Stage 2 runs.
+
+**Skip if:** `--subagent` mode is active AND all tasks in this wave passed per-task review (see [SUBAGENT-MODE.md](../SUBAGENT-MODE.md)). Proceed directly to Step 4.1f.
+
+**Agent model:** sonnet (or opus if `--validate` flag is set)
+
+#### Stage 1: Spec Compliance Review
+
+**Purpose:** Verify the wave built what was requested — nothing more, nothing less.
+
+**Agent input:**
+- FR-XXX requirements from spec.md relevant to this wave's tasks
+- Task descriptions and acceptance criteria from tasks.md
+- Confessions from Step 4.1d
+- Git diff for this wave (`git diff` since wave start)
+
+**Agent instructions:** Read [REVIEW-SPEC.md](../reviews/REVIEW-SPEC.md) for the full prompt template.
+
+**Key checks:** Missing requirements, extra/unneeded work, acceptance criteria verification (file:line), confession validation.
+
+**Return:** PASS or ISSUES (with file:line refs and affected FR-XXX/criteria)
+
+**If ISSUES:** Builder fixes listed issues, spec reviewer re-reviews (1 retry bound across both stages).
+
+#### Stage 2: Code Quality Review
+
+**Only runs after Stage 1 passes.**
+
+**Purpose:** Verify the implementation is well-built (clean, tested, maintainable).
+
+**Agent input:**
+- Git diff for this wave
+- Confessions from Step 4.1d (shortcuts, assumptions)
+- Quality gate results from Step 4.1c
+
+**Agent instructions:** Read [REVIEW-QUALITY.md](../reviews/REVIEW-QUALITY.md) for the full prompt template.
+
+**Key checks:** Confessed weak spots (priority), cross-task interactions, file responsibility, test quality.
+
+**Exclude:** Subjective style preferences, speculative issues, items that linters/tests would catch (quality gates already handle those).
+
+**Return:** PASS or ISSUES (with file:line refs and severity: Critical/Important/Minor)
+
+#### Bounded Retry (across both stages)
+
+- **If both stages PASS:** Proceed to Step 4.1f
+- **If ISSUES in either stage:** Builder fixes, reviewer re-reviews
+- **After 1 rejection across both stages combined:** Approve with notes. Record notes in wave-context.md under `## Wave Review Result`
+
+### Step 4.1f: Wave Checkpoint
+
+**Gate: Tier 2** (skippable with `--auto` — auto-continues to next wave)
+
+**Skip if:** Wave was entirely skipped (no tasks executed).
+
+After completing all selected tasks and passing the two-stage wave review:
+
+#### 1. Collect Wave Metrics
+
+- Tasks completed in this wave (count and IDs)
+- Files changed (`git diff --stat` since wave start)
+- Test status (run test suite, count passing/failing)
+- Commits made during this wave (`git log --oneline` since wave start)
+- Wave review verdict (PASS or notes from both stages)
+
+#### 2. Generate Wave Context File
+
+Use [wave-context.md.template](../templates/wave-context.md.template) to generate `{spec_path}/wave-{N}-context.md`:
+
+- Fill in feature summary from `spec.md`
+- Fill in architecture overview from `plan.md`
+- Fill in completed wave data from collected metrics
+- Fill in confessions from Step 4.1d
+- Fill in wave review result from Step 4.1e (both stages)
+- Fill in next wave details from `tasks.md` (SELECTED tasks in Wave {N+1})
+- Fill in git state (branch, last commit, diff stat)
+- Fill in resume instructions with `{spec_path}`
+
+Write the file using the `Write` tool.
+
+#### 3. Check for More Waves
+
+- **If more waves with SELECTED tasks remain**: Present continue/stop choice
+- **If all waves complete**: Log "All waves complete", proceed to Step 4.2
+
+#### 4. Continue or Stop
+
+Use `AskUserQuestion`:
+
+- **header**: "Wave Complete"
+- **question**: "Wave {N} complete: {tasks_done} tasks, {files_changed} files changed, {tests_passing}/{tests_total} tests passing. Review: {verdict}. {next_wave_summary}. How to proceed?"
+- **options**:
+  - { label: "CONTINUE (Recommended)", description: "Proceed to Wave {N+1} in current session" }
+  - { label: "STOP", description: "Save context, copy resume command to clipboard, and exit" }
+
+**Response Handling:**
+
+- **CONTINUE**: Proceed to Step 4.1a for Wave {N+1}
+- **STOP**: Save wave context, copy resume command to clipboard, display resume instructions, and exit Phase 4 (skip Step 4.2):
+  1. Use `Bash` tool: `printf '/core:develop @{spec_path}/' | pbcopy` (macOS) or equivalent
+  2. Display:
+
+  ```
+  Wave {N} context saved to {spec_path}/wave-{N}-context.md
+  Resume command copied to clipboard.
+
+  To resume in this session:
+  /core:develop @{spec_path}/
+
+  For a fresh context window (recommended for large features):
+  1. Run /clear (or start a new conversation)
+  2. Paste and run: /core:develop @{spec_path}/
+  ```
+
+**`--auto` mode**: Auto-continue to next wave without stopping.
+
+---
+
+## Step 4.2: Quality & Completion Gate
+
+### TIER 1 CHECKPOINT — MANDATORY STOP
+
+**This checkpoint CANNOT be skipped, even with `--auto`.**
+
+Before presenting this gate:
+
+1. Aggregate wave review results from all waves (both stages' verdicts + notes)
+2. Aggregate confessions from all waves
+3. Run RULE ZERO verification **with fresh evidence** (see [EVIDENCE-GATES.md](../EVIDENCE-GATES.md)):
+   - [ ] All tasks marked `completed` in tasks.md (read from disk, not TaskList memory)
+   - [ ] All FR-XXX requirements have file:line implementation evidence
+   - [ ] Files actually modified — fresh `git diff --stat` output captured
+   - [ ] Tests pass — fresh test suite output with pass/fail counts captured
+   - [ ] No placeholder code — fresh grep output: 0 matches for TODO/FIXME/NotImplementedError
+   - [ ] Subagent/review recommendations were implemented (not just analyzed)
+
+**Ask using AskUserQuestion:**
+
+Present combined quality review + RULE ZERO status, then use `AskUserQuestion` tool:
+
+- **header**: "Quality & Completion"
+- **question**: "[RULE ZERO: N/6 checks passed with fresh evidence]. [Wave reviews: N waves passed, N approved with notes]. Mark implementation complete?"
+- **options**:
+  - { label: "APPROVE — Mark Complete", description: "All checks pass, proceed to Phase 5 summary" }
+  - { label: "REVIEW — Show diff & details", description: "Show git diff, full confession report, and review notes" }
+  - { label: "FIX — Return to implementation", description: "Address issues, then re-present this gate" }
+  - { label: "VERIFY UI — Test in browser", description: "Run Playwright verification before approving" }
+
+**CRITICAL: STOP HERE. DO NOT PROCEED TO PHASE 5 UNTIL USER SELECTS "APPROVE — Mark Complete".**
+
+**Response Handling:**
+
+- **APPROVE — Mark Complete**: Proceed to Phase 5 (PHASE-5-SUMMARY.md)
+- **REVIEW — Show diff & details**: Execute `git diff`, display confessions and review notes from all waves, then re-present this gate
+- **FIX — Return to implementation**: Return to implementation work. When done, re-run quality gates and wave review, then re-present this gate
+- **VERIFY UI — Test in browser**: Run UI verification workflow (see below), then re-present this gate
+
+### UI Verification Workflow (when VERIFY UI selected)
+
+Live UI verification using Playwright CLI. Refer to the `playwright:playwright-cli` skill for the full command reference.
+
+1. **Ask for verification type:**
+   - **LIVE PREVIEW** - Serve the built UI in a live browser session for hands-on review (best for matching against the Phase 1 visual direction)
+   - **SCREENSHOT** - Navigate to URL and capture screenshot for visual review
+   - **INTERACTIVE** - Take accessibility snapshot, explore and interact with elements
+   - **TEST SCENARIO** - Run specific test steps (navigate, click, fill, verify)
+
+2. **Execute based on selection:**
+   - **LIVE PREVIEW:**
+     1. **Preflight:** `command -v arkhe-preview`. If not found, tell the user the live preview needs the `devtools` plugin (arkhe-preview CLI) and fall back to **SCREENSHOT**.
+     2. Start a session: `arkhe-preview start --project-dir "$(pwd)"`. Parse the JSON line for `url` and `screen_dir`.
+     3. Write the built component's rendered HTML/output into `screen_dir` (for a running dev server, serve a small fragment that iframes the local app URL, or copy the static build output).
+     4. Give the user the `url` to open and review the **real built UI** in-browser. If `## Design Assets` records a Phase 1 visual direction (prototype pick artifact or Claude Design link), reference it so they can compare built vs. intended.
+     5. When the user is done, `arkhe-preview stop <session_dir>`.
+   - **SCREENSHOT:** Ask for URL, open page, capture screenshot, present for confirmation
+   - **INTERACTIVE:** Ask for URL, navigate, capture accessibility snapshot, offer interaction
+   - **TEST SCENARIO:** Ask for test steps (or reference task acceptance criteria), execute each step, report pass/fail
+
+3. **After verification:** Return to Quality & Completion gate with results included
+
+---
+
+## Output
+
+Phase 4 produces:
+
+- Implemented feature code
+- Wave context files (`wave-{N}-context.md`) with confessions and review results for each completed wave
+- Updated `tasks.md` with Status fields (SELECTED/DEFERRED/COMPLETED)
+- Quality gate results per wave (with fresh evidence)
+- Two-stage wave review verdicts per wave
+- UI verification status (if performed)
+
+**Next:** Proceed to [PHASE-5-SUMMARY.md](PHASE-5-SUMMARY.md)

@@ -1,0 +1,16 @@
+{
+  "name": "thinking-tools",
+  "displayName": "Thinking Tools",
+  "version": "1.2.3",
+  "description": "Analytical thinking tools - dialectic analysis, bias elimination, codex consultation",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Umputun"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/umputun/cc-thingz",
+  "repository": "https://github.com/umputun/cc-thingz",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

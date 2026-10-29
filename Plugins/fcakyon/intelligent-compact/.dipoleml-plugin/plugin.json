@@ -1,0 +1,16 @@
+{
+  "name": "intelligent-compact",
+  "displayName": "Intelligent Compact",
+  "version": "1.0.3",
+  "description": "Keep file paths, root causes, and open questions through auto-summaries.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Fcakyon"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/fcakyon/claude-codex-settings",
+  "repository": "https://github.com/fcakyon/claude-codex-settings",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

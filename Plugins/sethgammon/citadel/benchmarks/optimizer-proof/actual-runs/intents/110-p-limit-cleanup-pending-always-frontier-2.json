@@ -1,0 +1,15 @@
+{
+  "schema": 1,
+  "kind": "citadel_optimizer_matrix_intent",
+  "authorization_digest": "sha256:b17292a5a08b6ea705f82d5c265e047aa65bb9f774d2fc5ea085648e0fdab1eb",
+  "ordinal": 110,
+  "run_key": "p-limit-cleanup-pending/always-frontier/2",
+  "scenario_id": "p-limit-cleanup-pending",
+  "policy_id": "always-frontier",
+  "repetition": 2,
+  "state": "completed",
+  "started_at": "2026-07-31T05:16:52.005Z",
+  "completed_at": "2026-07-31T05:29:43.280Z",
+  "output_file": "records/110-p-limit-cleanup-pending-always-frontier-2.json",
+  "error": null
+}

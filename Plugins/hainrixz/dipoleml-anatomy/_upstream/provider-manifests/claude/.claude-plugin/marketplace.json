@@ -1,0 +1,33 @@
+{
+  "name": "claude-anatomy",
+  "owner": {
+    "name": "Hainrixz",
+    "url": "https://github.com/Hainrixz"
+  },
+  "metadata": {
+    "description": "Te dice qué construir en Claude Code —skill, subagente, hook, servidor MCP, plugin, rutina, una página web, una app, o nada— con el árbol de decisión y el esqueleto de archivos de la pieza elegida.",
+    "homepage": "https://github.com/Hainrixz/claude-anatomy",
+    "website": "https://www.tododeia.com"
+  },
+  "plugins": [
+    {
+      "name": "claude-anatomy",
+      "source": "./",
+      "version": "0.3.1",
+      "description": "Te dice qué construir en Claude Code —skill, subagente, hook, servidor MCP, plugin, rutina, una página web, una app, o nada— con el árbol de decisión y el esqueleto de archivos de la pieza elegida.",
+      "keywords": [
+        "skill",
+        "claude-code",
+        "la-forja",
+        "claude",
+        "anatomy"
+      ],
+      "author": {
+        "name": "Hainrixz",
+        "url": "https://github.com/Hainrixz"
+      },
+      "license": "MIT",
+      "homepage": "https://github.com/Hainrixz/claude-anatomy"
+    }
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "name": "building-with-typesafe-jev",
+  "version": "0.3.0",
+  "description": "Unofficial Claude Code skill for building with TypeSafe AI's Jev: the typed Choice/Score/Noul API, calibrated-confidence routing, field-tested anti-patterns, and links to 150+ community projects sorted by implementation shape, with a code sketch per pattern.",
+  "author": {
+    "name": "aaddrick",
+    "url": "https://github.com/aaddrick"
+  },
+  "homepage": "https://github.com/aaddrick/building-with-typesafe-jev",
+  "repository": "https://github.com/aaddrick/building-with-typesafe-jev",
+  "license": "MIT",
+  "keywords": [
+    "typesafe",
+    "jev",
+    "system-one",
+    "classification",
+    "structured-output",
+    "agent-skill"
+  ]
+}

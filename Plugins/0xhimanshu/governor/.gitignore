@@ -1,0 +1,17 @@
+.DS_Store
+Archive.zip
+__pycache__/
+*.pyc
+*.pyo
+*.log
+*.tmp
+.env
+.env.*
+!.env.example
+benchmarks/latest-*.json
+benchmarks/captured/*/latest-summary.json
+benchmarks/captured/*/latest-summary-*.json
+benchmarks/captured/governor/latest-summary.json
+dist/
+build/
+.pytest_cache/

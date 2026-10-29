@@ -1,0 +1,16 @@
+{
+  "name": "spec-interview",
+  "displayName": "Spec Interview",
+  "version": "1.1.1",
+  "description": "Refine a rough SPEC.md into an implementation-ready specification through a multi-round interview, then break it into ordered tasks. Use when starting a new feature or turning a rough idea into something a developer can build without asking questions.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Leandroz"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/leandroz/claude-plugins",
+  "repository": "https://github.com/leandroz/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

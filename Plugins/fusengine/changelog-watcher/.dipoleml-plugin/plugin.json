@@ -1,0 +1,16 @@
+{
+  "name": "changelog-watcher",
+  "displayName": "Changelog Watcher",
+  "version": "1.0.17",
+  "description": "DipoleML update watcher: changelog tracking, breaking changes detection, community pulse via Exa, plugin compatibility analysis",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Fusengine"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/fusengine/agents",
+  "repository": "https://github.com/Fusengine/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

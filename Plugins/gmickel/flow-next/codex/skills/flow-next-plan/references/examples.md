@@ -1,0 +1,365 @@
+# Plan examples
+
+Worked good and bad shapes for specs and tasks. Read from Step 5 at STANDARD or DEEP depth, or when unsure how to shape a spec or task.
+
+## The Golden Rule in Practice
+
+Plans never contain implementation CODE. The spec describes WHAT to build and
+why; the task describes the concrete approach — named files, patterns,
+ordering (the HOW) — but stops short of writing the implementation itself.
+
+---
+
+## Good vs Bad: Epic Specs
+
+### ❌ BAD: Epic with implementation code
+
+```markdown
+# Backend Abstraction
+
+## Implementation
+
+\`\`\`typescript
+interface WorkerBackend { /* every method and field */ }
+const backends = new Map<string, WorkerBackend>();
+export function registerBackend(backend: WorkerBackend) {
+  backends.set(backend.name, backend);
+}
+\`\`\`
+```
+
+**Problems:**
+- Complete interface definitions (implementer will write these anyway)
+- Full registry implementation (copy-paste ready = wasted planning tokens)
+- No references to existing patterns in the codebase
+
+### ✅ GOOD: Epic without implementation code
+
+```markdown
+# Backend Abstraction
+
+## Goal & Context
+Abstract worker spawning so any CLI (claude, codex, droid) can run workers.
+
+## Architecture & Data Models
+- A `WorkerBackend` interface with spawn/isAlive/kill methods
+- A registry for backend lookup, following the repo's existing plugin-registry pattern
+- One backend per module
+
+## Quick commands
+\`\`\`bash
+bun test src/lib/backend.test.ts
+\`\`\`
+
+## Acceptance Criteria
+- **R1:** Workers spawn through a `WorkerBackend` looked up by name in the registry. Errors: an unknown backend name fails with a message listing the registered names.
+- **R2:** claude and codex backends are registered, and the existing spawn path runs through the registry (no error surface beyond R1).
+
+## Decision Context
+- File-based completion detection (not process exit codes) — workers are detached
+- Prompt via CLI arg for claude, stdin for codex (per their docs)
+```
+
+**Why this is better:**
+- Describes the approach, not the code
+- Names the existing pattern it follows; the task carries its `file:line`
+- Key decisions captured (file-based detection, prompt delivery)
+- R-ID acceptance criteria, each with its error cases
+
+---
+
+## Good vs Bad: Task Specs
+
+### ❌ BAD: Task that restates the spec
+
+```markdown
+# fn-2.3: Implement claude backend
+
+## Description
+The worker pool only supports codex today... [spec's problem framing,
+architecture rationale, and re-told R2 acceptance — retold at task length]
+```
+
+**Problems:**
+- Everything above is the PARENT SPEC retold — framing, rationale, re-told acceptance
+- Executors get the task TOGETHER with the full parent spec (anchor bundle), so restated content is generated twice, delivered twice, and drifts — plan-sync then chases it
+- Reference R-IDs and spec sections instead: `Implements R2 (see spec §Architecture)` is the whole context a task needs
+
+### ✅ GOOD: Task as delegation payload
+
+```markdown
+---
+satisfies: [R2]
+---
+
+# fn-2.3: Implement claude backend
+
+## Description
+Create the claude backend adapter (R2). Split from fn-2.2 because each
+backend is an independent adapter behind the interface fn-2.1 landed.
+
+**Size:** S
+**Files:** `src/lib/backends/claude.ts`, `src/lib/backend.ts` (registration)
+**Touches:** [src/lib/backends/claude.ts, src/lib/backend.ts]
+
+## Approach
+- Follow codex backend pattern at `src/lib/backends/codex.ts:15-40`
+- Use `Bun.spawn` for process management
+- Prompt via `-p` flag (not stdin) per claude CLI
+
+## Investigation targets
+**Required** (read before coding):
+- `src/lib/backends/codex.ts:15-40` — codex backend to mirror
+- `src/lib/backend.ts` — registration entry point
+
+**Optional** (reference as needed):
+- `src/lib/backends/codex.test.ts` — existing test patterns
+
+## Key context
+- Must be detached process (background worker pattern)
+- Log to `logFile` parameter for verdict parsing
+
+## Acceptance
+- [ ] Implements spawn/isAlive/kill per interface
+- [ ] Registered on module import
+- [ ] `bun test` passes
+- [ ] `bun run lint` passes
+```
+
+**Why this is better:**
+- The delegation payload: named files, concrete approach, task-scoped
+  acceptance — a cheaper implementer builds without re-deriving design
+  decisions
+- References R2 instead of restating what R2 says — the executor reads the
+  spec alongside the task
+- `**Touches:**` declares the write surface for later concurrency planning
+- Points to pattern to follow (`codex.ts:15-40`); notes key decision (prompt
+  via `-p` flag)
+- Implementer has freedom to write the actual code; acceptance is testable
+
+---
+
+## Task Breakdown Example
+
+### ❌ BAD: Monolithic task
+
+```markdown
+# fn-1.1: Implement Google OAuth
+
+Add Google OAuth authentication to the application.
+```
+
+**Problems:**
+- Way too large (~200k+ tokens to implement)
+- No clear boundaries
+- No file references
+
+### ❌ BAD: Over-split into tiny tasks
+
+```markdown
+# fn-1.1: Add Google OAuth environment config (S)
+# fn-1.2: Install and configure passport-google-oauth20 (S)
+# fn-1.3: Create OAuth callback routes (M)
+# fn-1.4: Add Google sign-in button to login UI (S)
+```
+
+**Problems:**
+- 4 tasks when 2 would suffice
+- fn-1.1 → fn-1.2 → fn-1.3 are sequential, should be combined
+- Task overhead without real parallelization benefit
+
+### ✅ GOOD: Right-sized M tasks
+
+```markdown
+# fn-1.1: Google OAuth backend
+**Size:** M | **Files:** `.env.example`, `src/config/env.ts`, `src/auth/strategies/google.ts`, `src/routes/auth.ts`
+
+Implement Google OAuth:
+- Add GOOGLE_CLIENT_ID/SECRET to env config
+- Create passport strategy following pattern at `src/auth/strategies/local.ts`
+- Add /auth/google and /auth/google/callback routes per `src/routes/auth.ts:50-80`
+
+## Acceptance
+- [ ] Env vars validated on startup
+- [ ] OAuth flow redirects to Google and back
+- [ ] User created/updated on successful auth
+- [ ] `bun test` passes
+
+---
+
+# fn-1.2: Google sign-in button
+**Size:** S | **Files:** `src/components/LoginForm.tsx`
+
+Add Google sign-in button following existing auth buttons
+at `src/components/LoginForm.tsx:25-40`.
+
+## Acceptance
+- [ ] Button renders with Google branding
+- [ ] Click initiates OAuth flow
+```
+
+**Why this is better:**
+- 2 tasks instead of 4 (sequential backend work combined)
+- M task for substantial backend work fits one context
+- S task for isolated frontend work
+- Clear file references and patterns
+- Testable acceptance criteria
+
+---
+
+## When Code IS Appropriate
+
+### Recent API changes (from docs-scout)
+
+```markdown
+## Key context
+
+React 19 introduces `useOptimistic` for optimistic UI updates:
+\`\`\`typescript
+const [optimisticState, addOptimistic] = useOptimistic(state, updateFn);
+\`\`\`
+Use this instead of manual state management for the cart updates.
+```
+
+### Non-obvious gotcha (from practice-scout)
+
+```markdown
+## Key context
+
+Bun.spawn with `stdout: file` requires explicit cleanup:
+\`\`\`typescript
+// MUST close file handle or truncation occurs
+await proc.exited;
+\`\`\`
+See: https://github.com/oven-sh/bun/issues/1234
+```
+
+### Existing repo pattern (from repo-scout)
+
+```markdown
+## Approach
+
+Follow the validation pattern at `src/lib/validators.ts:42-55`:
+\`\`\`typescript
+// Shows the pattern shape, not the implementation you'll write
+export function validateX(input: T): Result<T, ValidationError>
+\`\`\`
+```
+
+---
+
+## Mermaid Diagrams
+
+Include a mermaid diagram when the change involves:
+- New database tables or schema changes
+- New services or significant architecture changes
+- Complex data flow between components
+
+### ERD for data model changes
+
+```markdown
+## Architecture & Data Models
+
+\`\`\`mermaid
+erDiagram
+    User ||--o{ Session : has
+    User ||--o{ OAuthToken : has
+    OAuthToken {
+        string provider
+        string access_token
+        string refresh_token
+        datetime expires_at
+    }
+\`\`\`
+```
+
+### Flowchart for architecture/data flow
+
+```markdown
+## Architecture & Data Models
+
+\`\`\`mermaid
+flowchart LR
+    Client --> API
+    API --> AuthService
+    AuthService --> Google[Google OAuth]
+    AuthService --> DB[(Database)]
+\`\`\`
+```
+
+**Keep diagrams simple** — 5-10 nodes max. If it needs more, the feature may need splitting.
+
+---
+
+## Good vs Bad: Investigation Targets
+
+### ❌ BAD: Vague or flooded targets
+
+```markdown
+## Investigation targets
+- The authentication code
+- Look at the middleware folder
+- Check the tests
+- See how sessions work
+- The database layer
+- Configuration files
+- The frontend auth components
+- Error handling patterns
+- Logging setup
+- The CI pipeline
+- Deployment scripts
+```
+
+**Problems:**
+- Vague descriptions ("the authentication code") — no file paths
+- 11 targets — too many, destroys focus
+- No Required/Optional tiers — everything feels equal priority
+- No line ranges — worker must search blindly
+
+### ✅ GOOD: Precise, tiered targets
+
+```markdown
+## Investigation targets
+**Required** (read before coding):
+- `src/auth/strategies/local.ts:10-35` — passport strategy pattern to follow
+- `src/routes/auth.ts:50-80` — existing auth route registration
+- `src/config/env.ts:12-20` — env var validation pattern
+
+**Optional** (reference as needed):
+- `src/auth/strategies/local.test.ts` — test patterns for strategies
+- `tests/fixtures/auth.ts` — shared test fixtures
+```
+
+**Why this is better:**
+- Exact file paths with line ranges — worker knows exactly where to look
+- 5 targets total (within 5-7 limit)
+- Required vs Optional tiers — worker reads Required first, Optional as-needed
+- Derived from scout findings (paths verified at plan time)
+
+---
+
+## Good vs Bad: Error-case enumeration
+
+### ❌ BAD: Criterion with no error cases
+
+```markdown
+## Acceptance Criteria
+- **R1:** Parse config file into typed settings
+- **R2:** Settings object is frozen after load
+```
+
+**Problems:**
+- Silence on malformed input, missing file, size limits — incomplete
+- Worker has no negative cases to test against
+
+### ✅ GOOD: Errors inside the R-ID bullet
+
+```markdown
+## Acceptance Criteria
+- **R1:** Parse config file into typed settings. Errors: malformed JSON → clear message + non-zero exit; missing file → same; over size limit → reject.
+- **R2:** Settings object is frozen after load (no error surface beyond R1).
+```
+
+**Why this is better:**
+- Each behavioral R-ID names its error/invalid/boundary handling, or records "no error surface beyond X"
+- One-line "none" is complete; silence is not

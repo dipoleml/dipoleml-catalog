@@ -1,0 +1,146 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.xiaobei930.cc-best",
+  "type": "plugin",
+  "name": "CC Best",
+  "slug": "cc-best",
+  "vendor": "xiaobei930",
+  "description": "🎭 cc-best: Turn DipoleML into a full dev team — PM→Lead→Dev→QA autonomous workflow. 44 commands · 19 skills · 8 agents · 43 rules · 30 hooks · auto-learning pipeline. | 一个插件，完整开发团队。",
+  "version": "0.11.0",
+  "homepage": "https://github.com/xiaobei930/cc-best",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agentic-coding",
+    "ai-coding",
+    "anthropic",
+    "auto-learning",
+    "best-practices",
+    "claude-code-agents",
+    "claude-code-hooks",
+    "claude-code-plugin",
+    "claude-code-skills"
+  ],
+  "tags": [
+    "agentic-coding",
+    "ai-agent",
+    "ai-coding",
+    "anthropic",
+    "auto-learning",
+    "best-practices",
+    "claude",
+    "claude-code",
+    "claude-code-agents",
+    "claude-code-hooks",
+    "claude-code-plugin",
+    "claude-code-skills",
+    "claude-plugin",
+    "cli-tool",
+    "coding-standards",
+    "developer-tools",
+    "prompt-engineering",
+    "tdd",
+    "vibe-coding",
+    "workflow-automation"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "xiaobei930",
+    "brandName": "xiaobei930",
+    "source": "https://github.com/xiaobei930.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:15:24Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "xiaobei930/cc-best",
+    "url": "https://github.com/xiaobei930/cc-best",
+    "commit": "a75ef2595230ad53fdd1711fd0cb6250d833541c",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 48,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:05:46Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "CC Best | 🎭 cc-best: Turn Claude Code into a full dev team — PM→Lead→Dev→QA autonomous workflow. 44 commands · 19 skills · 8 agents · 43 rules · 30 hooks · auto-learning pipeline. | 一个插件，完整开发团队。",
+        "after": "CC Best | 🎭 cc-best: Turn DipoleML into a full dev team — PM→Lead→Dev→QA autonomous workflow. 44 commands · 19 skills · 8 agents · 43 rules · 30 hooks · auto-learning pipeline. | 一个插件，完整开发团队。",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Production-ready Claude Code configuration with role-based workflows (PM→Lead→Designer→Dev→QA), safety hooks, 44 commands, 19 skills, 8 agents, 43 rules, 30 hook scripts across 20 events, auto-learning pipeline, hook profiles, and multi-language coding standards",
+        "after": "Production-ready DipoleML configuration with role-based workflows (PM→Lead→Designer→Dev→QA), safety hooks, 44 commands, 19 skills, 8 agents, 43 rules, 30 hook scripts across 20 events, auto-learning pipeline, hook profiles, and multi-language coding standards",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "cc-best"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

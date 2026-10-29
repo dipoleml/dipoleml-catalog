@@ -1,0 +1,25 @@
+{
+  "name": "datadog-api-claude-plugin",
+  "version": "1.17.0",
+  "description": "A Claude plugin that provides Datadog agents for querying and configuring observability data using the pup CLI tool",
+  "keywords": [
+    "datadog",
+    "claude",
+    "plugin",
+    "monitoring",
+    "observability",
+    "api",
+    "pup",
+    "cli"
+  ],
+  "author": {
+    "name": "Datadog",
+    "email": "support@datadoghq.com"
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DataDog/datadog-api-claude-plugin"
+  },
+  "homepage": "http://www.datadoghq.com"
+}

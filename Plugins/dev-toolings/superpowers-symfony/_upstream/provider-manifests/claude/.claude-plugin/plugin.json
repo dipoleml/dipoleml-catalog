@@ -1,0 +1,41 @@
+{
+  "name": "superpowers-symfony",
+  "version": "0.4.0",
+  "description": "A Symfony toolkit for coding agents providing TDD (Pest/PHPUnit), Doctrine ORM, API Platform, Messenger, Voters, quality checks (PHP-CS-Fixer/PHPStan), and pragmatic architecture patterns - Docker Compose and Symfony Docker (FrankenPHP) compatible",
+  "author": {
+    "name": "MakFly"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/dev-toolings/superpowers-symfony",
+  "repository": "https://github.com/dev-toolings/superpowers-symfony.git",
+  "keywords": [
+    "symfony",
+    "php",
+    "docker",
+    "frankenphp",
+    "skills",
+    "tdd",
+    "doctrine",
+    "api-platform",
+    "messenger",
+    "architecture",
+    "workflows",
+    "quality",
+    "pest",
+    "phpunit",
+    "agent-skills",
+    "claude-code",
+    "claude-code-plugin"
+  ],
+  "skills": "./content/skills/",
+  "agents": [
+    "./content/agents/api-platform-builder.md",
+    "./content/agents/doctrine-architect.md",
+    "./content/agents/doctrine-performance-optimizer.md",
+    "./content/agents/symfony-engineer.md",
+    "./content/agents/symfony-reviewer.md",
+    "./content/agents/symfony-security-auditor.md",
+    "./content/agents/symfony-tdd-coach.md"
+  ],
+  "commands": "./content/commands/"
+}

@@ -1,0 +1,16 @@
+{
+  "name": "format-code",
+  "displayName": "Format Code",
+  "version": "1.0.0",
+  "description": "Auto-formats files the moment DipoleML writes them. A PostToolUse hook on Write|Edit runs ruff (check --fix + format, via uv) on Python and prettier (via npx) on JS/TS/JSON/MD/YAML/HTML, resolving relative paths against the session cwd and passing file paths as argv so shell metacharacters in filenames can never inject commands. Unsupported types and missing files are skipped silently, formatter failures never block the session, and every outcome logs to ~/.DipoleML/hooks-logs/.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Karanb192"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/karanb192/claude-code-hooks",
+  "repository": "https://github.com/karanb192/claude-code-hooks",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

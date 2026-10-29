@@ -1,0 +1,16 @@
+{
+  "name": "glean",
+  "displayName": "Glean",
+  "version": "3.6.1",
+  "description": "Use Glean to search your company's knowledge, chat with Glean Assistant, and discover and use the skills and connected tools available to your organization.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Gleanwork"
+  },
+  "license": "MIT",
+  "homepage": "https://docs.glean.com/administration/platform/mcp/about",
+  "repository": "https://github.com/gleanwork/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

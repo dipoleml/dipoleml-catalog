@@ -1,0 +1,14 @@
+{
+  "name": "robdmac",
+  "owner": {
+    "name": "Rob Macrae"
+  },
+  "description": "Rob Macrae's mods for coding agents",
+  "plugins": [
+    {
+      "name": "flow-scenes",
+      "source": "./",
+      "description": "Ambient scenes above the prompt that move with your agent's work: a fire, bubbles, surf, ski, rockets, a hot-air balloon and more, by day or night. /flow to control it."
+    }
+  ]
+}

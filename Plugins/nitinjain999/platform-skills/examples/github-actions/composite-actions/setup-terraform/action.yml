@@ -1,0 +1,112 @@
+name: 'Setup Terraform with Caching'
+description: 'Install Terraform and restore cached provider plugins in a single uses: call'
+author: 'Platform Team'
+
+inputs:
+  terraform_version:
+    description: 'Terraform version to install (e.g. 1.7.0, 1.8.x)'
+    required: false
+    default: '1.7.0'
+  working_directory:
+    description: 'Directory containing .terraform.lock.hcl (used for cache key)'
+    required: false
+    default: '.'
+  enable_cache:
+    description: 'Restore the Terraform provider plugin cache'
+    required: false
+    default: 'true'
+  terraform_wrapper:
+    description: 'Enable the Terraform binary wrapper (adds stdout/stderr/exitcode outputs)'
+    required: false
+    default: 'true'
+
+outputs:
+  terraform_version:
+    description: 'Exact installed Terraform version string'
+    value: ${{ steps.get_version.outputs.terraform_version }}
+  cache_hit:
+    description: 'true if the provider cache was restored from a prior run'
+    value: ${{ steps.cache.outputs.cache-hit }}
+
+runs:
+  using: 'composite'
+  steps:
+    # Validate inputs
+    - name: Validate inputs
+      shell: bash
+      env:
+        TF_VERSION: ${{ inputs.terraform_version }}
+      run: |
+        [[ -n "$TF_VERSION" ]] || \
+          { echo "::error::terraform_version must not be empty"; exit 1; }
+        echo "::notice::Installing Terraform $TF_VERSION"
+
+    # Create provider cache directory and write .terraformrc
+    - name: Create provider cache directory
+      shell: bash
+      env:
+        ENABLE_CACHE: ${{ inputs.enable_cache }}
+      run: |
+        if [[ "$ENABLE_CACHE" == "true" ]]; then
+          mkdir -p ~/.terraform.d/plugin-cache
+          echo 'plugin_cache_dir = "$HOME/.terraform.d/plugin-cache"' > ~/.terraformrc
+          echo "::debug::Provider cache directory created at ~/.terraform.d/plugin-cache"
+        fi
+
+    # Restore provider cache
+    - name: Restore provider cache
+      id: cache
+      if: inputs.enable_cache == 'true'
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9  # v6.1.0
+      with:
+        path: |
+          ~/.terraform.d/plugin-cache
+        key: ${{ runner.os }}-terraform-${{ inputs.terraform_version }}-${{ hashFiles(format('{0}/.terraform.lock.hcl', inputs.working_directory)) }}
+        restore-keys: |
+          ${{ runner.os }}-terraform-${{ inputs.terraform_version }}-
+          ${{ runner.os }}-terraform-
+
+    # Install Terraform
+    - name: Setup Terraform
+      id: setup
+      uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e  # v4.0.1
+      with:
+        terraform_version: ${{ inputs.terraform_version }}
+        terraform_wrapper: ${{ inputs.terraform_wrapper }}
+
+    # Verify and capture installed version
+    - name: Verify Terraform installation
+      id: get_version
+      shell: bash
+      run: |
+        echo "::group::Terraform version"
+        terraform version
+        TF_VER=$(terraform version -json 2>/dev/null | jq -r '.terraform_version' 2>/dev/null \
+          || terraform version | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
+        echo "terraform_version=$TF_VER" >> "$GITHUB_OUTPUT"
+        echo "::endgroup::"
+
+    # Job summary
+    - name: Write job summary
+      if: always()
+      shell: bash
+      env:
+        TF_VERSION: ${{ inputs.terraform_version }}
+        CACHE_HIT: ${{ steps.cache.outputs.cache-hit }}
+        ENABLE_CACHE: ${{ inputs.enable_cache }}
+      run: |
+        {
+          echo "## Terraform Setup"
+          echo "| Key | Value |"
+          echo "|---|---|"
+          echo "| Version | \`$TF_VERSION\` |"
+          if [[ "$ENABLE_CACHE" == "true" ]]; then
+            echo "| Cache | \`${CACHE_HIT:-false}\` |"
+          else
+            echo "| Cache | disabled |"
+          fi
+        } >> "$GITHUB_STEP_SUMMARY"
+
+branding:
+  icon: 'download-cloud'
+  color: 'purple'

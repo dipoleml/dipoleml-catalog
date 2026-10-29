@@ -1,0 +1,1408 @@
+#!/usr/bin/env python3
+"""Build the statistic site from what is already on disk. Reads everything, writes only `data/`.
+
+READS: .chamnan/logs/*.jsonl via {
+
+🎯 [owner, 2026-09-23] A folder in chamnan for statistics, split into `data/` and `report/`,
+rendered as a page you click through. **No money and no model names.** Page one is what using this
+repository looks like and what difference chamnan makes; page two is which features actually fire,
+how often something is found, where the model's own mistakes are, and which files keep being
+edited. Newest at the top.
+
+**Every number names the file it came from, and a panel with no source is marked and greyed out.**
+A dashboard that invents a figure is worse than one that says it cannot — three panels are in that
+state today and the page says which, because an empty panel that explains itself is how a missing
+recorder gets built.
+
+    build_statistic.py            write data/ and report/
+    build_statistic.py --data     data only, for a machine
+
+The data is written twice on purpose: as JSON under `data/` for anything that wants to read it, and
+inlined into the HTML so the page opens from the filesystem with no server. A `fetch()` of a local
+JSON file is blocked by the browser's own origin rules, and a dashboard that needs a server running
+is a dashboard nobody opens.
+"""
+import argparse
+import collections
+import hashlib
+import json
+import os
+import pathlib
+import re
+import sys
+import time
+
+HERE = pathlib.Path(__file__).resolve().parent
+PLUGIN = HERE.parent
+# The page templates ship with the plugin; nothing a build produces is ever written beside them.
+TEMPLATES = HERE / "report"
+TEMPLATE_FILES = ("index.html", "features.html", "usage.html", "rates.html", "app.js", "app.css")
+
+sys.path.insert(0, str(PLUGIN / "lib"))
+
+# 🐛 [2026-09-24] (owner) The repository used to be found by walking two directories up from the plugin and the
+# data written beside this file: that assumed the plugin sits two directories inside it — true of the one machine it was
+# built on, false for every install from the marketplace — and every build wrote that repository's
+# activity INTO the plugin's own directory, which is shared by every repository that uses it and is
+# the tree that gets published. Now the repository is an argument (default: the one the command runs
+# in), and the data and the rendered pages go under that repository's own `.chamnan/statistic/`.
+ROOT = WS = LOGS = OUT = DATA = REPORT = SCAN_CACHE = None
+
+
+def bind(root):
+    """Point every path at `root`'s workspace. Called once, before anything reads a log."""
+    global ROOT, WS, LOGS, OUT, DATA, REPORT, SCAN_CACHE
+    import workspace as _ws
+    ROOT = _ws.find_root(root)
+    WS = ROOT / ".chamnan"
+    LOGS = WS / "logs"
+    OUT = WS / "statistic"
+    DATA = OUT / "data"
+    REPORT = OUT / "report"
+    SCAN_CACHE = WS / "state" / "statistic_scan_cache.json"
+try:
+    import tokens as _tok
+except Exception:                       # noqa: BLE001 — the estimator is a nicety, not a need
+    _tok = None
+
+DAYS = 30
+BUG = "\U0001F41B"
+
+
+# ---------------------------------------------------------------- reading what is already there
+
+def _count(v):
+    """A count read from a log field, or 0 when the field holds anything that is not a number."""
+    try:
+        return max(0, int(v or 0))
+    except (TypeError, ValueError, OverflowError):
+        return 0
+
+
+def rows(name):
+    """One log, as a list of dicts. Missing or unreadable is an empty list, said once by caller."""
+    path = LOGS / name
+    if not path.is_file():
+        return []
+    out = []
+    try:
+        with path.open(encoding="utf-8", errors="replace") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue
+                # 🐛 [2026-09-25] (R196, 2026-09-25) A line that parses but is not an object -- a list, a
+                # bare number -- reached `.get()` in a caller and the whole build stopped, so the
+                # dashboard silently froze at its last good build. Every reader here now skips it,
+                # the way append_jsonl already drops it on write.
+                if isinstance(rec, dict):
+                    out.append(rec)
+    except OSError:
+        return []
+    return out
+
+
+def when_of(row):
+    """Seconds since the epoch for a row, whichever of the four stamp spellings it uses."""
+    for key in ("at", "t", "ts", "when"):
+        v = row.get(key)
+        if isinstance(v, (int, float)):
+            return float(v)
+        if isinstance(v, str) and len(v) >= 19:
+            # 🐛 [2026-09-25] (self-measured) The first 19 characters were read as local time, dropping any
+            # zone. `failures.jsonl` stamps UTC (`Z`) and `subagent_start.jsonl` `+00:00`, so on a
+            # machine seven hours east every one of them moved seven hours back: 12 of 50 failures and
+            # 30 of 265 subagent starts were drawn on the previous day. A stamp that names its zone
+            # is read in it; one that names none is local, as before.
+            try:
+                import datetime as _dt
+                d = _dt.datetime.fromisoformat(v.strip().replace("Z", "+00:00"))
+                return d.timestamp() if d.tzinfo else time.mktime(d.timetuple())
+            except ValueError:
+                try:
+                    return time.mktime(time.strptime(v[:19], "%Y-%m-%dT%H:%M:%S"))
+                except ValueError:
+                    continue
+    return None
+
+
+def day_of(row):
+    w = when_of(row)
+    return time.strftime("%Y-%m-%d", time.localtime(w)) if w else None
+
+
+def estimate(text):
+    return int(_tok.estimate(text)) if _tok else max(1, len(text) // 4)
+
+
+def _session_origin(path):
+    """(cwd, entrypoint) from the first records of a transcript, or (None, None)."""
+    cwd = entry = None
+    try:
+        with path.open(encoding="utf-8", errors="replace") as fh:
+            for i, line in enumerate(fh):
+                if i > 400 or (cwd and entry):
+                    break
+                if '"cwd"' not in line and '"entrypoint"' not in line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(rec, dict):
+                    continue
+                cwd = cwd or rec.get("cwd")
+                entry = entry or rec.get("entrypoint")
+    except OSError:
+        pass
+    return cwd, entry
+
+
+def transcripts():
+    """The sessions a person worked in this repository, on the account in use.
+
+    \U0001F3AF [owner, 2026-09-24] Three things the denominator had wrong, all found by measuring
+    it: a person works in one account, so only the config directory in use is read, never
+    the other accounts a dispatcher may run on. Sessions started by a script (`claude -p`,
+    entrypoint `sdk-cli`) are left out: on Lumin-App in September they were a third of this
+    account's tokens, research dispatches and batch jobs the plugin never serves. And a session
+    started in a SUBDIRECTORY of the repository is stored under its own project key, so reading
+    only the root's key missed them; every key that starts with the root's is read, and the
+    transcript's own `cwd` decides, so a sibling repository whose name merely starts the same way
+    is not counted.
+    """
+    home = os.environ.get("CLAUDE_CONFIG_DIR") or str(pathlib.Path.home() / ".claude")
+    root = str(ROOT.resolve())
+    # 🐛 [2026-09-24] (self-measured) Claude Code names a project directory by replacing EVERY
+    # character that is not a letter or digit with `-`, not only `/`. `.replace("/", "-")` missed a
+    # repository whose path holds a dot, an underscore or a space, and every Windows path, whose
+    # separators and drive colon it left in place — found by the Windows CI legs.
+    key = re.sub(r"[^A-Za-z0-9]", "-", root)
+    base = pathlib.Path(home) / "projects"
+    if not base.is_dir():
+        return []
+    out = []
+    for d in base.iterdir():
+        if not d.is_dir() or not (d.name == key or d.name.startswith(key + "-")):
+            continue
+        for f in d.glob("*.jsonl"):
+            cwd, entry = _session_origin(f)
+            if not cwd or entry == "sdk-cli":
+                continue
+            if cwd == root or cwd.startswith(root + os.sep):
+                out.append(f)
+    return sorted(out)
+
+
+# 🎯 [owner, 2026-09-23] and the thing standing in the way was 35 seconds, 31.6 of them spent re-reading every
+# transcript on the machine on every build. A page that costs half a minute to refresh is a page
+# somebody refreshes by hand, which is what it was.
+#
+# 🔴 A finished transcript never changes. The scan is cached per FILE, keyed on its size and
+# mtime, so a rebuild reads only what was written since the last one. Nothing is inferred from the
+# cache: a file whose size or mtime moved is re-read in full, and a cache that cannot be read is
+# simply absent rather than trusted — the one thing worse than a slow figure is a stale one that
+# looks fresh.
+def _cached_scan(paths, reader, tag):
+    """{path: summary} for every path, reading only what is new since the last build.
+
+    \U0001F41B [2026-09-23] Keying on (size, mtime) alone made this session's OWN transcript miss the
+    cache on every build — it grows with every turn, and at 821 MB of the 1,094 MB on disk it was
+    the whole remaining cost. A transcript is append-only, so the fix is to remember where the
+    last read stopped and start there: `reader` is handed an offset and returns a summary plus
+    the offset it reached, and two summaries of one file are added together.
+
+    \U0001F534 A file that SHRANK, or whose earlier bytes changed, is re-read from zero. Trusting an
+    offset into a file that was rewritten would produce a total assembled from two different
+    versions of the same transcript, which is worse than being slow.
+    """
+    try:
+        cache = json.loads(SCAN_CACHE.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        cache = {}
+    if not isinstance(cache, dict):
+        cache = {}
+    out, fresh = {}, {}
+    for p in paths:
+        try:
+            st = p.stat()
+        except OSError:
+            continue
+        key = f"{tag}:{p}"
+        hit = cache.get(key)
+        start, base = 0, None
+        if isinstance(hit, dict) and isinstance(hit.get("value"), dict):
+            at = int(hit.get("at") or 0)
+            if at == st.st_size:
+                out[str(p)] = hit["value"]
+                fresh[key] = hit
+                continue
+            if at and at < st.st_size:          # grew: read the tail only
+                start, base = at, hit["value"]
+        got, at = reader(p, start, base)
+        if base is not None:
+            got = _merge_usage(base, got)
+        out[str(p)] = got
+        fresh[key] = {"at": at, "value": got}
+    # 🐛 [2026-09-25] (R102, 2026-09-25) Claude Code deletes a transcript 30 days after its session by
+    # default (`cleanupPeriodDays`), and this cache kept only the files still on disk, so every
+    # figure drawn from a deleted transcript left the page with it: the months the dashboard
+    # promises to keep for a year lasted thirty days. A summary whose file is GONE is kept as it
+    # was last read. One that still exists but is no longer listed (another project, a script
+    # session) is not, because that is a decision about the file, not the file disappearing. A
+    # kept summary leaves once every day it holds is older than the dashboard keeps.
+    listed = {f"{tag}:{p}" for p in paths}
+    oldest = time.strftime("%Y-%m-%d", time.localtime(time.time() - KEEP_DAYS * 86400))
+    for key, hit in cache.items():
+        if not key.startswith(tag + ":") or key in listed or key in fresh:
+            continue
+        path = key[len(tag) + 1:]
+        value = hit.get("value") if isinstance(hit, dict) else None
+        if not isinstance(value, dict) or os.path.exists(path):
+            continue
+        if max((value.get("days") or {"": 0}).keys(), default="") < oldest:
+            continue
+        out[path] = value
+        fresh[key] = hit
+    try:
+        SCAN_CACHE.parent.mkdir(parents=True, exist_ok=True)
+        SCAN_CACHE.write_text(json.dumps(fresh), encoding="utf-8")
+    except OSError:
+        pass
+    return out, 0
+
+
+def _merge_usage(a, b):
+    """Two summaries of the same file, in order, added together."""
+    tot = collections.Counter(a.get("tot") or {})
+    tot.update(b.get("tot") or {})
+    days = {d: collections.Counter(c) for d, c in (a.get("days") or {}).items()}
+    for d, c in (b.get("days") or {}).items():
+        days.setdefault(d, collections.Counter()).update(c)
+    return {"n": int(a.get("n") or 0) + int(b.get("n") or 0),
+            "tot": dict(tot), "days": {d: dict(c) for d, c in days.items()},
+            "spent": _merge_days(a.get("spent"), b.get("spent")),
+            "last": b.get("last") or a.get("last"),
+            "seen": sorted(set(a.get("seen") or ()) | set(b.get("seen") or ())),
+            "slots": _merge_days(a.get("slots"), b.get("slots")),
+            "spent_slots": _merge_days(a.get("spent_slots"), b.get("spent_slots")),
+            "pending": b.get("pending") if b.get("pending") is not None else a.get("pending")}
+
+
+def _merge_days(a, b):
+    out = {d: collections.Counter(c) for d, c in (a or {}).items()}
+    for d, c in (b or {}).items():
+        out.setdefault(d, collections.Counter()).update(c)
+    return {d: dict(c) for d, c in out.items()}
+
+
+# ---------------------------------------------------------------- the panels
+
+# 🎯 [2026-09-25] (owner) A day or an hour
+# bucketed here is bucketed in THIS machine's zone and cannot be moved afterwards. So every count is
+# also kept in fifteen-minute slots of UTC -- fine enough for the zones that sit on a half or a
+# quarter hour -- and the page adds the slots up into days, months and hours in whatever zone the
+# reader picks, its own by default.
+SLOT_MINUTES = 15
+
+
+def _slot(epoch):
+    """The UTC slot an instant falls in, as 'YYYY-MM-DDTHH:MM'."""
+    s = int(epoch) // (SLOT_MINUTES * 60) * (SLOT_MINUTES * 60)
+    return time.strftime("%Y-%m-%dT%H:%M", time.gmtime(s))
+
+
+def _stamp_slot(stamp):
+    """The UTC slot of a transcript stamp, or ''."""
+    try:
+        import datetime as _dt
+        d = _dt.datetime.fromisoformat(str(stamp).strip().replace("Z", "+00:00"))
+        return _slot(d.timestamp() if d.tzinfo else time.mktime(d.timetuple()))
+    except (ValueError, TypeError, OverflowError):
+        return ""
+
+
+def _local_day_hour(stamp):
+    """(YYYY-MM-DD, hour) on this machine's clock for a transcript stamp, or ("", 0)."""
+    try:
+        import datetime as _dt
+        d = _dt.datetime.fromisoformat(str(stamp).strip().replace("Z", "+00:00"))
+        d = d.astimezone() if d.tzinfo else d
+        return d.strftime("%Y-%m-%d"), d.hour
+    except (ValueError, TypeError):
+        s = str(stamp or "")
+        return (s[:10], 0) if len(s) >= 10 else ("", 0)
+
+
+def _usage_of(path, start=0, prev=None):
+    """One transcript, summarised: totals by kind, and the same totals per calendar day.
+
+    🐛 [2026-09-24] (owner) Every record carrying a usage block was counted, and Claude Code
+    writes ONE RECORD PER CONTENT BLOCK — a thinking block, a text block and each tool call of a
+    single response are separate lines, every one repeating that response's usage. On Lumin-App
+    that was 35,356 counted against 17,569 real requests, so every token total on the dashboard
+    was about double. The blocks of one response are written consecutively, so a record whose
+    (requestId, message id) matches the previous one is skipped; `prev` carries the last key
+    across an incremental read, so a response split by the read boundary is not counted twice.
+
+    🔴 Both scans that used to walk every transcript now share this one reader, so a file is
+    parsed once per build instead of twice — which is half the saving before the cache is even
+    consulted.
+    """
+    tot = collections.Counter()
+    per_day = collections.defaultdict(collections.Counter)
+    spent = collections.defaultdict(collections.Counter)
+    per_slot = collections.defaultdict(collections.Counter)
+    spent_slot = collections.defaultdict(collections.Counter)
+    n, at = 0, start
+    last = (prev or {}).get("last")
+    pending = dict((prev or {}).get("pending") or {})
+    # 🐛 [2026-09-25] (self-measured) A transcript can write an earlier record AGAIN, thousands of lines
+    # later in the same file, after a rewind or a restore; only a record repeating the one right
+    # before it was skipped. On this repository 571 of 19,171 counted requests were such second
+    # copies, 3.1% of every token total, and their Bash calls were counted twice as well. Every
+    # key seen in this file is kept, hashed short, and a key seen before is not counted again.
+    seen = set((prev or {}).get("seen") or ())
+
+    def _once(*parts):
+        h = hashlib.blake2b("|".join(str(x) for x in parts).encode("utf-8", "replace"),
+                            digest_size=6).hexdigest()
+        if h in seen:
+            return False
+        seen.add(h)
+        return True
+    # 🐛 [2026-09-25] (R75, 2026-09-25) The offset kept for the next read was `tell()` at end of file, and the
+    # transcript of the session still running always ends in a line being written. The next read
+    # began after that half line, the rest of it could not parse, and the record was lost for
+    # good: measured, a whole-file read saw 3 records and two incremental reads saw 2. Bytes now,
+    # the offset advances only past a line that has its newline, and a trailing half line is left
+    # for the next build. Decoding per line also keeps a byte offset from landing mid-character.
+    try:
+        with path.open("rb") as fh:
+            if start:
+                fh.seek(start)
+            for raw in fh:
+                if not raw.endswith(b"\n"):
+                    break
+                at += len(raw)
+                line = raw.decode("utf-8", errors="replace")
+                if not any(m in line for m in _SPEND_MARKS):
+                    continue
+                try:
+                    rec = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(rec, dict):
+                    continue
+                # 🐛 [2026-09-25] (self-measured) The day was the first ten characters of a UTC stamp,
+                # so everything done before 07:00 at +07:00 was booked to the day before. The
+                # stamp is turned into this machine's local day and hour, like every log beside it.
+                day, hour = _local_day_hour(rec.get("timestamp"))
+                slot = _stamp_slot(rec.get("timestamp"))
+                _into = collections.Counter()
+                _spent_on(rec, pending, _into)
+                if day:
+                    spent[day].update(_into)
+                if slot:
+                    spent_slot[slot].update(_into)
+                # 🐛 [2026-09-25] (self-measured) The command series was drawn from `commands.jsonl`,
+                # which keeps 300 ordinary commands a day for the workflow detector, so every busy
+                # day read ~300: 316 on a day with 1,671 Bash calls. Counted here, from the
+                # transcript, once per tool call.
+                if day and rec.get("type") == "assistant":
+                    for b in (rec.get("message") or {}).get("content") or []:
+                        if isinstance(b, dict) and b.get("type") == "tool_use" \
+                                and b.get("name") == "Bash" and _once("t", b.get("id")):
+                            per_day[day]["bash"] += 1
+                            per_day[day]["bash_h%02d" % hour] += 1
+                            if slot:
+                                per_slot[slot]["commands"] += 1
+                u = (rec.get("message") or {}).get("usage")
+                if not isinstance(u, dict):
+                    continue
+                key = [rec.get("requestId"), (rec.get("message") or {}).get("id")]
+                if key != [None, None]:
+                    if key == last or not _once("r", *key):
+                        continue
+                    last = key
+                n += 1
+                if day:
+                    spent[day][SPEND_OUTPUT] += int(u.get("output_tokens") or 0) * CHARS_PER_TOKEN
+                if slot:
+                    spent_slot[slot][SPEND_OUTPUT] += int(u.get("output_tokens") or 0) * CHARS_PER_TOKEN
+                    per_slot[slot]["requests"] += 1
+                for kind, field in (("cache_read", "cache_read_input_tokens"),
+                                    ("cache_write", "cache_creation_input_tokens"),
+                                    ("output", "output_tokens"),
+                                    ("new_input", "input_tokens")):
+                    v = int(u.get(field) or 0)
+                    tot[kind] += v
+                    if day:
+                        per_day[day][kind] += v
+                    if slot:
+                        per_slot[slot][_SLOT_FIELD[kind]] += v
+                if day:
+                    per_day[day]["requests"] += 1
+    except OSError:
+        return {"n": 0, "tot": {}, "days": {}, "last": last, "pending": pending,
+                "seen": sorted(seen), "slots": {}, "spent_slots": {}}, start
+    # Only the calls still waiting for a result carry over, so the map stays a handful of ids.
+    return ({"n": n, "tot": dict(tot), "days": {d: dict(c) for d, c in per_day.items()},
+             "spent": {d: {k: int(v) for k, v in c.items() if v} for d, c in spent.items() if c},
+             "last": last, "pending": dict(list(pending.items())[-200:]),
+             "seen": sorted(seen),
+             "slots": {s: dict(c) for s, c in per_slot.items()},
+             "spent_slots": {s: {k: int(v) for k, v in c.items() if v}
+                             for s, c in spent_slot.items() if c}}, at)
+
+
+# 🎯 [owner, 2026-09-24] What each thing put into the
+# context, counted ONCE, when it entered: a tool's result under that tool, what the person typed,
+# what the host and the hooks injected, and the model's own output (from its usage, exact). A long
+# session re-reads all of it on every later turn, and that multiplier is not applied here; the
+# ranking is what the context was FILLED with, which is the part a person can change.
+# Stored in characters; the page divides by CHARS_PER_TOKEN like every other estimate on it.
+SPEND_OUTPUT = "the model's own output"
+# A transcript's usage kinds under the names the per-day series already uses.
+_SLOT_FIELD = {"cache_read": "t_read", "cache_write": "t_write", "new_input": "t_new",
+               "output": "t_out"}
+_SPEND_MARKS = ('"usage"', '"tool_result"', '"tool_use"', '"attachment"', '"type":"user"',
+                '"type": "user"')
+_TOOL_GROUPS = {"Read": "Read — file contents", "Bash": "Bash — command output",
+                "Grep": "search (Grep, Glob)", "Glob": "search (Grep, Glob)",
+                "Agent": "subagent reports", "Task": "subagent reports",
+                "WebFetch": "web (fetch, search)", "WebSearch": "web (fetch, search)",
+                "Edit": "edits (Edit, Write)", "Write": "edits (Edit, Write)",
+                "MultiEdit": "edits (Edit, Write)", "NotebookEdit": "edits (Edit, Write)"}
+_HOST_ATTACH = {"prompt_snapshot", "instructions", "skill_listing", "agent_listing_delta",
+                "deferred_tools_delta", "environment", "model", "date"}
+
+
+def _chars(v):
+    if isinstance(v, str):
+        return len(v)
+    if isinstance(v, list):
+        return sum(_chars(x.get("text") if isinstance(x, dict) and "text" in x else x)
+                   for x in v if not (isinstance(x, dict) and x.get("type") == "image"))
+    if isinstance(v, dict):
+        return len(json.dumps(v, ensure_ascii=False))
+    return 0
+
+
+def _spent_on(rec, pending, into):
+    """Add what `rec` put into the context to `into`, by what it was."""
+    kind = rec.get("type")
+    if kind == "attachment":
+        a = rec.get("attachment") or {}
+        text = a.get("content") or a.get("context") or a.get("systemPrompt") or a.get("text")
+        what = ("the host's system prompt and instructions" if a.get("type") in _HOST_ATTACH
+                else "hook and reminder context")
+        into[what] += _chars(text if text is not None else a)
+        return
+    msg = rec.get("message") or {}
+    content = msg.get("content")
+    if kind == "assistant":
+        for b in content if isinstance(content, list) else []:
+            if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("id"):
+                name = str(b.get("name") or "?")
+                pending[b["id"]] = ("MCP tools" if name.startswith("mcp__")
+                                    else _TOOL_GROUPS.get(name, name))
+        return
+    if kind != "user":
+        return
+    if isinstance(content, str):
+        into["hook and reminder context" if rec.get("isMeta") else "what you typed"] += len(content)
+        return
+    for b in content if isinstance(content, list) else []:
+        if not isinstance(b, dict):
+            continue
+        if b.get("type") == "tool_result":
+            into[pending.pop(b.get("tool_use_id"), "other tools")] += _chars(b.get("content"))
+        elif b.get("type") == "text":
+            t = b.get("text") or ""
+            meta = rec.get("isMeta") or t.lstrip().startswith("<")
+            into["hook and reminder context" if meta else "what you typed"] += len(t)
+
+
+def token_kinds():
+    """What KIND the tokens were, across every session this repository has had.
+
+    🔴 No price and no multiplier. The first version carried a `rate` column — 0.1x, 5x — and
+    those are ANTHROPIC's ratios. This plugin does not know which model anybody runs, whether it
+    is local, or what any of it is charged at, and a page that implies one vendor's economics is
+    wrong for every reader who uses another. What is true everywhere is the SPLIT: a cached read
+    is the cheapest kind of token on every host that has caching at all, and the share is the
+    number. (owner, 2026-09-23)
+    """
+    scanned, changed = _cached_scan(transcripts(), _usage_of, "usage-v6")
+    tot = collections.Counter()
+    n = 0
+    for row in scanned.values():
+        if not isinstance(row, dict):
+            continue
+        n += int(row.get("n") or 0)
+        for k, v in (row.get("tot") or {}).items():
+            tot[k] += int(v or 0)
+    total = sum(tot.values()) or 1
+    return {"requests": n,
+            "kinds": [{"kind": k, "tokens": v, "share": round(100.0 * v / total, 2)}
+                      for k, v in tot.most_common()]}
+
+
+# ---------------------------------------------------------------- with it, and without it
+
+def impact():
+    """The difference the plugin makes, counted as EVENTS rather than claimed as a saving.
+
+    🎯 [owner, 2026-09-23] The page's first question is *what is different with this and without
+    it*. The tempting answer — "it saved X tokens" — cannot be had: nothing here knows what a
+    session without the plugin would have cost, and the 2026-09-22 comparison recorded that there
+    is no way to measure it on one machine with one person's work.
+
+    🔴 What CAN be counted is every moment the plugin changed the course of a session, from the
+    logs that already exist. Each row is a thing that happened, and beside it the thing that would
+    have happened instead. No vendor, no model, no currency — this is true on any host.
+    """
+    ptr = rows("pointer.jsonl")
+    named = sum(1 for r in ptr if r.get("named"))
+    longs = len(rows("long_reads.jsonl"))
+    # 🐛 [2026-09-23] (self-measured) This read a `seen` field that scratch.jsonl has never carried, so the count
+    # was silently zero. A repeat is a FINGERPRINT that appears more than once — which is what the
+    # watcher itself keys on, and the only definition the rows support.
+    seen = collections.Counter(tuple(r.get("fp") or ()) for r in rows("scratch.jsonl") if r.get("fp"))
+    repeats = sum(v - 1 for v in seen.values() if v > 1)
+    fails = rows("failures.jsonl")
+    try:
+        sys.path.insert(0, str(PLUGIN / "lib"))
+        import gotcha as _g
+        caught = sum(1 for _k, v in _g.repeats(WS).items() if v[0] >= _g.REPEATS)
+    except Exception:                    # noqa: BLE001 — a count is never worth a failed build
+        caught = 0
+    local = local_model()
+    chars = sum(d["chars"] for d in local)
+    blocks = rows("block_shape.jsonl")
+    block_tok = median([int(b.get("tok") or 0) for b in blocks if b.get("tok")])
+    return {
+        "rows": [
+            {"with": named, "what": "knowledge named before a file was opened",
+             "without": "the session opens the file and finds out for itself, or does not",
+             "th": "ความรู้ถูกชี้ก่อนเปิดไฟล์", "source": "logs/pointer.jsonl"},
+            {"with": longs, "what": "long documents flagged before they were read whole",
+             "without": "the whole document enters the context",
+             "th": "เอกสารยาวถูกเตือนก่อนอ่านทั้งไฟล์", "source": "logs/long_reads.jsonl"},
+            {"with": repeats, "what": "throwaway scripts recognised as written before",
+             "without": "the same script is thought up again from scratch",
+             "th": "สคริปต์ใช้แล้วทิ้งที่เคยเขียนมาแล้ว", "source": "logs/scratch.jsonl"},
+            {"with": caught, "what": "failures about to be repeated, named before the command ran",
+             "without": "the same command fails the same way again",
+             "th": "ความล้มเหลวที่กำลังจะซ้ำ ถูกทักก่อนรัน", "source": "logs/failures.jsonl"},
+            {"with": chars, "what": "characters a local model read so the session did not have to",
+             "without": "every one of them enters the context",
+             "th": "ตัวอักษรที่โมเดลในเครื่องอ่านแทน", "source": "state/local_assist/"},
+        ],
+        "block_tokens": block_tok,
+        "note": "counted as events, never as a saving — nothing here knows what a session without "
+                "this would have cost",
+        "note_th": "นับเป็นเหตุการณ์ ไม่ใช่ยอดประหยัด — ไม่มีใครรู้ว่าถ้าไม่มีมันจะกินเท่าไร",
+    }
+
+
+def median(xs):
+    xs = sorted(x for x in xs if x)
+    return xs[len(xs) // 2] if xs else 0
+
+
+# ---------------------------------------------------------------- the period series
+
+# 🎯 [owner, 2026-09-23] Daily and monthly, and **twelve months is the ceiling** — a dashboard that
+# grows without bound becomes the thing it was measuring. The day rows are what a reader drills
+# into; the month rows are what they scan.
+KEEP_MONTHS = 12
+KEEP_DAYS = 370
+
+
+# 🎯 [owner, 2026-09-23] a token is not a token:
+# an output token costs several times an ordinary input one, and a cached read a fraction of it.
+#
+# 🔴 [owner, 2026-09-23, and this is the settled shape] ONE standard set, not a per-provider table. An
+# intermediate version averaged seven rate cards and was dropped: it made the page argue a
+# methodology at a reader who only wanted a number they could change. The shipped ratios are one
+# widely-used provider's (Claude's), used as the worked example, and page 4 is the answer for
+# anybody whose own are different.
+#
+# Ratios, never money — and that is the owner's own reason for one fixed set: chasing every vendor's rates would never end. A table of vendors is a maintenance burden that
+# goes stale the week after it ships; a ratio moves far more slowly than a price, and a vendor
+# halving its prices leaves all three numbers below untouched.
+RATES = {
+    "t_new": 1.0,       # one ordinary input token, the unit everything else is measured in
+    "t_read": 0.1,      # a cached read
+    "t_write": 1.25,    # writing a document into the cache the first time
+    "t_out": 5.0,       # an output token
+}
+RATES_EXAMPLE = "Claude"
+RATES_NOTE = ("a standard middle weighting, taken from one widely-used provider's published "
+              "ratios and read against one ordinary input token rather than as money: a cached "
+              "read 0.1x, a cache write 1.25x, an output token 5x. Page 4 replaces all three.")
+RATES_NOTE_TH = ("ค่ามาตรฐานกลางๆ ชุดเดียว อ้างอิงอัตราที่ประกาศไว้ของค่ายหนึ่ง "
+                 "คิดเทียบ input ธรรมดา 1 โทเค็น ไม่ใช่หน่วยเงิน · "
+                 "cached read 0.1 เท่า, cache write 1.25 เท่า, output 5 เท่า · ปรับเองได้ที่หน้า 4")
+
+# 🎯 [owner, 2026-09-23] the honest objection to
+# every counterfactual on this page. Their own estimate, shipped: about a quarter of it.
+COUNTERFACTUAL = 0.25
+
+
+def hero():
+    """The one number the page opens with, and the comparison beside it.
+
+    🎯 [owner, 2026-09-23] The first thing on the page has to be the DIFFERENCE in tokens between
+    having this and not having it. The per-day series carries both halves over the same window, so
+    the page computes it for whatever period the picker has chosen rather than for all time.
+
+    🔴 Neither half is a price and neither names a model. `handled` is what a local model read, so
+    those characters were never in anybody's context window; `carried` is what the session carried
+    anyway. Two measured counts, which is the only comparison this data supports.
+    """
+    return {
+        "chars_per_token": CHARS_PER_TOKEN,
+        "rates": RATES,
+        "rates_example": RATES_EXAMPLE,
+        "rates_note": RATES_NOTE,
+        "rates_note_th": RATES_NOTE_TH,
+        # A document that enters the context is a cache WRITE once. Counting it once, at the write
+        # weight, is the conservative floor: in a long session it is then re-read on every later
+        # turn, and none of that is claimed here.
+        "avoided_weight": RATES["t_write"],
+        # 🎯 [owner, 2026-09-23] and that is the honest
+        # objection to every counterfactual on this page. Without the plugin a session would not
+        # have read all of it: some of those reads would never have been attempted, and a reader
+        # who has other tooling might have had part of it answered anyway. Their own estimate, and
+        # the one shipped here: **about a quarter of it would really have happened.** It is a
+        # judgement, it is stated as one, and page 4 lets a reader move it.
+        "counterfactual": COUNTERFACTUAL,
+        # 🎯 [2026-09-25] (owner) How much of it a person would have read differs from one person
+        # to the next, so the note no longer states a share as fact; it says what the number is
+        # for and that the shipped value is a starting point, not a finding.
+        "counterfactual_note": ("the share of what a local model read that the session would "
+                                "otherwise have read itself. It depends on how you work, so it is "
+                                "not measured here — the shipped 0.25 is a starting value; set "
+                                "yours on page 4."),
+        "counterfactual_note_th": ("สัดส่วนของสิ่งที่โมเดลในเครื่องอ่าน ที่ session จะต้องอ่านเองถ้าไม่มีมัน "
+                                   "ขึ้นกับการใช้งานของแต่ละคน จึงไม่ได้วัดที่นี่ · 0.25 เป็นค่าเริ่มต้น ปรับเป็นของคุณได้ที่หน้า 4"),
+        # 🎯 [owner, 2026-09-23] was
+        # accurate and unreadable — it describes the WEIGHT of a period, which is a notion this
+        # page invented. A reader knows what "saved" means without being taught anything first.
+        "en": "tokens saved by having the plugin",
+        "th": "โทเค็นที่ประหยัดได้เพราะมีปลั๊กอิน",
+        "note": "two measured counts over the same window — not a price, not a bill, "
+                "and no model named",
+        "note_th": "สองตัวเลขที่วัดจริงในช่วงเวลาเดียวกัน · ไม่ใช่ราคา ไม่ใช่บิล และไม่มีชื่อโมเดล",
+    }
+
+
+# Characters to tokens. Kept here rather than imported so this file can draw a page without the
+# plugin's lib, and named so the page can say what it divided by instead of hiding the constant.
+CHARS_PER_TOKEN = 3.8
+
+
+def series():
+    """One row per day and per month: the counts every page's chart is drawn from."""
+    day = collections.defaultdict(lambda: collections.Counter())
+    slots = collections.defaultdict(collections.Counter)
+    slot_spent = collections.defaultdict(collections.Counter)
+    for name, field in (("pointer.jsonl", "opens"),
+                        ("edits.jsonl", "edits"), ("long_reads.jsonl", "long_reads"),
+                        ("scratch.jsonl", "scratch"), ("subagent_start.jsonl", "agents"),
+                        ("failures.jsonl", "failures")):
+        for r in rows(name):
+            d = day_of(r)
+            if d:
+                day[d][field] += 1
+                slots[_slot(when_of(r))][field] += 1
+    for r in rows("pointer.jsonl"):
+        d = day_of(r)
+        if d and r.get("named"):
+            day[d]["named"] += 1
+            slots[_slot(when_of(r))]["named"] += 1
+    for p in sorted((WS / "state" / "local_assist" / "daily").glob("*.jsonl")):
+        try:
+            for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
+                if not line.strip():
+                    continue
+                try:
+                    r = json.loads(line)
+                except ValueError:
+                    continue
+                if not isinstance(r, dict):
+                    continue
+                day[p.stem]["local_calls"] += 1
+                day[p.stem]["local_chars"] += _count(r.get("saved_chars"))
+                w = when_of({"ts": r.get("ts")})
+                if w:
+                    slots[_slot(w)]["local_calls"] += 1
+                    slots[_slot(w)]["local_chars"] += _count(r.get("saved_chars"))
+        except OSError:
+            continue
+
+    # 🐛 [2026-09-23] (self-measured) The hero compared a lifetime total against a figure that only starts when
+    # the local recorder did — 24,671x, which is not a ratio of anything. Both sides are counted
+    # PER DAY now, so the picker drives a comparison over one window instead of two.
+    # \U0001F534 The same cached scan `token_kinds` uses, so the two panels cannot disagree about a
+    # transcript: one reader, one cache, two views of the result.
+    scanned, _changed = _cached_scan(transcripts(), _usage_of, "usage-v6")
+    spent = collections.defaultdict(collections.Counter)
+    hour_grid = collections.defaultdict(lambda: [0] * 24)
+    for row in scanned.values():
+        if not isinstance(row, dict):
+            continue
+        for d, c in (row.get("spent") or {}).items():
+            spent[d].update(c)
+        for s, c in (row.get("slots") or {}).items():
+            slots[s].update(c)
+        for s, c in (row.get("spent_slots") or {}).items():
+            slot_spent[s].update(c)
+        for d, c in (row.get("days") or {}).items():
+            day[d]["t_read"] += int(c.get("cache_read") or 0)
+            day[d]["t_write"] += int(c.get("cache_write") or 0)
+            day[d]["t_new"] += int(c.get("new_input") or 0)
+            day[d]["t_out"] += int(c.get("output") or 0)
+            day[d]["requests"] += int(c.get("requests") or 0)
+            day[d]["commands"] += int(c.get("bash") or 0)
+            for h in range(24):
+                hour_grid[d][h] += int(c.get("bash_h%02d" % h) or 0)
+            day[d]["carried"] = (day[d]["t_read"] + day[d]["t_write"] + day[d]["t_new"])
+
+    fields = ("commands", "opens", "edits", "named", "long_reads", "scratch", "agents",
+              "failures", "local_calls", "local_chars", "carried", "requests",
+              "t_read", "t_write", "t_new", "t_out")
+    days = [{"day": d, **{f: day[d].get(f, 0) for f in fields},
+             "spent": dict(spent.get(d) or {})}
+            for d in sorted(set(day) | set(spent))][-KEEP_DAYS:]
+    month = collections.defaultdict(lambda: collections.Counter())
+    month_spent = collections.defaultdict(collections.Counter)
+    for row in days:
+        m = row["day"][:7]
+        for f in fields:
+            month[m][f] += row[f]
+        month_spent[m].update(row["spent"])
+        month[m]["days"] += 1
+    months = [{"month": m, **{f: month[m].get(f, 0) for f in fields},
+               "spent": dict(month_spent[m]),
+               "days": month[m]["days"]} for m in sorted(month)][-KEEP_MONTHS:]
+    # 🎯 One row per day, one cell per hour — the calendar the owner asked for, which reads at a
+    # glance in a way twenty-four bars never do.
+    grid = hour_grid
+    # 🎯 [owner, 2026-09-23] three weeks of rows
+    # made the calendar a wall; a week is what a reader actually compares against today.
+    recent = [d["day"] for d in days][-7:]
+    cutoff = _slot(time.time() - KEEP_DAYS * 86400)
+    slot_rows = []
+    for s in sorted(set(slots) | set(slot_spent)):
+        if s < cutoff:
+            continue
+        row = {"s": s, **{f: v for f, v in slots[s].items() if v}}
+        if slot_spent.get(s):
+            row["spent"] = {k: int(v) for k, v in slot_spent[s].items() if v}
+        slot_rows.append(row)
+    return {"fields": list(fields), "days": days, "months": months,
+            "keep_months": KEEP_MONTHS, "slot_minutes": SLOT_MINUTES, "slots": slot_rows,
+            "zone": time.strftime("%z"),
+            "hours": [{"day": d, "cells": grid.get(d, [0] * 24)} for d in recent]}
+
+
+def context_parts():
+    """What the context is made of, for the parts a REPOSITORY controls.
+
+    🔴 The host's system prompt and tool definitions are not on disk. They are returned as a row
+    with no number and a reason, never estimated — guessing them would invent the denominator of
+    every other figure on the page.
+    """
+    def total(paths):
+        n = 0
+        for p in paths:
+            try:
+                n += estimate(p.read_text(encoding="utf-8", errors="replace"))
+            except OSError:
+                pass
+        return n
+
+    agents = sorted((ROOT / ".claude" / "agents").glob("*.md"))
+    mds = [p for p in (ROOT / "CLAUDE.md",) if p.is_file()]
+    mds += sorted(ROOT.glob("*/CLAUDE.md"))
+    skills = sorted((WS / "skills").glob("*.md"))
+    shapes = [r for r in rows("block_shape.jsonl") if r.get("tok")]
+    block = int(shapes[-1]["tok"]) if shapes else 0
+    return [
+        {"part": "CLAUDE.md", "files": len(mds), "tokens": total(mds), "owner": "this repository"},
+        {"part": "custom agents", "files": len(agents), "tokens": total(agents),
+         "owner": "this repository"},
+        {"part": "chamnan's session block", "files": 0, "tokens": block,
+         "owner": "chamnan, per session"},
+        {"part": "skills on disk", "files": len(skills), "tokens": total(skills),
+         "owner": "only the routed one is injected"},
+        {"part": "system prompt / host tools / messages", "files": 0, "tokens": None,
+         "owner": "the host — not on disk, not guessable"},
+    ]
+
+
+def by_hour():
+    """When the work happens. Bash is one series; opens and edits are their own — never added."""
+    hours = {"commands": [0] * 24, "opens": [0] * 24, "edits": [0] * 24}
+    # Commands come from the transcripts, as in `series`: `commands.jsonl` keeps 300 a day.
+    scanned, _changed = _cached_scan(transcripts(), _usage_of, "usage-v6")
+    for row in scanned.values():
+        for c in ((row or {}).get("days") or {}).values() if isinstance(row, dict) else ():
+            for h in range(24):
+                hours["commands"][h] += int(c.get("bash_h%02d" % h) or 0)
+    for name, key in (("pointer.jsonl", "opens"), ("edits.jsonl", "edits")):
+        for r in rows(name):
+            w = when_of(r)
+            if w:
+                hours[key][int(time.strftime("%H", time.localtime(w)))] += 1
+    return hours
+
+
+def by_kind_and_place():
+    """What kind of file is opened, and which part of the repository it sits in."""
+    ext = collections.Counter()
+    top = collections.Counter()
+    for name in ("pointer.jsonl", "edits.jsonl", "long_reads.jsonl"):
+        for r in rows(name):
+            p = str(r.get("path") or r.get("fp") or "")
+            if not p:
+                continue
+            # 🐛 [2026-09-23, owner] `long_reads.jsonl` stores ABSOLUTE paths while the other two
+            # store repository-relative ones, so 39 opens bucketed under an EMPTY directory name
+            # and the chart drew a bar with no label beside it. One shape in, whatever went in.
+            rel = p
+            try:
+                rel = str(pathlib.PurePath(p).relative_to(ROOT)) if p.startswith("/") else p
+            except ValueError:
+                rel = pathlib.PurePath(p).name          # outside the repo: keep the leaf, not ""
+            # \U0001F41B [2026-09-23, owner] A file with no extension was labelled
+            # "(none)", which is accurate and says nothing. Measured: 55 such opens, and the
+            # commonest by far are this plugin's OWN commands — `chamnan-report` 24 times,
+            # `chamnan-map` 10 — because a command in `bin/` carries no suffix. A chart that
+            # cannot name its third-largest slice is not answering the question it was drawn for.
+            _suffix = pathlib.PurePath(rel).suffix
+            if not _suffix:
+                _name = rel.rsplit("/", 1)[-1]
+                _suffix = "a command" if _name.startswith("chamnan-") else "no extension"
+            ext[_suffix] += 1
+            head = rel.split("/", 1)[0]
+            top[head or "(repository root)"] += 1
+    return {"by_extension": ext.most_common(10), "by_directory": top.most_common(10)}
+
+
+def read_vs_write():
+    """Opens against changes, per day. The Write/Edit split is reported only where it exists."""
+    opens, edits, with_op = collections.Counter(), collections.Counter(), 0
+    for r in rows("pointer.jsonl") + rows("long_reads.jsonl"):
+        d = day_of(r)
+        if d:
+            opens[d] += 1
+    for r in rows("edits.jsonl"):
+        d = day_of(r)
+        if d:
+            edits[d] += 1
+        if r.get("op"):
+            with_op += 1
+    days = sorted(set(opens) | set(edits), reverse=True)[:DAYS]
+    return {"days": days, "opens": [opens[d] for d in days], "edits": [edits[d] for d in days],
+            "op_known": with_op, "op_total": len(rows("edits.jsonl"))}
+
+
+def block_sections():
+    """The last block: what it was made of, and which store each section came from."""
+    shapes = [r for r in rows("block_shape.jsonl") if r.get("sec")]
+    if not shapes:
+        return {"sections": [], "note": "no block has been recorded yet"}
+    last = shapes[-1]
+    srcs = last.get("srcs") or {}
+    return {"bytes": last.get("bytes"), "tok": last.get("tok"),
+            "sections": [{"title": k, "bytes": v, "from": srcs.get(k, "")}
+                         for k, v in sorted(last["sec"].items(), key=lambda kv: -kv[1])],
+            "srcs_known": len(srcs)}
+
+
+def features():
+    """Which chamnan features actually fire, and which cannot answer because nothing records them."""
+    ptr = rows("pointer.jsonl")
+    sub = rows("subagent_start.jsonl")
+    out = [
+        {"feature": "file pointer", "fired": sum(1 for r in ptr if r.get("named")),
+         "chances": len(ptr), "source": "pointer.jsonl"},
+        {"feature": "subagent block",
+         "fired": sum(1 for r in sub if r.get("outcome") == "delivered"),
+         "chances": len(sub), "source": "subagent_start.jsonl"},
+    ]
+    # 🐛 [2026-09-25] (self-measured) Each log keeps its own newest N rows, so a count of one against
+    # a count of `commands.jsonl` compared two different windows: the scratch watcher read
+    # "300 / 7.0k" with its 300 reaching back one day and the 7.0k three weeks. Both halves are now
+    # counted from the later of the two logs' oldest rows, and the row says from when.
+    cmds = [w for w in (when_of(r) for r in rows("commands.jsonl")) if w]
+    for feature, log in (("scratch watcher", "scratch.jsonl"),
+                         ("bulk-read notice", "long_reads.jsonl"),
+                         ("gotcha (repeat failures)", "failures.jsonl")):
+        fired = [w for w in (when_of(r) for r in rows(log)) if w]
+        since = max(min(fired or [0]), min(cmds or [0]))
+        out.append({"feature": feature, "fired": sum(1 for w in fired if w >= since),
+                    "chances": sum(1 for w in cmds if w >= since), "source": log,
+                    "since": time.strftime("%Y-%m-%d", time.localtime(since)) if since else ""})
+    # 🔴 Named, not omitted. Four guards shipped on 2026-09-23 print a notice and record nothing,
+    # so `silence.py` cannot see them either — a feature with no recorder is invisible to the tool
+    # built to find invisible features, which is exactly why the page has to say the name out loud.
+    for name in ("boundary guard", "canonical invocation", "sibling sweep", "recorded lesson"):
+        # 🐛 [2026-09-23] (self-measured) These carried `source: "no recorder yet"`, and the page split the
+        # two groups on `x.source` being truthy — a non-empty string is truthy, so every guard
+        # landed in the MEASURED group, four of them drew a meaningless 0/0 bar, and the sentence
+        # naming the ones nothing records never rendered at all. The absent half is `fired`, so
+        # `source` is null and the reason moves to its own field.
+        out.append({"feature": name, "fired": None, "chances": None, "source": None,
+                    "why": "no recorder yet"})
+    return out
+
+
+def found():
+    """How often something is actually found: gates, mutation proofs, recorded lessons."""
+    gates = rows("gate_runs.jsonl")
+    try:
+        proofs = json.loads((WS / "state" / "mutation_proofs.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        proofs = {}
+    pool = len(list((WS / "tools" / "checks").glob("*.py")))
+    try:
+        marks = json.loads((WS / "state" / "gotcha_marks.json").read_text(encoding="utf-8"))
+        marks = int(marks.get("marks", 0))
+    except (OSError, ValueError, AttributeError):
+        marks = 0
+    # \U0001F3AF [owner, 2026-09-23] "\u0e02\u0e49\u0e2d\u0e21\u0e39\u0e25\u0e21\u0e31\u0e19\u0e0a\u0e27\u0e19\u0e07\u0e07 \u0e1b\u0e23\u0e31\u0e1a\u0e43\u0e2b\u0e49\u0e40\u0e25\u0e37\u0e2d\u0e01\u0e27\u0e31\u0e19\u0e25\u0e30\u0e2d\u0e31\u0e19" \u2014 four rows all reading
+    # 2026-09-10 is a table a reader has to decode before they can use it. The gate is run several
+    # times a day while a failure is being chased, and what matters afterwards is where the day
+    # ENDED, so the last run of each day is the row. Said on the panel rather than assumed.
+    by_day = {}
+    for g in gates:
+        d = day_of(g)
+        if d:
+            by_day[d] = g            # later rows overwrite: the last run of that day wins
+    # \U0001F41B [2026-09-23, owner: "\u0e40\u0e2b\u0e21\u0e37\u0e2d\u0e19\u0e22\u0e31\u0e07\u0e21\u0e35\u0e1a\u0e31\u0e04\u0e19\u0e30 none , -"] Two rows carried no check count and
+    # were drawn as a dash beside successful runs. They are not missing data: `exit: 1` with no
+    # count is a run that CRASHED before it could finish counting \u2014 one of them four seconds in.
+    # This workspace's own rule says it out loud, "absence of FAIL is not success", and the page
+    # was showing exactly that shape as a blank. `exit` is carried so the table can say which.
+    # 🐛 [2026-09-25] (owner) gate.sh writes `failing` as the list of names and, until today, no `checks`; a run
+    # that exits 0 reached the suite's last line, so it FINISHED even when no count was recorded.
+    return {"gate_runs": [{"day": d, "checks": g.get("checks"),
+                           "failing": (len(g["failing"]) if isinstance(g.get("failing"), list)
+                                       else g.get("failing")),
+                           "seconds": g.get("seconds"),
+                           "exit": g.get("exit"),
+                           "finished": g.get("checks") is not None or g.get("exit") == 0,
+                           "runs": sum(1 for x in gates if day_of(x) == d)}
+                          for d, g in sorted(by_day.items())[-20:]][::-1],
+            "mutation_proved": len({v.get("check") for v in proofs.values()
+                                    if isinstance(v, dict) and v.get("check")}),
+            "guard_pool": pool, "recorded_lessons": marks}
+
+
+def mistakes():
+    """The model's own mistakes: what failed, and how much of it was a repeat."""
+    fails = rows("failures.jsonl")
+    keyed = collections.Counter()
+    for r in fails:
+        keyed[(str(r.get("tool")), str(r.get("subj"))[:120], str(r.get("err"))[:80])] += 1
+    per_day = collections.Counter(day_of(r) for r in fails if day_of(r))
+    return {"failures": len(fails),
+            "repeats": sum(v - 1 for v in keyed.values() if v > 1),
+            "per_day": sorted(per_day.items(), reverse=True)[:DAYS],
+            # 🐛 [2026-09-23] (self-measured) "the recorder was starved" was the symptom, and the cause is worth
+            # saying because it is the shape that hides every other empty panel: the hook was
+            # registered on PostToolUseFailure alone, which fires when a TOOL CALL fails. A shell
+            # command that exits non-zero is a tool call that SUCCEEDED and reported a failure, so
+            # it arrives on PostToolUse and the recorder never saw one.
+            "note": "nothing was recorded before 2026-09-23 — the recorder was listening on the "
+                    "wrong event, so a command that exited non-zero never reached it",
+            "note_th": "ตัวบันทึกเพิ่งทำงานจริง 2026-09-23 กราฟจึงเริ่มที่วันนั้น"}
+
+
+def files_total():
+    """How many distinct files were changed at all — the denominator under the top ten."""
+    return len({str(r.get("fp") or "") for r in rows("edits.jsonl") if r.get("fp")})
+
+
+def lessons():
+    """The recorded-lesson index, so the page can SHOW lessons rather than count them.
+
+    🎯 [owner, 2026-09-23] Say which files keep earning a lesson, not only how many.
+    🐛 [2026-09-25] (owner) This read an index that only a script in the developer's own workspace
+    wrote, by hand; it ran once, so the panels froze at that day's count, and on every other machine
+    they were empty. Built here now, from the repository as it stands, on every build.
+    """
+    try:
+        import gotcha
+        return gotcha.index(ROOT)
+    except Exception as exc:                # noqa: BLE001 -- a panel is never worth a failed build
+        return {"marks": 0, "by_file": [], "by_month": [], "recent": [],
+                "note": "the lesson index could not be built: %s" % type(exc).__name__}
+
+
+def busiest_files():
+    """Which files keep being edited — and how many recorded lessons each one already carries."""
+    edits = collections.Counter()
+    opens = collections.Counter()
+    last = {}
+    for r in rows("edits.jsonl"):
+        p = str(r.get("fp") or "")
+        if not p:
+            continue
+        edits[p] += 1
+        w = when_of(r)
+        if w:
+            last[p] = max(last.get(p, 0), w)
+    for r in rows("pointer.jsonl"):
+        p = str(r.get("path") or "")
+        if p:
+            opens[p] += 1
+    out = []
+    for path, n in edits.most_common(30):
+        full = ROOT / path
+        bugs = 0
+        try:
+            bugs = full.read_text(encoding="utf-8", errors="replace").count(BUG)
+        except OSError:
+            bugs = 0
+        out.append({"path": path, "edits": n, "opens": opens.get(path, 0), "lessons": bugs,
+                    "last": time.strftime("%Y-%m-%d %H:%M", time.localtime(last[path]))
+                    if path in last else ""})
+    return out
+
+
+def local_model():
+    """What the local model read so a session did not have to — the corrected figure."""
+    base = WS / "state" / "local_assist" / "daily"
+    days = []
+    if base.is_dir():
+        for p in sorted(base.glob("*.jsonl"), reverse=True)[:DAYS]:
+            calls = chars = 0
+            try:
+                for line in p.read_text(encoding="utf-8", errors="replace").splitlines():
+                    if not line.strip():
+                        continue
+                    try:
+                        r = json.loads(line)
+                    except ValueError:
+                        continue
+                    if not isinstance(r, dict):
+                        continue
+                    calls += 1
+                    chars += _count(r.get("saved_chars"))
+            except OSError:
+                continue
+            days.append({"day": p.stem, "calls": calls, "chars": chars})
+    return days
+
+
+# ---------------------------------------------------------------- what the redactor covers
+
+# 🎯 [owner, 2026-09-23] the shapes chamnan recognises before anything it
+# assembles leaves this machine, grouped so a reader can scan them.
+#
+# 🔴 The families are matched against the REGEX SOURCE of every pattern the module actually
+# compiles, not typed out here. A dashboard that lists a hand-written inventory of what a scanner
+# covers drifts away from the scanner the week somebody adds a prefix, and then it is a page that
+# claims a coverage nothing has. `other` is the deliberate catch-all: a pattern this table does
+# not recognise still lands somewhere and is still counted, so the total can never quietly shrink.
+SECURITY_FAMILIES = [
+    # 🐛 [2026-09-23] (self-measured) Three patterns landed in the wrong family on the first run, all from one
+    # cause: a marker that matched a regex's PUNCTUATION rather than the literal it was aimed at.
+    # `://` was written for the `scheme://user:pass@host` rule and matched both webhook URLs
+    # instead; `sk-` missed `sk_live_`, which is an underscore; and the Authorization rule is
+    # compiled from the SCHEME words, so the word "Authorization" appears in its variable name and
+    # nowhere in its pattern. Markers are anchored on what each regex actually contains now, and
+    # the classification is printed by the test rather than trusted.
+    ("api keys and provider tokens", "คีย์/โทเคนของผู้ให้บริการ",
+     ("sk-", "live|test", "gh[", "github_pat", "xox", "AKIA", "AIza", "glpat", "npm_",
+      "SG\\.", "GOCSPX", "hf_", "ya29", "dop_v1", "shp", "dckr_pat", "phc_", "pypi-", "xapp-",
+      "pscale_", "dp\\.", "AGE-SECRET-KEY")),
+    ("private keys and certificates", "กุญแจส่วนตัวและใบรับรอง",
+     ("PRIVATE KEY",)),
+    ("session tokens and auth headers", "โทเคน session และ auth header",
+     ("eyJ", "Bearer")),
+    ("webhooks and signed links", "webhook และลิงก์ที่เซ็นแล้ว",
+     ("hooks\\.slack", "discord", "signature", "amz")),
+]
+
+
+def _pattern_sources():
+    """Every credential regex the shipped redactor compiles, as source strings."""
+    try:
+        sys.path.insert(0, str(PLUGIN / "lib"))
+        import redact                                  # noqa: PLC0415
+    except Exception:                                  # noqa: BLE001
+        return None, None
+    out = []
+    for group in ("PATTERNS", "LATE_PREFIXES"):
+        for pat in getattr(redact, group, []) or []:
+            out.append(getattr(pat, "pattern", str(pat)))
+    return out, redact
+
+
+def _recall():
+    """The measured recall, cached against the redactor's own mtime so it cannot go stale silently.
+
+    🔴 Re-measured whenever `redact.py` changes, never on a clock: a cached figure that outlives
+    the code it describes is the one number on this page nobody would think to doubt.
+    """
+    src = PLUGIN / "lib" / "redact.py"
+    # The benchmark lives in chamnan-corpus since 2026-09-24 (its tables are key shapes, and the
+    # plugin carries none). Found beside the plugin or through CHAMNAN_CORPUS; without it the panel
+    # greys itself, which is the honest state for an install that never cloned the corpus.
+    harness = pathlib.Path(os.environ.get("CHAMNAN_CORPUS") or PLUGIN.parent / "chamnan-corpus") \
+        / "redaction" / "recall.py"
+    cache = WS / "state" / "redactor_recall.json"
+    try:
+        stamp = f"{src.stat().st_mtime_ns}:{src.stat().st_size}"
+    except OSError:
+        return None
+    try:
+        was = json.loads(cache.read_text(encoding="utf-8"))
+        if was.get("stamp") == stamp:
+            return was
+    except (OSError, ValueError):
+        pass
+    if not harness.is_file():
+        return None
+    try:
+        import subprocess                              # noqa: PLC0415
+        got = subprocess.run([sys.executable, str(harness), "--chamnan", str(PLUGIN)],
+                             capture_output=True, text=True, encoding="utf-8", errors="replace",
+                             timeout=180)
+        text = got.stdout
+    except Exception:                                  # noqa: BLE001
+        return None
+    out = {"stamp": stamp, "measured": time.strftime("%Y-%m-%d")}
+    m = re.search(r"recall\s+([\d.]+)%\s+\((\d+)/(\d+)", text)
+    if not m:
+        return None
+    out["recall"], out["hit"], out["cases"] = float(m.group(1)), int(m.group(2)), int(m.group(3))
+    m = re.search(r"precision\s+([\d.]+)%", text)
+    out["precision"] = float(m.group(1)) if m else None
+    m = re.search(r"(\d+)/(\d+) ordinary strings damaged", text)
+    out["damaged"], out["ordinary"] = (int(m.group(1)), int(m.group(2))) if m else (None, None)
+    miss = re.search(r"not caught \((\d+)\)[^\n]*\n((?:  \S[^\n]*\n)+)", text)
+    out["missed"] = [x.strip() for x in miss.group(2).splitlines() if x.strip()] if miss else []
+    try:
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.write_text(json.dumps(out, indent=1) + "\n", encoding="utf-8")
+    except OSError:
+        pass
+    return out
+
+
+def security():
+    """Which secret and personal-data shapes are recognised — and 🔴 which cannot be, by construction."""
+    pats, mod = _pattern_sources()
+    if pats is None:
+        return {"families": [], "blind": [], "note": "the redactor could not be imported"}
+    seen = [False] * len(pats)
+    fams = []
+    for label, th, marks in SECURITY_FAMILIES:
+        hits = 0
+        for i, src in enumerate(pats):
+            if not seen[i] and any(mk in src for mk in marks):
+                seen[i] = True
+                hits += 1
+        fams.append({"family": label, "th": th, "shapes": hits})
+    rest = sum(1 for x in seen if not x)
+    if rest:
+        fams.append({"family": "other credential shapes", "th": "รูปแบบความลับอื่นๆ", "shapes": rest})
+
+    # 🔴 A password has no prefix to recognise. It is found by the word BESIDE it — `password =`,
+    # `รหัสผ่าน:`, `contrase\u00f1a:` — so counting it among the prefix patterns would have
+    # reported the single strongest family in the module as one or two shapes. The number that
+    # describes it is the size of the credential-word vocabulary those rules run on.
+    stems = getattr(mod, "secret_word_stems", None)
+    words = len(stems() or []) if callable(stems) else 0
+    if words:
+        fams.append({"family": "passwords beside a credential word", "shapes": words,
+                     "th": "รหัสที่มีคำว่าด้วยรหัส/คีย์อยู่ข้างๆ",
+                     "unit": "credential words", "unit_th": "คำที่เฝ้าดู (หลายภาษา)"})
+
+    # Personal data is not a credential and has no keyword to lean on, so it is counted from the
+    # named rules rather than from the prefix list: a checksum is what stands in for the keyword.
+    personal = [
+        ("credit cards", "บัตรเครดิต", ("_CARD_BARE", "_CARD_DASHED", "_CARD_WORD")),
+        ("national ID numbers", "เลขบัตรประชาชน",
+         ("_THAI_ID_BARE", "_THAI_ID_WORD", "_CPF_BARE", "_CPF_WORD", "_CPF_DOTTED",
+          "_AADHAAR_WORD")),
+    ]
+    for label, th, names in personal:
+        have = sum(1 for nm in names if getattr(mod, nm, None) is not None)
+        if have:
+            fams.append({"family": label, "th": th, "shapes": have})
+
+    # 🎯 [owner, 2026-09-23] and they are right: a
+    # secret with no recognisable shape is not helpless, because a file whose NAME says what it
+    # holds is never opened at all. That is a detection category, not a footnote, so it is counted
+    # beside the pattern families rather than left out of the list.
+    names = len(getattr(mod, "BLOCKED_NAMES", ())) + len(getattr(mod, "BLOCKED_SUFFIXES", ()))
+    if names:
+        fams.append({"family": "files refused by name, never opened", "shapes": names,
+                     "th": "ไฟล์ที่ปฏิเสธจากชื่อ — ไม่เปิดอ่านเลย"})
+
+    # 🔴 [owner, 2026-09-23] What no pattern can catch goes on the page as a remark.
+    # A coverage list that stops at what IS covered reads as a claim to cover everything. These
+    # are the shapes nothing here can reach, each with the reason it cannot — and the first is
+    # not a guess: it is the one case out of 99 the measured run below still misses.
+    blind = [
+        {"what": "a secret with no prefix and no word naming it",
+         "th": "ความลับที่ไม่มีหัวขึ้นนำ และไม่มีคำกำกับ",
+         "why": "nothing about it says it is a secret — no fixed shape to match and no "
+                "`password:` beside it, so it is a run of letters and digits like any other",
+         "why_th": "ไม่มีอะไรบอกว่ามันเป็นความลับ — ไม่มีรูปแบบตายตัว ไม่มีคำว่า pass: "
+                   "อยู่ข้าง มันจึงเป็นแค่ตัวอักษรกับตัวเลขเหมือนข้อความทั่วไป"},
+        {"what": "a secret that reads as an ordinary phrase",
+         "th": "รหัสที่หน้าตาเหมือนข้อความธรรมดา",
+         "why": "a passphrase built from real words is prose until something names it as a "
+                "credential, and nothing here does",
+         "why_th": "passphrase ที่ประกอบจากคำจริงๆ ก็คือข้อความธรรมดา จนกว่าจะมีคำมาบอกว่า"
+                    "มันคือรหัส ซึ่งตรงนี้ไม่มี"},
+        {"what": "a secret that is not text by the time it gets here",
+         "th": "ความลับที่ไม่ได้มาในรูปตัวหนังสือ",
+         "why": "an image, an archive or a binary is never decoded here, so nothing inside it is "
+                "ever read — or replaced",
+         "why_th": "รูป ไฟล์บีบอัด หรือ binary ไม่ถูกถอดรหัสที่นี่ จึงไม่มีอะไรข้างในถูกอ่าน "
+                    "หรือถูกแทนที่"},
+    ]
+    return {"families": fams, "blind": blind, "total": len(pats), "measured": _recall()}
+
+
+# ---------------------------------------------------------------- with the plugin, and before it
+
+def plugin_since():
+    """The first day this workspace's logs show the plugin at work, or None.
+
+    The earliest record in any of its logs. Every log here is written by the plugin's own hooks
+    and commands, so a day before the first record is a day the plugin was not running in this
+    repository. Logs are appended in time order, so each file's first readable record is its
+    earliest.
+    """
+    first = []
+    for path in sorted(LOGS.glob("*.jsonl")) if LOGS.is_dir() else []:
+        try:
+            with path.open(encoding="utf-8", errors="replace") as fh:
+                for line in fh:
+                    try:
+                        rec = json.loads(line)
+                    except ValueError:
+                        continue
+                    if isinstance(rec, dict) and day_of(rec):
+                        first.append(day_of(rec))
+                        break
+        except OSError:
+            continue
+    return min(first) if first else None
+
+
+def compare(days, since=None):
+    """Real usage before the plugin arrived and since, from the transcripts' own usage blocks.
+
+    🎯 [owner, 2026-10-12] *"ต้องรับจาก การใช้งานจริง เทียบ ว่าระหว่างมีกับไม่มี"* — the opening
+    panel counted only what a local model read, so a repository that never used one showed 0
+    saved and two identical bars. The comparison it asked for is the person's own sessions: the
+    days before the plugin ran here against the days since, each reduced to tokens per request
+    so a busy week and a quiet one weigh the same. Same person, same repository, measured.
+    What it cannot separate is everything else that changed between the two periods — the work,
+    the model, the host — and the panel says so.
+    """
+    since = since or plugin_since()
+    keys = ("requests", "t_read", "t_write", "t_new", "t_out")
+    out = {"since": since}
+    for side, pick in (("without", lambda d: since and d < since), ("with", lambda d: not since or d >= since)):
+        sums = collections.Counter()
+        n = 0
+        for row in days:
+            if pick(row.get("day") or "") and row.get("requests"):
+                sums.update({k: int(row.get(k) or 0) for k in keys})
+                n += 1
+        out[side] = dict(sums, days=n)
+    return out
+
+
+# ---------------------------------------------------------------- writing
+
+def build():
+    return {
+        "built": time.strftime("%Y-%m-%d %H:%M"),
+        "repo": ROOT.name,
+        "hero": hero(),
+        "impact": impact(),
+        "series": (_series := series()),
+        "compare": compare(_series.get("days") or []),
+        "token_kinds": token_kinds(),
+        "context_parts": context_parts(),
+        "by_hour": by_hour(),
+        "places": by_kind_and_place(),
+        "read_vs_write": read_vs_write(),
+        "block": block_sections(),
+        "features": features(),
+        "found": found(),
+        "mistakes": mistakes(),
+        "files": busiest_files(),
+        # 🎯 [owner, 2026-09-23] A top
+        # ten with no denominator reads as the whole list. The number beside it is what tells a
+        # reader they are looking at a sample, and roughly how big a sample it is.
+        "files_total": files_total(),
+        "lessons": lessons(),
+        "security": security(),
+        "local": local_model(),
+    }
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--data", action="store_true", help="write data/ and stop")
+    ap.add_argument("--root", default=None,
+                    help="the repository to report on (default: the one this runs in)")
+    a = ap.parse_args()
+    bind(a.root or os.getcwd())
+    if not WS.is_dir():
+        print(f"  no .chamnan/ workspace at {ROOT} — nothing to report on", file=sys.stderr)
+        return 1
+    data = build()
+    DATA.mkdir(parents=True, exist_ok=True)
+    (DATA / "statistic.json").write_text(json.dumps(data, indent=1, ensure_ascii=False) + "\n",
+                                         encoding="utf-8")
+    print(f"  data/statistic.json  {len(json.dumps(data)):,} bytes")
+    if a.data:
+        return 0
+    # The same data inlined, because a `fetch()` of a local file is blocked by the browser's own
+    # origin rules and a dashboard that needs a server running is one nobody opens.
+    blob = "window.STAT = " + json.dumps(data, ensure_ascii=False) + ";\n"
+    REPORT.mkdir(parents=True, exist_ok=True)
+    (REPORT / "data.js").write_text(blob, encoding="utf-8")
+    print(f"  report/data.js       {len(blob):,} bytes")
+    # The pages are copied beside their data rather than pointed at: `data.js` is loaded by a
+    # relative <script>, and a page opened from the plugin's install directory would read nobody's
+    # numbers. Copied only when the shipped template differs, so a rebuild touches nothing it need not.
+    for name in TEMPLATE_FILES:
+        src, dest = TEMPLATES / name, REPORT / name
+        if not src.is_file():
+            print(f"  {name} is missing from the plugin — only its data was written")
+            continue
+        try:
+            body = src.read_bytes()
+            if not dest.is_file() or dest.read_bytes() != body:
+                dest.write_bytes(body)
+        except OSError as exc:
+            print(f"  {name} could not be copied: {exc}")
+    print(f"  open {REPORT / 'index.html'}")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,16 @@
+{
+  "name": "dsh",
+  "displayName": "Dsh",
+  "version": "2.0.2",
+  "description": "DeepSeek Harness ↔ DipoleML bridge for review, critique, and delegation / 用于审查、评审和任务委派的桥接插件。",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Cpj Dev"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/cpj-dev/dsh-plugin-cc",
+  "repository": "https://github.com/cpj-dev/dsh-plugin-cc",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

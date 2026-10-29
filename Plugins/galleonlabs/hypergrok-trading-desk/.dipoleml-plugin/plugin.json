@@ -1,0 +1,16 @@
+{
+  "name": "hypergrok-trading-desk",
+  "displayName": "Hypergrok Trading Desk",
+  "version": "1.7.0",
+  "description": "Turn your agent into a Hyperliquid trading desk: seven specialist roles with full system prompts and seventeen skills for research, risk, execution and review.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Galleonlabs"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/galleonlabs/hypergrok-trading-desk",
+  "repository": "https://github.com/galleonlabs/hypergrok-trading-desk",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

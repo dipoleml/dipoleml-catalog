@@ -1,0 +1,16 @@
+{
+  "name": "python-clean-architecture",
+  "displayName": "Python Clean Architecture",
+  "version": "0.9.0",
+  "description": "Clean Architecture guidance for Python/FastAPI projects. Provides principles-driven design, Pythonic patterns, and layered architecture scaffolding based on Arjan Codes' methodology.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Mktoronto"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/MKToronto/python-clean-architecture",
+  "repository": "https://github.com/MKToronto/python-clean-architecture",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

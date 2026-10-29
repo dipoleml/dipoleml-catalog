@@ -1,0 +1,527 @@
+package add
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strings"
+
+	diagv1 "buf.build/gen/go/tldiagramcom/diagram/protocolbuffers/go/diag/v1"
+	"github.com/mertcikla/tld/v2/internal/cmdutil"
+	"github.com/mertcikla/tld/v2/internal/completion"
+	"github.com/mertcikla/tld/v2/internal/exec"
+	"github.com/mertcikla/tld/v2/internal/sourcelink"
+	"github.com/mertcikla/tld/v2/internal/tech"
+	"github.com/mertcikla/tld/v2/internal/term"
+	"github.com/mertcikla/tld/v2/internal/workspace"
+	"github.com/mertcikla/tld/v2/pkg/api"
+	"github.com/spf13/cobra"
+)
+
+func NewAddCmd(wdir, format *string, compact *bool) *cobra.Command {
+	var (
+		description string
+		technology  string
+		dryRun      bool
+		url         string
+		positionX   float64
+		positionY   float64
+		ref         string
+		kind        string
+		parent      string
+		viewLabel   string
+		linkTarget  string
+		target      string
+		dataDir     string
+		tags        string
+		logoURL     string
+	)
+
+	c := &cobra.Command{
+		Use:   "add <name>",
+		Short: "Add or update an element",
+		Long: `Add or update an element.
+
+Custom --ref values are workspace-local aliases and require a YAML workspace
+(run 'tld init' first, or pass --yaml). Database mode derives convenience refs
+from element names; those refs can change when the names change.
+
+Reusing a workspace ref updates the existing element. Use the same ref with a
+different --parent to place it in another view. The parent must already exist;
+placing a child under it automatically creates its owned view. Omit --parent
+for root. Use 'tld view create' to create an owned view before adding children.
+Supplied nonempty fields replace existing values; omitted fields are preserved.
+Use 'update element' to clear a field or change an existing kind.
+Use 'view place <view> <element>' to add a placement without changing metadata.
+
+Changes apply to the target immediately and refresh the YAML cache when present.
+Next, connect elements with 'tld connect' or inspect them with 'tld list elements'.`,
+		Example: `  tld add "API" --kind service --technology Go
+
+  # Custom refs and drill-down views in a YAML workspace
+  tld init
+  tld add "Platform" --ref platform
+  tld add "API" --ref api --parent platform --kind service
+  tld add "API" --ref api --parent root
+  tld list views --tree`,
+		Args: cobra.ExactArgs(1),
+		ValidArgsFunction: func(cmd *cobra.Command, args []string, toComplete string) ([]string, cobra.ShellCompDirective) {
+			if len(args) != 0 {
+				return nil, cobra.ShellCompDirectiveNoFileComp
+			}
+			return completion.ElementRefsWithNames(wdir)
+		},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if cmd.Flags().Changed("ref") && !cmdutil.WorkspaceConfigured(cmd, *wdir) {
+				err := cmdutil.WithHint(fmt.Errorf("--ref requires a YAML workspace"), "Run 'tld init' first or pass --yaml to use a workspace-local ref; omit --ref to work directly on the database.")
+				if cmdutil.WantsJSON(*format) {
+					return cmdutil.WriteCommandError(cmd.OutOrStdout(), *compact, "add", err)
+				}
+				return err
+			}
+			name := args[0]
+			if strings.TrimSpace(kind) == "" {
+				kind = ""
+			} else {
+				normalizedKind, err := validateKind(kind)
+				if err != nil {
+					return err
+				}
+				kind = normalizedKind
+			}
+			r := ref
+			if r == "" {
+				r = workspace.Slugify(name)
+				if r == "" {
+					return fmt.Errorf("could not generate a valid reference from name %q. please provide an explicit reference with --ref (e.g. --ref my-element)", name)
+				}
+			}
+			if err := workspace.ValidateElementRef(r); err != nil {
+				return err
+			}
+			sess, err := cmdutil.OpenSession(cmd, *wdir, target, dataDir)
+			if err != nil {
+				return err
+			}
+			defer func() { _ = sess.Close() }()
+			ws, err := sess.LoadWorkspace()
+			if err != nil {
+				return err
+			}
+			if resolved, resolveErr := cmdutil.ResolveElementArg(ws, r); resolveErr == nil {
+				r = resolved
+			}
+			placementParent := parent
+			if placementParent == "" {
+				placementParent = "root"
+			}
+			if placementParent != workspace.RootRef {
+				resolvedParent, resolveErr := cmdutil.ResolveElementArg(ws, placementParent)
+				if resolveErr != nil {
+					if err := workspace.ValidateParentRef(placementParent); err != nil {
+						return err
+					}
+					return fmt.Errorf("parent ref %q not found", placementParent)
+				}
+				placementParent = resolvedParent
+			}
+			if placementParent == r {
+				return cmdutil.WithHint(fmt.Errorf("an element cannot be placed inside its own view"), "Choose another --parent, or add a child component to this view.")
+			}
+			// Place the element automatically unless the caller pinned it. An
+			// element that already has a placement keeps its position (re-add
+			// must not reset the view), otherwise the layout engine drops the
+			// new node into the nearest free slot, anchored to any existing
+			// connectors.
+			positionSet := cmd.Flags().Changed("position-x") || cmd.Flags().Changed("position-y")
+			if !positionSet {
+				if existing := cmdutil.FindPlacement(ws, r, placementParent); existing != nil {
+					positionX, positionY = existing.PositionX, existing.PositionY
+				} else if x, y, ok := cmdutil.AutoPlace(ws, placementParent, r, nil); ok {
+					positionX, positionY = x, y
+				}
+			}
+			linkFilePath, err := resolveLinkTarget(linkTarget)
+			if err != nil {
+				return err
+			}
+			normalizedTechnology, wasNormalized := normalizeTechnology(technology)
+			parsedTags := workspace.ParseTagList(tags)
+			placement := workspace.ViewPlacement{
+				ParentRef: placementParent,
+				PositionX: positionX,
+				PositionY: positionY,
+			}
+			// Auto-placed coordinates must survive the YAML round-trip even when
+			// they land on 0, so mark them explicit whenever they are non-zero.
+			if positionX != 0 {
+				placement.PositionXSet = true
+			}
+			if positionY != 0 {
+				placement.PositionYSet = true
+			}
+			spec := &workspace.Element{
+				Name:        name,
+				Kind:        kind,
+				Description: description,
+				Technology:  normalizedTechnology,
+				URL:         url,
+				LogoURL:     logoURL,
+				FilePath:    linkFilePath,
+				Tags:        parsedTags,
+				ViewLabel:   viewLabel,
+				Placements:  []workspace.ViewPlacement{placement},
+			}
+			if _, err := workspace.MergeElementFields(r, ws.Elements[r], spec); err != nil {
+				return cmdutil.WithHint(err, fmt.Sprintf("Use 'tld update element %s kind %s' to change its kind.", r, kind))
+			}
+			validateAndWarnTechnology(cmd, technology)
+			if dryRun {
+				if sess.HasWorkspace() {
+					if err := cmdutil.WithWorkspaceDryRun(*wdir, func(cloneDir string) error {
+						return workspace.UpsertElement(cloneDir, r, spec)
+					}); err != nil {
+						if cmdutil.WantsJSON(*format) {
+							return cmdutil.WriteCommandError(cmd.OutOrStdout(), *compact, "add", err)
+						}
+						return fmt.Errorf("dry-run add element: %w", err)
+					}
+				}
+				if cmdutil.WantsJSON(*format) {
+					return cmdutil.WriteMutation(cmd.OutOrStdout(), *compact, "add", "dry-run", r)
+				}
+				term.Successf(cmd.OutOrStdout(), "dry-run: add: %s", r)
+				term.Infof(cmd.OutOrStdout(), "kind=%s parent=%s", kind, placementParent)
+				if strings.TrimSpace(linkTarget) != "" {
+					term.Infof(cmd.OutOrStdout(), "link=%s", strings.TrimSpace(linkTarget))
+				}
+				if wasNormalized {
+					term.Infof(cmd.OutOrStdout(), "technology normalized: %q -> %q", technology, normalizedTechnology)
+				}
+				return nil
+			}
+			return runAdd(cmd, sess, ws, *format, *compact, r, spec, placementParent, linkFilePath, wasNormalized, technology, normalizedTechnology)
+		},
+	}
+
+	c.Flags().StringVar(&kind, "kind", "", "short element kind metadata, e.g. service, database, component, function")
+	c.Flags().StringVar(&description, "description", "", "description")
+	c.Flags().StringVar(&technology, "technology", "", "primary technology")
+	c.Flags().StringVar(&url, "url", "", "external URL")
+	c.Flags().StringVar(&logoURL, "logo-url", "", "logo image URL")
+	c.Flags().StringVar(&tags, "tags", "", "comma-separated tags")
+	c.Flags().Float64Var(&positionX, "position-x", 0, "horizontal position in the view")
+	c.Flags().Float64Var(&positionY, "position-y", 0, "vertical position in the view")
+	c.Flags().StringVar(&ref, "ref", "", "workspace-local ref (YAML mode only; default: slugified name)")
+	c.Flags().StringVar(&parent, "parent", "root", "parent element ref or root")
+	c.Flags().BoolVar(&dryRun, "dry-run", false, "preview the change without writing files")
+	c.Flags().StringVar(&viewLabel, "view-label", "", "label for the diagram created when this element becomes a parent")
+	c.Flags().StringVar(&linkTarget, "link", "", "source link target using 'tld link' file syntax: file path, file#symbol, file#Lline, or folder/ (URLs: use --url or 'tld link --external')")
+	c.Flags().StringVar(&target, "target", "", "sync target: auto, local, remote, or cloud")
+	c.Flags().StringVar(&dataDir, "data-dir", "", "data directory for local target state")
+
+	_ = c.RegisterFlagCompletionFunc("ref", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+		return completion.ElementRefs(wdir)
+	})
+	_ = c.RegisterFlagCompletionFunc("parent", func(*cobra.Command, []string, string) ([]string, cobra.ShellCompDirective) {
+		return completion.ParentRefs(wdir)
+	})
+	return c
+}
+
+// runAdd writes the element to the server synchronously, then refreshes the
+// local YAML cache. Every invocation gets immediate server feedback.
+func runAdd(cmd *cobra.Command, sess *cmdutil.Session, ws *workspace.Workspace, format string, compact bool, ref string, spec *workspace.Element, placementParent, linkFilePath string, wasNormalized bool, technology, normalizedTechnology string) error {
+	fail := func(err error) error {
+		if cmdutil.WantsJSON(format) {
+			return cmdutil.WriteCommandError(cmd.OutOrStdout(), compact, "add", err)
+		}
+		return err
+	}
+	if err := sess.RequireAppliedCache(); err != nil {
+		return fail(err)
+	}
+	runner, err := sess.Runner()
+	if err != nil {
+		return fail(err)
+	}
+
+	// add merges into the existing YAML spec (see workspace.UpsertElement), so
+	// empty values mean "keep the existing server value" here. CLI-authored
+	// elements are exempt from the view noise gate; that flag is owned by
+	// codeindex materialization, not by this command.
+	bypass := true
+	// add merges, so union the incoming tags with the element's existing tags
+	// (matching workspace.UpsertElement) instead of replacing them.
+	var tags []string
+	if existing := ws.Elements[ref]; existing != nil {
+		tags = existing.Tags
+	}
+	tags = workspace.UnionTags(tags, spec.Tags)
+	if len(tags) == 0 {
+		tags = nil
+	}
+	input := api.ElementInput{
+		Name:            spec.Name,
+		Description:     strptr(spec.Description),
+		Kind:            strptr(spec.Kind),
+		Technology:      strptr(spec.Technology),
+		URL:             strptr(spec.URL),
+		LogoURL:         strptr(spec.LogoURL),
+		Tags:            tags,
+		FilePath:        strptr(spec.FilePath),
+		TechLinks:       tech.TechnologyLinksForElement(spec.Technology, ""),
+		BypassNoiseGate: &bypass,
+		HasView:         spec.HasView,
+		ViewLabel:       strptr(spec.ViewLabel),
+	}
+	ctx := sess.Context(cmd.Context())
+	savedElement, updated, err := upsertElement(ctx, runner, ws, ref, input)
+	if err != nil {
+		return fail(cmdutil.WithUnauthorizedHint("server upsert element failed", err))
+	}
+	elementID := savedElement.GetId()
+
+	// Ensure placement in the parent view (creating the parent view when needed,
+	// mirroring the legacy canonical-view promotion).
+	parentViewID, err := exec.ResolveParentViewID(ctx, runner, ws, sess.Wdir, placementParent)
+	if err != nil {
+		return fail(fmt.Errorf("resolve parent view: %w", err))
+	}
+	var px, py float64
+	if len(spec.Placements) > 0 {
+		px, py = spec.Placements[0].PositionX, spec.Placements[0].PositionY
+	}
+	if err := runner.AddPlacement(ctx, parentViewID, elementID, px, py); err != nil {
+		return fail(cmdutil.WithUnauthorizedHint("server place element failed", err))
+	}
+
+	// The element gets its own diagram only when another element is placed
+	// under it: ResolveParentViewID creates and records the parent's view.
+
+	// Refresh YAML cache (write-through) when a workspace is in play.
+	if sess.HasWorkspace() {
+		if err := workspace.UpsertElement(sess.Wdir, ref, spec); err != nil {
+			return fail(sess.CacheError(err))
+		}
+		// Keep explicit source-link updates aligned with the target.
+		if linkFilePath != "" {
+			if err := workspace.UpdateElementField(sess.Wdir, ref, "file_path", linkFilePath); err != nil {
+				return fail(sess.CacheError(err))
+			}
+		}
+		if err := exec.RecordElementMeta(ctx, sess.Wdir, ref, savedElement, 0, nil); err != nil {
+			return fail(sess.CacheError(err))
+		}
+		cached, err := workspace.Load(sess.Wdir)
+		if err != nil {
+			return fail(sess.CacheError(err))
+		}
+		if err := sess.RefreshCache(cached); err != nil {
+			return fail(sess.CacheError(err))
+		}
+	}
+
+	if cmdutil.WantsJSON(format) {
+		action := "add"
+		if updated {
+			action = "update"
+		}
+		return cmdutil.WriteResourceMutation(cmd.OutOrStdout(), compact, "add", action, ref, "element", elementID)
+	}
+	if updated {
+		term.Successf(cmd.OutOrStdout(), "updated: %s (id=%d)", ref, elementID)
+	} else {
+		term.Successf(cmd.OutOrStdout(), "add: %s (id=%d)", ref, elementID)
+	}
+	if wasNormalized {
+		term.Infof(cmd.OutOrStdout(), "technology normalized: %q -> %q", technology, normalizedTechnology)
+	}
+	return nil
+}
+
+// upsertElement creates or updates the server element for ref. Cached metadata
+// is preferred, then the server is searched by name so hand-written YAML or a
+// lost lockfile does not create duplicate elements. A missing server copy is
+// recreated from the YAML spec so a partial failure converges on retry.
+func upsertElement(ctx context.Context, runner exec.Runner, ws *workspace.Workspace, ref string, input api.ElementInput) (*diagv1.Element, bool, error) {
+	id, err := resolveAddElementID(ctx, runner, ws, ref)
+	if errors.Is(err, exec.ErrElementNotOnServer) {
+		created, createErr := runner.CreateElement(ctx, input)
+		return created, false, createErr
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	updated, err := runner.UpdateElement(ctx, id, input)
+	if err == nil {
+		return updated, true, nil
+	}
+	if !exec.IsNotFound(err) {
+		return nil, false, err
+	}
+	// Server copy disappeared (e.g. deleted in the UI) while the local cache
+	// still holds its ID: recreate it so add self-heals.
+	created, createErr := runner.CreateElement(ctx, input)
+	return created, false, createErr
+}
+
+// resolveAddElementID finds an existing server element for the add upsert.
+// Cached metadata wins; otherwise the server is searched by name+kind. Refs
+// that are not in YAML yet, or have no server match, report
+// exec.ErrElementNotOnServer so the caller creates them.
+func resolveAddElementID(ctx context.Context, runner exec.Runner, ws *workspace.Workspace, ref string) (int32, error) {
+	if meta := elementMeta(ws, ref); meta != nil {
+		return int32(meta.ID), nil
+	}
+	if el, ok := ws.Elements[ref]; !ok || el == nil {
+		return 0, exec.ErrElementNotOnServer
+	}
+	return exec.ResolveElementID(ctx, runner, ws, ref)
+}
+
+func elementMeta(ws *workspace.Workspace, ref string) *workspace.ResourceMetadata {
+	if ws == nil || ws.Meta == nil {
+		return nil
+	}
+	meta, ok := ws.Meta.Elements[ref]
+	if !ok || meta == nil || meta.ID == 0 {
+		return nil
+	}
+	return meta
+}
+func strptr(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+// resolveLinkTarget maps a `--link` value using the file-target subset of the
+// `tld link <ref> [target]` positional syntax: a file path, file#symbol,
+// file#Lline, or folder (trailing slash). It returns the file_path value.
+// URLs are rejected: the element's `url` field is a separate attribute owned
+// by `--url`, and external source links stay in `tld link --external`.
+func resolveLinkTarget(target string) (string, error) {
+	trimmed := strings.TrimSpace(target)
+	if trimmed == "" {
+		return "", nil
+	}
+	if isLinkURL(trimmed) {
+		return "", fmt.Errorf("invalid --link %q: URLs are not source links; use --url for the element URL or 'tld link --external' for an external source link", target)
+	}
+	parsed := sourcelink.Parse(trimmed)
+	switch parsed.Anchor.Kind {
+	case sourcelink.AnchorSymbol:
+		base := strings.TrimSpace(parsed.BasePath)
+		if base == "" {
+			return "", fmt.Errorf("invalid --link %q: a file path is required before the symbol anchor (use 'tld link' for advanced usage)", target)
+		}
+		nodeType := strings.TrimSpace(parsed.Anchor.NodeType)
+		if nodeType == "" {
+			nodeType = "symbol"
+		}
+		return sourcelink.FormatSymbol(base, nodeType, parsed.Anchor.Symbol), nil
+	case sourcelink.AnchorLine:
+		base := strings.TrimSpace(parsed.BasePath)
+		if base == "" {
+			return "", fmt.Errorf("invalid --link %q: a file path is required before the line anchor (use 'tld link' for advanced usage)", target)
+		}
+		return sourcelink.FormatLine(base, parsed.Anchor.StartLine), nil
+	}
+	if strings.TrimSpace(parsed.BasePath) == "" {
+		return "", fmt.Errorf("invalid --link %q: a file path or folder/ is required", target)
+	}
+	if strings.HasSuffix(trimmed, "/") {
+		return ensureLinkTrailingSlash(trimmed), nil
+	}
+	return trimmed, nil
+}
+
+func isLinkURL(target string) bool {
+	lower := strings.ToLower(strings.TrimSpace(target))
+	return strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://")
+}
+
+func ensureLinkTrailingSlash(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" || strings.HasSuffix(value, "/") {
+		return value
+	}
+	return value + "/"
+}
+
+func validateKind(kind string) (string, error) {
+	trimmed := strings.TrimSpace(kind)
+	if trimmed == "" {
+		return "", fmt.Errorf("--kind is invalid: cannot be empty or whitespace")
+	}
+	if len([]rune(trimmed)) > 64 {
+		return "", fmt.Errorf("--kind %q is too long: use 64 characters or fewer", kind)
+	}
+	for _, r := range trimmed {
+		if r < 32 || r == 127 {
+			return "", fmt.Errorf("--kind contains control characters")
+		}
+	}
+	return trimmed, nil
+}
+
+func normalizeTechnology(input string) (string, bool) {
+	trimmed := strings.TrimSpace(input)
+	if trimmed == "" {
+		return "", false
+	}
+	slug, _, ok := tech.LookupCatalogFuzzy(trimmed)
+	if ok {
+		if strings.EqualFold(trimmed, slug) {
+			return slug, false
+		}
+		return slug, true
+	}
+	missing := tech.Validate(trimmed)
+	if len(missing) != 1 || !strings.EqualFold(strings.TrimSpace(missing[0]), trimmed) {
+		return trimmed, false
+	}
+	suggestions := tech.SuggestSimilar(trimmed, 1)
+	if len(suggestions) == 0 {
+		return trimmed, false
+	}
+	canonical, _, canonicalOK := tech.LookupCatalog(suggestions[0])
+	if !canonicalOK {
+		return trimmed, false
+	}
+	if strings.EqualFold(trimmed, canonical) {
+		return canonical, false
+	}
+	return canonical, true
+}
+
+func validateAndWarnTechnology(cmd *cobra.Command, technology string) {
+	if technology == "" {
+		return
+	}
+	missing := tech.Validate(technology)
+	for _, m := range missing {
+		suggestions := tech.SuggestSimilar(m, 5)
+		if len(suggestions) == 0 {
+			term.Warnf(cmd.ErrOrStderr(), "Unknown technology %q", m)
+			continue
+		}
+		term.Warnf(cmd.ErrOrStderr(), "Unknown technology %q. similar: %s?", m, joinQuoted(suggestions))
+	}
+}
+
+func joinQuoted(items []string) string {
+	quoted := make([]string, len(items))
+	for i, s := range items {
+		quoted[i] = `"` + s + `"`
+	}
+	if len(quoted) == 0 {
+		return ""
+	}
+	if len(quoted) == 1 {
+		return quoted[0]
+	}
+	return fmt.Sprintf("%s, %s", strings.Join(quoted[:len(quoted)-1], ", "), quoted[len(quoted)-1])
+}

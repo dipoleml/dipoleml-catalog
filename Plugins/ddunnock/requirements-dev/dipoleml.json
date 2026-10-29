@@ -1,0 +1,92 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.ddunnock.requirements-dev",
+  "type": "plugin",
+  "name": "Requirements Dev",
+  "slug": "requirements-dev",
+  "vendor": "ddunnock",
+  "description": "Transform concept development artifacts into INCOSE-compliant formal requirements. AI-assisted requirements development with hybrid quality checking (16 deterministic + 9 semantic INCOSE GtWR v4 rules), verification planning, bidirectional traceability, gap analysis against concept architecture, assumption lifecycle management, and ReqIF export. Organized around functional blocks from concept development. Includes cross-cutting notes registry, need/requirement split workflow, gap discovery agent",
+  "version": "1.4.0",
+  "homepage": "https://github.com/ddunnock/claude-plugins",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "ddunnock",
+    "brandName": "ddunnock",
+    "source": "https://github.com/ddunnock.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:12:47Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "ddunnock/claude-plugins",
+    "url": "https://github.com/ddunnock/claude-plugins",
+    "commit": "e22db30ce9da9ff3686cda59edd8855443451ba0",
+    "path": "skills/requirements-dev",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 14,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:51:17Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "requirements-dev"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

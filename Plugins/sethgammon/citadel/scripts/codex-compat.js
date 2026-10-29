@@ -1,0 +1,877 @@
+#!/usr/bin/env node
+
+/**
+ * codex-compat.js -- Generates all Codex CLI artifacts from Citadel source.
+ *
+ * Reads Citadel's skills, agents, hooks, MCP config, and package.json,
+ * then generates Codex-native equivalents:
+ *
+ *   .codex/config.toml                     Required feature flags and agent config
+ *   .codex-plugin/plugin.json              Plugin manifest for Codex marketplace
+ *   runtimes/codex/hooks.json              Plugin-bundled Codex lifecycle hooks
+ *   .codex/agents/{name}.toml              Translated agent definitions
+ *   .agents/skills/{name}/SKILL.md         Skill copies for Codex discovery
+ *   .agents/skills/{name}/agents/openai.yaml   UI metadata per skill
+ *
+ * Usage:
+ *   node scripts/codex-compat.js                    # from project root
+ *   node scripts/codex-compat.js /path/to/project   # explicit project path
+ *   node scripts/codex-compat.js --dry-run           # show what would be generated
+ *
+ * Generated skill trees have an exact-digest ownership receipt. A refresh
+ * preserves unowned or edited skill trees for manual review.
+ */
+
+'use strict';
+
+const fs   = require('fs');
+const path = require('path');
+const crypto = require('crypto');
+const { translateCodexPluginHooks } = require('../runtimes/codex/generators/install-hooks');
+const { parseProjectSpec, validateProjectSpec } = require('../core/project/load-project-spec');
+const { renderCodexGuidance } = require('../core/project/render-codex-guidance');
+const { renderSharedGuidance } = require('../core/project/render-shared-guidance');
+const { parseAgentContent } = require('../core/agents/parse-agent');
+const { renderCodexToml } = require('../core/agents/project-agent');
+const { loadCodexAgentConfig } = require('../core/agents/model-config');
+const {
+  assertPortableSharedOutputs,
+  ensureMachineLocalExcludes,
+  guidanceOwner,
+  withGuidanceOwner,
+} = require('../core/runtime/install-contract');
+
+function canonicalPathIdentity(value) {
+  const resolved = path.resolve(value);
+  try {
+    return fs.realpathSync.native
+      ? fs.realpathSync.native(resolved)
+      : fs.realpathSync(resolved);
+  } catch (_error) {
+    return resolved;
+  }
+}
+
+const CITADEL_ROOT = path.resolve(__dirname, '..');
+const CLAUDE_PLUGIN_MCP_PATH = path.join(CITADEL_ROOT, '.claude-plugin', '.mcp.json');
+const args = process.argv.slice(2);
+const DRY_RUN = args.includes('--dry-run');
+const PROJECT_ROOT = args.find(a => !a.startsWith('--')) || process.env.CLAUDE_PROJECT_DIR || process.cwd();
+const PROJECT_IS_CITADEL_ROOT = canonicalPathIdentity(PROJECT_ROOT) === canonicalPathIdentity(CITADEL_ROOT);
+const CODEX_PLUGIN_HOOKS_PATH = './runtimes/codex/hooks.json';
+
+function portableMcpScriptPath() {
+  return PROJECT_IS_CITADEL_ROOT
+    ? './mcp-servers/citadel-state/index.js'
+    : './.citadel/scripts/citadel-state.js';
+}
+
+function codexMcpConfig(config) {
+  const pluginRoot = CITADEL_ROOT.replace(/\\/g, '/');
+  const replacePluginRoot = (value) => typeof value === 'string'
+    ? value.replace(/\$\{CLAUDE_PLUGIN_ROOT\}/g, pluginRoot)
+    : value;
+  return {
+    ...config,
+    command: replacePluginRoot(config.command),
+    args: Array.isArray(config.args) ? config.args.map(replacePluginRoot) : config.args,
+    cwd: replacePluginRoot(config.cwd),
+    env: config.env && typeof config.env === 'object'
+      ? Object.fromEntries(Object.entries(config.env).map(([key, value]) => [key, replacePluginRoot(value)]))
+      : config.env,
+  };
+}
+
+// ---- Utility helpers --------------------------------------------------------
+
+function ensureDir(dir) {
+  if (!DRY_RUN && !fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+}
+
+function writeFile(filePath, content) {
+  if (DRY_RUN) {
+    console.log(`  [dry-run] Would write: ${filePath}`);
+    return;
+  }
+  ensureDir(path.dirname(filePath));
+  fs.writeFileSync(filePath, content, 'utf8');
+}
+
+function copyFile(sourcePath, targetPath) {
+  if (!fs.existsSync(sourcePath)) {
+    throw new Error(`Required Codex plugin asset is missing: ${sourcePath}`);
+  }
+  if (DRY_RUN) {
+    console.log(`  [dry-run] Would copy: ${sourcePath} -> ${targetPath}`);
+    return;
+  }
+  ensureDir(path.dirname(targetPath));
+  fs.copyFileSync(sourcePath, targetPath);
+}
+
+function generateDelegate(scriptName) {
+  return (
+    "#!/usr/bin/env node\n" +
+    "'use strict';\n" +
+    "const { spawnSync } = require('child_process');\n" +
+    "const fs = require('fs');\n" +
+    "const path = require('path');\n" +
+    "const pluginRoot = fs.readFileSync(path.join(__dirname, '..', 'plugin-root.txt'), 'utf8').trim();\n" +
+    "const real = path.join(pluginRoot, 'scripts', " + JSON.stringify(scriptName) + ");\n" +
+    "const r = spawnSync(process.execPath, [real, ...process.argv.slice(2)], { stdio: 'inherit', env: process.env });\n" +
+    "process.exit(r.status === null ? 1 : r.status);\n"
+  );
+}
+
+function readJSON(filePath) {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+const { parseFrontmatter: parseSharedFrontmatter } = require('../core/utils/frontmatter');
+const parseFrontmatter = content => parseSharedFrontmatter(content).frontmatter || {};
+
+// ---- 1. Generate .codex/config.toml -----------------------------------------
+
+function generateConfigToml() {
+  console.log('Generating .codex/config.toml...');
+
+  // Codex plugin MCP declarations cannot expand Claude's plugin-root placeholder,
+  // and a plugin-relative cwd would make repository-aware servers operate on the
+  // installed plugin. Register bundled MCP servers in the consumer project's
+  // native config instead, where absolute entrypoints and a project-relative cwd
+  // can coexist.
+  let mcpSection = '';
+  const bundledMcpData = readJSON(CLAUDE_PLUGIN_MCP_PATH);
+  const projectMcpData = readJSON(path.join(PROJECT_ROOT, '.mcp.json'));
+  const entries = [mcpServerToToml('citadel-state', {
+    command: 'node',
+    args: [portableMcpScriptPath()],
+    env: {
+      CITADEL_PROJECT_ROOT: '.',
+      CITADEL_RUNTIME: 'codex',
+    },
+    _codex: {
+      startup_timeout_sec: 10,
+      tool_timeout_sec: 30,
+      required: false,
+    },
+  })];
+  const mergedServers = new Map();
+  for (const data of [bundledMcpData, projectMcpData]) {
+    if (!data || !data.mcpServers) continue;
+    for (const [name, config] of Object.entries(data.mcpServers)) {
+      if (name.startsWith('_') || name === 'citadel-state') continue;
+      mergedServers.set(name, config);
+    }
+  }
+  for (const [name, config] of mergedServers) {
+    const translated = codexMcpConfig(config);
+    if (name === 'codebase-memory') {
+      translated.env = {
+        ...(translated.env || {}),
+        CITADEL_PROJECT_ROOT: '.',
+        CITADEL_RUNTIME: 'codex',
+      };
+    }
+    entries.push(mcpServerToToml(name, translated));
+  }
+  if (entries.length > 0) {
+    mcpSection = '\n' + entries.join('\n');
+  }
+
+  // On Windows, PowerShell 5 fails to load its managed runtime in some environments
+  // (error 8009001d). Keep the supported sandbox setting and SHELL environment
+  // hint, without emitting unrecognized agent_shell/private-desktop keys.
+  let shellEnvVars = 'CITADEL_RUNTIME = "codex"';
+  let windowsSection = '';
+  if (process.platform === 'win32') {
+    const gitBash = 'C:/Program Files/Git/bin/bash.exe';
+    if (fs.existsSync(gitBash)) {
+      shellEnvVars += `, SHELL = "${gitBash}"`;
+      windowsSection = `
+# Keep the supported Windows sandbox setting; SHELL is set above for subprocesses.
+[windows]
+sandbox = "elevated"
+`;
+    }
+  }
+
+  const regenerateCommand = PROJECT_IS_CITADEL_ROOT
+    ? 'node scripts/codex-compat.js'
+    : 'node .citadel/scripts/codex-compat.js';
+  const toml = `# Generated by Citadel. Do not edit manually.
+# Re-generate with: ${regenerateCommand}
+
+# Required feature flags for Citadel harness
+[features]
+hooks = true
+multi_agent = true
+skill_mcp_dependency_install = true
+
+# Agent configuration
+[agents]
+max_depth = 1
+max_threads = 6
+job_max_runtime_seconds = 1800
+
+# Session persistence
+[history]
+persistence = "save-all"
+
+# Shell environment
+[shell_environment_policy]
+inherit = "all"
+set = { ${shellEnvVars} }
+exclude = ["*SECRET*", "*TOKEN*", "*KEY*"]
+${mcpSection}${windowsSection}`;
+
+  writeFile(path.join(PROJECT_ROOT, '.codex', 'config.toml'), toml);
+}
+
+// ---- MCP server translation -------------------------------------------------
+//
+// Claude Code's `.mcp.json` and Codex's `[mcp_servers.NAME]` TOML overlap on
+// most fields but diverge on a few. The translator below:
+//
+//   1. Maps shared fields directly (command, args, url, env, cwd).
+//   2. Maps Claude `headers` → Codex `http_headers`.
+//   3. Detects token-style env vars and emits `bearer_token_env_var` while
+//      ALSO keeping the env var in env (so the program can still read it
+//      directly if needed).
+//   4. Honors a `_codex` extension block on the server entry for Codex-only
+//      knobs (startup_timeout_sec, tool_timeout_sec, enabled_tools,
+//      disabled_tools, enabled, required, env_http_headers, etc.). Any
+//      key under `_codex` is emitted verbatim into the TOML, which means
+//      new Codex fields work the moment they're added to the config —
+//      no edit to this generator required.
+//   5. Surfaces unrecognized top-level keys as a warning so silent drops
+//      become visible.
+//
+// Future-proofing: when Claude or Codex adds new common keys, prefer
+// extending CLAUDE_TO_CODEX_MAP. When Codex adds new Codex-only knobs,
+// users can pass them through `_codex` immediately; we tighten the
+// generator on the next pass.
+
+const CLAUDE_TO_CODEX_MAP = {
+  command: 'command',
+  args: 'args',
+  url: 'url',
+  cwd: 'cwd',
+  env: 'env',
+  headers: 'http_headers',
+};
+
+function tomlEscape(str) {
+  return String(str).replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}
+
+function tomlValue(value) {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'string') return `"${tomlEscape(value)}"`;
+  if (typeof value === 'number' || typeof value === 'boolean') return String(value);
+  if (Array.isArray(value)) {
+    if (value.length === 0) return '[]';
+    return '[' + value.map(tomlValue).filter((v) => v !== null).join(', ') + ']';
+  }
+  if (typeof value === 'object') {
+    const inner = Object.entries(value)
+      .filter(([k]) => !k.startsWith('_'))
+      .map(([k, v]) => `${k} = ${tomlValue(v)}`)
+      .filter((line) => !line.endsWith(' = null'));
+    return '{ ' + inner.join(', ') + ' }';
+  }
+  return null;
+}
+
+function mcpServerToToml(name, config) {
+  const lines = [`[mcp_servers.${name}]`];
+  const warnings = [];
+
+  // Map common fields (Claude shape → Codex shape)
+  for (const [claudeKey, codexKey] of Object.entries(CLAUDE_TO_CODEX_MAP)) {
+    if (!(claudeKey in config) || config[claudeKey] === null || config[claudeKey] === undefined) continue;
+    const value = config[claudeKey];
+    // Skip empty arrays/objects to keep the TOML tidy.
+    if (Array.isArray(value) && value.length === 0) continue;
+    if (typeof value === 'object' && !Array.isArray(value) && Object.keys(value).length === 0) continue;
+    const rendered = tomlValue(value);
+    if (rendered !== null) lines.push(`${codexKey} = ${rendered}`);
+  }
+
+  // Token-style env detection: emit bearer_token_env_var as a hint to Codex
+  // for HTTP servers, but keep the env var in `env` (handled above) so stdio
+  // servers still see it.
+  if (config.env && typeof config.env === 'object') {
+    for (const k of Object.keys(config.env)) {
+      if (k.startsWith('_')) continue;
+      if (/token/i.test(k) && config.url) {
+        lines.push(`bearer_token_env_var = "${tomlEscape(k)}"`);
+        break; // only one bearer slot per server
+      }
+    }
+  }
+
+  // Codex-only extensions: anything under `_codex` is emitted verbatim.
+  // This is the forward-compatibility hatch — when OpenAI ships a new
+  // [mcp_servers.*] field, users can set it without touching this script.
+  if (config._codex && typeof config._codex === 'object') {
+    for (const [k, v] of Object.entries(config._codex)) {
+      if (v === null || v === undefined) continue;
+      if (k === 'instructions') {
+        console.warn(`  warning: mcp_servers.${name}: unsupported instructions field omitted`);
+        continue;
+      }
+      const rendered = tomlValue(v);
+      if (rendered !== null) lines.push(`${k} = ${rendered}`);
+    }
+  }
+
+  // Warn about unrecognized top-level keys so we notice when Claude's
+  // shape evolves.
+  const known = new Set([...Object.keys(CLAUDE_TO_CODEX_MAP), '_codex', 'type']);
+  for (const k of Object.keys(config)) {
+    if (k.startsWith('_')) continue;
+    if (!known.has(k)) warnings.push(`mcp_servers.${name}: unrecognized field "${k}" — not translated`);
+  }
+  for (const w of warnings) console.warn(`  warning: ${w}`);
+
+  lines.push('');
+  return lines.join('\n');
+}
+
+// ---- 2. Generate plugin MCP config ------------------------------------------
+
+function generatePluginMcpConfig() {
+  if (PROJECT_IS_CITADEL_ROOT) {
+    console.log('Preserving runtime-specific MCP manifests; Codex uses project-native MCP registration.');
+    return;
+  }
+  const mcpPath = path.join(PROJECT_ROOT, '.mcp.json');
+  const existing = readJSON(mcpPath);
+  const citadelState = {
+    command: 'node',
+    args: [portableMcpScriptPath()],
+    env: {
+      CITADEL_PROJECT_ROOT: '.',
+    },
+    _codex: {
+      startup_timeout_sec: 10,
+      tool_timeout_sec: 30,
+      required: false,
+    },
+  };
+  const config = existing && typeof existing === 'object' && !Array.isArray(existing)
+    ? { ...existing, mcpServers: { ...(existing.mcpServers || {}), 'citadel-state': citadelState } }
+    : { mcpServers: { 'citadel-state': citadelState } };
+  assertPortableSharedOutputs([{
+    path: '.mcp.json',
+    runtime: 'codex',
+    ownership: 'shared',
+    content: { mcpServers: { 'citadel-state': citadelState } },
+  }]);
+  const content = JSON.stringify(config, null, 2) + '\n';
+  if (existing && JSON.stringify(existing) === JSON.stringify(config)) {
+    console.log('Existing .mcp.json already has a portable Citadel entry; preserving it.');
+    return;
+  }
+  console.log(existing ? 'Updating the portable Citadel entry in .mcp.json...' : 'Generating plugin MCP config...');
+  writeFile(mcpPath, content);
+}
+
+// ---- 3. Generate .codex-plugin/plugin.json ----------------------------------
+
+function countSkills() {
+  const skillsDir = path.join(CITADEL_ROOT, 'skills');
+  if (!fs.existsSync(skillsDir)) return 0;
+  return fs.readdirSync(skillsDir).filter(d =>
+    fs.existsSync(path.join(skillsDir, d, 'SKILL.md'))
+  ).length;
+}
+
+function generatePluginManifest() {
+  console.log('Generating .codex-plugin/plugin.json...');
+
+  const pkg = readJSON(path.join(CITADEL_ROOT, 'package.json')) || {};
+  const repoUrl = (pkg.repository && pkg.repository.url) || '';
+  const repositoryUrl = repoUrl.replace(/^git\+/, '').replace(/\.git$/, '');
+  const skillCount = countSkills();
+  const pluginInCitadelRoot = PROJECT_IS_CITADEL_ROOT;
+  const rootIconPath = pluginInCitadelRoot ? './assets/icon.svg' : './.agents/assets/icon.svg';
+  const rootScreenshotPath = pluginInCitadelRoot
+    ? './assets/terminal-demo.svg'
+    : './.agents/assets/terminal-demo.svg';
+
+  const manifest = {
+    name: pkg.name || 'citadel',
+    version: pkg.version || '1.0.0',
+    description: 'Codex-native agent orchestration harness for durable campaigns, skills, hooks, telemetry, and parallel work.',
+    author: {
+      name: pkg.author || 'Citadel',
+      url: repositoryUrl,
+    },
+    repository: repositoryUrl,
+    homepage: 'https://sethgammon.github.io/Citadel/',
+    license: pkg.license || 'MIT',
+    keywords: ['codex', 'openai', 'agent', 'harness', 'orchestration', 'skills', 'hooks', 'mcp', 'automation'],
+    skills: pluginInCitadelRoot ? './skills/' : './.agents/skills/',
+    hooks: CODEX_PLUGIN_HOOKS_PATH,
+    interface: {
+      displayName: 'Citadel Harness',
+      composerIcon: rootIconPath,
+      logo: rootIconPath,
+      screenshots: [rootScreenshotPath],
+      websiteURL: 'https://sethgammon.github.io/Citadel/',
+      privacyPolicyURL: 'https://github.com/SethGammon/Citadel/blob/main/PRIVACY.md',
+      termsOfServiceURL: 'https://github.com/SethGammon/Citadel/blob/main/LICENSE',
+      shortDescription: `Codex-native orchestration: ${skillCount} skills, campaigns, fleet coordination, quality gates`,
+      longDescription: 'Citadel adds durable planning state, reusable skills, lifecycle hooks, telemetry, intent routing, and coordinated multi-agent workflows to Codex.',
+      developerName: 'Citadel',
+      category: 'Developer Tools',
+      capabilities: [
+        'orchestration',
+        'campaigns',
+        'parallel-agents',
+        'quality-gates',
+        'telemetry',
+        'intent-routing',
+        'mcp',
+        'codex-hooks',
+      ],
+      defaultPrompt: [
+        'Use Citadel to route this task through the right skill and verification loop.',
+        'Use Citadel to continue the active campaign and report current state.',
+      ],
+    },
+  };
+
+  const content = JSON.stringify(manifest, null, 2) + '\n';
+
+  writeFile(path.join(PROJECT_ROOT, '.codex-plugin', 'plugin.json'), content);
+
+  const projectedManifest = {
+    ...manifest,
+    skills: './skills/',
+    interface: {
+      ...manifest.interface,
+      composerIcon: './assets/icon.svg',
+      logo: './assets/icon.svg',
+      screenshots: ['./assets/terminal-demo.svg'],
+    },
+  };
+  delete projectedManifest.hooks;
+  delete projectedManifest.mcpServers;
+
+  writeFile(
+    path.join(PROJECT_ROOT, '.agents', '.codex-plugin', 'plugin.json'),
+    JSON.stringify(projectedManifest, null, 2) + '\n'
+  );
+}
+
+function syncPluginAssets() {
+  console.log('Syncing Codex plugin assets to .agents/assets/...');
+  copyFile(
+    path.join(CITADEL_ROOT, 'assets', 'icon.svg'),
+    path.join(PROJECT_ROOT, '.agents', 'assets', 'icon.svg')
+  );
+  copyFile(
+    path.join(CITADEL_ROOT, 'assets', 'terminal-demo.svg'),
+    path.join(PROJECT_ROOT, '.agents', 'assets', 'terminal-demo.svg')
+  );
+}
+
+function generatePluginHooks() {
+  console.log('Generating plugin-bundled Codex hooks...');
+
+  const hooksTemplatePath = path.join(CITADEL_ROOT, 'hooks', 'hooks-template.json');
+  const hooksTemplate = readJSON(hooksTemplatePath);
+  if (!hooksTemplate) {
+    console.warn('  warning: hooks template missing; plugin hooks not generated.');
+    return;
+  }
+
+  const translated = translateCodexPluginHooks(hooksTemplate);
+  const content = JSON.stringify({ hooks: translated.hooks }, null, 2) + '\n';
+  writeFile(path.resolve(PROJECT_ROOT, CODEX_PLUGIN_HOOKS_PATH), content);
+}
+
+// ---- 3. Translate agent definitions -----------------------------------------
+//
+// Agent bodies become `developer_instructions` strings inside TOML. Codex has
+// historically had a soft cap on how much instruction text it will load; we
+// truncate to keep TOML files reasonable. Two failure modes the previous
+// implementation hit:
+//
+//   1. The truncation happened silently — agents like `archon` (>4000 chars)
+//      lost load-bearing guidance with no console output.
+//   2. The 4000-char number was hardcoded, so when Codex raises its limit
+//      (or if it never had one for a particular agent) we couldn't relax it
+//      without editing this file.
+//
+// Now: configurable, observable, per-agent override.
+
+const DEFAULT_AGENT_MAX_CHARS = 4000;
+
+function getAgentMaxChars(fm) {
+  // Per-agent override via frontmatter takes precedence — useful for an agent
+  // whose definition really needs more room.
+  if (fm.codex_max_chars !== undefined) {
+    const n = Number(fm.codex_max_chars);
+    if (Number.isFinite(n) && n >= 0) return n;
+  }
+  // Project-wide override via env var.
+  const envVal = process.env.CITADEL_CODEX_AGENT_MAX_CHARS;
+  if (envVal !== undefined && envVal !== '') {
+    const n = Number(envVal);
+    if (Number.isFinite(n) && n >= 0) return n;
+  }
+  return DEFAULT_AGENT_MAX_CHARS;
+}
+
+function translateAgents() {
+  console.log('Translating agent definitions...');
+
+  const agentsDir = path.join(CITADEL_ROOT, 'agents');
+  if (!fs.existsSync(agentsDir)) {
+    console.log('  No agents/ directory found, skipping.');
+    return;
+  }
+
+  const agentFiles = fs.readdirSync(agentsDir).filter(f => f.endsWith('.md'));
+  const agentConfig = loadCodexAgentConfig(PROJECT_ROOT);
+
+  for (const file of agentFiles) {
+    const content = fs.readFileSync(path.join(agentsDir, file), 'utf8');
+    const fm = parseFrontmatter(content);
+    if (!fm.name) continue;
+
+    const toml = agentToToml(fm, content, agentConfig);
+    writeFile(
+      path.join(PROJECT_ROOT, '.codex', 'agents', `${fm.name}.toml`),
+      toml
+    );
+    console.log(`  ${file} -> .codex/agents/${fm.name}.toml`);
+  }
+}
+
+function agentToToml(fm, fullContent, agentConfig) {
+  // Extract the body after frontmatter as developer_instructions
+  const normalized = fullContent.replace(/\r\n/g, '\n');
+  const bodyMatch = normalized.match(/^---\n[\s\S]*?\n---\n([\s\S]*)/);
+  const body = bodyMatch ? bodyMatch[1].trim() : '';
+
+  // Truncate instructions, but loudly. Set CITADEL_CODEX_AGENT_MAX_CHARS=0
+  // (or higher than the body length) to disable.
+  const maxChars = getAgentMaxChars(fm);
+  if (maxChars > 0 && body.length > maxChars) {
+    const droppedChars = body.length - maxChars;
+    console.warn(
+      `  warning: agent "${fm.name}" instructions truncated — dropped ${droppedChars} chars ` +
+      `(body=${body.length}, cap=${maxChars}). Set codex_max_chars in frontmatter or ` +
+      `CITADEL_CODEX_AGENT_MAX_CHARS env to raise the cap.`
+    );
+  }
+
+  const parsedAgent = parseAgentContent(
+    fm.name,
+    fullContent,
+    path.join(CITADEL_ROOT, 'agents', `${fm.name}.md`),
+  );
+  return renderCodexToml(parsedAgent, { agentConfig, maxChars });
+}
+
+// ---- 4. Sync skills to Codex discovery path ---------------------------------
+
+// Files and directories that should never travel into .agents/skills/.
+// Everything else in a skill directory is copied — so when a skill grows
+// scripts/, references/, assets/, or __benchmarks__/, they show up in Codex
+// without further changes here.
+const SKILL_COPY_EXCLUDES = new Set([
+  'node_modules',
+  '.git',
+  '.DS_Store',
+  'Thumbs.db',
+  // 'agents' is excluded because we generate agents/openai.yaml ourselves;
+  // any hand-authored sibling under agents/ would be clobbered or would
+  // race the generator. If a skill needs a checked-in agents/ subtree,
+  // revisit this exclusion.
+  'agents',
+]);
+
+function copySkillTree(sourceDir, targetDir) {
+  if (DRY_RUN) {
+    console.log(`  [dry-run] Would copy skill tree: ${sourceDir} -> ${targetDir}`);
+    return;
+  }
+  // fs.cpSync requires Node 16.7+. The project documents Node 18+ as the
+  // minimum (see Codex install guide), so this is safe.
+  fs.cpSync(sourceDir, targetDir, {
+    recursive: true,
+    force: true,
+    errorOnExist: false,
+    filter: (src) => !SKILL_COPY_EXCLUDES.has(path.basename(src)),
+  });
+}
+
+function skillTreeDigest(directory) {
+  const digest = crypto.createHash('sha256');
+  function visit(current, relative = '') {
+    for (const entry of fs.readdirSync(current, { withFileTypes: true }).sort((a, b) => a.name.localeCompare(b.name))) {
+      const child = path.join(current, entry.name);
+      const childRelative = path.join(relative, entry.name).replace(/\\/g, '/');
+      if (entry.isSymbolicLink()) throw new Error(`Skill tree contains a symlink: ${childRelative}`);
+      if (entry.isDirectory()) visit(child, childRelative);
+      else if (entry.isFile()) {
+        digest.update(childRelative).update('\0').update(fs.readFileSync(child)).update('\0');
+      }
+    }
+  }
+  visit(directory);
+  return digest.digest('hex');
+}
+
+function syncSkills() {
+  console.log('Syncing skills to .agents/skills/...');
+
+  if (PROJECT_IS_CITADEL_ROOT) {
+    console.log('  Plugin uses ./skills/ directly; skipping duplicate local skill copies.');
+    return;
+  }
+
+  const sourceDir = path.join(CITADEL_ROOT, 'skills');
+  if (!fs.existsSync(sourceDir)) {
+    console.log('  No skills/ directory found, skipping.');
+    return;
+  }
+
+  const targetBase = path.join(PROJECT_ROOT, '.agents', 'skills');
+  const ownershipPath = path.join(PROJECT_ROOT, '.citadel', 'codex-skill-ownership.json');
+  for (const pathToCheck of [path.join(PROJECT_ROOT, '.agents'), targetBase,
+    path.dirname(ownershipPath), ownershipPath]) {
+    let targetStat = null;
+    try { targetStat = fs.lstatSync(pathToCheck); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+    if (targetStat?.isSymbolicLink()) {
+      console.warn(`  warning: preserving skills because a target path is a symlink: ${pathToCheck}`);
+      return;
+    }
+  }
+  const prior = readJSON(ownershipPath);
+  if (fs.existsSync(ownershipPath) && (prior?.schema_version !== 1
+    || !prior.skills || typeof prior.skills !== 'object' || Array.isArray(prior.skills))) {
+    console.warn('  warning: skill ownership receipt is invalid; preserving existing skill trees.');
+    return;
+  }
+  const owned = { ...(prior?.skills || {}) };
+  const skillDirs = fs.readdirSync(sourceDir).filter(d =>
+    fs.existsSync(path.join(sourceDir, d, 'SKILL.md'))
+  );
+
+  let synced = 0;
+  for (const skillName of skillDirs) {
+    const sourceSkillDir = path.join(sourceDir, skillName);
+    const sourcePath = path.join(sourceSkillDir, 'SKILL.md');
+    const targetDir  = path.join(targetBase, skillName);
+    let targetStat = null;
+    try { targetStat = fs.lstatSync(targetDir); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+    if (targetStat) {
+      let currentDigest = null;
+      try {
+        if (targetStat.isDirectory()) currentDigest = skillTreeDigest(targetDir);
+      } catch { /* preserve an unreadable or symlinked tree */ }
+      if (!owned[skillName] || owned[skillName] !== currentDigest) {
+        console.warn(`  warning: preserving unowned or modified .agents/skills/${skillName}; review manually.`);
+        continue;
+      }
+    }
+
+    // Copy the entire skill directory (SKILL.md + scripts/, references/,
+    // assets/, __benchmarks__/, etc.). Excluded names from SKILL_COPY_EXCLUDES
+    // are skipped at every depth via the filter callback.
+    copySkillTree(sourceSkillDir, targetDir);
+
+    // Generate openai.yaml from frontmatter — written after the copy so
+    // it overlays anything that might have slipped in.
+    const content = fs.readFileSync(sourcePath, 'utf8');
+    const fm = parseFrontmatter(content);
+    if (fm.name || fm.description) {
+      generateOpenAIYaml(targetDir, fm);
+    }
+
+    if (!DRY_RUN) owned[skillName] = skillTreeDigest(targetDir);
+
+    synced++;
+  }
+
+  writeFile(ownershipPath, `${JSON.stringify({ schema_version: 1, skills: owned }, null, 2)}\n`);
+
+  console.log(`  ${synced} skills synced (full directory tree).`);
+}
+
+function syncProjectScripts() {
+  console.log('Syncing script delegates to .citadel/scripts/...');
+
+  const sourceDir = path.join(CITADEL_ROOT, 'scripts');
+  if (!fs.existsSync(sourceDir)) {
+    console.log('  No scripts/ directory found, skipping.');
+    return;
+  }
+
+  writeFile(path.join(PROJECT_ROOT, '.citadel', 'plugin-root.txt'), CITADEL_ROOT);
+  writeFile(
+    path.join(PROJECT_ROOT, '.citadel', 'scripts', 'package.json'),
+    `${JSON.stringify({ type: 'commonjs' }, null, 2)}\n`
+  );
+
+  let synced = 0;
+  // Match SessionStart's runtime surface. Projecting every maintainer/test
+  // script makes cold startup inspect hundreds of unnecessary wrappers.
+  for (const file of require('../hooks_src/delegate-scripts.json')) {
+    if (!fs.existsSync(path.join(sourceDir, file))) continue;
+    writeFile(path.join(PROJECT_ROOT, '.citadel', 'scripts', file), generateDelegate(file));
+    synced++;
+  }
+
+  console.log(`  ${synced} script delegates synced.`);
+}
+
+function generateOpenAIYaml(skillDir, fm) {
+  const yaml = `# Generated by Citadel. Do not edit manually.
+interface:
+  display_name: "${(fm.name || 'unknown').replace(/"/g, '\\"')}"
+  short_description: "${(fm.description || '').replace(/"/g, '\\"')}"
+policy:
+  allow_implicit_invocation: true
+`;
+
+  writeFile(path.join(skillDir, 'agents', 'openai.yaml'), yaml);
+}
+
+// ---- 5. Reconcile the Citadel-owned AGENTS.md projection --------------------
+
+function syncProjectGuidance() {
+  console.log('Checking AGENTS.md...');
+
+  const agentsMdPath = path.join(PROJECT_ROOT, 'AGENTS.md');
+  if (fs.existsSync(agentsMdPath)) {
+    const owner = guidanceOwner(fs.readFileSync(agentsMdPath, 'utf8'));
+    if (owner !== 'citadel:project-guidance') {
+      console.log('  User-owned AGENTS.md already exists, skipping.');
+      return;
+    }
+    console.log('  Refreshing Citadel-owned AGENTS.md for Codex.');
+  }
+
+  const projectSpecPath = path.join(PROJECT_ROOT, '.citadel', 'project.md');
+  if (fs.existsSync(projectSpecPath)) {
+    const content = fs.readFileSync(projectSpecPath, 'utf8');
+    const spec = parseProjectSpec(content);
+    const errors = validateProjectSpec(spec);
+    if (errors.length === 0) {
+      const existing = fs.existsSync(agentsMdPath) ? fs.readFileSync(agentsMdPath, 'utf8') : '';
+      const renderer = existing.includes('<!-- citadel:shared-agents-guidance -->')
+        ? renderSharedGuidance
+        : renderCodexGuidance;
+      writeFile(agentsMdPath, withGuidanceOwner(renderer(spec)));
+      console.log(renderer === renderSharedGuidance
+        ? '  Refreshed shared Claude Code and Codex AGENTS.md from .citadel/project.md.'
+        : '  Generated AGENTS.md from .citadel/project.md with Codex-specific guidance.');
+      return;
+    }
+    console.warn(`  warning: .citadel/project.md invalid (${errors.join('; ')}); using fallback guidance.`);
+  }
+
+  // CLAUDE.md is a fallback only. Keep the generated file Codex-specific so
+  // Codex instruction discovery, nested overrides, and review guidance have a
+  // clear owner even when the project has no Citadel spec yet.
+  const claudeMdPath = path.join(PROJECT_ROOT, 'CLAUDE.md');
+  if (fs.existsSync(claudeMdPath)) {
+    const content = fs.readFileSync(claudeMdPath, 'utf8');
+    const fallback = [
+      '# Codex Project Guidance',
+      '',
+      'This AGENTS.md was generated by Citadel for Codex instruction discovery.',
+      '',
+      '## Repository expectations',
+      '',
+      '- Read this file before changing code.',
+      '- Prefer project-specific build, test, lint, and verification commands from this file or nested AGENTS.override.md files.',
+      '- Preserve user-authored changes and avoid broad rewrites unless the task calls for them.',
+      '',
+      '## Review guidelines',
+      '',
+      '- Prioritize correctness, security, regressions, and missing verification.',
+      '- Keep review findings focused and actionable.',
+      '',
+      '## Imported legacy guidance',
+      '',
+      content,
+      '',
+    ].join('\n');
+    writeFile(agentsMdPath, withGuidanceOwner(fallback));
+    console.log('  Generated Codex AGENTS.md with imported CLAUDE.md fallback content.');
+  } else {
+    const fallback = [
+      '# Codex Project Guidance',
+      '',
+      'This AGENTS.md was generated by Citadel so Codex has a usable project instruction file before `$citadel.do setup` runs.',
+      '',
+      '## Repository expectations',
+      '',
+      '- Run `$citadel.do setup` before substantial work so Citadel can detect the stack and create project state.',
+      '- Preserve user-authored changes and avoid broad rewrites unless the task calls for them.',
+      '- Keep durable campaign, review, automation, and verification state under `.planning/`.',
+      '',
+      '## Review guidelines',
+      '',
+      '- Prioritize P0/P1 correctness, security, regression, and missing-verification issues.',
+      '- Keep findings concrete and actionable with file and line references when possible.',
+      '',
+      '## Verification',
+      '',
+      '- Use the narrowest command that proves the changed behavior.',
+      '- Run `node scripts/codex-readiness-check.js --write` after generating Codex artifacts when Citadel is available.',
+      '',
+    ].join('\n');
+    writeFile(agentsMdPath, withGuidanceOwner(fallback));
+    console.log('  Generated minimal Codex AGENTS.md fallback.');
+  }
+}
+
+// ---- Main -------------------------------------------------------------------
+
+function main() {
+  console.log(`Citadel Codex Compatibility Generator`);
+  console.log(`  Citadel root: ${CITADEL_ROOT}`);
+  console.log(`  Project root: ${PROJECT_ROOT}`);
+  if (DRY_RUN) console.log('  Mode: DRY RUN');
+  console.log('');
+
+  ensureMachineLocalExcludes(PROJECT_ROOT, { dryRun: DRY_RUN });
+
+  generateConfigToml();
+  generatePluginMcpConfig();
+  syncPluginAssets();
+  generatePluginManifest();
+  generatePluginHooks();
+  translateAgents();
+  syncSkills();
+  syncProjectScripts();
+  syncProjectGuidance();
+
+  console.log('');
+  if (DRY_RUN) {
+    console.log('Dry run complete. No files were written.');
+  } else {
+    console.log('Codex compatibility artifacts generated.');
+    console.log(`Plugin-bundled hooks are in \`${CODEX_PLUGIN_HOOKS_PATH}\`; \`scripts/install-hooks-codex.js\` is only needed for legacy \`.codex/hooks.json\` installs.`);
+  }
+}
+
+main();

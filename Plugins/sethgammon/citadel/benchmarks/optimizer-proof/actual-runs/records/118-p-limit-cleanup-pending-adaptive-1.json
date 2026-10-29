@@ -1,0 +1,68 @@
+{
+  "schema": 1,
+  "evidence_kind": "actual-run",
+  "scenario_set_id": "optimizer-scenarios-sha256:602e496906f3a293203750602234ba88a55a86b9e4f54f32239264098dcebe5b",
+  "metric_set_id": "optimizer-metrics-sha256:bedffbda2b18d725610b0f294a8273ef908237fd957bf9e51a5af4885b123e4f",
+  "scenario_id": "p-limit-cleanup-pending",
+  "category": "cleanup",
+  "holdout": false,
+  "policy_id": "adaptive",
+  "repetition": 1,
+  "decision_id": "sha256:bf0274bf3cd9eeb6f8097ba11a5a2f5129025906e0490f57e7d21efe679bdf6f",
+  "selected_profile_id": "claude-frontier",
+  "observed_profile_id": "claude-frontier",
+  "requested_model": "claude-opus-5",
+  "observed_model": "claude-opus-5",
+  "model_proof_status": "passed",
+  "started_at": "2026-07-31T06:20:10.749Z",
+  "duration_ms": 635554,
+  "outcome": "passed",
+  "verified": true,
+  "attempts": 1,
+  "human_interventions": 0,
+  "topology": "sequential-recovery",
+  "cost": {
+    "status": "known",
+    "amount_usd": 1.357002,
+    "provenance": "tool_reported",
+    "source": "citadel_optimizer_runner",
+    "source_ref": "summed_attempts:1",
+    "pricing_snapshot_digest": null,
+    "components": [
+      {
+        "kind": "model",
+        "amount_usd": 1.3570024,
+        "source": "attempt_1:claude total_cost_usd"
+      }
+    ]
+  },
+  "artifact_paths": [
+    "index.js"
+  ],
+  "verification_receipts": [
+    {
+      "attempt": 1,
+      "profile_id": "claude-frontier",
+      "status": "passed",
+      "exit_code": 0,
+      "timed_out": false,
+      "output_digest": "sha256:731b4d7ceb612a29d2c80eff2ce71afd6b68a3e3f2aa3184b52f83b66771cd9c",
+      "output_excerpt": "[stdout]\n\n  √ throws on invalid concurrency argument\n  √ clearQueue\n  √ accepts additional arguments\n  √ continues after sync throw\n  √ runs all tasks asynchronously\n  √ non-promise returning function\n  √ map accepts an iterable (set)\n  √ map accepts an iterable (array iterator)\n  √ map\n  √ propagates async execution context properly\n  √ shared context with a limited provider helper\n  √ map passes index and preserves order with concurrency\n  √ map works when detached from the limit\n  √ clearQueue rejects pending promises when enabled (106ms)\n  √ accepts options object (120ms)\n  √ does not ignore errors (124ms)\n  √ change concurrency to bigger value (176ms)\n  √ change concurrency to smaller value (238ms)\n  √ concurrency: 1 (639ms)\n  √ limitFunction() (2.4s)\n  √ concurrency: 4 (2.5s)\n  √ activeCount and pendingCount properties (3s)\n  ─\n\n  22 tests passed\n\n[stderr]\n",
+      "output_truncated": false,
+      "patch_exit_code": 0,
+      "patch_digest": "sha256:6a502be5ea28980cba5a6739c5c14936a884bf744e58396af79bad147a037e9d",
+      "patch_excerpt": "diff --git a/index.js b/index.js\nindex 5ecd392..5ccc19c 100644\n--- a/index.js\n+++ b/index.js\n@@ -81,7 +81,7 @@ export default function pLimit(concurrency) {\n \t\t\t\t\treturn;\n \t\t\t\t}\n \n-\t\t\t\tconst abortError = AbortSignal.abort().reason;\n+\t\t\t\tconst abortError = createAbortError();\n \n \t\t\t\twhile (queue.size > 0) {\n \t\t\t\t\tqueue.dequeue().reject(abortError);\n@@ -120,6 +120,14 @@ export function limitFunction(function_, options) {\n \treturn (...arguments_) => limit(() => function_(...arguments_));\n }\n \n+function createAbortError() {\n+\t// Not `AbortSignal.abort().reason`, as that is a `DOMException`, which many\n+\t// error utilities (including `util.types.isNativeError`) do not treat as an error.\n+\tconst error = new Error('This operation was aborted');\n+\terror.name = 'AbortError';\n+\treturn error;\n+}\n+\n function validateConcurrency(concurrency) {\n \tif (!((Number.isInteger(concurrency) || concurrency === Number.POSITIVE_INFINITY) && concurrency > 0)) {\n \t\tthrow new TypeError('Expected `concurrency` to be a number from 1 and up');\n",
+      "patch_truncated": false,
+      "changed_paths": [
+        "index.js"
+      ]
+    }
+  ],
+  "receipt_status": "verified",
+  "adversarial_result": "detected",
+  "failure_code": null,
+  "attestation": {
+    "algorithm": "ed25519",
+    "signature_base64": "aXCRmVS3/J0vxTkCkFXjfIjinlGFOAqCOxgy7+br4usGkVFqPnJ9vWd8fQUY4FvM6S8Q0pFcSN70YUUq1TNCDA=="
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "name": "developer-kit-python",
+  "displayName": "Developer Kit Python",
+  "version": "4.0.1",
+  "description": "Python development capabilities",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Giuseppe Trisciuoglio"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/giuseppe-trisciuoglio/developer-kit",
+  "repository": "https://github.com/giuseppe-trisciuoglio/developer-kit",
+  "skills": [
+    "./skills/clean-architecture",
+    "./skills/aws-lambda-python-integration"
+  ],
+  "commands": [],
+  "agents": [
+    "./agents/python-code-review-expert.md",
+    "./agents/python-refactor-expert.md",
+    "./agents/python-security-expert.md",
+    "./agents/python-software-architect-expert.md"
+  ]
+}

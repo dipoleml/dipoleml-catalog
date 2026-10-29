@@ -1,0 +1,128 @@
+# Invariants
+
+What this system must never break, whatever the feature. Every change is checked against the
+ones it touches (the pre-mortem names them; the breaker checks them). Each invariant says what
+holds it today and where it is known to break.
+
+- When a fix lands, move its id out of "Known breaks".
+- When a new break is found, add it.
+- An invariant held only by convention is a candidate for a check that makes breaking it fail CI:
+  a test, a lint rule, a database constraint, or a shared helper that is the only way to do the thing.
+
+1. **first-pass never runs a repo hook the owner did not approve, or one whose pinned files changed since.**
+   Held by: `whyPaused` in `scripts/lib/fingerprint.mjs`, checked before every run in
+   `scripts/lib/bridge.mjs` (`runHook`); tests in `test/lib.test.mjs` and `test/hooks.test.mjs`.
+   Known breaks: a hook whose command names no file it can find pins nothing (`record` warns).
+2. **Every reply first-pass prints is one JSON object Claude Code accepts, and a failing hook it runs is shown, never swallowed.**
+   Held by: `merge` in `scripts/lib/merge.mjs` (bad JSON, crashes and timeouts become a
+   `systemMessage`); tests in `test/lib.test.mjs`.
+   Known breaks: none known.
+3. **A hook first-pass runs always answers before Claude Code's own limit for that event.**
+   Held by: `EVENT_LIMITS` and `effectiveTimeout` in `scripts/lib/bridge.mjs`, and the test that
+   compares them with `hooks/hooks.json`.
+   Known breaks: none known.
+4. **A repo's own hooks run once per event: never also by first-pass in a session Claude Code already runs them in.**
+   Held by: `nativelyCovered` in `scripts/lib/bridge.mjs` (with `sameAs` for copies);
+   `test/hooks.test.mjs`.
+   Known breaks: none known.
+5. **The managed blocks setup writes are the assets verbatim, once per repo, and a re-run keeps the owner's own text.**
+   Held by: convention only (`skills/setup-first-pass/SKILL.md` steps 3, 5 and 7); CI checks the
+   assets' markers and versions, not what setup writes.
+   Known breaks: none known.
+6. **The rules, profile, words and machine blocks carry the plugin's version.**
+   Held by: the "Managed block versions match plugin.json" step in `.github/workflows/validate.yml`.
+   Known breaks: none known.
+7. **Nothing in the repo names the private projects first-pass came from.**
+   Held by: the "No private project names" step in `.github/workflows/validate.yml`.
+   Known breaks: none known.
+8. **The user's prompts leave their transcripts only as what they typed (plus the redacted end of the reply before a pushback), with secret-looking text replaced, in temp files that only `words --delete` or a later run's 6-hour sweep removes, and nothing else writes to.**
+   Held by: `typedText`, `cleanPrompt`, `redact` (applied before any cut), `writeWordsFile`,
+   `deleteWordsFile` and `removeStaleWordsFiles` in `scripts/lib/words.mjs`;
+   `test/words.test.mjs` (row kinds, redaction cases, delete refuses other and missing files,
+   the sweep keeps recent and look-alike files).
+   Known breaks: redaction is pattern-based, so a secret with no label, no digit and no
+   symbol (a long plain lowercase word) is kept; the skill is told never to quote one. Text a
+   user types when rejecting a tool call is stored inside a tool result and is left out
+   (its stored shape is not verified).
+9. **In a turn started with the sharpen command, edits, commands, subagents, MCP tools, publishing, scheduling and other skills wait until the rewrite is shown; the gate never holds a turn forever (after `MAX_REPLIES` replies, or `MAX_CALLS` denied calls in all as a backstop for a transcript that is missing or not being written, the work goes on and the user is told); and it never takes a check away from the rest of the turn: the done check and repo hooks see the Stop after its send-back as a first Stop, and a failure inside the gate becomes a `systemMessage` while everything else runs.**
+   Held by: `armSharpen`, `sharpenGate`, `sharpenStopView` and `sharpenStop` in
+   `scripts/lib/sharpen-gate.mjs`; `sharpenStep` in `scripts/hooks.mjs`; `writeRecord` in
+   `scripts/lib/state.mjs` (write, rename, retry on Windows' EPERM); `test/sharpen.test.mjs`.
+   Known breaks: Claude Code plugin only; Cursor, other tools and a skills-only install run
+   no hooks, so there it is the skill's instruction alone. Stop hooks Claude Code runs
+   itself (a repo's own when the session starts inside that repo, other plugins', the
+   user's global ones) see `stop_hook_active` on after a sharpen send-back, and one that
+   skips on it misses the Stop that ends the work; only first-pass's own input can be
+   changed. Parallel tool calls can each read the same record and one update can be lost.
+   Past 10 gated calls per reply, the `MAX_CALLS` backstop can end the hold a reply early.
+   A tool Claude Code adds later is free until it is named in `GATED_TOOLS` and hooks.json.
+   Writing the word "Sharpened" releases it: it is a nudge, not a lock.
+10. **The plugin's own scripts make no network call (the README promises it), except the Jev judge once the user has set it up: it sends only to the configured https endpoint (or this machine), only the findings asked about with secrets, emails and phone numbers blanked, and never prints the key.**
+   Held by: `shellRoots` in `scripts/lib/shell-edits.mjs`, which only looks up paths inside the
+   main folder and never a `//host` or `\\host` one (on Windows, looking one up contacts that
+   host); the `shellRoots` test in `test/lib.test.mjs` fails if one is looked up. The survey's
+   machine facts skip such paths the same way on Windows (`local` in `scripts/lib/survey.mjs`,
+   for PATH entries and the Android, emulator and Playwright folders), and say what they
+   skipped; `test/machine.test.mjs` fails if one is looked up. The parts
+   runner's server probe only takes a url on this machine (`LOCAL_URL` in `scripts/lib/parts.mjs`,
+   tested in `test/parts.test.mjs`); the commands a recipe runs are the repo's own, as its tests are. For the
+   judge: `judgeFor`, `checkUrl`, `stateFor` (through `redact`), `keyFor` (the key trimmed
+   where it is read) and `post` (no text the server or the network layer supplies is printed, only status
+   and error codes, and a model id of a fixed shape, scrubbed) in `scripts/lib/jev.mjs`;
+   `test/jev.test.mjs`.
+   Known breaks: a repo, main folder or working folder that itself lives on a network share
+   or a mapped network drive is read over the network by `git status`, as the user's own
+   git does. A mapped network drive (`Z:\bin`) on PATH, or as the Android or Playwright folder,
+   is looked up by the survey: only `\\host` and `//host` paths are recognised. Redaction is pattern-based (see 8), so a secret with no telltale shape inside a
+   finding's text is sent. The key for a folder is chosen by path and git (`repoHome` in
+   `scripts/lib/jev.mjs`); a config with separate accounts has no default key, so a folder no
+   entry names has the judge off. Known gaps: a shared clone, or a worktree of a bare repo
+   not named `.git`, has no main checkout git can name, so it is matched by its own path only;
+   a repo made with `--separate-git-dir` into a folder named for one account is placed by that
+   folder even when it sits inside another account's folder; a worktree of a nested clone that
+   sits inside a worktree placed in another account's folder, and a worktree folder git no
+   longer knows (its registration pruned), are placed by their path, so they can get that other
+   account's key (the jev skill says never to name a folder that holds another account's repos); every configured path is resolved
+   (links followed) on every call, which waits on an offline network share; a path that is not
+   an existing folder has the judge off.
+11. **The Jev judge never clears a finding the review named as real harm (nor recommends leaving one on the list), never picks a lighter proof for a real-harm fix or one with no worst case, never follows a redirect, and a failed, unreadable or unsure answer leaves the call to the rules, never to the lighter side.**
+   Held by: `settled` and `decide` (with `FLOORS`), and `once` (a redirect is never followed; one deadline covers the whole exchange), in
+   `scripts/lib/jev.mjs`; `test/jev.test.mjs`. The rules and ship-check say the agent may still treat any finding as
+   real harm, never the reverse.
+   Known breaks: a finding the review labelled small that is really harm stays small unless
+   Jev or the agent sees the harm; Jev leaning toward "small" (as seen in a trial) does not
+   clear it, but it does not catch it either.
+12. **The parts runner only ever stops processes it started (by their own pid, with everything they started), only takes a port that nothing answers on and no live run holds, never writes over a file it did not create, never prints a value it reads from an env file, and never calls a part passed unless every step ran (with `--no-tests`, every step that takes no test list, and the pass then says so and is marked partial), exited 0 and, where the recipe says what a run prints, printed it, and no part it needs was run again while it ran; a part that needs another refuses while that one has not passed on the same checkout with the same inputs.**
+   Held by: `stopTree` (Windows: `taskkill /T` only while the root still runs; elsewhere its
+   own process group), `takePort`, `portFree`, `lock`, `claimRun`, `readEnvFile`, `notReady`,
+   `writeMark`, `Runner.runPart`, `alive` (on Linux a zombie owns nothing) and `procIsOurs` in
+   `scripts/lib/parts.mjs`; the recipe is read from the repo's
+   own folder, never the checkout under test (`loadRecipe`); `test/parts.test.mjs`.
+   A part run through a `partWrapper` passed only when that run wrote its mark (`runWrapped`);
+   a run of chosen tests (`--tests`, checked by `checkTests`) or of none (`--no-tests`, checked by `checkNoTests`) marks its pass as partial, and a part that needs it refuses until it runs whole (`writeMark`, `notReady`);
+   a stopped run asks its wrapped runs to stop through a file, so they clean up (`stopAll`); a
+   part killed before its cleanup is cleaned up by the next run of it (`recover`).
+   On Linux and macOS its folder in the temp folder is this user's alone, or it is refused
+   (`partsRoot`), and a leftover record gives recovery only a port (`recover`).
+   Known breaks: a runner killed outright (SIGKILL, or `taskkill /F` of the runner itself) leaves
+   what it started running on every system, its server and its running step (with a
+   `partWrapper`, the wrapper's own cap kills them), and cleans nothing up until the next run of
+   that part (accepted 2026-10-08 for Linux and macOS); the next run picks another port. On Windows, what a step or server started after its root process
+   ended is left (only a running root is killed, since its pid may be another program's by
+   then); a `partWrapper` job cap kills it. Two runs can both hold one lock: when they take over
+   the same stale lock at the same instant, or when one takes over a live run's lock between
+   that run's create and its write (the empty file reads as a dead owner). A clash then shows
+   only where it is visible: two servers on one port fail to bind when they bind the same
+   address, but on Windows a server on 127.0.0.1 and one on the default address can share a
+   port. On macOS, and on Linux where /proc belongs to another pid namespace or will not say, an
+   owner that is dead but not yet reaped reads as a live run until it is reaped. A stale lock
+   this user may read but not delete reads as held, so its part says
+   "already running" or "no free port" without naming the file. Memory is capped only by a
+   `partWrapper` (accepted 2026-10-08).
+13. **The survey reads secrets from nowhere: of env files it reads only the example ones a repo commits, and only the names of senders and switches come out, never a value; of the machine it reads the OS, PATH and known tool folders, and the one command it runs is `xcrun simctl list` on a Mac.**
+   Held by: `outwardFacts` (`ENV_EXAMPLE`, tracked files only, `ENV_NAME`, a size cap) and
+   `machineFacts` in `scripts/lib/survey.mjs`; `test/machine.test.mjs` (a value and a name
+   from an untracked `.env.local` never appear in the output).
+   Known breaks: an example env file that holds real values is still read (its names only
+   come out). A sender whose variable name matches none of the known vendors is missed, and
+   setup is told to confirm each one in the code.

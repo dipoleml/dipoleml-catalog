@@ -1,0 +1,16 @@
+{
+  "name": "mix-credo",
+  "displayName": "Mix Credo",
+  "version": "2.0.0",
+  "description": "Run mix credo after editing Elixir files to check code quality",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Georgeguimaraes"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/georgeguimaraes/elixir-agent-tools",
+  "repository": "https://github.com/georgeguimaraes/elixir-agent-tools",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

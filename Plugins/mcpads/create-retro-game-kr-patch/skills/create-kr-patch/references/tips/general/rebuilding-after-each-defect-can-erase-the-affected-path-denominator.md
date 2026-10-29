@@ -1,0 +1,9 @@
+# Rebuilding after each defect can erase the affected-path denominator
+
+- **Search terms:** immediate rebuild, baseline churn, one-screen smoke test, frozen candidate, shared causal family, affected-path denominator
+- **Observed scope:** Late runtime-text integration across battle, facility, and chapter-transition paths in the Japanese Famicom release of *Fire Emblem: Shadow Dragon and the Blade of Light*.
+- **Failure context:** Corrupted screens repeatedly prompted local fixes, new ROMs, and narrow smoke checks before other paths sharing the runtime-text system had been observed. Because the baseline changed each time, the remaining failure population was unknown and defects with common state-lifetime or handoff conditions appeared independent.
+- **Evidence:** One exact ROM and compatible starting state were held fixed while independent routes were classified as pass, fail, or blocked. Similar-looking failures with different prerequisites were separated, while failures sharing lifetime or handoff conditions were grouped into a common correction batch. After the artifact changed, the same route groups were rerun rather than inheriting earlier passes.
+- **Established result:** Preserving the baseline until affected routes were classified exposed which defects could share a correction and prevented a local success from resetting the cumulative product claim.
+- **Transfer limit:** Immediate correction remains reasonable when a defect blocks or contaminates later observations, threatens integrity, or the affected route set is already accounted for. Otherwise keep the baseline while independent affected routes remain interpretable. Group corrections only after a shared cause or ownership boundary is established; similar symptoms alone do not justify batching.
+- **Related criteria:** `references/strategy/debugging.md` §2·§3·§5, `references/strategy/build-and-verify.md` §1·§4, `references/conventions/project-records.md` §1·§7.1.

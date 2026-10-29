@@ -1,0 +1,18 @@
+{
+  "name": "talk-to-anyone",
+  "displayName": "Talk to Anyone",
+  "version": "1.1.0",
+  "description": "Turn any public figure into your personal coach, living or historical. /coach <name> researches the person across the web, pulls real transcripts when they have video anywhere on YouTube, builds a persona, and talks to you as them until you switch or end.",
+  "author": {
+    "name": "Colton Dean"
+  },
+  "repository": "https://github.com/coltonjosephdean-rgb/talk-to-anyone",
+  "license": "MIT",
+  "keywords": [
+    "coach",
+    "persona",
+    "mentor",
+    "youtube",
+    "transcripts"
+  ]
+}

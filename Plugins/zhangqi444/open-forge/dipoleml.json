@@ -1,0 +1,130 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.zhangqi444.open-forge",
+  "type": "plugin",
+  "name": "Open Forge",
+  "slug": "open-forge",
+  "vendor": "zhangqi444",
+  "description": "Let your AI coding agent self-host any open-source app for you. 2,200+ verified recipes — provisioning, DNS, TLS, hardening. Works with DipoleML, Codex, Cursor, Aider, OpenClaw, Hermes.",
+  "version": "0.24.0",
+  "homepage": "https://github.com/zhangqi444/open-forge",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agents-md",
+    "ai-coding",
+    "aider",
+    "claude-code-plugin",
+    "claude-skills",
+    "codex",
+    "continue-dev",
+    "cursor",
+    "deployment"
+  ],
+  "tags": [
+    "agents-md",
+    "ai-agent",
+    "ai-coding",
+    "aider",
+    "claude-code",
+    "claude-code-plugin",
+    "claude-skills",
+    "codex",
+    "continue-dev",
+    "cursor",
+    "deployment",
+    "devops",
+    "docker",
+    "hermes-agent",
+    "kubernetes",
+    "multi-platform",
+    "openclaw",
+    "self-hosted",
+    "self-hosting",
+    "skills"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "zhangqi444",
+    "brandName": "zhangqi444",
+    "source": "https://github.com/zhangqi444.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:15:33Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "zhangqi444/open-forge",
+    "url": "https://github.com/zhangqi444/open-forge",
+    "commit": "b56a1dc51de10d8f7bc6bc90457b07a5c38166c2",
+    "path": "plugins/open-forge",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 97,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:04:47Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Open Forge | Let your AI coding agent self-host any open-source app for you. 2,200+ verified recipes — provisioning, DNS, TLS, hardening. Works with Claude Code, Codex, Cursor, Aider, OpenClaw, Hermes.",
+        "after": "Open Forge | Let your AI coding agent self-host any open-source app for you. 2,200+ verified recipes — provisioning, DNS, TLS, hardening. Works with DipoleML, Codex, Cursor, Aider, OpenClaw, Hermes.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Self-host open-source apps on your own cloud, your own VPS, your own Kubernetes cluster, a PaaS, or your own laptop. Chat-friendly interface to existing tools (aws, az, hcloud, doctl, gcloud, flyctl, kubectl, helm, podman, docker, lume, tailscale, terraform, cdk, ssh, gh) — Claude runs every command; you only answer what/where/how and provide credentials. Supported software: Ghost, OpenClaw, Hermes-Agent, Ollama, Open WebUI, Stable Diffusion WebUI (Automatic1111), ComfyUI, Dify, LibreChat, AnythingLLM, Aider, vLLM, Langfuse. AI stack focus: Ollama (single-user LLM inference) + vLLM (production-grade LLM inference) + Open WebUI / LibreChat (multi-user chat UIs) + Stable Diffusion WebUI / ComfyUI (image generation) + AnythingLLM (RAG-focused workspace) + Aider (terminal pair-programming CLI) + Langfuse (LLM observability + evals) compose into a complete local-AI stack; OpenClaw + Hermes-Agent are agent projects; Dify is the LLMOps platform layer. Every recipe is verified against upstream's docs index per the strict-doc policy in CLAUDE.md (community-maintained methods are explicitly flagged when upstream ships no first-party version).",
+        "after": "Self-host open-source apps on your own cloud, your own VPS, your own Kubernetes cluster, a PaaS, or your own laptop. Chat-friendly interface to existing tools (aws, az, hcloud, doctl, gcloud, flyctl, kubectl, helm, podman, docker, lume, tailscale, terraform, cdk, ssh, gh) — DipoleML runs every command; you only answer what/where/how and provide credentials. Supported software: Ghost, OpenClaw, Hermes-Agent, Ollama, Open WebUI, Stable Diffusion WebUI (Automatic1111), ComfyUI, Dify, LibreChat, AnythingLLM, Aider, vLLM, Langfuse. AI stack focus: Ollama (single-user LLM inference) + vLLM (production-grade LLM inference) + Open WebUI / LibreChat (multi-user chat UIs) + Stable Diffusion WebUI / ComfyUI (image generation) + AnythingLLM (RAG-focused workspace) + Aider (terminal pair-programming CLI) + Langfuse (LLM observability + evals) compose into a complete local-AI stack; OpenClaw + Hermes-Agent are agent projects; Dify is the LLMOps platform layer. Every recipe is verified against upstream's docs index per the strict-doc policy in DipoleML.md (community-maintained methods are explicitly flagged when upstream ships no first-party version).",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

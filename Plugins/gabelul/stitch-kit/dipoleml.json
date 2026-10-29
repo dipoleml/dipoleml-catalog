@@ -1,0 +1,122 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.gabelul.stitch-kit",
+  "type": "plugin",
+  "name": "Stitch Kit",
+  "slug": "stitch-kit",
+  "vendor": "gabelul",
+  "description": "Your coding agent designs terrible UI. stitch-kit wires it into Google Stitch MCP and teaches it the whole pipeline — ideation, screen generation, design systems, production components.",
+  "version": "1.12.0",
+  "homepage": "https://github.com/gabelul/stitch-kit",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "ai-agent-skills",
+    "claude-code-plugin",
+    "claude-code-skills",
+    "codex-cli",
+    "coding-agent",
+    "design-agent",
+    "design-system",
+    "design-to-code",
+    "google-stitch"
+  ],
+  "tags": [
+    "ai-agent-skills",
+    "claude-code",
+    "claude-code-plugin",
+    "claude-code-skills",
+    "codex-cli",
+    "coding-agent",
+    "design-agent",
+    "design-system",
+    "design-to-code",
+    "google-stitch",
+    "mcp",
+    "nextjs",
+    "react-native",
+    "stitch",
+    "stitch-mcp",
+    "svelte",
+    "swiftui",
+    "text-to-ui",
+    "ui-design",
+    "ui-generation"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "google",
+    "brandName": "google",
+    "source": "https://cdn.simpleicons.org/google",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:13:04Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "gabelul/stitch-kit",
+    "url": "https://github.com/gabelul/stitch-kit",
+    "commit": "10e08082881370888bab06d8c9f54621bb81884d",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 47,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:05:48Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node"
+    ],
+    "packages": [
+      "@booplex/stitch-kit"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

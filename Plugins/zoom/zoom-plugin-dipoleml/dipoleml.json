@@ -1,0 +1,165 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.zoom.zoom-plugin-dipoleml",
+  "type": "plugin",
+  "name": "Zoom Plugin DipoleML",
+  "slug": "zoom-plugin-dipoleml",
+  "vendor": "zoom",
+  "description": "DipoleML plugin for planning, building, and debugging Zoom integrations across REST APIs, SDKs, webhooks, bots, and MCP workflows.",
+  "version": "1.2.0",
+  "homepage": "https://github.com/zoom/zoom-plugin-claude",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin"
+  ],
+  "tags": [],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "zoom",
+    "brandName": "zoom",
+    "source": "https://cdn.simpleicons.org/zoom",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:15:34Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "zoom/zoom-plugin-claude",
+    "url": "https://github.com/zoom/zoom-plugin-claude",
+    "commit": "86e2592334f5fb563ed273e26035844004e66165",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 7,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:52:46Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Zoom Plugin Claude | Claude plugin for planning, building, and debugging Zoom integrations across REST APIs, SDKs, webhooks, bots, and MCP workflows.",
+        "after": "Zoom Plugin DipoleML | DipoleML plugin for planning, building, and debugging Zoom integrations across REST APIs, SDKs, webhooks, bots, and MCP workflows.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Claude plugin for planning, registering, building, and debugging Zoom integrations across Marketplace apps, REST APIs, SDKs, webhooks, bots, and MCP workflows",
+        "after": "DipoleML plugin for planning, registering, building, and debugging Zoom integrations across Marketplace apps, REST APIs, SDKs, webhooks, bots, and MCP workflows",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "zoom-plugin-claude",
+        "after": "zoom-plugin-dipoleml",
+        "reason": "provider token neutralized in slug/id"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-http",
+      "url": "https://mcp.zoom.us/mcp/zoom/streamable",
+      "transport": "http",
+      "command": "zoom-mcp"
+    },
+    {
+      "kind": "mcp-http",
+      "url": "https://mcp.zoom.us/mcp/meeting/streamable",
+      "transport": "http",
+      "command": "zoom-meetings-mcp"
+    },
+    {
+      "kind": "mcp-http",
+      "url": "https://mcp.zoom.us/mcp/canvas/streamable",
+      "transport": "http",
+      "command": "zoom-canvas-mcp"
+    },
+    {
+      "kind": "mcp-http",
+      "url": "https://mcp.zoom.us/mcp/chat/streamable",
+      "transport": "http",
+      "command": "zoom-chat-mcp"
+    },
+    {
+      "kind": "mcp-http",
+      "url": "https://mcp.zoom.us/mcp/tasks/streamable",
+      "transport": "http",
+      "command": "zoom-tasks-mcp"
+    },
+    {
+      "kind": "mcp-http",
+      "url": "https://mcp.zoom.us/mcp/revenue_accelerator/streamable",
+      "transport": "http",
+      "command": "zoom-revenue-accelerator-mcp"
+    },
+    {
+      "kind": "mcp-http",
+      "url": "https://mcp.zoom.us/mcp/whiteboard/streamable",
+      "transport": "http",
+      "command": "zoom-whiteboard-mcp"
+    },
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [
+      "ZOOM_MCP_ACCESS_TOKEN",
+      "ZOOM_MEETINGS_MCP_ACCESS_TOKEN",
+      "ZOOM_CANVAS_MCP_ACCESS_TOKEN",
+      "ZOOM_CHAT_MCP_ACCESS_TOKEN",
+      "ZOOM_TASKS_MCP_ACCESS_TOKEN",
+      "ZOOM_REVENUE_ACCELERATOR_MCP_ACCESS_TOKEN",
+      "ZOOM_WHITEBOARD_MCP_ACCESS_TOKEN",
+      "YOUR_TUNNEL_HOST"
+    ],
+    "credentials": [
+      "ZOOM_MCP_ACCESS_TOKEN",
+      "ZOOM_MEETINGS_MCP_ACCESS_TOKEN",
+      "ZOOM_CANVAS_MCP_ACCESS_TOKEN",
+      "ZOOM_CHAT_MCP_ACCESS_TOKEN",
+      "ZOOM_TASKS_MCP_ACCESS_TOKEN",
+      "ZOOM_REVENUE_ACCELERATOR_MCP_ACCESS_TOKEN",
+      "ZOOM_WHITEBOARD_MCP_ACCESS_TOKEN"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

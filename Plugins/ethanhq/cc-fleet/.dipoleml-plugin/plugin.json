@@ -1,0 +1,16 @@
+{
+  "name": "cc-fleet",
+  "displayName": "CC Fleet",
+  "version": "0.4.5",
+  "description": "Run any model with an Anthropic- or OpenAI-compatible API (e.g. DeepSeek, GLM, Kimi, Qwen, MiniMax) — even your Codex subscription — as real DipoleML workflows, agent-team teammates, or one-shot subagents, driven exactly like native ones. Your main session's own auth is untouched (OAuth subscription or API key, either works); API-key providers bill the provider key via apiKeyHelper, while a Codex subscription bills through a local OAuth daemon — each worker receives its credential on demand, never through its env or argv. Teammates need the terminal `DipoleML` inside tmux or iTerm2 (not the desktop app) and a one-time `cc-fleet teammate setup`. Requires the `cc-fleet` binary on PATH, installed separately.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Ethanhq"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/ethanhq/cc-fleet",
+  "repository": "https://github.com/ethanhq/cc-fleet",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

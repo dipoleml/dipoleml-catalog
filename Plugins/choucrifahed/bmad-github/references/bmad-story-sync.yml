@@ -1,0 +1,174 @@
+name: BMAD Story Sync
+
+on:
+  issues:
+    types: [closed]
+
+concurrency:
+  group: bmad-story-sync
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+
+      - name: Resolve BMAD implementation artifacts directory
+        id: bmad-config
+        run: |
+          if [ ! -f _bmad/config.toml ]; then
+            echo "::error::_bmad/config.toml not found at repo root."
+            exit 1
+          fi
+          ARTIFACTS=$(python3 -c "import tomllib; cfg=tomllib.load(open('_bmad/config.toml','rb')); print(cfg['modules']['bmm']['implementation_artifacts'].replace('{project-root}','').lstrip('/'))")
+          echo "artifacts=$ARTIFACTS" >> "$GITHUB_OUTPUT"
+          echo "Resolved artifacts directory: $ARTIFACTS"
+
+      - name: Sync closed issue to BMAD
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          ARTIFACTS: ${{ steps.bmad-config.outputs.artifacts }}
+        run: |
+          ISSUE_MAP="$ARTIFACTS/github-issue-map.json"
+          SPRINT_STATUS="$ARTIFACTS/sprint-status.yaml"
+
+          # 1. Find the story key for this issue number
+          STORY_KEY=$(jq -r --argjson num "$ISSUE_NUMBER" \
+            'to_entries[] | select(.value.number == $num) | .key' \
+            "$ISSUE_MAP")
+
+          if [ -z "$STORY_KEY" ]; then
+            echo "Issue #$ISSUE_NUMBER is not mapped to a BMAD story. Skipping."
+            exit 0
+          fi
+
+          echo "Found story $STORY_KEY for issue #$ISSUE_NUMBER"
+
+          # 2. Find the full sprint key and current status
+          SPRINT_LINE=$(grep "^  ${STORY_KEY}-[a-z]" "$SPRINT_STATUS" | head -1)
+
+          if [ -z "$SPRINT_LINE" ]; then
+            echo "::warning::Story $STORY_KEY not found in sprint-status.yaml"
+            exit 0
+          fi
+
+          SPRINT_KEY=$(echo "$SPRINT_LINE" | sed 's/:.*//' | sed 's/^  //')
+          CURRENT_STATUS=$(echo "$SPRINT_LINE" | sed 's/.*: //')
+
+          if [ "$CURRENT_STATUS" = "done" ]; then
+            echo "Story $STORY_KEY is already done. Nothing to sync."
+            exit 0
+          fi
+
+          # 3. Find the PR that closed this issue.
+          # Uses canonical event data (issue timeline), NOT the search index, which is
+          # eventually consistent and reliably stale 5–30 s after a merge — the exact
+          # window in which the `issues.closed` webhook fires.
+          MERGED_PR=$(gh api graphql \
+            -F owner="${GITHUB_REPOSITORY%%/*}" \
+            -F repo="${GITHUB_REPOSITORY##*/}" \
+            -F num="$ISSUE_NUMBER" \
+            -f query='
+              query($owner: String!, $repo: String!, $num: Int!) {
+                repository(owner: $owner, name: $repo) {
+                  issue(number: $num) {
+                    timelineItems(itemTypes: [CLOSED_EVENT], last: 1) {
+                      nodes {
+                        ... on ClosedEvent {
+                          closer {
+                            __typename
+                            ... on PullRequest { number state }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }' \
+            --jq '.data.repository.issue.timelineItems.nodes[0].closer
+                  | select(.__typename == "PullRequest" and .state == "MERGED")
+                  | .number // empty')
+
+          if [ -z "$MERGED_PR" ]; then
+            echo "::warning::Issue #$ISSUE_NUMBER (story $STORY_KEY) closed without a merged PR. Skipping."
+            exit 0
+          fi
+
+          echo "Verified merged PR #$MERGED_PR for story $STORY_KEY"
+
+          # 4. Update sprint-status.yaml
+          sed -i "s/^  ${SPRINT_KEY}: .*$/  ${SPRINT_KEY}: done/" "$SPRINT_STATUS"
+          echo "Updated sprint-status.yaml: $SPRINT_KEY -> done"
+
+          # 5. Update story .md file (Status line near top of file)
+          STORY_FILE=$(ls ${ARTIFACTS}/${STORY_KEY}-*.md 2>/dev/null | head -1)
+          if [ -n "$STORY_FILE" ]; then
+            sed -i 's/^Status: .*/Status: done/' "$STORY_FILE"
+            echo "Updated $STORY_FILE -> done"
+          fi
+
+          # 6. Update GitHub issue labels
+          gh issue edit "$ISSUE_NUMBER" \
+            --remove-label "status:backlog" \
+            --remove-label "status:ready" \
+            --remove-label "status:in-progress" \
+            --remove-label "status:review" \
+            --add-label "status:done" 2>/dev/null || true
+          echo "Updated labels on issue #$ISSUE_NUMBER"
+
+          # 7. Check epic completion
+          EPIC=$(echo "$STORY_KEY" | cut -d'-' -f1)
+          ALL_DONE=true
+
+          for key in $(jq -r --arg e "$EPIC" \
+            'to_entries[] | select(.key | startswith($e + "-")) | .key' \
+            "$ISSUE_MAP"); do
+            match=$(grep "^  ${key}-[a-z]" "$SPRINT_STATUS" | head -1)
+            if [ -n "$match" ]; then
+              status=$(echo "$match" | sed 's/.*: //')
+              if [ "$status" != "done" ]; then
+                ALL_DONE=false
+                break
+              fi
+            fi
+          done
+
+          if [ "$ALL_DONE" = true ]; then
+            sed -i "s/^  epic-${EPIC}: .*$/  epic-${EPIC}: done/" "$SPRINT_STATUS"
+            echo "All stories complete - updated epic-${EPIC} -> done"
+          fi
+
+          # Export for commit step
+          echo "STORY_KEY=$STORY_KEY" >> "$GITHUB_ENV"
+          echo "MERGED_PR=$MERGED_PR" >> "$GITHUB_ENV"
+          echo "ARTIFACTS=$ARTIFACTS" >> "$GITHUB_ENV"
+          echo "CHANGES=true" >> "$GITHUB_ENV"
+
+      - name: Commit and push
+        if: env.CHANGES == 'true'
+        run: |
+          # Canonical github-actions[bot] identity — 41898282 is the bot's user ID.
+          # This exact pair is what makes commits show as authored by the bot in the UI; do not "fix" it.
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add "$ARTIFACTS/"
+          if git diff --cached --quiet; then
+            echo "No file changes detected."
+            exit 0
+          fi
+          git commit -m "chore(sync): mark story $STORY_KEY done (PR #$MERGED_PR)"
+          # --autostash: LFS-tracked files under docs/reference-data/** are checked
+          # out as pointers (no lfs: true), so the index sees them as unstaged. The
+          # rebase needs a clean tree even though those changes are unrelated.
+          git pull --rebase --autostash
+          git push

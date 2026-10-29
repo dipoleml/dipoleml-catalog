@@ -1,0 +1,1650 @@
+{
+ "elapsed_ms": 42672,
+ "timing": "First decision request through the final DONE/BLOCKED turn; navigation, page load and the first probe are excluded, as in jev-ultrafast.",
+ "run_ms": 46810,
+ "decision_requests": 13,
+ "decision_median_ms": 493,
+ "decision_total_ms": 6737,
+ "browser_actions": 0,
+ "wait_actions": 0,
+ "text_calls": [
+  {
+   "field": "Where from?",
+   "latency_ms": 815
+  },
+  {
+   "field": "Where to?",
+   "latency_ms": 1034
+  },
+  {
+   "field": "Departure",
+   "latency_ms": 1065
+  },
+  {
+   "field": "Return",
+   "latency_ms": 1204
+  },
+  {
+   "field": "Where else?",
+   "latency_ms": 845
+  },
+  {
+   "field": "Where from?",
+   "latency_ms": 681
+  },
+  {
+   "field": "Where else?",
+   "latency_ms": 704
+  },
+  {
+   "field": "Where to?",
+   "latency_ms": 802
+  },
+  {
+   "field": "Departure",
+   "latency_ms": 655
+  },
+  {
+   "field": "Departure",
+   "latency_ms": 825
+  }
+ ],
+ "phases": {
+  "jev": 6736,
+  "probe": 19349,
+  "probe_wire": 19300,
+  "activate": 1678,
+  "value_wait": 0,
+  "model_overhead": 7,
+  "tool": 14820,
+  "tool_wire": 14647,
+  "framework": 82
+ },
+ "tools": {
+  "mcp_playwright-official_browser_click": {
+   "count": 9,
+   "ms": 14587
+  },
+  "mcp_playwright-official_browser_type": {
+   "count": 3,
+   "ms": 232
+  }
+ },
+ "wire": {
+  "browser_click": {
+   "count": 9,
+   "ms": 14437
+  },
+  "browser_run_code_unsafe": {
+   "count": 19,
+   "ms": 20973
+  },
+  "browser_type": {
+   "count": 3,
+   "ms": 210
+  }
+ },
+ "background_value_ms": 8630,
+ "steps": [
+  {
+   "turn_ms": 1661,
+   "probes": 1,
+   "probe_ms": 1167,
+   "jev": 1,
+   "jev_ms": 493,
+   "tool": "mcp_playwright-official_browser_click",
+   "tool_ms": 1136,
+   "tool_wire_ms": 1128,
+   "gap_ms": 8,
+   "finish": "tool_calls"
+  },
+  {
+   "turn_ms": 1232,
+   "probes": 1,
+   "probe_ms": 648,
+   "jev": 1,
+   "jev_ms": 584,
+   "tool": "mcp_playwright-official_browser_click",
+   "tool_ms": 1167,
+   "tool_wire_ms": 1159,
+   "gap_ms": 8,
+   "finish": "tool_calls"
+  },
+  {
+   "turn_ms": 1205,
+   "probes": 1,
+   "probe_ms": 682,
+   "jev": 1,
+   "jev_ms": 522,
+   "tool": "mcp_playwright-official_browser_type",
+   "tool_ms": 78,
+   "tool_wire_ms": 69,
+   "gap_ms": 7,
+   "finish": "tool_calls"
+  },
+  {
+   "turn_ms": 1879,
+   "probes": 1,
+   "probe_ms": 1446,
+   "jev": 1,
+   "jev_ms": 433,
+   "tool": "mcp_playwright-official_browser_click",
+   "tool_ms": 5104,
+   "tool_wire_ms": 5012,
+   "gap_ms": 7,
+   "finish": "tool_calls"
+  },
+  {
+   "turn_ms": 6924,
+   "probes": 5,
+   "probe_ms": 5671,
+   "jev": 1,
+   "jev_ms": 667,
+   "tool": "mcp_playwright-official_browser_click",
+   "tool_ms": 1124,
+   "tool_wire_ms": 1115,
+   "gap_ms": 8,
+   "finish": "tool_calls"
+  },
+  {
+   "turn_ms": 1140,
+   "probes": 1,
+   "probe_ms": 679,
+   "jev": 1,
+   "jev_ms": 460,
+   "tool": "mcp_playwright-official_browser_type",
+   "tool_ms": 80,
+   "tool_wire_ms": 72,
+   "gap_ms": 7,
+   "finish": "tool_calls"
+  },
+  {
+   "turn_ms": 1800,
+   "probes": 1,
+   "probe_ms": 1360,
+   "jev": 1,
+   "jev_ms": 440,
+   "tool": "mcp_playwright-official_browser_click",
+   "tool_ms": 1098,
+   "tool_wire_ms": 1094,
+   "gap_ms": 5,
+   "finish": "tool_calls"
+  },
+  {
+   "turn_ms": 1115,
+   "probes": 1,
+   "probe_ms": 679,
+   "jev": 1,
+   "jev_ms": 436,
+   "tool": "mcp_playwright-official_browser_type",
+   "tool_ms": 74,
+   "tool_wire_ms": 69,
+   "gap_ms": 5,
+   "finish": "tool_calls"
+  },
+  {
+   "turn_ms": 1108,
+   "probes": 1,
+   "probe_ms": 663,
+   "jev": 1,
+   "jev_ms": 445,
+   "tool": "mcp_playwright-official_browser_click",
+   "tool_ms": 684,
+   "tool_wire_ms": 679,
+   "gap_ms": 4,
+   "finish": "tool_calls"
+  },
+  {
+   "turn_ms": 1797,
+   "probes": 1,
+   "probe_ms": 1273,
+   "jev": 1,
+   "jev_ms": 524,
+   "tool": "mcp_playwright-official_browser_click",
+   "tool_ms": 674,
+   "tool_wire_ms": 665,
+   "gap_ms": 8,
+   "finish": "tool_calls"
+  },
+  {
+   "turn_ms": 1299,
+   "probes": 1,
+   "probe_ms": 799,
+   "jev": 1,
+   "jev_ms": 500,
+   "tool": "mcp_playwright-official_browser_click",
+   "tool_ms": 2177,
+   "tool_wire_ms": 2170,
+   "gap_ms": 8,
+   "finish": "tool_calls"
+  },
+  {
+   "turn_ms": 6511,
+   "probes": 2,
+   "probe_ms": 4671,
+   "jev": 1,
+   "jev_ms": 747,
+   "tool": "mcp_playwright-official_browser_click",
+   "tool_ms": 1423,
+   "tool_wire_ms": 1415,
+   "gap_ms": 8,
+   "finish": "tool_calls"
+  },
+  {
+   "turn_ms": 1266,
+   "probes": 1,
+   "probe_ms": 780,
+   "jev": 1,
+   "jev_ms": 486,
+   "tool": "",
+   "tool_ms": 0,
+   "tool_wire_ms": 0,
+   "gap_ms": 0,
+   "finish": "stop"
+  }
+ ],
+ "ticks": [
+  {
+   "tick": 1,
+   "probe_ms": 1167,
+   "settle_probes": 0,
+   "settle_ms": 0,
+   "action_settle_probes": 0,
+   "action_settle_ms": 0,
+   "jev_ms": 493,
+   "operation": "CLICK",
+   "target": "Change ticket type. Round trip",
+   "confidence": 0.72,
+   "elements": 25,
+   "elapsed_ms": 3533,
+   "text": null
+  },
+  {
+   "tick": 2,
+   "probe_ms": 648,
+   "settle_probes": 0,
+   "settle_ms": 0,
+   "action_settle_probes": 0,
+   "action_settle_ms": 0,
+   "jev_ms": 584,
+   "operation": "CLICK",
+   "target": "One way",
+   "confidence": 0.73,
+   "elements": 3,
+   "elapsed_ms": 5909,
+   "text": null
+  },
+  {
+   "tick": 3,
+   "probe_ms": 683,
+   "settle_probes": 0,
+   "settle_ms": 0,
+   "action_settle_probes": 0,
+   "action_settle_ms": 0,
+   "jev_ms": 522,
+   "operation": "TYPE_TEXT",
+   "target": "Where from?",
+   "confidence": 0.92,
+   "elements": 24,
+   "elapsed_ms": 8288,
+   "value_source": "prefetch",
+   "value_ms": 0,
+   "text": "Zurich"
+  },
+  {
+   "tick": 4,
+   "probe_ms": 1446,
+   "settle_probes": 0,
+   "settle_ms": 0,
+   "action_settle_probes": 0,
+   "action_settle_ms": 0,
+   "jev_ms": 433,
+   "operation": "CLICK",
+   "target": "Zürich, Switzerland",
+   "confidence": 0.96,
+   "elements": 10,
+   "elapsed_ms": 10253,
+   "text": null
+  },
+  {
+   "tick": 5,
+   "probe_ms": 6257,
+   "settle_probes": 0,
+   "settle_ms": 0,
+   "action_settle_probes": 3,
+   "action_settle_ms": 1000,
+   "jev_ms": 667,
+   "operation": "CLICK",
+   "target": "Zürich, Switzerland",
+   "confidence": 0.91,
+   "elements": 10,
+   "elapsed_ms": 22289,
+   "text": null
+  },
+  {
+   "tick": 6,
+   "probe_ms": 679,
+   "settle_probes": 0,
+   "settle_ms": 0,
+   "action_settle_probes": 0,
+   "action_settle_ms": 0,
+   "jev_ms": 460,
+   "operation": "TYPE_TEXT",
+   "target": "Where to?",
+   "confidence": 0.94,
+   "elements": 24,
+   "elapsed_ms": 24561,
+   "value_source": "prefetch",
+   "value_ms": 0,
+   "text": "London"
+  },
+  {
+   "tick": 7,
+   "probe_ms": 1360,
+   "settle_probes": 0,
+   "settle_ms": 0,
+   "action_settle_probes": 0,
+   "action_settle_ms": 0,
+   "jev_ms": 440,
+   "operation": "CLICK",
+   "target": "London, United Kingdom",
+   "confidence": 0.92,
+   "elements": 9,
+   "elapsed_ms": 26447,
+   "text": null
+  },
+  {
+   "tick": 8,
+   "probe_ms": 679,
+   "settle_probes": 0,
+   "settle_ms": 0,
+   "action_settle_probes": 0,
+   "action_settle_ms": 0,
+   "jev_ms": 436,
+   "operation": "TYPE_TEXT",
+   "target": "Departure",
+   "confidence": 0.44,
+   "elements": 25,
+   "elapsed_ms": 28665,
+   "value_source": "prefetch",
+   "value_ms": 0,
+   "text": "Zurich"
+  },
+  {
+   "tick": 9,
+   "probe_ms": 663,
+   "settle_probes": 0,
+   "settle_ms": 0,
+   "action_settle_probes": 0,
+   "action_settle_ms": 0,
+   "jev_ms": 445,
+   "operation": "CLICK",
+   "target": "Departure",
+   "confidence": 0.72,
+   "elements": 25,
+   "elapsed_ms": 29852,
+   "text": null
+  },
+  {
+   "tick": 10,
+   "probe_ms": 1273,
+   "settle_probes": 0,
+   "settle_ms": 0,
+   "action_settle_probes": 0,
+   "action_settle_ms": 0,
+   "jev_ms": 524,
+   "operation": "CLICK",
+   "target": "Sunday, September 20, 2026 ????",
+   "confidence": 0.98,
+   "elements": 57,
+   "elapsed_ms": 32337,
+   "text": null
+  },
+  {
+   "tick": 11,
+   "probe_ms": 799,
+   "settle_probes": 0,
+   "settle_ms": 0,
+   "action_settle_probes": 0,
+   "action_settle_ms": 0,
+   "jev_ms": 499,
+   "operation": "CLICK",
+   "target": "Done. Search for one-way flights, departing on September 20, 2026",
+   "confidence": 0.88,
+   "elements": 58,
+   "elapsed_ms": 34318,
+   "text": null
+  },
+  {
+   "tick": 12,
+   "probe_ms": 5763,
+   "settle_probes": 0,
+   "settle_ms": 0,
+   "action_settle_probes": 0,
+   "action_settle_ms": 0,
+   "jev_ms": 747,
+   "operation": "CLICK",
+   "target": "Search",
+   "confidence": 0.91,
+   "elements": 25,
+   "elapsed_ms": 43014,
+   "text": null
+  },
+  {
+   "tick": 13,
+   "probe_ms": 780,
+   "settle_probes": 0,
+   "settle_ms": 0,
+   "action_settle_probes": 0,
+   "action_settle_ms": 0,
+   "jev_ms": 486,
+   "operation": "DONE",
+   "target": null,
+   "confidence": 0.94,
+   "elements": 54,
+   "elapsed_ms": 45712
+  }
+ ],
+ "final": {
+  "status": "DONE",
+  "reason": "",
+  "url": "https://www.google.com/travel/flights/search?tfs=CBwQAhooEgoyMDI2LTA5LTIwagwIAxIIL20vMDg5NjZyDAgDEggvbS8wNGpwbEABSAFwAYIBCwj___________8BmAEC&hl=en",
+  "title": "Zürich to London | Google Flights",
+  "steps": 12,
+  "elapsed_ms": 45712,
+  "page_text": "Skip to main content\nAccessibility feedback\nExplore\nFlights\nHotels\nVacation rentals\nSign in\nFlight search\n1\nFilters\nAll filters\nStops\nAirlines\nBags\nPrice\nTimes\nEmissions\nConnecting airports\nDuration\nSearch results\n21 results returned.\nBest\nCheapest\nfrom\n¥20,981\nTop options\nRanked based on price and convenience\nPrices include required taxes + fees for 1 adult.\nOptional charges and\nbag fees\nmay apply.\nPassenger assistance\ninfo.\nSorted by top flights\n7:40 AM\n–\n8:35 AM\nBritish Airways\n1 hr 55 min\nNonstop\n¥27,975\n4:45 PM\n–\n5:35 PM\neasyJet\n1 hr 50 min\nNonstop\n¥29,473\n8:25 PM\n–\n9:00 PM\nBritish Airways\nOperated by BA Cityflyer\n1 hr 35 min\nNonstop\n¥41,409\n1:20 PM\n–\n2:20 PM\nBritish Airways\n2 hr\nNonstop\n¥42,287\n6:20 PM\n–\n7:05 PM\nBritish Airways\n1 hr 45 min\nNonstop\n¥42,287\nTrains to consider\nTo arrive closer to your destination\n3:34 PM\n–\n10:00 PM\n7 hr 26 min\n2 stops\nSee more train options"
+ },
+ "verified": true,
+ "spans": [
+  {
+   "kind": "tool",
+   "name": "mcp_playwright-official_browser_navigate",
+   "t0_ms": -2528,
+   "ms": 1357
+  },
+  {
+   "kind": "wire",
+   "name": "browser_navigate",
+   "t0_ms": -2521,
+   "ms": 1348
+  },
+  {
+   "kind": "probe",
+   "name": "settle=500",
+   "t0_ms": -1168,
+   "ms": 1167
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": -1166,
+   "ms": 1164
+  },
+  {
+   "kind": "jev",
+   "name": "typesafe/jev-1.13",
+   "t0_ms": 0,
+   "ms": 493,
+   "elements": [
+    "[1] Main menu",
+    "[2] Google",
+    "[3] Skip to main content",
+    "[4] Accessibility feedback",
+    "[5] Explore",
+    "[6] Flights",
+    "[7] Hotels",
+    "[8] Vacation rentals",
+    "[9] Change appearance",
+    "[10] Google apps",
+    "[11] Sign in",
+    "[12] Change ticket type. Round trip",
+    "[13] 1 passenger, change number of passengers.",
+    "[14] Change seating class. Economy",
+    "[15] Where from?",
+    "[16] Where to?",
+    "[17] Departure",
+    "[18] Return",
+    "[19] Explore destinations",
+    "[20] Explore deals with AI",
+    "[21] Learn more about this section",
+    "[22] Tokyo",
+    "[23] Fukuoka",
+    "[24] Osaka",
+    "[25] Sapporo"
+   ],
+   "operations": [
+    "CLICK",
+    "TYPE_TEXT",
+    "SCROLL_DOWN",
+    "WAIT",
+    "DONE",
+    "BLOCKED"
+   ],
+   "answers": {
+    "operation": {
+     "choice": "CLICK",
+     "confidence": 0.72
+    },
+    "click_target": {
+     "choice": "12",
+     "confidence": 0.84
+    },
+    "type_text_target": {
+     "choice": "15",
+     "confidence": 0.97
+    }
+   }
+  },
+  {
+   "kind": "value",
+   "name": "Where from?",
+   "t0_ms": 1,
+   "ms": 815
+  },
+  {
+   "kind": "value",
+   "name": "Where to?",
+   "t0_ms": 3,
+   "ms": 1034
+  },
+  {
+   "kind": "value",
+   "name": "Departure",
+   "t0_ms": 5,
+   "ms": 1065
+  },
+  {
+   "kind": "value",
+   "name": "Return",
+   "t0_ms": 6,
+   "ms": 1204
+  },
+  {
+   "kind": "tool",
+   "name": "mcp_playwright-official_browser_click",
+   "t0_ms": 496,
+   "ms": 1136
+  },
+  {
+   "kind": "wire",
+   "name": "browser_click",
+   "t0_ms": 502,
+   "ms": 1128
+  },
+  {
+   "kind": "probe",
+   "name": "settle=500",
+   "t0_ms": 1637,
+   "ms": 648
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 1639,
+   "ms": 645
+  },
+  {
+   "kind": "jev",
+   "name": "typesafe/jev-1.13",
+   "t0_ms": 2285,
+   "ms": 584,
+   "elements": [
+    "[1] Round trip",
+    "[2] One way",
+    "[3] Multi-city"
+   ],
+   "operations": [
+    "CLICK",
+    "SCROLL_DOWN",
+    "WAIT",
+    "DONE",
+    "BLOCKED"
+   ],
+   "answers": {
+    "operation": {
+     "choice": "CLICK",
+     "confidence": 0.73
+    },
+    "click_target": {
+     "choice": "2",
+     "confidence": 0.93
+    }
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "mcp_playwright-official_browser_click",
+   "t0_ms": 2872,
+   "ms": 1167
+  },
+  {
+   "kind": "wire",
+   "name": "browser_click",
+   "t0_ms": 2879,
+   "ms": 1159
+  },
+  {
+   "kind": "probe",
+   "name": "settle=500",
+   "t0_ms": 4044,
+   "ms": 682
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 4045,
+   "ms": 680
+  },
+  {
+   "kind": "jev",
+   "name": "typesafe/jev-1.13",
+   "t0_ms": 4726,
+   "ms": 522,
+   "elements": [
+    "[1] Main menu",
+    "[2] Google",
+    "[3] Skip to main content",
+    "[4] Accessibility feedback",
+    "[5] Explore",
+    "[6] Flights",
+    "[7] Hotels",
+    "[8] Vacation rentals",
+    "[9] Change appearance",
+    "[10] Google apps",
+    "[11] Sign in",
+    "[12] Change ticket type. One way",
+    "[13] 1 passenger",
+    "[14] Change seating class. Economy",
+    "[15] Where from?",
+    "[16] Where to?",
+    "[17] Departure",
+    "[18] Explore destinations",
+    "[19] Explore deals with AI",
+    "[20] Learn more about this section",
+    "[21] Tokyo",
+    "[22] Fukuoka",
+    "[23] Osaka",
+    "[24] Sapporo"
+   ],
+   "operations": [
+    "CLICK",
+    "TYPE_TEXT",
+    "SCROLL_DOWN",
+    "WAIT",
+    "DONE",
+    "BLOCKED"
+   ],
+   "answers": {
+    "operation": {
+     "choice": "TYPE_TEXT",
+     "confidence": 0.92
+    },
+    "click_target": {
+     "choice": "15",
+     "confidence": 0.9
+    },
+    "type_text_target": {
+     "choice": "15",
+     "confidence": 0.95
+    }
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "mcp_playwright-official_browser_type",
+   "t0_ms": 5251,
+   "ms": 78
+  },
+  {
+   "kind": "wire",
+   "name": "browser_type",
+   "t0_ms": 5258,
+   "ms": 69
+  },
+  {
+   "kind": "probe",
+   "name": "settle=500",
+   "t0_ms": 5334,
+   "ms": 1446
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 5336,
+   "ms": 1444
+  },
+  {
+   "kind": "jev",
+   "name": "typesafe/jev-1.13",
+   "t0_ms": 6780,
+   "ms": 433,
+   "elements": [
+    "[1] Where else?",
+    "[2] Origin, Select multiple airports",
+    "[3] Zürich, Switzerland",
+    "[4] Toggle nearby airports for Zürich, Switzerland",
+    "[5] Zurich Airport (ZRH)",
+    "[6] Zürich HB",
+    "[7] Lake Zurich, Illinois, USA",
+    "[8] Toggle nearby airports for Lake Zurich, Illinois, USA",
+    "[9] Zurich, Netherlands",
+    "[10] Toggle nearby airports for Zurich, Netherlands"
+   ],
+   "operations": [
+    "CLICK",
+    "TYPE_TEXT",
+    "SCROLL_DOWN",
+    "WAIT",
+    "DONE",
+    "BLOCKED"
+   ],
+   "answers": {
+    "operation": {
+     "choice": "CLICK",
+     "confidence": 0.96
+    },
+    "type_text_target": {
+     "choice": "1",
+     "confidence": 1
+    },
+    "click_target": {
+     "choice": "3",
+     "confidence": 0.87
+    }
+   }
+  },
+  {
+   "kind": "value",
+   "name": "Where else?",
+   "t0_ms": 6781,
+   "ms": 845
+  },
+  {
+   "kind": "tool",
+   "name": "mcp_playwright-official_browser_click",
+   "t0_ms": 7216,
+   "ms": 5104
+  },
+  {
+   "kind": "wire",
+   "name": "browser_click",
+   "t0_ms": 7306,
+   "ms": 5012
+  },
+  {
+   "kind": "probe",
+   "name": "settle=500",
+   "t0_ms": 12324,
+   "ms": 2130
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 12326,
+   "ms": 2127
+  },
+  {
+   "kind": "activate",
+   "name": "https://www.google.com/travel/flights?tfs=CBwQARoOagwIAhIIL20vMDdkZmtAAUgBcAGCAQsI____________AZgBAg&tfu=KgIIAw&hl=en",
+   "t0_ms": 14454,
+   "ms": 586
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 14457,
+   "ms": 583
+  },
+  {
+   "kind": "probe",
+   "name": "settle=500",
+   "t0_ms": 15040,
+   "ms": 681
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 15043,
+   "ms": 677
+  },
+  {
+   "kind": "probe",
+   "name": "settle=250",
+   "t0_ms": 15721,
+   "ms": 873
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 15723,
+   "ms": 871
+  },
+  {
+   "kind": "probe",
+   "name": "settle=500",
+   "t0_ms": 16595,
+   "ms": 1117
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 16596,
+   "ms": 1114
+  },
+  {
+   "kind": "probe",
+   "name": "settle=250",
+   "t0_ms": 17711,
+   "ms": 870
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 17713,
+   "ms": 867
+  },
+  {
+   "kind": "jev",
+   "name": "typesafe/jev-1.13",
+   "t0_ms": 18581,
+   "ms": 667,
+   "elements": [
+    "[1] Where else?",
+    "[2] Origin, Select multiple airports",
+    "[3] Zürich, Switzerland",
+    "[4] Toggle nearby airports for Zürich, Switzerland",
+    "[5] Zurich Airport (ZRH)",
+    "[6] Zürich HB",
+    "[7] Lake Zurich, Illinois, USA",
+    "[8] Toggle nearby airports for Lake Zurich, Illinois, USA",
+    "[9] Zurich, Netherlands",
+    "[10] Toggle nearby airports for Zurich, Netherlands"
+   ],
+   "operations": [
+    "CLICK",
+    "TYPE_TEXT",
+    "SCROLL_DOWN",
+    "WAIT",
+    "DONE",
+    "BLOCKED"
+   ],
+   "answers": {
+    "operation": {
+     "choice": "CLICK",
+     "confidence": 0.91
+    },
+    "type_text_target": {
+     "choice": "1",
+     "confidence": 1
+    },
+    "click_target": {
+     "choice": "3",
+     "confidence": 0.71
+    }
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "mcp_playwright-official_browser_click",
+   "t0_ms": 19252,
+   "ms": 1124
+  },
+  {
+   "kind": "wire",
+   "name": "browser_click",
+   "t0_ms": 19259,
+   "ms": 1115
+  },
+  {
+   "kind": "probe",
+   "name": "settle=500",
+   "t0_ms": 20381,
+   "ms": 679
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 20383,
+   "ms": 676
+  },
+  {
+   "kind": "jev",
+   "name": "typesafe/jev-1.13",
+   "t0_ms": 21061,
+   "ms": 460,
+   "elements": [
+    "[1] Main menu",
+    "[2] Google",
+    "[3] Skip to main content",
+    "[4] Accessibility feedback",
+    "[5] Explore",
+    "[6] Flights",
+    "[7] Hotels",
+    "[8] Vacation rentals",
+    "[9] Change appearance",
+    "[10] Google apps",
+    "[11] Sign in",
+    "[12] Change ticket type. One way",
+    "[13] 1 passenger",
+    "[14] Change seating class. Economy",
+    "[15] Where from?",
+    "[16] Where to?",
+    "[17] Departure",
+    "[18] Explore destinations",
+    "[19] Explore deals with AI",
+    "[20] Learn more about this section",
+    "[21] Tokyo",
+    "[22] Fukuoka",
+    "[23] Osaka",
+    "[24] Sapporo"
+   ],
+   "operations": [
+    "CLICK",
+    "TYPE_TEXT",
+    "SCROLL_DOWN",
+    "WAIT",
+    "DONE",
+    "BLOCKED"
+   ],
+   "answers": {
+    "operation": {
+     "choice": "TYPE_TEXT",
+     "confidence": 0.94
+    },
+    "click_target": {
+     "choice": "16",
+     "confidence": 0.96
+    },
+    "type_text_target": {
+     "choice": "16",
+     "confidence": 0.99
+    }
+   }
+  },
+  {
+   "kind": "value",
+   "name": "Where from?",
+   "t0_ms": 21061,
+   "ms": 681
+  },
+  {
+   "kind": "tool",
+   "name": "mcp_playwright-official_browser_type",
+   "t0_ms": 21523,
+   "ms": 80
+  },
+  {
+   "kind": "wire",
+   "name": "browser_type",
+   "t0_ms": 21529,
+   "ms": 72
+  },
+  {
+   "kind": "probe",
+   "name": "settle=500",
+   "t0_ms": 21607,
+   "ms": 1360
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 21609,
+   "ms": 1358
+  },
+  {
+   "kind": "jev",
+   "name": "typesafe/jev-1.13",
+   "t0_ms": 22967,
+   "ms": 440,
+   "elements": [
+    "[1] Where else?",
+    "[2] Destination, Select multiple airports",
+    "[3] London, United Kingdom",
+    "[4] Toggle nearby airports for London, United Kingdom",
+    "[5] Heathrow Airport (LHR)",
+    "[6] London Stansted Airport (STN)",
+    "[7] London Gatwick Airport (LGW)",
+    "[8] London Luton Airport (LTN)",
+    "[9] London City Airport (LCY)"
+   ],
+   "operations": [
+    "CLICK",
+    "TYPE_TEXT",
+    "SCROLL_DOWN",
+    "WAIT",
+    "DONE",
+    "BLOCKED"
+   ],
+   "answers": {
+    "operation": {
+     "choice": "CLICK",
+     "confidence": 0.92
+    },
+    "type_text_target": {
+     "choice": "1",
+     "confidence": 1
+    },
+    "click_target": {
+     "choice": "3",
+     "confidence": 0.85
+    }
+   }
+  },
+  {
+   "kind": "value",
+   "name": "Where else?",
+   "t0_ms": 22968,
+   "ms": 704
+  },
+  {
+   "kind": "tool",
+   "name": "mcp_playwright-official_browser_click",
+   "t0_ms": 23408,
+   "ms": 1098
+  },
+  {
+   "kind": "wire",
+   "name": "browser_click",
+   "t0_ms": 23411,
+   "ms": 1094
+  },
+  {
+   "kind": "probe",
+   "name": "settle=500",
+   "t0_ms": 24510,
+   "ms": 679
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 24511,
+   "ms": 676
+  },
+  {
+   "kind": "jev",
+   "name": "typesafe/jev-1.13",
+   "t0_ms": 25189,
+   "ms": 436,
+   "elements": [
+    "[1] Main menu",
+    "[2] Google",
+    "[3] Skip to main content",
+    "[4] Accessibility feedback",
+    "[5] Explore",
+    "[6] Flights",
+    "[7] Hotels",
+    "[8] Vacation rentals",
+    "[9] Change appearance",
+    "[10] Google apps",
+    "[11] Sign in",
+    "[12] Change ticket type. One way",
+    "[13] 1 passenger",
+    "[14] Change seating class. Economy",
+    "[15] Where from?",
+    "[16] Swap origin and destination.",
+    "[17] Where to?",
+    "[18] Departure",
+    "[19] Search",
+    "[20] Explore deals with AI",
+    "[21] Learn more about this section",
+    "[22] Tokyo",
+    "[23] Fukuoka",
+    "[24] Osaka",
+    "[25] Sapporo"
+   ],
+   "operations": [
+    "CLICK",
+    "TYPE_TEXT",
+    "SCROLL_DOWN",
+    "WAIT",
+    "DONE",
+    "BLOCKED"
+   ],
+   "answers": {
+    "operation": {
+     "choice": "TYPE_TEXT",
+     "confidence": 0.44
+    },
+    "click_target": {
+     "choice": "18",
+     "confidence": 0.94
+    },
+    "type_text_target": {
+     "choice": "18",
+     "confidence": 1
+    }
+   }
+  },
+  {
+   "kind": "value",
+   "name": "Where to?",
+   "t0_ms": 25190,
+   "ms": 802
+  },
+  {
+   "kind": "tool",
+   "name": "mcp_playwright-official_browser_type",
+   "t0_ms": 25626,
+   "ms": 74
+  },
+  {
+   "kind": "wire",
+   "name": "browser_type",
+   "t0_ms": 25630,
+   "ms": 69
+  },
+  {
+   "kind": "probe",
+   "name": "settle=500",
+   "t0_ms": 25704,
+   "ms": 663
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 25705,
+   "ms": 662
+  },
+  {
+   "kind": "jev",
+   "name": "typesafe/jev-1.13",
+   "t0_ms": 26367,
+   "ms": 445,
+   "elements": [
+    "[1] Main menu",
+    "[2] Google",
+    "[3] Skip to main content",
+    "[4] Accessibility feedback",
+    "[5] Explore",
+    "[6] Flights",
+    "[7] Hotels",
+    "[8] Vacation rentals",
+    "[9] Change appearance",
+    "[10] Google apps",
+    "[11] Sign in",
+    "[12] Change ticket type. One way",
+    "[13] 1 passenger",
+    "[14] Change seating class. Economy",
+    "[15] Where from?",
+    "[16] Swap origin and destination.",
+    "[17] Where to?",
+    "[18] Departure",
+    "[19] Search",
+    "[20] Explore deals with AI",
+    "[21] Learn more about this section",
+    "[22] Tokyo",
+    "[23] Fukuoka",
+    "[24] Osaka",
+    "[25] Sapporo"
+   ],
+   "operations": [
+    "CLICK",
+    "TYPE_TEXT",
+    "SCROLL_DOWN",
+    "WAIT",
+    "DONE",
+    "BLOCKED"
+   ],
+   "answers": {
+    "operation": {
+     "choice": "CLICK",
+     "confidence": 0.72
+    },
+    "click_target": {
+     "choice": "18",
+     "confidence": 0.64
+    },
+    "type_text_target": {
+     "choice": "18",
+     "confidence": 0.91
+    }
+   }
+  },
+  {
+   "kind": "value",
+   "name": "Departure",
+   "t0_ms": 26368,
+   "ms": 655
+  },
+  {
+   "kind": "tool",
+   "name": "mcp_playwright-official_browser_click",
+   "t0_ms": 26813,
+   "ms": 684
+  },
+  {
+   "kind": "wire",
+   "name": "browser_click",
+   "t0_ms": 26816,
+   "ms": 679
+  },
+  {
+   "kind": "probe",
+   "name": "settle=500",
+   "t0_ms": 27500,
+   "ms": 1273
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 27502,
+   "ms": 1269
+  },
+  {
+   "kind": "jev",
+   "name": "typesafe/jev-1.13",
+   "t0_ms": 28773,
+   "ms": 524,
+   "elements": [
+    "[1] Departure",
+    "[2] Select your ticket type. One way",
+    "[3] Saturday, September 19, 2026 ????",
+    "[4] Sunday, September 20, 2026 ????",
+    "[5] Monday, September 21, 2026 ????",
+    "[6] Tuesday, September 22, 2026 ????",
+    "[7] Wednesday, September 23, 2026 ????",
+    "[8] Thursday, September 24, 2026 ????",
+    "[9] Friday, September 25, 2026 ????",
+    "[10] Saturday, September 26, 2026 ????",
+    "[11] Sunday, September 27, 2026 ????",
+    "[12] Monday, September 28, 2026 ????",
+    "[13] Tuesday, September 29, 2026 ????",
+    "[14] Wednesday, September 30, 2026 ????",
+    "[15] Thursday, October 1, 2026 ????",
+    "[16] Friday, October 2, 2026 ????",
+    "[17] Saturday, October 3, 2026 ????",
+    "[18] Sunday, October 4, 2026 ????",
+    "[19] Monday, October 5, 2026 ????",
+    "[20] Tuesday, October 6, 2026 ????",
+    "[21] Wednesday, October 7, 2026 ????",
+    "[22] Thursday, October 8, 2026 ????",
+    "[23] Friday, October 9, 2026 ????",
+    "[24] Saturday, October 10, 2026 ????",
+    "[25] Sunday, October 11, 2026 ????",
+    "[26] Monday, October 12, 2026 ????",
+    "[27] Tuesday, October 13, 2026 ????",
+    "[28] Wednesday, October 14, 2026 ????",
+    "[29] Thursday, October 15, 2026 ????",
+    "[30] Friday, October 16, 2026 ????",
+    "[31] Saturday, October 17, 2026 ????",
+    "[32] Sunday, October 18, 2026 ????",
+    "[33] Monday, October 19, 2026 ????",
+    "[34] Tuesday, October 20, 2026 ????",
+    "[35] Wednesday, October 21, 2026 ????",
+    "[36] Thursday, October 22, 2026 ????",
+    "[37] Friday, October 23, 2026 ????",
+    "[38] Saturday, October 24, 2026 ????",
+    "[39] Sunday, October 25, 2026 ????",
+    "[40] Monday, October 26, 2026 ????",
+    "[41] Tuesday, October 27, 2026 ????",
+    "[42] Wednesday, October 28, 2026 ????",
+    "[43] Thursday, October 29, 2026 ????",
+    "[44] Friday, October 30, 2026 ????",
+    "[45] Saturday, October 31, 2026 ????",
+    "[46] Sunday, November 1, 2026",
+    "[47] Monday, November 2, 2026",
+    "[48] Sunday, November 8, 2026",
+    "[49] Monday, November 9, 2026",
+    "[50] Sunday, November 15, 2026",
+    "[51] Monday, November 16, 2026",
+    "[52] Sunday, November 22, 2026",
+    "[53] Monday, November 23, 2026",
+    "[54] Sunday, November 29, 2026",
+    "[55] Monday, November 30, 2026",
+    "[56] Next",
+    "[57] Done."
+   ],
+   "operations": [
+    "CLICK",
+    "TYPE_TEXT",
+    "SCROLL_DOWN",
+    "WAIT",
+    "DONE",
+    "BLOCKED"
+   ],
+   "answers": {
+    "operation": {
+     "choice": "CLICK",
+     "confidence": 0.98
+    },
+    "type_text_target": {
+     "choice": "1",
+     "confidence": 1
+    },
+    "click_target": {
+     "choice": "4",
+     "confidence": 0.92
+    }
+   }
+  },
+  {
+   "kind": "value",
+   "name": "Departure",
+   "t0_ms": 28774,
+   "ms": 825
+  },
+  {
+   "kind": "tool",
+   "name": "mcp_playwright-official_browser_click",
+   "t0_ms": 29300,
+   "ms": 674
+  },
+  {
+   "kind": "wire",
+   "name": "browser_click",
+   "t0_ms": 29306,
+   "ms": 665
+  },
+  {
+   "kind": "probe",
+   "name": "settle=500",
+   "t0_ms": 29980,
+   "ms": 799
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 29981,
+   "ms": 795
+  },
+  {
+   "kind": "jev",
+   "name": "typesafe/jev-1.13",
+   "t0_ms": 30779,
+   "ms": 500,
+   "elements": [
+    "[1] Departure",
+    "[2] Select your ticket type. One way",
+    "[3] Reset",
+    "[4] Saturday, September 19, 2026 , 20981 Japanese yen",
+    "[5] Sunday, September 20, 2026, departure date. , 20981 Japanese yen",
+    "[6] Monday, September 21, 2026 , 22890 Japanese yen",
+    "[7] Tuesday, September 22, 2026 , 21172 Japanese yen",
+    "[8] Wednesday, September 23, 2026 , 20981 Japanese yen",
+    "[9] Thursday, September 24, 2026 , 20981 Japanese yen",
+    "[10] Friday, September 25, 2026 , 21172 Japanese yen",
+    "[11] Saturday, September 26, 2026 , 27088 Japanese yen",
+    "[12] Sunday, September 27, 2026 , 34434 Japanese yen",
+    "[13] Monday, September 28, 2026 , 16974 Japanese yen",
+    "[14] Tuesday, September 29, 2026 , 18997 Japanese yen",
+    "[15] Wednesday, September 30, 2026 , 19359 Japanese yen",
+    "[16] Thursday, October 1, 2026 , 20218 Japanese yen",
+    "[17] Friday, October 2, 2026 , 32099 Japanese yen",
+    "[18] Saturday, October 3, 2026 , 21936 Japanese yen",
+    "[19] Sunday, October 4, 2026 , 25561 Japanese yen",
+    "[20] Monday, October 5, 2026 , 13740 Japanese yen",
+    "[21] Tuesday, October 6, 2026 , 17451 Japanese yen",
+    "[22] Wednesday, October 7, 2026 , 17547 Japanese yen",
+    "[23] Thursday, October 8, 2026 , 14398 Japanese yen",
+    "[24] Friday, October 9, 2026 , 17070 Japanese yen",
+    "[25] Saturday, October 10, 2026 , 17833 Japanese yen",
+    "[26] Sunday, October 11, 2026 , 11345 Japanese yen",
+    "[27] Monday, October 12, 2026 , 10391 Japanese yen",
+    "[28] Tuesday, October 13, 2026 , 9723 Japanese yen",
+    "[29] Wednesday, October 14, 2026 , 10868 Japanese yen",
+    "[30] Thursday, October 15, 2026 , 10391 Japanese yen",
+    "[31] Friday, October 16, 2026 , 8578 Japanese yen",
+    "[32] Saturday, October 17, 2026 , 8578 Japanese yen",
+    "[33] Sunday, October 18, 2026 , 8578 Japanese yen",
+    "[34] Monday, October 19, 2026 , 8578 Japanese yen",
+    "[35] Tuesday, October 20, 2026 , 9818 Japanese yen",
+    "[36] Wednesday, October 21, 2026 , 9628 Japanese yen",
+    "[37] Thursday, October 22, 2026 , 8769 Japanese yen",
+    "[38] Friday, October 23, 2026 , 10677 Japanese yen",
+    "[39] Saturday, October 24, 2026 , 10391 Japanese yen",
+    "[40] Sunday, October 25, 2026 , 8006 Japanese yen, Cheapest price",
+    "[41] Monday, October 26, 2026 , 8578 Japanese yen",
+    "[42] Tuesday, October 27, 2026 , 10200 Japanese yen",
+    "[43] Wednesday, October 28, 2026 , 8578 Japanese yen",
+    "[44] Thursday, October 29, 2026 , 13158 Japanese yen",
+    "[45] Friday, October 30, 2026 , 13740 Japanese yen",
+    "[46] Saturday, October 31, 2026 , 13740 Japanese yen",
+    "[47] Sunday, November 1, 2026",
+    "[48] Monday, November 2, 2026",
+    "[49] Sunday, November 8, 2026",
+    "[50] Monday, November 9, 2026",
+    "[51] Sunday, November 15, 2026",
+    "[52] Monday, November 16, 2026",
+    "[53] Sunday, November 22, 2026",
+    "[54] Monday, November 23, 2026",
+    "[55] Sunday, November 29, 2026",
+    "[56] Monday, November 30, 2026",
+    "[57] Next",
+    "[58] Done. Search for one-way flights, departing on September 20, 2026"
+   ],
+   "operations": [
+    "CLICK",
+    "TYPE_TEXT",
+    "SCROLL_DOWN",
+    "WAIT",
+    "DONE",
+    "BLOCKED"
+   ],
+   "answers": {
+    "operation": {
+     "choice": "CLICK",
+     "confidence": 0.88
+    },
+    "type_text_target": {
+     "choice": "1",
+     "confidence": 1
+    },
+    "click_target": {
+     "choice": "58",
+     "confidence": 0.87
+    }
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "mcp_playwright-official_browser_click",
+   "t0_ms": 31281,
+   "ms": 2177
+  },
+  {
+   "kind": "wire",
+   "name": "browser_click",
+   "t0_ms": 31286,
+   "ms": 2170
+  },
+  {
+   "kind": "probe",
+   "name": "settle=500",
+   "t0_ms": 33463,
+   "ms": 3989
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 33465,
+   "ms": 3986
+  },
+  {
+   "kind": "activate",
+   "name": "https://www.google.com/travel/flights?tfs=CBwQARooEgoyMDI2LTA5LTIwagwIAxIIL20vMDg5NjZyDAgDEggvbS8wNGpwbEABSAFwAYIBCwj___________8BmAEC&tfu=KgIIAw&hl=en",
+   "t0_ms": 37452,
+   "ms": 1093
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 37455,
+   "ms": 1090
+  },
+  {
+   "kind": "probe",
+   "name": "settle=500",
+   "t0_ms": 38545,
+   "ms": 682
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 38548,
+   "ms": 677
+  },
+  {
+   "kind": "jev",
+   "name": "typesafe/jev-1.13",
+   "t0_ms": 39227,
+   "ms": 747,
+   "elements": [
+    "[1] Main menu",
+    "[2] Google",
+    "[3] Skip to main content",
+    "[4] Accessibility feedback",
+    "[5] Explore",
+    "[6] Flights",
+    "[7] Hotels",
+    "[8] Vacation rentals",
+    "[9] Change appearance",
+    "[10] Google apps",
+    "[11] Sign in",
+    "[12] Change ticket type. One way",
+    "[13] 1 passenger",
+    "[14] Change seating class. Economy",
+    "[15] Where from?",
+    "[16] Swap origin and destination.",
+    "[17] Where to?",
+    "[18] Departure",
+    "[19] Search",
+    "[20] Explore deals with AI",
+    "[21] Learn more about this section",
+    "[22] Tokyo",
+    "[23] Fukuoka",
+    "[24] Osaka",
+    "[25] Sapporo"
+   ],
+   "operations": [
+    "CLICK",
+    "TYPE_TEXT",
+    "SCROLL_DOWN",
+    "WAIT",
+    "DONE",
+    "BLOCKED"
+   ],
+   "answers": {
+    "operation": {
+     "choice": "CLICK",
+     "confidence": 0.91
+    },
+    "click_target": {
+     "choice": "19",
+     "confidence": 0.94
+    },
+    "type_text_target": {
+     "choice": "18",
+     "confidence": 0.61
+    }
+   }
+  },
+  {
+   "kind": "tool",
+   "name": "mcp_playwright-official_browser_click",
+   "t0_ms": 39977,
+   "ms": 1423
+  },
+  {
+   "kind": "wire",
+   "name": "browser_click",
+   "t0_ms": 39984,
+   "ms": 1415
+  },
+  {
+   "kind": "probe",
+   "name": "settle=500",
+   "t0_ms": 41406,
+   "ms": 780
+  },
+  {
+   "kind": "wire",
+   "name": "browser_run_code_unsafe",
+   "t0_ms": 41407,
+   "ms": 776
+  },
+  {
+   "kind": "jev",
+   "name": "typesafe/jev-1.13",
+   "t0_ms": 42186,
+   "ms": 486,
+   "elements": [
+    "[1] Main menu",
+    "[2] Google",
+    "[3] Skip to main content",
+    "[4] Accessibility feedback",
+    "[5] Explore",
+    "[6] Flights",
+    "[7] Hotels",
+    "[8] Vacation rentals",
+    "[9] Change appearance",
+    "[10] Google apps",
+    "[11] Sign in",
+    "[12] Change ticket type. One way",
+    "[13] 1 passenger, change number of passengers.",
+    "[14] Change seating class. Economy",
+    "[15] Where from?",
+    "[16] Swap origin and destination.",
+    "[17] Where to?",
+    "[18] Departure",
+    "[19] All filters",
+    "[20] Stops, Not selected",
+    "[21] Airlines, Not selected",
+    "[22] Bags, Not selected",
+    "[23] Price, Not selected",
+    "[24] Times, Not selected",
+    "[25] Emissions, Not selected",
+    "[26] Connecting airports, Not selected",
+    "[27] Duration, Not selected",
+    "[28] Best Learn more about ranking Looking for stress-free travel? These flights are chosen to balance price and convenience, taking into account factors such as duration and number of stops to keep your j",
+    "[29] Learn more about ranking",
+    "[30] Cheapest from 20981 Japanese yen Learn more about ranking Looking for the lowest fares? These additional budget picks help you save but may involve trade-offs, such as flying back to a different airpo",
+    "[31] Learn more about ranking",
+    "[32] Learn more about ranking",
+    "[33] bag fees",
+    "[34] Passenger assistance",
+    "[35] Sorted by top flights, Change sort order.",
+    "[36] From 27975 Japanese yen. Nonstop flight with British Airways. Leaves Zurich Airport at 7:40 AM on Sunday, September 20 and arrives at Heathrow Airport at 8:35 AM on Sunday, September 20. Total duratio",
+    "[37] Carbon emissions estimate: 82 kilograms. Average emissions. Learn more about this emissions estimate",
+    "[38] Flight details. Leaves Zurich Airport at 7:40 AM on Sunday, September 20 and arrives at Heathrow Airport at 8:35 AM on Sunday, September 20.",
+    "[39] From 29473 Japanese yen.This price does not include overhead bin access. Nonstop flight with easyJet. Leaves Zurich Airport at 4:45 PM on Sunday, September 20 and arrives at London Gatwick Airport at ",
+    "[40] Carbon emissions estimate: 79 kilograms. Average emissions. Learn more about this emissions estimate",
+    "[41] This price for this flight doesn't include overhead bin access. If you need a carry-on bag, use the Bags filter to update prices.",
+    "[42] Flight details. Leaves Zurich Airport at 4:45 PM on Sunday, September 20 and arrives at London Gatwick Airport at 5:35 PM on Sunday, September 20.",
+    "[43] From 41409 Japanese yen. Nonstop flight with British Airways. Operated by BA Cityflyer. Leaves Zurich Airport at 8:25 PM on Sunday, September 20 and arrives at London City Airport at 9:00 PM on Sunday",
+    "[44] Carbon emissions estimate: 100 kilograms. +22% emissions. Learn more about this emissions estimate",
+    "[45] Flight details. Leaves Zurich Airport at 8:25 PM on Sunday, September 20 and arrives at London City Airport at 9:00 PM on Sunday, September 20.",
+    "[46] From 42287 Japanese yen. Nonstop flight with British Airways. Leaves Zurich Airport at 1:20 PM on Sunday, September 20 and arrives at Heathrow Airport at 2:20 PM on Sunday, September 20. Total duratio",
+    "[47] Carbon emissions estimate: 82 kilograms. Average emissions. Learn more about this emissions estimate",
+    "[48] Flight details. Leaves Zurich Airport at 1:20 PM on Sunday, September 20 and arrives at Heathrow Airport at 2:20 PM on Sunday, September 20.",
+    "[49] From 42287 Japanese yen. Nonstop flight with British Airways. Leaves Zurich Airport at 6:20 PM on Sunday, September 20 and arrives at Heathrow Airport at 7:05 PM on Sunday, September 20. Total duratio",
+    "[50] Carbon emissions estimate: 82 kilograms. Average emissions. Learn more about this emissions estimate",
+    "[51] Flight details. Leaves Zurich Airport at 6:20 PM on Sunday, September 20 and arrives at Heathrow Airport at 7:05 PM on Sunday, September 20.",
+    "[52] Trains to consider To arrive closer to your destination",
+    "[53] Climate friendly",
+    "[54] See more train options"
+   ],
+   "operations": [
+    "CLICK",
+    "TYPE_TEXT",
+    "SCROLL_DOWN",
+    "WAIT",
+    "DONE",
+    "BLOCKED"
+   ],
+   "answers": {
+    "operation": {
+     "choice": "DONE",
+     "confidence": 0.94
+    },
+    "click_target": {
+     "choice": "36",
+     "confidence": 0.24
+    },
+    "type_text_target": {
+     "choice": "18",
+     "confidence": 0.71
+    }
+   }
+  }
+ ]
+}

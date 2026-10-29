@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "scaccogatto",
+  "description": "Claude Code plugins by scaccogatto.",
+  "owner": {
+    "name": "Marco Boffo",
+    "email": "chat@marcoboffo.me"
+  },
+  "plugins": [
+    {
+      "name": "okf",
+      "source": "./",
+      "description": "Author, maintain, backfill, validate, visualize and serve (MCP) Open Knowledge Format (OKF) bundles.",
+      "category": "documentation",
+      "keywords": ["okf", "knowledge", "markdown", "agents"],
+      "license": "MIT"
+    }
+  ]
+}

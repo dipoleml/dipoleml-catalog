@@ -1,0 +1,53 @@
+{
+  "name": "@fiorastudio/buddy",
+  "version": "1.0.6",
+  "description": "Persistent AI coding companion - MCP server with 21 species, personality stats, and code feedback",
+  "main": "dist/server/index.js",
+  "bin": {
+    "buddy": "dist/cli/buddy.js",
+    "buddy-statusline": "dist/statusline-wrapper.js",
+    "buddy-onboard": "dist/cli/onboard.js",
+    "buddy-doctor": "dist/cli/doctor-cli.js",
+    "buddy-share": "dist/cli/snapshot-cli.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "type": "module",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server/index.js",
+    "dev": "ts-node src/server/index.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "eval:reinject": "node scripts/reinject-eval.mjs",
+    "version": "npm run build && git add -f dist/",
+    "prepack": "npm run build",
+    "release:patch": "npm version patch",
+    "release:minor": "npm version minor",
+    "release:major": "npm version major"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "better-sqlite3": "^12.8.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^25.5.2",
+    "gif-encoder-2": "^1.0.5",
+    "gifenc": "^1.0.3",
+    "pngjs": "^7.0.0",
+    "puppeteer": "^24.40.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^6.0.2",
+    "vitest": "^4.1.4"
+  }
+}

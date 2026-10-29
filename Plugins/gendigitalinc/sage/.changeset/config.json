@@ -1,0 +1,14 @@
+{
+  "$schema": "https://unpkg.com/@changesets/config@3.1.2/schema.json",
+  "changelog": "./changelog-config.cjs",
+  "commit": false,
+  "fixed": [],
+  "linked": [
+    ["@gendigital/sage-core", "@gendigital/sage-claude-code", "@gendigital/sage-openclaw", "@gendigital/sage-opencode", "@gendigital/sage-mcp", "sage-cursor"]
+  ],
+  "access": "restricted",
+  "baseBranch": "main",
+  "updateInternalDependencies": "patch",
+  "ignore": [],
+  "privatePackages": { "version": true, "tag": true }
+}

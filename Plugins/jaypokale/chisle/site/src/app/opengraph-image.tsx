@@ -1,0 +1,52 @@
+import { ImageResponse } from "next/og";
+
+export const size = { width: 1200, height: 630 };
+export const contentType = "image/png";
+export const alt = "Chisle: cut your agent's token bill on three axes";
+
+export default function OG() {
+  return new ImageResponse(
+    (
+      <div
+        style={{
+          width: "100%",
+          height: "100%",
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "space-between",
+          background: "#0e0e10",
+          color: "#f4f4f6",
+          padding: 72,
+          fontFamily: "monospace",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
+          <div
+            style={{
+              background: "rgba(215,135,0,0.25)",
+              color: "#ffa028",
+              padding: "6px 14px",
+              borderRadius: 8,
+              fontSize: 32,
+            }}
+          >
+            [CHISLE]
+          </div>
+        </div>
+        <div style={{ display: "flex", flexDirection: "column" }}>
+          <div style={{ fontSize: 84, fontWeight: 700, lineHeight: 1.05 }}>
+            Write less. Ship less.
+          </div>
+          <div style={{ fontSize: 84, fontWeight: 700, color: "#ffa028", lineHeight: 1.05 }}>
+            Mean more.
+          </div>
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-between", fontSize: 28, color: "#a09fa8" }}>
+          <div>Claude Code · coding answers about half as long</div>
+          <div style={{ color: "#d78700" }}>npx chisle</div>
+        </div>
+      </div>
+    ),
+    size
+  );
+}

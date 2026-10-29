@@ -1,0 +1,173 @@
+import type { KnowledgeItem } from '../core/types.js';
+import { loadConfig } from '../core/config.js';
+import { createLocalEmbeddingProvider, isVectorSearchEnabled } from '../ai/embeddings.js';
+import { rankKnowledge, type RankOptions } from '../store/agent-query.js';
+import { queryKnowledgeBase } from '../store/queries.js';
+import { queryFederated, type FederatedResult } from '../workspace/federated-query.js';
+import { resolveWorkspace } from '../workspace/resolve.js';
+import { peerVectorResolver } from '../ai/embeddings.js';
+import { knowlHome } from '../core/paths.js';
+import { configuredNamespaces, globalOnlyNamespaces, queryLayeredKnowledge } from '../store/namespaces.js';
+
+/**
+ * How many results `knowl query` returns when no `--limit` is given.
+ *
+ * Matches what the command already returned: `searchKnowledgeItems` caps its FTS read at 20,
+ * so 20 was the effective ceiling for a bare `knowl query` on the lexical path. The workspace
+ * branch separately defaulted to 3, which meant the same query printed a different number of
+ * results depending on whether the repo happened to be linked. Both use this now.
+ */
+export const CLI_QUERY_LIMIT = 20;
+
+export type CliQueryItem = KnowledgeItem & { repo?: string; score?: number; cosine?: number; abstained?: boolean; contested?: boolean; namespace?: string };
+
+export type CliQueryResult = {
+  /**
+   * The flattened view, in group order.
+   *
+   * Kept beside `groups` rather than replaced by it because most callers -- and most of this
+   * command's tests -- ask about ranking rather than layout, and a derived field cannot drift
+   * from the thing it is derived from.
+   */
+  items: CliQueryItem[];
+  /**
+   * The same partition the MCP surface returns, for the same reason: a human reading a flat
+   * list cannot see which repo answered either. Local first when empty, otherwise ordered by
+   * each group's best row.
+   */
+  groups: Array<{ repo: string; items: CliQueryItem[] }>;
+  /** Linked repos that matched and won no slot, by name and count. Never content. */
+  unshown: FederatedResult['unshown'];
+  shape: 'flat' | 'grouped';
+  skipped: FederatedResult['skipped'];
+};
+
+/** The single-group shape both non-federated paths return: no workspace, or `--as-of`. */
+function flat(items: CliQueryItem[]): CliQueryResult {
+  return { items, groups: [{ repo: '', items }], unshown: [], shape: 'flat', skipped: [] };
+}
+
+/**
+ * The ranker's own numbers, put on the item the way `knowl_query` puts them on its response.
+ *
+ * `knowl query` printed a bare ordering, so a human reading it could not tell a confident
+ * answer from the least-bad row in the store -- the same gap the MCP surface had. Three
+ * decimals for the same reason: the digits past that are noise.
+ *
+ * The full `explanation` is deliberately not printed. It is a dozen contribution terms per
+ * item, and the two numbers a reader acts on are these. `--as-of` carries neither, because
+ * historical reconstruction does not run through the ranker at all.
+ */
+function withRankerVerdict<T extends { explanation?: { finalScore?: number; abstained?: boolean; contested?: boolean; cosine?: number } }>(
+  entry: T,
+): Omit<T, 'explanation'> & { score?: number; cosine?: number; abstained?: boolean; contested?: boolean } {
+  const { explanation, ...item } = entry;
+  return {
+    ...item,
+    ...(typeof explanation?.finalScore === 'number' ? { score: Number(explanation.finalScore.toFixed(3)) } : {}),
+    // Three numbers now, still not the dozen contribution terms. `cosine` earns its place
+    // because it is the only one comparable to the floor and to another query's -- `score` is
+    // min-max scaled across this page, so on a two-row page its top is 1.0 regardless.
+    ...(typeof explanation?.cosine === 'number' ? { cosine: Number(explanation.cosine.toFixed(3)) } : {}),
+    ...(explanation?.abstained ? { abstained: true } : {}),
+    ...(explanation?.contested ? { contested: true } : {}),
+  };
+}
+
+/**
+ * What `knowl query` returns.
+ *
+ * Extracted from the command action so the CLI's search behaviour is testable without
+ * spawning a process -- it previously had no test at all, which is how it came to rank by
+ * different rules than the MCP tool answering the same question.
+ *
+ * One engine, three inputs: the shared ranker, the same vector config the MCP tool builds, and
+ * federation when the repo is linked. `--as-of` is the single exception and stays on
+ * `queryKnowledgeBase`, because historical reconstruction is a different question and the
+ * ranker does not implement it.
+ */
+export async function runCliQuery(input: {
+  projectRoot?: string;
+  projectId?: string;
+  query?: string;
+  limit?: number;
+  asOf?: string;
+}): Promise<CliQueryResult> {
+  const limit = input.limit ?? CLI_QUERY_LIMIT;
+
+  // Historical reconstruction: local only, and not through the ranker. Fanning out an `asOf`
+  // query across repos has no defined semantics, and the ranker has no notion of a point in
+  // time -- so this path is deliberately the old one.
+  if (input.asOf) {
+    if (!input.projectRoot) {
+      return flat([]);
+    }
+    return flat(await queryKnowledgeBase(input.projectId ?? 'local', {
+      query: input.query, limit: input.limit, asOf: input.asOf,
+    }));
+  }
+
+  const effectiveRoot = input.projectRoot ?? knowlHome();
+  const config = await loadConfig(effectiveRoot).catch(() => null);
+  let vector: RankOptions['vector'];
+  if (input.query && config && isVectorSearchEnabled(config)) {
+    try {
+      const embedder = await createLocalEmbeddingProvider(config, effectiveRoot);
+      const embedding = await embedder.embedQuery(input.query);
+      vector = {
+        enabled: true,
+        profileFingerprint: embedder.profileFingerprint,
+        embedding,
+        relevanceFloor: embedder.relevanceFloor,
+      };
+    } catch {
+      // An unavailable embedder degrades to lexical ranking rather than failing the query.
+      // The MCP tool behaves the same way, which is the point of computing it here at all.
+    }
+  }
+
+  const active = input.projectRoot ? await resolveWorkspace(input.projectRoot, config ?? undefined) : null;
+  if (active) {
+    const federated = await queryFederated({
+      workspace: active, query: input.query ?? '', limit, vector,
+      // See the MCP call site: a peer's vectors live under the peer's profile (#187).
+      peerVector: peerVectorResolver(),
+    });
+    const groups = federated.groups.map(group => ({
+      repo: group.repo,
+      items: group.items.map(withRankerVerdict),
+    }));
+    return {
+      items: groups.flatMap(group => group.items),
+      groups,
+      unshown: federated.unshown,
+      shape: federated.shape,
+      skipped: federated.skipped,
+    };
+  }
+
+  // The global store is addressed by its known path, not through project config, so
+  // `configuredNamespaces` alone omits it for every repo that never opted in -- while
+  // `store --namespace global` writes there regardless. Search then could not reach atoms the
+  // CLI had just written, and `knowl query` disagreed with `knowl_query`, which does include it.
+  // Deduped by path for a project that DOES configure global.
+  const descriptors = input.projectRoot
+    ? [...configuredNamespaces(input.projectRoot, config ?? undefined), ...globalOnlyNamespaces()]
+      .filter((descriptor, index, all) => all.findIndex(other => other.databasePath === descriptor.databasePath) === index)
+    : globalOnlyNamespaces();
+
+  if (descriptors.length > 0) {
+    const layered = await queryLayeredKnowledge(
+      effectiveRoot,
+      input.query ?? '',
+      descriptors,
+      limit,
+      'cli',
+      {},
+      vector,
+    );
+    return flat(layered.items.map(withRankerVerdict));
+  }
+
+  return flat((await rankKnowledge(input.projectId ?? 'local', { query: input.query, limit, vector })).map(withRankerVerdict));
+}

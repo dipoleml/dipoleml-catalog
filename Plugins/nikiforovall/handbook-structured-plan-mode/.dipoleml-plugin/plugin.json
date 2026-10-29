@@ -1,0 +1,16 @@
+{
+  "name": "handbook-structured-plan-mode",
+  "displayName": "Handbook Structured Plan Mode",
+  "version": "1.19.6",
+  "description": "Structured planning methodology for complex feature implementations through systematic task decomposition",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Nikiforovall"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://nikiforovall.blog/claude-code-rules/",
+  "repository": "https://github.com/NikiforovAll/claude-code-rules",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

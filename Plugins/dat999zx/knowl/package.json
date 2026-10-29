@@ -1,0 +1,129 @@
+{
+  "name": "@dat999zx/knowl",
+  "mcpName": "io.github.dat999zx/knowl",
+  "version": "5.28.1",
+  "description": "Persistent memory for AI agents, for code, research and everyday life. Facts are typed, sourced, and retired when they change. Local SQLite, no API keys.",
+  "main": "dist/index.js",
+  "exports": {
+    ".": "./dist/index.js",
+    "./plugin": "./dist/plugin.js",
+    "./package.json": "./package.json",
+    "./integrations/*": "./integrations/*",
+    "./dist/*": "./dist/*"
+  },
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dat999zx/knowl.git"
+  },
+  "homepage": "https://github.com/dat999zx/knowl#readme",
+  "bugs": {
+    "url": "https://github.com/dat999zx/knowl/issues"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "files": [
+    "dist",
+    "integrations",
+    "!**/__pycache__",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "bin": {
+    "knowl": "dist/index.js"
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsup",
+    "check:versions": "node scripts/check-version-sync.mjs",
+    "bench:embeddings": "npm run build && node scripts/benchmark-embedding-models.mjs",
+    "benchmark:build": "tsup benchmarks/accuracy/src/cli.ts --format esm --out-dir benchmarks/accuracy/dist --clean",
+    "benchmark:generate": "npm run benchmark:build && node benchmarks/accuracy/dist/cli.js generate",
+    "benchmark:accuracy": "npm run benchmark:build && node benchmarks/accuracy/dist/cli.js all",
+    "dev": "tsup src/index.ts --format esm --watch",
+    "prepublishOnly": "npm run build",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:mutation": "node scripts/mutation/run.mjs",
+    "test:mutation:probe": "node scripts/mutation/probe.mjs",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "test:plugin": "python3 tests/integrations/hermes/test_plugin.py",
+    "test:bench": "vitest run --config benchmarks/vitest.config.ts",
+    "typecheck:bench": "tsc -p benchmarks/tsconfig.json",
+    "bench:cr:build": "tsup benchmarks/memoryagentbench/cli.ts --format esm --outDir .benchmark-dist --no-dts",
+    "bench:cr": "npm run bench:cr:build --silent && node .benchmark-dist/cli.js",
+    "measure:card": "tsx scripts/measure-card-cost.ts",
+    "docs:generate": "tsx scripts/generate-docs.ts",
+    "docs:check": "tsx scripts/generate-docs.ts --check",
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "audit:prod": "node scripts/audit-prod.mjs",
+    "audit:report": "npm audit --omit=dev --audit-level=high"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "ai-memory",
+    "agent-memory",
+    "project-memory",
+    "knowledge",
+    "agent",
+    "memory",
+    "local-first",
+    "claude-code",
+    "codex",
+    "cursor",
+    "sqlite"
+  ],
+  "author": "",
+  "license": "Apache-2.0",
+  "optionalDependencies": {
+    "@huggingface/transformers": "^4.2.0"
+  },
+  "dependencies": {
+    "@ai-sdk/anthropic": "^4.0.12",
+    "@ai-sdk/openai": "^4.0.11",
+    "@clack/prompts": "^1.7.0",
+    "@libsql/client": "^0.17.4",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@noble/hashes": "^2.3.0",
+    "ai": "^7.0.22",
+    "commander": "^14.0.3",
+    "dotenv": "^17.4.2",
+    "drizzle-orm": "^0.45.2",
+    "libsql": "^0.5.28",
+    "picocolors": "^1.1.1",
+    "smol-toml": "^1.7.0",
+    "stream-chain": "^4.2.5",
+    "stream-json": "^3.5.0",
+    "tree-sitter": "^0.21.1",
+    "tree-sitter-go": "^0.23.4",
+    "tree-sitter-javascript": "^0.23.1",
+    "tree-sitter-python": "^0.23.4",
+    "tree-sitter-typescript": "^0.23.2",
+    "yaml": "^2.9.0",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^22.10.7",
+    "drizzle-kit": "^0.31.10",
+    "eslint": "^10.9.1",
+    "tsup": "^8.3.5",
+    "tsx": "^4.23.8",
+    "typescript": "^5.7.3",
+    "typescript-eslint": "^8.68.0",
+    "vitest": "^5.0.0"
+  },
+  "overrides": {
+    "sharp": "^0.35.0",
+    "adm-zip": "^0.6.1",
+    "esbuild": "^0.28.1"
+  }
+}

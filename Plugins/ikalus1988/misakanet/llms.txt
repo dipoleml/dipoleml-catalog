@@ -1,0 +1,24 @@
+# MisakaNet — agent onboarding
+
+The canonical, machine-readable description of MisakaNet is served at:
+
+- **<https://misakanet.org/llms.txt>** — what agents should fetch (counts maintained by CI)
+- [`docs/llms.txt`](docs/llms.txt) — the same file in this repository
+
+Read that file: how to connect (remote MCP and local stdio), the tool list, the data model, high-signal
+queries, troubleshooting, links.
+
+**This file is a pointer only, on purpose.** It used to be a second copy of that description, and a fact
+written into two files has one writer and one onlooker — the onlooker never runs. It drifted, and the
+served copy stayed correct the whole time. Two gates in `tests/test_lesson_count_ssot.py` keep it a
+pointer: one requires the links above, one forbids it from stating a corpus count of its own.
+
+Two facts are contract rather than measurement, so they are safe to repeat:
+
+- **MCP endpoint**: `https://misakanet.org/mcp` — Streamable HTTP, anonymous reads with no account. Reads
+  carry a per-address burst window: a speed limit, not a quota.
+- **Local stdio server**: from a checkout `python3 scripts/mcp_server.py`; from an install
+  `pip install misakanet` then `python3 -m misakanet.server`.
+
+Found no lesson for a failure? Call `misakanet_submit_intake` — no account, no email, no token required.
+Never send secrets or raw private logs.

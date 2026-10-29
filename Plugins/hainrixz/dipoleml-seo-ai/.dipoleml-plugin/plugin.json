@@ -1,0 +1,16 @@
+{
+  "name": "dipoleml-seo-ai",
+  "displayName": "DipoleML Seo Ai",
+  "version": "0.2.0",
+  "description": "Audit and opt-in-fix classic SEO and AI-search visibility (GEO/AEO) for any website or web codebase — works on any platform (Shopify, WordPress, Next.js, Webflow, Wix…). Two independent scores, reproducible findings, safe deterministic fixes.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Hainrixz"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/Hainrixz/claude-seo-ai",
+  "repository": "https://github.com/Hainrixz/claude-seo-ai",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

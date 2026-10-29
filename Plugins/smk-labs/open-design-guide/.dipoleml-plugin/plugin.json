@@ -1,0 +1,16 @@
+{
+  "name": "open-design-guide",
+  "displayName": "Open Design Guide",
+  "version": "1.0.0",
+  "description": "Teaches DipoleML to use the Open Design content library: 151 design systems with real tokens, 71 design and frontend skills, 114 rendering templates. Installs the library as a sparse clone, no desktop app and no daemon.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Smk Labs"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/smk-labs/claude-plugins",
+  "repository": "https://github.com/smk-labs/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

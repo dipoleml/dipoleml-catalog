@@ -1,0 +1,16 @@
+{
+  "name": "trading-ideas",
+  "displayName": "Trading Ideas",
+  "version": "1.0.1",
+  "description": "Institutional-grade equity research reports via /trading-ideas:research command.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Quant Sentiment Ai"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/quant-sentiment-ai/claude-equity-research",
+  "repository": "https://github.com/quant-sentiment-ai/claude-equity-research",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

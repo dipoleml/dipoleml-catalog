@@ -1,0 +1,67 @@
+{
+  "name": "claude-video-vision",
+  "version": "1.4.0",
+  "description": "MCP server that gives Claude Code the ability to watch and understand videos — extracts frames via ffmpeg and processes audio via multiple backends",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "claude-video-vision": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "build": "tsc && chmod +x dist/index.js",
+    "dev": "tsc --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "measure": "tsx scripts/measure-tokens.ts",
+    "test:gemini": "tsx scripts/test-gemini-api.ts",
+    "prepublishOnly": "npm run build && npm test"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.12.0",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.1",
+    "js-tiktoken": "^1.0.21",
+    "tsx": "^4.19.0",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
+  },
+  "optionalDependencies": {
+    "@google/genai": "^2.27.0",
+    "openai": "^7.27.0"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "mcp",
+    "mcp-server",
+    "video",
+    "vision",
+    "multimodal",
+    "ffmpeg",
+    "whisper",
+    "gemini"
+  ],
+  "author": {
+    "name": "Jordan Vasconcelos",
+    "url": "https://github.com/jordanrendric"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/jordanrendric/claude-video-vision",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jordanrendric/claude-video-vision.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jordanrendric/claude-video-vision/issues"
+  }
+}

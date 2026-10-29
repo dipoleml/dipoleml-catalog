@@ -1,0 +1,16 @@
+{
+  "name": "schema-validator",
+  "displayName": "Schema Validator",
+  "version": "0.1.0",
+  "description": "Multi-format file parser, validator, and writer with schema enforcement",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Ddunnock"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/ddunnock/claude-plugins",
+  "repository": "https://github.com/ddunnock/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

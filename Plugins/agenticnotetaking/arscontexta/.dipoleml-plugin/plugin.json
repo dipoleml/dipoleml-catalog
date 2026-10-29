@@ -1,0 +1,16 @@
+{
+  "name": "arscontexta",
+  "displayName": "Arscontexta",
+  "version": "0.8.0",
+  "description": "Conversational derivation engine — generate agent-native memory architecture from natural conversation. 15 kernel primitives, 26 commands, 17 feature blocks, 3 presets.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Agenticnotetaking"
+  },
+  "license": "MIT",
+  "homepage": "https://arscontexta.org",
+  "repository": "https://github.com/agenticnotetaking/arscontexta",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,16 @@
+{
+  "name": "dipoleml-skins",
+  "displayName": "DipoleML Skins",
+  "version": "0.5.15",
+  "description": "Skins for DipoleML: tool rows that open onto their input and answer, highlighted code, diff, table, math, Mermaid and shell cards, links, folding, a usage band, a calm mode and fifteen themes. /skin swaps them live.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Hellosverre"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/hellosverre/claude-skins",
+  "repository": "https://github.com/hellosverre/claude-skins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,234 @@
+{
+  "schema": 1,
+  "bundle_id": "sha256:f454df8979808cff88181f11c77853148e9ae98f518dc3382bf52b2baf0c2ec5",
+  "run_id": "sha256:08f9b839e08d1a1d5c93ca7ec07a9ad5cd56a521b586c1e5e7aefcd9ec93ae91",
+  "freeze_id": "sha256:93d43b67a039166100393a52a6f1f290e2d767e2c0cc2832ff712b4ac7f110fd",
+  "started_at": "2026-08-02T00:55:41.516Z",
+  "completed_at": "2026-08-02T00:58:35.687Z",
+  "environment": {
+    "platform": "win32",
+    "arch": "x64",
+    "cpu_count": 12,
+    "cpu_model": "AMD Ryzen 5 2600 Six-Core Processor            ",
+    "total_memory_bytes": 34266742784,
+    "gpu": "NVIDIA GeForce GTX 1070, 8192 MiB, 582.53",
+    "hostname_digest": "sha256:76ad7b959234467904798f9c25069a2cf56a833f2282c4e8a4adfca9cf651540",
+    "git_commit": "bce1ca26e04c44d962f8eda13cd2764b0114852e",
+    "node": "v22.17.1",
+    "model_inventory": [
+      {
+        "tier": "local",
+        "requested_model": "qwen2.5-coder:3b",
+        "expected_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+        "observed_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+        "status": "passed"
+      },
+      {
+        "tier": "cloud",
+        "requested_model": "sonnet",
+        "expected_cli_version": "2.1.219",
+        "observed_cli_version": "2.1.219",
+        "status": "passed"
+      }
+    ],
+    "human_interventions_during_cells": {
+      "value": 0,
+      "provenance": "operator-declared"
+    }
+  },
+  "economics": {
+    "local_electricity_usd_per_kwh": 0.2,
+    "local_gpu_residual_value_usd": 100,
+    "local_gpu_useful_compute_hours": 10000,
+    "cloud_cost_source": "claude_code_total_cost_usd_equivalent",
+    "actual_subscription_allocation_status": "unknown",
+    "whole_system_energy_status": "unknown"
+  },
+  "artifacts": [
+    {
+      "path": "cells/000-docs-cache-variable--always-claude-sonnet.json",
+      "digest": "sha256:8e01aac833015946433b6a8cdb0be125addd9077199d945c2c7173b58befc22f"
+    },
+    {
+      "path": "cells/001-parser-positive-count--always-claude-sonnet.json",
+      "digest": "sha256:1664ef850a75e27b72568e56bc67292c9bd32aff85ba00c2e0457a9d76be60b7"
+    },
+    {
+      "path": "cells/002-api-parser-alias--citadel-hybrid-risk-route.json",
+      "digest": "sha256:331d42a97be601521fdb9f9249b8f9824391feb72b70c4139196dbf7dd8c3c5e"
+    },
+    {
+      "path": "cells/003-config-feature-boolean--always-claude-sonnet.json",
+      "digest": "sha256:1daa19756b44f735afa0ac57df122bcd23bcadb59da72577967ca38c1a2e909a"
+    },
+    {
+      "path": "cells/004-security-prototype-keys--always-claude-sonnet.json",
+      "digest": "sha256:a8a76d01f66e77da535d882a02524f19cd517e046b66b08d7f114e5f71a7f391"
+    },
+    {
+      "path": "cells/005-docs-audit-command--citadel-hybrid-risk-route.json",
+      "digest": "sha256:087bb24e96460174766f1d98a55eadccdb9a0bdedc3fe82403c24bbabdeec32e"
+    },
+    {
+      "path": "cells/006-package-diagnose-script--citadel-hybrid-risk-route.json",
+      "digest": "sha256:78b55c31f2afd1093e4abc78ef7ed07a69148680387ffe70db597a67a0b236a8"
+    },
+    {
+      "path": "cells/007-config-feature-boolean--citadel-hybrid-risk-route.json",
+      "digest": "sha256:f20e1c5393a26bfd6a347182cfdf9d04236689051255d6cf70e3a01e7a118569"
+    },
+    {
+      "path": "cells/008-bug-zero-retry-delay--citadel-hybrid-risk-route.json",
+      "digest": "sha256:2114eafc0a53b251b41bf2ac4db719766d349e28898ea32ba493b654a33cc154"
+    },
+    {
+      "path": "cells/009-refactor-first-tag--always-claude-sonnet.json",
+      "digest": "sha256:52dfb877e7b8f41f751badd789fc75f25104ebee6975746d6bfc22cbd75c4f02"
+    },
+    {
+      "path": "cells/010-security-filename-boundary--always-claude-sonnet.json",
+      "digest": "sha256:8a3c00b8a9ab71eaf33284027f0c1219c0946bb1a4c5c2be4235ed01ce0e0cb7"
+    },
+    {
+      "path": "cells/011-api-parser-alias--always-claude-sonnet.json",
+      "digest": "sha256:4868f12f6c0d15c0e68743bc5887b0edef9bfc65f460539287a2aeb58c97e851"
+    },
+    {
+      "path": "cells/012-bug-zero-retry-delay--always-claude-sonnet.json",
+      "digest": "sha256:a586df5abacc94be8071827d84da59cd3680a35c12aff9b33f2c71f1a2069192"
+    },
+    {
+      "path": "cells/013-docs-audit-command--always-claude-sonnet.json",
+      "digest": "sha256:fb3288001ce786e1cdf8c417e148b3216dcd5bbf555dd6f3c668f6f7b47277fb"
+    },
+    {
+      "path": "cells/014-security-prototype-keys--citadel-hybrid-risk-route.json",
+      "digest": "sha256:4f74a90b92b83b1487b33e94e07df3a634eefde56da28be794711183dc168c3a"
+    },
+    {
+      "path": "cells/015-parser-positive-count--citadel-hybrid-risk-route.json",
+      "digest": "sha256:6e0a715a2da4b5aaa7d1004b959dced22b09c0de1c0cad627f37e27fb89667e7"
+    },
+    {
+      "path": "cells/016-bug-case-insensitive-header--always-claude-sonnet.json",
+      "digest": "sha256:b9ed24f4d4c10e76ce2c744fe343445039c549df32a4f36b61405a61ecb4f885"
+    },
+    {
+      "path": "cells/017-security-bearer-token--always-claude-sonnet.json",
+      "digest": "sha256:e0751746320b5f282a3c7a8cb50536930ad8b673037feceed3b13479b40d94f8"
+    },
+    {
+      "path": "cells/018-security-filename-boundary--citadel-hybrid-risk-route.json",
+      "digest": "sha256:2e23de312d9854dd6d761289737948953929a5b60b10de4b5711de19571dce14"
+    },
+    {
+      "path": "cells/019-bug-case-insensitive-header--citadel-hybrid-risk-route.json",
+      "digest": "sha256:35b83829b50cdca2c10b3555ed32a6ac483b6690df3ad0bcc27e8005f7df6c43"
+    },
+    {
+      "path": "cells/020-package-diagnose-script--always-claude-sonnet.json",
+      "digest": "sha256:c7c5aa117103d157a5631bf13fcae78ab065270d1bd72cb323b24472d102ac22"
+    },
+    {
+      "path": "cells/021-refactor-first-tag--citadel-hybrid-risk-route.json",
+      "digest": "sha256:abf4260166f8a21f3fbbbb436dc804804438ed69bcaa797362689d70c25f14f9"
+    },
+    {
+      "path": "cells/022-docs-cache-variable--citadel-hybrid-risk-route.json",
+      "digest": "sha256:55901c2a30f4c93b1b91555acd6d666363ab71c58e6708a4e7a3b2307c666fc5"
+    },
+    {
+      "path": "cells/023-security-bearer-token--citadel-hybrid-risk-route.json",
+      "digest": "sha256:003d50ff439ea7a390270e0bb3b972f040bef0133c1569cf2da33956ab2bae82"
+    }
+  ],
+  "final_chain_digest": "sha256:d6231fc674f7b8c671c12f788f917484814b27b892017ebfd30e2f00e6af0703",
+  "summary": {
+    "policies": [
+      {
+        "policy_id": "always-claude-sonnet",
+        "cells": 12,
+        "unique_tasks": 12,
+        "verified": 12,
+        "failed": 0,
+        "unknown": 0,
+        "verified_rate": 1,
+        "attempts": 12,
+        "local_attempts": 0,
+        "cloud_attempts": 12,
+        "escalations": 0,
+        "request_wall_duration_ms": 62786,
+        "comparison_cost_status": "hybrid-modeled",
+        "comparison_cost_usd": 0.051366,
+        "local_gpu_energy_kwh": 0,
+        "actual_subscription_cash_status": "unknown"
+      },
+      {
+        "policy_id": "citadel-hybrid-risk-route",
+        "cells": 12,
+        "unique_tasks": 12,
+        "verified": 12,
+        "failed": 0,
+        "unknown": 0,
+        "verified_rate": 1,
+        "attempts": 16,
+        "local_attempts": 8,
+        "cloud_attempts": 8,
+        "escalations": 4,
+        "request_wall_duration_ms": 101316,
+        "comparison_cost_status": "hybrid-modeled",
+        "comparison_cost_usd": 0.036800083,
+        "local_gpu_energy_kwh": 0.000887141,
+        "actual_subscription_cash_status": "unknown"
+      }
+    ],
+    "risk_strata": [
+      {
+        "risk": "low",
+        "cells": 4,
+        "verified": 4,
+        "verified_rate": 1
+      },
+      {
+        "risk": "moderate",
+        "cells": 4,
+        "verified": 4,
+        "verified_rate": 1
+      },
+      {
+        "risk": "high",
+        "cells": 4,
+        "verified": 4,
+        "verified_rate": 1
+      }
+    ],
+    "comparison": {
+      "quality_ratio": 1,
+      "comparison_cost_reduction": 0.283571,
+      "request_wall_duration_reduction": -0.613672
+    },
+    "path_violations": 0,
+    "false_passes": 0,
+    "integrity_failures": 0,
+    "gates": {
+      "baseline_absolute_quality": true,
+      "baseline_risk_strata": true,
+      "relative_quality": true,
+      "comparison_cost": false,
+      "terminal_coverage": true,
+      "execution_identity": true,
+      "zero_path_violations": true,
+      "zero_false_passes": true,
+      "integrity": true
+    },
+    "evidence_result": "failed",
+    "actual_subscription_cash_status": "unknown",
+    "whole_system_energy_status": "unknown"
+  },
+  "report_digest": "sha256:f070c4a13c6a46c4338d420d1a1d3017bb1151ebfff81c49cbac8ab3c4f58f7b",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:ce8ab64923a0d60366750b93fb66b9b9b4b0245b5eefc7581393341a429422d1",
+    "signature": "f7ZIElK7jEI+v6RA212vVH45cLORkW8OR1EyF+OOc6eAHhO9YhT+mv8dhIpLMybtKr4pfuiERiYo48vPlhuMCg=="
+  }
+}

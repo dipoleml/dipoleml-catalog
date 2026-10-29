@@ -1,0 +1,16 @@
+{
+  "name": "marketingskills",
+  "displayName": "Marketingskills",
+  "version": "2.13.9",
+  "description": "Marketing skills for AI agents — conversion optimization, copywriting, SEO, paid ads, ad creative, and growth",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Coreyhaines31"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/coreyhaines31/marketingskills",
+  "repository": "https://github.com/coreyhaines31/marketingskills",
+  "skills": "./skills",
+  "commands": [],
+  "agents": []
+}

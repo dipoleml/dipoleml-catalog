@@ -1,0 +1,142 @@
+#!/usr/bin/env python3
+"""chamnan-open — open this repository in Claude Code, resuming only when resuming is cheaper.
+
+    chamnan-open [<repo>] [-- <extra claude args>]
+    chamnan-open --dry-run        # say what it would do, launch nothing
+    chamnan-open --fresh          # start a new conversation whatever the last one was
+
+Whenever it starts a new conversation while an earlier one exists — by the rule below or by
+`--fresh` — it first writes `.chamnan/logs/handoff.md` (the earlier session's id and its last typed
+messages, redacted) and opens the new session with one instruction: read that and STATE.md, then
+carry on. That is a new session, not a /clear: a new id, and the old transcript untouched.
+    chamnan-open -h, --help       # this text
+    chamnan-open -v, --version    # the version this build is
+
+**Why this is a launcher and not a hook.** By the time a SessionStart hook runs, Claude Code has
+already loaded the transcript and the first request will re-send it; a hook can report the cost but
+cannot decline it. The only moment the choice still exists is before the process starts, which is
+here. `lib/handoff.py` carries the measurement that says the choice is worth making.
+
+It never deletes a transcript. Not reading one is the entire saving, and the file is the only record
+of what happened.
+"""
+import os
+import subprocess
+import sys
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent / "lib"))
+import handoff  # noqa: E402
+import redact  # noqa: E402
+import workspace as ws  # noqa: E402
+
+# Shadowed rather than scrubbed at each call, the same as every other command in `bin/`:
+# this prints repository paths and a session id into what becomes an agent's transcript,
+# and a missed scrub is silent. See redact.emit — three commands leaked committed file
+# bodies this way before the shadow existed.
+print = redact.emit  # noqa: A001
+
+
+KNOWN_FLAGS = ("--dry-run", "--fresh", "-h", "--help", "-v", "--version")
+
+
+def main(argv):
+    # Version before help, and help before anything that could read a path: `-h` must answer
+    # wherever this sits, including a directory with no workspace and no git, and must write
+    # nothing while doing it. Every sibling in `bin/` answers the same way and the suite asserts
+    # the whole set rather than a list of names.
+    if ws.wants_version(argv):
+        print(ws.version_line())
+        return 0
+    if ws.wants_help(argv):
+        print(__doc__.strip())
+        return 0
+    dry = "--dry-run" in argv
+    # 🎯 [owner 2026-09-24] The way out has to exist without editing anything on disk. When a
+    # conversation cannot be continued — whatever the reason — the person needs one word that
+    # starts clean, and the earlier transcript is kept exactly as it is.
+    fresh = "--fresh" in argv
+    argv = [a for a in argv if a not in ("--dry-run", "--fresh")]
+    extra = []
+    if "--" in argv:
+        cut = argv.index("--")
+        argv, extra = argv[:cut], argv[cut + 1:]
+    # 🐛 [2026-09-24] (self-measured) The same rule every sibling has, and the gate named this
+    # command and `chamnan-doctor` as the two silent ones. Checked AFTER the `--` split on
+    # purpose: everything past `--` belongs to `claude`, and refusing a flag meant for another
+    # program is how a passthrough stops being one.
+    _bad = ws.unknown_flags(argv, KNOWN_FLAGS)
+    if _bad:
+        print(f"chamnan-open: unknown option {_bad[0]!r} — {', '.join(KNOWN_FLAGS)}; "
+              f"anything for `claude` itself goes after `--`", file=sys.stderr)
+        return 2
+    # 🐛 [2026-09-29] (R47 acc5, 2026-09-29) `Path.cwd()` raised a bare FileNotFoundError when the
+    # directory this was started in had since been removed; `ws.current_dir()` is the same value
+    # with that turned into a readable sentence instead.
+    repo = Path(argv[0]).resolve() if argv else Path(ws.current_dir())
+
+    got = handoff.newest_session(repo)
+    path = last = None
+    if got is None:
+        verdict, why, sid = handoff.FRESH, "no previous conversation in this repository", None
+    else:
+        sid, path, last = got
+        verdict, why = handoff.decide(last)
+    # 🐛 [2026-09-24] (owner) `--fresh` was parsed and never read: the verdict above decided alone,
+    # so the one word documented as "start a new conversation whatever the last one was" resumed
+    # the old one whenever the clock said to. It overrides the rule now, and it is the only thing
+    # that does.
+    if fresh and verdict != handoff.FRESH:
+        verdict, why = handoff.FRESH, "asked for with --fresh"
+
+    # One line, always, whichever way it went. A launcher that silently picks a different
+    # conversation than the one somebody expected is worse than one that costs money: the person
+    # cannot tell a deliberate choice from their session having gone missing.
+    print(f"chamnan-open: {verdict} — {why}", file=sys.stderr)
+    prompt = []
+    if verdict == handoff.FRESH and sid:
+        print(f"  the earlier conversation is kept, not deleted: {sid}", file=sys.stderr)
+        print(f"  resume it anyway with: claude --resume {sid}", file=sys.stderr)
+        # 🎯 [owner 2026-09-24] A new conversation starts from where the old one stopped: the
+        # handoff is written from the old transcript's last typed messages, and the new session's
+        # first turn is told to read it. Nothing is written on a dry run. The prompt goes LAST, after
+        # anything passed after `--`: those are options for `claude`, and guessing which of them is
+        # a message would misread `--model opus` as one.
+        if dry:
+            print(f"  would write the handoff to .chamnan/logs/{handoff.HANDOFF_NAME}",
+                  file=sys.stderr)
+        else:
+            written = handoff.write_handoff(repo, sid, path, last, why)
+            print(f"  handoff: {written}" if written else
+                  "  handoff: could not be written — the new session starts from STATE.md alone",
+                  file=sys.stderr)
+        prompt = [handoff.HANDOFF_PROMPT]
+
+    cmd = ["claude"] + (["--resume", sid] if verdict == handoff.RESUME and sid else []) + extra \
+        + prompt
+    if dry:
+        print("  would run: " + " ".join(cmd), file=sys.stderr)
+        return 0
+    try:
+        os.chdir(repo)
+    except OSError as exc:
+        print(f"chamnan-open: cannot enter {repo}: {exc}", file=sys.stderr)
+        return 1
+    try:
+        # execvp, not subprocess: the terminal belongs to Claude Code after this, and an extra
+        # Python process sitting between the user's TTY and an interactive program is how signal
+        # handling and resize events get lost.
+        # 🐛 [2026-09-25] (self-measured) `execvp` hands on THIS process's environment, and importing
+        # workspace had narrowed git in it for chamnan's own reads -- hooks at /dev/null, credential
+        # helper and ssh refused -- so the whole interactive session opened here ran every git
+        # command that way: no push, no hooks, no signing. The person's own environment instead.
+        os.execvpe(cmd[0], cmd, ws.env_for_the_persons_command())
+    except OSError as exc:
+        print(f"chamnan-open: could not run `{cmd[0]}`: {exc}", file=sys.stderr)
+        return 127
+    return 0                                   # unreachable; execvp replaces this process
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

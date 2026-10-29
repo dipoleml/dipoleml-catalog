@@ -1,0 +1,85 @@
+{
+  "schema": 1,
+  "kind": "citadel-application-adapter-conformance",
+  "as_of": "2026-08-03T20:33:04Z",
+  "contract": {
+    "required": [
+      "requested_identity",
+      "observed_identity",
+      "outcome_verification",
+      "failure_preservation",
+      "cost_lenses"
+    ],
+    "rule": "A runtime is actual-run conformant only when committed evidence exercises it. Contract-only tests are reported separately."
+  },
+  "adapters": [
+    {
+      "id": "claude-code-direct",
+      "runtime_family": "frontier-coding-agent",
+      "evidence_level": "prospective-actual-run",
+      "status": "passed",
+      "requested_identity": "claude-opus-5",
+      "observed_identity": "claude-opus-5",
+      "outcome_verification": "independent repository verifier plus exact changed-path coverage",
+      "cost_lenses": {
+        "actual_cash": "unknown",
+        "market_equivalent": "known"
+      }
+    },
+    {
+      "id": "ollama-chat-local",
+      "runtime_family": "open-local-model-runtime",
+      "evidence_level": "prospective-actual-run",
+      "status": "passed-with-observed-runtime-failure",
+      "requested_identity": "exact Qwen2.5-Coder manifest digests",
+      "observed_identity": "75 attempts total; 74 identity-observed attempts and one timeout before model identity was observed",
+      "outcome_verification": "exact canonical answer digest",
+      "cost_lenses": {
+        "provider_invoice": "known-zero",
+        "gpu_energy": "measured",
+        "actual_end_to_end_cash": "unknown"
+      }
+    },
+    {
+      "id": "roma-dspy-recursive-stack",
+      "runtime_family": "open-recursive-agent-stack",
+      "evidence_level": "prospective-actual-run",
+      "status": "passed",
+      "requested_identity": "pinned ROMA commit plus per-module Ollama manifests",
+      "observed_identity": "configured modules and provider-call history reconciled",
+      "outcome_verification": "exact canonical answer digest outside ROMA",
+      "cost_lenses": {
+        "provider_invoice": "known-zero-local",
+        "actual_end_to_end_cash": "unknown"
+      }
+    },
+    {
+      "id": "citadel-hybrid-claude-ollama",
+      "runtime_family": "frontier-plus-open-local-route",
+      "evidence_level": "prospective-actual-run",
+      "status": "passed",
+      "requested_identity": "Claude Sonnet 5 baseline plus pinned Qwen2.5-Coder 3B support route",
+      "observed_identity": "12/12 candidate and 12/12 baseline completions",
+      "outcome_verification": "fresh repository fixture plus deterministic external verifier",
+      "cost_lenses": {
+        "provider_equivalent": "known",
+        "local_gpu": "measured",
+        "actual_subscription_cash": "unknown",
+        "whole_system_energy": "unknown"
+      }
+    },
+    {
+      "id": "codex-direct",
+      "runtime_family": "frontier-coding-agent",
+      "evidence_level": "contract-and-launch-failure",
+      "status": "unknown",
+      "requested_identity": "explicit Codex model binding",
+      "observed_identity": "not observed in the published Windows launch failure",
+      "outcome_verification": "not reached",
+      "cost_lenses": {
+        "actual_cash": "unknown",
+        "market_equivalent": "unknown"
+      }
+    }
+  ]
+}

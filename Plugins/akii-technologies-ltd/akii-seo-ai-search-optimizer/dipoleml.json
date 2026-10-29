@@ -1,0 +1,128 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.akii-technologies-ltd.akii-seo-ai-search-optimizer",
+  "type": "plugin",
+  "name": "Akii Seo Ai Search Optimizer",
+  "slug": "akii-seo-ai-search-optimizer",
+  "vendor": "akii-technologies-ltd",
+  "description": "Free MIT-licensed DipoleML plugin for SEO, AEO and GEO. Audit websites, plan content, generate schema and check links. Includes 12 skills, 5 agents and 3 commands.",
+  "version": "3.0.1",
+  "homepage": "https://github.com/akii-technologies-ltd/akii-seo-ai-search-optimizer",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "aeo",
+    "ai-seo",
+    "ai-visibility",
+    "chatgpt-seo",
+    "claude-code-plugin",
+    "claude-plugin",
+    "claude-seo",
+    "gemini-seo",
+    "geo"
+  ],
+  "tags": [
+    "aeo",
+    "ai-seo",
+    "ai-visibility",
+    "chatgpt-seo",
+    "claude-code-plugin",
+    "claude-plugin",
+    "claude-seo",
+    "gemini-seo",
+    "geo",
+    "llms-txt",
+    "perplexity-seo",
+    "princeton-geo",
+    "schema",
+    "seo"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "akii-technologies-ltd",
+    "brandName": "akii-technologies-ltd",
+    "source": "https://github.com/akii-technologies-ltd.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:12:07Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "akii-technologies-ltd/akii-seo-ai-search-optimizer",
+    "url": "https://github.com/akii-technologies-ltd/akii-seo-ai-search-optimizer",
+    "commit": "72a0cb5abe5be0c21f3d8be79c01dbcf850908bc",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 77,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:49:22Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Akii Seo Ai Search Optimizer | Free MIT-licensed Claude Code plugin for SEO, AEO and GEO. Audit websites, plan content, generate schema and check links. Includes 12 skills, 5 agents and 3 commands.",
+        "after": "Akii Seo Ai Search Optimizer | Free MIT-licensed DipoleML plugin for SEO, AEO and GEO. Audit websites, plan content, generate schema and check links. Includes 12 skills, 5 agents and 3 commands.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Free SEO + AEO + GEO toolkit by Akii. All skills run on your Claude Code session model (Claude Sonnet / Opus / etc). Aligned with Google's AI Optimization Guide for Google AI Overviews + AI Mode. Audit sites, plan content, optimize pages, generate schema, cluster keywords. AI visibility analysis uses public signals in your Claude Code session, or connected Ahrefs Brand Radar observations. It does not request an Akii-hosted score or directly query the named engines. Auto-detects Ahrefs, GSC, Apify MCPs for richer data. Sends anonymized telemetry (plugin version + hashed machine UUID + OS, once per 24h) to akii.com. See PRIVACY.md, opt out via AKII_PLUGIN_DISABLE_TELEMETRY=1.",
+        "after": "Free SEO + AEO + GEO toolkit by Akii. All skills run on your DipoleML session model (DipoleML Sonnet / Opus / etc). Aligned with Google's AI Optimization Guide for Google AI Overviews + AI Mode. Audit sites, plan content, optimize pages, generate schema, cluster keywords. AI visibility analysis uses public signals in your DipoleML session, or connected Ahrefs Brand Radar observations. It does not request an Akii-hosted score or directly query the named engines. Auto-detects Ahrefs, GSC, Apify MCPs for richer data. Sends anonymized telemetry (plugin version + hashed machine UUID + OS, once per 24h) to akii.com. See PRIVACY.md, opt out via AKII_PLUGIN_DISABLE_TELEMETRY=1.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [
+      "AKII_PSI_KEY"
+    ],
+    "credentials": [
+      "AKII_PSI_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

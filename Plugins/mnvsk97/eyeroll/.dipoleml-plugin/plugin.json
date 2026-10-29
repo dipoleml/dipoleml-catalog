@@ -1,0 +1,16 @@
+{
+  "name": "eyeroll",
+  "displayName": "Eyeroll",
+  "version": "0.6.0",
+  "description": "AI eyes that roll through video footage. Analyze screen recordings, Loom videos, and screenshots to fix bugs and build features.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Mnvsk97"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/mnvsk97/eyeroll",
+  "repository": "https://github.com/mnvsk97/eyeroll",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

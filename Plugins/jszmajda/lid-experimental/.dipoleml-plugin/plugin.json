@@ -1,0 +1,16 @@
+{
+  "name": "lid-experimental",
+  "displayName": "Lid Experimental",
+  "version": "1.4.2",
+  "description": "Experimental LID skills with opt-in installation and explicit lifecycle (promotion or retirement). Layers on top of linked-intent-dev and arrow-maintenance.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Jszmajda"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/jszmajda/lid",
+  "repository": "https://github.com/jszmajda/lid",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

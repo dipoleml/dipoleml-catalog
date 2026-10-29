@@ -1,0 +1,16 @@
+{
+  "name": "odin-people",
+  "displayName": "Odin People",
+  "version": "2.1.5",
+  "description": "ODIN workflows for team dynamics, culture profiles, and negotiation.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Outlinedriven"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/OutlineDriven/odin-claude-plugin",
+  "repository": "https://github.com/OutlineDriven/odin-claude-plugin",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

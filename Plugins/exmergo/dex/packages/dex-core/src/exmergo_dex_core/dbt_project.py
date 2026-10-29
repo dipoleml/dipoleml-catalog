@@ -1,0 +1,2525 @@
+"""The dbt project: the source of truth (read and write).
+
+dex maintains no canonical model of its own. The dbt project is canonical, and
+this module is the interface to it. Reads load the project into an in-memory view:
+the raw source files under the model paths (the editing surface) plus the compiled
+``manifest.json`` when present (dbt's own documented, versioned serialization of
+nodes, sources, tests, semantic models, metrics, and lineage). Writes go back into
+the source files as reviewable diffs; dex never holds a competing copy, so human
+dbt edits are authoritative by construction.
+
+The write path enforces propose-don't-impose mechanically: every edit carries the
+sha256 of the file content it was planned against, and a mismatch at write time
+means a human edited the file since the plan was made. That is a conflict: nothing
+is written, the divergence is surfaced as a diff, and the caller must either
+re-plan against current state or explicitly confirm the overwrite.
+
+Absent a dbt project, explore still works (writing only to the ``.dex/`` cache),
+but transform and maintain require one, since dbt is what they edit and diff.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+
+import yaml
+from pydantic import BaseModel, Field
+
+from .dbt_semantic import (
+    ResolvedPath,
+    resolve_group_by_paths,
+)
+from .dbt_semantic import (
+    grains_from as _grains_from,
+)
+from .dbt_semantic import (
+    read_semantic_manifest as _read_semantic_manifest_file,
+)
+from .diffs import file_diff
+from .edits import ApplyResult, Conflict, Edit, EditOp, content_hash
+from .errors import ProjectError, RequestError
+from .metricflow_dialect import METRIC_TIME
+from .project_definitions import (
+    DeclaredColumnMeaning,
+    DeclaredCompositeKey,
+    DeclaredForeignKey,
+    DeclaredKey,
+    DeclaredPopulation,
+    DeclaredPopulationFilter,
+    ModelDeclaration,
+    ProjectDefinitions,
+)
+from .semantic_catalog import (
+    DIMENSIONS_PER_DECLARATION,
+    DIMENSIONS_PER_QUERYABLE_PATH,
+    DimensionInfo,
+    EntityInfo,
+    EntityRole,
+    MeasureInfo,
+    MetricComposition,
+    MetricInfo,
+    SemanticCatalogView,
+    SemanticModelInfo,
+    column_reference,
+    derive_entity_type,
+    merge_element_fields,
+    qualified_dimension,
+)
+
+PROJECT_FILE = "dbt_project.yml"
+PROFILES_FILE = "profiles.yml"
+MANIFEST_PATH = Path("target") / "manifest.json"
+SEMANTIC_MANIFEST_PATH = Path("target") / "semantic_manifest.json"
+
+# The ref()/source() call shapes as they appear in model SQL, schema YAML test
+# arguments, and semantic-model `model:` fields. Shared by every reader that
+# traces a dbt-level name, so they can never disagree on what counts as a ref.
+REF_PATTERN = re.compile(r"ref\(\s*['\"]([^'\"]+)['\"]")
+SOURCE_PATTERN = re.compile(r"source\(\s*['\"]([^'\"]+)['\"]\s*,\s*['\"]([^'\"]+)['\"]")
+
+# dbt project-root files dex may author outside the model paths: the package
+# manifests (dependency declarations), the project config, and the connection
+# profiles. Each governs the whole project, not one model, which is why the
+# editing surface widens by exactly these known names and never to arbitrary
+# root files. Kinds are pinned to the specific file each one may target in
+# ``transform.plans``; here we only gate containment.
+_ALLOWED_ROOT_FILES = frozenset(
+    {"packages.yml", "dependencies.yml", PROJECT_FILE, PROFILES_FILE}
+)
+
+# What each of dbt's authored path families can hold. Models, snapshots, tests
+# and analyses are SQL plus their properties YAML; macros are jinja plus their
+# properties YAML; seeds are CSV data plus the YAML that declares their column
+# types. The scan is per-family rather than one global suffix filter because
+# ".csv" is only a seed under the seed paths: anywhere else it is somebody's
+# fixture, and a fixture is not dex's to hash.
+_YAML_SUFFIXES = frozenset({".yml", ".yaml"})
+_FAMILY_SUFFIXES: dict[str, frozenset[str]] = {
+    "model": _YAML_SUFFIXES | {".sql"},
+    "macro": _YAML_SUFFIXES | {".sql"},
+    "snapshot": _YAML_SUFFIXES | {".sql"},
+    "seed": _YAML_SUFFIXES | {".csv"},
+    "test": _YAML_SUFFIXES | {".sql"},
+    "analysis": _YAML_SUFFIXES | {".sql"},
+}
+
+
+class DbtProjectError(ProjectError):
+    """The dbt format's refusal, and the shipped implementation of ``ProjectError``.
+
+    Rooted on the format-neutral base so a caller holding whatever project
+    configuration named can catch one type. ``maintain`` is that caller: it reads
+    layers through the project tier, and the format on the other side is not
+    necessarily this one.
+    """
+
+
+class SourceFile(BaseModel):
+    """One editable source file, keyed by its project-relative path."""
+
+    path: str
+    content: str
+    sha256: str
+
+
+class DbtProjectView(BaseModel):
+    """The in-memory view of a dbt project.
+
+    ``files`` holds the editable surface: the source files under each of dbt's
+    authored path families, each scanned for the suffixes that family can hold
+    (see :data:`_FAMILY_SUFFIXES`). ``manifest`` is the compiled artifact when
+    the project has been compiled; a fresh project loads fine without one.
+
+    A file that is *not* in ``files`` hashes as absent, so a later edit to it
+    registers as a create and the apply that follows conflicts on a file nobody
+    touched. That is why the scan covers every family dex can author into, not
+    only the ones it reads for definitions.
+    """
+
+    root: str
+    project_name: str
+    profile_name: str
+    model_paths: list[str] = Field(default_factory=lambda: ["models"])
+    macro_paths: list[str] = Field(default_factory=lambda: ["macros"])
+    snapshot_paths: list[str] = Field(default_factory=lambda: ["snapshots"])
+    seed_paths: list[str] = Field(default_factory=lambda: ["seeds"])
+    test_paths: list[str] = Field(default_factory=lambda: ["tests"])
+    analysis_paths: list[str] = Field(default_factory=lambda: ["analyses"])
+    files: dict[str, SourceFile] = Field(default_factory=dict)
+    manifest: dict[str, Any] | None = None
+    vars: dict[str, Any] = Field(default_factory=dict)
+
+    def path_families(self) -> list[tuple[str, list[str]]]:
+        """Every authored path family, as ``(name, configured paths)``.
+
+        One place to add the next family, and the order is the order a path is
+        matched against when deciding which family it belongs to: the specific
+        families first, models last as the catch-all. Two families configured to
+        the same directory is a project mistake dex does not adjudicate; the
+        first listed wins and the containment message names every family it
+        checked.
+        """
+
+        return [
+            ("macro", list(self.macro_paths)),
+            ("snapshot", list(self.snapshot_paths)),
+            ("seed", list(self.seed_paths)),
+            ("test", list(self.test_paths)),
+            ("analysis", list(self.analysis_paths)),
+            ("model", list(self.model_paths)),
+        ]
+
+
+class TargetInfo(BaseModel):
+    """A profiles.yml output, reduced to what is safe to surface.
+
+    Only the name and adapter type cross the boundary; the output's connection
+    fields (paths, hosts, credentials) never leave this module.
+    """
+
+    name: str
+    type: str
+    is_default: bool
+
+
+def discover_projects(repo_root: Path | str = ".") -> list[Path]:
+    """Every dbt project the search surface can see: the repo root itself, or
+    its immediate children. Shared by ``find_project`` and ``transform init``'s
+    already-exists refusal, so the two can never disagree."""
+
+    root = Path(repo_root)
+    if (root / PROJECT_FILE).is_file():
+        return [root]
+    if not root.is_dir():
+        return []
+    return sorted(child for child in root.iterdir() if (child / PROJECT_FILE).is_file())
+
+
+def find_project(repo_root: Path | str = ".") -> Path:
+    """Locate the dbt project: the repo root itself, or a unique child directory.
+
+    Ambiguity is an error rather than a guess; the caller can pin the project with
+    ``dbt_project_dir`` in ``.dex/config.yml``.
+    """
+
+    root = Path(repo_root)
+    candidates = discover_projects(root)
+    if len(candidates) == 1:
+        return candidates[0]
+    if not candidates:
+        raise DbtProjectError(
+            f"no dbt project found under '{root}': transform and maintain edit a "
+            "dbt project, so one is required (set dbt_project_dir in "
+            ".dex/config.yml to pin it)"
+        )
+    raise DbtProjectError(
+        f"multiple dbt projects under '{root}': "
+        f"{', '.join(str(c) for c in candidates)}; set dbt_project_dir in "
+        ".dex/config.yml to pin one"
+    )
+
+
+def load(project_dir: Path | str = ".") -> DbtProjectView:
+    """Load the dbt project (source files + manifest if compiled)."""
+
+    root = Path(project_dir)
+    project_file = root / PROJECT_FILE
+    if not project_file.is_file():
+        raise DbtProjectError(f"no {PROJECT_FILE} in '{root}'")
+
+    # Wrapped rather than left to escape: a project file that is not valid YAML
+    # is an unreadable project, which is exactly what `DbtProjectError` means,
+    # and `yaml.YAMLError` descends from `Exception` rather than `ValueError`, so
+    # it slipped past every caller's handler. `definitions` had to pair the two
+    # exceptions itself to keep its never-raises promise; wrapping at the source
+    # covers the callers that cannot (`maintain`'s four layer reads, which catch
+    # the project family, and `write_edits`, which loads before it writes).
+    try:
+        raw = yaml.safe_load(project_file.read_text(encoding="utf-8")) or {}
+    except yaml.YAMLError as exc:
+        raise DbtProjectError(f"{project_file} is not valid YAML: {exc}") from exc
+    project_name = raw.get("name")
+    if not project_name:
+        raise DbtProjectError(f"{project_file} has no 'name'")
+    model_paths = list(raw.get("model-paths", ["models"]))
+    # dbt's own defaults when a key is absent, so a skeleton project's first
+    # scaffolded macro, snapshot, or seed lands where dbt will look for it.
+    macro_paths = list(raw.get("macro-paths", ["macros"]))
+    snapshot_paths = list(raw.get("snapshot-paths", ["snapshots"]))
+    seed_paths = list(raw.get("seed-paths", ["seeds"]))
+    test_paths = list(raw.get("test-paths", ["tests"]))
+    analysis_paths = list(raw.get("analysis-paths", ["analyses"]))
+
+    # Suffixes unioned per directory rather than per family, so a project that
+    # points two families at one directory gets both sets scanned instead of
+    # whichever happened to be visited last.
+    scan: dict[str, set[str]] = {}
+    for family, paths in (
+        ("model", model_paths),
+        ("macro", macro_paths),
+        ("snapshot", snapshot_paths),
+        ("seed", seed_paths),
+        ("test", test_paths),
+        ("analysis", analysis_paths),
+    ):
+        for configured in paths:
+            scan.setdefault(configured, set()).update(_FAMILY_SUFFIXES[family])
+
+    files: dict[str, SourceFile] = {}
+    for configured, suffixes in scan.items():
+        base = root / configured
+        if not base.is_dir():
+            continue
+        for path in sorted(base.rglob("*")):
+            if path.suffix not in suffixes or not path.is_file():
+                continue
+            # Posix-separated regardless of OS: every consumer of `files` keys
+            # (transform_layer's model-name parsing, scaffolded model paths,
+            # this module's own backed_relation_names) assumes "/".
+            rel = path.relative_to(root).as_posix()
+            try:
+                content = path.read_text(encoding="utf-8")
+            except UnicodeDecodeError:
+                # A seed saved in a legacy encoding is the realistic case, and
+                # loading the project is a prerequisite for every command,
+                # explore included. Skipping the file costs a spurious conflict
+                # if someone later edits it through dex; raising would cost them
+                # the whole engine.
+                continue
+            files[rel] = SourceFile(
+                path=rel, content=content, sha256=content_hash(content)
+            )
+
+    # Root-level config files dex may author (project settings, connection
+    # targets, package manifests). Included so an edit to an existing one pins
+    # the real content hash instead of mis-registering as a create, which would
+    # otherwise surface at apply as a spurious conflict.
+    for root_file in _ALLOWED_ROOT_FILES:
+        path = root / root_file
+        if path.is_file():
+            content = path.read_text(encoding="utf-8")
+            files[root_file] = SourceFile(
+                path=root_file, content=content, sha256=content_hash(content)
+            )
+
+    manifest: dict[str, Any] | None = None
+    manifest_file = root / MANIFEST_PATH
+    if manifest_file.is_file():
+        try:
+            manifest = json.loads(manifest_file.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise DbtProjectError(
+                f"corrupt manifest at {manifest_file}: {exc}"
+            ) from exc
+
+    return DbtProjectView(
+        root=str(root),
+        project_name=project_name,
+        # dbt defaults the profile name to the project name when unset.
+        profile_name=raw.get("profile", project_name),
+        model_paths=model_paths,
+        macro_paths=macro_paths,
+        snapshot_paths=snapshot_paths,
+        seed_paths=seed_paths,
+        test_paths=test_paths,
+        analysis_paths=analysis_paths,
+        files=files,
+        manifest=manifest,
+        vars=_project_vars(raw, str(project_name)),
+    )
+
+
+def _project_vars(raw: dict[str, Any], project_name: str) -> dict[str, Any]:
+    """Static ``vars:`` declared in ``dbt_project.yml`` for ``project_name``.
+
+    Reads the root ``vars:`` mapping and overlays any sub-mapping scoped to the
+    project's own package name, matching dbt's precedence between global and
+    package-scoped project variables.
+    """
+
+    declared = raw.get("vars")
+    if not isinstance(declared, dict):
+        return {}
+    resolved = {str(key): value for key, value in declared.items()}
+    scoped = declared.get(project_name)
+    if isinstance(scoped, dict):
+        for key, value in scoped.items():
+            resolved[str(key)] = value
+    return resolved
+
+
+def resolve_target(project_dir: Path | str, target: str | None = None) -> TargetInfo:
+    """Resolve a profiles.yml target to its name and adapter type, nothing more.
+
+    Search order matches dbt: ``DBT_PROFILES_DIR``, the project directory, then
+    ``~/.dbt``. The output's connection fields (credentials among them) are read
+    here and deliberately not returned.
+    """
+
+    view_profile = load(project_dir).profile_name
+    profiles = _load_profiles(Path(project_dir))
+    profile = profiles.get(view_profile)
+    if not isinstance(profile, dict):
+        raise DbtProjectError(f"profile '{view_profile}' not found in {PROFILES_FILE}")
+
+    default = profile.get("target")
+    outputs = profile.get("outputs") or {}
+    name = target or default
+    if not name:
+        raise DbtProjectError(
+            f"profile '{view_profile}' declares no default target; pass --target"
+        )
+    output = outputs.get(name)
+    if not isinstance(output, dict):
+        raise DbtProjectError(
+            f"target '{name}' not found in profile '{view_profile}' "
+            f"(available: {', '.join(sorted(outputs)) or 'none'})"
+        )
+    return TargetInfo(
+        name=name, type=str(output.get("type", "unknown")), is_default=name == default
+    )
+
+
+# The only keys of a profile output that may leave this module. Every one is a
+# namespace identifier, not a credential: no user, account, host, password, token,
+# or key path is ever surfaced, so what comes back is always safe to put in an
+# envelope and show to the agent.
+_TARGET_IDENTIFIER_KEYS = frozenset(
+    {"type", "database", "schema", "warehouse", "dataset", "project", "catalog", "path"}
+)
+
+
+def target_identifiers(
+    project_dir: Path | str, target: str | None = None
+) -> dict[str, str]:
+    """The namespace a profiles.yml target writes to, and nothing else.
+
+    Where ``resolve_target`` answers "which adapter", this answers "which
+    database, schema, warehouse". It exists so the engine can compare the
+    profile's target identifiers against ``.dex/config.yml`` and refuse a build
+    whose config has silently drifted out of the profile that actually governs
+    it. Missing profile or target yields ``{}``: the caller degrades to no check
+    rather than erroring on a project it cannot read.
+    """
+
+    project = Path(project_dir)
+    try:
+        view_profile = load(project).profile_name
+        profiles = _load_profiles(project)
+    except (DbtProjectError, yaml.YAMLError):
+        return {}
+    profile = profiles.get(view_profile)
+    if not isinstance(profile, dict):
+        return {}
+    outputs = profile.get("outputs") or {}
+    output = outputs.get(target or profile.get("target"))
+    if not isinstance(output, dict):
+        return {}
+    return {
+        key: str(value)
+        for key, value in output.items()
+        if key in _TARGET_IDENTIFIER_KEYS and value is not None
+    }
+
+
+def target_role(project_dir: Path | str, target: str | None = None) -> str | None:
+    """The role a profiles.yml target authenticates as, for a privilege preflight.
+
+    Deliberately not part of :func:`target_identifiers`, whose result is
+    envelope-safe by contract and therefore carries namespace identifiers only.
+    A role name is an identity, so it gets its own door and one narrow caller:
+    asking the warehouse whether *that* role may write the dev namespace.
+
+    It has to be the profile's role rather than the one dex connects as, because
+    reading a warehouse with a read-only role while dbt builds with a writing one
+    is an ordinary split, and asking the wrong role would refuse a build dbt could
+    have run. Callers may name it in the refusal (the GRANT that fixes the problem
+    is useless without it) and nowhere else.
+    """
+
+    project = Path(project_dir)
+    try:
+        view_profile = load(project).profile_name
+        profiles = _load_profiles(project)
+    except (DbtProjectError, yaml.YAMLError):
+        return None
+    profile = profiles.get(view_profile)
+    if not isinstance(profile, dict):
+        return None
+    outputs = profile.get("outputs") or {}
+    output = outputs.get(target or profile.get("target"))
+    if not isinstance(output, dict):
+        return None
+    role = output.get("user")
+    return str(role) if role else None
+
+
+def target_auth_method(
+    project_dir: Path | str, target: str | None = None
+) -> str | None:
+    """The auth ``method`` a profiles.yml target declares, or None.
+
+    Exists for one question: is this target IAM-authenticated? dbt-redshift's
+    ``method: iam`` mints a database user from the caller's identity at run
+    time, so the profile's ``user`` field is not a durable identity a privilege
+    preflight can interrogate. Overloading the user field for that signal (a
+    sentinel value) would misfire on profiles that carry a real user alongside
+    IAM auth, so the method gets read directly.
+    """
+
+    project = Path(project_dir)
+    try:
+        view_profile = load(project).profile_name
+        profiles = _load_profiles(project)
+    except (DbtProjectError, yaml.YAMLError):
+        return None
+    profile = profiles.get(view_profile)
+    if not isinstance(profile, dict):
+        return None
+    outputs = profile.get("outputs") or {}
+    output = outputs.get(target or profile.get("target"))
+    if not isinstance(output, dict):
+        return None
+    method = output.get("method")
+    return str(method) if method else None
+
+
+def duckdb_target_path(
+    project_dir: Path | str, target: str | None = None
+) -> Path | None:
+    """The database file a duckdb target points at, or None.
+
+    Relative paths resolve against the project dir, matching the cwd dbt runs
+    with. None for non-duckdb outputs, in-memory databases, or an unresolvable
+    profile/target. Only the path crosses the boundary; the output's other
+    connection fields stay behind, per this module's contract (a local file
+    path is not a credential).
+    """
+
+    project = Path(project_dir)
+    try:
+        view_profile = load(project).profile_name
+        profiles = _load_profiles(project)
+    except DbtProjectError:
+        return None
+    profile = profiles.get(view_profile)
+    if not isinstance(profile, dict):
+        return None
+    outputs = profile.get("outputs") or {}
+    name = target or profile.get("target")
+    output = outputs.get(name)
+    if not isinstance(output, dict) or str(output.get("type")) != "duckdb":
+        return None
+    raw_path = output.get("path")
+    if not raw_path or str(raw_path) == ":memory:":
+        return None
+    if "{{" in str(raw_path):
+        import os
+
+        from .connect import _profile_scalar
+
+        resolved = _profile_scalar(raw_path, os.environ)
+        if not resolved:
+            return None
+        raw_path = resolved
+    path = Path(str(raw_path))
+    return path if path.is_absolute() else project / path
+
+
+def profiles_dir(project_dir: Path | str) -> Path:
+    """The directory whose profiles.yml governs this project (dbt search order)."""
+
+    env_dir = os.environ.get("DBT_PROFILES_DIR")
+    if env_dir and (Path(env_dir) / PROFILES_FILE).is_file():
+        return Path(env_dir)
+    if (Path(project_dir) / PROFILES_FILE).is_file():
+        return Path(project_dir)
+    home = Path.home() / ".dbt"
+    if (home / PROFILES_FILE).is_file():
+        return home
+    raise DbtProjectError(
+        f"no {PROFILES_FILE} found (looked in $DBT_PROFILES_DIR, the project "
+        "directory, and ~/.dbt)"
+    )
+
+
+def _load_profiles(project_dir: Path) -> dict[str, Any]:
+    path = profiles_dir(project_dir) / PROFILES_FILE
+    return yaml.safe_load(path.read_text(encoding="utf-8")) or {}
+
+
+def write_project_file(path: Path, content: str) -> None:
+    """Write one file into a dbt project, creating its parent directories.
+
+    ``profiles.yml`` is written owner-only (0600) whatever the umask says. What
+    dex renders there holds ``env_var()`` references and key paths, never a
+    secret, but it is the file people hand-edit a password into, and at the
+    usual 0644 that password is readable by every account on the machine. The
+    mode is set on the open descriptor before anything is written, so the
+    new content is never briefly exposed, and an existing file dex rewrites is
+    tightened the same way. Windows governs access through ACLs rather than mode
+    bits, so there the call changes nothing that matters, and before Python 3.13
+    ``fchmod`` does not exist on it at all.
+    """
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    if path.name != PROFILES_FILE:
+        path.write_text(content, encoding="utf-8")
+        return
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    if hasattr(os, "fchmod"):
+        os.fchmod(fd, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8") as handle:
+        handle.write(content)
+
+
+def write_edits(
+    edits: list[Edit], project_dir: Path | str, *, confirmed: bool = False
+) -> ApplyResult:
+    """Write plan edits into the project, all-or-nothing.
+
+    Per edit, the current file is re-hashed against ``old_content_hash``:
+
+    - match (or an untouched create): clean, apply.
+    - current content already equals ``new_content``: an already-applied no-op,
+      not a conflict.
+    - anything else: a human edited the file since the plan; a conflict.
+
+    Any conflict with ``confirmed=False`` writes nothing and surfaces the
+    divergence as diffs of current content against the plan's proposal. With
+    ``confirmed=True`` the conflicts are overridden explicitly.
+    """
+
+    root = Path(project_dir)
+    view = load(project_dir)
+
+    staged: list[tuple[Path, Edit, str | None]] = []
+    conflicts: list[Conflict] = []
+    diffs: list[dict[str, Any]] = []
+    for edit in edits:
+        target_path = contained_path(root, edit.path, view)
+        current = (
+            target_path.read_text(encoding="utf-8") if target_path.is_file() else None
+        )
+        current_hash = content_hash(current) if current is not None else None
+
+        if edit.op is EditOp.DELETE and current is None:
+            # Already gone (e.g. a re-run): a no-op, not a conflict.
+            continue
+        if (
+            edit.op is EditOp.UPSERT
+            and current is not None
+            and current == edit.new_content
+        ):
+            # Already applied (e.g. a re-run): a no-op, not a conflict.
+            continue
+        if current_hash != edit.old_content_hash:
+            conflicts.append(
+                Conflict(
+                    path=edit.path,
+                    expected_sha256=edit.old_content_hash,
+                    found_sha256=current_hash,
+                )
+            )
+        # A delete renders as a diff against /dev/null (new is None).
+        diffs.append(file_diff(edit.path, current, edit.new_content))
+        staged.append((target_path, edit, current))
+
+    if conflicts and not confirmed:
+        return ApplyResult(written=[], diffs=diffs, conflicts=conflicts)
+
+    written: list[str] = []
+    for target_path, edit, _current in staged:
+        if edit.op is EditOp.DELETE:
+            target_path.unlink(missing_ok=True)
+        else:
+            write_project_file(target_path, edit.new_content)
+        written.append(edit.path)
+    return ApplyResult(written=written, diffs=diffs, conflicts=conflicts)
+
+
+def contained_path(root: Path, rel_path: str, view: DbtProjectView) -> Path:
+    """Resolve an edit path and refuse anything outside the project's editing
+    surface.
+
+    Writes are confined to the repo, and within the repo to the dbt editing
+    surface: model SQL, schema.yml and semantic YAML under the model paths,
+    macros under the macro paths, snapshots under the snapshot paths, seeds
+    under the seed paths, singular and generic tests under the test paths,
+    analyses under the analysis paths, plus the root manifests dbt keeps at the
+    project root. Escapes (absolute paths, ``..``) are refused outright.
+
+    The families are read off the view rather than passed positionally. Four of
+    them was where a positional list stopped being readable, and there are six
+    now; every caller already holds a view: the writer loads one, and both
+    plan-time callers were handed one.
+    """
+
+    candidate = Path(rel_path)
+    if candidate.is_absolute():
+        raise DbtProjectError(f"edit path must be project-relative: '{rel_path}'")
+    resolved = (root / candidate).resolve()
+    root_resolved = root.resolve()
+    # The dbt package manifests live at the project root, so they are allowed by
+    # name (still inside the project, still not an arbitrary escape).
+    if resolved.parent == root_resolved and resolved.name in _ALLOWED_ROOT_FILES:
+        return root / candidate
+    if path_family(root, rel_path, view) is not None:
+        return root / candidate
+    listed = ", ".join(
+        f"{name} ({', '.join(paths) or 'none'})" for name, paths in view.path_families()
+    )
+    raise DbtProjectError(
+        f"edit path '{rel_path}' is outside the project's authored paths "
+        f"[{listed}]; dex edits only the dbt project surface"
+    )
+
+
+def path_family(root: Path, rel_path: str, view: DbtProjectView) -> str | None:
+    """Which authored family ``rel_path`` falls in, or ``None`` for none of them.
+
+    The other half of containment: containment asks whether a path is inside the
+    surface at all, and this asks *which* part of it, which is what decides
+    whether the edit's declared kind belongs there. Both answer from the same
+    traversal so they can never disagree about where a directory ends.
+    """
+
+    resolved = (root / Path(rel_path)).resolve()
+    root_resolved = root.resolve()
+    for name, paths in view.path_families():
+        for configured in paths:
+            base = (root_resolved / configured).resolve()
+            if resolved == base or base in resolved.parents:
+                return name
+    return None
+
+
+def node_files(view: DbtProjectView) -> dict[str, SourceFile]:
+    """The files that build a relation dbt names after the file, keyed by path.
+
+    A model, a snapshot and a seed each build such a relation and each is
+    ``ref()``-able; a macro, a schema.yml and a semantic YAML build nothing.
+    Every derivation that reads "the things this project builds" out of the file
+    list goes through here, so widening the load to a new family cannot quietly
+    turn its files into models by filename.
+
+    "Node" is the looser word and it is why this function is not called that: a
+    singular test *is* a dbt node, and it belongs here no more than a macro
+    does, because it builds no relation and nothing can ``ref()`` it. An
+    analysis is compiled and never built at all. Both are loaded so they can be
+    authored and hashed; neither is a thing this project builds.
+    """
+
+    nodes: dict[str, SourceFile] = {}
+    for path, source in view.files.items():
+        family = path_family(Path(view.root), path, view)
+        if (family in ("model", "snapshot") and path.endswith(".sql")) or (
+            family == "seed" and path.endswith(".csv")
+        ):
+            nodes[path] = source
+    return nodes
+
+
+def node_name(path: str) -> str:
+    """The dbt node name a node file builds: its stem, case preserved.
+
+    dbt names a model, snapshot or seed after the file, ignoring the
+    directories above it, which is why two same-named files in different
+    subdirectories are a dbt error rather than two nodes. Case is preserved
+    because ``ref()`` matches it; callers comparing against warehouse
+    identifiers lower it themselves.
+    """
+
+    return path.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+
+
+def model_file(view: DbtProjectView, name: str) -> str:
+    """The key in ``view.files`` of the one ``.sql`` file that builds model ``name``.
+
+    Every command that takes a model by name finds its file here, so two of them
+    cannot disagree about which file is the model. Membership is decided by
+    :func:`path_family`, the traversal containment uses, never by comparing the
+    configured string against the key: the keys are POSIX on every platform and a
+    configured ``src/models``, ``./models`` or ``models/`` is not spelled the way
+    the keys are, and a string prefix would put ``models_analysis/`` under
+    ``models``. A snapshot of the same name is not a model.
+
+    Raises ``RequestError`` when no model has the name, or when more than one file
+    does, which dbt would refuse at parse anyway.
+    """
+
+    root = Path(view.root)
+    # Name first: the family check resolves paths on disk, so it runs only on
+    # the candidates.
+    matches = sorted(
+        path
+        for path in view.files
+        if path.endswith(".sql")
+        and node_name(path) == name
+        and path_family(root, path, view) == "model"
+    )
+    if not matches:
+        raise RequestError(
+            f"no model named '{name}' found under {', '.join(view.model_paths)}"
+        )
+    if len(matches) > 1:
+        raise RequestError(f"'{name}' is ambiguous: {', '.join(matches)}")
+    return matches[0]
+
+
+# --- Jinja: what a template calls ---------------------------------------------
+#
+# One scanner, two policies on top of it. `render_model_sql` refuses anything it
+# cannot resolve, because attributing a row delta to SQL dbt never runs would be
+# a wrong answer; the reference index reports the same thing as indeterminate,
+# because a use it cannot resolve is still a use worth naming. Both need the same
+# question answered first, "what does this template call, and with what", which
+# is all this does.
+#
+# It lives here rather than beside either caller because this module is inside
+# the zero-extra install and both callers are not: `row_attribution` and the
+# reference index reach it, and neither drags the other's dependencies along.
+
+_JINJA_COMMENT = re.compile(r"\{#.*?#\}", re.DOTALL)
+_JINJA_REGION = re.compile(r"\{\{(.*?)\}\}|\{%(.*?)%\}", re.DOTALL)
+_CALL_START = re.compile(r"(?<![A-Za-z0-9_.])([A-Za-z_][A-Za-z0-9_.]*)\s*\(")
+_QUOTED_ARG = re.compile(r"^(['\"])([^'\"]*)\1$")
+# `==` is a comparison, not a keyword argument.
+_KEYWORD_ARG = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*\s*=(?!=)")
+
+
+class JinjaCall(BaseModel):
+    """One call written inside a jinja region, with its arguments as read.
+
+    An ``args`` entry is the literal string dex read, or ``None`` where the
+    argument was anything else: a variable, a concatenation, or a nested call.
+    A keyword form is dropped from ``args`` rather than recorded as ``None``.
+    ``None`` means *dex did not resolve this*, never *there is nothing here*,
+    and every consumer has to keep that distinction: collapsing the two is how
+    a reference silently goes missing.
+
+    Nested calls are reported in their own right, so ``{{ ref(var('x')) }}``
+    yields both the resolved ``var('x')`` and the unresolved ``ref``. Reporting
+    only the outer call would hide the var; reporting only the inner would
+    invent a ref that was never written.
+    """
+
+    callee: str
+    args: tuple[str | None, ...] = ()
+    line: int
+    #: True when the call is the entire region body, so `{{ ref('x') }}` is
+    #: distinguishable from `{{ upper(ref('x')) }}`. A caller substituting the
+    #: region for the call's value needs to know the difference.
+    spans_region: bool = False
+    #: "expression" for `{{ }}`, "statement" for `{% %}`.
+    region_kind: str = "expression"
+    #: Half-open ``[start, end)`` of the callee name, and of each resolved
+    #: argument's *contents* inside its quotes, indexed into the same
+    #: comment-masked source :class:`JinjaRegion` offsets are in. A span is
+    #: ``None`` wherever the corresponding ``args`` entry is ``None``, since
+    #: there is no literal to point at.
+    #:
+    #: Here so a caller renaming what a call names can splice exactly those
+    #: bytes and leave the rest of the template alone. A rewriter working from
+    #: ``line`` alone has to re-find the name by searching the line, which picks
+    #: the wrong occurrence as soon as a line carries the name twice.
+    callee_span: tuple[int, int] | None = None
+    arg_spans: tuple[tuple[int, int] | None, ...] = ()
+
+
+class JinjaRegion(BaseModel):
+    """One ``{{ }}`` or ``{% %}`` span, its text, and the calls inside it.
+
+    ``start`` and ``end`` index the *comment-masked* source that
+    :func:`jinja_regions` returns alongside these, not the original, so a caller
+    splicing regions out works against text where a comment can no longer look
+    like code. Masking preserves length and newlines, so offsets and line
+    numbers still line up with the file a human opens.
+    """
+
+    kind: str
+    body: str
+    start: int
+    end: int
+    line: int
+    calls: list[JinjaCall] = Field(default_factory=list)
+
+
+def jinja_regions(content: str) -> tuple[list[JinjaRegion], str]:
+    """Every jinja region in ``content``, with the comment-masked source.
+
+    The primitive both jinja readers share. Comments are masked rather than
+    deleted so every reported line still matches the file, and string contents
+    are masked while structure is scanned so a paren or a comma inside a quoted
+    argument cannot be read as syntax; the arguments themselves come from the
+    original text.
+
+    A scanner, not a renderer. It never evaluates jinja, so it says what a
+    template names, never what it produces. A region carrying no call at all
+    (``{{ some_var }}``) is still returned, because "there is jinja here that dex
+    did not read" is the fact a caller most needs.
+    """
+
+    masked_source = _JINJA_COMMENT.sub(lambda m: _blank_like(m.group(0)), content)
+    regions: list[JinjaRegion] = []
+    for match in _JINJA_REGION.finditer(masked_source):
+        expression = match.group(1)
+        body = expression if expression is not None else match.group(2)
+        kind = "expression" if expression is not None else "statement"
+        regions.append(
+            JinjaRegion(
+                kind=kind,
+                body=body,
+                start=match.start(),
+                end=match.end(),
+                line=masked_source.count("\n", 0, match.start()) + 1,
+                calls=[
+                    JinjaCall(
+                        callee=callee,
+                        args=tuple(value for value, _span in arguments),
+                        line=masked_source.count("\n", 0, offset) + 1,
+                        spans_region=call_text.strip() == body.strip(),
+                        region_kind=kind,
+                        callee_span=(offset, offset + len(callee)),
+                        arg_spans=tuple(span for _value, span in arguments),
+                    )
+                    for offset, callee, arguments, call_text in sorted(
+                        _calls_in(body, match.start() + 2),
+                        key=lambda call: call[0],
+                    )
+                ],
+            )
+        )
+    return regions, masked_source
+
+
+def jinja_calls(content: str) -> list[JinjaCall]:
+    """Every call inside every jinja region of ``content``, in document order."""
+
+    regions, _masked = jinja_regions(content)
+    return [call for region in regions for call in region.calls]
+
+
+#: One argument as read: its literal value (``None`` when dex did not resolve it)
+#: and the absolute half-open span of that literal's contents (``None`` likewise).
+_Argument = tuple[str | None, tuple[int, int] | None]
+
+
+def _calls_in(
+    body: str, base: int
+) -> list[tuple[int, str, tuple[_Argument, ...], str]]:
+    """``(callee offset, callee, arguments, call text)``, nested calls included.
+
+    Offsets are absolute: ``base`` is where ``body`` starts in the source the
+    caller is indexing into, which is what lets a rewriter splice a name out of
+    a nested call without re-finding it by text.
+    """
+
+    masked = _mask_strings(body)
+    found: list[tuple[int, str, tuple[_Argument, ...], str]] = []
+    position = 0
+    while True:
+        start = _CALL_START.search(masked, position)
+        if start is None:
+            return found
+        open_paren = start.end() - 1
+        close = _closing_paren(masked, open_paren)
+        if close is None:
+            # An unbalanced call is a broken template. Skip past the callee and
+            # keep scanning: the rest of the file is still worth reading, and
+            # refusing here would make one typo hide every other reference.
+            position = start.end()
+            continue
+        inner = body[open_paren + 1 : close]
+        found.append(
+            (
+                base + start.start(1),
+                start.group(1),
+                _split_args(
+                    inner, masked[open_paren + 1 : close], base + open_paren + 1
+                ),
+                body[start.start(1) : close + 1],
+            )
+        )
+        found.extend(_calls_in(inner, base + open_paren + 1))
+        position = close + 1
+
+
+def _split_args(inner: str, masked_inner: str, base: int) -> tuple[_Argument, ...]:
+    """Top-level arguments of one call, each as its literal value and span.
+
+    ``base`` is where ``inner`` starts in the source being indexed, so a span
+    lands on the file a human opens rather than on this slice.
+    """
+
+    if not inner.strip():
+        return ()
+    args: list[_Argument] = []
+    depth = 0
+    start = 0
+
+    def append(end: int) -> None:
+        parsed = _literal(inner[start:end], base + start)
+        if parsed is not None:
+            args.append(parsed)
+
+    for index, char in enumerate(masked_inner):
+        if char in "([{":
+            depth += 1
+        elif char in ")]}":
+            depth -= 1
+        elif char == "," and depth == 0:
+            append(index)
+            start = index + 1
+    append(len(inner))
+    return tuple(args)
+
+
+def _literal(text: str, base: int) -> _Argument | None:
+    """One argument's literal value and the span of its contents, or two ``None``.
+
+    Returns ``None`` for a keyword argument (``identifier=...``, optional
+    whitespace around ``=``), which is dropped from ``args`` rather than
+    recorded as an unread value. The span covers what is *between* the quotes,
+    so a rewriter replaces the name and leaves the quoting style the author
+    chose alone.
+    """
+
+    stripped = text.strip()
+    if _KEYWORD_ARG.match(stripped):
+        return None
+    quoted = _QUOTED_ARG.match(stripped)
+    if quoted is None:
+        return None, None
+    offset = base + len(text) - len(text.lstrip())
+    return quoted.group(2), (offset + quoted.start(2), offset + quoted.end(2))
+
+
+def _closing_paren(masked: str, open_paren: int) -> int | None:
+    depth = 0
+    for index in range(open_paren, len(masked)):
+        if masked[index] == "(":
+            depth += 1
+        elif masked[index] == ")":
+            depth -= 1
+            if depth == 0:
+                return index
+    return None
+
+
+def _mask_strings(text: str) -> str:
+    """``text`` with the *contents* of every quoted run blanked, offsets preserved.
+
+    Structure scanning runs over this so a paren, a comma or a quote written
+    inside a string cannot be read as syntax. The quotes themselves survive, so
+    an argument is still recognisable as a literal.
+    """
+
+    out = list(text)
+    quote: str | None = None
+    for index, char in enumerate(text):
+        if quote is None:
+            if char in "'\"":
+                quote = char
+        elif char == quote:
+            quote = None
+        else:
+            out[index] = "\n" if char == "\n" else "x"
+    return "".join(out)
+
+
+def _blank_like(text: str) -> str:
+    """``text`` reduced to whitespace, newlines kept so line numbers survive."""
+
+    return "".join("\n" if char == "\n" else " " for char in text)
+
+
+# --- Read view: what the project declares -------------------------------------
+#
+# Everything below is read-only projection over the loaded project: declared
+# foreign keys and column tests, semantic definitions, and the physical
+# relations they resolve to. Consumers that must work without a dbt project
+# (explore on a raw warehouse) go through `definitions()`, which degrades to an
+# empty view instead of raising.
+
+
+def yaml_documents(view: DbtProjectView) -> list[tuple[dict[str, Any], str]]:
+    """Every parseable YAML document under the model paths, with its path.
+
+    A broken hand-written file is skipped, not an error: readers of declared
+    definitions must not fail on files they don't own.
+    """
+
+    documents: list[tuple[dict[str, Any], str]] = []
+    for source in view.files.values():
+        if not source.path.endswith((".yml", ".yaml")):
+            continue
+        try:
+            parsed = yaml.safe_load(source.content)
+        except yaml.YAMLError:
+            continue
+        if isinstance(parsed, dict):
+            documents.append((parsed, source.path))
+    return documents
+
+
+def backed_relation_names(view: DbtProjectView) -> set[str]:
+    """Bare table names (lowered) this project currently builds or sources,
+    from files and YAML only -- no compiled manifest required, unlike
+    ``model_relations`` (empty without one, see ``_declared_from_yaml``).
+
+    Explore uses this (not ``maintain``'s ``transform_layer``/``drift.py``
+    logic, which computes the same thing) to keep from importing ``maintain``,
+    which already imports ``explore.relationships`` -- the reverse edge would
+    risk a cycle.
+    """
+
+    names = {node_name(path).lower() for path in node_files(view)}
+    for parsed, _path in yaml_documents(view):
+        for src in parsed.get("sources") or []:
+            if not isinstance(src, dict):
+                continue
+            for table in src.get("tables") or []:
+                if isinstance(table, dict) and table.get("name"):
+                    names.add(str(table["name"]).lower())
+    return names
+
+
+def semantic_yaml_entries(
+    view: DbtProjectView,
+) -> list[tuple[str, dict[str, Any], str]]:
+    """Raw ``semantic_models`` / ``metrics`` YAML entries as ``(kind, entry,
+    path)`` triples, kind being ``"semantic_model"`` or ``"metric"``.
+
+    Sourced from the YAML files only, never a compiled artifact, so consumers
+    that fingerprint definitions hash exactly what the author wrote.
+    """
+
+    entries: list[tuple[str, dict[str, Any], str]] = []
+    for parsed, path in yaml_documents(view):
+        entries.extend(
+            ("semantic_model", entry, path)
+            for entry in parsed.get("semantic_models") or []
+            if isinstance(entry, dict) and entry.get("name")
+        )
+        entries.extend(
+            ("metric", entry, path)
+            for entry in parsed.get("metrics") or []
+            if isinstance(entry, dict) and entry.get("name")
+        )
+    return entries
+
+
+def physical_column(entry: Any) -> str | None:
+    """The single physical column a dimension/entity/measure references, if any.
+
+    The manifest-dict shape of :func:`~.semantic_catalog.column_reference`, whose
+    docstring carries the rule. It is a thin adapter rather than a second copy
+    because a query backend applies the same rule to a GraphQL payload, and two
+    implementations of "the column behind this element" would eventually disagree
+    about an expression, which is the direction that makes the PII gate screen the
+    wrong column.
+    """
+
+    if not isinstance(entry, dict):
+        return None
+    return column_reference(entry.get("expr"), entry.get("name"))
+
+
+def metric_inputs(entry: dict[str, Any]) -> tuple[list[str], list[str]]:
+    """The measures and metrics one metric definition draws from, by type.
+
+    Simple/cumulative metrics ground in one measure; ratio and derived metrics
+    reference other metrics; conversion metrics ground in two measures. Unknown
+    types yield nothing rather than guessing.
+    """
+
+    metric_type = str(entry.get("type", "")).lower()
+    params = entry.get("type_params")
+    params = params if isinstance(params, dict) else {}
+    measures: list[str] = []
+    metrics: list[str] = []
+
+    def add(bucket: list[str], value: Any) -> None:
+        if isinstance(value, str):
+            bucket.append(value)
+        elif isinstance(value, dict) and isinstance(value.get("name"), str):
+            bucket.append(value["name"])
+
+    if metric_type in {"simple", "cumulative"}:
+        add(measures, params.get("measure"))
+    elif metric_type == "ratio":
+        add(metrics, params.get("numerator"))
+        add(metrics, params.get("denominator"))
+    elif metric_type == "derived":
+        for input_metric in params.get("metrics") or []:
+            add(metrics, input_metric)
+    elif metric_type == "conversion":
+        conversion = params.get("conversion_type_params")
+        if isinstance(conversion, dict):
+            add(measures, conversion.get("base_measure"))
+            add(measures, conversion.get("conversion_measure"))
+    return measures, metrics
+
+
+def definitions(
+    repo_root: Path | str = ".", project_dir: Path | str | None = None
+) -> ProjectDefinitions:
+    """Load the project's declared and semantic definitions, degrading quietly.
+
+    ``project_dir`` pins the project (callers pass ``dbt_project_dir`` from
+    ``.dex/config.yml``); otherwise the repo root and its immediate children
+    are searched. No project, an ambiguous choice, or an unreadable project
+    yields the empty view (with a note where there is something actionable to
+    say), never an exception: explore runs on raw warehouses where absence is
+    the normal case.
+    """
+
+    root = Path(repo_root)
+    if project_dir is not None:
+        project = Path(project_dir)
+    else:
+        candidates = discover_projects(root)
+        if not candidates:
+            return ProjectDefinitions()
+        if len(candidates) > 1:
+            listed = ", ".join(str(c) for c in candidates)
+            return ProjectDefinitions(
+                notes=[
+                    f"multiple dbt projects found ({listed}); set "
+                    "dbt_project_dir in .dex/config.yml to use their declared "
+                    "definitions"
+                ]
+            )
+        project = candidates[0]
+
+    try:
+        view = load(project)
+    except DbtProjectError as exc:
+        # A malformed `dbt_project.yml` is covered: `load` wraps the parser error
+        # rather than letting it escape, which is what keeps the never-raises
+        # promise in this docstring true. It was not always so, and the failure
+        # was invisible from here: `yaml.YAMLError` descends from `Exception`,
+        # not `ValueError`, so it went straight past a handler that looked
+        # complete.
+        return ProjectDefinitions(
+            notes=[
+                f"dbt project at '{project}' could not be read ({exc}); "
+                "declared definitions unavailable"
+            ]
+        )
+
+    defs = ProjectDefinitions(present=True, project_dir=str(project))
+    defs.built_relation_names = sorted(backed_relation_names(view))
+
+    nodes = (view.manifest or {}).get("nodes")
+    if isinstance(nodes, dict) and nodes:
+        _declared_from_manifest(view.manifest or {}, defs)
+    else:
+        _declared_from_yaml(view, defs)
+
+    semantic_manifest = _read_semantic_manifest(Path(view.root))
+    if semantic_manifest is not None:
+        _semantic_from_manifest(semantic_manifest[0], defs)
+    else:
+        _semantic_from_yaml(semantic_yaml_entries(view), defs)
+
+    if defs.manifest_loaded:
+        _flag_stale_manifest(view, defs)
+    if not defs.manifest_loaded or defs.manifest_stale:
+        _declarations_from_yaml(view, defs)
+    return defs
+
+
+def _declarations_from_yaml(view: DbtProjectView, defs: ProjectDefinitions) -> None:
+    """Model declarations (#491) straight from the schema YAML (#498).
+
+    Used without a manifest, and also over a stale one: a declaration is plain
+    YAML a human edits, so a manifest compiled before the edit would report a
+    removed population or a changed grain as though it still held. The YAML is
+    the repository's current word, so it replaces whatever the manifest said;
+    the relation still comes from the manifest where it resolved one. A model
+    entry in two files (which dbt refuses) is read from the first path in sorted
+    order, as the declaration fingerprint reads it.
+    """
+
+    declarations: dict[str, ModelDeclaration] = {}
+    for parsed, _path in sorted(yaml_documents(view), key=lambda d: d[1]):
+        for entry in parsed.get("models") or []:
+            if not isinstance(entry, dict) or not isinstance(entry.get("name"), str):
+                continue
+            model = entry["name"]
+            if model in declarations:
+                continue
+            declaration = declared_meaning(
+                entry,
+                model,
+                relation=defs.model_relations.get(model),
+                source="yaml",
+            )
+            if declaration is not None:
+                declarations[model] = declaration
+    defs.model_declarations = declarations
+
+
+def manifest_node_label(unique_id: str, node: dict[str, Any] | None = None) -> str:
+    """dbt's own readable name for a manifest node, the one a reader scans.
+
+    A versioned model is labelled ``<name>.v<version>``, which is how dbt spells
+    it in its ``fqn``, in ``dbt ls``, and in ``--select``. The version is always
+    part of the label, the latest one included: two versions of one model are
+    two relations that coexist in the manifest under one ``name``, so the bare
+    name cannot tell them apart. Every other node is its manifest ``name``.
+
+    Without the node, the label is read off the unique id: ``model.<package>.
+    <name>`` is at its name, a versioned model adds a ``v<N>`` segment, and a
+    generic test ``test.<package>.<name>.<hash>`` ends in a content hash, so its
+    name is the segment before it. Taking the last segment for everything named
+    versioned models ``v2`` and warning tests ``3249b83c15``.
+
+    Keep scopes and lookups keyed on the unique id and use this only for what
+    is shown: the label is unique per node, but the id is what run results and
+    the manifest cross-reference on.
+    """
+
+    if isinstance(node, dict):
+        name = node.get("name")
+        if isinstance(name, str) and name:
+            version = node.get("version")
+            if node.get("resource_type") == "model" and version not in (None, ""):
+                return f"{name}.v{version}"
+            return name
+    parts = unique_id.split(".")
+    if len(parts) < 3:
+        return parts[-1] if parts else unique_id
+    if parts[0] == "model" and len(parts) == 4:
+        return f"{parts[2]}.{parts[3]}"
+    # A singular test is `test.<package>.<name>` like a model, so segment count
+    # decides, not the resource type: a three-part id is already at its name.
+    if parts[0] == "test" and len(parts) > 3:
+        return parts[-2]
+    return parts[-1]
+
+
+def strip_relation_quoting(relation: str) -> str:
+    """``"db"."schema"."table"`` / `` `project.dataset.table` `` / bracketed
+    forms down to plain dotted parts, matching adapter-normalized identifiers."""
+
+    text = relation.strip()
+    # BigQuery wraps the whole dotted name in one backtick pair; strip before
+    # splitting so the dots become visible.
+    if text.startswith("`") and text.endswith("`"):
+        text = text.strip("`")
+    parts = [
+        part.strip().strip('"').strip("`").lstrip("[").rstrip("]")
+        for part in text.split(".")
+    ]
+    return ".".join(part for part in parts if part)
+
+
+def column_contract_divergence(
+    declared: dict[str, str | None], actual: dict[str, str | None]
+) -> tuple[list[str], list[str], list[tuple[str, str, str]]]:
+    """A declared column contract against what actually exists, in both
+    directions, plus type mismatches where both sides state one.
+
+    Shared between `transform plan`'s authored-SELECT-list comparison
+    (#214) and `maintain verify`'s built-relation comparison (#230): both
+    reduce to the same set math over a model's declared and actual columns,
+    and only differ in where each side's names and types come from.
+
+    ``declared``/``actual`` are column name (already lowercased by the
+    caller) -> its type, or ``None`` where the caller has no type for that
+    side -- a plan-time SELECT list names no types at all, so #214's caller
+    never passes one. Returns ``(missing, extra, mismatched)``: names in
+    ``declared`` and not ``actual``, names in ``actual`` and not
+    ``declared``, and ``(name, declared_type, actual_type)`` for a name both
+    sides state with a type that disagrees. A name whose type is absent on
+    either side is not a mismatch: absence is not evidence of a difference.
+    """
+
+    missing = sorted(set(declared) - set(actual))
+    extra = sorted(set(actual) - set(declared))
+    mismatched: list[tuple[str, str, str]] = []
+    for name in sorted(set(declared) & set(actual)):
+        declared_type, actual_type = declared[name], actual[name]
+        if (
+            declared_type
+            and actual_type
+            and declared_type.lower() != actual_type.lower()
+        ):
+            mismatched.append((name, declared_type, actual_type))
+    return missing, extra, mismatched
+
+
+#: The per-column declaration fields exploration reads back (#498).
+_MEANING_FIELDS = ("role", "unit", "additivity", "references")
+
+
+def declared_meaning(
+    entry: Any, model: str, *, relation: str | None, source: str
+) -> ModelDeclaration | None:
+    """A model's declaration (#491) as the neutral read model, or None.
+
+    Read from a YAML ``models:`` entry (``columns`` a list) or a compiled manifest
+    node (``columns`` a mapping), through the same ``meta`` precedence
+    :func:`declared_grain` uses. Lenient by design: a field of the wrong shape is
+    left out rather than raised on, because this is a read of what a human wrote,
+    and the writer (`transform plan`) is where a malformed declaration is refused.
+    None when the entry declares none of grain, population or a column meaning.
+    """
+
+    from .guards.pii_meta import entry_meta
+
+    dex = entry_meta(entry).get("dex")
+    dex = dex if isinstance(dex, dict) else {}
+    population = _declared_population(dex.get("population"))
+
+    columns: dict[str, DeclaredColumnMeaning] = {}
+    raw = entry.get("columns") if isinstance(entry, dict) else None
+    items = (
+        list(raw.items())
+        if isinstance(raw, dict)
+        else [(None, column) for column in raw]
+        if isinstance(raw, list)
+        else []
+    )
+    for key, column in items:
+        if not isinstance(column, dict):
+            continue
+        name = column.get("name") if isinstance(column.get("name"), str) else key
+        if not isinstance(name, str) or not name:
+            continue
+        column_dex = entry_meta(column).get("dex")
+        if not isinstance(column_dex, dict):
+            continue
+        stated = {
+            field: column_dex[field].strip()
+            for field in _MEANING_FIELDS
+            if isinstance(column_dex.get(field), str) and column_dex[field].strip()
+        }
+        if stated:
+            columns[name] = DeclaredColumnMeaning(**stated)
+
+    grain = declared_grain(entry)
+    if not (grain or population or columns):
+        return None
+    return ModelDeclaration(
+        model=model,
+        relation=relation,
+        grain=grain,
+        population=population,
+        columns=columns,
+        source=source,
+    )
+
+
+def _declared_population(raw: Any) -> DeclaredPopulation | None:
+    if not isinstance(raw, dict):
+        return None
+    rule = raw.get("rule") if isinstance(raw.get("rule"), str) else None
+    filters: list[DeclaredPopulationFilter] = []
+    entries = raw.get("filters")
+    for entry in entries if isinstance(entries, list) else []:
+        if not isinstance(entry, dict) or not isinstance(entry.get("column"), str):
+            continue
+        includes = _scalar_values(entry.get("includes"))
+        excludes = _scalar_values(entry.get("excludes"))
+        if includes or excludes:
+            filters.append(
+                DeclaredPopulationFilter(
+                    column=entry["column"], includes=includes, excludes=excludes
+                )
+            )
+    if not (rule and rule.strip()) and not filters:
+        return None
+    return DeclaredPopulation(
+        rule=rule if rule and rule.strip() else None, filters=filters
+    )
+
+
+def _scalar_values(raw: Any) -> list[str | int | float | bool] | None:
+    if not isinstance(raw, list):
+        return None
+    kept = [value for value in raw if isinstance(value, str | int | float | bool)]
+    return kept or None
+
+
+def _parse_relation_ref(value: Any) -> str | None:
+    """A ``ref('x')`` / ``source('a', 'b')`` argument as a referable name."""
+
+    if not isinstance(value, str):
+        return None
+    ref = REF_PATTERN.search(value)
+    if ref:
+        return ref.group(1)
+    src = SOURCE_PATTERN.search(value)
+    if src:
+        return f"{src.group(1)}.{src.group(2)}"
+    return None
+
+
+def declared_grain(entry: Any) -> list[str] | None:
+    """The grain a model's declaration states (``config.meta.dex.grain``, #491).
+
+    Read the same way from a YAML entry and from a compiled manifest node,
+    since dbt carries a model's ``config.meta`` onto the node in that shape;
+    top-level ``meta`` is read too, overlaid by ``config.meta`` as dbt merges
+    them. Anything but a non-empty list of column names is no declaration.
+    """
+
+    from .guards.pii_meta import entry_meta
+
+    dex = entry_meta(entry).get("dex")
+    grain = dex.get("grain") if isinstance(dex, dict) else None
+    if (
+        isinstance(grain, list)
+        and grain
+        and all(isinstance(column, str) and column for column in grain)
+    ):
+        return list(grain)
+    return None
+
+
+def _declared_from_manifest(manifest: dict[str, Any], defs: ProjectDefinitions) -> None:
+    """Declared FKs and column tests from compiled test nodes, physically
+    resolved through each node's ``relation_name``. Every access is guarded:
+    hand-rolled or truncated manifests must fall through quietly, not raise."""
+
+    nodes = manifest.get("nodes") or {}
+    sources = manifest.get("sources") or {}
+
+    # unique_id -> label, and label -> physical relation. A versioned model's
+    # label carries its version, so each version keeps its own relation;
+    # `written` keeps the unversioned name a `ref()` or `source()` spells, which
+    # is what a relationships test's `to:` is matched against.
+    names: dict[str, str] = {}
+    written: dict[str, str] = {}
+    relations: dict[str, str] = {}
+    model_relations: dict[str, str] = {}
+    source_relations: dict[str, str] = {}
+    for uid, node in nodes.items():
+        if not isinstance(node, dict) or node.get("resource_type") != "model":
+            continue
+        config = node.get("config")
+        if isinstance(config, dict) and config.get("enabled") is False:
+            continue
+        name = node.get("name")
+        if not isinstance(name, str) or not name:
+            continue
+        label = manifest_node_label(uid, node)
+        names[uid] = label
+        written[uid] = name
+        relation = node.get("relation_name")
+        # Ephemeral models compile with a null relation_name: referable in the
+        # project but not physically resolvable, so they stay out of relations.
+        if isinstance(relation, str) and relation:
+            relations[label] = model_relations[label] = strip_relation_quoting(relation)
+        grain = declared_grain(node)
+        if grain:
+            defs.declared_grains[label] = grain
+        declaration = declared_meaning(
+            node, label, relation=model_relations.get(label), source="manifest"
+        )
+        if declaration is not None:
+            defs.model_declarations[label] = declaration
+    for uid, node in sources.items():
+        if not isinstance(node, dict):
+            continue
+        source_name, table = node.get("source_name"), node.get("name")
+        if not (isinstance(source_name, str) and isinstance(table, str)):
+            continue
+        key = f"{source_name}.{table}"
+        names[uid] = written[uid] = key
+        relation = node.get("relation_name")
+        if isinstance(relation, str) and relation:
+            relations[key] = source_relations[key] = strip_relation_quoting(relation)
+
+    def attached_name(node: dict[str, Any], exclude: str | None = None) -> str | None:
+        attached = node.get("attached_node")
+        if isinstance(attached, str) and attached in names:
+            return names[attached]
+        # Older manifests lack attached_node; a relationships test then depends
+        # on exactly the child and the parent, so the non-parent entry is the child.
+        depends = node.get("depends_on")
+        dep_nodes = depends.get("nodes") if isinstance(depends, dict) else None
+        for dep in dep_nodes or []:
+            name = names.get(dep)
+            if name is not None and name != exclude:
+                return name
+        return None
+
+    def referenced_name(node: dict[str, Any], to: str) -> str:
+        """The label of the node a relationships test's ``to:`` names.
+
+        Read off the test's own dependencies rather than the ``to:`` string,
+        because dbt has already resolved the reference there: a bare
+        ``ref('dim_customers')`` depends on the latest version's node and
+        ``ref('dim_customers', v=1)`` on v1's, and neither is recoverable from
+        the name alone. The child is excluded first so a test between two
+        versions of one model lands on the other version; a self-referencing
+        test depends on its child alone and lands there. The written name is
+        kept when the dependencies do not settle it.
+        """
+
+        attached = node.get("attached_node")
+        depends = node.get("depends_on")
+        dep_nodes = depends.get("nodes") if isinstance(depends, dict) else None
+        spelled = [dep for dep in dep_nodes or [] if written.get(dep) == to]
+        matches = [dep for dep in spelled if dep != attached] or spelled
+        return names[matches[0]] if len(matches) == 1 else to
+
+    keys: dict[tuple[str, str], DeclaredKey] = {}
+    composite_keys: dict[tuple[str, tuple[str, ...]], DeclaredCompositeKey] = {}
+    for node in nodes.values():
+        if not isinstance(node, dict) or node.get("resource_type") != "test":
+            continue
+        meta = node.get("test_metadata")
+        if not isinstance(meta, dict):
+            continue
+        kwargs = meta.get("kwargs")
+        kwargs = kwargs if isinstance(kwargs, dict) else {}
+        test_name = meta.get("name")
+        # A model-level composite-unique test carries no column_name at all
+        # (dbt-core's own built-in test and the dbt_utils macro both compile
+        # to this same stripped-namespace name), so it must be checked before
+        # the column_name gate below -- placed after, it would still hit that
+        # gate's `continue` and vanish, exactly today's silent-drop bug.
+        if test_name == "unique_combination_of_columns":
+            combo = kwargs.get("combination_of_columns")
+            if (
+                isinstance(combo, list)
+                and len(combo) >= 2
+                and all(isinstance(c, str) for c in combo)
+            ):
+                child = attached_name(node)
+                if child is not None:
+                    dedup_key = (child, tuple(sorted(c.lower() for c in combo)))
+                    composite_keys.setdefault(
+                        dedup_key,
+                        DeclaredCompositeKey(
+                            model=child,
+                            relation=relations.get(child),
+                            columns=list(combo),
+                            source="manifest",
+                        ),
+                    )
+            continue
+        column = kwargs.get("column_name")
+        if not isinstance(column, str) or not column:
+            continue
+        if test_name == "relationships":
+            to_model = _parse_relation_ref(kwargs.get("to"))
+            field = kwargs.get("field")
+            if not to_model or not isinstance(field, str) or not field:
+                continue
+            to_model = referenced_name(node, to_model)
+            child = attached_name(node, exclude=to_model)
+            if child is None:
+                continue
+            defs.foreign_keys.append(
+                DeclaredForeignKey(
+                    model=child,
+                    relation=relations.get(child),
+                    column=column,
+                    to_model=to_model,
+                    to_relation=relations.get(to_model),
+                    to_column=field,
+                    source="manifest",
+                )
+            )
+        elif test_name in ("unique", "not_null"):
+            child = attached_name(node)
+            if child is None:
+                continue
+            key = keys.setdefault(
+                (child, column),
+                DeclaredKey(
+                    model=child,
+                    relation=relations.get(child),
+                    column=column,
+                    source="manifest",
+                ),
+            )
+            if test_name == "unique":
+                key.unique = True
+            else:
+                key.not_null = True
+
+    defs.declared_keys = list(keys.values())
+    defs.declared_composite_keys = list(composite_keys.values())
+    defs.model_relations.update(model_relations)
+    defs.source_relations.update(source_relations)
+    defs.manifest_loaded = True
+    defs.relationship_source = "manifest"
+
+
+def _named_tests(test: dict[str, Any]) -> list[tuple[str, Any]]:
+    """``(test name, its mapping)`` for one dict entry of a ``tests:`` list.
+
+    dbt documents two spellings and ``TestBuilder.extract_test_args`` reads
+    both: the name as the entry's key with the test's mapping as its value
+    (``{unique: {...}}``), and the name under ``test_name:`` beside the rest
+    of the mapping (``{name: ..., test_name: unique, arguments: {...}}``).
+    """
+
+    name = test.get("test_name")
+    if isinstance(name, str):
+        return [(name, test)]
+    return list(test.items())
+
+
+def _test_arguments(config: Any) -> dict[str, Any]:
+    """A generic test's inputs as dbt reads them from its YAML mapping.
+
+    Since dbt Core 1.10.8 (``require_generic_test_arguments_property``, on by
+    default) inputs are written under ``arguments:``, and dbt merges that
+    mapping over the keys beside it, ``arguments`` winning, before the test
+    sees them. The manifest path never needs this, because the manifest's
+    ``test_metadata.kwargs`` is the merged result; the YAML path does, or it
+    reads no input from a test written the way dbt now asks.
+    """
+
+    if not isinstance(config, dict):
+        return {}
+    arguments = config.get("arguments")
+    return {**config, **arguments} if isinstance(arguments, dict) else config
+
+
+def _declared_from_yaml(view: DbtProjectView, defs: ProjectDefinitions) -> None:
+    """Column-level tests straight from schema YAML: model-level names only,
+    no physical resolution. Model-level relationships tests (declared under the
+    model's ``tests:`` with a ``column_name`` kwarg) are a manifest-only shape.
+
+    A ``unique_combination_of_columns`` test is itself a model-level construct
+    (it names no single column), so it is read from the model's own ``tests:``/
+    ``data_tests:`` block -- sibling to ``columns:``, never reached by the
+    column loop below.
+
+    Each test is read the way dbt reads it (``_named_tests``,
+    ``_test_arguments``), so the inputs are found whether they are written
+    beside the test's name or under ``arguments:``, and the compiled and
+    uncompiled reads of one project agree.
+    """
+
+    keys: dict[tuple[str, str], DeclaredKey] = {}
+    composite_keys: dict[tuple[str, tuple[str, ...]], DeclaredCompositeKey] = {}
+    for parsed, _path in yaml_documents(view):
+        for entry in parsed.get("models") or []:
+            if not isinstance(entry, dict) or not isinstance(entry.get("name"), str):
+                continue
+            model = entry["name"]
+            grain = declared_grain(entry)
+            if grain:
+                defs.declared_grains[model] = grain
+            for test in entry.get("tests") or entry.get("data_tests") or []:
+                if not isinstance(test, dict):
+                    continue
+                combo_cfg = next(
+                    (
+                        cfg
+                        for name, cfg in _named_tests(test)
+                        if name == "unique_combination_of_columns"
+                        or name.endswith(".unique_combination_of_columns")
+                    ),
+                    None,
+                )
+                if combo_cfg is None:
+                    continue
+                combo = _test_arguments(combo_cfg).get("combination_of_columns")
+                if (
+                    isinstance(combo, list)
+                    and len(combo) >= 2
+                    and all(isinstance(c, str) for c in combo)
+                ):
+                    dedup_key = (model, tuple(sorted(c.lower() for c in combo)))
+                    composite_keys.setdefault(
+                        dedup_key,
+                        DeclaredCompositeKey(
+                            model=model, columns=list(combo), source="yaml"
+                        ),
+                    )
+            for column in entry.get("columns") or []:
+                if not isinstance(column, dict) or not isinstance(
+                    column.get("name"), str
+                ):
+                    continue
+                col_name = column["name"]
+                tests = column.get("tests") or column.get("data_tests") or []
+                for test in tests:
+                    kind = test if isinstance(test, str) else None
+                    if isinstance(test, dict):
+                        named = dict(_named_tests(test))
+                        if "relationships" in named:
+                            cfg = _test_arguments(named["relationships"])
+                            to_model = _parse_relation_ref(cfg.get("to"))
+                            field = cfg.get("field")
+                            if to_model and isinstance(field, str) and field:
+                                defs.foreign_keys.append(
+                                    DeclaredForeignKey(
+                                        model=model,
+                                        column=col_name,
+                                        to_model=to_model,
+                                        to_column=field,
+                                        source="yaml",
+                                    )
+                                )
+                            continue
+                        kind = next(
+                            (k for k in ("unique", "not_null") if k in named), None
+                        )
+                    if kind in ("unique", "not_null"):
+                        key = keys.setdefault(
+                            (model, col_name),
+                            DeclaredKey(model=model, column=col_name, source="yaml"),
+                        )
+                        if kind == "unique":
+                            key.unique = True
+                        else:
+                            key.not_null = True
+
+    defs.declared_keys = list(keys.values())
+    defs.declared_composite_keys = list(composite_keys.values())
+    defs.relationship_source = "yaml"
+    if defs.foreign_keys:
+        defs.notes.append(
+            "declared joins read from schema YAML (project not compiled); "
+            "physical resolution is name-based"
+        )
+
+
+def _read_semantic_manifest(project: Path) -> tuple[dict[str, Any], str] | None:
+    return _read_semantic_manifest_file(project, SEMANTIC_MANIFEST_PATH)
+
+
+@dataclass
+class _LayerIndex:
+    """What a metric needs to know about the layer around it.
+
+    Passed as one object rather than as five maps threaded through a signature:
+    every one of them is derived in the same pass over the semantic models, and a
+    metric reads whichever of them its own type happens to need.
+    """
+
+    measure_owner: dict[str, str]
+    measure_agg_time: dict[str, str | None]
+    model_dimensions: dict[str, list[str]]
+    dimension_grains: dict[tuple[str, str], list[str] | None]
+    resolved: dict[str, list[ResolvedPath]] | None = None
+
+
+def semantic_catalog(
+    project: Path,
+    *,
+    resolve_paths: Callable[[str], dict[str, list[ResolvedPath]] | None] | None = None,
+) -> SemanticCatalogView:
+    """The project's semantic layer as a read catalog.
+
+    The compiled ``target/semantic_manifest.json`` is the source rather than the
+    authored YAML, and the two are not interchangeable here. The manifest has
+    already resolved what a reader would otherwise have to reconstruct: a
+    ratio or derived metric's ``input_measures`` all the way down to the
+    aggregations it really reads, each semantic model's physical relation, and
+    the inherited defaults. The YAML fingerprint ``maintain`` takes is the
+    opposite trade on purpose, hashing exactly what the author wrote so a
+    baseline survives a dbt upgrade; a catalog wants the resolution.
+
+    Takes the project directory rather than a loaded view because the compiled
+    artifact is the only file it reads: loading the view would scan and hash every
+    authored file in the project to answer a question none of them can.
+
+    Raises :class:`DbtProjectError` when the project has no compiled semantic
+    manifest, because an empty catalog and an uncompiled project are different
+    answers and only one of them is fixed by running ``dbt parse``. The caller
+    adds whatever alternative it can offer.
+
+    ``resolve_paths`` is how the join graph gets resolved, defaulting to
+    :func:`resolve_group_by_paths`. It is injected rather than called directly so
+    that both halves of the contract are reachable in a test: the resolved read,
+    and the declared single-hop read an install without the ``[semantic]`` extra
+    gets. A resolver that answers None is the second of those, and the catalog
+    declares it rather than letting a short list read as the whole layer.
+    """
+
+    read = _read_semantic_manifest(project)
+    if read is None:
+        raise DbtProjectError(
+            "no compiled semantic manifest at target/semantic_manifest.json; run "
+            "`dbt parse` in the project so the semantic layer can be read"
+        )
+    manifest, manifest_text = read
+    resolved = (resolve_paths or resolve_group_by_paths)(manifest_text)
+
+    models: list[SemanticModelInfo] = []
+    measures: list[MeasureInfo] = []
+    dimensions: dict[str, dict[str, Any]] = {}
+    entity_roles: dict[str, list[EntityRole]] = {}
+    entity_words: dict[str, dict[str, Any]] = {}
+    physical: dict[str, tuple[str, str]] = {}
+    model_dimensions: dict[str, list[str]] = {}
+    measure_owner: dict[str, str] = {}
+    measure_agg_time: dict[str, str | None] = {}
+    dimension_grains: dict[tuple[str, str], list[str] | None] = {}
+    # (semantic model, bare dimension name) -> the physical column behind it, so a
+    # join-resolved path can be given the same column resolution a declared token
+    # gets. Without it the PII gate would fall back to the name heuristic on every
+    # token the join resolution added, which is the weaker screening.
+    columns_by_definition: dict[tuple[str, str], tuple[str, str]] = {}
+    # The same, for a declaration defined as an expression: (relation, expression),
+    # which the gate parses for the columns it reads rather than screening the
+    # element's name alone.
+    computed: dict[str, tuple[str, str]] = {}
+    expressions_by_definition: dict[tuple[str, str], tuple[str, str]] = {}
+    # (semantic model, bare dimension name) -> what the project says about it and
+    # which column it sits on, so a path that reaches a declaration carries the
+    # same words and the same physical column the declaration does. The hosted API
+    # returns the words on every path it names, and a caller comparing the two
+    # backends should not find one of them silent.
+    words_by_definition: dict[tuple[str, str], dict[str, Any]] = {}
+    custom_grains = _custom_granularities(manifest)
+
+    for entry in manifest.get("semantic_models") or []:
+        if not isinstance(entry, dict) or not isinstance(entry.get("name"), str):
+            continue
+        model_name = entry["name"]
+        node_relation = entry.get("node_relation")
+        node_relation = node_relation if isinstance(node_relation, dict) else {}
+        defaults = entry.get("defaults")
+        defaults = defaults if isinstance(defaults, dict) else {}
+        agg_time = defaults.get("agg_time_dimension")
+        relation = node_relation.get("relation_name")
+        relation = strip_relation_quoting(str(relation)) if relation else None
+
+        declared_entities = [
+            e for e in entry.get("entities") or [] if isinstance(e, dict)
+        ]
+        primary = next(
+            (
+                e.get("name")
+                for e in declared_entities
+                if str(e.get("type", "")).lower() == "primary"
+            ),
+            None,
+        )
+        for element in declared_entities:
+            name = element.get("name")
+            if not isinstance(name, str):
+                continue
+            entity_roles.setdefault(name, []).append(
+                EntityRole(
+                    semantic_model=model_name,
+                    type=str(element.get("type") or "").lower(),
+                    expr=element.get("expr"),
+                    role=element.get("role"),
+                    description=element.get("description"),
+                    column=physical_column(element),
+                )
+            )
+            # An entity's words are the same wherever it is declared, so the first
+            # model that wrote any wins; its per-model caveats live on the role.
+            words = entity_words.setdefault(name, {})
+            for field_name in ("label", "description"):
+                if words.get(field_name) is None:
+                    words[field_name] = element.get(field_name)
+
+        qualified: list[str] = []
+        for element in entry.get("dimensions") or []:
+            if not isinstance(element, dict) or not isinstance(
+                element.get("name"), str
+            ):
+                continue
+            bare = element["name"]
+            token = qualified_dimension(primary, bare)
+            qualified.append(token)
+            kind = str(element.get("type") or "").lower()
+            element_params = element.get("type_params")
+            element_params = element_params if isinstance(element_params, dict) else {}
+            # A categorical dimension gets an empty list rather than nothing: "no
+            # grain applies here" is an answer, and it is the one that stops a
+            # caller asking for a grain the dimension could never have.
+            grains = (
+                _grains_from(element_params.get("time_granularity"), custom_grains)
+                if kind == "time"
+                else []
+            )
+            dimension_grains[(model_name, bare)] = grains
+            words_by_definition[(model_name, bare)] = {
+                "type": kind,
+                "label": element.get("label"),
+                "description": element.get("description"),
+                "column": physical_column(element),
+            }
+            merge_element_fields(
+                dimensions,
+                token,
+                {
+                    "type": element.get("type"),
+                    "label": element.get("label"),
+                    "description": element.get("description"),
+                    "definition": bare,
+                    "semantic_model": model_name,
+                    "queryable_granularities": grains,
+                    "column": physical_column(element),
+                },
+            )
+        model_dimensions[model_name] = qualified
+
+        for element in entry.get("measures") or []:
+            if not isinstance(element, dict) or not isinstance(
+                element.get("name"), str
+            ):
+                continue
+            measure_owner[element["name"]] = model_name
+            measure_agg_time[element["name"]] = (
+                element.get("agg_time_dimension") or agg_time
+            )
+            measures.append(
+                MeasureInfo(
+                    name=element["name"],
+                    agg=str(element.get("agg") or "").lower() or None,
+                    expr=element.get("expr"),
+                    # Resolved, not verbatim: a measure with no time dimension of
+                    # its own uses the model's default, which is the value
+                    # MetricFlow aggregates by and therefore the one a caller
+                    # needs. Reporting the null instead would make the field mean
+                    # "unknown" on the majority of a well-configured layer.
+                    agg_time_dimension=element.get("agg_time_dimension") or agg_time,
+                    label=element.get("label"),
+                    description=element.get("description"),
+                    semantic_model=model_name,
+                    column=physical_column(element),
+                )
+            )
+
+        if relation:
+            for element in [*(entry.get("dimensions") or []), *declared_entities]:
+                column = physical_column(element)
+                name = element.get("name") if isinstance(element, dict) else None
+                if not isinstance(name, str):
+                    continue
+                tokens = {name, qualified_dimension(primary, name)}
+                if not column:
+                    expression = element.get("expr")
+                    if isinstance(expression, str) and expression.strip():
+                        target = (relation, expression)
+                        expressions_by_definition[(model_name, name)] = target
+                        for token in tokens:
+                            computed.setdefault(token, target)
+                    continue
+                columns_by_definition[(model_name, name)] = (relation, column)
+                for token in tokens:
+                    physical.setdefault(token, (relation, column))
+
+        models.append(
+            SemanticModelInfo(
+                name=model_name,
+                label=entry.get("label"),
+                description=entry.get("description"),
+                model_ref=node_relation.get("alias")
+                or _parse_relation_ref(str(entry.get("model", ""))),
+                agg_time_dimension=agg_time,
+                primary_entity=primary or entry.get("primary_entity"),
+                relation=relation,
+            )
+        )
+
+    # dex's own synthesis rather than a manifest entry, so it carries no label,
+    # description or owning model: every word in the catalog is the project's.
+    dimensions.setdefault(METRIC_TIME, {"type": "time"})
+
+    # A join-resolved path is a row of its own, folded in beside the declarations
+    # so a dimension the project declares stays visible even when no metric can
+    # reach it (which is exactly what a hosted read cannot see). The declarations
+    # were folded first, so the project's own words win and the resolution only
+    # fills in what it alone knows.
+    for paths in (resolved or {}).values():
+        for path in paths:
+            declaration = (path.semantic_model, path.definition)
+            words = words_by_definition.get(declaration, {})
+            merge_element_fields(
+                dimensions,
+                path.token,
+                {
+                    "type": words.get("type") or path.type,
+                    "label": words.get("label"),
+                    "description": words.get("description"),
+                    "definition": path.definition,
+                    "semantic_model": path.semantic_model,
+                    "queryable_granularities": list(path.grains),
+                    "column": words.get("column"),
+                },
+            )
+            column = columns_by_definition.get(declaration)
+            if column is not None:
+                physical.setdefault(path.token, column)
+            expression = expressions_by_definition.get(declaration)
+            if expression is not None:
+                computed.setdefault(path.token, expression)
+
+    index = _LayerIndex(
+        measure_owner=measure_owner,
+        measure_agg_time=measure_agg_time,
+        model_dimensions=model_dimensions,
+        dimension_grains=dimension_grains,
+        resolved=resolved,
+    )
+    metrics = [
+        _metric_info(entry, index)
+        for entry in manifest.get("metrics") or []
+        if isinstance(entry, dict) and isinstance(entry.get("name"), str)
+    ]
+
+    return SemanticCatalogView(
+        semantic_models=sorted(models, key=lambda m: m.name),
+        metrics=metrics,
+        dimensions=[
+            DimensionInfo(
+                name=name,
+                type=fields.get("type") or "",
+                label=fields.get("label"),
+                description=fields.get("description"),
+                definition=fields.get("definition"),
+                semantic_model=fields.get("semantic_model"),
+                queryable_granularities=fields.get("queryable_granularities"),
+                column=fields.get("column"),
+            )
+            for name, fields in sorted(dimensions.items())
+        ],
+        entities=[
+            EntityInfo(
+                name=name,
+                type=derive_entity_type(roles),
+                label=entity_words.get(name, {}).get("label"),
+                description=entity_words.get(name, {}).get("description"),
+                roles=roles,
+            )
+            for name, roles in sorted(entity_roles.items())
+        ],
+        measures=sorted(measures, key=lambda m: m.name),
+        dimension_scope=(
+            DIMENSIONS_PER_QUERYABLE_PATH if resolved else DIMENSIONS_PER_DECLARATION
+        ),
+        notes=_catalog_notes(metrics),
+        physical_columns=physical,
+        # A token both maps resolve belongs to the column, which is the stronger
+        # evidence: a bare name two models share can be a column on one of them.
+        computed_columns={
+            token: target for token, target in computed.items() if token not in physical
+        },
+    )
+
+
+def _custom_granularities(manifest: dict[str, Any]) -> tuple[str, ...]:
+    """The granularities this project declares on its own time spines.
+
+    dbt lets a project define granularities of its own (a fiscal quarter, a
+    retail week) on the time spine, and they are queryable exactly like a standard
+    grain. A fixed list cannot contain them, which is half of why validating a
+    grain against one was wrong.
+    """
+
+    configuration = manifest.get("project_configuration")
+    configuration = configuration if isinstance(configuration, dict) else {}
+    found: list[str] = []
+    for spine in configuration.get("time_spines") or []:
+        if not isinstance(spine, dict):
+            continue
+        for granularity in spine.get("custom_granularities") or []:
+            name = (
+                granularity.get("name")
+                if isinstance(granularity, dict)
+                else granularity
+            )
+            if isinstance(name, str) and name not in found:
+                found.append(name)
+    return tuple(found)
+
+
+def _catalog_notes(metrics: list[MetricInfo]) -> list[str]:
+    """What this read of the layer has to say about the layer.
+
+    One thing, and it is the thing a caller reading the lists alone gets wrong: a
+    metric whose measures aggregate over different time columns has no single time
+    axis, so grouping it by the layer's time token buckets part of the number by
+    one timestamp and the rest by another, invisibly, in a result that looks like
+    any other.
+
+    What the *read* could not do (a join graph left unresolved because the resolver
+    is absent) is said by the surface rather than here, because the alternatives it
+    has to offer are that surface's own.
+    """
+
+    disagreeing = sorted(m.name for m in metrics if len(m.time_axis or ()) > 1)
+    if not disagreeing:
+        return []
+    return [
+        f"{', '.join(disagreeing)} aggregate over more than one time column "
+        "(see time_axis): grouping by metric_time uses each measure's own, so "
+        "the parts of one number can be bucketed by different timestamps"
+    ]
+
+
+def _metric_info(entry: dict[str, Any], index: _LayerIndex) -> MetricInfo:
+    """One metric: what it is built from, what it can be grouped by, and what a
+    time grouping on it resolves to.
+
+    Groupable dimensions come from the join resolver where it ran, which is the
+    same answer a hosted read gives for the same layer. Without it they are the
+    dimensions of the semantic models owning the metric's input measures,
+    entity-qualified and single-hop, which under-reports a layer with joins; the
+    catalog says so in a note rather than letting the shorter list read as
+    complete.
+
+    ``time_axis`` is read per input measure rather than per metric, because that
+    is where the disagreement lives: a ratio whose two sides sit in different
+    models aggregates over each model's own time column, so a single value would
+    be right about half the number.
+    """
+
+    params = entry.get("type_params")
+    params = params if isinstance(params, dict) else {}
+
+    def named(value: Any) -> str | None:
+        if isinstance(value, str):
+            return value
+        if isinstance(value, dict) and isinstance(value.get("name"), str):
+            return value["name"]
+        return None
+
+    input_measures = [
+        name
+        for name in (named(m) for m in params.get("input_measures") or [])
+        if name is not None
+    ]
+    owners = sorted(
+        {index.measure_owner[m] for m in input_measures if m in index.measure_owner}
+    )
+    resolved = (index.resolved or {}).get(entry["name"])
+    if resolved is not None:
+        groupable = {path.token for path in resolved}
+    else:
+        groupable = {METRIC_TIME}
+        for owner in owners:
+            groupable.update(index.model_dimensions.get(owner, []))
+
+    time_axis: list[str] = []
+    axis_grains: list[list[str] | None] = []
+    for measure in input_measures:
+        axis = index.measure_agg_time.get(measure)
+        if not axis:
+            continue
+        if axis not in time_axis:
+            time_axis.append(axis)
+        axis_grains.append(
+            index.dimension_grains.get((index.measure_owner.get(measure, ""), axis))
+        )
+    # The metric's floor is its coarsest axis, so the grains it can be queried at
+    # are the ones every axis can serve. One unknown axis makes the whole answer
+    # unknown rather than optimistic.
+    granularities: list[str] | None = None
+    if axis_grains and all(axis_grains):
+        granularities = [
+            grain
+            for grain in axis_grains[0] or []
+            if all(grain in (other or []) for other in axis_grains[1:])
+        ]
+    if resolved is not None:
+        # The resolver states this outright, so prefer it over the derivation.
+        from_resolver = next(
+            (path.grains for path in resolved if path.token == METRIC_TIME), ()
+        )
+        granularities = list(from_resolver) or granularities
+
+    input_metrics = [
+        name
+        for name in (named(m) for m in params.get("metrics") or [])
+        if name is not None
+    ]
+    composition = MetricComposition(
+        measure=named(params.get("measure")),
+        numerator=named(params.get("numerator")),
+        denominator=named(params.get("denominator")),
+        expr=params.get("expr"),
+        input_metrics=input_metrics or None,
+    )
+
+    return MetricInfo(
+        name=entry["name"],
+        type=str(entry.get("type") or "").lower(),
+        label=entry.get("label"),
+        description=entry.get("description"),
+        dimensions=sorted(groupable),
+        semantic_models=owners or None,
+        input_measures=input_measures or None,
+        composition=composition,
+        filter=_where_template(entry.get("filter")),
+        time_axis=sorted(time_axis) or None,
+        queryable_granularities=granularities,
+        vendor_params=_metricflow_params(params, str(entry.get("type") or "").lower()),
+    )
+
+
+def _where_template(value: Any) -> str | None:
+    """A filter's SQL template, from either spelling the artifacts use.
+
+    dbt has carried a metric filter as a single ``where_sql_template`` and as a
+    ``where_filters`` list across versions, and the hosted API returns the single
+    form. Several templates join with ``AND``, which is how MetricFlow itself
+    combines them.
+    """
+
+    if isinstance(value, str):
+        return value or None
+    if not isinstance(value, dict):
+        return None
+    single = value.get("where_sql_template")
+    if isinstance(single, str) and single:
+        return single
+    templates = [
+        f.get("where_sql_template")
+        for f in value.get("where_filters") or []
+        if isinstance(f, dict) and isinstance(f.get("where_sql_template"), str)
+    ]
+    return " AND ".join(t for t in templates if t) or None
+
+
+def _metricflow_params(
+    params: dict[str, Any], metric_type: str
+) -> dict[str, Any] | None:
+    """The parts of a metric's definition that only mean something under
+    MetricFlow, under one key rather than promoted into the neutral core.
+
+    A cumulative window, a grain-to-date, a derived metric's per-input offset
+    window and whether the metric can be queried at all without a time dimension
+    are real and worth carrying; they are also this vendor's semantics, and a
+    consumer needs to be able to tell that without a lookup table.
+
+    ``requires_metric_time`` is derived rather than read, because the compiled
+    artifact does not carry it: a metric that accumulates or offsets its window
+    has no meaning without a time axis to accumulate or offset along. It is
+    written only when true, so an absent key means false and 27 metrics do not
+    each pay for a false.
+    """
+
+    def window(value: Any) -> dict[str, Any] | None:
+        if not isinstance(value, dict):
+            return None
+        count, granularity = value.get("count"), value.get("granularity")
+        if count is None and granularity is None:
+            return None
+        return {"count": count, "granularity": granularity}
+
+    # dbt has moved a cumulative metric's window and grain-to-date under their own
+    # key and kept mirroring them at the top level; read both so the fields do not
+    # silently vanish on a newer project.
+    cumulative_params = params.get("cumulative_type_params")
+    cumulative_params = cumulative_params if isinstance(cumulative_params, dict) else {}
+
+    vendor: dict[str, Any] = {}
+    cumulative = window(params.get("window")) or window(cumulative_params.get("window"))
+    if cumulative is not None:
+        vendor["window"] = cumulative
+    grain_to_date = params.get("grain_to_date") or cumulative_params.get(
+        "grain_to_date"
+    )
+    if grain_to_date:
+        vendor["grain_to_date"] = grain_to_date
+    offsets = {}
+    for input_metric in params.get("metrics") or []:
+        if not isinstance(input_metric, dict):
+            continue
+        offset = window(input_metric.get("offset_window"))
+        if offset is not None and isinstance(input_metric.get("name"), str):
+            offsets[input_metric["name"]] = offset
+    if offsets:
+        vendor["offset_windows"] = offsets
+    offset_to_grain = any(
+        isinstance(x, dict) and x.get("offset_to_grain")
+        for x in params.get("metrics") or []
+    )
+    if metric_type == "cumulative" or offsets or offset_to_grain:
+        vendor["requires_metric_time"] = True
+    return vendor or None
+
+
+def _primary_entity_column(entities: Any) -> str | None:
+    """The declared grain: the primary entity's column, when it is a plain
+    column reference (bare ``expr``, or a name with no ``expr``)."""
+
+    for entity in entities or []:
+        if not isinstance(entity, dict):
+            continue
+        if str(entity.get("type", "")).lower() != "primary":
+            continue
+        return physical_column(entity)
+    return None
+
+
+def _semantic_from_manifest(payload: dict[str, Any], defs: ProjectDefinitions) -> None:
+    """Grain and metric lineage from the compiled semantic manifest, whose
+    ``node_relation`` also resolves each semantic model physically (useful even
+    when manifest.json is absent). ``input_measures`` is pre-resolved there, so
+    ratio/derived chains need no chasing."""
+
+    # A semantic model names its relation by alias, which for a versioned or
+    # aliased model is not the model's label. Where the compiled manifest has
+    # already placed a model on that relation, its grain is filed under that
+    # model, so one relation is never two models to a consumer.
+    owner_of = {relation: label for label, relation in defs.model_relations.items()}
+    measure_owner: dict[str, str] = {}
+    for entry in payload.get("semantic_models") or []:
+        if not isinstance(entry, dict):
+            continue
+        node_relation = entry.get("node_relation")
+        node_relation = node_relation if isinstance(node_relation, dict) else {}
+        model = node_relation.get("alias") or _parse_relation_ref(
+            str(entry.get("model", ""))
+        )
+        if not isinstance(model, str) or not model:
+            continue
+        relation = node_relation.get("relation_name")
+        owner = model
+        if isinstance(relation, str) and relation:
+            physical = strip_relation_quoting(relation)
+            owner = owner_of.get(physical, model)
+            defs.model_relations.setdefault(owner, physical)
+        grain = _primary_entity_column(entry.get("entities"))
+        if grain:
+            defs.primary_entities[owner] = grain
+        for measure in entry.get("measures") or []:
+            if isinstance(measure, dict) and isinstance(measure.get("name"), str):
+                measure_owner[measure["name"]] = model
+
+    reachable: set[str] = set()
+    for metric in payload.get("metrics") or []:
+        if not isinstance(metric, dict):
+            continue
+        params = metric.get("type_params")
+        params = params if isinstance(params, dict) else {}
+        for input_measure in params.get("input_measures") or []:
+            name = (
+                input_measure.get("name")
+                if isinstance(input_measure, dict)
+                else input_measure
+            )
+            owner = measure_owner.get(name) if isinstance(name, str) else None
+            if owner:
+                reachable.add(owner)
+    defs.metric_models = sorted(reachable)
+    defs.semantic_source = "manifest"
+
+
+def _semantic_from_yaml(
+    entries: list[tuple[str, dict[str, Any], str]], defs: ProjectDefinitions
+) -> None:
+    """The same grain and lineage from raw YAML entries. Ratio and derived
+    metrics reference other metrics, so lineage resolves transitively down to
+    measures (with a seen-set: a metric cycle is an authoring error, not a
+    reason to recurse forever)."""
+
+    if not entries:
+        return
+    measure_owner: dict[str, str] = {}
+    metric_graph: dict[str, tuple[list[str], list[str]]] = {}
+    for kind, entry, _path in entries:
+        if kind == "semantic_model":
+            model = _parse_relation_ref(str(entry.get("model", "")))
+            if not model:
+                continue
+            grain = _primary_entity_column(entry.get("entities"))
+            if grain:
+                defs.primary_entities[model] = grain
+            for measure in entry.get("measures") or []:
+                if isinstance(measure, dict) and isinstance(measure.get("name"), str):
+                    measure_owner[measure["name"]] = model
+        else:
+            metric_graph[str(entry["name"])] = metric_inputs(entry)
+
+    def grounded_measures(name: str, seen: set[str]) -> list[str]:
+        if name in seen:
+            return []
+        seen.add(name)
+        measures, metrics = metric_graph.get(name, ([], []))
+        grounded = list(measures)
+        for metric in metrics:
+            grounded.extend(grounded_measures(metric, seen))
+        return grounded
+
+    reachable: set[str] = set()
+    for name in metric_graph:
+        for measure in grounded_measures(name, set()):
+            owner = measure_owner.get(measure)
+            if owner:
+                reachable.add(owner)
+    defs.metric_models = sorted(reachable)
+    defs.semantic_source = "yaml"
+
+
+def manifest_freshness(view: DbtProjectView) -> dict[str, Any]:
+    """When the compiled manifest was written, against the newest model source.
+
+    Four fields rather than one boolean, because "not stale" and "cannot tell"
+    are different answers and a caller acts differently on each.
+    ``manifest_present`` is whether there is a compiled manifest at all;
+    ``generated_at`` and ``newest_source_at`` are the two timestamps compared;
+    and ``stale`` is ``None`` wherever either timestamp is missing, which is the
+    honest answer for a project that has never been compiled or one whose
+    manifest carries no metadata.
+    """
+
+    freshness: dict[str, Any] = {
+        "manifest_present": view.manifest is not None,
+        "generated_at": None,
+        "newest_source_at": None,
+        "stale": None,
+    }
+    metadata = (view.manifest or {}).get("metadata")
+    generated = metadata.get("generated_at") if isinstance(metadata, dict) else None
+    generated_at: datetime | None = None
+    if isinstance(generated, str):
+        try:
+            generated_at = datetime.fromisoformat(generated.replace("Z", "+00:00"))
+        except ValueError:
+            generated_at = None
+        if generated_at is not None:
+            if generated_at.tzinfo is None:
+                generated_at = generated_at.replace(tzinfo=UTC)
+            freshness["generated_at"] = generated_at.isoformat()
+
+    root = Path(view.root)
+    newest: float | None = None
+    for model_path in view.model_paths:
+        base = root / model_path
+        if not base.is_dir():
+            continue
+        for path in base.rglob("*"):
+            if path.suffix not in {".sql", ".yml", ".yaml"} or not path.is_file():
+                continue
+            mtime = path.stat().st_mtime
+            if newest is None or mtime > newest:
+                newest = mtime
+    newest_at = datetime.fromtimestamp(newest, tz=UTC) if newest is not None else None
+    if newest_at is not None:
+        freshness["newest_source_at"] = newest_at.isoformat()
+    if generated_at is not None and newest_at is not None:
+        freshness["stale"] = newest_at > generated_at
+    return freshness
+
+
+def _flag_stale_manifest(view: DbtProjectView, defs: ProjectDefinitions) -> None:
+    """A manifest older than the newest model source describes a project state
+    that may no longer exist; note it, never refuse on it."""
+
+    if manifest_freshness(view).get("stale"):
+        defs.manifest_stale = True
+        defs.notes.append(
+            "compiled dbt artifacts are older than the model sources; "
+            "declared definitions may lag recent edits"
+        )

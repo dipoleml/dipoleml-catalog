@@ -1,0 +1,83 @@
+{
+  "name": "xclaude-plugin",
+  "version": "0.4.0",
+  "description": "Modular iOS development automation suite. 8 workflow-specific MCP servers (600-3500 tokens) with 23 tools across Xcode, Simulator, and IDB. Enable only what you need!",
+  "author": {
+    "name": "Conor Luddy",
+    "email": "conor@conorluddy.com",
+    "url": "https://github.com/conorluddy"
+  },
+  "homepage": "https://github.com/conorluddy/xclaude-plugin",
+  "repository": "https://github.com/conorluddy/xclaude-plugin",
+  "license": "MIT",
+  "keywords": [
+    "xcode",
+    "ios",
+    "simulator",
+    "testing",
+    "idb",
+    "accessibility",
+    "automation",
+    "xcodebuild",
+    "simctl",
+    "modular"
+  ],
+  "mcpServers": {
+    "xc-interact": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp-servers/xc-interact/dist/index.js"],
+      "env": {
+        "XC_LOG_LEVEL": "info"
+      }
+    },
+    "xc-build": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp-servers/xc-build/dist/index.js"],
+      "env": {
+        "XC_LOG_LEVEL": "info"
+      }
+    },
+    "xc-launch": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp-servers/xc-launch/dist/index.js"],
+      "env": {
+        "XC_LOG_LEVEL": "info"
+      }
+    },
+    "xc-ai-assist": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp-servers/xc-ai-assist/dist/index.js"],
+      "env": {
+        "XC_LOG_LEVEL": "info"
+      }
+    },
+    "xc-setup": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp-servers/xc-setup/dist/index.js"],
+      "env": {
+        "XC_LOG_LEVEL": "info"
+      }
+    },
+    "xc-testing": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp-servers/xc-testing/dist/index.js"],
+      "env": {
+        "XC_LOG_LEVEL": "info"
+      }
+    },
+    "xc-meta": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp-servers/xc-meta/dist/index.js"],
+      "env": {
+        "XC_LOG_LEVEL": "info"
+      }
+    },
+    "xc-all": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/mcp-servers/xc-all/dist/index.js"],
+      "env": {
+        "XC_LOG_LEVEL": "info"
+      }
+    }
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "threshold": 7,
+  "reporters": ["console", "markdown"],
+  "output": "./jscpd-report",
+  "ignore": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/bundle/**",
+    "**/coverage/**",
+    "**/*.test.ts",
+    "**/tests/**",
+    "**/fixtures/**",
+    "**/harnesses/claude-code/.claude-plugin/**",
+    "**/harnesses/codex/.codex-plugin/**",
+    "**/src/hooks/cursor/wiki-worker.ts",
+    "**/src/hooks/cursor/spawn-wiki-worker.ts",
+    "**/src/hooks/cursor/capture.ts",
+    "**/src/hooks/cursor/session-start.ts",
+    "**/src/hooks/cursor/pre-tool-use.ts",
+    "**/src/hooks/hermes/wiki-worker.ts",
+    "**/src/hooks/hermes/spawn-wiki-worker.ts",
+    "**/src/hooks/hermes/capture.ts",
+    "**/src/hooks/hermes/session-start.ts",
+    "**/src/hooks/hermes/pre-tool-use.ts",
+    "**/src/hooks/pi/wiki-worker.ts"
+  ],
+  "absolute": false,
+  "gitignore": true,
+  "format": ["typescript"],
+  "minLines": 10,
+  "minTokens": 60
+}

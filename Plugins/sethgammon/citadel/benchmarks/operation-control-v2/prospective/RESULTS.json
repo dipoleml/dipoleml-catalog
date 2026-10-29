@@ -1,0 +1,75 @@
+{
+  "schema": 1,
+  "kind": "citadel_operation_control_v2_prospective_result",
+  "evidence_class": "prospective-real-runtime-integration",
+  "source": {
+    "repository": "https://github.com/SethGammon/Citadel.git",
+    "pinned_ref": "4a02265c206d992b556fc1b38c3c9487ced880d8",
+    "required_changed_paths": [
+      "scripts/test-executor-profiles.js"
+    ]
+  },
+  "cells": {
+    "codex_windowsapps": {
+      "status": "failed",
+      "reason_code": "RUNTIME_LAUNCH_FAILED",
+      "duration_ms": 353,
+      "observed_model": null,
+      "report_digest": "sha256:1edecbe4fb3cf89af658a995fe4e2e2258d8c62082c42a3d7524515e38489dc2"
+    },
+    "claude_sandbox": {
+      "status": "failed",
+      "reason_code": "RUNTIME_EXIT_NONZERO",
+      "diagnostic_classification": "provider-connection-refused-observed-outside-public-report",
+      "duration_ms": 185640,
+      "observed_model": null,
+      "report_digest": "sha256:ee017921a00de67d009ff247dffc9324616241fe152f1341ebfeaedfda03e017"
+    },
+    "claude_public_clone": {
+      "status": "passed",
+      "terminal_reason_code": "VERIFIED_SUCCESS",
+      "duration_ms": 307836,
+      "requested_model": "claude-opus-5",
+      "observed_model": "claude-opus-5",
+      "requested_topology": "direct",
+      "observed_topology": "direct",
+      "verifier_exit_code": 0,
+      "verifier_duration_ms": 230,
+      "artifact_coverage": "passed",
+      "actual_cash": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "invoice and subscription attribution are outside the runtime adapter"
+      },
+      "marginal": {
+        "status": "unknown",
+        "amount_usd": null,
+        "basis": "observed",
+        "source": "per-operation marginal cash was not observed"
+      },
+      "market_equivalent": {
+        "status": "known",
+        "amount_usd": 0.7042557,
+        "basis": "list-price",
+        "source": "claude total_cost_usd telemetry"
+      },
+      "report_digest": "sha256:87cd8dfed9ca5c74735aeeebe4b1b515272cc141093b9ff2af77ef0840691dcb"
+    }
+  },
+  "claims": {
+    "demonstrated": [
+      "The packaged controller invoked a real declared coding runtime against a pinned public repository.",
+      "Requested and observed model and topology matched on the successful cell.",
+      "A separate repository command verified the changed required artifact before the operation passed.",
+      "Failed infrastructure attempts remained published failures and did not acquire model or outcome proof.",
+      "Unknown actual and marginal cash remained unknown while attributable market-equivalent telemetry stayed separate."
+    ],
+    "not_demonstrated": [
+      "One successful integration cell does not establish savings, performance superiority, or general reliability.",
+      "Aggregate Claude output did not expose individual tool-call identity, so this cell proves the bounded runtime configuration but not call-by-call tool provenance.",
+      "The original comparative performance gate remains open."
+    ]
+  },
+  "evidence_digest": "sha256:c2e431b012b951953ee40db050230c42c8701a191bc29296bcaa8438828ca261"
+}

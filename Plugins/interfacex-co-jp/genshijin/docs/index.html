@@ -1,0 +1,1308 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>genshijin - Claude Code Plugin</title>
+  <meta name="description" content="Claude Code向け超圧縮コミュニケーションスキル。トークン使用量を約75%削減しつつ、技術的正確性は100%維持。コミット・PRレビュー・メモリ圧縮・stats可視化サブスキル＋3 subagent＋MCP middleware 同梱。">
+  <meta property="og:title" content="genshijin - Claude Code 超圧縮スキル">
+  <meta property="og:description" content="トークン使用量を約75%削減しつつ、技術的正確性は100%維持。stats/subagent/MCP-shrink 同梱。">
+  <meta property="og:image" content="https://interfacex-co-jp.github.io/genshijin/ogp.png">
+  <meta property="og:url" content="https://interfacex-co-jp.github.io/genshijin/">
+  <meta property="og:type" content="website">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="genshijin - Claude Code 超圧縮スキル">
+  <meta name="twitter:description" content="トークン使用量を約75%削減しつつ、技術的正確性は100%維持。サブスキル6個＋3 subagent同梱。">
+  <meta name="twitter:image" content="https://interfacex-co-jp.github.io/genshijin/ogp.png">
+  <style>
+    :root {
+      --bg: #0d0d0d;
+      --surface: #1a1a1a;
+      --border: #2a2a2a;
+      --text: #e8e8e8;
+      --text-muted: #888;
+      --accent: #d4a574;
+      --accent-dim: #b8895a;
+      --green: #7ec87e;
+      --red: #e06060;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+
+    .container {
+      max-width: 800px;
+      margin: 0 auto;
+      padding: 0 24px;
+    }
+
+    /* Hero */
+    .hero {
+      text-align: center;
+      padding: 80px 0 60px;
+    }
+
+    .hero-icon {
+      font-size: 72px;
+      margin-bottom: 16px;
+    }
+
+    .hero h1 {
+      font-size: 2.5rem;
+      font-weight: 700;
+      margin-bottom: 8px;
+      letter-spacing: -0.02em;
+    }
+
+    .hero h1 span {
+      color: var(--text-muted);
+      font-weight: 400;
+      font-size: 1.8rem;
+    }
+
+    .hero .tagline {
+      font-size: 1.15rem;
+      color: var(--text-muted);
+      margin-bottom: 32px;
+      max-width: 520px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .hero .quote {
+      font-size: 1rem;
+      color: var(--accent);
+      font-style: italic;
+      margin-bottom: 32px;
+    }
+
+    .stat-row {
+      display: flex;
+      justify-content: center;
+      gap: 48px;
+      margin-bottom: 40px;
+    }
+
+    .stat {
+      text-align: center;
+    }
+
+    .stat-value {
+      font-size: 2.2rem;
+      font-weight: 700;
+      color: var(--accent);
+    }
+
+    .stat-label {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    /* Install */
+    .install-box {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px 24px;
+      margin-bottom: 60px;
+      position: relative;
+    }
+
+    .install-box .label {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      margin-bottom: 8px;
+    }
+
+    .install-box code {
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      font-size: 0.95rem;
+      color: var(--accent);
+      display: block;
+      user-select: all;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      white-space: nowrap;
+      padding-right: 72px;
+    }
+
+    .copy-btn {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      background: var(--border);
+      border: none;
+      color: var(--text-muted);
+      padding: 6px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.8rem;
+      transition: all 0.2s;
+    }
+
+    .copy-btn:hover {
+      background: var(--accent-dim);
+      color: var(--bg);
+    }
+
+    /* Sections */
+    section {
+      margin-bottom: 56px;
+    }
+
+    section h2 {
+      font-size: 1.3rem;
+      font-weight: 600;
+      margin-bottom: 20px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    /* Examples */
+    .example {
+      margin-bottom: 40px;
+    }
+
+    .example-prompt {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px 10px 0 0;
+      padding: 12px 20px;
+      font-size: 0.85rem;
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    .example-prompt::before {
+      content: '> ';
+      color: var(--text-muted);
+    }
+
+    .example-cards {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 0;
+    }
+
+    @media (max-width: 768px) {
+      .example-cards { grid-template-columns: 1fr; }
+      .stat-row { gap: 24px; }
+      .hero h1 { font-size: 2rem; }
+      .hero h1 span { font-size: 1.4rem; }
+    }
+
+    .example-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 16px 20px;
+      font-size: 0.85rem;
+      line-height: 1.55;
+      max-height: 280px;
+      overflow-y: auto;
+    }
+
+    .example-card:first-child {
+      border-radius: 0 0 0 10px;
+    }
+
+    .example-card:last-child {
+      border-radius: 0 0 10px 0;
+    }
+
+    @media (max-width: 768px) {
+      .example-card:first-child { border-radius: 0; }
+      .example-card:last-child { border-radius: 0 0 10px 10px; }
+    }
+
+    .example-card .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .example-card .card-label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      font-weight: 600;
+    }
+
+    .example-card.normal .card-label { color: var(--red); }
+    .example-card.caveman .card-label { color: #e0c060; }
+    .example-card.genshijin .card-label { color: var(--green); }
+
+    .example-card .card-tokens {
+      font-family: 'SF Mono', monospace;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+    }
+
+    .example-card p {
+      color: var(--text-muted);
+    }
+
+    .example-card.genshijin p {
+      color: var(--text);
+    }
+
+    .example-card code {
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 0.8rem;
+      background: rgba(212, 165, 116, 0.15);
+      padding: 1px 4px;
+      border-radius: 3px;
+      color: var(--accent);
+    }
+
+    .example-card pre {
+      background: #111;
+      border-radius: 6px;
+      padding: 10px 12px;
+      margin: 6px 0;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .example-card pre code {
+      background: none;
+      padding: 0;
+      font-size: 0.75rem;
+      line-height: 1.5;
+      color: var(--text);
+    }
+
+    .example-card .card-body {
+      color: var(--text-muted);
+    }
+
+    .example-card.genshijin .card-body {
+      color: var(--text);
+    }
+
+    /* Modes */
+    .modes {
+      display: grid;
+      gap: 12px;
+    }
+
+    .mode {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px 20px;
+      display: flex;
+      align-items: baseline;
+      gap: 16px;
+    }
+
+    .mode-name {
+      font-weight: 600;
+      white-space: nowrap;
+      min-width: 100px;
+      flex-shrink: 0;
+    }
+
+    .mode-name code {
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 0.85rem;
+      color: var(--accent);
+    }
+
+    .mode-desc {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      min-width: 0;
+    }
+
+    .mode-desc pre {
+      -webkit-overflow-scrolling: touch;
+      max-width: 100%;
+    }
+
+    /* Features */
+    .features {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    @media (max-width: 600px) {
+      .features { grid-template-columns: 1fr; }
+
+      .container { padding: 0 16px; }
+
+      .hero { padding: 48px 0 40px; }
+      .hero-icon { font-size: 56px; }
+      .hero h1 { font-size: 1.7rem; }
+      .hero h1 span { font-size: 1.2rem; }
+      .hero .tagline { font-size: 1rem; }
+
+      .stat-row { gap: 20px; margin-bottom: 32px; }
+      .stat-value { font-size: 1.7rem; }
+      .stat-label { font-size: 0.75rem; }
+
+      .install-box { padding: 16px; }
+      .install-box code { font-size: 0.8rem; }
+      .copy-btn { top: 12px; right: 12px; font-size: 0.75rem; padding: 5px 10px; }
+
+      section { margin-bottom: 40px; }
+      section h2 { font-size: 1.15rem; }
+
+      /* Mode カードを縦並びに。自動化機能・使い始めセクションの崩れ防止 */
+      .mode {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 6px;
+        padding: 14px 16px;
+      }
+      .mode-name {
+        min-width: 0;
+        white-space: normal;
+      }
+      .mode-desc { font-size: 0.88rem; }
+      .mode-desc pre {
+        font-size: 0.7rem !important;
+      }
+
+      .changelog-entry { padding: 16px 18px; }
+      .changelog-header { flex-wrap: wrap; row-gap: 6px; }
+      .changelog-date { margin-left: 0; width: 100%; }
+    }
+
+    .feature {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px 20px;
+    }
+
+    .feature-title {
+      font-weight: 600;
+      margin-bottom: 4px;
+      font-size: 0.95rem;
+    }
+
+    .feature-desc {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+    }
+
+    /* Lang tabs */
+    .lang-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .lang-tab {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 6px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 0.85rem;
+      transition: all 0.2s;
+    }
+
+    .lang-tab:hover {
+      border-color: var(--accent-dim);
+    }
+
+    .lang-tab.active {
+      background: var(--accent-dim);
+      color: var(--bg);
+      border-color: var(--accent-dim);
+      font-weight: 600;
+    }
+
+    /* Table */
+    .table-wrapper {
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.85rem;
+    }
+
+    th, td {
+      padding: 10px 14px;
+      text-align: left;
+      border-bottom: 1px solid var(--border);
+    }
+
+    th {
+      background: var(--surface);
+      color: var(--text-muted);
+      font-weight: 600;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    td { font-family: 'SF Mono', monospace; font-size: 0.8rem; }
+
+    tr:last-child td { border-bottom: none; }
+    tr:last-child { background: var(--surface); font-weight: 600; }
+
+    /* Highlight genshijin & 削減率 columns */
+    th:nth-child(4), th:nth-child(5) {
+      color: var(--accent);
+    }
+
+    td:nth-child(4), td:nth-child(5) {
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    /* JSON viewer */
+    .json-viewer {
+      background: #111;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px;
+      max-height: 600px;
+      overflow: auto;
+      -webkit-overflow-scrolling: touch;
+      font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+      font-size: 0.8rem;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .json-viewer .json-key { color: #7ec87e; }
+    .json-viewer .json-string { color: #d4a574; }
+    .json-viewer .json-number { color: #7eb8e0; }
+    .json-viewer .json-bool { color: #e0c060; }
+    .json-viewer .json-null { color: #888; }
+    .json-viewer .json-bracket { color: #ccc; }
+    .json-viewer .json-comma { color: #888; }
+
+    /* Patch Notes */
+    .changelog {
+      display: grid;
+      gap: 16px;
+    }
+
+    .changelog-entry {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px 24px;
+    }
+
+    .changelog-entry.latest {
+      border-color: var(--accent-dim);
+      box-shadow: 0 0 0 1px var(--accent-dim) inset;
+    }
+
+    .changelog-header {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      margin-bottom: 12px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .changelog-version {
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--accent);
+    }
+
+    .changelog-entry.latest .changelog-badge {
+      display: inline-block;
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      color: var(--bg);
+      background: var(--accent-dim);
+      padding: 2px 8px;
+      border-radius: 4px;
+      text-transform: uppercase;
+    }
+
+    .changelog-date {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      font-family: 'SF Mono', monospace;
+      margin-left: auto;
+    }
+
+    .changelog-section {
+      margin-top: 10px;
+    }
+
+    .changelog-section-title {
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+
+    .changelog-section.added .changelog-section-title { color: #7ec87e; }
+    .changelog-section.changed .changelog-section-title { color: #7eb8e0; }
+    .changelog-section.fixed .changelog-section-title { color: #e0c060; }
+    .changelog-section.removed .changelog-section-title { color: var(--red); }
+    .changelog-section.deprecated .changelog-section-title { color: #b888d4; }
+    .changelog-section.security .changelog-section-title { color: var(--red); }
+
+    .changelog-list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      font-size: 0.88rem;
+      line-height: 1.6;
+    }
+
+    .changelog-list li {
+      padding: 2px 0 2px 14px;
+      position: relative;
+      color: var(--text);
+    }
+
+    .changelog-list li::before {
+      content: '–';
+      position: absolute;
+      left: 0;
+      color: var(--text-muted);
+    }
+
+    .changelog-list li ul {
+      list-style: none;
+      padding-left: 16px;
+      margin-top: 2px;
+    }
+
+    .changelog-list code {
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 0.82rem;
+      background: rgba(212, 165, 116, 0.15);
+      padding: 1px 5px;
+      border-radius: 3px;
+      color: var(--accent);
+    }
+
+    .changelog-more {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-top: 8px;
+    }
+
+    .changelog-more a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .changelog-more a:hover { text-decoration: underline; }
+
+    .changelog-loading {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      padding: 16px 0;
+    }
+
+    /* Footer */
+    footer {
+      text-align: center;
+      padding: 40px 0;
+      color: var(--text-muted);
+      font-size: 0.85rem;
+      border-top: 1px solid var(--border);
+    }
+
+    footer a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    footer a:hover { text-decoration: underline; }
+
+    .footer-links {
+      display: flex;
+      justify-content: center;
+      gap: 24px;
+      margin-bottom: 12px;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header class="hero">
+      <div class="hero-icon">🗿</div>
+      <h1>genshijin <span>原始人</span></h1>
+      <p class="quote">なぜ多くトークン使う？少なくて済む🗿</p>
+      <p class="tagline">Claude Code 向け超圧縮コミュニケーションスキル。日本語に最適化されたトークン削減プラグイン。</p>
+
+      <div class="stat-row">
+        <div class="stat">
+          <div class="stat-value">~80%</div>
+          <div class="stat-label">トークン削減</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value">100%</div>
+          <div class="stat-label">技術的正確性</div>
+        </div>
+        <div class="stat">
+          <div class="stat-value">3段階</div>
+          <div class="stat-label">強度レベル</div>
+        </div>
+      </div>
+
+      <div class="install-box">
+        <div class="label">Install</div>
+        <code>claude plugin marketplace add InterfaceX-co-jp/genshijin</code>
+        <button class="copy-btn" onclick="copyInstall(this)">Copy</button>
+      </div>
+    </header>
+
+    <section>
+      <h2>実際の圧縮結果</h2>
+      <p style="color: var(--text-muted); margin-bottom: 24px; font-size: 0.9rem;">同じプロンプト・同じモデル（Claude Sonnet）で生成。内容は同じ、トークンだけ違う。</p>
+
+      <!-- Example 1: CORS -->
+      <div class="example">
+        <div class="example-prompt">CORSエラーが出る。原因と解決策を教えて</div>
+        <div class="example-cards">
+          <div class="example-card normal" id="ex1-normal"></div>
+          <div class="example-card caveman" id="ex1-caveman"></div>
+          <div class="example-card genshijin" id="ex1-genshijin"></div>
+        </div>
+      </div>
+
+      <!-- Example 2: Event Loop -->
+      <div class="example">
+        <div class="example-prompt">Node.jsのイベントループの仕組みを説明して</div>
+        <div class="example-cards">
+          <div class="example-card normal" id="ex2-normal"></div>
+          <div class="example-card caveman" id="ex2-caveman"></div>
+          <div class="example-card genshijin" id="ex2-genshijin"></div>
+        </div>
+      </div>
+
+      <!-- Example 3: Auth Middleware -->
+      <div class="example">
+        <div class="example-prompt">認証ミドルウェアのトークン有効期限チェックにバグがある。修正して</div>
+        <div class="example-cards">
+          <div class="example-card normal" id="ex3-normal"></div>
+          <div class="example-card caveman" id="ex3-caveman"></div>
+          <div class="example-card genshijin" id="ex3-genshijin"></div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>3段階の強度</h2>
+      <div class="modes">
+        <div class="mode">
+          <div class="mode-name"><code>/genshijin 丁寧</code></div>
+          <div class="mode-desc">クッション言葉・ぼかし表現を削除。敬語は維持。ビジネス向き。</div>
+        </div>
+        <div class="mode">
+          <div class="mode-name"><code>/genshijin</code></div>
+          <div class="mode-desc">敬語を落とし体言止め。助詞も最小限。原始人の基本形。</div>
+        </div>
+        <div class="mode">
+          <div class="mode-name"><code>/genshijin 極限</code></div>
+          <div class="mode-desc">略語・矢印記法・一語回答。電報のような最大圧縮。</div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>サブスキル</h2>
+      <p style="color: var(--text-muted); margin-bottom: 16px; font-size: 0.9rem;">
+        本体 <code>/genshijin</code> に加え、用途別サブスキル6個同梱。
+      </p>
+      <div class="modes">
+        <div class="mode">
+          <div class="mode-name"><code>/genshijin-commit</code></div>
+          <div class="mode-desc">Conventional Commits 形式の簡潔コミットメッセージ。件名≤50文字、「なぜ」重視。</div>
+        </div>
+        <div class="mode">
+          <div class="mode-name"><code>/genshijin-review</code></div>
+          <div class="mode-desc">1行PRコメント。<code>L42: 🔴 バグ: user null。ガード追加。</code> の形式。</div>
+        </div>
+        <div class="mode">
+          <div class="mode-name"><code>/genshijin-compress</code></div>
+          <div class="mode-desc"><code>CLAUDE.md</code> 等のメモリファイルを原始人モード化。入力トークンを永続削減。コード・URL・見出しは完全保持、機密ファイルは自動拒否。</div>
+        </div>
+        <div class="mode">
+          <div class="mode-name"><code>/genshijin-stats</code> <span style="color: var(--text-muted); font-size: 0.75rem;">v1.4.0〜</span></div>
+          <div class="mode-desc">現セッションのリアルトークン使用量＋推定削減量＋USD換算をフックが即時表示。<code>--share</code> で1行サマリ、<code>--all</code> / <code>--since 7d</code> でライフタイム集計。</div>
+        </div>
+        <div class="mode">
+          <div class="mode-name"><code>genshijin-crew</code> <span style="color: var(--text-muted); font-size: 0.75rem;">v1.4.0〜</span></div>
+          <div class="mode-desc">3 subagent (<code>investigator</code>/<code>builder</code>/<code>reviewer</code>) preset。tool-result が原始人圧縮 → 主コンテキスト消費約60%減で長セッション持続。</div>
+        </div>
+        <div class="mode">
+          <div class="mode-name"><code>/genshijin-help</code></div>
+          <div class="mode-desc">全モード・サブスキル・設定方法のリファレンスカード表示。</div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>自動化機能 <span style="color: var(--text-muted); font-size: 0.9rem; font-weight: 400;">v1.2.0〜</span></h2>
+      <p style="color: var(--text-muted); margin-bottom: 16px; font-size: 0.9rem;">
+        プラグイン導入後、Claude Code のフック機構で以下が自動で動く。
+      </p>
+      <div class="modes">
+        <div class="mode">
+          <div class="mode-name">SessionStart フック</div>
+          <div class="mode-desc"><code>SKILL.md</code> を読みアクティブレベル行のみフィルタして hidden context に注入。多ターン経過後の敬語回帰・フィラー漂流を防ぐ anchor。</div>
+        </div>
+        <div class="mode">
+          <div class="mode-name">UserPromptSubmit フック</div>
+          <div class="mode-desc"><code>/genshijin</code> 系コマンドや自然言語でモード切替を検出。毎ターン短い補強リマインダを注入して他プラグインとの競合ドリフトを防止。</div>
+        </div>
+        <div class="mode">
+          <div class="mode-name">Statusline バッジ</div>
+          <div class="mode-desc">現モードを <code>[原始人]</code> / <code>[原始人:極限]</code> 等で可視化。未設定時は Claude がセットアップを提案。</div>
+        </div>
+        <div class="mode" style="flex-direction: column; align-items: stretch;">
+          <div class="mode-name" style="margin-bottom: 8px;">既定モードの設定</div>
+          <div class="mode-desc">
+            優先度: 環境変数 > 設定ファイル > <code>normal</code>。
+            <pre style="background: #111; border-radius: 6px; padding: 10px 12px; margin: 8px 0 0; overflow-x: auto; font-size: 0.75rem; line-height: 1.5;"><code># 環境変数（最優先）
+export GENSHIJIN_DEFAULT_MODE=extreme
+
+# 設定ファイル
+mkdir -p ~/.config/genshijin
+echo '{"defaultMode":"extreme"}' \
+  &gt; ~/.config/genshijin/config.json</code></pre>
+            <span style="color: var(--text-muted); font-size: 0.85rem; display: block; margin-top: 8px;"><code>off</code> 指定でルール注入スキップ（一時停止）。</span>
+          </div>
+        </div>
+        <div class="mode">
+          <div class="mode-name">セキュリティ</div>
+          <div class="mode-desc">フラグファイルは symlink 拒否・64バイト上限・モードホワイトリスト検証。秘密ファイルへの symlink 差替えで secret バイトが statusline やモデルコンテキストに流れ込む攻撃を塞ぐ。</div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>v1.4.0 拡張機能 <span style="color: var(--text-muted); font-size: 0.9rem; font-weight: 400;">2026-05-07</span></h2>
+      <p style="color: var(--text-muted); margin-bottom: 16px; font-size: 0.9rem;">
+        caveman 本家 v1.3.0 以降の差分（stats receipts / smart installer / cavecrew相当 / cavepack相当 / MCP-shrink）を全項目移植。
+      </p>
+      <div class="modes">
+        <div class="mode" style="flex-direction: column; align-items: stretch;">
+          <div class="mode-name" style="margin-bottom: 8px;">📊 セッションStats可視化</div>
+          <div class="mode-desc">
+            <code>/genshijin-stats</code> でフックが <code>decision: "block"</code> で stats を即時返却。モデルは数値計算に介在しない。
+            <pre style="background: #111; border-radius: 6px; padding: 10px 12px; margin: 8px 0 0; overflow-x: auto; font-size: 0.75rem; line-height: 1.5;"><code>原始人 Stats
+─────────────────
+Turns:    24
+Output tokens:         18,432
+推定削減トークン:       34,231 (~65%)
+推定削減USD:           ~$0.51
+─────────────────
+メモリ圧縮済:           2 件, ~3,200 tokens セッション開始毎削減</code></pre>
+            <span style="color: var(--text-muted); font-size: 0.85rem; display: block; margin-top: 8px;"><code>claude-opus-4</code> / <code>sonnet-4</code> / <code>haiku-4</code> 系の per-million pricing で USD 自動換算。<code>--share</code> ツイート用、<code>--all</code> / <code>--since 7d</code> ライフタイム集計対応。</span>
+          </div>
+        </div>
+
+        <div class="mode" style="flex-direction: column; align-items: stretch;">
+          <div class="mode-name" style="margin-bottom: 8px;">🤖 3 subagent preset (genshijin-crew)</div>
+          <div class="mode-desc">
+            主スレッド消費トークンを約60%削減。長セッション持続用。
+            <ul style="margin: 8px 0 0; padding-left: 20px; line-height: 1.7;">
+              <li><code>genshijin-investigator</code> — read-only locator (haiku model)、<code>file:line</code> 表で返却</li>
+              <li><code>genshijin-builder</code> — 1-2ファイル surgical edit、3+ファイルは <code>too-big.</code> で拒否</li>
+              <li><code>genshijin-reviewer</code> — severity-tagged finding (🔴bug/🟡risk/🔵nit/❓question)</li>
+            </ul>
+            <span style="color: var(--text-muted); font-size: 0.85rem; display: block; margin-top: 8px;">出力契約は <code>skills/genshijin-crew/SKILL.md</code> に厳密定義 → 主スレッドは <code>path:\d+</code> でgrepできる。</span>
+          </div>
+        </div>
+
+        <div class="mode" style="flex-direction: column; align-items: stretch;">
+          <div class="mode-name" style="margin-bottom: 8px;">🪨 genshijin-shrink (MCP middleware)</div>
+          <div class="mode-desc">
+            任意の MCP server を wrap → <code>tools/list</code> の <code>description</code> field を圧縮。コード/URL/パス/識別子は byte-for-byte 保護。
+            <pre style="background: #111; border-radius: 6px; padding: 10px 12px; margin: 8px 0 0; overflow-x: auto; font-size: 0.75rem; line-height: 1.5;"><code>"mcpServers": {
+  "fs-shrunk": {
+    "command": "npx",
+    "args": ["genshijin-shrink",
+             "npx", "@modelcontextprotocol/server-filesystem",
+             "/path"]
+  }
+}</code></pre>
+            <span style="color: var(--text-muted); font-size: 0.85rem; display: block; margin-top: 8px;">英語＋日本語散文両対応。<code>tools/call</code> レスポンスは無変更で pass-through（downstream 破壊リスク回避）。</span>
+          </div>
+        </div>
+
+        <div class="mode" style="flex-direction: column; align-items: stretch;">
+          <div class="mode-name" style="margin-bottom: 8px;">⚙️ Smart multi-agent installer</div>
+          <div class="mode-desc">
+            Claude Code/Cursor/Windsurf/Cline/Copilot を自動検出し、各 agent に native install。
+            <pre style="background: #111; border-radius: 6px; padding: 10px 12px; margin: 8px 0 0; overflow-x: auto; font-size: 0.75rem; line-height: 1.5;"><code># macOS / Linux
+curl -fsSL https://raw.githubusercontent.com/InterfaceX-co-jp/genshijin/main/install.sh | bash
+
+# Windows
+iwr -useb https://raw.githubusercontent.com/InterfaceX-co-jp/genshijin/main/install.ps1 | iex</code></pre>
+            <span style="color: var(--text-muted); font-size: 0.85rem; display: block; margin-top: 8px;"><code>--dry-run</code> / <code>--force</code> / <code>--only &lt;agent&gt;</code> / <code>--all</code> / <code>--minimal</code> / <code>--list</code> 対応。再実行安全。</span>
+          </div>
+        </div>
+
+        <div class="mode" style="flex-direction: column; align-items: stretch;">
+          <div class="mode-name" style="margin-bottom: 8px;">🚀 genshijin-init (per-repo rule投下)</div>
+          <div class="mode-desc">
+            1コマンドで対象 repo に常時有効化 rule を全 IDE agent 用に投下。idempotent。
+            <pre style="background: #111; border-radius: 6px; padding: 10px 12px; margin: 8px 0 0; overflow-x: auto; font-size: 0.75rem; line-height: 1.5;"><code>npx -y https://raw.githubusercontent.com/InterfaceX-co-jp/genshijin/main/tools/genshijin-init.js</code></pre>
+            <span style="color: var(--text-muted); font-size: 0.85rem; display: block; margin-top: 8px;">Cursor/Windsurf/Cline/Copilot/AGENTS.md 用 rule file 生成。<code>--dry-run</code> / <code>--force</code> / <code>--only</code>。</span>
+          </div>
+        </div>
+
+        <div class="mode">
+          <div class="mode-name">🛡 ultra-mode code-symbol guard</div>
+          <div class="mode-desc">極限モードでも <code>useEffect</code>/<code>SIGTERM</code> 等のコードシンボル/関数名/API名/エラー文字列の略称化を明示禁止。Auto-Clarity 条件も拡張（多段手順誤読リスク・LaTeX/SQL 境界・ユーザー混乱表明時）。</div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>genshijin-compress の使い始め</h2>
+      <p style="color: var(--text-muted); margin-bottom: 16px; font-size: 0.9rem;">
+        <code>CLAUDE.md</code> はセッション開始毎に読込 → 圧縮で<strong>毎回</strong>の入力トークンを削減。
+      </p>
+
+      <div class="modes">
+        <div class="mode" style="flex-direction: column; align-items: stretch;">
+          <div class="mode-name" style="margin-bottom: 8px;">1. 前提準備</div>
+          <div class="mode-desc">
+            Python 3.10+ に加え、以下いずれか。
+            <pre style="background: #111; border-radius: 6px; padding: 10px 12px; margin: 8px 0 0; overflow-x: auto; font-size: 0.75rem; line-height: 1.5;"><code># オプションA: API key 直接利用
+pip install anthropic
+export ANTHROPIC_API_KEY=sk-ant-...
+
+# オプションB: claude CLI ログイン済みなら追加設定不要
+claude --version</code></pre>
+          </div>
+        </div>
+
+        <div class="mode" style="flex-direction: column; align-items: stretch;">
+          <div class="mode-name" style="margin-bottom: 8px;">2. 対象ファイル選定</div>
+          <div class="mode-desc">
+            典型的な圧縮対象:
+            <ul style="margin: 8px 0 0; padding-left: 20px; line-height: 1.7;">
+              <li><code>~/.claude/CLAUDE.md</code> — ユーザー全体メモリ（全セッションで毎回読込）</li>
+              <li><code>./CLAUDE.md</code> — プロジェクト単位メモリ</li>
+              <li><code>~/.claude/projects/&lt;project&gt;/memory/MEMORY.md</code> — auto memory インデックス</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="mode" style="flex-direction: column; align-items: stretch;">
+          <div class="mode-name" style="margin-bottom: 8px;">3. 圧縮実行</div>
+          <div class="mode-desc">
+            <pre style="background: #111; border-radius: 6px; padding: 10px 12px; margin: 0 0 8px; overflow-x: auto; font-size: 0.75rem; line-height: 1.5;"><code>/genshijin-compress ~/.claude/CLAUDE.md</code></pre>
+            結果:
+            <ul style="margin: 8px 0 0; padding-left: 20px; line-height: 1.7;">
+              <li>圧縮版が原ファイルを上書き</li>
+              <li>人間可読版は <code>CLAUDE.original.md</code> にバックアップ（復元可能）</li>
+              <li>失敗時は原ファイル無変更</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="mode" style="flex-direction: column; align-items: stretch;">
+          <div class="mode-name" style="margin-bottom: 8px;">保持・拒否ルール</div>
+          <div class="mode-desc">
+            <strong>完全保持:</strong> コードブロック / URL / ファイルパス / 数値 / 見出し / 技術用語<br>
+            <strong>自動拒否:</strong> <code>.env</code> / <code>credentials.*</code> / <code>id_rsa</code> / <code>.ssh/</code> 配下 等<br>
+            <span style="color: var(--text-muted); font-size: 0.85rem;">誤検知時はファイル名変更で回避可能。</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>日本語への最適化</h2>
+      <p style="color: var(--text-muted); margin-bottom: 16px; font-size: 0.9rem;">
+        英語版 <a href="https://github.com/JuliusBrussee/caveman" style="color: var(--accent);">caveman</a> をベースに、日本語特有の冗長表現に最適化。
+      </p>
+      <div class="features">
+        <div class="feature">
+          <div class="feature-title">敬語・丁寧語の圧縮</div>
+          <div class="feature-desc">です/ます/ございます を削除し体言止めに変換</div>
+        </div>
+        <div class="feature">
+          <div class="feature-title">クッション言葉の除去</div>
+          <div class="feature-desc">えーと/まあ/基本的に/一応 を排除</div>
+        </div>
+        <div class="feature">
+          <div class="feature-title">前置き表現の削除</div>
+          <div class="feature-desc">「ご質問ありがとうございます…」を省略</div>
+        </div>
+        <div class="feature">
+          <div class="feature-title">安全モード</div>
+          <div class="feature-desc">セキュリティ警告時は自動的に丁寧な日本語に復帰</div>
+        </div>
+      </div>
+    </section>
+
+    <section>
+      <h2>ベンチマーク（30タスク平均）</h2>
+      <div class="lang-tabs">
+        <button class="lang-tab active" onclick="switchBenchLang('ja')">🇯🇵 日本語</button>
+        <button class="lang-tab" onclick="switchBenchLang('en')">🇺🇸 English</button>
+      </div>
+      <div class="table-wrapper">
+        <table id="bench-table">
+          <thead id="bench-thead"></thead>
+          <tbody id="bench-tbody"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <h2>ベンチマーク生データ (JSON)</h2>
+      <p style="color: var(--text-muted); margin-bottom: 16px; font-size: 0.9rem;">30タスク × 3回試行の全結果。モデル: claude-sonnet-4-20250514</p>
+      <div class="json-viewer" id="json-viewer">Loading...</div>
+    </section>
+
+    <section>
+      <h2>パッチノート</h2>
+      <p style="color: var(--text-muted); margin-bottom: 16px; font-size: 0.9rem;">
+        直近のリリース履歴。全履歴は <a href="https://github.com/InterfaceX-co-jp/genshijin/blob/main/CHANGELOG.md" style="color: var(--accent);">CHANGELOG.md</a> 参照。
+      </p>
+      <div id="changelog-container" class="changelog">
+        <div class="changelog-loading">パッチノートを読み込み中...</div>
+      </div>
+    </section>
+
+    <section>
+      <h2>Star History</h2>
+      <a href="https://www.star-history.com/?repos=InterfaceX-co-jp%2Fgenshijin&type=date&legend=top-left" target="_blank" rel="noopener">
+        <picture>
+          <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=InterfaceX-co-jp/genshijin&type=date&theme=dark&legend=top-left">
+          <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=InterfaceX-co-jp/genshijin&type=date&legend=top-left">
+          <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=InterfaceX-co-jp/genshijin&type=date&theme=dark&legend=top-left" style="width:100%;max-width:100%;border-radius:8px;border:1px solid var(--border);">
+        </picture>
+      </a>
+    </section>
+  </div>
+
+  <footer>
+    <div class="container">
+      <div class="footer-links">
+        <a href="https://github.com/InterfaceX-co-jp/genshijin">GitHub</a>
+        <a href="https://github.com/JuliusBrussee/caveman">Original: caveman</a>
+        <a href="https://github.com/InterfaceX-co-jp">InterfaceX</a>
+      </div>
+      <p>MIT License</p>
+    </div>
+  </footer>
+
+  <script>
+    function copyInstall(btn) {
+      const code = btn.previousElementSibling.textContent;
+      navigator.clipboard.writeText(code).then(() => {
+        btn.textContent = 'Copied!';
+        setTimeout(() => btn.textContent = 'Copy', 2000);
+      });
+    }
+
+    function syntaxHighlight(json) {
+      const str = JSON.stringify(json, null, 2);
+      return str.replace(
+        /("(\\u[\da-fA-F]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g,
+        function (match) {
+          let cls = 'json-number';
+          if (/^"/.test(match)) {
+            if (/:$/.test(match)) {
+              cls = 'json-key';
+              return '<span class="' + cls + '">' + escapeHtml(match.slice(0, -1)) + '</span><span class="json-comma">:</span>';
+            } else {
+              cls = 'json-string';
+            }
+          } else if (/true|false/.test(match)) {
+            cls = 'json-bool';
+          } else if (/null/.test(match)) {
+            cls = 'json-null';
+          }
+          return '<span class="' + cls + '">' + escapeHtml(match) + '</span>';
+        }
+      );
+    }
+
+    function escapeHtml(str) {
+      return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    }
+
+    function mdToHtml(text) {
+      return text
+        // Code blocks
+        .replace(/```(\w*)\n([\s\S]*?)```/g, function(_, lang, code) {
+          return '<pre><code>' + escapeHtml(code.trim()) + '</code></pre>';
+        })
+        // Inline code
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        // Bold
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        // Headers
+        .replace(/^### (.+)$/gm, '<strong style="color:var(--text);display:block;margin:8px 0 4px">$1</strong>')
+        .replace(/^## (.+)$/gm, '<strong style="color:var(--text);font-size:1em;display:block;margin:10px 0 4px">$1</strong>')
+        // Line breaks
+        .replace(/\n/g, '<br>');
+    }
+
+    function renderExample(elId, label, tokens, text) {
+      const el = document.getElementById(elId);
+      el.innerHTML =
+        '<div class="card-header">' +
+          '<span class="card-label">' + escapeHtml(label) + '</span>' +
+          '<span class="card-tokens">' + tokens.toLocaleString() + ' tokens</span>' +
+        '</div>' +
+        '<div class="card-body">' + mdToHtml(text) + '</div>';
+    }
+
+    const exampleIds = ['cors-error', 'event-loop', 'auth-middleware'];
+    const exPrefixes = ['ex1', 'ex2', 'ex3'];
+
+    const benchData = {};
+    let currentBenchLang = 'ja';
+
+    const benchHighlightIds = [
+      'react-rerender', 'auth-middleware', 'react-error-boundary',
+      'docker-multistage', 'security-review'
+    ];
+
+    const benchLabels = {
+      ja: {
+        task: '', normal: '通常', caveman: 'caveman', genshijin: 'genshijin🗿', saved: '削減率', avg: '30タスク平均',
+        names: {
+          'react-rerender': 'React再レンダリング説明',
+          'auth-middleware': '認証バグ修正',
+          'react-error-boundary': 'Error Boundary実装',
+          'docker-multistage': 'Docker マルチステージ',
+          'security-review': 'セキュリティレビュー',
+        }
+      },
+      en: {
+        task: '', normal: 'Normal', caveman: 'caveman', genshijin: 'genshijin🗿', saved: 'Saved', avg: '30 tasks avg',
+        names: {
+          'react-rerender': 'React re-render',
+          'auth-middleware': 'Auth bug fix',
+          'react-error-boundary': 'Error Boundary',
+          'docker-multistage': 'Docker multi-stage',
+          'security-review': 'Security review',
+        }
+      }
+    };
+
+    function renderBenchTable(lang) {
+      const data = benchData[lang];
+      const labels = benchLabels[lang];
+      const thead = document.getElementById('bench-thead');
+      const tbody = document.getElementById('bench-tbody');
+
+      if (!data) {
+        thead.innerHTML = '';
+        tbody.innerHTML = '<tr><td colspan="5" style="text-align:center;color:var(--text-muted)">ベンチマーク未実行</td></tr>';
+        return;
+      }
+
+      thead.innerHTML = '<tr><th>' + labels.task + '</th><th>' + labels.normal + '</th><th>' + labels.caveman + '</th><th>' + labels.genshijin + '</th><th>' + labels.saved + '</th></tr>';
+
+      let rows = '';
+      const highlights = data.results.filter(r => benchHighlightIds.includes(r.id));
+      highlights.forEach(item => {
+        const name = labels.names[item.id] || item.id;
+        rows += '<tr><td>' + escapeHtml(name) + '</td><td>' + item.median_normal.toLocaleString() + '</td><td>' + item.median_caveman.toLocaleString() + '</td><td>' + item.median_genshijin.toLocaleString() + '</td><td>' + item.saved_genshijin_pct + '%</td></tr>';
+      });
+
+      // Average
+      const totalNormal = data.results.reduce((s, r) => s + r.median_normal, 0);
+      const totalGenshijin = data.results.reduce((s, r) => s + r.median_genshijin, 0);
+      const totalCaveman = data.results.reduce((s, r) => s + r.median_caveman, 0);
+      const avgNormal = Math.round(totalNormal / data.results.length);
+      const avgCaveman = Math.round(totalCaveman / data.results.length);
+      const avgGenshijin = Math.round(totalGenshijin / data.results.length);
+      const avgSaved = Math.round((1 - totalGenshijin / totalNormal) * 100);
+      rows += '<tr><td style="font-weight:600">' + labels.avg + '</td><td>' + avgNormal.toLocaleString() + '</td><td>' + avgCaveman.toLocaleString() + '</td><td>' + avgGenshijin.toLocaleString() + '</td><td>' + avgSaved + '%</td></tr>';
+
+      tbody.innerHTML = rows;
+    }
+
+    function switchBenchLang(lang) {
+      currentBenchLang = lang;
+      document.querySelectorAll('.lang-tab').forEach(t => t.classList.remove('active'));
+      document.querySelector('.lang-tab[onclick*="' + lang + '"]').classList.add('active');
+      renderBenchTable(lang);
+    }
+
+    // Load both benchmark JSONs
+    Promise.all([
+      fetch('benchmark.json').then(r => r.json()).catch(() => null),
+      fetch('benchmark_en.json').then(r => r.json()).catch(() => null),
+    ]).then(([ja, en]) => {
+      if (ja) benchData.ja = ja;
+      if (en) benchData.en = en;
+
+      renderBenchTable('ja');
+
+      // JSON viewer (show current lang)
+      document.getElementById('json-viewer').innerHTML = syntaxHighlight(ja || en || {});
+
+      // Examples (from ja data)
+      if (ja) {
+        exampleIds.forEach((id, i) => {
+          const item = ja.results.find(r => r.id === id);
+          if (!item) return;
+          renderExample(exPrefixes[i] + '-normal', '通常', item.median_normal, item.normal_texts[1]);
+          renderExample(exPrefixes[i] + '-caveman', 'caveman', item.median_caveman, item.caveman_texts[1]);
+          renderExample(exPrefixes[i] + '-genshijin', 'genshijin', item.median_genshijin, item.genshijin_texts[1]);
+        });
+      }
+    });
+
+    // ---------- Changelog ----------
+
+    const CHANGELOG_MAX_VERSIONS = 3;
+    const CHANGELOG_SOURCES = [
+      './CHANGELOG.md',
+      'https://raw.githubusercontent.com/InterfaceX-co-jp/genshijin/main/CHANGELOG.md'
+    ];
+
+    function escapeHtml(str) {
+      return str.replace(/[&<>"']/g, c => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+      })[c]);
+    }
+
+    function renderInline(text) {
+      // Safe-by-default: HTML escape first, then re-enable backticks + markdown links only.
+      let out = escapeHtml(text);
+      out = out.replace(/`([^`]+)`/g, (_, c) => `<code>${c}</code>`);
+      out = out.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (_, t, u) => `<a href="${u}">${t}</a>`);
+      return out;
+    }
+
+    function parseChangelog(md) {
+      // Entries = "## [x.y.z] - YYYY-MM-DD" (Unreleased は無視)
+      const versionRe = /^## \[(\d+\.\d+\.\d+)\]\s*-\s*(\S+)\s*$/;
+      const sectionRe = /^### (\w+)\s*$/;
+      const lines = md.split('\n');
+      const entries = [];
+      let cur = null, curSection = null;
+      const flushSection = () => { if (cur && curSection) { cur.sections.push(curSection); curSection = null; } };
+      const flushEntry = () => { flushSection(); if (cur) entries.push(cur); cur = null; };
+
+      for (const line of lines) {
+        const vm = line.match(versionRe);
+        if (vm) {
+          flushEntry();
+          cur = { version: vm[1], date: vm[2], sections: [] };
+          continue;
+        }
+        if (!cur) continue;
+        const sm = line.match(sectionRe);
+        if (sm) {
+          flushSection();
+          curSection = { name: sm[1], items: [] };
+          continue;
+        }
+        if (!curSection) continue;
+        // トップレベル箇条書き: "- ..." (インデントなし)
+        const topBullet = line.match(/^- (.+)$/);
+        if (topBullet) {
+          curSection.items.push({ text: topBullet[1], children: [] });
+          continue;
+        }
+        // 2スペースインデント箇条書き: "  - ..."
+        const subBullet = line.match(/^  - (.+)$/);
+        if (subBullet && curSection.items.length > 0) {
+          curSection.items[curSection.items.length - 1].children.push(subBullet[1]);
+        }
+      }
+      flushEntry();
+      return entries;
+    }
+
+    function renderChangelog(entries) {
+      const container = document.getElementById('changelog-container');
+      if (!container) return;
+      if (entries.length === 0) {
+        container.innerHTML = '<div class="changelog-loading">パッチノートがありません。</div>';
+        return;
+      }
+      const top = entries.slice(0, CHANGELOG_MAX_VERSIONS);
+      const html = top.map((entry, idx) => {
+        const isLatest = idx === 0;
+        const badge = isLatest ? '<span class="changelog-badge">LATEST</span>' : '';
+        const sectionsHtml = entry.sections.map(sec => {
+          const itemsHtml = sec.items.map(item => {
+            const sub = item.children.length > 0
+              ? `<ul>${item.children.map(c => `<li>${renderInline(c)}</li>`).join('')}</ul>`
+              : '';
+            return `<li>${renderInline(item.text)}${sub}</li>`;
+          }).join('');
+          return `
+            <div class="changelog-section ${sec.name.toLowerCase()}">
+              <div class="changelog-section-title">${escapeHtml(sec.name)}</div>
+              <ul class="changelog-list">${itemsHtml}</ul>
+            </div>
+          `;
+        }).join('');
+        return `
+          <div class="changelog-entry${isLatest ? ' latest' : ''}">
+            <div class="changelog-header">
+              <span class="changelog-version">v${escapeHtml(entry.version)}</span>
+              ${badge}
+              <span class="changelog-date">${escapeHtml(entry.date)}</span>
+            </div>
+            ${sectionsHtml}
+          </div>
+        `;
+      }).join('');
+      const moreLink = entries.length > CHANGELOG_MAX_VERSIONS
+        ? `<div class="changelog-more">古い履歴: <a href="https://github.com/InterfaceX-co-jp/genshijin/blob/main/CHANGELOG.md">CHANGELOG.md</a></div>`
+        : '';
+      container.innerHTML = html + moreLink;
+    }
+
+    async function loadChangelog() {
+      for (const url of CHANGELOG_SOURCES) {
+        try {
+          const res = await fetch(url, { cache: 'no-cache' });
+          if (!res.ok) continue;
+          const md = await res.text();
+          renderChangelog(parseChangelog(md));
+          return;
+        } catch (e) {
+          // 次のソースを試す
+        }
+      }
+      const container = document.getElementById('changelog-container');
+      if (container) {
+        container.innerHTML = '<div class="changelog-loading">パッチノートを読み込めませんでした。<a href="https://github.com/InterfaceX-co-jp/genshijin/blob/main/CHANGELOG.md" style="color: var(--accent);">GitHub で確認</a></div>';
+      }
+    }
+
+    loadChangelog();
+  </script>
+</body>
+</html>

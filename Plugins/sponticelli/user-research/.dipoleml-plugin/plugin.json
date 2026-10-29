@@ -1,0 +1,24 @@
+{
+  "name": "user-research",
+  "displayName": "User Research",
+  "version": "1.2.0",
+  "description": "User research - playtesting, player surveys, behavioral analysis, and UX research",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Sponticelli"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/sponticelli/gamedev-claude-plugins",
+  "repository": "https://github.com/sponticelli/gamedev-claude-plugins",
+  "skills": [],
+  "commands": [
+    "./commands/playtest-plan.md",
+    "./commands/survey-design.md",
+    "./commands/research-brief.md"
+  ],
+  "agents": [
+    "./agents/playtest-coordinator.md",
+    "./agents/player-researcher.md",
+    "./agents/ux-analyst.md"
+  ]
+}

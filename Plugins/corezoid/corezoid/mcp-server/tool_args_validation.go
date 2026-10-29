@@ -1,0 +1,238 @@
+package main
+
+import (
+	"fmt"
+	"sort"
+	"strings"
+	"sync"
+)
+
+// toolAllowedArgs maps tool name → the set of argument names its InputSchema
+// declares. Built once from allToolDefs() — every definition, router-fronted
+// or not — plus the router entries themselves.
+var (
+	toolAllowedArgsOnce sync.Once
+	toolAllowedArgs     map[string]map[string]bool
+	toolRequiredArgs    map[string]map[string]bool
+	toolArgTypes        map[string]map[string]string
+)
+
+func buildToolAllowedArgs() {
+	defs := allToolDefs()
+	// The router entries are validated by resolveRouterCall, which knows the
+	// {action, args, help} shape; their actions are validated here under their
+	// own names, so a collapsed tool keeps the exact argument contract it had
+	// as a standalone entry.
+	defs = append(defs, routerToolDefs()...)
+	toolAllowedArgs = make(map[string]map[string]bool, len(defs))
+	toolRequiredArgs = make(map[string]map[string]bool, len(defs))
+	toolArgTypes = make(map[string]map[string]string, len(defs))
+	for _, t := range defs {
+		allowed := make(map[string]bool)
+		required := make(map[string]bool)
+		argTypes := make(map[string]string)
+		if schema, ok := t.InputSchema.(map[string]interface{}); ok {
+			if props, ok := schema["properties"].(map[string]interface{}); ok {
+				for k, p := range props {
+					allowed[k] = true
+					if pm, ok := p.(map[string]interface{}); ok {
+						if typ, ok := pm["type"].(string); ok {
+							argTypes[k] = typ
+						}
+					}
+				}
+			}
+			for _, k := range schemaRequiredList(schema["required"]) {
+				required[k] = true
+			}
+		}
+		toolAllowedArgs[t.Name] = allowed
+		toolRequiredArgs[t.Name] = required
+		toolArgTypes[t.Name] = argTypes
+	}
+}
+
+// coerceCLIArgs converts CLI-supplied string values to the type the tool's
+// InputSchema declares. CLI args always arrive as strings ("apply=true"), but
+// handlers type-assert booleans (`args["apply"].(bool)`) — so before this,
+// boolean flags passed on the CLI were silently ignored: deploy-stage
+// apply=true ran as a dry-run. Integers are left alone (intArg already parses
+// strings); only booleans need the conversion.
+func coerceCLIArgs(tool string, args map[string]interface{}) error {
+	toolAllowedArgsOnce.Do(buildToolAllowedArgs)
+	for k, v := range args {
+		s, ok := v.(string)
+		if !ok {
+			continue
+		}
+		if toolArgTypes[tool][k] == "boolean" {
+			switch strings.ToLower(s) {
+			case "true", "1", "yes":
+				args[k] = true
+			case "false", "0", "no":
+				args[k] = false
+			default:
+				// A boolean flag the handler cannot read is exactly how
+				// `apply=True` used to degrade to a silent dry-run — refuse
+				// loudly instead of guessing.
+				return fmt.Errorf("argument %s of %s is boolean; got %q (use true/false)", k, tool, s)
+			}
+		}
+	}
+	return nil
+}
+
+// schemaRequiredList extracts a schema's "required" list whether it is a
+// Go-literal []string (the registry today) or a decoded-JSON []interface{}
+// (a future registry entry loaded from a file) — a bare []string assertion
+// would silently treat the latter as "nothing required" and disable the CLI
+// env-default for that tool.
+func schemaRequiredList(v interface{}) []string {
+	switch req := v.(type) {
+	case []string:
+		return req
+	case []interface{}:
+		out := make([]string, 0, len(req))
+		for _, item := range req {
+			if s, ok := item.(string); ok {
+				out = append(out, s)
+			}
+		}
+		return out
+	}
+	return nil
+}
+
+// toolRequiresArg reports whether the tool's InputSchema marks the argument
+// as required. Used by the CLI to decide when an env-based default is safe
+// to inject.
+func toolRequiresArg(tool, arg string) bool {
+	toolAllowedArgsOnce.Do(buildToolAllowedArgs)
+	return toolRequiredArgs[tool][arg]
+}
+
+// placeholderArg is the dummy argument some MCP clients insert into a call to
+// a tool whose schema requires nothing.
+const placeholderArg = "random_string"
+
+// argAliases maps an argument name a model reaches for by habit to the name
+// the tool schemas use. conv_id is what the Corezoid API and exported
+// .conv.json files call a process id; models passed it to cz-tasks actions,
+// got an unknown-argument error and spent a retry on the rename.
+var argAliases = map[string]string{
+	"conv_id": "process_id",
+}
+
+// toolArgAliases are aliases that only make sense for one tool — "title" means
+// folder_name to create-folder but is a real argument of modify-folder. The
+// create-folder ones come from sessions where nearly every first call named
+// the parent parent_folder_id and the new folder's name title, and was spent
+// on the unknown-argument error.
+var toolArgAliases = map[string]map[string]string{
+	"create-folder": {
+		"parent_folder_id": "folder_id",
+		"parent_id":        "folder_id",
+		"title":            "folder_name",
+		"name":             "folder_name",
+	},
+}
+
+// applyArgAliases rewrites aliased argument names to their canonical form for
+// tools that declare the canonical name and not the alias. It returns the
+// (possibly copied) args, or a non-empty error message when both names are
+// given with different values — picking one would act on the wrong process.
+func applyArgAliases(tool string, args map[string]interface{}) (map[string]interface{}, string) {
+	toolAllowedArgsOnce.Do(buildToolAllowedArgs)
+	allowed, ok := toolAllowedArgs[tool]
+	if !ok {
+		return args, ""
+	}
+	aliases := argAliases
+	if extra := toolArgAliases[tool]; len(extra) > 0 {
+		aliases = make(map[string]string, len(argAliases)+len(extra))
+		for a, c := range argAliases {
+			aliases[a] = c
+		}
+		for a, c := range extra {
+			aliases[a] = c
+		}
+	}
+	// Sorted so that two aliases of one canonical name given with different
+	// values are reported the same way every time.
+	names := make([]string, 0, len(aliases))
+	for alias := range aliases {
+		names = append(names, alias)
+	}
+	sort.Strings(names)
+	copied := false
+	for _, alias := range names {
+		canonical := aliases[alias]
+		v, has := args[alias]
+		if !has || allowed[alias] || !allowed[canonical] {
+			continue
+		}
+		if existing, both := args[canonical]; both && fmt.Sprint(existing) != fmt.Sprint(v) {
+			return args, fmt.Sprintf("Error: %s and %s are the same argument of %s and were given different values (%v vs %v); pass only %s",
+				alias, canonical, tool, v, existing, canonical)
+		}
+		if !copied {
+			c := make(map[string]interface{}, len(args))
+			for k, val := range args {
+				c[k] = val
+			}
+			args, copied = c, true
+		}
+		if _, both := args[canonical]; !both {
+			args[canonical] = v
+		}
+		delete(args, alias)
+	}
+	return args, ""
+}
+
+// unknownArgsError returns a non-empty error message when args contains keys
+// the tool's InputSchema does not declare. Unknown arguments used to be
+// silently ignored; that let calls fall back to defaults and act on the wrong
+// object with no warning (e.g. create-process{folder_id: N} creating the
+// process in a directory-resolved folder instead of folder N).
+func unknownArgsError(tool string, args map[string]interface{}) string {
+	toolAllowedArgsOnce.Do(buildToolAllowedArgs)
+	allowed, ok := toolAllowedArgs[tool]
+	if !ok {
+		return "" // unknown tool is reported by the dispatcher itself
+	}
+	var unknown []string
+	for k := range args {
+		// Some clients fill a call to a tool with nothing required (login) with a
+		// dummy argument instead of sending {}. Rejecting it bought nothing — no
+		// handler reads it — and cost every such call a failed first attempt.
+		if k == placeholderArg && len(toolRequiredArgs[tool]) == 0 {
+			continue
+		}
+		if !allowed[k] {
+			unknown = append(unknown, k)
+		}
+	}
+	if len(unknown) == 0 {
+		return ""
+	}
+	sort.Strings(unknown)
+	accepted := make([]string, 0, len(allowed))
+	for k := range allowed {
+		accepted = append(accepted, k)
+	}
+	sort.Strings(accepted)
+	acceptedDesc := "no arguments"
+	if len(accepted) > 0 {
+		acceptedDesc = strings.Join(accepted, ", ")
+	}
+	// Name the entry point the caller actually has: a router-fronted tool is
+	// not callable under its own name, so reporting it as "tool X" invites a
+	// second failed call under that name.
+	if router, fronted := actionRouter[tool]; fronted {
+		return fmt.Sprintf("Error: unknown argument(s) %s for action %s of %s (accepted inside args: %s)",
+			strings.Join(unknown, ", "), tool, router, acceptedDesc)
+	}
+	return fmt.Sprintf("Error: unknown argument(s) %s for tool %s (accepted: %s)",
+		strings.Join(unknown, ", "), tool, acceptedDesc)
+}

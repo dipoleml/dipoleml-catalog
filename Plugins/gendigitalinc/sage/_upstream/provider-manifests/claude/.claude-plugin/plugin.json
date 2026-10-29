@@ -1,0 +1,25 @@
+{
+  "name": "sage",
+  "version": "0.14.0",
+  "description": "Safety for Agents - Agent Detection & Response (ADR) for AI agents",
+  "author": {
+    "name": "Gen Digital"
+  },
+  "license": "Apache-2.0",
+  "repository": "https://github.com/gendigitalinc/sage",
+  "keywords": [
+    "security",
+    "malware",
+    "protection",
+    "url-reputation"
+  ],
+  "skills": "./skills/",
+  "mcpServers": {
+    "sage": {
+      "command": "node",
+      "args": [
+        "${CLAUDE_PLUGIN_ROOT}/packages/claude-code/dist/mcp-server.cjs"
+      ]
+    }
+  }
+}

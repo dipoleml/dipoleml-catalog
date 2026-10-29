@@ -1,0 +1,16 @@
+{
+  "name": "browser-mcp-selector",
+  "displayName": "Browser MCP Selector",
+  "version": "1.0.0",
+  "description": "Selects the best browser MCP tool for a given task based on requirements like cross-browser support, debugging depth, performance analysis, and login state needs.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Andrew54068"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/andrew54068/claude-plugins",
+  "repository": "https://github.com/andrew54068/claude-plugins",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

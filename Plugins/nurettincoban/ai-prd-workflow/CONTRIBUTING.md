@@ -1,0 +1,109 @@
+# Contributing
+
+Thanks for your interest in improving ai-prd-workflow! Here's how to contribute.
+
+## How to Contribute
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b my-new-prompt`)
+3. Make your changes
+4. Submit a Pull Request with a clear description of what you changed and why
+
+## Submitting New Prompts
+
+New prompt files should follow these conventions:
+
+- **Naming**: `<descriptive-name>-prompt.md` (e.g., `api-design-prompt.md`)
+- **Structure**: Every prompt should include:
+  - A clear role statement (who the AI should act as)
+  - Input description (what documents/context the AI needs)
+  - Numbered steps or sections for the task
+  - An output format section (what the deliverable looks like)
+- **Length**: Aim for 40-70 lines of command-specific instructions; the shared sections described below don't count. If yours exceeds 80, look for redundancy to cut.
+- **Terminology**: Use MoSCoW (Must/Should/Could/Won't have) for any prioritization language.
+- **Tool-agnostic**: Do not use tool-specific syntax (e.g., Cursor's `@file` references). Reference files by name.
+
+## Prompt Quality Guidelines
+
+- **Trust modern LLMs**: Don't include instructions for markdown formatting, being clear, or being specific. Modern models do this by default.
+- **Say it once**: If an instruction appears more than twice, consolidate it into one clear statement.
+- **Be concrete**: "Review for security vulnerabilities" is better than "ensure the code is secure."
+- **Focus on what's unique**: Only include instructions that the AI wouldn't do by default.
+
+## Source of Truth & Generated Files
+
+The prompt `.md` files at the repo root are the single source of truth — they are also what copy-paste users read. `skills/` is **generated** from them by `./install.sh --build` and committed, because the Claude Code plugin, `install.sh` and the skills CLI all ship it as is. Never edit `skills/` by hand. (`.claude-plugin/` manifests are hand-maintained.)
+
+After adding or editing a prompt:
+
+1. If it's a new prompt, add it to the `COMMANDS` mapping in `install.sh` (name, source file, a description that says when to use it, argument hint, options), to the `show_prompts` list in `copy-prompt.sh`, and to the contracts table below
+2. Run `./install.sh --build` to regenerate `skills/`
+3. Run `python3 scripts/check-prompts.py` and `bash scripts/test-install.sh`
+4. Commit the regenerated files together with your prompt change — CI fails if `skills/` drifts from the source prompts
+
+`site/` is the landing page at https://nurettincoban.github.io/ai-prd-workflow/, hand-written and deployed by `.github/workflows/pages.yml` on every push to `main` that touches it. It restates the README in shorter form, so when the README's commands, install steps or evidence change, change `site/index.html` too. Its images are copied from `.github/` at deploy time; do not add copies to `site/`.
+
+Releasing: bump `VERSION` in `install.sh` and `version` in `.claude-plugin/plugin.json`, add the CHANGELOG entry, run `./install.sh --build` (every skill carries the version), and tag `vX.Y.Z`. `check-prompts.py` fails if the three disagree.
+
+## Shared Sections
+
+A few sections appear word for word in several prompts, because every prompt must still work on its own when pasted into a chat. Their canonical text lives in `shared/`:
+
+| File | Used by |
+|---|---|
+| `shared/classify-product-type.md` | prompts that write the PRD and classify the product |
+| `shared/product-type.md` | prompts that read the classification from PRD.md |
+| `shared/self-check.md` | prompts that generate an artifact |
+| `shared/when-artifacts-conflict.md` | prompts that read several artifacts |
+
+Edit the file in `shared/`, then run `python3 scripts/check-prompts.py --fix` to copy it into every prompt that has that section. CI fails when a copy differs. `--fix` refuses to overwrite a section that holds more than the shared text — content after a shared section needs its own `## ` heading.
+
+## Artifact Contracts
+
+The commands talk to each other only through files. Each row below says what a command reads and what it writes, and `scripts/check-prompts.py` (run in CI) fails when:
+
+- a command reads an artifact no command writes,
+- a command writes an artifact nothing reads — `/workflow-status` reads everything to report status, which does not count,
+- a prompt never mentions an artifact its row declares, or
+- this table and `install.sh` disagree about which commands exist.
+
+Every one of those has shipped as a real bug: a review record no command produced, a test plan the implementer never opened, rule IDs cited everywhere and created nowhere. When you change what a prompt reads or writes, change its row in the same commit.
+
+<!-- contracts:start -->
+| Command | Prompt | Reads | Writes |
+|---|---|---|---|
+| `/create-prd` | interactive-prd-creation-prompt.md | code | PRD.md |
+| `/document-existing` | document-existing-prompt.md | code | PRD.md, FEATURES.md, RULES.md |
+| `/verify-prd` | prd-comprehensive-verification-prompt.md | PRD.md, code | PRD.md, PRD-REVIEW.md |
+| `/extract-features` | prd-to-features-prompt.md | PRD.md, PRD-REVIEW.md | FEATURES.md |
+| `/generate-rules` | prd-to-rules-prompt.md | PRD.md, PRD-REVIEW.md, FEATURES.md, code | RULES.md |
+| `/generate-rfcs` | prd-to-rfcs-prompt.md | PRD.md, PRD-REVIEW.md, FEATURES.md, RULES.md | RFCs/, RFCS.md |
+| `/test-strategy` | testing-strategy-prompt.md | PRD.md, FEATURES.md, RULES.md, RFCs/, code | TEST-STRATEGY.md |
+| `/implement-rfc` | implementation-prompt-template.md | PRD.md, FEATURES.md, RULES.md, RFCs/, RFCS.md, TEST-STRATEGY.md, reviews/ | code, RFCs/, RFCS.md |
+| `/review-rfc` | code-review-prompt.md | PRD.md, FEATURES.md, RULES.md, RFCs/, RFCS.md, TEST-STRATEGY.md, reviews/, code | reviews/, RFCS.md |
+| `/manage-changes` | prd-change-management-prompt.md | PRD.md, PRD-REVIEW.md, RULES.md, changes/, code | changes/, PRD.md, FEATURES.md, RULES.md, RFCs/, RFCS.md, TEST-STRATEGY.md |
+| `/workflow-status` | workflow-status-prompt.md | PRD.md, PRD-REVIEW.md, FEATURES.md, RULES.md, RFCs/, RFCS.md, TEST-STRATEGY.md, reviews/, changes/, code | — |
+<!-- contracts:end -->
+
+## README Translations
+
+The `README.*.md` files (Simplified Chinese, Turkish, Japanese, Korean, Spanish) translate `README.md`, and each says the English version wins when they differ. When you change `README.md`, update the translations if you can. If you can't, say so in the pull request so a maintainer or another contributor can; commands, code and file names stay in English in every language.
+
+## Modifying Existing Prompts
+
+- Explain the rationale for your changes in the PR description
+- If trimming content, note what was removed and why it's unnecessary
+- Keep the overall structure consistent with other prompts in the repo
+
+## Testing Prompts
+
+Before submitting, test your prompt with at least 2 different LLMs (e.g., Claude and GPT-4):
+
+1. Run the prompt with a realistic input
+2. Verify the output covers all expected sections
+3. Check that the output is actionable and well-structured
+4. Include a brief summary of your test results in the PR description
+
+## Questions?
+
+Open an issue if you have questions or ideas you'd like to discuss before contributing.

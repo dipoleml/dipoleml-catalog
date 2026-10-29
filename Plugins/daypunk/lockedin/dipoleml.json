@@ -1,0 +1,123 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.daypunk.lockedin",
+  "type": "plugin",
+  "name": "Lockedin",
+  "slug": "lockedin",
+  "vendor": "daypunk",
+  "description": "Lives inside your DipoleML session. Capture work as structured experience, then render resumes, Korean cover letters, interview answers, and project ideas from it.",
+  "version": "1.2.1",
+  "homepage": "https://github.com/daypunk/LockedIn",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "career",
+    "claude-code-plugin",
+    "cover-letter",
+    "harness-engineering",
+    "interview",
+    "knowledge-graph",
+    "korean",
+    "markdown",
+    "obsidian"
+  ],
+  "tags": [
+    "career",
+    "claude-code",
+    "claude-code-plugin",
+    "cover-letter",
+    "harness-engineering",
+    "interview",
+    "knowledge-graph",
+    "korean",
+    "markdown",
+    "obsidian",
+    "ontology",
+    "pkm",
+    "resume"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "daypunk",
+    "brandName": "daypunk",
+    "source": "https://github.com/daypunk.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:12:46Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "daypunk/LockedIn",
+    "url": "https://github.com/daypunk/LockedIn",
+    "commit": "02d8766b4a84f0a94fecac5fda5d9a1b514a50c9",
+    "path": "plugins/lockedin",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 127,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:03:32Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Lockedin | Lives inside your Claude Code session. Capture work as structured experience, then render resumes, Korean cover letters, interview answers, and project ideas from it.",
+        "after": "Lockedin | Lives inside your DipoleML session. Capture work as structured experience, then render resumes, Korean cover letters, interview answers, and project ideas from it.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Personal experience knowledge graph for Claude Code. Build the graph by talking. Renders English resumes and Korean cover letters from the same vault.",
+        "after": "Personal experience knowledge graph for DipoleML. Build the graph by talking. Renders English resumes and Korean cover letters from the same vault.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

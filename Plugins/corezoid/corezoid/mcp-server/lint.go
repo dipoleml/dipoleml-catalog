@@ -1,0 +1,1623 @@
+package main
+
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"sort"
+	"strconv"
+	"strings"
+)
+
+// LintResult holds the combined lint output
+type LintResult struct {
+	ProcessTitle           string
+	NoopConditions         []NoopCondition
+	UnusedSetParams        []UnusedSetParam
+	OrphanedNodes          []OrphanedNode
+	RpcReplyMismatches     []RpcReplyMismatch
+	PassthroughEscalations []PassthroughEscalation
+	LiteralReplyValues     []LiteralReplyValue
+	SharedErrorClusters    []SharedErrorCluster
+	OldFormatNodes         []OldFormatNode
+	UnrepliedTerminals     []UnrepliedTerminal
+	MissingDefaultGo       []MissingDefaultGo
+	ShortTimers            []ShortTimer
+	BrokenLinks            []BrokenLink
+	UnderspecifiedAPINodes []UnderspecifiedAPINode
+	StubModeNodes          []StubModeNode
+	GitCallUsages          []GitCallUsage
+	SelfReferenceCopies    []SelfReferenceCopy
+	TotalNodes             int
+	ReachableCount         int
+	SchemaValid            bool
+	SchemaError            string
+}
+
+// RpcReplyMismatch records an api_rpc_reply node where res_data/res_data_type
+// (or extra/extra_type) keys do not align, which the server rejects at commit
+// time with the vague message "invalid value res_data or res_data_type, or both".
+type RpcReplyMismatch struct {
+	NodeID      string
+	NodeTitle   string
+	DataField   string   // "res_data" or "extra"
+	TypeField   string   // "res_data_type" or "extra_type"
+	UntypedKeys []string // data keys with no matching type entry → server rejects these
+	UnusedTypes []string // type keys with no matching data entry → suspicious but not a hard error
+	Issue       string
+}
+
+type NoopCondition struct {
+	ID                string
+	Title             string
+	RoutingCount      int
+	SingleDestination string
+	DestinationTitle  string
+	Issue             string
+}
+
+type UnusedSetParam struct {
+	ID              string
+	Title           string
+	UnusedVariables []string
+	Issue           string
+}
+
+type OrphanedNode struct {
+	ID      string
+	Title   string
+	ObjType string
+}
+
+// PassthroughEscalation represents an escalation node (obj_type:3) whose only logic
+// is a bare `go` — it adds no value and should be replaced by a direct err_node_id
+// pointing straight to the final error node.
+// SharedErrorCluster is an error-cluster node reached from the error paths of
+// MORE THAN ONE main-flow node. The house rule is one dedicated error cluster
+// per failing node: a single node's error may fan through its own Condition
+// into one Error terminal, but a neighbouring node's error must never join it.
+type SharedErrorCluster struct {
+	ID      string
+	Title   string
+	Sources []string // "id (title)" of each distinct failing node feeding it
+}
+
+type PassthroughEscalation struct {
+	ID          string
+	Title       string
+	TargetID    string
+	TargetTitle string
+	Issue       string
+}
+
+// LiteralReplyValue represents an api_rpc_reply logic whose res_data (or extra)
+// contains literal non-string values ([], {}, 0, true, null). The commit service
+// hangs on serialising such values when the process is pushed through the API
+// ("no response from server"), even though the JSON schema accepts them — reply
+// parameters must be "{{variable}}" templates or plain strings, with the real
+// type declared in res_data_type.
+type LiteralReplyValue struct {
+	ID     string
+	Title  string
+	Fields []string
+	Issue  string
+}
+
+// UnderspecifiedAPINode is an api logic node that is missing one or more fields
+// from the full canonical set the Corezoid commit service requires. Such nodes
+// pass JSON schema validation and the lint-process tool cleanly, but the server
+// cannot commit an under-specified api logic: it stops responding, and after
+// ~15–20 s push-process fails with "Error deploying process: failed to commit
+// changes: no response from server" — with no indication of the node or field at
+// fault. This failure mode has been reproduced in multiple independent sessions.
+//
+// The canonical fields beyond the schema-required subset are listed in
+// apiCanonicalFields. Finding any of them absent surfaces an actionable error
+// before the slow server round-trip.
+type UnderspecifiedAPINode struct {
+	NodeID        string
+	NodeTitle     string
+	MissingFields []string
+	Issue         string
+}
+
+// OldFormatNode is a node the platform's "Convert process to new format" dialog
+// would rewrite on open. Two shapes trigger it:
+//  1. a node mixing an action logic (set_param, api_code, …) with go_if_const
+//     conditions — the converter splits it into two nodes;
+//  2. an err_node_id target with obj_type:0 — escalation targets must be
+//     obj_type:3 (business-flow conditions reached via go stay obj_type:0).
+type OldFormatNode struct {
+	ID    string
+	Title string
+	Issue string
+}
+
+// UnrepliedTerminal is a final node (obj_type:2) reachable from Start without
+// passing any api_rpc_reply — in a process that DOES reply elsewhere. When such
+// a process is invoked via Call a Process (api_rpc), the caller's task hangs in
+// the call node until its timeout semaphor on every path leading here.
+type UnrepliedTerminal struct {
+	ID    string
+	Title string
+	Issue string
+}
+
+// MissingDefaultGo is a non-final node whose logics do not end with a bare
+// `go`. The server rejects the deploy: "Each node in the condition.logics
+// array must always have a logic with type go at the end".
+type MissingDefaultGo struct {
+	ID    string
+	Title string
+	Issue string
+}
+
+// ShortTimer is a Delay node holding a task for less than the platform
+// minimum: the server rejects the deploy with "Timer value N sec is less than
+// minimum limit 30 sec". Only delay-shaped nodes qualify — see findShortTimers.
+type ShortTimer struct {
+	ID    string
+	Title string
+	Issue string
+}
+
+// StubModeNode records an active Call Process Stub Mode node. It is valid
+// Corezoid JSON, but it bypasses the real called process and returns mock
+// replies, so push-process may require an explicit allow_active_stub_mode confirmation.
+type StubModeNode struct {
+	ID       string
+	Title    string
+	Branches int
+	Issue    string
+}
+
+// GitCallUsage flags a git_call (api_git) node. Hosted sandbox measurements show
+// an approximately 60s execution deadline (keep handlers comfortably below 50s).
+// Git Call also uses a shared, configurable resource pool and has no persistent
+// local storage, so it should be reserved for capabilities native nodes plus a
+// Code (api_code) node cannot provide (file parsing, an external library,
+// cryptography, or a custom runtime). This is ADVISORY (never blocks a push): a
+// legitimate git_call is valid; the finding asks the author to confirm the node
+// meets that rule and is not merely the easiest code to write.
+type GitCallUsage struct {
+	ID    string
+	Title string
+	Issue string
+}
+
+// processNode is the typed representation of a Corezoid node used throughout lint checks.
+type processNode struct {
+	id      string
+	title   string
+	objType float64
+	logics  []map[string]interface{}
+	sems    []map[string]interface{}
+	stub    map[string]interface{}
+}
+
+// parseProcessNodes decodes raw node interfaces into typed processNode values.
+// Fields missing or of the wrong type are silently zeroed — no type assertion panics.
+func parseProcessNodes(rawNodes []interface{}) []processNode {
+	nodes := make([]processNode, 0, len(rawNodes))
+	for _, raw := range rawNodes {
+		n, ok := raw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		id, _ := n["id"].(string)
+		title, _ := n["title"].(string)
+		objType, _ := n["obj_type"].(float64)
+		cond, _ := n["condition"].(map[string]interface{})
+		stub, _ := cond["stub"].(map[string]interface{})
+		nodes = append(nodes, processNode{
+			id:      id,
+			title:   title,
+			objType: objType,
+			logics:  toMapSlice(cond["logics"]),
+			sems:    toMapSlice(cond["semaphors"]),
+			stub:    stub,
+		})
+	}
+	return nodes
+}
+
+// lintProcess loads a process JSON file and runs lint checks
+func lintProcess(filePath string) (*LintResult, error) {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read file: %v", err)
+	}
+	return lintProcessData(data)
+}
+
+// lintProcessData lints a process given as JSON bytes. The hosted server
+// lints content sent in the request; the local tools read it from a file.
+func lintProcessData(data []byte) (*LintResult, error) {
+	var proc map[string]interface{}
+	if err := json.Unmarshal(data, &proc); err != nil {
+		return nil, fmt.Errorf("failed to parse JSON: %v", err)
+	}
+
+	nodes, err := getNodes(proc)
+	if err != nil {
+		return nil, fmt.Errorf("failed to extract nodes: %v", err)
+	}
+
+	title, _ := proc["title"].(string)
+
+	var processID int
+	if id, ok := proc["obj_id"].(float64); ok {
+		processID = int(id)
+	}
+
+	result := &LintResult{ProcessTitle: title, TotalNodes: len(nodes)}
+
+	typed := parseProcessNodes(nodes)
+	result.NoopConditions, result.UnusedSetParams = findNoopNodes(typed)
+	result.OrphanedNodes, result.ReachableCount = findOrphanedNodes(typed)
+	result.RpcReplyMismatches = findRpcReplyMismatches(typed)
+	result.PassthroughEscalations = findPassthroughEscalations(typed)
+	result.LiteralReplyValues = findLiteralReplyValues(typed)
+	result.SharedErrorClusters = findSharedErrorClusters(typed)
+	result.OldFormatNodes = findOldFormatNodes(typed)
+	result.UnrepliedTerminals = findUnrepliedTerminals(typed)
+	result.MissingDefaultGo = findMissingDefaultGo(typed)
+	result.ShortTimers = findShortTimers(typed)
+	result.BrokenLinks = findBrokenLinks(typed)
+	result.UnderspecifiedAPINodes = findUnderspecifiedAPINodes(typed)
+	result.StubModeNodes = findStubModeNodes(typed)
+	result.GitCallUsages = findGitCallUsages(typed)
+	result.SelfReferenceCopies = findSelfReferenceCopies(typed, processID)
+
+	schemaErr := ValidateJSONSchemaData(data, debug)
+	if schemaErr != nil {
+		result.SchemaValid = false
+		result.SchemaError = schemaErr.Error()
+	} else {
+		result.SchemaValid = true
+	}
+
+	return result, nil
+}
+
+// findNoopNodes detects functionally useless nodes:
+// 1. No-op conditions: all routing branches go to the same destination
+// 2. Unused set_param: variables set but never referenced downstream
+func findNoopNodes(nodes []processNode) ([]NoopCondition, []UnusedSetParam) {
+	nodeMap := make(map[string]processNode, len(nodes))
+	for _, n := range nodes {
+		nodeMap[n.id] = n
+	}
+
+	// --- Pattern 1: No-op conditions ---
+	var noopConditions []NoopCondition
+	noopNodeIDs := make(map[string]bool)
+
+	for _, n := range nodes {
+		targets := make(map[string]bool)
+		hasRouting := false
+		routingCount := 0
+
+		for _, lg := range n.logics {
+			lgType, _ := lg["type"].(string)
+			if lgType == "go" || lgType == "go_if_const" {
+				hasRouting = true
+				routingCount++
+				if tid, ok := lg["to_node_id"].(string); ok && tid != "" {
+					targets[tid] = true
+				}
+			}
+		}
+
+		if hasRouting && len(targets) == 1 && routingCount >= 2 {
+			dest := ""
+			for k := range targets {
+				dest = k
+			}
+			destTitle := ""
+			if dn, ok := nodeMap[dest]; ok {
+				destTitle = dn.title
+				if destTitle == "" {
+					destTitle = "(untitled)"
+				}
+			}
+			displayTitle := n.title
+			if displayTitle == "" {
+				displayTitle = "(untitled)"
+			}
+			noopConditions = append(noopConditions, NoopCondition{
+				ID:                n.id,
+				Title:             displayTitle,
+				RoutingCount:      routingCount,
+				SingleDestination: dest,
+				DestinationTitle:  destTitle,
+				Issue: fmt.Sprintf("All %d branches route to the same node '%s' (%s)",
+					routingCount, destTitle, dest),
+			})
+			noopNodeIDs[n.id] = true
+		}
+	}
+
+	// --- Pattern 2: Unused set_param ---
+	// Build reference blob from all non-noop, non-set_param logics
+	var refParts []string
+	for _, n := range nodes {
+		if noopNodeIDs[n.id] {
+			continue
+		}
+		for _, lg := range n.logics {
+			if t, _ := lg["type"].(string); t == "set_param" {
+				continue
+			}
+			refParts = append(refParts, fmt.Sprintf("%v", lg))
+		}
+		for _, sem := range n.sems {
+			refParts = append(refParts, fmt.Sprintf("%v", sem))
+		}
+	}
+	refBlob := strings.Join(refParts, " ")
+
+	var unusedSetParams []UnusedSetParam
+	for _, n := range nodes {
+		for _, lg := range n.logics {
+			if t, _ := lg["type"].(string); t != "set_param" {
+				continue
+			}
+			extra, _ := lg["extra"].(map[string]interface{})
+			if len(extra) == 0 {
+				continue
+			}
+			var unreferenced []string
+			for varName := range extra {
+				if !referencesVar(refBlob, varName) {
+					unreferenced = append(unreferenced, varName)
+				}
+			}
+			if len(unreferenced) > 0 {
+				displayTitle := n.title
+				if displayTitle == "" {
+					displayTitle = "(untitled)"
+				}
+				unusedSetParams = append(unusedSetParams, UnusedSetParam{
+					ID:              n.id,
+					Title:           displayTitle,
+					UnusedVariables: unreferenced,
+					Issue: fmt.Sprintf("set_param sets %v but no downstream node references them",
+						unreferenced),
+				})
+			}
+		}
+	}
+
+	return noopConditions, unusedSetParams
+}
+
+// referencesVar reports whether a variable set by set_param is read anywhere
+// downstream. Two syntaxes count, because Corezoid has two consumers:
+//
+//   - node configuration reads it as a template — {{name}} — which is what
+//     go_if_const, api_rpc extra, api urls and so on use;
+//   - a Code node (api_code) reads it as JavaScript — data.name, data["name"] —
+//     and NEVER as {{name}}.
+//
+// Checking only the template form is what made every set_param feeding a Code
+// node report as dead. That mattered beyond noise: the recommended middleware
+// shape maps outcomes in a Code node rather than a condition tree, so following
+// the guidance guaranteed the warning, and the cheapest way to silence it was to
+// rewrite a correct set_param as an api_code — lint pushing the author toward a
+// worse graph. A mention inside a JS comment now counts as a read, which is a
+// deliberate trade: under-reporting a genuinely dead node is far cheaper than
+// blocking a correct design.
+func referencesVar(blob, name string) bool {
+	if name == "" {
+		return false
+	}
+	if strings.Contains(blob, "{{"+name+"}}") {
+		return true
+	}
+	if strings.Contains(blob, `data["`+name+`"]`) || strings.Contains(blob, "data['"+name+"']") {
+		return true
+	}
+	// data.name — require a non-identifier character after the name so that
+	// `result` is not considered read by a reference to `data.result_code`.
+	needle := "data." + name
+	for i := 0; ; {
+		idx := strings.Index(blob[i:], needle)
+		if idx < 0 {
+			return false
+		}
+		end := i + idx + len(needle)
+		if end >= len(blob) || !isIdentChar(blob[end]) {
+			return true
+		}
+		i = end
+	}
+}
+
+func isIdentChar(c byte) bool {
+	return c == '_' || c == '$' ||
+		(c >= '0' && c <= '9') ||
+		(c >= 'a' && c <= 'z') ||
+		(c >= 'A' && c <= 'Z')
+}
+
+// findSharedErrorClusters flags error-cluster nodes shared between the error
+// paths of different main-flow nodes. Allowed: ONE node's error fanning
+// through its own Condition (any number of go_if_const branches) into one
+// Error terminal — that whole cluster belongs to that node. Forbidden: a
+// second node's err_node_id (or its cluster tail) converging onto any node of
+// another node's cluster; every failing node gets its own Reply/Error cluster
+// (see docs/process/error-handling.md, "Dedicated Error Cluster Pattern").
+func findSharedErrorClusters(nodes []processNode) []SharedErrorCluster {
+	byID := make(map[string]processNode, len(nodes))
+	for _, n := range nodes {
+		byID[n.id] = n
+	}
+	forward := func(n processNode) []string {
+		var out []string
+		for _, lg := range n.logics {
+			t, _ := lg["type"].(string)
+			if t == "go" || t == "go_if_const" {
+				if to, _ := lg["to_node_id"].(string); to != "" {
+					if _, ok := byID[to]; ok {
+						out = append(out, to)
+					}
+				}
+			}
+		}
+		for _, sm := range n.sems {
+			if to, _ := sm["to_node_id"].(string); to != "" {
+				if _, ok := byID[to]; ok {
+					out = append(out, to)
+				}
+			}
+			// count semaphors continue the escalation tail via esc_node_id
+			if esc, _ := sm["esc_node_id"].(string); esc != "" {
+				if _, ok := byID[esc]; ok {
+					out = append(out, esc)
+				}
+			}
+		}
+		return out
+	}
+
+	// main flow = forward closure from the Start nodes. Escalations
+	// (obj_type 3) and terminals (obj_type 2) are then EXCLUDED: an error
+	// cluster does not become "business flow" just because one business
+	// branch also routes into it (e.g. a condition's fatal branch entering
+	// the reply node) — the err fan-in into it is still the violation.
+	mainFlow := map[string]bool{}
+	var stack []string
+	for _, n := range nodes {
+		if n.objType == 1 {
+			mainFlow[n.id] = true
+			stack = append(stack, n.id)
+		}
+	}
+	for len(stack) > 0 {
+		u := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		for _, v := range forward(byID[u]) {
+			if !mainFlow[v] {
+				mainFlow[v] = true
+				stack = append(stack, v)
+			}
+		}
+	}
+	for _, n := range nodes {
+		if n.objType == 2 || n.objType == 3 {
+			delete(mainFlow, n.id)
+		}
+	}
+
+	// walk every node's error tail (outside the main flow) and attribute the
+	// visited cluster nodes to that source
+	sources := map[string][]string{} // cluster node id -> distinct source labels
+	seenSrc := map[string]map[string]bool{}
+	var order []string
+	for _, src := range nodes {
+		targets := map[string]bool{}
+		for _, lg := range src.logics {
+			if e, _ := lg["err_node_id"].(string); e != "" {
+				if _, ok := byID[e]; ok && !mainFlow[e] {
+					targets[e] = true
+				}
+			}
+		}
+		// a count semaphor escalates this node's failure via esc_node_id — the
+		// same kind of error tail as an err_node_id (symmetry with forward()).
+		for _, sm := range src.sems {
+			if e, _ := sm["esc_node_id"].(string); e != "" {
+				if _, ok := byID[e]; ok && !mainFlow[e] {
+					targets[e] = true
+				}
+			}
+		}
+		if len(targets) == 0 {
+			continue
+		}
+		label := src.id
+		if src.title != "" {
+			label = fmt.Sprintf("%s (%s)", src.id, src.title)
+		}
+		visited := map[string]bool{}
+		var st []string
+		for _, n := range nodes { // deterministic: doc order
+			if targets[n.id] {
+				st = append(st, n.id)
+			}
+		}
+		for len(st) > 0 {
+			u := st[len(st)-1]
+			st = st[:len(st)-1]
+			if visited[u] || mainFlow[u] {
+				continue
+			}
+			visited[u] = true
+			if seenSrc[u] == nil {
+				seenSrc[u] = map[string]bool{}
+				order = append(order, u)
+			}
+			if !seenSrc[u][label] {
+				seenSrc[u][label] = true
+				sources[u] = append(sources[u], label)
+			}
+			for _, v := range forward(byID[u]) {
+				if !mainFlow[v] {
+					st = append(st, v)
+				}
+			}
+		}
+	}
+
+	var out []SharedErrorCluster
+	for _, id := range order {
+		if len(sources[id]) < 2 {
+			continue
+		}
+		out = append(out, SharedErrorCluster{
+			ID:      id,
+			Title:   byID[id].title,
+			Sources: sources[id],
+		})
+	}
+	return out
+}
+
+// lintActionTypes are logic types that DO something to the task (as opposed to
+// routing it): mixing any of them with go_if_const in one node is old format.
+// api_callback is deliberately absent — a Waiting-for-Callback node legitimately
+// pairs its wait with condition branches, and the platform does not split it.
+var lintActionTypes = map[string]bool{
+	"api_rpc_reply": true,
+	"api_rpc":       true,
+	"api_copy":      true,
+	"api":           true,
+	"api_code":      true,
+	"api_form":      true,
+	"set_param":     true,
+	"api_sum":       true,
+	"db_call":       true,
+	"api_git":       true,
+	"api_queue":     true,
+	"api_get_task":  true,
+}
+
+// findOldFormatNodes detects the two node shapes that make the Corezoid UI show
+// "Convert process to new format" on open (and silently rewrite the scheme):
+//  1. action logic + go_if_const in one node — the converter splits it in two;
+//  2. err_node_id pointing at an obj_type:0 node — escalation targets must be
+//     obj_type:3. Nodes reached only via go/go_if_const may stay obj_type:0.
+func findOldFormatNodes(nodes []processNode) []OldFormatNode {
+	nodeMap := make(map[string]processNode, len(nodes))
+	for _, n := range nodes {
+		nodeMap[n.id] = n
+	}
+
+	var result []OldFormatNode
+	flaggedErrTargets := make(map[string]bool)
+	for _, n := range nodes {
+		hasAction := false
+		hasCondition := false
+		for _, lg := range n.logics {
+			lgType, _ := lg["type"].(string)
+			if lintActionTypes[lgType] {
+				hasAction = true
+			}
+			if lgType == "go_if_const" {
+				hasCondition = true
+			}
+			if errID, _ := lg["err_node_id"].(string); errID != "" && !flaggedErrTargets[errID] {
+				if target, ok := nodeMap[errID]; ok && target.objType == 0 {
+					flaggedErrTargets[errID] = true
+					title := target.title
+					if title == "" {
+						title = "(untitled)"
+					}
+					result = append(result, OldFormatNode{
+						ID:    target.id,
+						Title: title,
+						Issue: fmt.Sprintf("err_node_id target has obj_type:0 — escalation targets must be obj_type:3 (referenced from '%s' %s); the UI will force-convert the process", n.title, n.id),
+					})
+				}
+			}
+		}
+		// count-semaphor escalations (esc_node_id) are escalation targets too
+		for _, sem := range n.sems {
+			if escID, _ := sem["esc_node_id"].(string); escID != "" && !flaggedErrTargets[escID] {
+				if target, ok := nodeMap[escID]; ok && target.objType == 0 {
+					flaggedErrTargets[escID] = true
+					title := target.title
+					if title == "" {
+						title = "(untitled)"
+					}
+					result = append(result, OldFormatNode{
+						ID:    target.id,
+						Title: title,
+						Issue: fmt.Sprintf("esc_node_id target has obj_type:0 — escalation targets must be obj_type:3 (referenced from '%s' %s); the UI will force-convert the process", n.title, n.id),
+					})
+				}
+			}
+		}
+		if hasAction && hasCondition {
+			title := n.title
+			if title == "" {
+				title = "(untitled)"
+			}
+			result = append(result, OldFormatNode{
+				ID:    n.id,
+				Title: title,
+				Issue: "node mixes an action logic with go_if_const conditions — old format; the UI converter will split it into an action node plus a separate condition node. Split it yourself: action + go into a new condition node",
+			})
+		}
+	}
+	return result
+}
+
+// findMissingDefaultGo flags non-final nodes whose logics list does not end
+// with a bare `go`. The platform requires a default route on every routing
+// node and rejects the whole deploy otherwise — lint turns that push error
+// into a local finding. Final nodes (obj_type:2) carry no logics and are
+// exempt, as are nodes with no logics at all.
+func findMissingDefaultGo(nodes []processNode) []MissingDefaultGo {
+	var result []MissingDefaultGo
+	for _, n := range nodes {
+		if n.objType == 2 || len(n.logics) == 0 {
+			continue
+		}
+		last := n.logics[len(n.logics)-1]
+		if t, _ := last["type"].(string); t != "go" {
+			title := n.title
+			if title == "" {
+				title = "(untitled)"
+			}
+			result = append(result, MissingDefaultGo{
+				ID:    n.id,
+				Title: title,
+				Issue: fmt.Sprintf("logics end with '%s' instead of a bare go — the server rejects the deploy; add a final go with the default destination", t),
+			})
+		}
+	}
+	return result
+}
+
+// lintRoutingLogicTypes are the logic types that only move a task onward
+// without doing anything to it. A node built from nothing but these holds the
+// task and then routes it — that is a Delay node, and its time semaphor IS the
+// delay.
+var lintRoutingLogicTypes = map[string]bool{
+	"go":          true,
+	"go_if_const": true,
+}
+
+// isDelayNode reports whether a node's only job is to hold the task.
+//
+// The allowlist is deliberately the routing types rather than a denylist of
+// action types: an unrecognised logic type reads as "this node does something",
+// so a node type added to the platform later never starts failing pushes over a
+// timeout it is entitled to have.
+func isDelayNode(n processNode) bool {
+	for _, lg := range n.logics {
+		t, _ := lg["type"].(string)
+		if !lintRoutingLogicTypes[t] {
+			return false
+		}
+	}
+	return true
+}
+
+// timerSeconds converts a semaphor/logic {value, dimension} pair to seconds.
+// value may be a number or a numeric string; a template ("{{...}}") resolves
+// at run time and cannot be checked statically, so it reports !ok.
+func timerSeconds(value interface{}, dimension string) (seconds float64, ok bool) {
+	dimSeconds := map[string]float64{"": 1, "sec": 1, "min": 60, "hour": 3600, "day": 86400}
+	mult, known := dimSeconds[dimension]
+	if !known {
+		return 0, false // unknown dimension — leave for the server
+	}
+	switch raw := value.(type) {
+	case float64:
+		return raw * mult, true
+	case string:
+		parsed, err := strconv.ParseFloat(strings.TrimSpace(raw), 64)
+		if err != nil {
+			return 0, false
+		}
+		return parsed * mult, true
+	default:
+		return 0, false
+	}
+}
+
+// findShortTimers flags numeric time semaphors/logics under 30 seconds on
+// Delay nodes — the server minimum. Template values ("{{delay}}") are left
+// alone: they resolve at run time and cannot be checked statically.
+//
+// The node shape is the whole point of the rule. The same
+// {"type":"time","value":10} appears in two unrelated roles: on a Delay node it
+// is how long the task is held, and the server enforces a 30 s floor on it; on
+// a node that performs work (api, api_rpc, api_code, db_call, git_call,
+// api_copy, api_callback, …) it is the timeout after which the task escalates
+// to to_node_id, and no floor applies — 10 s call timeouts deploy and run
+// normally. Flagging both shapes blocked pushes over timers the server accepts
+// (issue #176), so time semaphors are only checked on routing-only
+// (isDelayNode) nodes. A `"type":"delay"` logic entry has no such dual role —
+// it IS the hold, in whatever node it appears in — so it is always checked.
+func findShortTimers(nodes []processNode) []ShortTimer {
+	var result []ShortTimer
+	for _, n := range nodes {
+		title := n.title
+		if title == "" {
+			title = "(untitled)"
+		}
+		for _, lg := range n.logics {
+			if t, _ := lg["type"].(string); t != "delay" {
+				continue
+			}
+			dim, _ := lg["dimension"].(string)
+			v, ok := timerSeconds(lg["value"], dim)
+			if !ok || v >= 30 {
+				continue
+			}
+			result = append(result, ShortTimer{
+				ID:    n.id,
+				Title: title,
+				Issue: fmt.Sprintf("delay holds the task %g sec — below the server minimum of 30 sec; the deploy is rejected with \"Timer value %g sec is less than minimum limit 30 sec\". Raise it to 30 sec, or use a dynamic {{...}} value for a shorter hold", v, v),
+			})
+		}
+		if !isDelayNode(n) {
+			continue // time semaphor here is a timeout, not a delay
+		}
+		for _, sem := range n.sems {
+			if t, _ := sem["type"].(string); t != "time" {
+				continue
+			}
+			dim, _ := sem["dimension"].(string)
+			v, ok := timerSeconds(sem["value"], dim)
+			if !ok || v >= 30 {
+				continue
+			}
+			result = append(result, ShortTimer{
+				ID:    n.id,
+				Title: title,
+				Issue: fmt.Sprintf("delay holds the task %g sec — below the server minimum of 30 sec; the deploy is rejected with \"Timer value %g sec is less than minimum limit 30 sec\". Raise it to 30 sec, or use a dynamic {{...}} value for a shorter hold", v, v),
+			})
+		}
+	}
+	return result
+}
+
+// findStubModeNodes flags active Call Process Stub Mode nodes. The presence of
+// condition.stub alone is not enough: live Corezoid runtime uses obj_type:4 as
+// the actual Stub Mode switch. With obj_type:0, the real process is called.
+func findStubModeNodes(nodes []processNode) []StubModeNode {
+	var result []StubModeNode
+	for _, n := range nodes {
+		if n.objType != 4 {
+			continue
+		}
+		title := n.title
+		if title == "" {
+			title = "(untitled)"
+		}
+		branches := 0
+		if raw, ok := n.stub["logics"].([]interface{}); ok {
+			branches = len(raw)
+		}
+		result = append(result, StubModeNode{
+			ID:       n.id,
+			Title:    title,
+			Branches: branches,
+			Issue:    "Stub Mode is active (obj_type:4): the Call Process node bypasses the real called process and returns configured mock replies. Use this only as a temporary development/integration placeholder; before production, disable Stub Mode (obj_type:0) or deploy with allow_active_stub_mode=true after explicit confirmation.",
+		})
+	}
+	return result
+}
+
+// findGitCallUsages flags every git_call (api_git) node. Advisory only — a
+// legitimate git_call is valid, but each one is surfaced to confirm the step
+// genuinely needs a capability native nodes plus a Code (api_code) node cannot
+// provide and fits within the observed runtime and configured resource budget.
+func findGitCallUsages(nodes []processNode) []GitCallUsage {
+	var result []GitCallUsage
+	for _, n := range nodes {
+		for _, lg := range n.logics {
+			t, _ := lg["type"].(string)
+			if t != "git_call" && t != "api_git" {
+				continue
+			}
+			title := n.title
+			if title == "" {
+				title = "(untitled)"
+			}
+			result = append(result, GitCallUsage{
+				ID:    n.id,
+				Title: title,
+				Issue: "Hosted sandbox measurements show an approximately 60s git_call execution deadline; keep handlers comfortably below 50s. Default resources are 50 MB RAM / 0.1 CPU from a shared, super-admin-configurable pool, so concurrency can cause contention. Local storage is ephemeral, not persistent. Use git_call only when native nodes + a Code (api_code) node cannot provide the required capability: file parsing, an external library, cryptography, or a custom runtime. Do not use it for long-running work or latency-critical paths that require predictable execution time (loops/polling → process state with condition+delay; external waits → callback; plain HTTP → api/api_rpc).",
+			})
+			break // one advisory per node, even if it carries several logics
+		}
+	}
+	return result
+}
+
+// BrokenLink is a transition (logic to_node_id/err_node_id/go_to/goto, or a
+// semaphor to_node_id/esc_node_id) that points at a static 24-hex node id which
+// does not exist in this process. The server rejects the deploy ("referenced
+// node X does not exist"); lint catches it offline, before the round-trip.
+// Dynamic targets ({{...}} / @alias) resolve at deploy and are left alone.
+type BrokenLink struct {
+	ID     string
+	Title  string
+	Field  string
+	Target string
+	Issue  string
+}
+
+// isStaticNodeID reports whether v is a literal 24-char lowercase-hex node id
+// (the shape Corezoid assigns). Dynamic references are not this shape.
+func isStaticNodeID(v interface{}) (string, bool) {
+	s, ok := v.(string)
+	if !ok || len(s) != 24 {
+		return "", false
+	}
+	for _, c := range s {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return "", false
+		}
+	}
+	return s, true
+}
+
+// findBrokenLinks detects intra-process transitions pointing at a non-existent
+// node ([2a], salvaged from the former stage-scan tool). Both logic link fields
+// and semaphor targets are checked; only static ids are validated.
+func findBrokenLinks(nodes []processNode) []BrokenLink {
+	exists := make(map[string]bool, len(nodes))
+	for _, n := range nodes {
+		exists[n.id] = true
+	}
+	logicFields := []string{"to_node_id", "err_node_id", "go_to", "goto"}
+	semFields := []string{"to_node_id", "esc_node_id"}
+	var result []BrokenLink
+	add := func(n processNode, field, target string) {
+		title := n.title
+		if title == "" {
+			title = "(untitled)"
+		}
+		result = append(result, BrokenLink{
+			ID: n.id, Title: title, Field: field, Target: target,
+			Issue: fmt.Sprintf("%s points at node %s, which does not exist in this process — the server rejects the deploy (\"referenced node does not exist\")", field, target),
+		})
+	}
+	for _, n := range nodes {
+		for _, lg := range n.logics {
+			for _, f := range logicFields {
+				if tgt, ok := isStaticNodeID(lg[f]); ok && !exists[tgt] {
+					add(n, f, tgt)
+				}
+			}
+		}
+		for _, sm := range n.sems {
+			for _, f := range semFields {
+				if tgt, ok := isStaticNodeID(sm[f]); ok && !exists[tgt] {
+					add(n, f, tgt)
+				}
+			}
+		}
+	}
+	return result
+}
+
+// SelfReferenceCopy is an api_copy or api_rpc logic whose conv_id equals the
+// process's own obj_id — a self-referencing "infinite-loop" pattern. The native
+// Corezoid UI deploys such processes, but push-process's pre-deployment validation
+// rejects them and force=true does NOT bypass that check.
+// Recommended replacement: a time-semaphore delay node (≥30s) with a bare go back
+// to the loop entry point — the existing task cycles in-place without spawning a new one.
+type SelfReferenceCopy struct {
+	NodeID    string
+	NodeTitle string
+	NodeType  string // "api_copy" or "api_rpc"
+	Issue     string
+}
+
+// findSelfReferenceCopies detects api_copy or api_rpc logics whose conv_id
+// equals the process's own processID — the self-referencing loop pattern that
+// the Corezoid UI allows but push-process rejects (force=true cannot override it).
+// If processID is 0 (unknown / new process), no findings are emitted.
+func findSelfReferenceCopies(nodes []processNode, processID int) []SelfReferenceCopy {
+	if processID == 0 {
+		return nil
+	}
+	var result []SelfReferenceCopy
+	for _, n := range nodes {
+		for _, lg := range n.logics {
+			lgType, _ := lg["type"].(string)
+			if lgType != "api_copy" && lgType != "api_rpc" {
+				continue
+			}
+			convID, ok := lg["conv_id"].(float64)
+			if !ok || int(convID) != processID {
+				continue
+			}
+			title := n.title
+			if title == "" {
+				title = "(untitled)"
+			}
+			kindName := "Copy Task"
+			if lgType == "api_rpc" {
+				kindName = "Call a Process"
+			}
+			result = append(result, SelfReferenceCopy{
+				NodeID:    n.id,
+				NodeTitle: title,
+				NodeType:  lgType,
+				Issue: fmt.Sprintf(
+					"node %q (id=%s) uses %s (type=%s, conv_id=%d) to send tasks into this same process — "+
+						"push-process blocks this regardless of force=true. "+
+						"Fix: replace with a time-semaphore delay node (≥30s) → bare `go` back to the loop entry; "+
+						"the task cycles in-place without spawning a new one.",
+					title, n.id, kindName, lgType, processID),
+			})
+		}
+	}
+	return result
+}
+
+// findUnrepliedTerminals detects final nodes reachable from Start without
+// crossing any api_rpc_reply, in processes that reply somewhere else. A process
+// that replies on its error paths but ends its success path in a bare final is
+// inconsistent by construction: an RPC caller learns about every failure but
+// hangs until timeout on success. Fire-and-forget processes (no api_rpc_reply
+// anywhere) are exempt — they are not RPC-style.
+func findUnrepliedTerminals(nodes []processNode) []UnrepliedTerminal {
+	nodeMap := make(map[string]processNode, len(nodes))
+	hasReply := false
+	replies := make(map[string]bool)
+	for _, n := range nodes {
+		nodeMap[n.id] = n
+		for _, lg := range n.logics {
+			if t, _ := lg["type"].(string); t == "api_rpc_reply" {
+				hasReply = true
+				replies[n.id] = true
+			}
+		}
+	}
+	if !hasReply {
+		return nil
+	}
+
+	type state struct {
+		id      string
+		replied bool
+	}
+	var stack []state
+	for _, n := range nodes {
+		if n.objType == 1 {
+			stack = append(stack, state{n.id, false})
+		}
+	}
+	seen := make(map[state]bool)
+	unreplied := make(map[string]bool)
+	for len(stack) > 0 {
+		s := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if seen[s] {
+			continue
+		}
+		seen[s] = true
+		n, ok := nodeMap[s.id]
+		if !ok {
+			continue
+		}
+		replied := s.replied || replies[s.id]
+		if n.objType == 2 {
+			if !replied {
+				unreplied[s.id] = true
+			}
+			continue
+		}
+		for _, lg := range n.logics {
+			if to, _ := lg["to_node_id"].(string); to != "" {
+				stack = append(stack, state{to, replied})
+			}
+			if errID, _ := lg["err_node_id"].(string); errID != "" {
+				stack = append(stack, state{errID, replied})
+			}
+		}
+		for _, sem := range n.sems {
+			if to, _ := sem["to_node_id"].(string); to != "" {
+				stack = append(stack, state{to, replied})
+			}
+			if esc, _ := sem["esc_node_id"].(string); esc != "" {
+				stack = append(stack, state{esc, replied})
+			}
+		}
+	}
+
+	var result []UnrepliedTerminal
+	for _, n := range nodes { // document order for determinism
+		if !unreplied[n.id] {
+			continue
+		}
+		title := n.title
+		if title == "" {
+			title = "(untitled)"
+		}
+		result = append(result, UnrepliedTerminal{
+			ID:    n.id,
+			Title: title,
+			Issue: fmt.Sprintf("final '%s' is reachable from Start without any api_rpc_reply, while the process replies on other paths — an RPC caller (api_rpc) hangs until timeout on this path. Add a Reply node before the final", title),
+		})
+	}
+	return result
+}
+
+// findPassthroughEscalations detects escalation nodes (obj_type:3) that contain only
+// a bare `go` logic and no action logic (api_rpc_reply, set_param, etc.).
+// Such nodes are pure pass-throughs: the err_node_id should point directly to the
+// final error node instead of routing through an empty escalation node.
+func findPassthroughEscalations(nodes []processNode) []PassthroughEscalation {
+	nodeMap := make(map[string]processNode, len(nodes))
+	for _, n := range nodes {
+		nodeMap[n.id] = n
+	}
+
+	actionTypes := lintActionTypes
+
+	var result []PassthroughEscalation
+	for _, n := range nodes {
+		if n.objType != 3 {
+			continue
+		}
+		hasAction := false
+		hasCondition := false
+		goTarget := ""
+		for _, lg := range n.logics {
+			lgType, _ := lg["type"].(string)
+			if actionTypes[lgType] {
+				hasAction = true
+				break
+			}
+			if lgType == "go_if_const" {
+				hasCondition = true
+			}
+			if lgType == "go" {
+				goTarget, _ = lg["to_node_id"].(string)
+			}
+		}
+		// Condition escalations (retry IF: go_if_const branches + default go) and
+		// timer escalations (Delay semaphors) route, they don't pass through —
+		// the platform's new-format converter itself produces them as obj_type:3.
+		if hasCondition || len(n.sems) > 0 {
+			continue
+		}
+		if hasAction || goTarget == "" {
+			continue
+		}
+		targetTitle := ""
+		if target, ok := nodeMap[goTarget]; ok {
+			targetTitle = target.title
+			if targetTitle == "" {
+				targetTitle = "(untitled)"
+			}
+		}
+		displayTitle := n.title
+		if displayTitle == "" {
+			displayTitle = "(untitled)"
+		}
+		result = append(result, PassthroughEscalation{
+			ID:          n.id,
+			Title:       displayTitle,
+			TargetID:    goTarget,
+			TargetTitle: targetTitle,
+			Issue: fmt.Sprintf(
+				"Escalation node (obj_type:3) has no action logic — wire err_node_id directly to '%s' (%s)",
+				targetTitle, goTarget,
+			),
+		})
+	}
+	return result
+}
+
+// findLiteralReplyValues detects api_rpc_reply logics whose res_data (or its
+// alternative spelling extra) carries literal non-string values. The Corezoid
+// commit service cannot serialise them when the change comes through the API:
+// the commit request gets no reply and push-process fails with the opaque
+// "no response from server" — while both the JSON schema and the UI editor
+// accept the very same scheme. Catching it in lint turns a dead-end hang into
+// an actionable message.
+//
+// Only non-string values are flagged. Literal strings ("success", "API call
+// error") are fine — the platform serialises them the same way as templates.
+func findLiteralReplyValues(nodes []processNode) []LiteralReplyValue {
+	var result []LiteralReplyValue
+	for _, n := range nodes {
+		for _, lg := range n.logics {
+			if t, _ := lg["type"].(string); t != "api_rpc_reply" {
+				continue
+			}
+			var fields []string
+			for _, dataKey := range []string{"res_data", "extra"} {
+				data, _ := lg[dataKey].(map[string]interface{})
+				keys := make([]string, 0, len(data))
+				for k := range data {
+					keys = append(keys, k)
+				}
+				sort.Strings(keys)
+				for _, k := range keys {
+					if _, isString := data[k].(string); !isString {
+						fields = append(fields, fmt.Sprintf("%s.%s = %s", dataKey, k, describeLiteral(data[k])))
+					}
+				}
+			}
+			if len(fields) == 0 {
+				continue
+			}
+			displayTitle := n.title
+			if displayTitle == "" {
+				displayTitle = "(untitled)"
+			}
+			result = append(result, LiteralReplyValue{
+				ID:     n.id,
+				Title:  displayTitle,
+				Fields: fields,
+				Issue: fmt.Sprintf(
+					"api_rpc_reply has literal non-string values (%s) — pushing this scheme hangs the server commit (\"no response from server\"). Set the value in an upstream api_code/set_param node and reference it as \"{{variable}}\" with the real type in res_data_type",
+					strings.Join(fields, ", ")),
+			})
+		}
+	}
+	return result
+}
+
+// apiCanonicalFields is the set of api logic fields that the Corezoid commit
+// service requires beyond those already enforced by the JSON schema (type,
+// method, url, extra_headers, max_threads, err_node_id). A node carrying only
+// the schema-required subset is "under-specified": the server commit hangs for
+// ~15–20 s then returns the generic "no response from server" error with no
+// indication of which node or field caused it.
+//
+// These fields must be PRESENT (the key must exist); the value may be the
+// zero/default for the type (e.g. empty {}, false, "" or 0).
+var apiCanonicalFields = []string{
+	"extra",
+	"extra_type",
+	"format",
+	"send_sys",
+	"debug_info",
+	"customize_response",
+	"rfc_format",
+	"cert_pem",
+	"version",
+}
+
+// findUnderspecifiedAPINodes scans every node for api logics that are missing
+// one or more fields from the canonical server-required set. A node that passes
+// schema validation but lacks these fields causes the server commit to hang
+// without a descriptive error (see UnderspecifiedAPINode doc comment).
+func findUnderspecifiedAPINodes(nodes []processNode) []UnderspecifiedAPINode {
+	var result []UnderspecifiedAPINode
+	for _, n := range nodes {
+		for _, lg := range n.logics {
+			if t, _ := lg["type"].(string); t != "api" {
+				continue
+			}
+			var missing []string
+			for _, field := range apiCanonicalFields {
+				if _, ok := lg[field]; !ok {
+					missing = append(missing, field)
+				}
+			}
+			if len(missing) == 0 {
+				continue
+			}
+			displayTitle := n.title
+			if displayTitle == "" {
+				displayTitle = "(untitled)"
+			}
+			result = append(result, UnderspecifiedAPINode{
+				NodeID:        n.id,
+				NodeTitle:     displayTitle,
+				MissingFields: missing,
+				Issue: fmt.Sprintf(
+					"api logic is missing canonical fields [%s] — the server commit hangs ~15–20 s then fails with \"no response from server\" instead of a descriptive error. Add the missing fields (copy the GET example from docs/nodes/api-call-node.md as a template)",
+					strings.Join(missing, ", ")),
+			})
+		}
+	}
+	return result
+}
+
+// describeLiteral renders a res_data value for the lint message ([], {}, 0, true, null).
+func describeLiteral(v interface{}) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprintf("%v", v)
+	}
+	s := string(b)
+	if len(s) > 40 {
+		s = s[:37] + "..."
+	}
+	return s
+}
+
+// findOrphanedNodes does a BFS from the Start node and returns unreachable nodes
+func findOrphanedNodes(nodes []processNode) ([]OrphanedNode, int) {
+	typeLabels := map[float64]string{0: "standard", 1: "start", 2: "final", 3: "escalation"}
+
+	nodeMap := make(map[string]processNode, len(nodes))
+	for _, e := range nodes {
+		nodeMap[e.id] = e
+	}
+
+	// Build adjacency list
+	adj := make(map[string][]string)
+	for _, e := range nodes {
+		adj[e.id] = nil
+		for _, lg := range e.logics {
+			if tid, ok := lg["to_node_id"].(string); ok && tid != "" {
+				adj[e.id] = append(adj[e.id], tid)
+			}
+			if eid, ok := lg["err_node_id"].(string); ok && eid != "" {
+				adj[e.id] = append(adj[e.id], eid)
+			}
+		}
+		for _, sem := range e.sems {
+			if tid, ok := sem["to_node_id"].(string); ok && tid != "" {
+				adj[e.id] = append(adj[e.id], tid)
+			}
+			// count semaphors escalate via esc_node_id instead of to_node_id
+			if eid, ok := sem["esc_node_id"].(string); ok && eid != "" {
+				adj[e.id] = append(adj[e.id], eid)
+			}
+		}
+	}
+
+	// Find start node (obj_type == 1)
+	startID := ""
+	for _, e := range nodes {
+		if e.objType == 1 {
+			startID = e.id
+			break
+		}
+	}
+	if startID == "" {
+		return nil, 0
+	}
+
+	// BFS
+	visited := make(map[string]bool)
+	queue := []string{startID}
+	visited[startID] = true
+	for len(queue) > 0 {
+		cur := queue[0]
+		queue = queue[1:]
+		for _, nb := range adj[cur] {
+			if !visited[nb] {
+				if _, exists := nodeMap[nb]; exists {
+					visited[nb] = true
+					queue = append(queue, nb)
+				}
+			}
+		}
+	}
+
+	var orphaned []OrphanedNode
+	for _, e := range nodes {
+		if !visited[e.id] {
+			label, ok := typeLabels[e.objType]
+			if !ok {
+				label = fmt.Sprintf("unknown_%v", e.objType)
+			}
+			displayTitle := e.title
+			if displayTitle == "" {
+				displayTitle = "(untitled)"
+			}
+			orphaned = append(orphaned, OrphanedNode{
+				ID:      e.id,
+				Title:   displayTitle,
+				ObjType: label,
+			})
+		}
+	}
+
+	return orphaned, len(visited)
+}
+
+// FormatLintResult renders a LintResult as human-readable text suitable for MCP tool output.
+func FormatLintResult(result *LintResult) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Lint results for: %s\n", result.ProcessTitle))
+	sb.WriteString(fmt.Sprintf("Total nodes: %d\n", result.TotalNodes))
+
+	hasIssues := false
+
+	if !result.SchemaValid {
+		hasIssues = true
+		sb.WriteString("\n=== JSON SCHEMA VALIDATION FAILED ===\n")
+		sb.WriteString(fmt.Sprintf("  %s\n", result.SchemaError))
+	}
+
+	if len(result.NoopConditions) > 0 {
+		hasIssues = true
+		sb.WriteString(fmt.Sprintf("\n=== NOOP CONDITIONS (%d) ===\n", len(result.NoopConditions)))
+		for _, nc := range result.NoopConditions {
+			sb.WriteString(fmt.Sprintf("  [%s] %s\n", nc.ID, nc.Title))
+			sb.WriteString(fmt.Sprintf("  Issue: %s\n", nc.Issue))
+		}
+	}
+
+	if len(result.UnusedSetParams) > 0 {
+		hasIssues = true
+		sb.WriteString(fmt.Sprintf("\n=== UNUSED SET_PARAM (%d) ===\n", len(result.UnusedSetParams)))
+		for _, up := range result.UnusedSetParams {
+			sb.WriteString(fmt.Sprintf("  [%s] %s\n", up.ID, up.Title))
+			sb.WriteString(fmt.Sprintf("  Issue: %s\n", up.Issue))
+		}
+	}
+
+	if len(result.OrphanedNodes) > 0 {
+		hasIssues = true
+		sb.WriteString(fmt.Sprintf("\n=== ORPHANED NODES (%d / %d reachable from Start) ===\n",
+			len(result.OrphanedNodes), result.ReachableCount))
+		for _, on := range result.OrphanedNodes {
+			sb.WriteString(fmt.Sprintf("  [%s] %s  (type: %s)\n", on.ID, on.Title, on.ObjType))
+		}
+	}
+
+	if len(result.RpcReplyMismatches) > 0 {
+		hasIssues = true
+		sb.WriteString(fmt.Sprintf("\n=== API_RPC_REPLY MISMATCHES (%d) ===\n", len(result.RpcReplyMismatches)))
+		for _, m := range result.RpcReplyMismatches {
+			sb.WriteString(fmt.Sprintf("  [%s] %s\n", m.NodeID, m.NodeTitle))
+			sb.WriteString(fmt.Sprintf("  Issue: %s\n", m.Issue))
+		}
+	}
+
+	if len(result.PassthroughEscalations) > 0 {
+		hasIssues = true
+		sb.WriteString(fmt.Sprintf("\n=== PASSTHROUGH ESCALATION NODES (%d) ===\n", len(result.PassthroughEscalations)))
+		for _, pe := range result.PassthroughEscalations {
+			sb.WriteString(fmt.Sprintf("  [%s] %s\n", pe.ID, pe.Title))
+			sb.WriteString(fmt.Sprintf("  Issue: %s\n", pe.Issue))
+		}
+	}
+
+	if len(result.LiteralReplyValues) > 0 {
+		hasIssues = true
+		sb.WriteString(fmt.Sprintf("\n=== API_RPC_REPLY LITERAL VALUES (%d) ===\n", len(result.LiteralReplyValues)))
+		for _, lr := range result.LiteralReplyValues {
+			sb.WriteString(fmt.Sprintf("  [%s] %s\n", lr.ID, lr.Title))
+			sb.WriteString(fmt.Sprintf("  Issue: %s\n", lr.Issue))
+		}
+	}
+
+	if len(result.SharedErrorClusters) > 0 {
+		hasIssues = true
+		sb.WriteString(fmt.Sprintf("\n=== SHARED ERROR CLUSTERS (%d) ===\n", len(result.SharedErrorClusters)))
+		for _, sc := range result.SharedErrorClusters {
+			sb.WriteString(fmt.Sprintf("  [%s] %s\n", sc.ID, sc.Title))
+			sb.WriteString(fmt.Sprintf("  Fed by %d different nodes: %s\n", len(sc.Sources), strings.Join(sc.Sources, ", ")))
+			sb.WriteString("  Issue: every failing node needs its OWN Reply/Error cluster — a neighbour's error must not join it (one node's error may fan through its own Condition into one Error terminal, but never across nodes)\n")
+		}
+	}
+
+	if len(result.OldFormatNodes) > 0 {
+		hasIssues = true
+		sb.WriteString(fmt.Sprintf("\n=== OLD FORMAT NODES (%d) — UI will show \"Convert process to new format\" ===\n", len(result.OldFormatNodes)))
+		for _, of := range result.OldFormatNodes {
+			sb.WriteString(fmt.Sprintf("  [%s] %s\n", of.ID, of.Title))
+			sb.WriteString(fmt.Sprintf("  Issue: %s\n", of.Issue))
+		}
+	}
+
+	if len(result.UnrepliedTerminals) > 0 {
+		hasIssues = true
+		sb.WriteString(fmt.Sprintf("\n=== RPC PATHS WITHOUT REPLY (%d) ===\n", len(result.UnrepliedTerminals)))
+		for _, ut := range result.UnrepliedTerminals {
+			sb.WriteString(fmt.Sprintf("  [%s] %s\n", ut.ID, ut.Title))
+			sb.WriteString(fmt.Sprintf("  Issue: %s\n", ut.Issue))
+		}
+	}
+
+	if len(result.MissingDefaultGo) > 0 {
+		hasIssues = true
+		sb.WriteString(fmt.Sprintf("\n=== NODES WITHOUT DEFAULT GO (%d) — server rejects the deploy ===\n", len(result.MissingDefaultGo)))
+		for _, mg := range result.MissingDefaultGo {
+			sb.WriteString(fmt.Sprintf("  [%s] %s\n", mg.ID, mg.Title))
+			sb.WriteString(fmt.Sprintf("  Issue: %s\n", mg.Issue))
+		}
+	}
+
+	if len(result.ShortTimers) > 0 {
+		hasIssues = true
+		sb.WriteString(fmt.Sprintf("\n=== TIMERS BELOW SERVER MINIMUM (%d) ===\n", len(result.ShortTimers)))
+		for _, st := range result.ShortTimers {
+			sb.WriteString(fmt.Sprintf("  [%s] %s\n", st.ID, st.Title))
+			sb.WriteString(fmt.Sprintf("  Issue: %s\n", st.Issue))
+		}
+	}
+
+	if len(result.BrokenLinks) > 0 {
+		hasIssues = true
+		sb.WriteString(fmt.Sprintf("\n=== BROKEN NODE LINKS (%d) ===\n", len(result.BrokenLinks)))
+		for _, bl := range result.BrokenLinks {
+			sb.WriteString(fmt.Sprintf("  [%s] %s\n", bl.ID, bl.Title))
+			sb.WriteString(fmt.Sprintf("  Issue: %s\n", bl.Issue))
+		}
+	}
+
+	if len(result.UnderspecifiedAPINodes) > 0 {
+		hasIssues = true
+		sb.WriteString(fmt.Sprintf("\n=== UNDERSPECIFIED API CALL NODES (%d) — server commit hangs then \"no response from server\" ===\n", len(result.UnderspecifiedAPINodes)))
+		for _, ua := range result.UnderspecifiedAPINodes {
+			sb.WriteString(fmt.Sprintf("  [%s] %s\n", ua.NodeID, ua.NodeTitle))
+			sb.WriteString(fmt.Sprintf("  Missing: %s\n", strings.Join(ua.MissingFields, ", ")))
+			sb.WriteString(fmt.Sprintf("  Issue: %s\n", ua.Issue))
+		}
+	}
+
+	if len(result.StubModeNodes) > 0 {
+		hasIssues = true
+		sb.WriteString(fmt.Sprintf("\n=== ACTIVE STUB MODE NODES (%d) — temporary mock replies ===\n", len(result.StubModeNodes)))
+		for _, sm := range result.StubModeNodes {
+			sb.WriteString(fmt.Sprintf("  [%s] %s\n", sm.ID, sm.Title))
+			sb.WriteString(fmt.Sprintf("  Stub branches: %d\n", sm.Branches))
+			sb.WriteString(fmt.Sprintf("  Issue: %s\n", sm.Issue))
+		}
+	}
+
+	if len(result.GitCallUsages) > 0 {
+		hasIssues = true
+		sb.WriteString(fmt.Sprintf("\n=== GIT_CALL USAGE (%d) — advisory: constrained node, check the selection rule ===\n", len(result.GitCallUsages)))
+		for _, gc := range result.GitCallUsages {
+			sb.WriteString(fmt.Sprintf("  [%s] %s\n", gc.ID, gc.Title))
+			sb.WriteString(fmt.Sprintf("  Issue: %s\n", gc.Issue))
+		}
+	}
+
+	if len(result.SelfReferenceCopies) > 0 {
+		hasIssues = true
+		sb.WriteString(fmt.Sprintf("\n=== SELF-REFERENCING COPY/CALL NODES (%d) — push-process blocks these; force=true does NOT bypass ===\n", len(result.SelfReferenceCopies)))
+		for _, sr := range result.SelfReferenceCopies {
+			sb.WriteString(fmt.Sprintf("  [%s] %s  (type: %s)\n", sr.NodeID, sr.NodeTitle, sr.NodeType))
+			sb.WriteString(fmt.Sprintf("  Issue: %s\n", sr.Issue))
+		}
+	}
+
+	if !hasIssues {
+		sb.WriteString("\nNo issues found.")
+	} else {
+		schemaIssues := 0
+		if !result.SchemaValid {
+			schemaIssues = 1
+		}
+		total := len(result.NoopConditions) + len(result.UnusedSetParams) + len(result.OrphanedNodes) + len(result.RpcReplyMismatches) + len(result.PassthroughEscalations) + len(result.LiteralReplyValues) + len(result.SharedErrorClusters) + len(result.OldFormatNodes) + len(result.UnrepliedTerminals) + len(result.MissingDefaultGo) + len(result.ShortTimers) + len(result.BrokenLinks) + len(result.UnderspecifiedAPINodes) + len(result.StubModeNodes) + len(result.GitCallUsages) + len(result.SelfReferenceCopies) + schemaIssues
+		sb.WriteString(fmt.Sprintf("\nTotal issues: %d\n", total))
+	}
+
+	return sb.String()
+}
+
+// findRpcReplyMismatches scans every api_rpc_reply logic in all nodes and
+// reports cases where data and type dictionaries do not align.  The server
+// enforces this alignment at commit time but only returns the generic message
+// "invalid value res_data or res_data_type, or both", making it hard to pinpoint
+// the offending key.  By catching the mismatch client-side we can name the exact
+// key so the author can fix it in one pass.
+func findRpcReplyMismatches(nodes []processNode) []RpcReplyMismatch {
+	var mismatches []RpcReplyMismatch
+	for _, n := range nodes {
+		for _, lg := range n.logics {
+			if t, _ := lg["type"].(string); t != "api_rpc_reply" {
+				continue
+			}
+			if m := checkDataTypeAlignment(n, lg, "res_data", "res_data_type"); m != nil {
+				mismatches = append(mismatches, *m)
+			}
+			if m := checkDataTypeAlignment(n, lg, "extra", "extra_type"); m != nil {
+				mismatches = append(mismatches, *m)
+			}
+		}
+	}
+	return mismatches
+}
+
+// checkDataTypeAlignment compares the keys of a data field (res_data or extra)
+// against the keys of its type companion (res_data_type or extra_type) in one
+// api_rpc_reply logic block.  Returns a mismatch descriptor when the sets differ,
+// or nil when they are consistent (including when neither field is present).
+func checkDataTypeAlignment(n processNode, lg map[string]interface{}, dataField, typeField string) *RpcReplyMismatch {
+	data, hasData := lg[dataField].(map[string]interface{})
+	typ, hasType := lg[typeField].(map[string]interface{})
+
+	if !hasData && !hasType {
+		return nil
+	}
+	if !hasData {
+		data = map[string]interface{}{}
+	}
+	if !hasType {
+		typ = map[string]interface{}{}
+	}
+
+	var untypedKeys []string
+	for k := range data {
+		if _, ok := typ[k]; !ok {
+			untypedKeys = append(untypedKeys, k)
+		}
+	}
+	sort.Strings(untypedKeys)
+
+	var unusedTypes []string
+	for k := range typ {
+		if _, ok := data[k]; !ok {
+			unusedTypes = append(unusedTypes, k)
+		}
+	}
+	sort.Strings(unusedTypes)
+
+	if len(untypedKeys) == 0 && len(unusedTypes) == 0 {
+		return nil
+	}
+
+	displayTitle := n.title
+	if displayTitle == "" {
+		displayTitle = "(untitled)"
+	}
+
+	var parts []string
+	for _, k := range untypedKeys {
+		parts = append(parts, fmt.Sprintf("%s key %q has no matching %s entry", dataField, k, typeField))
+	}
+	for _, k := range unusedTypes {
+		parts = append(parts, fmt.Sprintf("%s key %q has no matching %s entry", typeField, k, dataField))
+	}
+
+	return &RpcReplyMismatch{
+		NodeID:      n.id,
+		NodeTitle:   displayTitle,
+		DataField:   dataField,
+		TypeField:   typeField,
+		UntypedKeys: untypedKeys,
+		UnusedTypes: unusedTypes,
+		Issue:       strings.Join(parts, "; "),
+	}
+}
+
+// toMapSlice safely converts an interface{} to []map[string]interface{}
+func toMapSlice(v interface{}) []map[string]interface{} {
+	arr, ok := v.([]interface{})
+	if !ok {
+		return nil
+	}
+	result := make([]map[string]interface{}, 0, len(arr))
+	for _, item := range arr {
+		if m, ok := item.(map[string]interface{}); ok {
+			result = append(result, m)
+		}
+	}
+	return result
+}

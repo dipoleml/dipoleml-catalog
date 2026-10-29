@@ -1,0 +1,4 @@
+interface:
+  display_name: "Smart Contract Audit"
+  short_description: "Solidity/Vyper/Move audit with invariants and economic review"
+  default_prompt: "Use $smart-contract-audit to review contracts you own or are authorized to assess."

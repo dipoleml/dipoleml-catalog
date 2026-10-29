@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+input=$(cat)
+
+# Portable python: python3 → python fallback, no fail if missing
+_py="python3"
+command -v python3 >/dev/null 2>&1 || _py="python"
+command -v "$_py" >/dev/null 2>&1 || _py=""
+if [ -n "$_py" ] && [ -n "$input" ]; then
+  prompt=$(printf '%s' "$input" | "$_py" -c '
+import sys, json
+try:
+  d=json.load(sys.stdin)
+  print(d.get("prompt","").lower())
+except Exception:
+  print("")
+' 2>/dev/null || echo "")
+else
+  prompt=""
+fi
+
+LANG_CTX="🌐 Always reply in the same language the user wrote in."
+
+# ── Helper: emit additionalContext merging lang hint + optional extra msg ─────
+emit() {
+  local msg="${1:-}"
+  local ctx="${LANG_CTX}${msg:+ $msg}"
+  # portable python fallback
+  _py2="python3"
+  command -v python3 >/dev/null 2>&1 || _py2="python"
+  if command -v "$_py2" >/dev/null 2>&1; then
+    printf '%s' "$ctx" | "$_py2" -c '
+import sys, json
+print(json.dumps({
+    "hookSpecificOutput": {
+        "hookEventName": "UserPromptSubmit",
+        "additionalContext": sys.stdin.read(),
+    }
+}))
+'
+  else
+    # fallback: raw text (hooks still non-blocking)
+    printf '%s' "$ctx"
+  fi
+}
+
+# ── Caveman always-on ───────────────────────────────────────────────────────
+CAVEMAN_RULES="🦴 caveman ON (always). Strip articles/filler. Keep exact: code, paths, numbers, errors. Use bullets, one clause each. Auto-suspend for safety/destructive ops."
+
+# always-on: even empty prompt gets caveman (hooks are non-blocking anyway)
+[ -z "$prompt" ] && { emit "$CAVEMAN_RULES"; exit 0; }
+
+# ── Triage hint ───────────────────────────────────────────────────────────────
+if printf '%s' "$prompt" | grep -qE '\b(triage|triaging|backlog|needs[- ]triage|issue queue|classify.*issue|issue.*classif)\b'; then
+  emit "$CAVEMAN_RULES 💡 Triage → /supergraph:triage: needs-triage→needs-info→ready-for-agent→ready-for-human→wontfix."
+  exit 0
+fi
+
+# ── Diagnose hint (skip if verify intent) ─────────────────────────────────────
+if ! printf '%s' "$prompt" | grep -qE '\b(verify|verification|review|PR|pull request)\b' && printf '%s' "$prompt" | grep -qE '\b(bug|not working|broken|failing|crash|exception)\b'; then
+  emit "$CAVEMAN_RULES 💡 Bug detected — /supergraph:diagnose: 6-phase debugging."
+  exit 0
+fi
+
+# ── Frontend/UI hint ──────────────────────────────────────────────────────────
+if printf '%s' "$prompt" | grep -qE '\b(build.*(ui|page|component|dashboard|landing)|design.*(web|ui|page)|make.*look|style.*component|landing page|web ui|frontend)\b'; then
+  emit "$CAVEMAN_RULES 💡 Frontend → /supergraph:frontend-design."
+  exit 0
+fi
+
+# ── Analyze hint ──────────────────────────────────────────────────────────────
+if printf '%s' "$prompt" | grep -qE '\b(analyze|analysis|phân tích|risk|ambiguous|hub|bridge)\b'; then
+  emit "$CAVEMAN_RULES 💡 Analyze → /supergraph:analyze: frame problem, check graph risk, propose approaches before plan."
+  exit 0
+fi
+
+# ── SDD hint ──────────────────────────────────────────────────────────────────
+if printf '%s' "$prompt" | grep -qE '\b(sdd|design doc|software design|system design|data contract|api spec|interface contract|đặc tả thiết kế)\b'; then
+  emit "$CAVEMAN_RULES 💡 SDD → /supergraph:sdd: component architecture, data contracts, and platform matrix before plan."
+  exit 0
+fi
+
+# ── Plan hint ─────────────────────────────────────────────────────────────────
+if printf '%s' "$prompt" | grep -qE '\b(plan|plann?ing|lên kế hoạch|create plan)\b'; then
+  emit "$CAVEMAN_RULES 💡 Plan → /supergraph:plan: graph-informed tasks with TDD steps (run analyze first)."
+  exit 0
+fi
+
+# ── Execute hint ──────────────────────────────────────────────────────────────
+if printf '%s' "$prompt" | grep -qE '\b(implement|execute|thực thi|build feature)\b'; then
+  emit "$CAVEMAN_RULES 💡 Execute → /supergraph:execute (or /supergraph:tdd for single task) — ensure analyze→plan done."
+  exit 0
+fi
+
+# ── Verify hint ───────────────────────────────────────────────────────────────
+if printf '%s' "$prompt" | grep -qE '\b(verify|verification|kiểm tra|xác minh|check done|ready to merge)\b'; then
+  emit "$CAVEMAN_RULES 💡 Verify → /supergraph:verify: fresh evidence before done."
+  exit 0
+fi
+
+# ── Review hint ───────────────────────────────────────────────────────────────
+if printf '%s' "$prompt" | grep -qE '\b(review|code review|merge|pull request|PR)\b'; then
+  emit "$CAVEMAN_RULES 💡 Review → /supergraph:review: independent reviewer + graph check."
+  exit 0
+fi
+
+# ── Language-only context (no keyword matched) ────────────────────────────────
+emit "$CAVEMAN_RULES"
+exit 0

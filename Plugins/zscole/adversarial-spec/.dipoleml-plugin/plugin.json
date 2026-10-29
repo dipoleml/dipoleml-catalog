@@ -1,0 +1,16 @@
+{
+  "name": "adversarial-spec",
+  "displayName": "Adversarial Spec",
+  "version": "1.0.0",
+  "description": "Iteratively refine product specs through multi-model debate until consensus. DipoleML actively participates alongside GPT, Gemini, Grok, and other models. Includes interview mode, early agreement verification, and optional Telegram integration.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Zscole"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/zscole/adversarial-spec",
+  "repository": "https://github.com/zscole/adversarial-spec",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

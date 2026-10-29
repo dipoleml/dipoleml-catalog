@@ -1,0 +1,111 @@
+{
+  "schema": 1,
+  "cell_id": "023-security-own-metadata--citadel-calibrated-support-route",
+  "order": 23,
+  "scenario_id": "security-own-metadata",
+  "task_class": "security-repair",
+  "risk": "high",
+  "policy_id": "citadel-calibrated-support-route",
+  "repetition": 1,
+  "route": {
+    "initial_tier": "cloud",
+    "escalation_tier": null,
+    "reason_code": "CALIBRATED_UNSUPPORTED_CLAUDE"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "cloud",
+      "started_at": "2026-08-02T01:11:49.227Z",
+      "duration_ms": 7397,
+      "output_text": "{\"files\":{\"src/metadata.js\":\"'use strict';\\n\\nconst DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);\\n\\nfunction copyOwnMetadata(input) {\\n  const output = {};\\n  if (input === null || input === undefined) {\\n    return output;\\n  }\\n  const keys = Object.keys(Object(input));\\n  for (const key of keys) {\\n    if (DANGEROUS_KEYS.has(key)) {\\n      continue;\\n    }\\n    if (!Object.prototype.hasOwnProperty.call(input, key)) {\\n      continue;\\n    }\\n    Object.defineProperty(output, key, {\\n      value: input[key],\\n      writable: true,\\n      enumerable: true,\\n      configurable: true\\n    });\\n  }\\n  return output;\\n}\\n\\nmodule.exports = { copyOwnMetadata };\\n\"}}",
+      "output_digest": "sha256:dcf6e33c63af847e9aaffd36d05cf75cc9712fd26ae7c01c6fda1c885dd020cb",
+      "verification": {
+        "status": "passed",
+        "code": null,
+        "changed_paths": [
+          "src/metadata.js"
+        ],
+        "applied_file_digests": {
+          "src/metadata.js": "sha256:81e78fc0450d55e7380c99a74dc4525d30e11801b2be1385693be69f04f6f591"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 0,
+          "signal": null,
+          "stdout": "",
+          "stderr": "",
+          "error": null
+        },
+        "patch_digest": "sha256:3dcb010c785e3964da389e3dff2d0f2d864f4558cb9718cd99cd3e1bedefa901"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "claude-code-print",
+        "requested_model": "sonnet",
+        "canonical_model": "claude-sonnet-5",
+        "cli_version": "2.1.219",
+        "response_digest": "sha256:60a0521e18c8e028b475fb3d38aaf43fc862612a58e97a4059c1e1946f8aad9c",
+        "exit_status": 0,
+        "terminal_reason": "completed",
+        "error": null
+      },
+      "usage": {
+        "input_tokens": 477,
+        "output_tokens": 502,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0
+      },
+      "economics": {
+        "comparison_cost": {
+          "status": "provider-reported-equivalent",
+          "total_usd": 0.009764,
+          "source": "claude_code_total_cost_usd"
+        },
+        "provider_reported_equivalent_cost": {
+          "status": "provider-reported-equivalent",
+          "amount_usd": 0.009764,
+          "source": "claude_code_total_cost_usd"
+        },
+        "local_gpu_energy": {
+          "status": "not-applicable",
+          "energy_kwh": 0,
+          "samples": 0,
+          "average_watts": null
+        },
+        "actual_subscription_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "pro_subscription_cost_not_allocated_per_request"
+        }
+      }
+    }
+  ],
+  "status": "passed",
+  "final_verification": {
+    "status": "passed",
+    "code": null,
+    "changed_paths": [
+      "src/metadata.js"
+    ],
+    "applied_file_digests": {
+      "src/metadata.js": "sha256:81e78fc0450d55e7380c99a74dc4525d30e11801b2be1385693be69f04f6f591"
+    },
+    "verifier": {
+      "command": "node verifier.js",
+      "status": 0,
+      "signal": null,
+      "stdout": "",
+      "stderr": "",
+      "error": null
+    },
+    "patch_digest": "sha256:3dcb010c785e3964da389e3dff2d0f2d864f4558cb9718cd99cd3e1bedefa901"
+  },
+  "previous_cell_digest": "sha256:befd47bfdfe60511c8f03a7730ee12881d14abd07e83f54e2883d33080f64bc9",
+  "receipt_digest": "sha256:969700a5d3b16f797ee1fde4e0b4377e638a4fb234e62f8eaeb5e817e4b57341",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:75d1f32452e77c1770a38c12c20f29eff07fee2648a2b2bcf37773a45a5f6366",
+    "signature": "QvRTrRwxmj4RhSPyG+eGpO1Ed+o592RKMBnReMbwr4iUq/twFALSZRDGr7ieK4+Mglb9jtuu9FEZwoFWWQetDQ=="
+  }
+}

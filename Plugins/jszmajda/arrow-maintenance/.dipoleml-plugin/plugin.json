@@ -1,0 +1,16 @@
+{
+  "name": "arrow-maintenance",
+  "displayName": "Arrow Maintenance",
+  "version": "1.4.2",
+  "description": "Scaling layer for linked-intent-dev. Tracks spec-to-code coherence across large projects via docs/arrows/ index. Includes brownfield bootstrap for mapping existing codebases.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Jszmajda"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/jszmajda/lid",
+  "repository": "https://github.com/jszmajda/lid",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,10 @@
+{
+  "name": "ai-adoption",
+  "version": "2.1.0",
+  "description": "AI Adoption, two skills for working with your Claude history. token-doctor diagnoses where your Claude Code + Cowork spend goes (length distribution, marathon share, sub-agent fan-out, model mix, cache rebuilds, per-project health), writes a doctor-style terminal report, and optionally fans out parallel Haiku subagents over your top sessions for habit-level recommendations. task-profile mines those same sessions into a structured task profile: what you do with AI, how often, how successfully, where friction lives; it emits a shareable CSV, an interactive HTML explorer with progressive disclosure and a code-vs-cowork token chart, AI-first coaching cards, and up to five task-centric skill proposals. (session-search moved to the session-tools plugin.)",
+  "author": {
+    "name": "Jeroen Van Hautte",
+    "email": "jeroen@techwolf.ai"
+  },
+  "keywords": ["ai-adoption", "token-doctor", "task-profile", "sessions", "subagents", "analytics", "coaching", "cost", "skills"]
+}

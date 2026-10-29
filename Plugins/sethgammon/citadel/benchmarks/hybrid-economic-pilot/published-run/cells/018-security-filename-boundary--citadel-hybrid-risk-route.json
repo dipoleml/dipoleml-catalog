@@ -1,0 +1,111 @@
+{
+  "schema": 1,
+  "cell_id": "018-security-filename-boundary--citadel-hybrid-risk-route",
+  "order": 18,
+  "scenario_id": "security-filename-boundary",
+  "task_class": "security-repair",
+  "risk": "high",
+  "policy_id": "citadel-hybrid-risk-route",
+  "repetition": 1,
+  "route": {
+    "initial_tier": "cloud",
+    "escalation_tier": null,
+    "reason_code": "FROZEN_HIGH_RISK_CLAUDE"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "cloud",
+      "started_at": "2026-08-02T00:57:37.498Z",
+      "duration_ms": 5657,
+      "output_text": "{\"files\":{\"src/filename.js\":\"'use strict';\\nfunction isSafeFilename(value) {\\n  if (typeof value !== 'string' || value.length === 0) {\\n    return false;\\n  }\\n  if (value.includes('/') || value.includes('\\\\\\\\')) {\\n    return false;\\n  }\\n  if (value.includes('\\\\0')) {\\n    return false;\\n  }\\n  if (value === '.' || value === '..') {\\n    return false;\\n  }\\n  return true;\\n}\\nmodule.exports = { isSafeFilename };\\n\"}}",
+      "output_digest": "sha256:4e3045955546794dbc4ed233b0d401303ed53f856f6c09aa93e81aac06ec352d",
+      "verification": {
+        "status": "passed",
+        "code": null,
+        "changed_paths": [
+          "src/filename.js"
+        ],
+        "applied_file_digests": {
+          "src/filename.js": "sha256:3e480588776de4ba427aed8b3416a2db7d243d7e829bcb7f00b5cc4e48074ed3"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 0,
+          "signal": null,
+          "stdout": "",
+          "stderr": "",
+          "error": null
+        },
+        "patch_digest": "sha256:cc7cb9b1e1ab0da0434b9cb9b87d9a3f35eb520714faa7eef0ae18f4816801e8"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "claude-code-print",
+        "requested_model": "sonnet",
+        "canonical_model": "claude-sonnet-5",
+        "cli_version": "2.1.219",
+        "response_digest": "sha256:51c6998e0c64e872ad55c582028e55b99610cf0ad7330614cde1ca2d24ae08fd",
+        "exit_status": 0,
+        "terminal_reason": "completed",
+        "error": null
+      },
+      "usage": {
+        "input_tokens": 522,
+        "output_tokens": 191,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0
+      },
+      "economics": {
+        "comparison_cost": {
+          "status": "provider-reported-equivalent",
+          "total_usd": 0.005285,
+          "source": "claude_code_total_cost_usd"
+        },
+        "provider_reported_equivalent_cost": {
+          "status": "provider-reported-equivalent",
+          "amount_usd": 0.005285,
+          "source": "claude_code_total_cost_usd"
+        },
+        "local_gpu_energy": {
+          "status": "not-applicable",
+          "energy_kwh": 0,
+          "samples": 0,
+          "average_watts": null
+        },
+        "actual_subscription_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "pro_subscription_cost_not_allocated_per_request"
+        }
+      }
+    }
+  ],
+  "status": "passed",
+  "final_verification": {
+    "status": "passed",
+    "code": null,
+    "changed_paths": [
+      "src/filename.js"
+    ],
+    "applied_file_digests": {
+      "src/filename.js": "sha256:3e480588776de4ba427aed8b3416a2db7d243d7e829bcb7f00b5cc4e48074ed3"
+    },
+    "verifier": {
+      "command": "node verifier.js",
+      "status": 0,
+      "signal": null,
+      "stdout": "",
+      "stderr": "",
+      "error": null
+    },
+    "patch_digest": "sha256:cc7cb9b1e1ab0da0434b9cb9b87d9a3f35eb520714faa7eef0ae18f4816801e8"
+  },
+  "previous_cell_digest": "sha256:b449426164440442cffec66de44dabacb7f42f0b6f42d766dc0084d57d45f697",
+  "receipt_digest": "sha256:1164fd982f5da3aa16b34b4e0cdb823a3e7918a5c99380b921f7ecd8d6bb1146",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:c384be33c70f3c8d85e1ebb41f07fd9467357f69e8661c501cb09081b7e93dee",
+    "signature": "IsDD4mPlyJMQOSD6q5ourd1NwceHKVN5Z+yoXqJ2cT9/tMrhy9z+pPaNexaNPtvI5HwnBXdaborDrYCufILABA=="
+  }
+}

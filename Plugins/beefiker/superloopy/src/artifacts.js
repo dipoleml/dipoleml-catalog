@@ -1,0 +1,185 @@
+import { existsSync, lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
+import { mkdir, open, rename, rm } from "node:fs/promises";
+import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { validateAuditSection } from "./audit-verdict.js";
+import { isPathInsideDirectory, lstatNoFollow, rejectOutputTargetForWrite, rejectSymlinkInExistingPath } from "./evidence-publication.js";
+import { isMatrixQualityGate, validateMatrixQualityGate } from "./matrix-gate.js";
+import { isReviewQualityGate, validateReviewQualityGate } from "./review-gate.js";
+import { evidenceDir, evidenceRelativeDir, repoRelativePath } from "./store.js";
+
+export { evidencePublicationLockTarget, syncEvidenceDirectory, writeEvidenceOutputFileExclusive } from "./evidence-publication.js";
+
+// An artifact up to this size must contain non-whitespace to satisfy the content floor;
+// larger artifacts (assumed non-trivial) skip the read. Mirrors the SubagentStop hook.
+const MAX_BLANK_CHECK_BYTES = 1_000_000;
+
+export function resolveEvidenceArtifact(cwd, artifactPath, scope) {
+  if (typeof artifactPath !== "string" || artifactPath.trim().length === 0) {
+    throw new Error("Missing evidence artifact path.");
+  }
+  const root = resolve(evidenceDir(cwd, scope));
+  const resolved = isAbsolute(artifactPath) ? resolve(artifactPath) : resolve(cwd, artifactPath);
+  const rel = relative(root, resolved);
+  if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) {
+    throw new Error("Evidence artifact must live under .superloopy/evidence.");
+  }
+  if (!existsSync(resolved)) {
+    throw new Error(`Evidence artifact does not exist: ${artifactPath}`);
+  }
+  if (lstatSync(resolved).isSymbolicLink()) {
+    throw new Error(`Evidence artifact must not be a symlink: ${artifactPath}`);
+  }
+  const realRoot = realpathSync(root);
+  const realArtifact = realpathSync(resolved);
+  if (!isPathInsideDirectory(realArtifact, realRoot)) {
+    throw new Error("Evidence artifact must resolve under .superloopy/evidence.");
+  }
+  const stat = statSync(resolved);
+  if (!stat.isFile()) {
+    throw new Error(`Evidence artifact is not a file: ${artifactPath}`);
+  }
+  if (stat.size <= 0) {
+    throw new Error(`Evidence artifact is empty: ${artifactPath}`);
+  }
+  // A small artifact must carry non-whitespace; larger artifacts skip this read.
+  if (stat.size <= MAX_BLANK_CHECK_BYTES && readFileSync(resolved, "utf8").trim().length === 0) {
+    throw new Error(`Evidence artifact is blank: ${artifactPath}`);
+  }
+  return {
+    absolutePath: resolved,
+    relativePath: repoRelativePath(`${evidenceRelativeDir(scope)}/${rel}`),
+    size: stat.size
+  };
+}
+
+// Strict read-side resolution for exclusive-report recovery: on top of the base gate, reject any
+// symlink component between the project root and the artifact and require the evidence root to
+// resolve inside the project. Core consumers (check/finish/audit/hooks) keep the base gate so
+// pre-existing symlinked .superloopy layouts remain valid.
+export function resolveConfinedEvidenceArtifact(cwd, artifactPath, scope) {
+  const artifact = resolveEvidenceArtifact(cwd, artifactPath, scope);
+  rejectSymlinkInExistingPath(cwd, artifact.absolutePath, artifactPath);
+  const realRoot = realpathSync(resolve(evidenceDir(cwd, scope)));
+  if (!isPathInsideDirectory(realRoot, realpathSync(cwd))) {
+    throw new Error("Evidence root must resolve inside the project.");
+  }
+  return artifact;
+}
+
+export function resolveEvidenceOutputPath(cwd, artifactPath, scope) {
+  if (typeof artifactPath !== "string" || artifactPath.trim().length === 0) {
+    throw new Error("Missing evidence artifact path.");
+  }
+  const root = resolve(evidenceDir(cwd, scope));
+  const resolved = isAbsolute(artifactPath) ? resolve(artifactPath) : resolve(cwd, artifactPath);
+  const rel = relative(root, resolved);
+  if (rel === "" || rel.startsWith("..") || isAbsolute(rel)) {
+    throw new Error("Evidence artifact must live under .superloopy/evidence.");
+  }
+  rejectSymlinkInExistingPath(cwd, resolved, artifactPath);
+  // Threat model: a malicious repo can pre-create the evidence path as a symlink
+  // (file OR directory component, including a dangling link) pointing outside the
+  // repo; runCaptured() would then write the capture transcript THROUGH the link —
+  // an arbitrary file overwrite with attacker-influenced content. Mirror the
+  // read-side defense: lstat (not stat/existsSync, which follow links) so dangling
+  // symlinks are caught too, reject symlink targets outright, and re-confine the
+  // symlink-resolved real destination to the real evidence root before any write.
+  const targetStat = lstatNoFollow(resolved);
+  if (targetStat) {
+    if (targetStat.isSymbolicLink()) {
+      throw new Error(`Evidence artifact must not be a symlink: ${artifactPath}`);
+    }
+    if (!targetStat.isFile()) {
+      throw new Error(`Evidence artifact is not a file: ${artifactPath}`);
+    }
+  }
+  if (!isPathInsideDirectory(projectRealPath(resolved), projectRealPath(root))) {
+    throw new Error("Evidence artifact must resolve under .superloopy/evidence.");
+  }
+  return {
+    absolutePath: resolved,
+    projectRootPath: resolve(cwd),
+    rootPath: root,
+    relativePath: repoRelativePath(`${evidenceRelativeDir(scope)}/${rel}`)
+  };
+}
+
+export async function writeEvidenceOutputFile(artifact, content, options = "utf8") {
+  const dir = dirname(artifact.absolutePath);
+  await mkdir(dir, { recursive: true });
+  rejectOutputTargetForWrite(artifact);
+  const tmpPath = join(dir, `.${basename(artifact.absolutePath)}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`);
+  let handle;
+  try {
+    handle = await open(tmpPath, "wx", 0o666);
+    await handle.writeFile(content, options);
+    await handle.close();
+    handle = null;
+    rejectOutputTargetForWrite(artifact);
+    await rename(tmpPath, artifact.absolutePath);
+  } catch (error) {
+    await rm(tmpPath, { force: true }).catch(() => {});
+    throw error;
+  } finally {
+    if (handle) await handle.close();
+  }
+}
+
+// Resolve the deepest existing ancestor through realpath, then re-append the
+// not-yet-created suffix. This surfaces symlinked directories anywhere in the
+// chain (e.g. .superloopy/evidence itself replaced by a link out of the repo):
+// the projected real path lands outside the projected real root and is rejected.
+export function projectRealPath(path) {
+  let existing = path;
+  const suffix = [];
+  while (!existsSync(existing)) {
+    const parent = dirname(existing);
+    if (parent === existing) break;
+    suffix.unshift(basename(existing));
+    existing = parent;
+  }
+  const real = existsSync(existing) ? realpathSync(existing) : existing;
+  return suffix.length > 0 ? join(real, ...suffix) : real;
+}
+
+export function validateQualityGate(cwd, value, scope) {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("Quality gate must be an object.");
+  }
+  if (isReviewQualityGate(value)) {
+    return requireIndependentReviewActors(validateReviewQualityGate(value, (artifactPath) => resolveEvidenceArtifact(cwd, artifactPath, scope).relativePath));
+  }
+  if (isMatrixQualityGate(value)) {
+    return validateMatrixQualityGate(value, (artifactPath) => resolveEvidenceArtifact(cwd, artifactPath, scope).relativePath);
+  }
+  const artifacts = value.artifacts;
+  if (!Array.isArray(artifacts) || artifacts.length === 0) {
+    throw new Error("Quality gate requires a non-empty artifacts array.");
+  }
+  const result = {
+    status: value.status === "passed" ? "passed" : fail("Quality gate status must be passed."),
+    artifacts: artifacts.map((artifact) => resolveEvidenceArtifact(cwd, artifact, scope))
+  };
+  // Audit is opt-in for the default gate (mandatory only for review/matrix
+  // gates). When SUPERLOOPY_AUDIT=on, require a valid audit section here too.
+  if (String(process.env.SUPERLOOPY_AUDIT ?? "off").toLowerCase() === "on") {
+    result.audit = validateAuditSection(value.audit, (artifactPath) => resolveEvidenceArtifact(cwd, artifactPath, scope).relativePath);
+  }
+  return result;
+}
+
+// The review gate stands for three separate judgments (code review, QA, final gate). Actor names
+// are self-declared, so this is a mechanical minimum: it stops one agent from signing every lane.
+function requireIndependentReviewActors(gate) {
+  const seen = new Map();
+  for (const lane of ["codeReview", "manualQa", "gateReview"]) {
+    const actor = gate[lane].by.trim().toLowerCase();
+    if (seen.has(actor)) fail(`Review quality gate ${lane}.by repeats ${seen.get(actor)}.by (${gate[lane].by}); code review, manual QA, and gate review must come from different actors. Name the crew lane whose report backs each section (codeReview: sentinel, manualQa: probe, gateReview: arbiter); if those lanes did not all run, finish with the default gate from \`superloopy loop finish\` instead.`);
+    seen.set(actor, lane);
+  }
+  return gate;
+}
+
+function fail(message) {
+  throw new Error(message);
+}

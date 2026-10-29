@@ -1,0 +1,23 @@
+{
+  "schema": 1,
+  "id": "citadel-long-cost-provenance",
+  "category": "long_task",
+  "repository": "https://github.com/SethGammon/Citadel.git",
+  "pinned_ref": "4a02265c206d992b556fc1b38c3c9487ced880d8",
+  "task": "Trace cost telemetry from Claude and Codex executor output into Operation Fork evidence, distinguish reported, derived, and unavailable cost, and add backward-compatible regression coverage.",
+  "setup_command": ["node", "--version"],
+  "verification_command": ["node", "scripts/test-operation-fork-executors.js"],
+  "expected_artifacts": ["core/forks/runtime.js", "core/forks/executor-profiles.js", "scripts/test-operation-fork-executors.js"],
+  "allowed_tools": ["read", "search", "edit", "test", "git"],
+  "timeout_minutes": 55,
+  "probe_budget": {
+    "max_files": 1200,
+    "max_bytes": 4194304,
+    "max_duration_ms": 3500
+  },
+  "max_attempts": 3,
+  "max_agents": 2,
+  "candidate_executors": ["codex-utility", "claude-workhorse", "claude-frontier", "codex-frontier"],
+  "holdout": false,
+  "adversarial_case": null
+}

@@ -1,0 +1,16 @@
+{
+  "name": "xdipoleml-plugin",
+  "displayName": "XDipoleML Plugin",
+  "version": "0.4.0",
+  "description": "Modular iOS development automation suite. 8 workflow-specific MCP servers (600-3500 tokens) with 23 tools across Xcode, Simulator, and IDB. Enable only what you need!",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Conorluddy"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/conorluddy/xclaude-plugin",
+  "repository": "https://github.com/conorluddy/xclaude-plugin",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

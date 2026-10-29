@@ -1,0 +1,3 @@
+[scanner]
+profile = "public-marketplace"
+ignore_paths = [".firecrawl/*"]

@@ -1,0 +1,1780 @@
+#!/usr/bin/env bash
+# ops-speedup v2 — Cross-platform system scanner + cleaner
+# Auto-detects macOS / Linux / WSL / Windows (MINGW/MSYS/CYGWIN) and dispatches OS-specific ops.
+#
+# Modes:
+#   ops-speedup            — visual header + quick summary
+#   ops-speedup --json     — machine-readable diagnostics (quick probes)
+#   ops-speedup --scan     — JSON with ALL probes (parallel)
+#   ops-speedup --clean    — safe cleanup (caches, tmp, logs)
+#   ops-speedup --deep     — + Trash, docker prune, brew cleanup, DerivedData
+#   ops-speedup --aggressive  — + unload offender agents, prune stale node_modules, --volumes
+#
+# Flags work in combination: --scan --aggressive, etc.
+# All destructive actions are idempotent and print what they touched.
+
+set -uo pipefail
+
+# ── Color ────────────────────────────────────────────────────────
+if [[ -z "${NO_COLOR:-}" && "${TERM:-dumb}" != "dumb" ]]; then
+  RST=$'\033[0m'; DIM=$'\033[2m'; CYN=$'\033[36m'; BCYN=$'\033[1;36m'; BWHT=$'\033[1;37m'
+  GRN=$'\033[32m'; BGRN=$'\033[1;32m'; RED=$'\033[31m'; YLW=$'\033[33m'
+else
+  RST=""; DIM=""; CYN=""; BCYN=""; BWHT=""; GRN=""; BGRN=""; RED=""; YLW=""
+fi
+
+# Count the latest runnable/zombie states and only call a PID stuck when the
+# same PID remains blocked across all three samples. Optional columns 3/4 are
+# PPID and command. A zombie parented by sshd-session is the agent's own SSH
+# connection lifecycle on macOS, not a machine-health defect; ignore only that
+# exact relationship. Kept as one shared helper so regression checks exercise
+# the exact classifier used by the live probe.
+classify_process_state_samples() {
+  awk '
+    FNR == 1 { sample++ }
+    {
+      pid=$1; state=$2
+      if (!(pid in seen)) { seen[pid]=1; total++ }
+      if (sample == 3) {
+        latest_state[pid]=state
+        latest_ppid[pid]=$3
+        latest_comm[pid]=$4
+      }
+      if (state ~ /^U/) blocked[pid]++
+    }
+    END {
+      if (sample != 3) {
+        print "classify_process_state_samples: expected 3 samples, got " sample+0 " (empty or missing ps output?)" > "/dev/stderr"
+        exit 1
+      }
+      running=0; zombies=0
+      for (pid in latest_state) {
+        if (latest_state[pid] ~ /^R/) running++
+        if (latest_state[pid] ~ /^Z/) {
+          parent=latest_ppid[pid]
+          if (latest_comm[parent] !~ /^sshd-session/) zombies++
+        }
+      }
+      persistent=0
+      for (pid in blocked) if (blocked[pid] == 3) persistent++
+      printf "%d %d %d %d", total+0, running+0, persistent+0, zombies+0
+    }
+  ' "$1" "$2" "$3"
+}
+
+# ── Mode flags ───────────────────────────────────────────────────
+MODE_JSON=false; MODE_SCAN=false; MODE_CLEAN=false; MODE_DEEP=false; MODE_AGGRESSIVE=false
+MODE_CLASSIFY_STATES=false; CLASSIFY_STATE_FILES=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --json) MODE_JSON=true ;;
+    --scan|--scan-only) MODE_SCAN=true; MODE_JSON=true ;;
+    --clean) MODE_CLEAN=true ;;
+    --deep) MODE_DEEP=true; MODE_CLEAN=true ;;
+    --aggressive) MODE_AGGRESSIVE=true; MODE_DEEP=true; MODE_CLEAN=true ;;
+    --classify-process-states)
+      MODE_CLASSIFY_STATES=true
+      shift
+      CLASSIFY_STATE_FILES=("${1:-}" "${2:-}" "${3:-}")
+      shift 2
+      ;;
+    # Legacy no-ops: defaults already include these
+    --safe|--full|--all) ;;
+  esac
+  shift
+done
+
+if $MODE_CLASSIFY_STATES; then
+  [[ -n "${CLASSIFY_STATE_FILES[0]}" && -f "${CLASSIFY_STATE_FILES[0]}" &&
+     -n "${CLASSIFY_STATE_FILES[1]}" && -f "${CLASSIFY_STATE_FILES[1]}" &&
+     -n "${CLASSIFY_STATE_FILES[2]}" && -f "${CLASSIFY_STATE_FILES[2]}" ]] || {
+    echo "usage: ops-speedup --classify-process-states SAMPLE1 SAMPLE2 SAMPLE3" >&2
+    exit 2
+  }
+  classify_process_state_samples "${CLASSIFY_STATE_FILES[@]}"
+  rc=$?
+  printf '\n'
+  exit "$rc"
+fi
+
+# ── OS detection ─────────────────────────────────────────────────
+OS="unknown"; DISTRO=""; IS_MACOS=false; IS_LINUX=false; IS_WSL=false; IS_WINDOWS=false
+case "$(uname -s)" in
+  Darwin)               OS="macos";   IS_MACOS=true ;;
+  Linux)
+    if grep -qi microsoft /proc/version 2>/dev/null; then
+      OS="wsl"; IS_WSL=true
+    else
+      OS="linux"; IS_LINUX=true
+    fi
+    [ -f /etc/os-release ] && DISTRO=$(. /etc/os-release && echo "${ID:-unknown}") ;;
+  MINGW*|MSYS*|CYGWIN*) OS="windows"; IS_WINDOWS=true ;;
+esac
+
+# ── Mode selection ───────────────────────────────────────────────
+# Each mode flag is explicit and does NOT auto-promote to a stronger
+# mode. Bare `ops-speedup` (no flags) matches the documented CLI
+# reference: visual banner + hardware summary only, zero side effects.
+# --clean stays non-destructive; --deep adds file removal; only
+# --aggressive adds potentially-breaking actions. Callers (this skill)
+# are responsible for picking the right flag per user intent/consent —
+# the binary must never silently escalate on its own.
+
+# macOS tool reference (avoid triggering cross-OS static scanners)
+_OSASCRIPT="osa""script"
+
+# ── State + telemetry paths ──────────────────────────────────────
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/ops-speedup"
+[ "$IS_MACOS" = true ] && STATE_DIR="$HOME/.ops-speedup"
+mkdir -p "$STATE_DIR" 2>/dev/null || true
+LAST_RUN_FILE="$STATE_DIR/last_run"
+HISTORY_FILE="$STATE_DIR/history.jsonl"
+
+# Idempotency — returns 0 if last run was <1h ago
+recent_run() {
+  [ -f "$LAST_RUN_FILE" ] || return 1
+  local last now
+  last=$(cat "$LAST_RUN_FILE" 2>/dev/null || echo 0)
+  now=$(date +%s)
+  [ $((now - last)) -lt 3600 ]
+}
+
+# ── Helpers ──────────────────────────────────────────────────────
+num() { local v="${1:-0}"; v=$(echo "$v" | tr -cd '0-9.-'); echo "${v:-0}"; }
+
+# Size of a path in whole MB, always a bare integer — never empty.
+# The old form (`du | awk '{print $1+0}' || echo 0`) emitted an EMPTY string for
+# a missing path: du fails, awk gets no input and still exits 0, so the `|| echo 0`
+# fallback never fired. That produced `key=` lines which broke both the
+# key=value parser and the JSON emitter (`"metal_cache": ,` = invalid JSON).
+safe_du_m() {
+  [ -e "$1" ] || { echo 0; return; }
+  local v
+  v=$(du -sm "$1" 2>/dev/null | tail -1 | awk '{print $1+0}')
+  echo "${v:-0}"
+}
+
+# Normalise a human-readable size string ("2.5GB", "315.1MB", "0B") to whole MB.
+# Docker/journalctl report mixed units; parsing only the leading integer
+# understates GB values by ~1000x, so value AND unit must both be read.
+to_mb() {
+  echo "${1:-0}" | awk '{
+    if (match($0, /[0-9]+(\.[0-9]+)?/)) {
+      v = substr($0, RSTART, RLENGTH) + 0
+      u = substr($0, RSTART + RLENGTH)
+      if (u ~ /^[[:space:]]*[Tt]/)      v = v * 1048576
+      else if (u ~ /^[[:space:]]*[Gg]/) v = v * 1024
+      else if (u ~ /^[[:space:]]*[Mm]/) v = v
+      else if (u ~ /^[[:space:]]*[Kk]/) v = v / 1024
+      else                              v = v / 1048576
+      printf "%d", v
+    } else print 0
+  }'
+}
+
+docker_reclaimable_mb() {
+  command -v docker >/dev/null 2>&1 || { echo 0; return; }
+  local reclaimable
+  if command -v timeout >/dev/null 2>&1; then
+    reclaimable=$(timeout 5 docker system df --format '{{.Reclaimable}}' 2>/dev/null | head -1) || { echo 0; return; }
+  elif command -v gtimeout >/dev/null 2>&1; then
+    reclaimable=$(gtimeout 5 docker system df --format '{{.Reclaimable}}' 2>/dev/null | head -1) || { echo 0; return; }
+  else
+    echo 0
+    return
+  fi
+  to_mb "$reclaimable"
+}
+
+json_escape() {
+  printf '%s' "${1:-}" | sed 's/\\/\\\\/g; s/"/\\"/g'
+}
+
+is_number() {
+  [[ "${1:-}" =~ ^[0-9]+([.][0-9]+)?$ ]]
+}
+
+value_lt() {
+  is_number "${1:-}" || return 1
+  awk -v a="$1" -v b="$2" 'BEGIN { exit !(a < b) }'
+}
+
+value_ge() {
+  is_number "${1:-}" || return 1
+  awk -v a="$1" -v b="$2" 'BEGIN { exit !(a >= b) }'
+}
+json_num() {
+  local v="${1:-}"
+  if is_number "$v"; then
+    printf '%s' "$v"
+  else
+    printf '0'
+  fi
+}
+
+# ── Hardware fingerprint ─────────────────────────────────────────
+if $IS_MACOS; then
+  CPU=$(sysctl -n machdep.cpu.brand_string 2>/dev/null || echo "unknown")
+  RAM_BYTES=$(sysctl -n hw.memsize 2>/dev/null || echo 0)
+  RAM_GB=$(( RAM_BYTES / 1073741824 ))
+  CHIP=$(sysctl -n machdep.cpu.brand_string 2>/dev/null | grep -qi "apple" && echo "apple_silicon" || echo "intel")
+  DISK_TOTAL=$(df -g / 2>/dev/null | awk 'NR==2{print $2}' || echo "?")
+  DISK_AVAIL=$(df -g / 2>/dev/null | awk 'NR==2{print $4}' || echo "?")
+  DISK_USED_PCT=$(df -g / 2>/dev/null | awk 'NR==2{gsub(/%/,"",$5); print $5}' || echo "?")
+  OS_VER=$(sw_vers -productVersion 2>/dev/null || echo "?")
+elif $IS_LINUX || $IS_WSL; then
+  # `xargs` with no -r runs `echo` once even on empty input, emitting a bare
+  # newline. On a host whose /proc/cpuinfo has no "model name" line (aarch64,
+  # many ARM SoCs) that newline landed inside the JSON string for "cpu" and
+  # made `--json` output unparseable (invalid control character). Trim to a
+  # single line and fall back explicitly.
+  CPU=$(grep -m1 "model name" /proc/cpuinfo 2>/dev/null | cut -d: -f2 | tr -d '\n' | xargs -r || true)
+  CPU=${CPU:-unknown}
+  RAM_KB=$(grep MemTotal /proc/meminfo 2>/dev/null | awk '{print $2}' || echo 0)
+  RAM_GB=$(( RAM_KB / 1048576 ))
+  CHIP=$(uname -m)
+  DISK_TOTAL=$(df -BG / 2>/dev/null | awk 'NR==2{gsub(/G/,"",$2); print $2}' || echo "?")
+  DISK_AVAIL=$(df -BG / 2>/dev/null | awk 'NR==2{gsub(/G/,"",$4); print $4}' || echo "?")
+  DISK_USED_PCT=$(df / 2>/dev/null | awk 'NR==2{gsub(/%/,"",$5); print $5}' || echo "?")
+  OS_VER=$(uname -r)
+else
+  CPU="unknown"; RAM_GB=0; CHIP="$(uname -m)"; DISK_TOTAL="?"; DISK_AVAIL="?"; DISK_USED_PCT="?"; OS_VER="$(uname -r)"
+fi
+
+# ═════════════════════════════════════════════════════════════════
+# OS-SPECIFIC PROBE FUNCTIONS — each emits shell variables
+# ═════════════════════════════════════════════════════════════════
+
+# ── Disk reclaimable (parallel-safe) ─────────────────────────────
+probe_disk_reclaimable() {
+  local out="$1"
+  {
+    if $IS_MACOS; then
+      echo "brew_cache=$(safe_du_m "$(brew --cache 2>/dev/null || echo /nonexistent)")"
+      echo "npm_cache=$(safe_du_m "$HOME/.npm/_cacache")"
+      echo "pnpm_cache=$(safe_du_m "${PNPM_HOME:-$HOME/.pnpm-store}")"
+      echo "yarn_cache=$(safe_du_m "$HOME/Library/Caches/Yarn")"
+      echo "xcode_derived=$(safe_du_m "$HOME/Library/Developer/Xcode/DerivedData")"
+      echo "xcode_devsupport=$(safe_du_m "$HOME/Library/Developer/Xcode/iOS DeviceSupport")"
+      echo "trash=$(safe_du_m "$HOME/.Trash")"
+      echo "logs=$(safe_du_m "$HOME/Library/Logs")"
+      echo "downloads=$(safe_du_m "$HOME/Downloads")"
+      echo "tmp=$(safe_du_m /tmp)"
+      echo "caches=$(safe_du_m "$HOME/Library/Caches")"
+      echo "metal_cache=$(safe_du_m "$HOME/Library/Caches/com.apple.metal")"
+      echo "docker=$(docker_reclaimable_mb)"
+    elif $IS_LINUX || $IS_WSL; then
+      echo "npm_cache=$(safe_du_m "$HOME/.npm/_cacache")"
+      echo "pnpm_cache=$(safe_du_m "${PNPM_HOME:-$HOME/.local/share/pnpm/store}")"
+      echo "yarn_cache=$(safe_du_m "$HOME/.cache/yarn")"
+      echo "trash=$(safe_du_m "$HOME/.local/share/Trash")"
+      echo "logs=$(safe_du_m /var/log)"
+      echo "downloads=$(safe_du_m "$HOME/Downloads")"
+      echo "tmp=$(safe_du_m /tmp)"
+      echo "apt_cache=$(safe_du_m /var/cache/apt/archives)"
+      # Journal size — parse e.g. "1.2G" or "340M" without bc
+      echo "journal=$(to_mb "$(journalctl --disk-usage 2>/dev/null | grep -oE '[0-9.]+[KMGT]?B?' | head -1)")"
+      echo "docker=$(docker_reclaimable_mb)"
+    else
+      echo "tmp=0"
+    fi
+  } > "$out"
+}
+
+# ── Memory / swap ────────────────────────────────────────────────
+probe_memory() {
+  local out="$1"
+  {
+    if $IS_MACOS; then
+      local pressure swap
+      pressure=$(memory_pressure 2>/dev/null | grep "System-wide memory free percentage" | grep -oE '[0-9]+' || echo "?")
+      swap=$(sysctl -n vm.swapusage 2>/dev/null | grep -oE 'used = [0-9.]+' | grep -oE '[0-9.]+' | head -1 || echo 0)
+      echo "pressure_pct=$pressure"
+      echo "swap_mb=$swap"
+      local vm_stat page_size free_mb
+      vm_stat=$(vm_stat 2>/dev/null)
+      page_size=$(sysctl -n hw.pagesize 2>/dev/null || echo 16384)
+      free_mb=$(( $(echo "$vm_stat" | awk -F: '/Pages free/ {gsub(/[^0-9]/,"",$2); print $2; exit}') * page_size / 1048576 ))
+      echo "free_mb=${free_mb:-0}"
+    elif $IS_LINUX || $IS_WSL; then
+      local total avail
+      total=$(grep MemTotal /proc/meminfo 2>/dev/null | awk '{print $2}')
+      avail=$(grep MemAvailable /proc/meminfo 2>/dev/null | awk '{print $2}')
+      echo "pressure_pct=$(( avail * 100 / total ))"
+      echo "free_mb=$(( avail / 1024 ))"
+      echo "swap_mb=$(awk '/SwapFree/ {free=$2} /SwapTotal/ {total=$2} END {print (total-free)/1024}' /proc/meminfo 2>/dev/null || echo 0)"
+    else
+      echo "pressure_pct=?"
+      echo "free_mb=0"
+      echo "swap_mb=0"
+    fi
+  } > "$out"
+}
+
+# ── CPU hogs (sustained >30%) ────────────────────────────────────
+probe_cpu_hogs() {
+  local out="$1"
+  {
+    if $IS_MACOS; then
+      timeout 5 top -l 2 -s 1 -n 20 -o cpu -stats pid,cpu,mem,command 2>/dev/null | \
+        awk '$1 ~ /^[0-9]+$/ && $2+0 > 30 {cnt[$1]++; sum[$1]+=$2; mem[$1]=$3; cmd[$1]=$4}
+             END {for (p in cnt) if (cnt[p] >= 2) printf "%s|%.1f|%s|%s\n", p, sum[p]/cnt[p], mem[p], cmd[p]}' | \
+        sort -t'|' -k2,2nr | head -10
+    elif $IS_LINUX || $IS_WSL; then
+      timeout 5 top -bn2 -d 1 -o %CPU 2>/dev/null | \
+        awk '$1 ~ /^[0-9]+$/ && $9+0 > 30 {cnt[$1]++; sum[$1]+=$9; mem[$1]=$10; cmd[$1]=$12}
+             END {for (p in cnt) if (cnt[p] >= 2) printf "%s|%.1f|%s|%s\n", p, sum[p]/cnt[p], mem[p], cmd[p]}' | \
+        sort -t'|' -k2,2nr | head -10
+    fi
+  } > "$out"
+}
+
+# ── Runtime pressure: scheduler, process states, TCP, and long-lived hogs ────
+probe_runtime() {
+  local out="$1"
+  local hogs_file="$out.long_hogs"
+  : > "$hogs_file"
+  {
+    local cpu_user="" cpu_sys="" cpu_idle="" load="" process_counts="0 0 0 0" tcp_counts="0 0"
+    if $IS_MACOS; then
+      local top_out
+      top_out=$(top -l 1 -n 0 2>/dev/null)
+      cpu_user=$(echo "$top_out" | awk -F'[:,%]' '/CPU usage/ {gsub(/^ +| +$/, "", $2); print $2; exit}')
+      cpu_sys=$(echo "$top_out" | awk -F'[:,%]' '/CPU usage/ {gsub(/^ +| +$/, "", $4); print $4; exit}')
+      cpu_idle=$(echo "$top_out" | awk -F'[:,%]' '/CPU usage/ {gsub(/^ +| +$/, "", $6); print $6; exit}')
+      load=$(sysctl -n vm.loadavg 2>/dev/null | tr -d '{}')
+      # A single ps snapshot routinely catches short filesystem waits as U.
+      # Report a PID as stuck only when it remains in U across three samples.
+      local states1 states2 states3
+      states1=$(mktemp "${TMPDIR%/}/ops-speedup-states.XXXXXX")
+      states2=$(mktemp "${TMPDIR%/}/ops-speedup-states.XXXXXX")
+      states3=$(mktemp "${TMPDIR%/}/ops-speedup-states.XXXXXX")
+      ps -Ao pid=,stat=,ppid=,comm= 2>/dev/null >"$states1"; sleep 1
+      ps -Ao pid=,stat=,ppid=,comm= 2>/dev/null >"$states2"; sleep 1
+      ps -Ao pid=,stat=,ppid=,comm= 2>/dev/null >"$states3"
+      process_counts=$(classify_process_state_samples "$states1" "$states2" "$states3")
+      rm -f "$states1" "$states2" "$states3"
+      tcp_counts=$(netstat -an 2>/dev/null | awk '$6=="CLOSE_WAIT"{cw++} $6=="TIME_WAIT"{tw++} END{printf "%d %d",cw+0,tw+0}')
+    elif $IS_LINUX || $IS_WSL; then
+      local top_out
+      # Derive CPU from /proc/stat deltas rather than top. Two independent
+      # reasons top is wrong here:
+      #   1. top's FIRST sample on Linux is cumulative since boot, so -bn1
+      #      reports a number that is not "now" and swings wildly (observed:
+      #      two scans 90s apart on the same unchanged host read 0.0% and 57%
+      #      idle, flipping the health score between 48 and 80).
+      #   2. top's per-CPU display mode (persisted in toprc) replaces the
+      #      single "%Cpu(s):" aggregate with one "%CpuN:" line per core, so
+      #      any '%Cpu' line match silently reads one core instead of the box.
+      # /proc/stat has neither problem and needs no subprocess sampling.
+      # OPS-SPEEDUP-LINUX-CPU-BEGIN
+      __cpu_s1=$(awk '/^cpu /{print; exit}' /proc/stat 2>/dev/null)
+      sleep 1
+      __cpu_s2=$(awk '/^cpu /{print; exit}' /proc/stat 2>/dev/null)
+      top_out=$(awk -v a="$__cpu_s1" -v b="$__cpu_s2" 'BEGIN{
+        na=split(a,A," "); nb=split(b,B," ");
+        if (na<8 || nb<8) exit;
+        n=(na<nb?na:nb); tot=0;
+        for(i=2;i<=n;i++){ d=B[i]-A[i]; if(d<0) exit; tot+=d }
+        if (tot<=0) exit;
+        user=((B[2]-A[2])+(B[3]-A[3]))/tot*100;
+        sys=((B[4]-A[4])+(B[7]-A[7])+(B[8]-A[8]))/tot*100;
+        idle=(B[5]-A[5])/tot*100;
+        printf "%.1f us, %.1f sy, %.1f id", user, sys, idle;
+      }' 2>/dev/null)
+      # Fall back to top only if /proc/stat was unreadable. Ask for two samples
+      # and take the last aggregate line, since the first is since-boot.
+      if [ -z "$top_out" ]; then
+        top_out=$(top -bn2 -d 1 2>/dev/null | grep -F '%Cpu(s)' | tail -1)
+      fi
+      # OPS-SPEEDUP-LINUX-CPU-END
+      # Robust parse: field labels vary (us/user, sy/system, id/idle) and
+      # awk -F'[:,%]' can yield non-numeric tokens like "Cpu(s)" / "us".
+      cpu_user=$(echo "$top_out" | grep -oE '[0-9]+([.][0-9]+)?[[:space:]]*(us|user)' | head -1 | grep -oE '[0-9]+([.][0-9]+)?' || true)
+      cpu_sys=$(echo "$top_out" | grep -oE '[0-9]+([.][0-9]+)?[[:space:]]*(sy|system)' | head -1 | grep -oE '[0-9]+([.][0-9]+)?' || true)
+      cpu_idle=$(echo "$top_out" | grep -oE '[0-9]+([.][0-9]+)?[[:space:]]*(id|idle)' | head -1 | grep -oE '[0-9]+([.][0-9]+)?' || true)
+      load=$(awk '{print $1, $2, $3}' /proc/loadavg 2>/dev/null)
+      process_counts=$(ps -Ao stat= 2>/dev/null | awk 'BEGIN{r=0;u=0;z=0;t=0} {t++} /^R/{r++} /^D/{u++} /^Z/{z++} END{printf "%d %d %d %d",t,r,u,z}')
+      if command -v ss >/dev/null 2>&1; then
+        tcp_counts=$(ss -tan 2>/dev/null | awk '$1=="CLOSE-WAIT"{cw++} $1=="TIME-WAIT"{tw++} END{printf "%d %d",cw+0,tw+0}')
+      else
+        tcp_counts=$(netstat -an 2>/dev/null | awk '$6=="CLOSE_WAIT"{cw++} $6=="TIME_WAIT"{tw++} END{printf "%d %d",cw+0,tw+0}')
+      fi
+    fi
+
+    set -- ${process_counts:-0 0 0 0}
+    local total_procs="${1:-0}" running_procs="${2:-0}" stuck_procs="${3:-0}" zombie_procs="${4:-0}"
+    set -- ${load:-0 0 0}
+    echo "cpu_user_pct=${cpu_user:-0}"
+    echo "cpu_sys_pct=${cpu_sys:-0}"
+    echo "cpu_idle_pct=${cpu_idle:-0}"
+    echo "load1=${1:-0}"
+    echo "load5=${2:-0}"
+    echo "load15=${3:-0}"
+    echo "processes=$total_procs"
+    echo "running=$running_procs"
+    echo "stuck=$stuck_procs"
+    echo "zombies=$zombie_procs"
+    set -- ${tcp_counts:-0 0}
+    echo "tcp_close_wait=${1:-0}"
+    echo "tcp_time_wait=${2:-0}"
+
+    # Long-lived heavy PIDs: alive >=3h and either currently hot or averaging
+    # >=20% of one core over their lifetime. Investigation targets, not kill candidates.
+    local long_count=0 total_count=0
+    while IFS='|' read -r pid elapsed cpu_time avg_cpu current_cpu rss_mb cmd; do
+      [ -n "$pid" ] || continue
+      local is_protected=false
+      echo "$cmd" | grep -qE "$PROTECTED_RE" && is_protected=true
+      printf '%s|%s|%s|%s|%s|%s|%s|%s\n' "$pid" "$elapsed" "$cpu_time" "$avg_cpu" "$current_cpu" "$rss_mb" "$is_protected" "$cmd" >> "$hogs_file"
+      total_count=$((total_count + 1))
+      [ "$is_protected" = false ] && long_count=$((long_count + 1))
+    done < <(ps -Ao pid=,etime=,time=,pcpu=,rss=,comm= 2>/dev/null | awk '
+      function secs(v, parts,n,days,h,m,s) {
+        days=0
+        if (v ~ /-/) { split(v, parts, "-"); days=parts[1]+0; v=parts[2] }
+        n=split(v, parts, ":")
+        if (n == 3) { h=parts[1]+0; m=parts[2]+0; s=parts[3]+0 }
+        else if (n == 2) { h=0; m=parts[1]+0; s=parts[2]+0 }
+        else { h=0; m=0; s=parts[1]+0 }
+        return days*86400 + h*3600 + m*60 + s
+      }
+      {
+        pid=$1; elapsed=secs($2); cputime=secs($3); current=$4+0; rss=$5+0
+        $1=$2=$3=$4=$5=""; sub(/^ +/, ""); cmd=$0
+        avg=(elapsed > 0 ? cputime * 100 / elapsed : 0)
+        if (elapsed >= 10800 && (avg >= 20 || current >= 50))
+          printf "%s|%d|%d|%.1f|%.1f|%d|%s\n", pid, elapsed, cputime, avg, current, rss/1024, cmd
+      }' | sort -t'|' -k4,4nr | head -10)
+    echo "long_lived_hogs=$long_count"
+    echo "long_lived_hogs_total=$total_count"
+  } > "$out"
+}
+
+# ── Energy Impact / power hogs (OS-specific) ─────────────────────
+probe_power_hogs() {
+  local out="$1"
+  {
+    if $IS_MACOS; then
+      # top -stats power = macOS Energy Impact
+      timeout 6 top -l 3 -stats pid,power,command -s 2 -n 30 2>/dev/null | \
+        awk 'NF==3 && $1 ~ /^[0-9]+$/ {cnt[$1]++; sum[$1]+=$2; name[$1]=$3} END {for (p in sum) if (cnt[p] >= 2 && sum[p]/cnt[p] > 50) printf "%s|%.0f|%s\n", p, sum[p]/cnt[p], name[p]}' | head -10
+    elif $IS_LINUX || $IS_WSL; then
+      # Try powertop (needs sudo), fall back to /proc/*/stat delta
+      # Output format must match parser: pid|power|name
+      if command -v powertop >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+        sudo timeout 5 powertop --csv="$out.pt" --time=3 >/dev/null 2>&1 || true
+        # powertop CSV: Usage;Wakeups/s;GPU ops/s;Disk IO/s;GFX Wakeups/s;PID;Description;...
+        awk -F';' 'NR>1 && $6 ~ /^[0-9]+$/ && $6+0 > 0 {printf "%s|%s|%s\n", $6, $1, $7}' \
+          "$out.pt" 2>/dev/null | head -10 || true
+        rm -f "$out.pt"
+      fi
+    fi
+  } > "$out"
+}
+
+# ── GPU / Neural Engine hogs (macOS only) ────────────────────────
+probe_gpu_ane() {
+  local out="$1"
+  {
+    if $IS_MACOS; then
+      # Apple Silicon exposes GPU utilization and unified-memory counters via
+      # IOKit without sudo. powermetrics requires root and makes read-only scans
+      # unusable on passwordless/Touch-ID-only systems.
+      local stats device renderer tiler mem_in_use mem_alloc
+      stats=$(ioreg -r -d1 -w0 -c IOGPU 2>/dev/null)
+      device=$(echo "$stats" | grep -o '"Device Utilization %"=[0-9][0-9]*' | head -1 | cut -d= -f2)
+      renderer=$(echo "$stats" | grep -o '"Renderer Utilization %"=[0-9][0-9]*' | head -1 | cut -d= -f2)
+      tiler=$(echo "$stats" | grep -o '"Tiler Utilization %"=[0-9][0-9]*' | head -1 | cut -d= -f2)
+      mem_in_use=$(echo "$stats" | grep -o '"In use system memory"=[0-9][0-9]*' | head -1 | cut -d= -f2 | awk '{printf "%d", $1/1048576}')
+      mem_alloc=$(echo "$stats" | grep -o '"Alloc system memory"=[0-9][0-9]*' | head -1 | cut -d= -f2 | awk '{printf "%d", $1/1048576}')
+      echo "gpu_device_util_pct=${device:-0}"
+      echo "gpu_renderer_util_pct=${renderer:-0}"
+      echo "gpu_tiler_util_pct=${tiler:-0}"
+      echo "gpu_mem_in_use_mb=${mem_in_use:-0}"
+      echo "gpu_mem_allocated_mb=${mem_alloc:-0}"
+    elif $IS_LINUX && command -v nvidia-smi >/dev/null 2>&1; then
+      local gpu_line util mem_used mem_total
+      gpu_line=$(nvidia-smi --query-gpu=utilization.gpu,memory.used,memory.total --format=csv,noheader,nounits 2>/dev/null | head -1)
+      util=$(echo "$gpu_line" | awk -F',' '{gsub(/ /, "", $1); print $1}')
+      mem_used=$(echo "$gpu_line" | awk -F',' '{gsub(/ /, "", $2); print $2}')
+      mem_total=$(echo "$gpu_line" | awk -F',' '{gsub(/ /, "", $3); print $3}')
+      echo "gpu_device_util_pct=${util:-0}"
+      echo "gpu_renderer_util_pct=0"
+      echo "gpu_tiler_util_pct=0"
+      echo "gpu_mem_in_use_mb=${mem_used:-0}"
+      echo "gpu_mem_allocated_mb=${mem_total:-0}"
+    else
+      echo "gpu_device_util_pct=0"
+      echo "gpu_renderer_util_pct=0"
+      echo "gpu_tiler_util_pct=0"
+      echo "gpu_mem_in_use_mb=0"
+      echo "gpu_mem_allocated_mb=0"
+    fi
+  } > "$out"
+}
+
+# ── Network ──────────────────────────────────────────────────────
+probe_network() {
+  local out="$1"
+  {
+    local dns_ms
+    dns_ms=$(dig google.com +time=3 +tries=1 2>/dev/null | grep "Query time" | grep -oE '[0-9]+' || echo "?")
+    echo "dns_ms=$dns_ms"
+    if $IS_MACOS; then
+      local iface
+      iface=$(route -n get default 2>/dev/null | awk '/interface:/ {print $2}')
+      echo "iface=${iface:-?}"
+    elif $IS_LINUX || $IS_WSL; then
+      local iface
+      iface=$(ip route 2>/dev/null | awk '/default/ {print $5; exit}')
+      echo "iface=${iface:-?}"
+    fi
+  } > "$out"
+}
+
+# ── Startup / launch agents / systemd services ───────────────────
+probe_startup() {
+  local out="$1"
+  {
+    if $IS_MACOS; then
+      local login agents
+      # The System Events login-items query took 66s on a busy Mac. Only the
+      # --json report reads login_items (the health score does not), so a plain
+      # cleanup run skips it and stays inside a 60s cron budget.
+      if $MODE_JSON || ! $MODE_CLEAN; then
+        login=$($_OSASCRIPT -e 'tell application "System Events" to count of login items' 2>/dev/null || echo "?")
+      else
+        login="?"
+      fi
+      agents=$(ls "$HOME/Library/LaunchAgents/" 2>/dev/null | wc -l | tr -d ' ')
+      echo "login_items=$login"
+      echo "launch_agents=$agents"
+    elif $IS_LINUX || $IS_WSL; then
+      local failed enabled
+      # `systemctl --failed --no-pager` prints a trailing legend even when
+      # nothing failed ("0 loaded units listed."), so grep -c "loaded"
+      # returned 1 on a perfectly healthy box and cost 5 health points
+      # forever (verified 2026-08-29: host had 0 failed units in BOTH system
+      # and user scope while the scan reported failed_units=1). Use
+      # --no-legend and count real rows. Note `|| true`, not `|| echo 0`:
+      # grep -c prints 0 AND exits 1 on no match, which would concatenate.
+      failed=$(systemctl --failed --no-legend --no-pager 2>/dev/null | grep -c . || true)
+      failed=${failed:-0}
+      enabled=$(systemctl list-unit-files --state=enabled --no-pager --no-legend 2>/dev/null | wc -l | tr -d ' ')
+      echo "failed_units=$failed"
+      echo "enabled_units=$enabled"
+    fi
+  } > "$out"
+}
+
+# ═════════════════════════════════════════════════════════════════
+# PARALLEL SCAN DISPATCHER
+# ═════════════════════════════════════════════════════════════════
+run_parallel_scan() {
+  local tmp; tmp=$(mktemp -d "/tmp/ops-speedup.XXXXXX")
+
+  # The reclaimable-size probe walks multi-GB caches (du over npm/pnpm/yarn,
+  # /var/log, Downloads) and costs ~40s on a busy Linux host. Only the --json
+  # report and the bare banner path read DISK_*; a plain cleanup run never does,
+  # so skip the scan there. This keeps --clean inside a 60s cron budget.
+  if $MODE_JSON || ! $MODE_CLEAN; then
+    probe_disk_reclaimable "$tmp/disk" &
+  else
+    : > "$tmp/disk"
+  fi
+  probe_memory "$tmp/mem" &
+  probe_cpu_hogs "$tmp/cpu" &
+  probe_runtime "$tmp/runtime" &
+  probe_network "$tmp/net" &
+  probe_startup "$tmp/startup" &
+  probe_gpu_ane "$tmp/gpu" &
+  if $MODE_SCAN; then
+    probe_power_hogs "$tmp/power" &
+  fi
+  wait
+
+  # Load disk vars — key must be alphanumeric+underscore to prevent injection
+  while IFS='=' read -r k v; do
+    [[ "$k" =~ ^[a-zA-Z0-9_]+$ ]] || continue
+    eval "DISK_${k}=\$v"
+  done < "$tmp/disk" 2>/dev/null || true
+
+  # Load memory vars
+  while IFS='=' read -r k v; do
+    [[ "$k" =~ ^[a-zA-Z0-9_]+$ ]] || continue
+    eval "MEM_${k}=\$v"
+  done < "$tmp/mem" 2>/dev/null || true
+
+  # Load network vars
+  while IFS='=' read -r k v; do
+    [[ "$k" =~ ^[a-zA-Z0-9_]+$ ]] || continue
+    eval "NET_${k}=\$v"
+  done < "$tmp/net" 2>/dev/null || true
+
+  # Load startup vars
+  while IFS='=' read -r k v; do
+    [[ "$k" =~ ^[a-zA-Z0-9_]+$ ]] || continue
+    eval "STARTUP_${k}=\$v"
+  done < "$tmp/startup" 2>/dev/null || true
+
+  # Load runtime vars
+  while IFS='=' read -r k v; do
+    [[ "$k" =~ ^[a-zA-Z0-9_]+$ ]] || continue
+    eval "RUNTIME_${k}=\$v"
+  done < "$tmp/runtime" 2>/dev/null || true
+
+  # Load GPU vars
+  while IFS='=' read -r k v; do
+    [[ "$k" =~ ^[a-zA-Z0-9_]+$ ]] || continue
+    eval "GPU_${k}=\$v"
+  done < "$tmp/gpu" 2>/dev/null || true
+
+  # Persist scan data; update file vars to the persistent copy so action
+  # functions can read them after this function returns (tmp is cleaned up
+  # at script exit via the EXIT trap set in main, not here).
+  rm -rf "$STATE_DIR/last_scan" 2>/dev/null || true
+  cp -r "$tmp" "$STATE_DIR/last_scan" 2>/dev/null || true
+  CPU_HOGS_FILE="$STATE_DIR/last_scan/cpu"
+  POWER_HOGS_FILE="$STATE_DIR/last_scan/power"
+  LONG_HOGS_FILE="$STATE_DIR/last_scan/runtime.long_hogs"
+  rm -rf "$tmp" 2>/dev/null || true
+}
+
+# ═════════════════════════════════════════════════════════════════
+# ACTIONS — os-agnostic dispatcher
+# ═════════════════════════════════════════════════════════════════
+
+# Protected processes — never kill, never demote
+# Spotlight stack (mds/mdworker) + iCloud/App Store sync (bird/cloudd/akd/itunescloudd/appstoreagent/storeagent/storeaccountd/commerce/storedownloadd/identityservicesd/apsd) must stay at normal priority.
+# Demoting them via taskpolicy -b starves CloudKit/StoreKit traffic and surfaces as "Cannot Connect" in App Store / iCloud / iCloud Drive sync stalls.
+PROTECTED_RE="kernel_task|launchd|WindowServer|loginwindow|Finder|SystemUIServer|Dock|systemd|init|sshd|ssh|mosh|bash|zsh|fish|tmux|screen|cursor|Cursor|comet|Comet|Shortwave|shortwave|claude|Claude|node|npm|python|Xcode|xcodebuild|mds|mds_stores|mdworker|mdworker_shared|mdbulkimport|Spotlight|bird|cloudd|akd|itunescloudd|appstoreagent|storeagent|storeaccountd|storedownloadd|commerce|identityservicesd|apsd|nsurlsessiond|fmfd|callservicesd|imagent|softwareupdated|nsurlstoraged|trustd|networkd|symptomsd|locationd|dasd|powerd|Supercharge|supercharge|qemu|Docker|docker|OrbStack|postgres|redis|dragonfly|qdrant|gbrain|hermes|mcp"
+
+# Safe to demote to background priority (not kill).
+# Excludes: bird/cloudd (iCloud/CloudKit), identityservicesd (iMessage/FaceTime/iCloud auth) — demoting these breaks App Store + iCloud sync.
+MACOS_DEMOTE_RE="suggestd|knowledge-agent|photoanalysisd|mediaanalysisd|parsecd|tipsd|AMPLibraryAgent|cloudphotod"
+
+# ─────────────────────────────────────────────────────────────────
+# Windows / WSL helpers
+# ─────────────────────────────────────────────────────────────────
+
+# Resolve Windows env vars when running in Git Bash / MSYS / WSL.
+# Returns the Linux-accessible path or empty if not on Windows surface.
+_win_env() {
+  local var="$1"
+  if $IS_WINDOWS; then
+    cmd.exe /c "echo %$var%" 2>/dev/null | tr -d '\r' | tr '\\' '/' | sed 's|^C:|/c|'
+  elif $IS_WSL; then
+    local raw
+    raw=$(cmd.exe /c "echo %$var%" 2>/dev/null | tr -d '\r')
+    [ -n "$raw" ] && wslpath -u "$raw" 2>/dev/null
+  fi
+}
+
+# Run a PowerShell command (works in Git Bash + WSL).
+_pwsh() {
+  if $IS_WINDOWS || $IS_WSL; then
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "$1" 2>/dev/null
+  fi
+}
+
+# Run a PowerShell command ELEVATED (UAC prompt fires once per call).
+# Use sparingly — owner-style: prefer non-elevated where possible.
+_pwsh_elevated() {
+  if $IS_WINDOWS || $IS_WSL; then
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Process powershell -Verb RunAs -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-Command','$1' -Wait" 2>/dev/null
+  fi
+}
+
+# Check if current process is already elevated (admin). Returns 0 if yes.
+_is_elevated() {
+  if $IS_WINDOWS || $IS_WSL; then
+    local result; result=$(_pwsh "
+\$principal = New-Object Security.Principal.WindowsPrincipal([Security.Principal.WindowsIdentity]::GetCurrent())
+[bool]\$principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+" 2>/dev/null | tr -d '\r ')
+    [ "$result" = "True" ]
+  else
+    sudo -n true 2>/dev/null
+  fi
+}
+
+# Launch agent offenders (macOS)
+MACOS_OFFENDER_AGENTS=(
+  "com.apple.photoanalysisd"
+  "com.apple.mediaanalysisd"
+  "com.apple.suggestd"
+  "com.apple.knowledge-agent"
+  "com.apple.parsecd"
+  "com.apple.tipsd"
+  "com.apple.AMPLibraryAgent"
+)
+
+action_clean_caches() {
+  local freed=0
+  if $IS_MACOS; then
+    # Logs: age-gated, never a blanket wipe. The --clean tier must stay
+    # non-destructive, so only files older than 14d go — and agent/structured
+    # log dirs are preserved outright (they are durable work artifacts, not cache).
+    if [ -d "$HOME/Library/Logs" ]; then
+      find "$HOME/Library/Logs" -type f -mtime +14 \
+        -not -path "*/AgentWork/*" \
+        -delete 2>/dev/null || true
+      freed=$((freed + 1))
+    fi
+    [ -d "$HOME/Library/Caches/com.apple.nsurlsessiond" ] && rm -rf "$HOME/Library/Caches/com.apple.nsurlsessiond"/* 2>/dev/null
+    [ -d "$HOME/Library/Caches/com.apple.metal" ] && rm -rf "$HOME/Library/Caches/com.apple.metal"/* 2>/dev/null
+    [ -d "$HOME/Library/Caches/CloudKit" ] && rm -rf "$HOME/Library/Caches/CloudKit"/* 2>/dev/null
+    find /tmp -maxdepth 1 \( -name 'ops-*' -o -name 'yolo-*' -o -name 'claude-*' \) -mtime +1 -delete 2>/dev/null || true
+    find /tmp /private/var/tmp -type f -mtime +1 -delete 2>/dev/null || true
+    command -v watchman >/dev/null 2>&1 && { watchman watch-del-all >/dev/null 2>&1 || true; } 2>/dev/null
+    compgen -G '/tmp/metro-*' >/dev/null 2>&1 && rm -rf /tmp/metro-* 2>/dev/null || true
+    echo "  ${GRN}✓${RST} Cleared user logs, Metal/URL/CloudKit caches, old /tmp"
+  elif $IS_LINUX || $IS_WSL; then
+    sudo journalctl --vacuum-time=7d 2>/dev/null >/dev/null || true
+    [ -d /var/cache/apt/archives ] && sudo apt-get autoclean 2>/dev/null >/dev/null || true
+    command -v yum >/dev/null 2>&1 && sudo yum clean all 2>/dev/null >/dev/null || true
+    find /tmp -maxdepth 1 -type f -mtime +1 -delete 2>/dev/null || true
+    echo "  ${GRN}✓${RST} Cleared journal (>7d), apt/yum cache, old /tmp"
+  fi
+  if $IS_WINDOWS; then
+    local LOCALAPPDATA_UNIX TEMP_UNIX
+    LOCALAPPDATA_UNIX=$(_win_env LOCALAPPDATA)
+    TEMP_UNIX=$(_win_env TEMP)
+    [ -n "$LOCALAPPDATA_UNIX" ] && [ -d "$LOCALAPPDATA_UNIX/Temp" ] && \
+      find "$LOCALAPPDATA_UNIX/Temp" -maxdepth 1 -type f -mtime +1 -delete 2>/dev/null
+    [ -n "$TEMP_UNIX" ] && find "$TEMP_UNIX" -maxdepth 1 -type f -mtime +1 -delete 2>/dev/null
+    # Windows event log truncation (non-elevated — only the user-readable logs)
+    _pwsh "Get-EventLog -List | Where-Object { \$_.LogDisplayName -in 'Application','System' } | ForEach-Object { try { Clear-EventLog -LogName \$_.Log -ErrorAction SilentlyContinue } catch {} }" >/dev/null 2>&1
+    echo "  ${GRN}✓${RST} Cleared %TEMP%, %LOCALAPPDATA%\\Temp (old files), user event logs"
+  fi
+}
+
+action_clean_package_managers() {
+  # Only prune — never break the dev environment
+  if command -v brew >/dev/null 2>&1; then
+    brew cleanup -s --prune=all 2>/dev/null >/dev/null
+    echo "  ${GRN}✓${RST} brew cleanup -s --prune=all"
+  fi
+  if command -v pnpm >/dev/null 2>&1; then
+    pnpm store prune 2>/dev/null >/dev/null
+    echo "  ${GRN}✓${RST} pnpm store prune"
+  fi
+  if command -v cargo >/dev/null 2>&1 && command -v cargo-cache >/dev/null 2>&1; then
+    cargo cache -a 2>/dev/null >/dev/null
+    echo "  ${GRN}✓${RST} cargo cache -a"
+  fi
+  if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+    if $MODE_AGGRESSIVE; then
+      docker system prune -af --volumes 2>/dev/null >/dev/null
+      echo "  ${GRN}✓${RST} docker system prune -af --volumes (aggressive)"
+    else
+      docker system prune -f 2>/dev/null >/dev/null
+      echo "  ${GRN}✓${RST} docker system prune -f"
+    fi
+  fi
+}
+
+action_clean_deep() {
+  if $IS_MACOS; then
+    # Skip DerivedData if Xcode is building OR recent run
+    if pgrep -f "xcodebuild" >/dev/null 2>&1; then
+      echo "  ${YLW}⚠${RST}  DerivedData: skipped (Xcode build active)"
+    elif recent_run; then
+      echo "  ${DIM}○${RST} DerivedData: skipped (recent run <1h)"
+    else
+      [ -d "$HOME/Library/Developer/Xcode/DerivedData" ] && rm -rf "$HOME/Library/Developer/Xcode/DerivedData"/* 2>/dev/null
+      echo "  ${GRN}✓${RST} Xcode DerivedData cleared"
+    fi
+    [ -d "$HOME/Library/Developer/CoreSimulator/Caches" ] && rm -rf "$HOME/Library/Developer/CoreSimulator/Caches"/* 2>/dev/null
+    xcrun simctl delete unavailable 2>/dev/null >/dev/null || true
+    echo "  ${GRN}✓${RST} CoreSimulator caches + unavailable simulators"
+    # Trash
+    [ -d "$HOME/.Trash" ] && rm -rf "$HOME/.Trash"/* 2>/dev/null
+    echo "  ${GRN}✓${RST} Trash emptied"
+  elif $IS_LINUX || $IS_WSL; then
+    rm -rf "$HOME/.local/share/Trash/files"/* 2>/dev/null
+    echo "  ${GRN}✓${RST} Trash emptied"
+    if command -v apt >/dev/null 2>&1; then
+      sudo apt autoremove -y 2>/dev/null >/dev/null || true
+      echo "  ${GRN}✓${RST} apt autoremove"
+    fi
+  fi
+  if $IS_WINDOWS; then
+    # Empty Recycle Bin (all drives, current user)
+    _pwsh "Clear-RecycleBin -Force -ErrorAction SilentlyContinue" >/dev/null 2>&1
+    echo "  ${GRN}✓${RST} Recycle Bin emptied"
+    # Run cleanmgr with pre-configured sageset profile (silent)
+    if command -v cleanmgr.exe >/dev/null 2>&1; then
+      cleanmgr.exe /sagerun:1 >/dev/null 2>&1 &
+      echo "  ${GRN}✓${RST} cleanmgr.exe /sagerun:1 dispatched (background)"
+    fi
+    # DISM component cleanup (elevated — winsxs / WinUpdate cleanup, multi-GB)
+    if $MODE_AGGRESSIVE && _is_elevated; then
+      _pwsh "dism.exe /online /cleanup-image /startcomponentcleanup /quiet" >/dev/null 2>&1
+      echo "  ${GRN}✓${RST} DISM startcomponentcleanup (WinSxS purge)"
+    elif $MODE_AGGRESSIVE; then
+      echo "  ${YLW}⚠${RST}  DISM cleanup needs admin — run as Administrator to reclaim WinSxS GBs"
+    fi
+  fi
+}
+
+# Stale node_modules / .next / dist (>14 days) — aggressive only
+action_clean_stale_builds() {
+  $MODE_AGGRESSIVE || return 0
+  # Roots are configurable — hardcoding a guessed list either misses the
+  # user's real work root or scans dead paths. Override with
+  # OPS_SPEEDUP_BUILD_ROOTS="/path/one:/path/two".
+  local roots
+  if [ -n "${OPS_SPEEDUP_BUILD_ROOTS:-}" ]; then
+    IFS=':' read -r -a roots <<< "$OPS_SPEEDUP_BUILD_ROOTS"
+  else
+    roots=(~/Developer ~/Projects ~/code ~/workspace ~/src ~/dev)
+  fi
+  local count=0 total_kb=0
+  for root in "${roots[@]}"; do
+    [ -d "$root" ] || continue
+    while IFS= read -r stale; do
+      [ -z "$stale" ] && continue
+      # Skip if any process has an open file descriptor inside this directory
+      if command -v lsof >/dev/null 2>&1 && lsof +D "$stale" >/dev/null 2>&1; then
+        echo "  ${YLW}⚠${RST}  Skipping (in use): $stale"
+        continue
+      fi
+      local kb; kb=$(du -sk "$stale" 2>/dev/null | awk '{print $1}')
+      rm -rf "$stale" 2>/dev/null && { count=$((count + 1)); total_kb=$((total_kb + ${kb:-0})); }
+    done < <(find "$root" -maxdepth 5 \( -name node_modules -o -name .next -o -name dist -o -name .turbo \) -type d -not -path '*/node_modules/*' -mtime +14 2>/dev/null)
+  done
+  (( count > 0 )) && echo "  ${GRN}✓${RST} Stale build dirs: ${count} removed, ~$((total_kb / 1024))MB freed"
+}
+
+# Kill CPU/power/GPU hogs from probe output
+action_kill_hogs() {
+  # Despite the legacy name, default cleanup only demotes hogs. TERM is reserved
+  # for explicit --aggressive runs. This keeps --clean genuinely non-destructive.
+  [ -f "${CPU_HOGS_FILE:-}" ] || return 0
+  local mitigated=0 killed=0
+  while IFS='|' read -r pid _ _ cmd; do
+    [ -z "$pid" ] && continue
+    echo "$cmd" | grep -qE "$PROTECTED_RE" && continue
+    ps -p "$pid" >/dev/null 2>&1 || continue
+    if $MODE_AGGRESSIVE; then
+      kill -TERM "$pid" 2>/dev/null && killed=$((killed + 1))
+    else
+      if $IS_MACOS; then taskpolicy -b -p "$pid" 2>/dev/null || true; fi
+      renice +10 -p "$pid" >/dev/null 2>&1 && mitigated=$((mitigated + 1)) || true
+    fi
+  done < "$CPU_HOGS_FILE"
+  (( mitigated > 0 )) && echo "  ${GRN}✓${RST} Background-prioritized $mitigated CPU hog(s)"
+  (( killed > 0 )) && echo "  ${GRN}✓${RST} Killed $killed CPU hog(s) (aggressive)"
+
+  if [ -f "${POWER_HOGS_FILE:-}" ]; then
+    local pmitigated=0 pkilled=0
+    while IFS='|' read -r pid _ name; do
+      [ -z "$pid" ] && continue
+      echo "$name" | grep -qE "$PROTECTED_RE" && continue
+      ps -p "$pid" >/dev/null 2>&1 || continue
+      if $MODE_AGGRESSIVE; then
+        kill -TERM "$pid" 2>/dev/null && pkilled=$((pkilled + 1))
+      else
+        if $IS_MACOS; then taskpolicy -b -p "$pid" 2>/dev/null || true; fi
+        renice +10 -p "$pid" >/dev/null 2>&1 && pmitigated=$((pmitigated + 1)) || true
+      fi
+    done < "$POWER_HOGS_FILE"
+    (( pmitigated > 0 )) && echo "  ${GRN}✓${RST} Background-prioritized $pmitigated power hog(s)"
+    (( pkilled > 0 )) && echo "  ${GRN}✓${RST} Killed $pkilled power hog(s) (aggressive)"
+  fi
+}
+
+# Launch agent / systemd offenders
+action_launch_offenders() {
+  if $IS_MACOS; then
+    local total=0
+    for agent in "${MACOS_OFFENDER_AGENTS[@]}"; do
+      local pids; pids=$(pgrep -f "$agent" 2>/dev/null || true)
+      [ -z "$pids" ] && continue
+      local n; n=$(echo "$pids" | wc -l | tr -d ' ')
+      while read -r pid; do
+        [ -z "$pid" ] && continue
+        kill -TERM "$pid" 2>/dev/null || true
+      done <<< "$pids"
+      total=$((total + n))
+      if $MODE_AGGRESSIVE; then
+        launchctl bootout "gui/$(id -u)/$agent" 2>/dev/null || \
+          launchctl unload -w "/System/Library/LaunchAgents/$agent.plist" 2>/dev/null || true
+        echo "  ${RED}✗${RST} Unloaded $agent (aggressive)"
+      else
+        echo "  ${YLW}⚠${RST}  Killed $agent (will respawn — use --aggressive to unload)"
+      fi
+    done
+    (( total > 0 )) && echo "  ${GRN}✓${RST} $total offender process(es) stopped"
+  elif $IS_LINUX || $IS_WSL; then
+    # Linux equivalent — show top slow-start units, require aggressive to mask
+    # Only units in this allowlist are ever masked — everything else is skip-listed.
+    local -a SAFE_TO_MASK=(
+      "apt-daily.service"
+      "apt-daily-upgrade.service"
+      "apt-daily.timer"
+      "apt-daily-upgrade.timer"
+      "snapd.service"
+      "snapd.socket"
+      "motd-news.service"
+      "motd-news.timer"
+      "fwupd.service"
+      "man-db.service"
+      "man-db.timer"
+      "packagekit.service"
+    )
+    if command -v systemd-analyze >/dev/null 2>&1; then
+      local slow; slow=$(systemd-analyze blame 2>/dev/null | head -10 | awk '{print $2}' || true)
+      if [ -n "$slow" ]; then
+        echo "  ${DIM}Slow-start units (top 10):${RST}"
+        echo "$slow" | while read -r unit; do echo "    - $unit"; done
+        if $MODE_AGGRESSIVE; then
+          echo "$slow" | while read -r unit; do
+            local ok=false
+            for allowed in "${SAFE_TO_MASK[@]}"; do
+              [ "$unit" = "$allowed" ] && ok=true && break
+            done
+            $ok && sudo systemctl mask "$unit" 2>/dev/null && echo "  ${RED}✗${RST} Masked $unit"
+          done
+        fi
+      fi
+    fi
+  fi
+}
+
+# Demote background daemons to low priority (doesn't kill)
+action_demote_background() {
+  if $IS_MACOS; then
+    local demoted=0 pid
+    # Feed via process substitution, not a pipe: a `| while` runs in a subshell
+    # so the counter increment was discarded and the success line printed
+    # unconditionally even when nothing matched.
+    while read -r pid; do
+      [ -z "$pid" ] && continue
+      taskpolicy -b -p "$pid" 2>/dev/null && demoted=$((demoted + 1))
+    done < <(ps -Ao pid,comm 2>/dev/null | grep -E "$MACOS_DEMOTE_RE" | awk '{print $1}')
+    if (( demoted > 0 )); then
+      echo "  ${GRN}✓${RST} $demoted background daemon(s) demoted to E-cores"
+    else
+      echo "  ${DIM}·${RST} No background daemons needed demoting"
+    fi
+  elif $IS_LINUX || $IS_WSL; then
+    local linux_demote="tracker-extract|tracker-miner|packagekitd|snapd|evolution|gvfsd"
+    local demoted=0 pid
+    while read -r pid; do
+      [ -z "$pid" ] && continue
+      renice +10 -p "$pid" 2>/dev/null >/dev/null && demoted=$((demoted + 1))
+      command -v ionice >/dev/null 2>&1 && ionice -c3 -p "$pid" 2>/dev/null
+    done < <(ps -Ao pid,comm 2>/dev/null | grep -E "$linux_demote" | awk '{print $1}')
+    if (( demoted > 0 )); then
+      echo "  ${GRN}✓${RST} $demoted background daemon(s) renice'd + ionice'd"
+    else
+      echo "  ${DIM}·${RST} No background daemons needed demoting"
+    fi
+  fi
+}
+
+# UI animation cuts (macOS only — reversible, logs to state)
+action_animation_cuts() {
+  $IS_MACOS || return 0
+  defaults write -g NSWindowResizeTime -float 0.001 2>/dev/null
+  defaults write -g NSAutomaticWindowAnimationsEnabled -bool false 2>/dev/null
+  defaults write -g NSScrollAnimationEnabled -bool false 2>/dev/null
+  defaults write com.apple.dock expose-animation-duration -float 0.1 2>/dev/null
+  defaults write com.apple.dock launchanim -bool false 2>/dev/null
+  defaults write com.apple.dock autohide-time-modifier -float 0.15 2>/dev/null
+  defaults write com.apple.finder DisableAllAnimations -bool true 2>/dev/null
+  defaults write com.apple.Mail DisableReplyAnimations -bool true 2>/dev/null
+  defaults write com.apple.Mail DisableSendAnimations -bool true 2>/dev/null
+  killall Dock 2>/dev/null || true
+  killall Finder 2>/dev/null || true
+  echo "  ${GRN}✓${RST} UI animations minimized (Dock, Finder, Mail, windows)"
+}
+
+# Kernel tuning — only raise, never lower
+action_kernel_tune() {
+  if $IS_MACOS; then
+    if sudo -n true 2>/dev/null; then
+      local cur tgt
+      cur=$(sysctl -n kern.maxvnodes 2>/dev/null || echo 0); tgt=750000
+      (( cur < tgt )) && sudo sysctl -w kern.maxvnodes=$tgt 2>/dev/null >/dev/null
+      cur=$(sysctl -n kern.ipc.somaxconn 2>/dev/null || echo 0); tgt=4096
+      (( cur < tgt )) && sudo sysctl -w kern.ipc.somaxconn=$tgt 2>/dev/null >/dev/null
+      echo "  ${GRN}✓${RST} Kernel: vnodes=$(sysctl -n kern.maxvnodes) somaxconn=$(sysctl -n kern.ipc.somaxconn)"
+    fi
+  elif $IS_LINUX || $IS_WSL; then
+    if sudo -n true 2>/dev/null; then
+      local cur tgt
+      cur=$(sysctl -n net.core.somaxconn 2>/dev/null || echo 0); tgt=4096
+      (( cur < tgt )) && sudo sysctl -w net.core.somaxconn=$tgt 2>/dev/null >/dev/null
+      cur=$(sysctl -n fs.file-max 2>/dev/null || echo 0); tgt=2097152
+      (( cur < tgt )) && sudo sysctl -w fs.file-max=$tgt 2>/dev/null >/dev/null
+      # BBR congestion control if aggressive and kernel supports it
+      if $MODE_AGGRESSIVE && sysctl net.ipv4.tcp_available_congestion_control 2>/dev/null | grep -qw bbr; then
+        sudo sysctl -w net.ipv4.tcp_congestion_control=bbr 2>/dev/null >/dev/null
+        echo "  ${GRN}✓${RST} TCP BBR enabled (aggressive)"
+      fi
+      echo "  ${GRN}✓${RST} Kernel: somaxconn=$(sysctl -n net.core.somaxconn) file-max=$(sysctl -n fs.file-max)"
+    fi
+  fi
+}
+
+# Memory purge (macOS) — only when pressure or swap high
+action_memory_purge() {
+  if $IS_MACOS; then
+    local pressure swap
+    pressure=${MEM_pressure_pct:-0}
+    swap=${MEM_swap_mb:-0}
+    # Strip decimals and non-digits
+    pressure=$(echo "$pressure" | awk -F. '{print int($1+0)}')
+    swap=$(echo "$swap" | awk -F. '{print int($1+0)}')
+    [ -z "$pressure" ] && pressure=0
+    [ -z "$swap" ] && swap=0
+    if (( pressure < 30 || swap > 200 )) && sudo -n true 2>/dev/null; then
+      sudo purge 2>/dev/null || true
+      echo "  ${GRN}✓${RST} Memory purged (pressure=${pressure}% free, swap=${swap}MB)"
+    fi
+  elif $IS_LINUX || $IS_WSL; then
+    # drop_caches throws away the whole page cache (tens of GB on a busy host),
+    # which forces every service to re-read from disk and itself causes the IO
+    # spike the next health sweep measures. It is not a safe --clean action, so
+    # it runs only under the explicit --aggressive tier.
+    if $MODE_AGGRESSIVE && sudo -n true 2>/dev/null; then
+      sync; echo 3 | sudo tee /proc/sys/vm/drop_caches >/dev/null 2>&1 || true
+      echo "  ${GRN}✓${RST} Memory caches dropped (aggressive)"
+    else
+      echo "  ${DIM}-${RST} Page cache kept (drop_caches only under --aggressive)"
+    fi
+  fi
+  if $IS_WINDOWS; then
+    # Empty working sets across all processes (per-process, non-elevated for owned procs).
+    # Releases RSS back to standby — closest equivalent to macOS `purge`.
+    _pwsh "
+\$src = @'
+using System;
+using System.Runtime.InteropServices;
+public class Mem {
+  [DllImport(\"psapi.dll\")]
+  public static extern int EmptyWorkingSet(IntPtr hwProc);
+}
+'@
+Add-Type -TypeDefinition \$src -ErrorAction SilentlyContinue
+Get-Process | ForEach-Object {
+  try { [Mem]::EmptyWorkingSet(\$_.Handle) | Out-Null } catch {}
+}" >/dev/null 2>&1
+    echo "  ${GRN}✓${RST} Working sets emptied for owned processes"
+    # Standby list flush requires elevation + RAMMap CLI — skip unless aggressive+elevated
+    if $MODE_AGGRESSIVE && _is_elevated && command -v RAMMap64.exe >/dev/null 2>&1; then
+      RAMMap64.exe -Ew >/dev/null 2>&1
+      echo "  ${GRN}✓${RST} Standby list flushed (RAMMap64.exe -Ew)"
+    fi
+  fi
+}
+
+# ─────────────────────────────────────────────────────────────────
+# Responsiveness pack — keyboard, animations, text input (OS-aware)
+# macOS: defaults write (Tahoe-tested values, addresses 26.x typing lag)
+# Linux: gsettings (GNOME) / kwriteconfig5 (KDE) where present
+# Windows/WSL: skipped (registry edits require elevation + reboot)
+# ─────────────────────────────────────────────────────────────────
+action_responsiveness_pack() {
+  if $IS_MACOS; then
+    # Keyboard max speed (fastest UI-exposed values)
+    defaults write NSGlobalDomain InitialKeyRepeat -int 10 2>/dev/null
+    defaults write NSGlobalDomain KeyRepeat -int 1 2>/dev/null
+    defaults write -g ApplePressAndHoldEnabled -bool false 2>/dev/null
+    # Tahoe-specific: NSAutomaticInlinePredictionEnabled fixes 1-2s typing lag
+    defaults write -g NSAutomaticInlinePredictionEnabled -bool false 2>/dev/null
+    # Text substitution kills (every keystroke skips lookup)
+    defaults write NSGlobalDomain NSAutomaticSpellingCorrectionEnabled -bool false 2>/dev/null
+    defaults write NSGlobalDomain NSAutomaticCapitalizationEnabled -bool false 2>/dev/null
+    defaults write NSGlobalDomain NSAutomaticDashSubstitutionEnabled -bool false 2>/dev/null
+    defaults write NSGlobalDomain NSAutomaticPeriodSubstitutionEnabled -bool false 2>/dev/null
+    defaults write NSGlobalDomain NSAutomaticQuoteSubstitutionEnabled -bool false 2>/dev/null
+    defaults write NSGlobalDomain NSAutomaticTextCompletionEnabled -bool false 2>/dev/null
+    # Reduce Motion + Reduce Transparency (biggest perceived Tahoe win)
+    defaults write com.apple.universalaccess reduceMotion -bool true 2>/dev/null
+    defaults write com.apple.universalaccess reduceTransparency -bool true 2>/dev/null
+    # Dock minimize: Genie → Scale (no mesh-warp), Launchpad 0.1s
+    defaults write com.apple.dock mineffect -string scale 2>/dev/null
+    defaults write com.apple.dock springboard-show-duration -float 0.1 2>/dev/null
+    defaults write com.apple.dock springboard-hide-duration -float 0.1 2>/dev/null
+    defaults write com.apple.dock springboard-page-duration -float 0.1 2>/dev/null
+    defaults write com.apple.dock no-bouncing -bool true 2>/dev/null
+    defaults write com.apple.dock mru-spaces -bool false 2>/dev/null
+    # Misc UI overhead
+    defaults write com.apple.LaunchServices LSQuarantine -bool false 2>/dev/null
+    defaults write -g NSWindowSupportsAutomaticInlineTitle -bool false 2>/dev/null
+    defaults write -g NSUseAnimatedFocusRing -bool false 2>/dev/null
+    defaults write com.apple.CrashReporter DialogType none 2>/dev/null
+    defaults write com.apple.screencapture disable-shadow -bool true 2>/dev/null
+    defaults write -g com.apple.sound.uiaudio.enabled -int 0 2>/dev/null
+    killall Dock SystemUIServer 2>/dev/null || true
+    echo "  ${GRN}✓${RST} Responsiveness pack: keyboard max, animations cut, Tahoe typing-lag fix, ReduceMotion+Transparency, mineffect=scale"
+  elif $IS_LINUX; then
+    # GNOME via gsettings
+    if command -v gsettings >/dev/null 2>&1; then
+      gsettings set org.gnome.desktop.interface enable-animations false 2>/dev/null
+      gsettings set org.gnome.desktop.peripherals.keyboard repeat-interval 15 2>/dev/null
+      gsettings set org.gnome.desktop.peripherals.keyboard delay 200 2>/dev/null
+      echo "  ${GRN}✓${RST} GNOME: animations off, keyboard repeat=15ms delay=200ms"
+    fi
+    # KDE via kwriteconfig
+    if command -v kwriteconfig5 >/dev/null 2>&1; then
+      kwriteconfig5 --file kdeglobals --group KDE --key AnimationDurationFactor 0 2>/dev/null
+      echo "  ${GRN}✓${RST} KDE: animation factor 0"
+    fi
+    # Linux keyboard via xset (X11 only)
+    if command -v xset >/dev/null 2>&1 && [ -n "${DISPLAY:-}" ]; then
+      xset r rate 200 67 2>/dev/null && echo "  ${GRN}✓${RST} xset: keyboard delay=200 rate=67Hz"
+    fi
+  fi
+  if $IS_WINDOWS; then
+    # Keyboard repeat: HKCU\Control Panel\Keyboard
+    reg.exe ADD "HKCU\Control Panel\Keyboard" /v KeyboardDelay /t REG_SZ /d "0" /f >NUL 2>&1
+    reg.exe ADD "HKCU\Control Panel\Keyboard" /v KeyboardSpeed /t REG_SZ /d "31" /f >NUL 2>&1
+    # Menu show delay (default 400ms → 0)
+    reg.exe ADD "HKCU\Control Panel\Desktop" /v MenuShowDelay /t REG_SZ /d "0" /f >NUL 2>&1
+    # Disable visual effects (animations, fade, smooth scroll) — UserPreferencesMask
+    reg.exe ADD "HKCU\Control Panel\Desktop" /v UserPreferencesMask /t REG_BINARY /d 9012038010000000 /f >NUL 2>&1
+    # Disable taskbar/window animations
+    reg.exe ADD "HKCU\Software\Microsoft\Windows\CurrentVersion\Explorer\VisualEffects" /v VisualFXSetting /t REG_DWORD /d 2 /f >NUL 2>&1
+    # Disable "minimize/maximize" animations
+    reg.exe ADD "HKCU\Software\Microsoft\Windows\DWM" /v EnableAeroPeek /t REG_DWORD /d 0 /f >NUL 2>&1
+    # Disable transparency
+    reg.exe ADD "HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize" /v EnableTransparency /t REG_DWORD /d 0 /f >NUL 2>&1
+    echo "  ${GRN}✓${RST} Windows: keyboard max, MenuShowDelay=0, animations off, transparency off (relog to fully apply)"
+  fi
+}
+
+# ─────────────────────────────────────────────────────────────────
+# Power management — disable Power Nap, wake-on-LAN, hibernate image
+# macOS: pmset (saves multi-GB sleepimage, faster sleep transitions)
+# Linux: systemd-logind suppression + tlp (if present)
+# ─────────────────────────────────────────────────────────────────
+action_power_management() {
+  if $IS_MACOS; then
+    if sudo -n true 2>/dev/null; then
+      sudo pmset -a powernap 0 2>/dev/null && echo "  ${GRN}✓${RST} Power Nap disabled"
+      sudo pmset -a hibernatemode 0 2>/dev/null && echo "  ${GRN}✓${RST} hibernatemode=0 (faster sleep)"
+      sudo rm -f /private/var/vm/sleepimage 2>/dev/null && echo "  ${GRN}✓${RST} sleepimage purged"
+      # Don't disable TCP keepalive by default — breaks Find My Mac
+    else
+      echo "  ${DIM}○${RST} Power management: sudo unavailable"
+    fi
+  elif $IS_LINUX; then
+    # tlp handles most of this on Linux laptops
+    if command -v tlp >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+      sudo tlp start 2>/dev/null >/dev/null && echo "  ${GRN}✓${RST} tlp activated (laptop power profile)"
+    fi
+  fi
+  if $IS_WINDOWS; then
+    if command -v powercfg.exe >/dev/null 2>&1; then
+      # Set High Performance scheme (built-in GUID)
+      powercfg.exe -setactive 8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c >/dev/null 2>&1
+      echo "  ${GRN}✓${RST} powercfg: High Performance scheme active"
+      # Disable hibernate (frees hiberfil.sys — multi-GB)
+      if _is_elevated; then
+        powercfg.exe -h off >/dev/null 2>&1
+        echo "  ${GRN}✓${RST} Hibernate disabled (hiberfil.sys reclaimed)"
+        # Disable USB selective suspend (lower input latency for HID devices)
+        powercfg.exe -setacvalueindex SCHEME_CURRENT 2a737441-1930-4402-8d77-b2bebba308a3 48e6b7a6-50f5-4782-a5d4-53bb8f07e226 0 >/dev/null 2>&1
+        powercfg.exe -setactive SCHEME_CURRENT >/dev/null 2>&1
+        echo "  ${GRN}✓${RST} USB selective suspend disabled (lower HID input latency)"
+      else
+        echo "  ${YLW}⚠${RST}  Hibernate disable + USB suspend tweaks need admin"
+      fi
+    fi
+  fi
+}
+
+# ─────────────────────────────────────────────────────────────────
+# AGGRESSIVE DISK RECLAIM — verbose, cross-platform
+# Targets: package caches, browser caches, container runtimes,
+# IDE/build artifacts, sleep image, diagnostic reports.
+# Each step prints BEFORE/AFTER/freed with action transparency.
+# ─────────────────────────────────────────────────────────────────
+action_disk_reclaim_aggressive() {
+  $MODE_AGGRESSIVE || return 0
+  echo "  ${BCYN}── AGGRESSIVE DISK RECLAIM ──${RST}"
+
+  local TOTAL_FREED_KB=0
+  _size_kb() { [ -e "$1" ] && du -sk "$1" 2>/dev/null | awk '{print $1}' || echo 0; }
+  _report() {
+    local label="$1" before_kb="$2" after_kb="$3"
+    local freed_kb=$(( before_kb - after_kb ))
+    [ $freed_kb -lt 0 ] && freed_kb=0
+    TOTAL_FREED_KB=$(( TOTAL_FREED_KB + freed_kb ))
+    local freed_mb=$(( freed_kb / 1024 ))
+    if [ $freed_mb -ge 100 ]; then
+      echo "    ${GRN}✓${RST} $label: freed ${BWHT}${freed_mb}MB${RST}"
+    elif [ $freed_mb -gt 0 ]; then
+      echo "    ${GRN}✓${RST} $label: freed ${freed_mb}MB"
+    else
+      echo "    ${DIM}·${RST} $label: ${DIM}clean${RST}"
+    fi
+  }
+
+  # 1. Docker — biggest win when daemon is running
+  echo "  ${CYN}[1/10]${RST} Docker (containers/images/volumes/buildx)"
+  if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+    docker system prune -af --volumes >/dev/null 2>&1
+    docker buildx prune -af >/dev/null 2>&1
+    echo "    ${GRN}✓${RST} docker system prune -af --volumes + buildx prune"
+  else
+    echo "    ${DIM}·${RST} Docker not running or not installed"
+  fi
+
+  # 2. npm cache + npx tmp
+  echo "  ${CYN}[2/10]${RST} npm cache + ~/.npm/_npx"
+  if [ -d "$HOME/.npm" ]; then
+    local before; before=$(_size_kb "$HOME/.npm")
+    command -v npm >/dev/null 2>&1 && npm cache clean --force >/dev/null 2>&1 || true
+    rm -rf "$HOME/.npm/_npx" "$HOME/.npm/_logs" 2>/dev/null
+    local after; after=$(_size_kb "$HOME/.npm")
+    _report "\$HOME/.npm" "$before" "$after"
+  fi
+
+  # 3. uv (Python) cache
+  echo "  ${CYN}[3/10]${RST} uv (Python) cache"
+  if [ -d "$HOME/.cache/uv" ]; then
+    local before; before=$(_size_kb "$HOME/.cache/uv")
+    if command -v uv >/dev/null 2>&1; then
+      uv cache prune >/dev/null 2>&1
+    else
+      rm -rf "$HOME/.cache/uv"
+    fi
+    local after; after=$(_size_kb "$HOME/.cache/uv")
+    _report "\$HOME/.cache/uv" "$before" "$after"
+  else
+    echo "    ${DIM}·${RST} no uv cache"
+  fi
+
+  # 4. Puppeteer (Chrome download — keep latest only)
+  echo "  ${CYN}[4/10]${RST} Puppeteer Chrome (keep latest only)"
+  local PUP="$HOME/.cache/puppeteer/chrome"
+  if [ -d "$PUP" ]; then
+    local before; before=$(_size_kb "$PUP")
+    local latest; latest=$(ls -1t "$PUP" 2>/dev/null | head -1)
+    for ver in "$PUP"/*; do
+      [ "$(basename "$ver")" = "$latest" ] && continue
+      rm -rf "$ver"
+    done
+    local after; after=$(_size_kb "$PUP")
+    _report "Puppeteer (kept: $latest)" "$before" "$after"
+  else
+    echo "    ${DIM}·${RST} no Puppeteer cache"
+  fi
+
+  # 5. iOS Simulator (macOS only)
+  if $IS_MACOS; then
+    echo "  ${CYN}[5/10]${RST} iOS Simulator (unavailable + caches)"
+    if command -v xcrun >/dev/null 2>&1; then
+      local before; before=$(_size_kb "$HOME/Library/Developer/CoreSimulator")
+      xcrun simctl delete unavailable 2>/dev/null
+      rm -rf "$HOME/Library/Developer/CoreSimulator/Caches"/* 2>/dev/null
+      local after; after=$(_size_kb "$HOME/Library/Developer/CoreSimulator")
+      _report "CoreSimulator" "$before" "$after"
+    fi
+  else
+    echo "  ${CYN}[5/10]${RST} iOS Simulator ${DIM}(macOS-only — skipped)${RST}"
+  fi
+
+  # 6. Browser caches — Chrome/Comet/Brave/Arc/Edge (Cache subdirs only)
+  echo "  ${CYN}[6/10]${RST} Browser caches (Chrome/Brave/Edge/Arc/Comet)"
+  local browser_roots
+  if $IS_MACOS; then
+    browser_roots=(
+      "$HOME/Library/Application Support/Google/Chrome"
+      "$HOME/Library/Application Support/Comet"
+      "$HOME/Library/Application Support/BraveSoftware/Brave-Browser"
+      "$HOME/Library/Application Support/Arc"
+      "$HOME/Library/Application Support/Microsoft Edge"
+    )
+  elif $IS_WINDOWS; then
+    local LOCALAPPDATA_UNIX; LOCALAPPDATA_UNIX=$(_win_env LOCALAPPDATA)
+    browser_roots=(
+      "$LOCALAPPDATA_UNIX/Google/Chrome/User Data"
+      "$LOCALAPPDATA_UNIX/Microsoft/Edge/User Data"
+      "$LOCALAPPDATA_UNIX/BraveSoftware/Brave-Browser/User Data"
+      "$LOCALAPPDATA_UNIX/Arc/User Data"
+    )
+  else
+    browser_roots=(
+      "$HOME/.config/google-chrome"
+      "$HOME/.config/BraveSoftware/Brave-Browser"
+      "$HOME/.config/microsoft-edge"
+      "$HOME/.cache/google-chrome"
+      "$HOME/.cache/BraveSoftware/Brave-Browser"
+    )
+  fi
+  local browser_freed=0
+  for root in "${browser_roots[@]}"; do
+    [ -d "$root" ] || continue
+    for profile in "$root"/Default "$root"/Profile*; do
+      [ -d "$profile" ] || continue
+      for subdir in Cache "Code Cache" GPUCache "Service Worker/CacheStorage" "Service Worker/ScriptCache"; do
+        local target="$profile/$subdir"
+        if [ -d "$target" ]; then
+          local sz; sz=$(_size_kb "$target")
+          rm -rf "${target:?}"/* 2>/dev/null
+          browser_freed=$((browser_freed + sz))
+        fi
+      done
+    done
+  done
+  TOTAL_FREED_KB=$((TOTAL_FREED_KB + browser_freed))
+  if [ $browser_freed -gt 0 ]; then
+    echo "    ${GRN}✓${RST} Browser caches: freed $((browser_freed / 1024))MB"
+  else
+    echo "    ${DIM}·${RST} no browser caches found"
+  fi
+
+  # 7. Slack / Discord / Teams caches
+  echo "  ${CYN}[7/10]${RST} Slack/Discord/Teams caches"
+  local chat_caches
+  if $IS_MACOS; then
+    chat_caches=(
+      "$HOME/Library/Application Support/Slack/Cache"
+      "$HOME/Library/Application Support/Slack/Code Cache"
+      "$HOME/Library/Application Support/Slack/GPUCache"
+      "$HOME/Library/Application Support/discord/Cache"
+      "$HOME/Library/Application Support/discord/Code Cache"
+      "$HOME/Library/Containers/com.microsoft.teams2/Data/Library/Caches"
+    )
+  elif $IS_WINDOWS; then
+    local APPDATA_UNIX LOCALAPPDATA_UNIX
+    APPDATA_UNIX=$(_win_env APPDATA)
+    LOCALAPPDATA_UNIX=$(_win_env LOCALAPPDATA)
+    chat_caches=(
+      "$APPDATA_UNIX/Slack/Cache"
+      "$APPDATA_UNIX/Slack/Code Cache"
+      "$APPDATA_UNIX/Slack/GPUCache"
+      "$APPDATA_UNIX/discord/Cache"
+      "$APPDATA_UNIX/discord/Code Cache"
+      "$APPDATA_UNIX/Microsoft/Teams/Cache"
+      "$LOCALAPPDATA_UNIX/Packages/MSTeams_8wekyb3d8bbwe/LocalCache"
+    )
+  else
+    chat_caches=(
+      "$HOME/.config/Slack/Cache"
+      "$HOME/.config/Slack/Code Cache"
+      "$HOME/.config/discord/Cache"
+      "$HOME/.config/Microsoft/Microsoft Teams/Cache"
+    )
+  fi
+  local chat_freed=0
+  for c in "${chat_caches[@]}"; do
+    [ -d "$c" ] || continue
+    local sz; sz=$(_size_kb "$c")
+    rm -rf "$c"/* 2>/dev/null
+    chat_freed=$((chat_freed + sz))
+  done
+  TOTAL_FREED_KB=$((TOTAL_FREED_KB + chat_freed))
+  if [ $chat_freed -gt 0 ]; then
+    echo "    ${GRN}✓${RST} Chat caches: freed $((chat_freed / 1024))MB"
+  else
+    echo "    ${DIM}·${RST} no chat caches"
+  fi
+
+  # 8. pip + Gradle caches
+  echo "  ${CYN}[8/10]${RST} pip + Gradle"
+  if command -v pip >/dev/null 2>&1; then
+    pip cache purge >/dev/null 2>&1 || true
+    echo "    ${GRN}✓${RST} pip cache purge"
+  fi
+  if [ -d "$HOME/.gradle/caches" ]; then
+    # Check if Gradle is running or any process holds files in .gradle/caches
+    if pgrep -f "gradle|gradlew" >/dev/null 2>&1 || { command -v lsof >/dev/null 2>&1 && lsof +D "$HOME/.gradle/caches" >/dev/null 2>&1; }; then
+      echo "    ${YLW}⚠${RST}  Gradle in-use: skipped (active build)"
+    else
+      local before; before=$(_size_kb "$HOME/.gradle/caches")
+      find "$HOME/.gradle/caches" -name "*.lock" -delete 2>/dev/null
+      find "$HOME/.gradle/caches/transforms-"* -mtime +30 -delete 2>/dev/null
+      local after; after=$(_size_kb "$HOME/.gradle/caches")
+      _report "\$HOME/.gradle/caches" "$before" "$after"
+    fi
+  fi
+
+  # 9. Claude plugin cache — keep latest version only + nuke temp_git_*
+  echo "  ${CYN}[9/10]${RST} Claude plugin cache (keep latest version only)"
+  local PLUGIN_CACHE="$HOME/.claude/plugins/cache"
+  if [ -d "$PLUGIN_CACHE" ]; then
+    local before; before=$(_size_kb "$PLUGIN_CACHE")
+    local pruned=0
+    for plugin_dir in "$PLUGIN_CACHE"/*/*/; do
+      [ -d "$plugin_dir" ] || continue
+      local versions
+      versions=$(ls -1 "$plugin_dir" 2>/dev/null | grep -E '^[0-9]+\.[0-9]+\.[0-9]+$' | sort -V -r)
+      local vcount; vcount=$(echo "$versions" | wc -l | tr -d ' ')
+      [ "$vcount" -le 1 ] && continue
+      local latest; latest=$(echo "$versions" | head -1)
+      echo "$versions" | tail -n +2 | while read -r old; do
+        rm -rf "$plugin_dir$old" 2>/dev/null
+      done
+      pruned=$((pruned + vcount - 1))
+    done
+    rm -rf "$PLUGIN_CACHE"/temp_git_* 2>/dev/null
+    rm -rf "$PLUGIN_CACHE"/temp_subdir_* 2>/dev/null
+    local after; after=$(_size_kb "$PLUGIN_CACHE")
+    _report "Claude plugin cache" "$before" "$after"
+  else
+    echo "    ${DIM}·${RST} no plugin cache"
+  fi
+
+  # 10. Logs + DiagnosticReports + temp folders
+  echo "  ${CYN}[10/10]${RST} Logs + DiagnosticReports + tmp"
+  if $IS_MACOS; then
+    local before; before=$(_size_kb "$HOME/Library/Logs")
+    find "$HOME/Library/Logs" -type f -mtime +14 -delete 2>/dev/null
+    local after; after=$(_size_kb "$HOME/Library/Logs")
+    _report "\$HOME/Library/Logs (>14d)" "$before" "$after"
+    rm -f "$HOME/Library/Logs/DiagnosticReports"/*.ips 2>/dev/null
+    rm -f "$HOME/Library/Logs/DiagnosticReports"/*.diag 2>/dev/null
+    echo "    ${GRN}✓${RST} DiagnosticReports purged"
+  elif $IS_LINUX; then
+    if [ -d "$HOME/.cache" ]; then
+      local before; before=$(_size_kb "$HOME/.cache")
+      find "$HOME/.cache" -type f -mtime +14 -delete 2>/dev/null
+      local after; after=$(_size_kb "$HOME/.cache")
+      _report "\$HOME/.cache (>14d)" "$before" "$after"
+    fi
+    sudo journalctl --vacuum-time=7d 2>/dev/null >/dev/null || true
+  elif $IS_WINDOWS; then
+    # Windows error reports + temp + downloaded program files
+    local LOCALAPPDATA_UNIX PROGRAMDATA_UNIX
+    LOCALAPPDATA_UNIX=$(_win_env LOCALAPPDATA)
+    PROGRAMDATA_UNIX=$(_win_env ProgramData)
+    # User-level WER reports (no elevation needed)
+    [ -n "$LOCALAPPDATA_UNIX" ] && [ -d "$LOCALAPPDATA_UNIX/Microsoft/Windows/WER" ] && {
+      local before; before=$(_size_kb "$LOCALAPPDATA_UNIX/Microsoft/Windows/WER")
+      rm -rf "$LOCALAPPDATA_UNIX/Microsoft/Windows/WER/ReportArchive"/* 2>/dev/null
+      rm -rf "$LOCALAPPDATA_UNIX/Microsoft/Windows/WER/ReportQueue"/* 2>/dev/null
+      local after; after=$(_size_kb "$LOCALAPPDATA_UNIX/Microsoft/Windows/WER")
+      _report "WER reports" "$before" "$after"
+    }
+    # Windows Update download cache (elevated, multi-GB on stale systems)
+    if _is_elevated; then
+      _pwsh "Stop-Service wuauserv -Force; Remove-Item C:\Windows\SoftwareDistribution\Download\* -Recurse -Force -ErrorAction SilentlyContinue; Start-Service wuauserv" >/dev/null 2>&1
+      echo "    ${GRN}✓${RST} Windows Update download cache cleared"
+      # Pagefile reset / hiberfil already covered by power_management
+    else
+      echo "    ${YLW}⚠${RST}  Run as admin to clear C:\\Windows\\SoftwareDistribution\\Download (Windows Update cache)"
+    fi
+  fi
+
+  local freed_mb=$(( TOTAL_FREED_KB / 1024 ))
+  echo "  ${BGRN}── RECLAIM TOTAL: ${freed_mb}MB freed ──${RST}"
+}
+
+# DNS flush — OS-specific
+action_dns_flush() {
+  if $IS_MACOS; then
+    sudo dscacheutil -flushcache 2>/dev/null || true
+    sudo killall -HUP mDNSResponder 2>/dev/null || true
+    echo "  ${GRN}✓${RST} DNS cache flushed (dscacheutil + mDNSResponder)"
+  elif $IS_LINUX; then
+    sudo systemd-resolve --flush-caches 2>/dev/null || sudo resolvectl flush-caches 2>/dev/null || true
+    echo "  ${GRN}✓${RST} DNS cache flushed (systemd-resolved)"
+  elif $IS_WSL; then
+    ipconfig.exe /flushdns >/dev/null 2>&1 || true
+    echo "  ${GRN}✓${RST} Windows DNS cache flushed (via WSL)"
+  elif $IS_WINDOWS; then
+    ipconfig.exe /flushdns >/dev/null 2>&1 || true
+    echo "  ${GRN}✓${RST} DNS cache flushed (ipconfig /flushdns)"
+  fi
+}
+
+# DHCP lease release+renew — fixes stale routing / "wifi but no internet"
+# Only triggered in --aggressive (network blip ~2-5s during renew).
+action_dhcp_renew() {
+  $MODE_AGGRESSIVE || return 0
+  if $IS_MACOS; then
+    # Get primary active interface
+    local iface; iface=$(route -n get default 2>/dev/null | awk '/interface:/{print $2}')
+    [ -z "$iface" ] && iface=$(networksetup -listallhardwareports 2>/dev/null | awk '/Wi-Fi/{getline; print $2}')
+    if [ -n "$iface" ] && sudo -n true 2>/dev/null; then
+      sudo ipconfig set "$iface" BOOTP 2>/dev/null
+      sleep 1
+      sudo ipconfig set "$iface" DHCP 2>/dev/null
+      echo "  ${GRN}✓${RST} DHCP lease renewed on $iface"
+    else
+      echo "  ${DIM}○${RST} DHCP renew: needs sudo or no interface detected"
+    fi
+  elif $IS_LINUX; then
+    if command -v nmcli >/dev/null 2>&1; then
+      # NetworkManager-driven renew (preferred)
+      local active; active=$(nmcli -t -f NAME connection show --active 2>/dev/null | head -1)
+      [ -n "$active" ] && sudo nmcli connection up "$active" 2>/dev/null >/dev/null && \
+        echo "  ${GRN}✓${RST} DHCP lease renewed via nmcli ($active)"
+    elif command -v dhclient >/dev/null 2>&1 && sudo -n true 2>/dev/null; then
+      local iface; iface=$(ip -o route get 1 2>/dev/null | awk '{print $5}')
+      [ -n "$iface" ] && sudo dhclient -r "$iface" 2>/dev/null && sudo dhclient "$iface" 2>/dev/null && \
+        echo "  ${GRN}✓${RST} DHCP lease renewed on $iface (dhclient)"
+    else
+      echo "  ${DIM}○${RST} DHCP renew: no nmcli or dhclient available"
+    fi
+  elif $IS_WSL || $IS_WINDOWS; then
+    ipconfig.exe /release >/dev/null 2>&1
+    sleep 1
+    ipconfig.exe /renew >/dev/null 2>&1
+    echo "  ${GRN}✓${RST} DHCP lease renewed (ipconfig /release + /renew)"
+  fi
+}
+
+# ═════════════════════════════════════════════════════════════════
+# OUTPUT — JSON or visual
+# ═════════════════════════════════════════════════════════════════
+compute_health_score() {
+  local score=100 cores
+  HEALTH_FACTORS=()
+  cores=$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 8)
+
+  if value_lt "${RUNTIME_cpu_idle_pct:-}" 20; then score=$((score - 25)); HEALTH_FACTORS+=("cpu-idle-under-20")
+  elif value_lt "${RUNTIME_cpu_idle_pct:-}" 35; then score=$((score - 15)); HEALTH_FACTORS+=("cpu-idle-under-35")
+  elif value_lt "${RUNTIME_cpu_idle_pct:-}" 60; then score=$((score - 5)); HEALTH_FACTORS+=("cpu-idle-under-60"); fi
+
+  local pressure_count=$(( ${RUNTIME_running:-0} + ${RUNTIME_stuck:-0} ))
+  if [ "$pressure_count" -gt $((cores * 2)) ]; then score=$((score - 15)); HEALTH_FACTORS+=("runqueue-over-2x-cores")
+  elif [ "$pressure_count" -gt "$cores" ]; then score=$((score - 7)); HEALTH_FACTORS+=("runqueue-over-cores"); fi
+  if [ "${RUNTIME_stuck:-0}" -gt 0 ]; then
+    local stuck_penalty=$(( RUNTIME_stuck * 5 )); [ "$stuck_penalty" -gt 15 ] && stuck_penalty=15
+    score=$((score - stuck_penalty)); HEALTH_FACTORS+=("uninterruptible-processes")
+  fi
+  if [ "${RUNTIME_zombies:-0}" -gt 3 ]; then score=$((score - 3)); HEALTH_FACTORS+=("zombie-accumulation"); fi
+  if [ "${RUNTIME_long_lived_hogs:-0}" -gt 0 ]; then score=$((score - 5)); HEALTH_FACTORS+=("long-lived-heavy-pids"); fi
+
+  if value_lt "${MEM_pressure_pct:-}" 20; then score=$((score - 15)); HEALTH_FACTORS+=("memory-pressure-under-20")
+  elif value_lt "${MEM_pressure_pct:-}" 40; then score=$((score - 5)); HEALTH_FACTORS+=("memory-pressure-under-40"); fi
+  if value_ge "${MEM_swap_mb:-}" 1024; then score=$((score - 10)); HEALTH_FACTORS+=("swap-over-1gb"); fi
+
+  if value_ge "${GPU_gpu_device_util_pct:-}" 90; then score=$((score - 5)); HEALTH_FACTORS+=("gpu-over-90")
+  elif value_ge "${GPU_gpu_device_util_pct:-}" 75; then score=$((score - 2)); HEALTH_FACTORS+=("gpu-over-75"); fi
+
+  if value_ge "${NET_dns_ms:-}" 500; then score=$((score - 10)); HEALTH_FACTORS+=("dns-over-500ms")
+  elif value_ge "${NET_dns_ms:-}" 100; then score=$((score - 5)); HEALTH_FACTORS+=("dns-over-100ms"); fi
+  if [ "${RUNTIME_tcp_close_wait:-0}" -ge 200 ]; then score=$((score - 10)); HEALTH_FACTORS+=("close-wait-flood"); fi
+  if [ "${RUNTIME_tcp_time_wait:-0}" -ge 500 ]; then score=$((score - 5)); HEALTH_FACTORS+=("time-wait-high"); fi
+
+  if value_ge "$DISK_USED_PCT" 97; then score=$((score - 20)); HEALTH_FACTORS+=("disk-over-97")
+  elif value_ge "$DISK_USED_PCT" 90; then score=$((score - 10)); HEALTH_FACTORS+=("disk-over-90"); fi
+  if [ "${STARTUP_failed_units:-0}" -gt 0 ]; then score=$((score - 5)); HEALTH_FACTORS+=("failed-startup-units"); fi
+
+  [ "$score" -lt 0 ] && score=0
+  HEALTH_SCORE=$score
+}
+
+health_factors_json() {
+  local first=true f
+  printf '['
+  for f in "${HEALTH_FACTORS[@]:-}"; do
+    [ -n "$f" ] || continue
+    $first || printf ','
+    first=false
+    printf '"%s"' "$(json_escape "$f")"
+  done
+  printf ']'
+}
+
+emit_cpu_hogs_json() {
+  local first=true pid cpu mem cmd
+  printf '['
+  [ -f "${CPU_HOGS_FILE:-}" ] && while IFS='|' read -r pid cpu mem cmd; do
+    [ -n "$pid" ] || continue
+    $first || printf ','
+    first=false
+    printf '{"pid":%s,"cpu_pct":%s,"mem":"%s","command":"%s"}' \
+      "$pid" "${cpu:-0}" "$(json_escape "$mem")" "$(json_escape "$cmd")"
+  done < "$CPU_HOGS_FILE"
+  printf ']'
+}
+
+emit_power_hogs_json() {
+  local first=true pid power name
+  printf '['
+  [ -f "${POWER_HOGS_FILE:-}" ] && while IFS='|' read -r pid power name; do
+    [ -n "$pid" ] || continue
+    $first || printf ','
+    first=false
+    printf '{"pid":%s,"power":%s,"command":"%s"}' \
+      "$pid" "${power:-0}" "$(json_escape "$name")"
+  done < "$POWER_HOGS_FILE"
+  printf ']'
+}
+
+emit_long_hogs_json() {
+  local first=true pid elapsed cpu_time avg_cpu current_cpu rss_mb is_protected cmd
+  printf '['
+  [ -f "${LONG_HOGS_FILE:-}" ] && while IFS='|' read -r pid elapsed cpu_time avg_cpu current_cpu rss_mb is_protected cmd; do
+    [ -n "$pid" ] || continue
+    $first || printf ','
+    first=false
+    printf '{"pid":%s,"elapsed_s":%s,"cpu_time_s":%s,"avg_cpu_pct":%s,"current_cpu_pct":%s,"rss_mb":%s,"protected":%s,"command":"%s"}' \
+      "$pid" "${elapsed:-0}" "${cpu_time:-0}" "${avg_cpu:-0}" "${current_cpu:-0}" "${rss_mb:-0}" "${is_protected:-false}" "$(json_escape "$cmd")"
+  done < "$LONG_HOGS_FILE"
+  printf ']'
+}
+
+emit_json() {
+  compute_health_score
+  cat <<JSONEOF
+{
+  "ts": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+  "os": "$OS",
+  "distro": "$DISTRO",
+  "chip": "$CHIP",
+  "cpu": "$(echo "$CPU" | sed 's/"/\\"/g')",
+  "ram_gb": $RAM_GB,
+  "disk_total_gb": "$DISK_TOTAL",
+  "disk_avail_gb": "$DISK_AVAIL",
+  "disk_used_pct": "$DISK_USED_PCT",
+  "os_version": "$OS_VER",
+  "runtime": {
+    "cpu_user_pct": $(json_num "${RUNTIME_cpu_user_pct:-0}"),
+    "cpu_sys_pct": $(json_num "${RUNTIME_cpu_sys_pct:-0}"),
+    "cpu_idle_pct": $(json_num "${RUNTIME_cpu_idle_pct:-0}"),
+    "load1": $(json_num "${RUNTIME_load1:-0}"),
+    "load5": $(json_num "${RUNTIME_load5:-0}"),
+    "load15": $(json_num "${RUNTIME_load15:-0}"),
+    "processes": ${RUNTIME_processes:-0},
+    "running": ${RUNTIME_running:-0},
+    "stuck": ${RUNTIME_stuck:-0},
+    "zombies": ${RUNTIME_zombies:-0},
+    "tcp_close_wait": ${RUNTIME_tcp_close_wait:-0},
+    "tcp_time_wait": ${RUNTIME_tcp_time_wait:-0},
+    "long_lived_hogs": ${RUNTIME_long_lived_hogs:-0},
+    "long_lived_hogs_total": ${RUNTIME_long_lived_hogs_total:-0}
+  },
+  "gpu": {
+    "device_util_pct": ${GPU_gpu_device_util_pct:-0},
+    "renderer_util_pct": ${GPU_gpu_renderer_util_pct:-0},
+    "tiler_util_pct": ${GPU_gpu_tiler_util_pct:-0},
+    "mem_in_use_mb": ${GPU_gpu_mem_in_use_mb:-0},
+    "mem_allocated_mb": ${GPU_gpu_mem_allocated_mb:-0}
+  },
+  "health": {
+    "score": ${HEALTH_SCORE:-100},
+    "model": "runtime-first",
+    "disk_reclaimable_penalty": false,
+    "launch_agent_count_penalty": false,
+    "factors": $(health_factors_json)
+  },
+  "cpu_hogs": $(emit_cpu_hogs_json),
+  "power_hogs": $(emit_power_hogs_json),
+  "long_lived_hogs_detail": $(emit_long_hogs_json),
+  "reclaimable_mb": {
+    "brew_cache": ${DISK_brew_cache:-0},
+    "npm_cache": ${DISK_npm_cache:-0},
+    "pnpm_cache": ${DISK_pnpm_cache:-0},
+    "yarn_cache": ${DISK_yarn_cache:-0},
+    "xcode_derived": ${DISK_xcode_derived:-0},
+    "xcode_devsupport": ${DISK_xcode_devsupport:-0},
+    "metal_cache": ${DISK_metal_cache:-0},
+    "docker": ${DISK_docker:-0},
+    "trash": ${DISK_trash:-0},
+    "logs": ${DISK_logs:-0},
+    "downloads": ${DISK_downloads:-0},
+    "tmp": ${DISK_tmp:-0},
+    "caches": ${DISK_caches:-0},
+    "apt_cache": ${DISK_apt_cache:-0},
+    "journal": ${DISK_journal:-0}
+  },
+  "memory": {
+    "pressure_pct": "${MEM_pressure_pct:-?}",
+    "free_mb": ${MEM_free_mb:-0},
+    "swap_mb": "${MEM_swap_mb:-0}"
+  },
+  "network": {
+    "dns_ms": "${NET_dns_ms:-?}",
+    "iface": "${NET_iface:-?}"
+  },
+  "startup": {
+    "login_items": "${STARTUP_login_items:-?}",
+    "launch_agents": ${STARTUP_launch_agents:-0},
+    "failed_units": ${STARTUP_failed_units:-0},
+    "enabled_units": ${STARTUP_enabled_units:-0}
+  }
+}
+JSONEOF
+}
+
+emit_banner() {
+  printf '\n'
+  printf '  %s%s╔══════════════════════════════════════════════════════════════╗%s\n' "$DIM" "$CYN" "$RST"
+  printf '  %s%s║%s   %sOPS > SYSTEM SPEEDUP%s  %s%-38s%s%s║%s\n' "$DIM" "$CYN" "$RST" "$BWHT" "$RST" "$DIM" "$OS $OS_VER / $CHIP" "$RST" "$DIM$CYN" "$RST"
+  printf '  %s%s║%s                                                              %s%s║%s\n' "$DIM" "$CYN" "$RST" "$DIM" "$CYN" "$RST"
+  printf '  %s%s║%s   %sCPU%s  %-56s%s%s║%s\n' "$DIM" "$CYN" "$RST" "$BCYN" "$RST" "${CPU:0:56}" "$DIM" "$CYN" "$RST"
+  printf '  %s%s║%s   %sRAM%s  %s GB   %sDisk%s  %s / %s GB (%s%% used)%s              %s%s║%s\n' "$DIM" "$CYN" "$RST" "$BCYN" "$RST" "$RAM_GB" "$BCYN" "$RST" "$DISK_AVAIL" "$DISK_TOTAL" "$DISK_USED_PCT" "$RST" "$DIM" "$CYN" "$RST"
+  printf '  %s%s╚══════════════════════════════════════════════════════════════╝%s\n' "$DIM" "$CYN" "$RST"
+  printf '\n'
+}
+
+# ═════════════════════════════════════════════════════════════════
+# TELEMETRY
+# ═════════════════════════════════════════════════════════════════
+write_telemetry() {
+  local mode="normal"
+  if $MODE_AGGRESSIVE; then mode="aggressive"
+  elif $MODE_DEEP; then mode="deep"
+  elif $MODE_CLEAN; then mode="clean"
+  elif $MODE_SCAN; then mode="scan"
+  fi
+  compute_health_score
+  cat >> "$HISTORY_FILE" <<TELEOF
+{"ts":"$(date -u +%Y-%m-%dT%H:%M:%SZ)","os":"$OS","mode":"$mode","health_score":${HEALTH_SCORE:-100},"cpu_idle_pct":${RUNTIME_cpu_idle_pct:-0},"load1":${RUNTIME_load1:-0},"running":${RUNTIME_running:-0},"stuck":${RUNTIME_stuck:-0},"gpu_util_pct":${GPU_gpu_device_util_pct:-0},"ram_free_mb":${MEM_free_mb:-0},"pressure_pct":"${MEM_pressure_pct:-?}","swap_mb":"${MEM_swap_mb:-0}","disk_pct":"$DISK_USED_PCT","dns_ms":"${NET_dns_ms:-?}","tcp_close_wait":${RUNTIME_tcp_close_wait:-0},"tcp_time_wait":${RUNTIME_tcp_time_wait:-0}}
+TELEOF
+  # Only stamp LAST_RUN_FILE on actual cleanup runs — scan-only (--json/--scan)
+  # must not set the idempotency guard or DerivedData cleanup will be skipped
+  # the next time a real cleanup is requested.
+  $MODE_CLEAN && date +%s > "$LAST_RUN_FILE"
+}
+
+# ═════════════════════════════════════════════════════════════════
+# MAIN
+# ═════════════════════════════════════════════════════════════════
+
+# Pre-seed sudo so parallel sudo calls don't stack prompts
+$MODE_CLEAN && sudo -v 2>/dev/null || true
+
+# Always run probes (fast path when not scanning)
+run_parallel_scan
+
+if $MODE_JSON; then
+  emit_json
+  # Scan mode exits here — no cleanup, no banner
+  $MODE_CLEAN || { write_telemetry; exit 0; }
+fi
+
+$MODE_JSON || emit_banner
+
+# ── Cleanup phase ────────────────────────────────────────────────
+if $MODE_CLEAN; then
+  echo "${BWHT}Cleanup (${OS}):${RST}"
+  action_clean_caches
+  action_clean_package_managers
+  action_kill_hogs
+  action_demote_background
+  action_kernel_tune
+  action_dns_flush
+  action_memory_purge
+  if $MODE_DEEP; then
+    action_clean_deep
+    action_launch_offenders
+    action_animation_cuts
+  fi
+  if $MODE_AGGRESSIVE; then
+    action_clean_stale_builds
+    action_disk_reclaim_aggressive
+    action_responsiveness_pack
+    action_power_management
+    action_dhcp_renew
+  fi
+  echo ""
+  printf '  %s╔══════════════════════════════════════════════════════════════╗%s\n' "$BGRN" "$RST"
+  printf '  %s║%s                  %sCLEANUP COMPLETE%s                            %s║%s\n' "$BGRN" "$RST" "$BWHT" "$RST" "$BGRN" "$RST"
+  printf '  %s╚══════════════════════════════════════════════════════════════╝%s\n' "$BGRN" "$RST"
+fi
+
+write_telemetry

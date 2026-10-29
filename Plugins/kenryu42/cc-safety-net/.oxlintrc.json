@@ -1,0 +1,29 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "unicorn", "oxc", "import", "promise", "node"],
+  "options": { "typeAware": true, "reportUnusedDisableDirectives": "error" },
+  "categories": {
+    "correctness": "error"
+  },
+  "rules": {
+    "typescript/unbound-method": "off",
+    "typescript/restrict-template-expressions": "off",
+    "typescript/require-array-sort-compare": "off",
+    "no-useless-assignment": "error",
+    "prefer-const": "error",
+    "typescript/use-unknown-in-catch-callback-variable": "error",
+    "no-unused-vars": [
+      "error",
+      { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_", "ignoreRestSiblings": true }
+    ]
+  },
+  "overrides": [
+    {
+      // bun-types declares `expect(...).rejects.toThrow()` as returning void, though it
+      // returns a promise at runtime. Awaiting it is required; the rule sees a non-thenable.
+      "files": ["tests/**"],
+      "rules": { "typescript/await-thenable": "off" }
+    }
+  ],
+  "ignorePatterns": ["dist", "coverage", "node_modules"]
+}

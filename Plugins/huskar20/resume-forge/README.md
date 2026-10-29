@@ -1,0 +1,236 @@
+# Resume Forge
+
+Build, tailor, and review resumes in a single-column, ATS-safe house style.
+Generates a formatted **Google Doc** master, aims a copy at a specific job
+posting, and audits any resume against a pre-submission checklist.
+
+Works standalone. If the [`career-hunter`](../career-hunter) plugin is also
+installed, Resume Forge reads its `career-profile.md` so you don't re-enter
+your contact details and target titles.
+
+## What's inside
+
+| Skill | Invoke with | What it does |
+|---|---|---|
+| **experience-record** | "start my experience record" | Interviews you across many sittings and keeps one honest, structured record of everything you have done — roles, projects, skills, stories, including the informal work people forget. Exports a tagged, filtered copy for `build` to work from. Needs a local folder; no connectors. |
+| **build** | "build my resume" | Reads everything you put in your working folder — an existing resume and notes in any language (`.docx`, `.pdf`, `.md`, `.txt`, `.rtf`) — or pasted text and Google Doc links, **or** interviews you from scratch. Asks for the numbers your bullets need before writing → writes a formatted Google Doc named `JobTitle_FirstNameLastName`. |
+| **tailor** | "tailor my resume to this job" | Takes a job description → rewrites the target title line, reorders bullets and skill categories, aligns wording with the posting, and reports keyword coverage as a table. Always produces a new copy; never edits your master. |
+| **review** | "review my resume" | Audits a resume against a 40-item checklist and reports quoted, concrete findings: passive bullets, missing metrics, tense drift, ATS-breaking layout, filler words, misspelled tool names, leftover placeholders, unprofessional email addresses, unclaimed LinkedIn URLs, length problems. On a `.docx` it also verifies each hyperlink's real target against its display text. |
+
+## Starting from an experience record
+
+`experience-record` is the collection step that comes before `build`. It
+interviews you over several sittings and maintains `master_profile.json` in your
+working folder — the full, honest inventory a resume gets built from, including
+material that should never appear on one.
+
+You never see or edit that file. Every change goes through a small bundled
+script that validates it, keeps a timestamped backup of every previous version
+in `.backups/`, and refuses any save that would silently drop what you already
+recorded.
+
+Say **"give me material for my resume"** and it writes `exports/resume-source.md`:
+everything safe to use outwardly, with defensibility tags intact, and
+unsupported claims quarantined in a "Not resume-ready" section. Hand that file
+to `build` as your existing material — point `build` straight at the path.
+
+Salary, work authorization, confidential detail, and anything the record marks
+private never reach that file — the same boundary `build` already applies to
+`career-profile.md`.
+
+It needs **no connectors** and sends nothing anywhere. Everything stays in your
+folder. It does need a real working folder, and Python 3 to run the save script.
+
+> **Upgrading from 0.7.x?** The record used to be a markdown file,
+> `experience-record.md`. From 0.8.0 it is `master_profile.json`, and an
+> existing markdown record is **not** converted automatically. Keep the old file
+> in the same folder — nothing deletes it. The first session will find it and
+> carry what it holds into the new record, without asking you everything again.
+
+## The format it produces
+
+Calibri throughout, US Letter, 0.5" margins for a 7.5" text column, single
+column. No tables, text boxes, columns, or horizontal rules — those are what
+actually break applicant tracking parsers.
+
+- Name 20pt bold, centered, in title case
+- City/State, then a one-line contact block
+- **Target job title line**, 16pt bold — the job you want, not the one you have
+- Summary with **no section header**, flowing straight out of the title line
+- Underlined ALL-CAPS section headers at 11pt; 11pt body throughout
+- Skills grouped by category, never a flat wall of tool names (TECHNICAL SKILLS on
+  technical resumes, CORE COMPETENCIES elsewhere)
+- Experience with **dates flush right on a real 7.50" tab stop**, bold alongside
+  the job title, so the right edge reads as a chronology on its own
+- Verb + tool + result, one line per bullet
+- Gaps of exactly 1, 3 or 7 point, applied the same way every time
+- Projects: name only, tools inside the bullets where they carry evidence
+- Bullet glyphs scale with length: short resumes use plain titles with `•` details;
+  longer ones use `•` on titles and `-` on details
+- One page under five years of experience
+- Section order follows experience level: students lead with Education, then
+  skills and Projects; 3+ years leads with Professional Experience
+
+Full spec: [`skills/build/references/house-style.md`](skills/build/references/house-style.md).
+
+## Download the blank template
+
+A ready-to-use Word copy of the format, with placeholders instead of content:
+
+**[⬇ Resume_Template_Clean.docx](assets/Resume_Template_Clean.docx)** — 2 KB
+
+Direct link, safe to share with anyone:
+
+```
+https://github.com/huskar20/huskar20-plugins/raw/main/plugins/resume-forge/assets/Resume_Template_Clean.docx
+```
+
+Open it in Word, Google Docs (File → Open → Upload), or Pages, then type over
+the placeholders. It contains no personal data — every field is a placeholder
+like `First Last` and `first.last@email.com`.
+
+This is the same format the `build` skill produces, so the two agree: use the
+file if you'd rather start from a document, or the skill if you'd rather be
+interviewed.
+
+## Download the worked example
+
+A completed one-page resume in the same format, so you can see what the writing
+should look like, not just the structure:
+
+**[⬇ SoftwareEngineer_AlexMoreno.docx](assets/SoftwareEngineer_AlexMoreno.docx)** — 3 KB
+
+```
+https://github.com/huskar20/huskar20-plugins/raw/main/plugins/resume-forge/assets/SoftwareEngineer_AlexMoreno.docx
+```
+
+**Alex Moreno is not a real person.** The name, schools, employers, projects, and
+every number in it are invented for illustration. Study how the bullets are
+written; do not copy them into your own resume.
+
+It shows the short-resume glyph scheme (plain titles, `•` details), one-line
+bullets, `TECHNICAL SKILLS` as the header for a technical field, and the file
+naming convention `JobTitle_FirstNameLastName`.
+
+## Running a workshop with this
+
+[`assets/WORKSHOP.md`](assets/WORKSHOP.md) is a student handout written for
+people who have never used Claude or a plugin. Four steps get them to a finished
+resume in about fifteen minutes — install, a `job-search` folder holding their
+resume and an optional notes file in their own language, open Claude there,
+`build`. It is written for the **desktop app**, with terminal commands kept as
+short asides.
+
+Everything after Step 4 is optional and can be taken home: `review` with a
+worked example of what it hands back, a bullet-rewriting exercise, the
+`experience-record` skill, the ten checks, a troubleshooting table, blank and
+worked-example templates, and a paper-only lane for anyone who cannot get
+signed in. `tailor` is left out on purpose — the handout ends at a finished
+resume, and tailoring belongs to a real application.
+
+The one donation note sits directly under "You are done", addressed only to
+students whose resume worked, because most stop reading once it is written.
+Nothing else in the handout mentions it.
+
+Share it as a single link:
+
+```
+https://github.com/huskar20/huskar20-plugins/blob/main/plugins/resume-forge/assets/WORKSHOP.md
+```
+
+It renders in any browser, works on a phone, and prints to PDF if you want paper
+copies.
+
+## Requirements
+
+- **Google Drive connector** enabled — required. Creates the Doc.
+- **Claude-in-Chrome extension** connected — optional but recommended. Needed to
+  edit an existing Doc and to export a PDF. The Drive connector can create files
+  but has no update, rename, or delete tool. It is not needed for the font: the
+  resume is built as a `.docx` with Calibri set throughout, so it never arrives
+  in Arial.
+- **`experience-record` needs neither connector.** It reads and writes only
+  local files. It does need a working folder to save into, and Python 3 for the
+  bundled save script — it stops and says so if either is missing, rather than
+  interviewing you into a file it cannot write.
+- **Any model works.** The most capable one your plan offers writes better
+  bullets and makes fewer formatting slips, so pick it if you can. Nothing
+  refuses to run on a smaller one.
+
+Installing the plugin cannot turn connectors on for you, so every skill checks
+before it collects anything: if Drive isn't connected, it stops and tells you,
+rather than asking twenty interview questions first.
+
+## About PDFs
+
+The plugin deliberately **does not generate a PDF for you.** Google Docs exports
+one in two clicks (File → Download → PDF Document), a stored PDF goes stale the
+moment you edit the Doc, and there is no reliable way to place a PDF *into*
+Drive from here — the only route is a binary round-trip that has been observed
+to silently corrupt characters.
+
+So the Doc is the deliverable. When you want a PDF, the plugin offers to do the
+export through Chrome (it lands in your local Downloads folder, not Drive) or
+gives you the menu path and the file name `JobTitle_FirstNameLastName.pdf`. Send
+the PDF to employers, never the editable Doc.
+
+## Quick start
+
+1. Install the plugin, then restart Claude Code / reload the desktop app so the
+   skills register.
+2. Say **"build my resume"** — hand over an existing resume, or answer the
+   interview.
+3. Say **"review my resume"** before you send anything.
+4. Say **"tailor my resume to this job"** with a posting pasted in, for each
+   application.
+
+## It will not invent anything about you
+
+This is the load-bearing rule, not a disclaimer.
+
+Rewriting "Responsible for monitoring logs" into "Monitored and triaged security
+alerts across Splunk and QRadar" is editing — the facts are yours, the sentence
+is better. Turning it into "reducing investigation time by 40%" is fabricating
+evidence on a document used to get you hired, and you are the one who has to
+defend it in the interview.
+
+So:
+
+- Achievements, metrics, scale, employers, dates, credentials, and tools come
+  from **you**. Never generated, never rounded up, never inferred from a job
+  title.
+- Numbers are asked for before writing. Where you don't have one, the bullet is
+  written without it — not with a plausible figure, and not with a placeholder
+  that could reach an employer.
+- A requirement in a posting that's missing from your resume becomes a
+  **question**, never a silent edit.
+- No "ATS score" or "match percentage." Nobody here has an employer's actual
+  parser, so a number would be invented authority. You get a coverage table you
+  can check instead.
+- No keyword stuffing, hidden text, or white-on-white. Automated systems detect
+  it and it ends the candidacy.
+
+Nothing is sent, shared, or published. Sharing permissions are never changed.
+You distribute your own resume.
+
+## Working with career-hunter
+
+`career-hunter` needs a resume PDF and asks you to supply one. Resume Forge
+makes it:
+
+1. `build` → the Doc
+2. `review` → fix what it finds, then export the PDF
+3. Point `career-hunter`'s setup at the PDF
+4. `tailor` per posting when a role is worth the extra fifteen minutes
+
+Resume Forge reads `career-profile.md` when it's there, and never writes to it.
+
+## Supporting this work
+
+Resume Forge is free, and stays free. If it was useful and you're in a position
+to give, the author supports the [Generosity
+Foundation](https://www.foundationgenerosity.org/donation-center).
+
+It's a cause the author supports, not one they run, and donations fund the
+foundation rather than this plugin. Entirely optional — nothing here depends on
+it, and the plugin never brings it up while you're working.

@@ -1,0 +1,212 @@
+/**
+ * React-aware Domscribe Vite plugin
+ * @module @domscribe/react/vite/vite-plugin
+ */
+import { fileURLToPath } from 'node:url';
+import type { Plugin, IndexHtmlTransformResult, HtmlTagDescriptor } from 'vite';
+import { domscribe as baseDomscribe } from '@domscribe/transform/plugins/vite';
+import type { DomscribeReactPluginOptions } from './types.js';
+
+/**
+ * URL path for the virtual init module.
+ *
+ * When the browser fetches this path, Vite's dev server routes it through
+ * the plugin pipeline (resolveId → load → transform). Dependencies resolve
+ * from this adapter's package location, then Vite rewrites the imports through
+ * its normal module pipeline. The overlay uses the same pipeline so both
+ * reference one RuntimeManager singleton, including in isolated installs.
+ *
+ * Direct `/node_modules/` paths bypass pre-bundling and create separate
+ * module instances with separate singletons, which breaks runtime capture.
+ */
+const INIT_MODULE_PATH = '/@domscribe/react-init.js';
+
+/**
+ * Domscribe Vite plugin for React projects.
+ *
+ * Creates the base transform plugin internally and adds RuntimeManager + ReactAdapter
+ * initialization via a virtual module. No entrypoint changes needed.
+ *
+ * @remarks
+ * For framework-agnostic usage (no runtime capture), import `domscribe`
+ * from `@domscribe/transform/plugins/vite` directly.
+ *
+ * Usage:
+ * ```ts
+ * // vite.config.ts
+ * import react from '@vitejs/plugin-react'
+ * import { domscribe } from '@domscribe/react/vite'
+ *
+ * export default defineConfig({
+ *   plugins: [react(), domscribe({ overlay: true })]
+ * })
+ * ```
+ */
+export function domscribe(options?: DomscribeReactPluginOptions): Plugin {
+  const basePlugin = baseDomscribe(options);
+  const baseTransformIndexHtml = basePlugin.transformIndexHtml;
+  const baseTransform = basePlugin.transform;
+  const baseResolveId =
+    typeof basePlugin.resolveId === 'function' ? basePlugin.resolveId : null;
+  const baseLoad =
+    typeof basePlugin.load === 'function' ? basePlugin.load : null;
+
+  basePlugin.name = 'vite-plugin-domscribe-react';
+
+  // The virtual initializer is invisible to the HTML dependency scan. Declare
+  // its graph before first navigation, resolving transitive modules through
+  // the installed adapter so isolated pnpm consumers need no hoisted imports.
+  basePlugin.config = (config) => {
+    const dependencies = [
+      '@domscribe/react',
+      '@domscribe/react > @domscribe/runtime',
+      ...(options?.overlay === false
+        ? []
+        : ['@domscribe/react > @domscribe/transform > @domscribe/overlay']),
+    ];
+    const excluded = config.optimizeDeps?.exclude ?? [];
+    return {
+      optimizeDeps: {
+        include: dependencies.filter(
+          (id) =>
+            !excluded.includes(id) &&
+            !excluded.includes(id.split(' > ').at(-1)!),
+        ),
+      },
+    };
+  };
+
+  basePlugin.resolveId = function (id, importer, ...args) {
+    if (id === INIT_MODULE_PATH) {
+      return INIT_MODULE_PATH;
+    }
+    if (
+      importer === INIT_MODULE_PATH &&
+      (id === '@domscribe/runtime' || id === '@domscribe/react')
+    ) {
+      // Virtual modules have no package location. Resolve their dependencies
+      // from this adapter so isolated installs (pnpm) can find them, while
+      // letting Vite keep its normal dependency optimization and deduplication.
+      return this.resolve(id, fileURLToPath(import.meta.url), {
+        skipSelf: true,
+      });
+    }
+    return baseResolveId?.call(this, id, importer, ...args) ?? null;
+  };
+
+  basePlugin.load = function (id, ...args) {
+    if (id === INIT_MODULE_PATH) {
+      const rt = options?.runtime ?? {};
+      const cap = options?.capture ?? {};
+      const debug = options?.debug ?? false;
+
+      // JSON.stringify drops undefined fields, so optional runtime options
+      // (serialization, styleOptions) only appear when configured.
+      const runtimeJson = JSON.stringify({
+        phase: rt.phase ?? 1,
+        debug,
+        redactPII: rt.redactPII ?? true,
+        blockSelectors: rt.blockSelectors ?? [],
+        serialization: rt.serialization,
+        captureStyles: rt.captureStyles ?? options?.captureStyles ?? false,
+        styleOptions: rt.styleOptions,
+      });
+
+      // Build hookNameResolvers reconstruction if provided
+      const resolversLine = cap.hookNameResolvers
+        ? `const _r = ${JSON.stringify(cap.hookNameResolvers)};\n` +
+          `const _resolvers = new Map(Object.entries(_r).map(([k,v])=>[k,new Map(Object.entries(v).map(([i,n])=>[Number(i),n]))]));`
+        : `const _resolvers = new Map();`;
+
+      // Vite resolves these imports from the owning package and rewrites
+      // them through the same module pipeline used by the overlay.
+      // This module also handles overlay init as a fallback for SSR setups
+      // where transformIndexHtml doesn't fire (e.g. React Router 7).
+      return [
+        `import { RuntimeManager } from '@domscribe/runtime';`,
+        `import { createReactAdapter } from '@domscribe/react';`,
+        ``,
+        resolversLine,
+        ``,
+        `RuntimeManager.getInstance().initialize({`,
+        `  ...${runtimeJson},`,
+        `  adapter: createReactAdapter({`,
+        `    strategy: '${cap.strategy ?? 'best-effort'}',`,
+        `    maxTreeDepth: ${cap.maxTreeDepth ?? 50},`,
+        `    includeWrappers: ${cap.includeWrappers ?? true},`,
+        `    debug: ${debug},`,
+        `    hookNameResolvers: _resolvers,`,
+        `  }),`,
+        `}).catch(e => console.warn('[domscribe] Failed to init React runtime:', e.message));`,
+        ``,
+        `// Init overlay if configured (SSR fallback — transformIndexHtml may not fire).`,
+        `// The virtual overlay module uses the same Vite dependency pipeline.`,
+        `if (typeof window !== 'undefined' && window.__DOMSCRIBE_OVERLAY_OPTIONS__) {`,
+        `  import('/@domscribe/overlay-init.js').catch(() => {});`,
+        `}`,
+      ].join('\n');
+    }
+    return baseLoad?.call(this, id, ...args) ?? null;
+  };
+
+  // Wrap the base transform hook to inject a React runtime init preamble.
+  // In SSR frameworks (e.g. React Router 7), transformIndexHtml may not fire,
+  // so we inject `import('/@domscribe/react-init.js')` into every transformed
+  // file, guarded by a `__DOMSCRIBE_REACT_INIT__` flag to run only once.
+  basePlugin.transform = async function (code, sourceFile) {
+    const baseTransformFn =
+      typeof baseTransform === 'function' ? baseTransform : undefined;
+    const baseResult = baseTransformFn
+      ? await baseTransformFn.call(this, code, sourceFile)
+      : null;
+
+    if (
+      !baseResult ||
+      typeof baseResult !== 'object' ||
+      !('code' in baseResult)
+    ) {
+      return baseResult;
+    }
+
+    const reactInitPreamble =
+      `if(typeof window!=='undefined'&&!window.__DOMSCRIBE_REACT_INIT__){` +
+      `window.__DOMSCRIBE_REACT_INIT__=true;` +
+      `import('${INIT_MODULE_PATH}').catch(function(){})` +
+      `}\n`;
+
+    return {
+      ...baseResult,
+      code: reactInitPreamble + baseResult.code,
+    };
+  };
+
+  basePlugin.transformIndexHtml = (): IndexHtmlTransformResult => {
+    // Call the base plugin's transformIndexHtml (relay port + overlay injection)
+    const baseResult =
+      typeof baseTransformIndexHtml === 'function'
+        ? (
+            baseTransformIndexHtml as () => IndexHtmlTransformResult | undefined
+          )()
+        : undefined;
+
+    // Build on existing tags from the base plugin
+    const baseTags: HtmlTagDescriptor[] =
+      baseResult && typeof baseResult === 'object' && 'tags' in baseResult
+        ? (baseResult.tags ?? [])
+        : [];
+
+    // Import the virtual init module — browser fetches this URL, Vite
+    // serves it through its full plugin + transform pipeline
+    const runtimeTag: HtmlTagDescriptor = {
+      tag: 'script',
+      attrs: { type: 'module' },
+      children: `import('${INIT_MODULE_PATH}');`,
+      injectTo: 'body',
+    };
+
+    const tags = [...baseTags, runtimeTag];
+    return { html: '', tags };
+  };
+
+  return basePlugin;
+}

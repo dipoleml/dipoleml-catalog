@@ -1,0 +1,16 @@
+{
+  "name": "saas-marketing",
+  "displayName": "Saas Marketing",
+  "version": "1.4.1",
+  "description": "Your AI B2B SaaS marketing team: 90 specialist agents in 19 skills across content and editorial operations, SEO/AEO, paid media, social, email, design, sales enablement, product marketing, integrated demand-gen campaigns and channel planning, founder-led GTM and public-sector marketing, account-based marketing (ABM), growth/PLG, analytics, comms and analyst relations, partnerships, events, developer marketing, project management, and client ops, coordinated by the CATALYST multi-agent orchestrator.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Shalintripathi"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/shalintripathi/saas-marketing-agents",
+  "repository": "https://github.com/shalintripathi/saas-marketing-agents",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

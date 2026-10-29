@@ -1,0 +1,465 @@
+#!/usr/bin/env python3
+"""A red site build must not be invisible (#2136).
+
+`Workers Builds: misakanet-web` is Cloudflare's Git integration deploying `docs/` to misakanet.org. It
+is **not** one of the three checks the ruleset requires (`DCO / Signed-off-by`, `test (ubuntu-latest,
+3.11)`, `gate`), and its check-run carries no summary, no annotation and no log beyond a dashboard
+link — so it can be red on every commit for a day while merges keep landing and the site keeps not
+updating. That is not hypothetical: measured 2026-09-24, the live site was still byte-identical to
+`7fcebbf2a` (2026-09-23T17:29Z) while ~25 commits had landed on top of it, and the only place the
+failure was visible at all was a red check-run nobody was required to look at.
+
+There are two ways to fix that, and they cost very different things:
+
+* **make the check required** — every merge is blocked until the site build is green, including the
+  merge that *fixes* the build. That trades a silent failure for a stuck repository.
+* **make it loud** — one issue, in the place a maintainer actually looks. No merge is ever blocked.
+
+This is the second one. The state machine is deliberately small, because a watcher that comments on
+every push is just a different kind of noise:
+
+| tracker issue | current state | action |
+|---|---|---|
+| absent | red | **open** the tracking issue |
+| last comment `red` | red | nothing (repeated failures are not 25 comments) |
+| last comment `red` | green | comment "back to green" |
+| last comment `green` | red | comment "red again" |
+| last comment `green` | green | nothing |
+| absent | green, or unknown | nothing |
+
+**Transitions only** — the same reason a good alert fires on state change rather than on every sample.
+
+**And one thing that is not a state: a build that never started.** Everything above reads a
+check-run. But the failure this watcher exists to catch also has a shape with *no* check-run at
+all: Cloudflare's Git integration stops listening (a rolled API token — the cutover document
+records one on 2026-09-23, and the site was dark for a day) and the commit on the deploying
+branch simply never gets a build. The old code had one answer for that and for "the build has not
+started yet", which is `unknown`, which is silence — the same silence #2136 was. Measured
+2026-10-21, the window in which "not yet" is the honest answer is wide: the publisher's
+force-push went green in 1m41s once and in **13m25s and 13m58s** twice, and the site served the
+older build for all of it.
+
+So the branch tip is judged on its **age** as well: a tip that has sat for two hours with no
+Workers Builds check-run on it at all is not "not yet", it is "never", and that is `red` — the
+site is serving an older build and nothing says so. A build that is *queued* is still `unknown`,
+because a queued build is not a failure.
+
+The tracking issue is *whichever open issue carries the `site-build-red` label*. That is the whole
+contract with the maintainer: label an existing issue and the watcher comments there instead of opening
+a duplicate (as #2136 was), and unlabel or close it and the next red build opens a fresh one. The
+watcher never closes an issue itself — a green build is evidence, and whether that closes the issue is
+the maintainer's call, not a script's.
+
+Usage::
+
+    python3 scripts/workers_builds_watch.py --event "$GITHUB_EVENT_PATH"   # from check_suite
+    python3 scripts/workers_builds_watch.py --branch dist                  # scheduled safety net
+    python3 scripts/workers_builds_watch.py --dry-run ...                  # print, write nothing
+
+Env: `GH_TOKEN` (or `GITHUB_TOKEN`), `GH_REPO` (default `Ikalus1988/MisakaNet`), `GH_API_BASE`
+(overridden by the tests, which run this file against a stub GitHub).
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+DEFAULT_REPO = "Ikalus1988/MisakaNet"
+LABEL = "site-build-red"
+LABEL_COLOR = "b60205"
+# GitHub rejects a label description longer than 100 characters, and the first version of this string
+# was 157: creating the label answered `422 Validation Failed … description is too long`. Measured
+# 2026-09-24. The `[:100]` at the call site is a belt on top of a short string, not a substitute for
+# one — a silently truncated sentence is a worse label than a short one.
+LABEL_DESCRIPTION = "Tracking issue for the Cloudflare Workers Builds site deploy (scripts/workers_builds_watch.py)"
+CHECK_PREFIX = "Workers Builds"
+
+#: How long a commit may sit on the deploying branch with **no** Workers Builds check-run at all
+#: before the watcher calls it a failure rather than "not yet".
+#:
+#: Measured 2026-10-21 on `dist`, the publisher's force-push to green: 1m41s (`5532d82e`),
+#: 13m25s (`f2d85f3a`), 13m58s (`d76c3a8b`). Two hours is a wide margin over every one of those
+#: and still well inside the "the site is dark for a day" the token rotation caused on 2026-09-23.
+NEVER_BUILT_AFTER = timedelta(hours=2)
+
+# The transition is recorded in a comment rather than in a file, so the state lives where the reader
+# is looking instead of in a snapshot nobody opens.
+MARKER = "workers-builds-watch"
+TITLE = "bug(infra): the site build (Workers Builds) is red — the site is not deploying"
+
+RED, GREEN, UNKNOWN = "red", "green", "unknown"
+
+
+def token() -> str:
+    for name in ("GH_TOKEN", "GITHUB_TOKEN"):
+        value = (os.environ.get(name) or "").strip()
+        if value:
+            return value
+    sys.exit("no GitHub token: set GH_TOKEN (or GITHUB_TOKEN)")
+
+
+class GitHub:
+    def __init__(self, repo: str, token_value: str, base: str) -> None:
+        self.repo = repo
+        self.token = token_value
+        self.base = base.rstrip("/")
+
+    def __call__(self, method: str, path: str, body: dict | None = None):
+        url = path if path.startswith("http") else f"{self.base}/repos/{self.repo}{path}"
+        data = json.dumps(body).encode() if body is not None else None
+        request = urllib.request.Request(url, data=data, method=method, headers={
+            "Authorization": f"Bearer {self.token}",
+            "Accept": "application/vnd.github+json",
+            "Content-Type": "application/json",
+            "User-Agent": "misakanet-site-build-watch",
+        })
+        try:
+            with urllib.request.urlopen(request, timeout=45) as response:
+                raw = response.read()
+                return json.loads(raw) if raw else None
+        except urllib.error.HTTPError as error:
+            detail = error.read().decode("utf-8", "replace")[:400]
+            raise RuntimeError(f"GitHub API {method} {path} -> HTTP {error.code}\n{detail}") from None
+
+
+# ── the two facts the decision needs ────────────────────────────────────────────────────────────────
+
+# Page bound for every list this watcher reads. A commit on a busy repository carries well over 100
+# check-runs, and the Workers Builds one is not always on page 1; the tracker issue grows by one comment
+# per state transition and is read newest-first. Both are bounded at 10 pages (1,000 items), which is far
+# past anything measured here and exists so a server that ignores `page` cannot spin forever.
+#
+# Named for what it is rather than for its first caller: it was `CHECK_RUN_PAGES` while `all_check_runs`
+# was the only thing using it, which is exactly how a bound stops describing the thing it governs.
+MAX_LIST_PAGES = 10
+
+
+def all_check_runs(gh: GitHub, sha: str) -> list:
+    """Every check-run for a commit, following pagination.
+
+    `per_page=100` on its own is **not** "all of them", and the difference is not cosmetic here: a filter
+    applied to page 1 alone reports a commit as having no Workers Builds run at all, which `site_build_state`
+    turns into `unknown`, which `plan()` turns into silence. That is the original #2136 bug with a query
+    parameter in front of it.
+
+    Measured 2026-10-04 on `main`, with the server-side `check_name` filter as the reference:
+
+        commit      total check-runs   truth      this query, before the fix
+        f93c4078    118                success    unknown -> silence
+        b82e352e4   126                success    unknown -> silence
+        421001213   127                success    unknown -> silence
+        80540341    187                failure    unknown -> silence
+
+    The last row is the cost: that build really was red, on a commit that touched
+    `docs/data/activity.json` and `docs/data/feed.json`, so the site was not deploying and the watcher
+    said nothing. The trend runs the wrong way — the check count grows with every optional bot and
+    contributor workflow, so each of those commits moves further past the fold.
+
+    Stops on the first short page rather than reading `total_count`, because a short page is the server's
+    own statement that there is nothing more, and it costs no extra request.
+    """
+    collected: list = []
+    for page in range(1, MAX_LIST_PAGES + 1):
+        payload = gh("GET", f"/commits/{sha}/check-runs?per_page=100&page={page}") or {}
+        batch = list(payload.get("check_runs") or [])
+        collected.extend(batch)
+        if len(batch) < 100:
+            break
+    return collected
+
+
+def builds_for(gh: GitHub, sha: str) -> list:
+    """The Workers Builds check-runs on one commit — possibly none."""
+    return [r for r in all_check_runs(gh, sha)
+            if str(r.get("name") or "").startswith(CHECK_PREFIX)]
+
+
+def site_build_state(gh: GitHub, sha: str, builds: list | None = None) -> tuple[str, str]:
+    """(state, evidence) for one commit's Workers Builds checks.
+
+    `red` wins over `green` when both are present: a commit can carry more than one Workers Builds
+    run (a preview trigger and the production one), and reporting the healthy half of a split pair is
+    the exact mistake this watcher exists to prevent. Anything unfinished is `unknown`, which is not
+    a state to act on — a queued build is not a failure.
+
+    `builds` is what `builds_for()` already read, passed in so the caller does not pay for the same
+    list twice.
+    """
+    if builds is None:
+        builds = builds_for(gh, sha)
+    if not builds:
+        return UNKNOWN, "no Workers Builds check-run on this commit"
+    finished = [r for r in builds if r.get("status") == "completed"]
+    if not finished:
+        return UNKNOWN, f"{len(builds)} Workers Builds check-run(s), none completed yet"
+    failing = [r for r in finished if r.get("conclusion") == "failure"]
+    if failing:
+        run = failing[0]
+        return RED, (f"{len(failing)}/{len(finished)} failed — "
+                     f"[build {run.get('external_id')}]({run.get('details_url')})")
+    if all(r.get("conclusion") == "success" for r in finished):
+        run = finished[0]
+        return GREEN, f"all {len(finished)} succeeded — [build {run.get('external_id')}]({run.get('details_url')})"
+    conclusions = ", ".join(sorted({str(r.get("conclusion")) for r in finished}))
+    return UNKNOWN, f"inconclusive ({conclusions})"
+
+
+def commit_age(gh: GitHub, sha: str) -> timedelta | None:
+    """How long ago this commit was made — or None when the API does not say.
+
+    The commit's own date, not the push time: GitHub does not expose the latter, and the two differ
+    by however long the commit sat locally before it was pushed. That difference can only make the
+    age *larger*, so this can flag a little early in a case where a commit waited a long time before
+    being pushed — for `dist` the publisher commits and pushes in the same second.
+    """
+    payload = gh("GET", f"/commits/{sha}") or {}
+    stamp = ((payload.get("commit") or {}).get("committer") or {}).get("date")
+    if not stamp:
+        return None
+    try:
+        when = datetime.fromisoformat(str(stamp).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return datetime.now(timezone.utc) - when
+
+
+def human_age(age: timedelta) -> str:
+    """`3h12m` — the age the way a reader wants it, not the way a timedelta prints it."""
+    minutes = int(age.total_seconds() // 60)
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours}h{minutes:02d}m"
+
+
+def never_built_state(gh: GitHub, sha: str, branch: str, builds: list, why: str) -> tuple[str, str]:
+    """RED when a commit on the deploying branch has had no build at all for too long.
+
+    This is the difference the old code could not draw: "the build has not started yet" and "the
+    build is never coming" had the same answer (`unknown`, which is silence), and the second one is
+    the shape a rolled Cloudflare API token takes — the site keeps serving the last good build
+    while nothing says so.
+
+    Only the branch tip and an explicitly named commit are judged this way. The event path fires
+    exactly when Cloudflare publishes a suite, so an empty result there is an API hiccup rather than
+    a stalled deploy, and it is not a reason to file anything.
+    """
+    if builds or why not in ("branch tip", "explicit --sha"):
+        return UNKNOWN, ""
+    age = commit_age(gh, sha)
+    if age is None or age < NEVER_BUILT_AFTER:
+        return UNKNOWN, ""
+    return RED, (f"no build ever started for this commit — it has been on {branch} for "
+                 f"{human_age(age)} with no Workers Builds check-run on it at all, so the site is "
+                 f"still serving an older build")
+
+
+def open_tracker(gh: GitHub) -> dict | None:
+    """The open issue carrying the label, or None. Newest first, so a re-labeled duplicate loses."""
+    issues = gh("GET", f"/issues?labels={LABEL}&state=open&sort=created&direction=desc&per_page=10") or []
+    # `GET /issues` returns pull requests too; a PR is not a tracker issue.
+    issues = [i for i in issues if "pull_request" not in i]
+    return issues[0] if issues else None
+
+
+def all_issue_comments(gh: GitHub, issue_number: int) -> list:
+    """Every comment on an issue, following pagination.
+
+    The same trap `all_check_runs` walks into, on the list that matters more here. The tracker issue is
+    built to accumulate: `record_state` appends a comment on every state transition, so the newest
+    state is always the *last* comment. One page returns the **oldest** 100, and `last_state` scans
+    `reversed(...)` for the newest marker it can see — so past 100 comments it would read a stale
+    state and, on a red-to-green transition, keep reporting the resolved outage as current. The
+    memory is truncated exactly when the watcher has been working long enough to be worth trusting.
+
+    Measured 2026-10-04 on the trackers this repository has actually produced: the largest is #2637
+    with 6 comments, so nothing is broken today. The threshold is also already crossed elsewhere in
+    the same repository — #2020 carries 249 comments, #761/762/763 carry 237/230/200 — so "no list
+    here has reached 100" is a property of the current issue set, not of the code.
+
+    Bounded by the same `MAX_LIST_PAGES` as `all_check_runs` for the same reason: a proxy that strips
+    `page` would otherwise loop forever.
+    """
+    collected: list = []
+    for page in range(1, MAX_LIST_PAGES + 1):
+        batch = gh("GET", f"/issues/{issue_number}/comments?per_page=100&page={page}") or []
+        collected.extend(batch)
+        if len(batch) < 100:
+            break
+    return collected
+
+
+def last_state(gh: GitHub, issue_number: int) -> str:
+    """The state recorded by the newest watcher comment on the tracker (UNKNOWN if there is none)."""
+    for comment in reversed(all_issue_comments(gh, issue_number)):
+        body = str(comment.get("body") or "")
+        if f"<!-- {MARKER}:" not in body:
+            continue
+        for part in body.split(f"<!-- {MARKER}:", 1)[1].split("-->", 1)[0].split():
+            if part.startswith("state="):
+                return part.split("=", 1)[1]
+    return UNKNOWN
+
+
+def comment_body(state: str, sha: str, evidence: str, branch: str) -> str:
+    marker = f"<!-- {MARKER}: state={state} sha={sha} -->"
+    if state == RED:
+        head = f"🔴 **The site build is red on `{branch}`** at `{sha[:9]}`."
+        # "reported", not "opened": the first version said "opened this" and the watcher's very first
+        # production run *commented* on an existing tracker (#2136, labelled `site-build-red`), so the
+        # sentence described an action it had not taken. The text a maintainer reads has to match what
+        # happened, in both the create and the comment path.
+        tail = ("The site is not deploying, so every documentation change since the last successful "
+                "build is not live. The watcher reported this rather than blocking merges, because a "
+                "required check that is red blocks the merge that would fix it.\n\n"
+                "The build log needs the Builds API (a user-scoped `CF_BUILDS_TOKEN`): dispatch "
+                "**CF diagnostics** — its `Workers Builds` step prints the trigger, the recent builds "
+                "and the failing build's log:")
+    elif state == GREEN:
+        head = f"🟢 **The site build is green again** at `{sha[:9]}`."
+        tail = ("The site is deploying again. Whether that closes this issue is your call — the "
+                "watcher only reports.")
+    else:  # pragma: no cover - defensive, the state machine never writes this
+        head = f"⚪ **The site build state is unclear** at `{sha[:9]}`."
+        tail = "Nothing to do; recorded so the next transition has a baseline."
+    return (f"{head}\n\nEvidence: {evidence}\n\n{tail}\n\n"
+            f"<sub>Automated by `scripts/workers_builds_watch.py` — transitions only, never on every "
+            f"push.</sub>\n\n{marker}")
+
+
+# ── the decision, as a pure function so it can be tested without a network ───────────────────────────
+
+def plan(state: str, tracker_exists: bool, previous: str) -> str:
+    """One of `create`, `comment`, `none` — the whole policy, in one readable place."""
+    if state == UNKNOWN:
+        return "none"
+    if not tracker_exists:
+        return "create" if state == RED else "none"
+    if previous == state:
+        return "none"
+    return "comment"
+
+
+def _read_event(path: str) -> dict | None:
+    """The event payload, or `None` when it cannot be read — never a traceback.
+
+    `$GITHUB_EVENT_PATH` is always set for the triggers this workflow uses, so a missing or malformed
+    file means the trigger changed, which is not a reason to lose the run: the answer is still available
+    from the branch tip. The first version called `json.loads(Path(args.event).read_text())` directly, so
+    a payload that was absent (`FileNotFoundError`) or truncated (`JSONDecodeError`) ended the run in a
+    stack trace — a watcher whose job is to notice a silent failure failing silently itself. The warning
+    names the file, because "the payload could not be read" is otherwise a fact nobody can check.
+    """
+    try:
+        return json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        print(f"::warning title=Event payload unreadable::could not read {path} ({exc}) — "
+              f"falling back to the branch tip.", file=sys.stderr)
+        return None
+
+
+def resolve_target(gh: GitHub, args) -> tuple[str, str, str]:
+    """(sha, branch, why) — the commit to check, and which route produced it.
+
+    `why` exists so the log says the true reason for declining. The first version returned an empty
+    sha for a feature branch and then printed "no commit for main (branch main is not visible?)", which
+    would send a reader hunting a permissions problem that is not there: the branch was skipped **on
+    purpose**, because a red site build on a feature branch is its author's business, not something to
+    file on the maintainer's tracker.
+    """
+    if args.sha:
+        return args.sha, args.branch, "explicit --sha"
+    if args.event:
+        payload = _read_event(args.event)
+        suite = (payload or {}).get("check_suite") or {}
+        sha = suite.get("head_sha") or (payload.get("after") if payload else None)
+        if sha:
+            branch = suite.get("head_branch") or args.branch
+            if branch != args.branch and not args.any_branch:
+                return "", branch, "not-the-deploying-branch"
+            return sha, branch, "event payload"
+    head = gh("GET", f"/branches/{args.branch}") or {}
+    return str(((head.get("commit") or {}).get("sha")) or ""), args.branch, "branch tip"
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    parser.add_argument("--event", help="a GitHub event payload (the check_suite that just completed)")
+    parser.add_argument("--repo", default=os.environ.get("GH_REPO", DEFAULT_REPO),
+                        help=f"owner/name (default $GH_REPO, else {DEFAULT_REPO})")
+    parser.add_argument("--sha", help="check this commit instead of reading an event")
+    parser.add_argument("--branch", default="dist", help="the branch that deploys the site (default dist)")
+    parser.add_argument("--any-branch", action="store_true",
+                        help="also report builds on other branches (default: dist only)")
+    parser.add_argument("--dry-run", action="store_true", help="print the decision, write nothing")
+    args = parser.parse_args()
+
+    repo = args.repo
+    gh = GitHub(repo, token(), os.environ.get("GH_API_BASE", "https://api.github.com"))
+
+    sha, branch, why = resolve_target(gh, args)
+    if not sha:
+        if why == "not-the-deploying-branch":
+            print(f"skipped on purpose: {branch} is not {args.branch}, and only the branch that "
+                  f"deploys the site is worth a tracker issue (use --any-branch to report others)")
+        else:
+            print(f"nothing to check: no commit resolved for {args.branch} (is it visible to this token?)")
+        return 0
+    print(f"repo={repo} branch={branch} sha={sha[:9]} ({why})")
+
+    builds = builds_for(gh, sha)
+    state, evidence = site_build_state(gh, sha, builds)
+    if state == UNKNOWN:
+        # `unknown` covers both "a build is queued" and "no build ever started". Only the second
+        # one is a failure, and only the age of the commit tells them apart.
+        state, never_built = never_built_state(gh, sha, branch, builds, why)
+        if never_built:
+            evidence = never_built
+    print(f"site build: {state} — {evidence}")
+
+    tracker = open_tracker(gh)
+    previous = last_state(gh, tracker["number"]) if tracker else UNKNOWN
+    action = plan(state, tracker is not None, previous)
+    print(f"tracker={tracker['number'] if tracker else 'none'} last={previous} -> {action}")
+
+    if action == "none":
+        return 0
+
+    if action == "create":
+        body = (f"`Workers Builds: misakanet-web` is the Cloudflare Git integration that deploys "
+                f"`docs/` to misakanet.org. It is not one of the checks the ruleset requires, and its "
+                f"check-run carries no log — so this is how a red site build becomes visible instead "
+                f"of blocking merges.\n\n" + comment_body(state, sha, evidence, branch))
+        if args.dry_run:
+            print("--- would create the tracking issue ---")
+            print(body)
+            return 0
+        # Tolerate "already exists": this is a label the repository may already have, and a 422 here
+        # must not stop the issue from being opened.
+        try:
+            gh("POST", "/labels", {"name": LABEL, "color": LABEL_COLOR,
+                                   "description": LABEL_DESCRIPTION[:100]})
+        except RuntimeError as error:
+            print(f"(label not created: {str(error).splitlines()[0]})")
+        issue = gh("POST", "/issues", {"title": TITLE, "body": body, "labels": [LABEL]})
+        print(f"opened #{issue['number']}: {issue['html_url']}")
+        return 0
+
+    if args.dry_run:
+        print(f"--- would comment on #{tracker['number']} ---")
+        print(comment_body(state, sha, evidence, branch))
+        return 0
+    comment = gh("POST", f"/issues/{tracker['number']}/comments",
+                 {"body": comment_body(state, sha, evidence, branch)})
+    print(f"commented: {comment['html_url']}")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

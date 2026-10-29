@@ -1,0 +1,134 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.noah-sheldon.ai-dev-kit",
+  "type": "plugin",
+  "name": "Ai Dev Kit",
+  "slug": "ai-dev-kit",
+  "vendor": "noah-sheldon",
+  "description": "Production-ready AI dev workflow scaffold with 59 skills, 33 agents, hooks, and rules for DipoleML, Codex, Gemini CLI, Copilot CLI, Qwen Code, and OpenCode.",
+  "version": "1.1.0",
+  "homepage": "https://github.com/noah-sheldon/ai-dev-kit",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agent-framework",
+    "ai-assistant",
+    "ci-cd",
+    "claude-plugin",
+    "code-review",
+    "codex",
+    "copilot-cli",
+    "developer-tools",
+    "devops"
+  ],
+  "tags": [
+    "agent-framework",
+    "ai-assistant",
+    "ci-cd",
+    "claude-code",
+    "claude-plugin",
+    "code-review",
+    "codex",
+    "copilot-cli",
+    "developer-tools",
+    "devops",
+    "gemini-cli",
+    "infrastructure-as-code",
+    "machine-learning",
+    "mcp-server",
+    "prompt-engineering",
+    "python",
+    "qwen-code",
+    "security-audit",
+    "tdd",
+    "typescript"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "noah-sheldon",
+    "brandName": "noah-sheldon",
+    "source": "https://github.com/noah-sheldon.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:14:16Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "noah-sheldon/ai-dev-kit",
+    "url": "https://github.com/noah-sheldon/ai-dev-kit",
+    "commit": "c5df01c6bdd89d5545b0fb1fb942c229e13e38fc",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 13,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:10:25Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Ai Dev Kit | Production-ready AI dev workflow scaffold with 59 skills, 33 agents, hooks, and rules for Claude Code, Codex, Gemini CLI, Copilot CLI, Qwen Code, and OpenCode.",
+        "after": "Ai Dev Kit | Production-ready AI dev workflow scaffold with 59 skills, 33 agents, hooks, and rules for DipoleML, Codex, Gemini CLI, Copilot CLI, Qwen Code, and OpenCode.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=18"
+    ],
+    "packages": [
+      "ai-dev-kit"
+    ],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

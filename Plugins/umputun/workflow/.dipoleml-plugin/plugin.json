@@ -1,0 +1,16 @@
+{
+  "name": "workflow",
+  "displayName": "Workflow",
+  "version": "1.3.2",
+  "description": "Session workflow helpers and deferred-work backlog - knowledge capture, confusion handling, course correction, clipboard copy, backlog items",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Umputun"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/umputun/cc-thingz",
+  "repository": "https://github.com/umputun/cc-thingz",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

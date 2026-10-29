@@ -1,0 +1,20 @@
+{
+  "name": "citadel-local",
+  "description": "Local Citadel plugin marketplace",
+  "owner": {
+    "name": "SethGammon",
+    "email": "noreply@github.com"
+  },
+  "plugins": [
+    {
+      "name": "citadel",
+      "description": "Route requests, preserve run state, enforce hooks, and surface reviewable evidence in Claude Code",
+      "version": "1.4.4",
+      "source": "./",
+      "author": {
+        "name": "SethGammon",
+        "email": "noreply@github.com"
+      }
+    }
+  ]
+}

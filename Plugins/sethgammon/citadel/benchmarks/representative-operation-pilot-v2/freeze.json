@@ -1,0 +1,230 @@
+{
+  "schema": 2,
+  "freeze_id": "sha256:2919cec68fd2293006b9fa3139f4e2920f9e2361cf2a487b29725ed43426e3ec",
+  "frozen_at": "2026-08-01T05:18:59.465Z",
+  "repaired_from_freeze": "sha256:af6a158d6598e2fbb77931aa6fd3b89d6727b862736cd75a6540405d038942c9",
+  "repair": "normalize_ephemeral_workspace_root_in_verifier_output",
+  "method_digest": "sha256:4ad40a5fcd436072ad9ab4d737b603f7529de83557b92868553d4bec2d36e73f",
+  "scenario_set_digest": "sha256:a4d4162751ddc711efcdd419630639efb188219d8ccca1d5d16faa5d3ef839c6",
+  "source_digests": {
+    "benchmarks/representative-operation-pilot-v2/METHOD.md": "sha256:4ad40a5fcd436072ad9ab4d737b603f7529de83557b92868553d4bec2d36e73f",
+    "benchmarks/representative-operation-pilot/METHOD.md": "sha256:fc36e202c8f47b6a7aed88e21b4b818b108025e8bf63d19e9e8b1383a042aa2d",
+    "benchmarks/representative-operation-pilot/fixtures/bugfix-clamp/src/clamp.js": "sha256:be08ce6ad47506f68f58c08a1494aaea9c36b19f48f0f96bbb8759a326956f07",
+    "benchmarks/representative-operation-pilot/fixtures/bugfix-clamp/test.js": "sha256:2a7cd516955f4d18232e4223201c15b8f5a6b8256877414f305403ae76018072",
+    "benchmarks/representative-operation-pilot/fixtures/bugfix-clamp/verifier.js": "sha256:2b6c93594da436b534b2aa8d9450bcef0949b44e7d0e5ffac682edadfa31e16c",
+    "benchmarks/representative-operation-pilot/fixtures/config-timeout-migration/MIGRATION.md": "sha256:2e374b4a93042dcd2e48e6a3121f947a501d351f4b2fd0775b35d4bbe33ee9da",
+    "benchmarks/representative-operation-pilot/fixtures/config-timeout-migration/config/app.json": "sha256:702d8e3a437bce72a6a961b82c159aa38a9e657fb04c521fa34c0d97b3fc0368",
+    "benchmarks/representative-operation-pilot/fixtures/config-timeout-migration/verifier.js": "sha256:fbf804c7ee3f0d98e2bed5ed90972157cac71be76d939695b27bad651405ca50",
+    "benchmarks/representative-operation-pilot/fixtures/docs-command-consistency/INSTALL.md": "sha256:79669c3e121cec7c1cd9ef4cb3dbb32c6b5ad7aa03e616420f05c48f1de0ea8c",
+    "benchmarks/representative-operation-pilot/fixtures/docs-command-consistency/README.md": "sha256:04595e0ec2fb3110beb5acc906d111df350a68c18a57e4f345ca0d83e811a686",
+    "benchmarks/representative-operation-pilot/fixtures/docs-command-consistency/verifier.js": "sha256:0e4e34b89d1fe57de973384c5e4c654c5e2cf3af288687e20890e9e9fff77017",
+    "benchmarks/representative-operation-pilot/fixtures/multifile-profile-api/src/format.js": "sha256:28656d354bec1bda27a7e08d70740c9f3805cb2a47299499d6f9deafc12ca273",
+    "benchmarks/representative-operation-pilot/fixtures/multifile-profile-api/src/render.js": "sha256:e6b71484a35e1be9f9d2349dda2efb5b11bd24b1cc7ace816ca99adbb735603d",
+    "benchmarks/representative-operation-pilot/fixtures/multifile-profile-api/test.js": "sha256:fceb126f42a5e0de9c07be5dc558e1cecd0508db9586a19f4af3692d18ce2c1c",
+    "benchmarks/representative-operation-pilot/fixtures/multifile-profile-api/verifier.js": "sha256:02cd0fde849489912054a981214d26f8f7c8064a197f89071f99df6146fdb440",
+    "benchmarks/representative-operation-pilot/fixtures/refactor-dedupe-types/src/dedupe.js": "sha256:cc6984afac09d67fb42f61ee7c05f6bfb39e439b9e53713990ee0e7dc310db77",
+    "benchmarks/representative-operation-pilot/fixtures/refactor-dedupe-types/test.js": "sha256:5ba188818de6ef0c1c89b2f974566f274b558155ca15610837853bc9ab2122ed",
+    "benchmarks/representative-operation-pilot/fixtures/refactor-dedupe-types/verifier.js": "sha256:223f2f367d96d6ffb66a2f982fb847c7588b24c73f6ac4b568bb4393a1171122",
+    "benchmarks/representative-operation-pilot/fixtures/security-path-boundary/src/safe-path.js": "sha256:ac91be27313252565458f45ed120bc21d865812d44ffaa9082197f6c97d6edfb",
+    "benchmarks/representative-operation-pilot/fixtures/security-path-boundary/test.js": "sha256:be96f1f13122751ca79271763b6491772d60e24ccac91f850bd1d361f636c765",
+    "benchmarks/representative-operation-pilot/fixtures/security-path-boundary/verifier.js": "sha256:a1c9a39e18497259709a85d6d5a0fcd4d2b0651781a24c48c7d6d7c0974c9ef5",
+    "benchmarks/representative-operation-pilot/scenarios.json": "sha256:d8b1bcb549852f0de53ac8195b8ddd3a26a8c0d22626cf430f6f7dc9d340e457",
+    "core/application-readiness/representative-operation-v2.js": "sha256:464413dc767c80996a609b35c466423c39f847a9551728ff1187b3d497fca9ab",
+    "core/application-readiness/representative-operation.js": "sha256:4fc7e8636c8508c75b1bd74a0fdf8c12266a343e04d5a68888ad55159a7a9606",
+    "core/operation-control/contracts.js": "sha256:d91adea8e5f5649dd38712e0fe244a0beb7dbe6e221e308ee975fd152f2fb5be",
+    "core/operation-control/receipt.js": "sha256:3ef5cfce5e17d22f5dbd68ff69cadf9138e95fa6b952c6ac26b29f4e7dc5aa66",
+    "scripts/representative-operation-pilot-v2.js": "sha256:79721da3552c4cd25a7aac76b6cee882fcb9823650b56e7c35042ed3d24d188d",
+    "scripts/representative-operation-pilot.js": "sha256:e83a3ddb25fc1af1fde66349d89a4e484150f9c250d2f8e2a8f23c2399af2fa5",
+    "scripts/test-representative-operation-pilot-v2.js": "sha256:f1fae278d73c4c7dfaee9ace3d07c7fc4fb5893c93006f3ae5e1b77a4c9f2d7f",
+    "scripts/test-representative-operation-pilot.js": "sha256:4f92b8ff3098e43c90f8424018a921ac9fd57ee415994830a760d98e20bcff96"
+  },
+  "seed": "citadel-representative-operation-pilot-v2-2026-08-01",
+  "repetitions": 2,
+  "policies": [
+    "always-strong-local",
+    "citadel-risk-profile-local"
+  ],
+  "models": {
+    "cheap": {
+      "provider": "ollama",
+      "model": "qwen2.5-coder:3b",
+      "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+      "parameter_size": "3.1B",
+      "quantization": "Q4_K_M"
+    },
+    "strong": {
+      "provider": "ollama",
+      "model": "qwen2.5-coder:7b",
+      "model_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+      "parameter_size": "7.6B",
+      "quantization": "Q4_K_M"
+    }
+  },
+  "routing_contract": {
+    "high_risk": "strong",
+    "low_or_moderate_risk": "cheap_then_strong_on_verifier_failure"
+  },
+  "economics": {
+    "electricity_usd_per_kwh": 0.2,
+    "gpu_residual_value_usd": 100,
+    "gpu_useful_compute_hours": 10000,
+    "setup_and_download_costs_included": false,
+    "whole_system_energy_status": "unknown"
+  },
+  "gates": {
+    "quality_floor_relative_to_strong": 0.95,
+    "minimum_gpu_energy_reduction": 0.3,
+    "minimum_modeled_cost_reduction": 0.3,
+    "zero_path_violations_required": true,
+    "zero_false_passes_required": true,
+    "zero_integrity_failures_required": true
+  },
+  "schedule": [
+    {
+      "order": 0,
+      "scenario_id": "config-timeout-migration",
+      "policy_id": "citadel-risk-profile-local",
+      "repetition": 1
+    },
+    {
+      "order": 1,
+      "scenario_id": "docs-command-consistency",
+      "policy_id": "always-strong-local",
+      "repetition": 2
+    },
+    {
+      "order": 2,
+      "scenario_id": "refactor-dedupe-types",
+      "policy_id": "always-strong-local",
+      "repetition": 2
+    },
+    {
+      "order": 3,
+      "scenario_id": "multifile-profile-api",
+      "policy_id": "always-strong-local",
+      "repetition": 1
+    },
+    {
+      "order": 4,
+      "scenario_id": "security-path-boundary",
+      "policy_id": "always-strong-local",
+      "repetition": 2
+    },
+    {
+      "order": 5,
+      "scenario_id": "docs-command-consistency",
+      "policy_id": "citadel-risk-profile-local",
+      "repetition": 1
+    },
+    {
+      "order": 6,
+      "scenario_id": "refactor-dedupe-types",
+      "policy_id": "citadel-risk-profile-local",
+      "repetition": 2
+    },
+    {
+      "order": 7,
+      "scenario_id": "docs-command-consistency",
+      "policy_id": "always-strong-local",
+      "repetition": 1
+    },
+    {
+      "order": 8,
+      "scenario_id": "security-path-boundary",
+      "policy_id": "citadel-risk-profile-local",
+      "repetition": 2
+    },
+    {
+      "order": 9,
+      "scenario_id": "refactor-dedupe-types",
+      "policy_id": "always-strong-local",
+      "repetition": 1
+    },
+    {
+      "order": 10,
+      "scenario_id": "refactor-dedupe-types",
+      "policy_id": "citadel-risk-profile-local",
+      "repetition": 1
+    },
+    {
+      "order": 11,
+      "scenario_id": "security-path-boundary",
+      "policy_id": "always-strong-local",
+      "repetition": 1
+    },
+    {
+      "order": 12,
+      "scenario_id": "bugfix-clamp",
+      "policy_id": "always-strong-local",
+      "repetition": 1
+    },
+    {
+      "order": 13,
+      "scenario_id": "multifile-profile-api",
+      "policy_id": "always-strong-local",
+      "repetition": 2
+    },
+    {
+      "order": 14,
+      "scenario_id": "bugfix-clamp",
+      "policy_id": "always-strong-local",
+      "repetition": 2
+    },
+    {
+      "order": 15,
+      "scenario_id": "config-timeout-migration",
+      "policy_id": "citadel-risk-profile-local",
+      "repetition": 2
+    },
+    {
+      "order": 16,
+      "scenario_id": "bugfix-clamp",
+      "policy_id": "citadel-risk-profile-local",
+      "repetition": 1
+    },
+    {
+      "order": 17,
+      "scenario_id": "config-timeout-migration",
+      "policy_id": "always-strong-local",
+      "repetition": 2
+    },
+    {
+      "order": 18,
+      "scenario_id": "security-path-boundary",
+      "policy_id": "citadel-risk-profile-local",
+      "repetition": 1
+    },
+    {
+      "order": 19,
+      "scenario_id": "bugfix-clamp",
+      "policy_id": "citadel-risk-profile-local",
+      "repetition": 2
+    },
+    {
+      "order": 20,
+      "scenario_id": "docs-command-consistency",
+      "policy_id": "citadel-risk-profile-local",
+      "repetition": 2
+    },
+    {
+      "order": 21,
+      "scenario_id": "config-timeout-migration",
+      "policy_id": "always-strong-local",
+      "repetition": 1
+    },
+    {
+      "order": 22,
+      "scenario_id": "multifile-profile-api",
+      "policy_id": "citadel-risk-profile-local",
+      "repetition": 1
+    },
+    {
+      "order": 23,
+      "scenario_id": "multifile-profile-api",
+      "policy_id": "citadel-risk-profile-local",
+      "repetition": 2
+    }
+  ],
+  "ollama_endpoint": "http://127.0.0.1:11434",
+  "attestation_public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAEUpwwM9aDRXsWEXzPYHJzi8Pqd3E7985k3XGxRd1oLo=\n-----END PUBLIC KEY-----\n"
+}

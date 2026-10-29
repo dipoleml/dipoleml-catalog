@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>Writing comparison</title>
+    <meta name="description" content="AI 문장이 사람 문장이 되는 과정을 원문과 나란히 놓고 봅니다. 원문과 A(Humanize Korean)·B(i-have-adhd)·C(Say It Straight) 비교.">
+    <link rel="icon" type="image/svg+xml" href="./favicon.svg">
+    <link rel="apple-touch-icon" href="./apple-touch-icon.png">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Writing comparison">
+    <meta property="og:title" content="Writing comparison">
+    <meta property="og:description" content="AI 문장이 사람 문장이 되는 과정을 원문과 나란히 놓고 봅니다. 원문과 A(Humanize Korean)·B(i-have-adhd)·C(Say It Straight) 비교.">
+    <meta property="og:url" content="https://writing-comparison.pages.dev/">
+    <meta property="og:image" content="https://writing-comparison.pages.dev/og.png">
+    <meta property="og:image:width" content="1200">
+    <meta property="og:image:height" content="630">
+    <meta property="og:locale" content="ko_KR">
+    <meta name="twitter:card" content="summary_large_image">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&family=Noto+Sans+KR:wght@400;500;700&display=swap">
+    <link rel="stylesheet" href="./styles.css">
+  </head>
+  <body>
+    <a class="skip-link" href="#document-view">Skip to comparison</a>
+
+    <main class="app-shell">
+      <header id="comparison-title-row" class="comparison-title-row">
+        <div class="title-group">
+        <h1>Writing comparison</h1>
+        <nav class="header-links" aria-label="Related pages">
+          <a class="header-link" href="./benchmark.html"><svg aria-hidden="true" viewBox="0 0 16 16"><rect x="1" y="9" width="3.5" height="6" rx="0.75"/><rect x="6.25" y="5" width="3.5" height="10" rx="0.75"/><rect x="11.5" y="1" width="3.5" height="14" rx="0.75"/></svg>Benchmark</a>
+          <a class="header-link" href="https://github.com/beefiker/superloopy" target="_blank" rel="noopener noreferrer"><svg aria-hidden="true" viewBox="0 0 16 16"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z"/></svg>GitHub<span class="visually-hidden"> (opens in a new tab)</span></a>
+        </nav>
+        </div>
+        <div class="pair-meta"><p id="pair-summary"></p><p id="pair-metrics"></p></div>
+        <button id="search-toggle" type="button" aria-controls="search-panel" aria-expanded="false">Search</button>
+        <button id="more-tools" type="button" aria-label="More comparison tools" aria-haspopup="dialog" aria-controls="tools-dialog" aria-expanded="false">•••</button>
+      </header>
+
+      <section id="search-panel" class="search-panel" hidden>
+        <label for="document-search">Search both documents</label>
+        <input id="document-search" type="search" autocomplete="off">
+        <span id="search-results" aria-live="polite"></span>
+        <span id="search-empty" hidden>No matches.</span>
+      </section>
+
+      <section class="document-workspace">
+        <section id="error-state" class="state-panel" role="alert" hidden><p id="error-message"></p></section>
+        <section id="empty-state" class="state-panel" hidden><p>No differences in this pair.</p></section>
+        <section id="document-view" class="document-view" role="tabpanel" tabindex="-1" aria-label="Compared documents"></section>
+      </section>
+
+      <nav id="comparison-dock" class="comparison-dock" aria-label="Comparison controls">
+        <div class="dock-select sample-select"><span id="sample-select-label">Sample</span><select id="sample-select" aria-labelledby="sample-select-label"></select></div>
+        <div class="dock-select"><span id="left-version-label">Left</span><select id="left-version-select" aria-labelledby="left-version-label"></select></div>
+        <button id="swap-versions" class="icon-button" type="button" aria-label="Swap versions">⇄</button>
+        <div class="dock-select"><span id="right-version-label">Right</span><select id="right-version-select" aria-labelledby="right-version-label"></select></div>
+        <div id="mode-tabs" class="mode-tabs" role="tablist" aria-label="Comparison mode">
+          <button type="button" role="tab" data-mode="rendered" aria-controls="document-view">Rendered</button>
+          <button type="button" role="tab" data-mode="source" aria-controls="document-view">Source</button>
+          <button type="button" role="tab" data-mode="unified" aria-controls="document-view">Unified</button>
+        </div>
+        <div class="change-navigation" aria-label="Change navigation">
+          <button id="previous-change" type="button" aria-label="Previous change">←</button>
+          <span id="change-position">0 of 0</span>
+          <button id="next-change" type="button" aria-label="Next change">→</button>
+        </div>
+      </nav>
+    </main>
+
+    <p id="interface-status" class="visually-hidden" aria-live="polite"></p>
+
+    <dialog id="tools-dialog" aria-labelledby="tools-title" hidden>
+      <form method="dialog">
+        <div class="dialog-heading" tabindex="-1" autofocus>
+          <h2 id="tools-title">Comparison tools</h2>
+          <button class="icon-button" value="close" aria-label="Close tools">×</button>
+        </div>
+        <label class="toggle-control"><input id="sync-scroll" type="checkbox" checked><span>Sync scroll</span></label>
+        <label class="toggle-control"><input id="show-highlights" type="checkbox" checked><span>Highlights</span></label>
+        <div class="type-control" role="group" aria-label="Document type size">
+          <span>Type</span>
+          <button type="button" data-size="small" aria-label="Small type">A</button>
+          <button type="button" data-size="medium" aria-label="Medium type">A</button>
+          <button type="button" data-size="large" aria-label="Large type">A</button>
+        </div>
+        <label for="review-notes">Notes for this comparison</label>
+        <textarea id="review-notes" rows="5" placeholder="What feels clearer? What needs another pass?"></textarea>
+        <label class="include-control"><input id="include-content" type="checkbox"><span>Include source document contents in the exported JSON</span></label>
+        <div class="dialog-actions">
+          <button id="help-button" type="button" aria-haspopup="dialog" aria-controls="keyboard-help">Keyboard help</button>
+          <button id="export-notes" type="button">Export notes</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="keyboard-help" aria-labelledby="keyboard-help-title">
+      <form method="dialog">
+        <div class="dialog-heading" tabindex="-1" autofocus>
+          <h2 id="keyboard-help-title">Keyboard help</h2>
+          <button class="icon-button" value="close" aria-label="Close keyboard help">×</button>
+        </div>
+        <dl class="shortcut-list">
+          <div><dt><kbd>[</kbd></dt><dd>Previous change</dd></div>
+          <div><dt><kbd>]</kbd></dt><dd>Next change</dd></div>
+          <div><dt><kbd>S</kbd></dt><dd>Swap versions</dd></div>
+          <div><dt><kbd>/</kbd></dt><dd>Search both documents</dd></div>
+          <div><dt><kbd>?</kbd></dt><dd>Open this help</dd></div>
+        </dl>
+        <button class="button button-primary dialog-close" value="close">Done</button>
+      </form>
+    </dialog>
+
+    <script type="module" src="./app.mjs"></script>
+  </body>
+</html>

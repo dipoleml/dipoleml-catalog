@@ -1,0 +1,16 @@
+{
+  "name": "disabled-by-local",
+  "displayName": "Disabled By Local",
+  "version": "1.0.0",
+  "description": "Access DipoleML plugin marketplaces from Pi Coding Agent.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Acolomba"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/acolomba/pi-claude-marketplace",
+  "repository": "https://github.com/acolomba/pi-claude-marketplace",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

@@ -1,0 +1,823 @@
+#!/usr/bin/env bash
+# generate-report.sh — Generate Claude Carbon Report PNGs from DB stats.
+# Usage: generate-report.sh [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--all]
+# Default: since January 1st of current year, up to now.
+# --until takes an exclusive upper bound, so --until 2026-07-01 stops at June 30th.
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=scripts/portable-lib.sh
+. "${SCRIPT_DIR}/portable-lib.sh"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+TEMPLATE_DIR="$PROJECT_DIR/templates"
+# Cards go to the user's Downloads, not to the clone: on a marketplace install the
+# clone is a hidden, per-version cache directory (see cc_downloads_dir).
+EXPORT_DIR="$(cc_path "${CLAUDE_CARBON_EXPORT_DIR:-$(cc_downloads_dir)/claude-carbon}")"
+DB_PATH="$(cc_path "${CLAUDE_CARBON_DB:-${CLAUDE_CONFIG_DIR:-${HOME}/.claude}/claude-carbon/carbon.db}")"
+# One scratch dir for the temp pages and the logo the local server serves.
+CC_TMP="$(cc_tmpdir)"
+# Set here, never inherited: cleanup kills and removes what these name.
+SERVER_PID=""
+BROWSER_PROFILE=""
+TODAY="$(date +%Y-%m-%d)"
+YEAR="$(date +%Y)"
+
+# ── Parse args ──────────────────────────────────────────────
+SINCE="${YEAR}-01-01"
+SINCE_LABEL_FR="janvier ${YEAR}"
+SINCE_LABEL_EN="January ${YEAR}"
+UNTIL="" # exclusive upper bound; empty = up to now
+LANG_FILTER="" # empty = both
+LABEL_AUTO=1   # default mode: derive the "since" label from the earliest real session
+
+# Full month names for the auto-derived label (index 1-12)
+MONTHS_FR=("" "janvier" "février" "mars" "avril" "mai" "juin" "juillet" "août" "septembre" "octobre" "novembre" "décembre")
+MONTHS_EN=("" "January" "February" "March" "April" "May" "June" "July" "August" "September" "October" "November" "December")
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --since)
+      SINCE="$2"
+      SINCE_LABEL_FR="$2"
+      SINCE_LABEL_EN="$2"
+      LABEL_AUTO=0
+      shift 2
+      ;;
+    --until)
+      UNTIL="$2"
+      shift 2
+      ;;
+    --all)
+      SINCE=""
+      SINCE_LABEL_FR="le début"
+      SINCE_LABEL_EN="the beginning"
+      LABEL_AUTO=0
+      shift
+      ;;
+    --lang)
+      LANG_FILTER="$2"
+      shift 2
+      ;;
+    *)
+      echo "Usage: generate-report.sh [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--all] [--lang fr|en]" >&2
+      exit 1
+      ;;
+  esac
+done
+
+SINCE_LABEL="$SINCE_LABEL_FR"
+
+# Build SQL WHERE clause (always filters out excluded sessions, e.g. non-Anthropic models)
+WHERE="WHERE COALESCE(excluded, 0) = 0"
+if [ -n "$SINCE" ]; then
+  WHERE="${WHERE} AND started_at >= '${SINCE}'"
+fi
+if [ -n "$UNTIL" ]; then
+  WHERE="${WHERE} AND started_at < '${UNTIL}'"
+fi
+
+# Anchor date for every "how long has this been running" computation: the upper
+# bound when the period is closed, today otherwise.
+if [ -n "$UNTIL" ]; then
+  PERIOD_END_SQL="$UNTIL"
+  LAST_DAY="$(date -j -v-1d -f "%Y-%m-%d" "$UNTIL" +%Y-%m-%d 2>/dev/null || date -d "${UNTIL} -1 day" +%Y-%m-%d 2>/dev/null || echo "$UNTIL")"
+else
+  PERIOD_END_SQL="now"
+  LAST_DAY="$TODAY"
+fi
+PERIOD_END_EPOCH="$(date -j -f "%Y-%m-%d" "$LAST_DAY" +%s 2>/dev/null || date -d "$LAST_DAY" +%s 2>/dev/null || date +%s)"
+
+# Filename carries the window when it is closed, so two runs of the same period
+# don't overwrite each other with different numbers.
+if [ -n "$UNTIL" ]; then
+  FILE_TAG="${SINCE:-start}_${LAST_DAY}"
+else
+  FILE_TAG="$TODAY"
+fi
+
+# On a closed period, the generation date says nothing useful and contradicts the
+# window shown under the headline. The period itself is the timestamp.
+if [ -n "$UNTIL" ]; then
+  DATE_STAMP=""
+else
+  DATE_STAMP="$TODAY"
+fi
+
+# ── Deps check ──────────────────────────────────────────────
+for cmd in sqlite3 node jq; do
+  if ! command -v "$cmd" &>/dev/null; then
+    echo "Error: $cmd is required but not found." >&2
+    exit 1
+  fi
+done
+
+if [ ! -f "$DB_PATH" ]; then
+  echo "Error: carbon.db not found. Run setup.sh first." >&2
+  exit 1
+fi
+
+mkdir -p "$EXPORT_DIR"
+
+# Bring pre-existing DBs up to the current schema: the excluded column, session_models
+# (idempotent; one probe once migrated)
+cc_ensure_schema "$DB_PATH"
+
+# ── Query DB ────────────────────────────────────────────────
+echo "Querying carbon.db (since ${SINCE_LABEL})..."
+
+read -r TOTAL_SESSIONS TOTAL_CO2_RAW TOTAL_COST_RAW FIRST_DATE_RAW <<< \
+  "$(sqlite3 "$DB_PATH" "SELECT COUNT(*), COALESCE(SUM(co2_grams), 0), COALESCE(SUM(cost_usd), 0), COALESCE(MIN(started_at), '') FROM sessions ${WHERE};" | tr '|' ' ')"
+
+# Top 5 projects
+TOP_PROJECTS="$(sqlite3 -separator '|' "$DB_PATH" "SELECT project, SUM(co2_grams), COUNT(*) FROM sessions ${WHERE} GROUP BY project ORDER BY SUM(co2_grams) DESC LIMIT 5;")"
+
+# Top model by tokens (input + cache write + output), at message grain: a session's
+# session_models rows when it has them, the whole session under its dominant model
+# otherwise (recorded before the table existed).
+TOP_MODEL="$(sqlite3 "$DB_PATH" "SELECT model FROM (SELECT CASE WHEN m.session_id IS NULL THEN s.model ELSE m.model END AS model, CASE WHEN m.session_id IS NULL THEN COALESCE(s.input_tokens, 0) + COALESCE(s.output_tokens, 0) ELSE m.input_tokens + m.output_tokens END AS tokens FROM (SELECT * FROM sessions ${WHERE}) s LEFT JOIN session_models m ON m.session_id = s.session_id) GROUP BY model ORDER BY SUM(tokens) DESC LIMIT 1;")"
+
+# Total tokens: every token Claude processed, cache reads included (over 90% of a
+# Claude Code session, as ccusage counts them). input_tokens already holds the cache writes.
+read -r TOTAL_TOKENS_RAW CACHE_READ_RAW <<EOF
+$(sqlite3 -separator ' ' "$DB_PATH" "SELECT COALESCE(SUM(input_tokens), 0) + COALESCE(SUM(output_tokens), 0) + COALESCE(SUM(cache_read_tokens), 0), COALESCE(SUM(cache_read_tokens), 0) FROM sessions ${WHERE};")
+EOF
+
+# ── Format values ───────────────────────────────────────────
+# shellcheck source=scripts/format-lib.sh
+. "$SCRIPT_DIR/format-lib.sh"
+
+read -r TOTAL_CO2_VALUE TOTAL_CO2_UNIT <<< "$(format_co2 "$TOTAL_CO2_RAW")"
+TOTAL_COST="$(echo "$TOTAL_COST_RAW" | LC_ALL=C awk '{printf "%.0f", $1}')"
+FIRST_DATE="$(echo "$FIRST_DATE_RAW" | cut -c1-10)"
+# Car equivalence factors: data/factors.json "equivalences", derivations in
+# METHODOLOGY.md "Equivalences used in reports". The FR card always uses the ADEME
+# factor in km; the EN card follows the locale (ADEME on a French or undetected
+# locale, EPA in miles on a US one, world average otherwise), so the same factor
+# family /carbon-report selects also drives the card.
+# shellcheck source=scripts/equiv-lib.sh
+. "$SCRIPT_DIR/equiv-lib.sh"
+FACTORS_FILE="$PROJECT_DIR/data/factors.json"
+EQUIV_SET="$(detect_equiv_set)"
+# `|| true` so a jq failure lands in the guard below with a clear message instead of
+# aborting mid-assignment under set -e (here-string read would swallow it anyway).
+read -r EQUIV_FACTOR_EN EQUIV_UNIT_EN <<< \
+  "$(jq -r --arg set "$EQUIV_SET" '.equivalences[$set][] | select(.id == "car") | "\(.divisor) \(.unit)"' "$FACTORS_FILE" || true)"
+EQUIV_FACTOR_FR="$(jq -r '.equivalences.fr[] | select(.id == "car") | .divisor' "$FACTORS_FILE" || true)"
+if [ -z "${EQUIV_FACTOR_EN:-}" ] || [ -z "${EQUIV_FACTOR_FR:-}" ]; then
+  echo "Error: no car equivalence for set '$EQUIV_SET' in $FACTORS_FILE" >&2
+  exit 1
+fi
+# The factor is named on the card and on the Totals line: the PNG travels alone,
+# so the same "car equivalent" would otherwise mean three different things.
+# Cards get the short tag (fits under the figure), the Totals line the full source.
+EQUIV_SRC_EN="$(jq -r --arg set "$EQUIV_SET" '.equivalences[$set][] | select(.id == "car") | .source' "$FACTORS_FILE" || true)"
+EQUIV_SRC_FR="$(jq -r '.equivalences.fr[] | select(.id == "car") | .source' "$FACTORS_FILE" || true)"
+EQUIV_TAG_EN="$(jq -r --arg set "$EQUIV_SET" '.equivalences[$set][] | select(.id == "car") | .tag // .source' "$FACTORS_FILE" || true)"
+EQUIV_TAG_FR="$(jq -r '.equivalences.fr[] | select(.id == "car") | .tag // .source' "$FACTORS_FILE" || true)"
+# Whole units: a decimal on thousands of km reads as precision the factors don't
+# carry, and /carbon-report already prints its car row without one.
+EQUIV_KM_FR="$(echo "$TOTAL_CO2_RAW" | LC_ALL=C awk -v f="$EQUIV_FACTOR_FR" '{printf "%.0f", $1/f}')"
+EQUIV_KM_EN="$(echo "$TOTAL_CO2_RAW" | LC_ALL=C awk -v f="$EQUIV_FACTOR_EN" '{printf "%.0f", $1/f}')"
+
+# In default mode, label the report with the actual earliest session month, not Jan 1st
+# (transcripts older than ~30 days are purged, so the real data rarely starts in January).
+if [ "$LABEL_AUTO" = "1" ] && [ -n "$FIRST_DATE" ]; then
+  _lm="$(echo "$FIRST_DATE" | cut -c6-7 | sed 's/^0//')"
+  _ly="$(echo "$FIRST_DATE" | cut -c1-4)"
+  if [ -n "$_lm" ] && [ "$_lm" -ge 1 ] 2>/dev/null && [ "$_lm" -le 12 ] 2>/dev/null; then
+    SINCE_LABEL_FR="${MONTHS_FR[$_lm]} ${_ly}"
+    SINCE_LABEL_EN="${MONTHS_EN[$_lm]} ${_ly}"
+  fi
+fi
+
+# A closed period must say so, otherwise "823 sessions depuis janvier" reads as
+# "up to today" and the headline number no longer matches the window.
+if [ -n "$UNTIL" ]; then
+  _um="$(echo "$LAST_DAY" | cut -c6-7 | sed 's/^0//')"
+  _ud="$(echo "$LAST_DAY" | cut -c9-10 | sed 's/^0//')"
+  _uy="$(echo "$LAST_DAY" | cut -c1-4)"
+  SINCE_LABEL_FR="${SINCE_LABEL_FR}, jusqu'au ${_ud} ${MONTHS_FR[$_um]} ${_uy}"
+  SINCE_LABEL_EN="${SINCE_LABEL_EN}, up to ${MONTHS_EN[$_um]} ${_ud}, ${_uy}"
+fi
+
+# Format tokens: millions under a billion, then billions with one decimal (Md in French,
+# B in English), so a total never reads "47000M"
+NBSP="$(printf '\302\240')"
+TOKENS_FR="$(LC_ALL=C awk -v n="$TOTAL_TOKENS_RAW" 'BEGIN { if (n >= 999.5e6) { v = sprintf("%.1f", n / 1e9); sub(/\./, ",", v); printf "%s Md", v } else printf "%.0fM", n / 1e6 }')"
+TOKENS_EN="$(LC_ALL=C awk -v n="$TOTAL_TOKENS_RAW" 'BEGIN { if (n >= 999.5e6) printf "%.1fB", n / 1e9; else printf "%.0fM", n / 1e6 }')"
+# The share re-read from the cache, under the figure; left out below 1% (an install
+# without prompt caching), never rounded up to 100%
+CACHE_PCT="$(LC_ALL=C awk -v c="$CACHE_READ_RAW" -v t="$TOTAL_TOKENS_RAW" 'BEGIN { if (t > 0) printf "%d", 100 * c / t; else print 0 }')"
+if [ "$CACHE_PCT" -ge 1 ] 2>/dev/null; then
+  CACHE_NOTE_FR="<br>dont ${CACHE_PCT}${NBSP}% relus en cache"
+  CACHE_NOTE_EN="<br>${CACHE_PCT}% cache reads"
+else
+  CACHE_NOTE_FR=""
+  CACHE_NOTE_EN=""
+fi
+
+# Projection annuelle (fourchette)
+# Use actual first session date, not --since filter
+ACTUAL_FIRST="$(echo "$FIRST_DATE" | cut -c1-10)"
+_FIRST_EPOCH="$(date -j -f "%Y-%m-%d" "${ACTUAL_FIRST}" +%s 2>/dev/null || date -d "${ACTUAL_FIRST}" +%s 2>/dev/null || echo "")"
+if [ -n "$_FIRST_EPOCH" ]; then
+  DAYS_ELAPSED="$(( ( PERIOD_END_EPOCH - _FIRST_EPOCH ) / 86400 ))"
+else
+  DAYS_ELAPSED=0
+fi
+if [ "$DAYS_ELAPSED" -gt 0 ]; then
+  # Linear: average daily rate extrapolated. Kept in GRAMS so the range can pick
+  # its unit with the same rule as every other figure (see format-lib.sh).
+  PROJ_LINEAR="$(echo "$TOTAL_CO2_RAW $DAYS_ELAPSED" | LC_ALL=C awk '{printf "%.4f", ($1 / $2) * 365}')"
+
+  # Trend: last 30 days daily rate extrapolated
+  if [ -n "$WHERE" ]; then
+    LAST_MONTH_DATA="$(sqlite3 "$DB_PATH" "SELECT SUM(co2_grams), MIN(started_at), MAX(started_at) FROM sessions ${WHERE} AND started_at >= date('${PERIOD_END_SQL}', '-30 days');" | tr '|' ' ')"
+  else
+    LAST_MONTH_DATA="$(sqlite3 "$DB_PATH" "SELECT SUM(co2_grams), MIN(started_at), MAX(started_at) FROM sessions WHERE started_at >= date('${PERIOD_END_SQL}', '-30 days');" | tr '|' ' ')"
+  fi
+  LAST_MONTH_CO2="$(echo "$LAST_MONTH_DATA" | LC_ALL=C awk '{print $1}')"
+  LAST_MONTH_START="$(echo "$LAST_MONTH_DATA" | LC_ALL=C awk '{print $2}' | cut -c1-10)"
+  LAST_MONTH_END="$(echo "$LAST_MONTH_DATA" | LC_ALL=C awk '{print $3}' | cut -c1-10)"
+  LAST_MONTH_DAYS="$(( ( $(date -j -f "%Y-%m-%d" "${LAST_MONTH_END}" +%s 2>/dev/null || date -d "${LAST_MONTH_END}" +%s 2>/dev/null) - $(date -j -f "%Y-%m-%d" "${LAST_MONTH_START}" +%s 2>/dev/null || date -d "${LAST_MONTH_START}" +%s 2>/dev/null) ) / 86400 ))"
+  if [ "$LAST_MONTH_DAYS" -gt 0 ]; then
+    PROJ_TREND="$(echo "$LAST_MONTH_CO2 $LAST_MONTH_DAYS" | LC_ALL=C awk '{printf "%.4f", ($1 / $2) * 365}')"
+  else
+    PROJ_TREND="$PROJ_LINEAR"
+  fi
+
+  # Sort low-high for display (compare as floats)
+  LOW="$(echo "$PROJ_LINEAR $PROJ_TREND" | LC_ALL=C awk '{if ($1 <= $2) print $1; else print $2}')"
+  HIGH="$(echo "$PROJ_LINEAR $PROJ_TREND" | LC_ALL=C awk '{if ($1 >= $2) print $1; else print $2}')"
+  # The projection does NOT follow the 10 t rule the totals use. A total is a
+  # measurement and reads better as a four-digit kilogram figure; a projection is an
+  # extrapolation from a daily average, and "1414 - 1686 kg" claims a precision it
+  # simply does not have. Tonnes with one decimal state the same range at the
+  # resolution the method actually supports.
+  #
+  # Below 0.1 t the tonne tier would collapse to "0.0 - 0.1", so light users fall
+  # back to whole kilograms. Both bounds always share the unit, picked on HIGH.
+  if cc_num_ge "$HIGH" 100000; then
+    PROJECTION_UNIT="tCO₂"
+    _PROJ_LO_VAL="$(echo "$LOW"  | LC_ALL=C awk '{printf "%.1f", $1/1000000}')"
+    _PROJ_HI_VAL="$(echo "$HIGH" | LC_ALL=C awk '{printf "%.1f", $1/1000000}')"
+  else
+    PROJECTION_UNIT="kgCO₂"
+    _PROJ_LO_VAL="$(echo "$LOW"  | LC_ALL=C awk '{printf "%.0f", $1/1000}')"
+    _PROJ_HI_VAL="$(echo "$HIGH" | LC_ALL=C awk '{printf "%.0f", $1/1000}')"
+  fi
+  PROJECTION="${_PROJ_LO_VAL} - ${_PROJ_HI_VAL}"
+else
+  PROJECTION="0"
+  PROJECTION_UNIT="kgCO₂"
+fi
+
+# Format model
+TOP_MODEL_DISPLAY="$(echo "$TOP_MODEL" | sed 's/claude-//' | sed 's/-4-6//' | sed 's/-4-5.*//')"
+
+# ── Monthly bars HTML ───────────────────────────────────────
+MONTHLY_DATA="$(sqlite3 -separator '|' "$DB_PATH" "SELECT substr(started_at, 1, 7), SUM(co2_grams) FROM sessions ${WHERE} GROUP BY substr(started_at, 1, 7) ORDER BY substr(started_at, 1, 7);")"
+MAX_MONTH_CO2="$(echo "$MONTHLY_DATA" | LC_ALL=C awk -F'|' 'BEGIN{m=0} {if($2>m)m=$2} END{print m}')"
+
+MONTHLY_BARS=""
+MONTH_NAMES="Jan Fév Mar Avr Mai Jun Jul Aoû Sep Oct Nov Déc"
+while IFS='|' read -r month_key month_co2; do
+  [ -z "$month_key" ] && continue
+  month_num="${month_key:5:2}"
+  month_num_clean="$(echo "$month_num" | sed 's/^0//')"
+  month_label="$(echo "$MONTH_NAMES" | LC_ALL=C awk -v n="$month_num_clean" '{print $n}')"
+  if [ "$MAX_MONTH_CO2" -gt 0 ] 2>/dev/null; then
+    pct="$(echo "$month_co2 $MAX_MONTH_CO2" | LC_ALL=C awk '{printf "%.0f", ($1/$2)*100}')"
+  else
+    pct="10"
+  fi
+  co2_display="$(format_co2 "$month_co2")"
+  MONTHLY_BARS="${MONTHLY_BARS}<div class=\"bar-row\"><span class=\"bar-label\">${month_label}</span><div class=\"bar-track\"><div class=\"bar-fill\" style=\"width: ${pct}%\"></div></div><span class=\"bar-value\">${co2_display}</span></div>"
+done <<< "$MONTHLY_DATA"
+
+# ── Parse top 5 projects ───────────────────────────────────
+declare -a P_NAME P_CO2 P_SESSIONS
+i=0
+while IFS='|' read -r pname pco2 psessions; do
+  [ -z "$pname" ] && continue
+  P_NAME[$i]="$pname"
+  P_CO2[$i]="$(format_co2 "$pco2")"
+  P_SESSIONS[$i]="$psessions"
+  i=$((i+1))
+done <<< "$TOP_PROJECTS"
+
+for ((j=i; j<5; j++)); do
+  P_NAME[$j]="-"
+  P_CO2[$j]="-"
+  P_SESSIONS[$j]="0"
+done
+
+# ── Generate HTML files ─────────────────────────────────────
+echo "Generating HTML variants..."
+
+inject_common() {
+  local src="$1" dst="$2"
+  sed \
+    -e "s|{{TODAY}}|${DATE_STAMP}|g" \
+    -e "s|{{SINCE_LABEL}}|${SINCE_LABEL}|g" \
+    -e "s|{{TOTAL_CO2_VALUE}}|${TOTAL_CO2_VALUE}|g" \
+    -e "s|{{TOTAL_CO2_UNIT}}|${TOTAL_CO2_UNIT}|g" \
+    -e "s|{{TOTAL_SESSIONS}}|${TOTAL_SESSIONS}|g" \
+    -e "s|{{FIRST_DATE}}|${FIRST_DATE}|g" \
+    -e "s|{{TOTAL_COST}}|${TOTAL_COST}|g" \
+    -e "s|{{EQUIV_KM}}|${EQUIV_KM}|g" \
+    -e "s|{{EQUIV_UNIT}}|${EQUIV_UNIT}|g" \
+    -e "s|{{EQUIV_SRC}}|${EQUIV_SRC}|g" \
+    -e "s|{{TOP_MODEL}}|${TOP_MODEL_DISPLAY}|g" \
+    -e "s|{{TOTAL_TOKENS}}|${TOKENS_DISPLAY}|g" \
+    -e "s|{{CACHE_NOTE}}|${CACHE_NOTE}|g" \
+    -e "s|{{PROJECTION}}|${PROJECTION}|g" \
+  -e "s|{{PROJECTION_UNIT}}|${PROJECTION_UNIT}|g" \
+    -e "s|{{P1_NAME}}|${P_NAME[0]}|g" \
+    -e "s|{{P1_CO2}}|${P_CO2[0]}|g" \
+    -e "s|{{P1_SESSIONS}}|${P_SESSIONS[0]}|g" \
+    -e "s|{{P2_NAME}}|${P_NAME[1]}|g" \
+    -e "s|{{P2_CO2}}|${P_CO2[1]}|g" \
+    -e "s|{{P2_SESSIONS}}|${P_SESSIONS[1]}|g" \
+    -e "s|{{P3_NAME}}|${P_NAME[2]}|g" \
+    -e "s|{{P3_CO2}}|${P_CO2[2]}|g" \
+    -e "s|{{P3_SESSIONS}}|${P_SESSIONS[2]}|g" \
+    -e "s|{{P4_NAME}}|${P_NAME[3]}|g" \
+    -e "s|{{P4_CO2}}|${P_CO2[3]}|g" \
+    -e "s|{{P4_SESSIONS}}|${P_SESSIONS[3]}|g" \
+    -e "s|{{P5_NAME}}|${P_NAME[4]}|g" \
+    -e "s|{{P5_CO2}}|${P_CO2[4]}|g" \
+    -e "s|{{P5_SESSIONS}}|${P_SESSIONS[4]}|g" \
+    "$src" > "$dst"
+}
+
+# Generate FR templates
+SINCE_LABEL="$SINCE_LABEL_FR"
+EQUIV_KM="$EQUIV_KM_FR"
+EQUIV_UNIT="km"
+EQUIV_SRC="$EQUIV_TAG_FR"
+TOKENS_DISPLAY="$TOKENS_FR"
+CACHE_NOTE="$CACHE_NOTE_FR"
+_t=$(mktemp "${CC_TMP}/claude-carbon-summary-fr-XXXXXX"); TMP_SUMMARY_FR="${_t}.html"; mv "$_t" "$TMP_SUMMARY_FR"
+_t=$(mktemp "${CC_TMP}/claude-carbon-detailed-fr-XXXXXX"); TMP_DETAILED_FR="${_t}.html"; mv "$_t" "$TMP_DETAILED_FR"
+inject_common "$TEMPLATE_DIR/report-summary.html" "$TMP_SUMMARY_FR"
+inject_common "$TEMPLATE_DIR/report-detailed.html" "$TMP_DETAILED_FR"
+
+# Generate EN templates
+SINCE_LABEL="$SINCE_LABEL_EN"
+EQUIV_KM="$EQUIV_KM_EN"
+EQUIV_UNIT="$EQUIV_UNIT_EN"
+EQUIV_SRC="$EQUIV_TAG_EN"
+TOKENS_DISPLAY="$TOKENS_EN"
+CACHE_NOTE="$CACHE_NOTE_EN"
+_t=$(mktemp "${CC_TMP}/claude-carbon-summary-en-XXXXXX"); TMP_SUMMARY_EN="${_t}.html"; mv "$_t" "$TMP_SUMMARY_EN"
+_t=$(mktemp "${CC_TMP}/claude-carbon-detailed-en-XXXXXX"); TMP_DETAILED_EN="${_t}.html"; mv "$_t" "$TMP_DETAILED_EN"
+inject_common "$TEMPLATE_DIR/report-summary-en.html" "$TMP_SUMMARY_EN"
+inject_common "$TEMPLATE_DIR/report-detailed-en.html" "$TMP_DETAILED_EN"
+
+# Inject monthly bars into all summary files
+TMP_SUMMARY="$TMP_SUMMARY_FR"
+
+# Inject monthly bars via node (bash/sed can't handle % in style attrs). node is
+# already required below for the Playwright lookup, so this costs no new dependency
+# and it drops python3, which a stock Windows does not ship.
+_t=$(mktemp "${CC_TMP}/claude-carbon-monthly-XXXXXX"); TMP_MONTHLY="${_t}.txt"; mv "$_t" "$TMP_MONTHLY"
+echo "$MONTHLY_DATA" > "$TMP_MONTHLY"
+
+export TMP_SUMMARY TMP_SUMMARY_EN TMP_MONTHLY
+node << 'NODEEOF'
+const fs = require("fs");
+
+const MONTHS_FR = ["Jan", "Fév", "Mar", "Avr", "Mai", "Jun", "Jul", "Aoû", "Sep", "Oct", "Nov", "Déc"];
+const MONTHS_EN = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+const summaryFr = process.env.TMP_SUMMARY || "";
+const summaryEn = process.env.TMP_SUMMARY_EN || "";
+const monthlyFile = process.env.TMP_MONTHLY || "";
+
+const rows = [];
+for (const line of fs.readFileSync(monthlyFile, "utf8").split("\n")) {
+  const trimmed = line.trim();
+  const sep = trimmed.indexOf("|");
+  if (!trimmed || sep === -1) continue;
+  rows.push({
+    monthIndex: parseInt(trimmed.slice(0, sep).split("-")[1], 10) - 1,
+    co2: parseFloat(trimmed.slice(sep + 1)),
+  });
+}
+
+const maxCo2 = rows.length ? Math.max(...rows.map((r) => r.co2)) : 1;
+
+// Each language gets its own bars, rather than building the French ones and
+// translating the finished page afterwards: a blind ">Mai<" → ">May<" pass over
+// the English file would also rewrite any other three-letter match it found.
+const barsFor = (months) =>
+  rows
+    .map((r) => {
+      const display = r.co2 >= 1000 ? (r.co2 / 1000).toFixed(1) + " kg" : r.co2.toFixed(0) + " g";
+      const pct = Math.round((r.co2 / maxCo2) * 100);
+      return (
+        '<div class="bar-row">' +
+        '<span class="bar-label">' + months[r.monthIndex] + "</span>" +
+        '<div class="bar-track"><div class="bar-fill" style="width: ' + pct + '%"></div></div>' +
+        '<span class="bar-value">' + display + "</span>" +
+        "</div>\n"
+      );
+    })
+    .join("");
+
+for (const [file, months] of [[summaryFr, MONTHS_FR], [summaryEn, MONTHS_EN]]) {
+  if (!file || !fs.existsSync(file)) continue;
+  fs.writeFileSync(file, fs.readFileSync(file, "utf8").replace("{{MONTHLY_BARS}}", barsFor(months)));
+}
+NODEEOF
+
+rm -f "$TMP_MONTHLY"
+
+# ── Totals line ─────────────────────────────────────────────
+# Printed before the Playwright lookup: the social draft quotes it, and it holds
+# whether the card ends up as a PNG or in the browser.
+# Its car figure must match a card the user gets: the locale set (the EN card) by
+# default, the French set when only the FR card was asked for. The label stays
+# English: the line itself is English.
+if [ "$LANG_FILTER" = "fr" ]; then
+  EQUIV_KM="$EQUIV_KM_FR"
+  EQUIV_UNIT="km"
+  EQUIV_SRC="$EQUIV_SRC_FR"
+else
+  EQUIV_KM="$EQUIV_KM_EN"
+  EQUIV_UNIT="$EQUIV_UNIT_EN"
+  EQUIV_SRC="$EQUIV_SRC_EN"
+fi
+STATE_DIR="$(cc_path "${CLAUDE_CONFIG_DIR:-${HOME}/.claude}")/claude-carbon"
+
+# Once, for someone who made a card before the token count took in cache reads: the
+# figure jumps (cache reads are over 90% of a session's tokens) while CO2 and cost do not
+# move. The stamp is written on every run, so a new install never sees the note.
+if [ ! -f "${STATE_DIR}/card-tokens-with-cache" ]; then
+  if [ -f "${STATE_DIR}/last-card-month" ]; then
+    echo "Note: the card's token count now includes cache reads, so it is much higher than on earlier cards. The CO2 and the API-price cost are unchanged."
+  fi
+  { mkdir -p "$STATE_DIR" && : > "${STATE_DIR}/card-tokens-with-cache"; } 2>/dev/null || true
+fi
+echo "Totals since ${SINCE_LABEL_EN}: ${TOTAL_CO2_VALUE} ${TOTAL_CO2_UNIT} CO2e · \$${TOTAL_COST} · ${EQUIV_KM} ${EQUIV_UNIT} by car (${EQUIV_SRC}) · ${TOTAL_SESSIONS} sessions"
+
+# The card put in front of the user: the French one on the French (or undetected)
+# locale, which is also the set whose figure the Totals line quotes.
+if [ "$LANG_FILTER" = "fr" ] || { [ -z "$LANG_FILTER" ] && [ "$EQUIV_SET" = "fr" ]; }; then
+  LEAD_LANG="fr"
+else
+  LEAD_LANG="en"
+fi
+
+# Stamp the month so the statusline's monthly share nudge clears. A card opened in
+# the browser counts as much as a PNG: the user has it in front of them either way.
+stamp_card_month() {
+  mkdir -p "$STATE_DIR" 2>/dev/null || true
+  date +%Y-%m > "${STATE_DIR}/last-card-month" 2>/dev/null || true
+}
+
+# open_in_browser <file>: the page in the default browser, the way cc_reveal shows
+# the folder: open on macOS, explorer.exe on Windows (it hands an .html file to the
+# default browser, and wants a native path), xdg-open on Linux. Returns 1 when
+# nothing was spawned (CLAUDE_CARBON_NO_OPEN, CI, no display, no opener), so the
+# caller prints the path instead.
+open_in_browser() {
+  local f="$1"
+  { [ -z "${CLAUDE_CARBON_NO_OPEN:-}" ] && [ -z "${CI:-}" ]; } || return 1
+  case "$CC_OS" in
+    darwin)
+      command -v open >/dev/null 2>&1 || return 1
+      open "$f" >/dev/null 2>&1 || return 1
+      ;;
+    windows)
+      command -v explorer.exe >/dev/null 2>&1 || return 1
+      # explorer.exe exits 1 even when it succeeds.
+      explorer.exe "$(cc_native_path "$f")" >/dev/null 2>&1 || true
+      ;;
+    *)
+      { [ -n "${DISPLAY:-}${WAYLAND_DISPLAY:-}" ] && command -v xdg-open >/dev/null 2>&1; } || return 1
+      xdg-open "$f" >/dev/null 2>&1 &
+      ;;
+  esac
+  return 0
+}
+
+# ── Find Playwright ─────────────────────────────────────────
+PW_PATH="$(node -e "try { console.log(require.resolve('playwright-core').replace(/\/index\.js$/, '')); } catch(e) { process.exit(1); }" 2>/dev/null)" || true
+
+if [ -z "$PW_PATH" ]; then
+  _npm_global_root="$(npm root -g 2>/dev/null || true)"
+  # Check both flattened (playwright-core installed directly) and nested (installed as a
+  # dependency of the full "playwright" package) locations.
+  for candidate in \
+    "${_npm_global_root}/playwright-core" \
+    "${_npm_global_root}/playwright/node_modules/playwright-core" \
+    "${HOME}/node_modules/playwright-core" \
+    "${HOME}/node_modules/playwright/node_modules/playwright-core" \
+    "${HOME}/claude cowork/node_modules/playwright-core" \
+    "/opt/homebrew/lib/node_modules/playwright-core" \
+    "/opt/homebrew/lib/node_modules/playwright/node_modules/playwright-core"; do
+    if [ -d "$candidate" ]; then
+      PW_PATH="$candidate"
+      break
+    fi
+  done
+fi
+
+# chromium_ready: playwright-core loads AND its Chromium starts. A launch rather than
+# a look for the binary: recent Playwright launches a separate headless shell, and a
+# Linux box missing a system library has the binary but cannot start it.
+chromium_ready() {
+  node -e "
+let pw;
+try { pw = require(process.argv[1]); } catch (e) { process.exit(1); }
+pw.chromium.launch({ timeout: 30000 }).then((b) => b.close()).then(() => process.exit(0), () => process.exit(1));
+" "$(cc_native_path "$PW_PATH")" >/dev/null 2>&1
+}
+
+# find_system_browser: a Chrome, Edge, Chromium or Brave already on the machine, which
+# draws the card headless as well as Playwright's Chromium does: most people have one
+# (Windows always has Edge) and no Playwright. CLAUDE_CARBON_BROWSER names one, or
+# "none" to skip the lookup.
+find_system_browser() {
+  local c
+  case "${CLAUDE_CARBON_BROWSER:-}" in
+    none) return 1 ;;
+    "") ;;
+    *)
+      c="$(cc_path "$CLAUDE_CARBON_BROWSER")"
+      [ -f "$c" ] && { printf '%s\n' "$c"; return 0; }
+      command -v "$CLAUDE_CARBON_BROWSER" 2>/dev/null && return 0
+      echo "CLAUDE_CARBON_BROWSER: no browser at ${CLAUDE_CARBON_BROWSER}" >&2
+      return 1
+      ;;
+  esac
+  case "$CC_OS" in
+    darwin)
+      for c in "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+               "${HOME}/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+               "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge" \
+               "/Applications/Chromium.app/Contents/MacOS/Chromium" \
+               "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"; do
+        [ -x "$c" ] && { printf '%s\n' "$c"; return 0; }
+      done
+      ;;
+    windows)
+      local pf pf86 lad
+      pf="$(cc_path "${PROGRAMFILES:-C:\\Program Files}")"
+      pf86="$(cc_path "$(printenv 'ProgramFiles(x86)' 2>/dev/null || echo 'C:\Program Files (x86)')")"
+      lad="${LOCALAPPDATA:+$(cc_path "$LOCALAPPDATA")}"
+      for c in "${pf}/Google/Chrome/Application/chrome.exe" \
+               "${pf86}/Google/Chrome/Application/chrome.exe" \
+               "${lad:-/nonexistent}/Google/Chrome/Application/chrome.exe" \
+               "${pf86}/Microsoft/Edge/Application/msedge.exe" \
+               "${pf}/Microsoft/Edge/Application/msedge.exe"; do
+        [ -f "$c" ] && { printf '%s\n' "$c"; return 0; }
+      done
+      ;;
+    *)
+      for c in google-chrome google-chrome-stable chromium chromium-browser \
+               microsoft-edge microsoft-edge-stable brave-browser; do
+        command -v "$c" >/dev/null 2>&1 && { command -v "$c"; return 0; }
+      done
+      ;;
+  esac
+  return 1
+}
+
+# Without Playwright or Chromium the card still exists: the summary page is laid out
+# at 1080x1080, so it opens in the browser and a screenshot of it is the card.
+# The browser gets its own copy, in the export folder next to where the PNGs would
+# be: the temp dir is cleaned by the system, and a snap browser (Ubuntu's default
+# Firefox) cannot read /tmp at all. The copy carries the logo inline and scales
+# itself down to the window: the page clips its overflow, so on a laptop screen
+# shorter than 1080px the footer was out of reach, even by scrolling.
+card_in_browser() {
+  # Called after a failed export too: the server goes, the pages stay until copied.
+  trap - EXIT
+  if [ -n "$SERVER_PID" ]; then kill "$SERVER_PID" 2>/dev/null || true; fi
+  if [ -n "$BROWSER_PROFILE" ]; then rm -rf "$BROWSER_PROFILE" 2>/dev/null || true; fi
+  if [ "$LEAD_LANG" = "fr" ]; then LEAD_TMP="$TMP_SUMMARY_FR"; else LEAD_TMP="$TMP_SUMMARY_EN"; fi
+  LEAD_HTML="$EXPORT_DIR/claude-carbon-summary-${LEAD_LANG}-${FILE_TAG}.html"
+  node -e '
+const fs = require("fs");
+const [src, logo, dst] = process.argv.slice(1);
+let html = fs.readFileSync(src, "utf8");
+try {
+  const uri = "data:image/png;base64," + fs.readFileSync(logo).toString("base64");
+  html = html.split("src=\"logo.png\"").join("src=\"" + uri + "\"");
+} catch (e) {}
+const fit = `<style>html{background:#e9e4dd}body{position:fixed;top:0;left:0;transform-origin:0 0}</style>
+<script>
+function ccFit(){var s=Math.min(1,innerWidth/1080,innerHeight/1080),b=document.body;b.style.transform="scale("+s+")";b.style.left=Math.max(0,(innerWidth-1080*s)/2)+"px";}
+addEventListener("DOMContentLoaded",ccFit);addEventListener("resize",ccFit);
+</script>
+`;
+fs.writeFileSync(dst, html.replace("</head>", fit + "</head>"));
+' "$(cc_native_path "$LEAD_TMP")" "$(cc_native_path "$TEMPLATE_DIR/logo.png")" "$(cc_native_path "$LEAD_HTML")" 2>/dev/null || {
+    # No copy (export folder not writable): the temp page, with the logo beside it.
+    LEAD_HTML="$LEAD_TMP"
+    cp -f "$TEMPLATE_DIR/logo.png" "${CC_TMP}/logo.png" 2>/dev/null || true
+  }
+  for f in "$TMP_SUMMARY_FR" "$TMP_SUMMARY_EN" "$TMP_DETAILED_FR" "$TMP_DETAILED_EN"; do
+    [ "$f" = "$LEAD_HTML" ] || rm -f "$f"
+  done
+  stamp_card_month
+  PW_HINT="PNG export: install Google Chrome or Microsoft Edge"
+  if open_in_browser "$LEAD_HTML"; then
+    echo "No PNG: the card is open in your browser, a screenshot of it is enough. ${PW_HINT}"
+  else
+    echo "No PNG: open $(cc_native_path "$LEAD_HTML") in a browser, a screenshot of it is enough. ${PW_HINT}"
+  fi
+  exit 0
+}
+
+# The engine: a browser CLAUDE_CARBON_BROWSER names, else Playwright's Chromium when it
+# starts, else the machine's own browser, else the card opens in the default browser as
+# a page.
+SYS_BROWSER=""
+if [ -n "${CLAUDE_CARBON_BROWSER:-}" ] && [ "$CLAUDE_CARBON_BROWSER" != "none" ] \
+   && SYS_BROWSER="$(find_system_browser)"; then
+  ENGINE_LABEL="$(basename "$SYS_BROWSER")"
+  ENGINE_LABEL="${ENGINE_LABEL%.exe}"
+elif [ -n "$PW_PATH" ] && chromium_ready; then
+  ENGINE_LABEL="Playwright"
+elif SYS_BROWSER="$(find_system_browser)"; then
+  ENGINE_LABEL="$(basename "$SYS_BROWSER")"
+  ENGINE_LABEL="${ENGINE_LABEL%.exe}"
+else
+  card_in_browser
+fi
+
+# ── Export PNGs ──────────────────────────────────────────────
+echo "Exporting PNGs via ${ENGINE_LABEL}..."
+
+PORT=8799
+# Copy the logo next to the pages so the server can serve it
+cp -f "$TEMPLATE_DIR/logo.png" "${CC_TMP}/logo.png" 2>/dev/null || true
+# Static file server in node rather than `python3 -m http.server`: a stock Windows
+# has no python3, and node is already required just above for Playwright. It also
+# binds the loopback interface only, where http.server defaulted to 0.0.0.0 and
+# briefly published these pages to the local network.
+CC_SERVE_DIR="$CC_TMP" CC_SERVE_PORT="$PORT" node -e '
+const http = require("http"), fs = require("fs"), path = require("path");
+const root = process.env.CC_SERVE_DIR;
+const types = { ".html": "text/html; charset=utf-8", ".png": "image/png", ".css": "text/css", ".js": "text/javascript", ".svg": "image/svg+xml" };
+http
+  .createServer((req, res) => {
+    // basename(): the only files ever requested sit directly in the scratch dir,
+    // and it forecloses any "../" walk out of it.
+    const name = path.basename(decodeURIComponent(req.url.split("?")[0]));
+    fs.readFile(path.join(root, name), (err, buf) => {
+      if (err) { res.writeHead(404); res.end(); return; }
+      res.writeHead(200, { "Content-Type": types[path.extname(name).toLowerCase()] || "application/octet-stream" });
+      res.end(buf);
+    });
+  })
+  .listen(Number(process.env.CC_SERVE_PORT), "127.0.0.1");
+' >/dev/null 2>&1 &
+SERVER_PID=$!
+# Out of the job table: bash would otherwise announce the kill in cleanup_server
+# with a "Terminated" notice that quotes this whole node command back, burying
+# the Done line under twenty lines of JavaScript.
+disown "$SERVER_PID" 2>/dev/null || true
+# A function rather than a quoted trap string: the paths stay quoted, so a temp dir containing
+# a space cannot split them into separate arguments to rm.
+cleanup_server() {
+  # `|| true`: the script runs under `set -e`, and a server that already exited would abort
+  # the handler before the temp files are removed.
+  kill "$SERVER_PID" 2>/dev/null || true
+  rm -f "$TMP_SUMMARY_FR" "$TMP_DETAILED_FR" "$TMP_SUMMARY_EN" "$TMP_DETAILED_EN"
+  if [ -n "$BROWSER_PROFILE" ]; then rm -rf "$BROWSER_PROFILE" 2>/dev/null || true; fi
+  return 0
+}
+trap cleanup_server EXIT
+sleep 0.5
+
+export_png() {
+  local html_file="$1" output="$2" label="$3"
+  local filename url
+  filename="$(basename "$html_file")"
+  url="http://127.0.0.1:${PORT}/${filename}"
+
+  if [ -n "$SYS_BROWSER" ]; then
+    # The machine's browser, headless, in a throwaway profile (a Chrome already open on
+    # the default one would take the page over), through the same local server. Virtual
+    # time lets the web fonts land before the shot. A file that is not a 2160x2160 PNG
+    # is no card: removed, so the export counts as failed.
+    rm -f "$output"
+    # After a first failure the browser is not tried again: a page that never loads
+    # (fonts blocked by a firewall) would cost the timeout four times over.
+    [ -z "$SYS_FAILED" ] || return 0
+    [ -n "$BROWSER_PROFILE" ] || BROWSER_PROFILE="$(mktemp -d "${CC_TMP}/claude-carbon-browser-XXXXXX")"
+    node -e '
+const { spawnSync } = require("child_process");
+const fs = require("fs");
+const [browser, url, out, profile] = process.argv.slice(1);
+spawnSync(browser, [
+  "--headless=new", "--disable-gpu", "--hide-scrollbars", "--no-first-run",
+  "--no-default-browser-check", "--disable-extensions", "--user-data-dir=" + profile,
+  "--use-mock-keychain", "--password-store=basic", "--disable-background-networking",
+  "--window-size=1080,1080", "--force-device-scale-factor=2",
+  "--screenshot=" + out, url,
+], { stdio: "ignore", timeout: 60000, killSignal: "SIGKILL" });
+try {
+  const b = fs.readFileSync(out);
+  if (!(b.length >= 24 && b.readUInt32BE(16) === 2160 && b.readUInt32BE(20) === 2160)) fs.unlinkSync(out);
+} catch (e) {}
+' "$(cc_native_path "$SYS_BROWSER")" "$url" "$(cc_native_path "$output")" "$(cc_native_path "$BROWSER_PROFILE")" 2>/dev/null
+  else
+  # node is a native binary: a "/c/Users/…" MSYS path means nothing to it, so both
+  # the module path and the screenshot target go through cc_native_path first.
+  node -e "
+const { chromium } = require('$(cc_native_path "$PW_PATH")');
+(async () => {
+  const browser = await chromium.launch();
+  const page = await browser.newPage({
+    viewport: { width: 1080, height: 1080 },
+    deviceScaleFactor: 2
+  });
+  await page.goto('${url}', { waitUntil: 'networkidle' });
+  await page.waitForTimeout(2000);
+  await page.screenshot({
+    path: '$(cc_native_path "$output")',
+    clip: { x: 0, y: 0, width: 1080, height: 1080 }
+  });
+  await browser.close();
+})();
+" 2>&1
+  fi
+
+  if [ -f "$output" ]; then
+    local size
+    size="$(du -h "$output" | cut -f1 | tr -d ' ')"
+    echo "  ${label}: $(cc_native_path "$output") (${size})"
+    CARD_OK=1
+  else
+    echo "  ${label}: FAILED" >&2
+    [ -z "$SYS_BROWSER" ] || SYS_FAILED=1
+  fi
+}
+
+# The machine's browser screenshots at the page's load event. A web font only loads once
+# text asks for it, after that event, so each font file the pages' Fontshare stylesheets
+# name gets a <link rel="preload">: a preload is part of the load, and the card is drawn
+# in its own fonts. (Chrome's virtual time did the waiting before; on Windows it stalled
+# the browser's network service and the shot never came.) Offline, the pages stay as
+# they are and the card falls back to the system's fonts.
+if [ -n "$SYS_BROWSER" ]; then
+  node -e '
+const fs = require("fs");
+const pages = process.argv.slice(1).filter((f) => fs.existsSync(f));
+(async () => {
+  const cache = new Map();
+  for (const page of pages) {
+    let html = fs.readFileSync(page, "utf8");
+    const sheets = [...html.matchAll(/href="(https:\/\/api\.fontshare\.com\/[^"]+)"/g)].map((m) => m[1].replace(/&amp;/g, "&"));
+    const fonts = [];
+    for (const sheet of sheets) {
+      if (!cache.has(sheet)) {
+        let css = "";
+        try {
+          const r = await fetch(sheet, { signal: AbortSignal.timeout(10000) });
+          if (r.ok) css = await r.text();
+        } catch (e) {}
+        cache.set(sheet, [...css.matchAll(/url\(\x27(\/\/[^\x27]+\.woff2)\x27\)/g)].map((m) => "https:" + m[1]));
+      }
+      fonts.push(...cache.get(sheet));
+    }
+    if (fonts.length === 0) continue;
+    const links = [...new Set(fonts)].map((u) => `<link rel="preload" as="font" type="font/woff2" crossorigin href="${u}">`).join("");
+    fs.writeFileSync(page, html.replace("</head>", links + "</head>"));
+  }
+})();
+' "$(cc_native_path "$TMP_SUMMARY_FR")" "$(cc_native_path "$TMP_DETAILED_FR")" "$(cc_native_path "$TMP_SUMMARY_EN")" "$(cc_native_path "$TMP_DETAILED_EN")" 2>/dev/null || true
+fi
+
+CARD_OK=""
+SYS_FAILED=""
+if [ -z "$LANG_FILTER" ] || [ "$LANG_FILTER" = "fr" ]; then
+  export_png "$TMP_SUMMARY_FR" "$EXPORT_DIR/claude-carbon-summary-fr-${FILE_TAG}.png" "Summary FR"
+  export_png "$TMP_DETAILED_FR" "$EXPORT_DIR/claude-carbon-detailed-fr-${FILE_TAG}.png" "Detailed FR"
+fi
+
+if [ -z "$LANG_FILTER" ] || [ "$LANG_FILTER" = "en" ]; then
+  export_png "$TMP_SUMMARY_EN" "$EXPORT_DIR/claude-carbon-summary-en-${FILE_TAG}.png" "Summary EN"
+  export_png "$TMP_DETAILED_EN" "$EXPORT_DIR/claude-carbon-detailed-en-${FILE_TAG}.png" "Detailed EN"
+fi
+
+# Stamped only when a PNG came out: a run where every export failed leaves the
+# nudge up, since the user has no card to share.
+if [ -n "$CARD_OK" ]; then
+  stamp_card_month
+elif [ -n "$SYS_BROWSER" ]; then
+  card_in_browser
+fi
+
+# Put the card in front of the user: the folder opens in the file manager, with
+# the summary card selected where the platform allows it. CLAUDE_CARBON_NO_OPEN
+# skips this.
+cc_reveal "$EXPORT_DIR/claude-carbon-summary-${LEAD_LANG}-${FILE_TAG}.png"
+
+echo "Done. $(cc_native_path "$EXPORT_DIR")/"

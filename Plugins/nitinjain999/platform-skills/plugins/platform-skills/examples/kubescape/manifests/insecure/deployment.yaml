@@ -1,0 +1,39 @@
+# Deliberately insecure: the "before" picture for kubescape scan and kubescape fix.
+# kubescape v4.0.16, framework NSA: compliance score 45, 11 failed controls.
+# The control IDs in the comments are the ones Kubescape reports for this file.
+# Do not deploy this.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payments-api
+  namespace: payments
+  labels:
+    app.kubernetes.io/name: payments-api
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: payments-api
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: payments-api
+    spec:
+      hostNetwork: true                     # C-0041 HostNetwork access
+      # no automountServiceAccountToken: false → C-0034 automatic mapping of service account
+      # no NetworkPolicy selects this pod     → C-0030 ingress and egress blocked
+      containers:
+        - name: payments-api
+          image: ghcr.io/stefanprodan/podinfo:latest   # floating tag
+          ports:
+            - containerPort: 9898
+          env:
+            - name: DB_PASSWORD             # C-0012 applications credentials in configuration files
+              value: "s3cr3t-pa55"
+          securityContext:
+            privileged: true                # C-0057 privileged container
+            allowPrivilegeEscalation: true  # C-0016 allow privilege escalation
+            runAsUser: 0                    # C-0013 non-root containers
+          # no seccompProfile / dropped capabilities → C-0055 Linux hardening
+          # no readOnlyRootFilesystem                → C-0017 immutable container filesystem
+          # no resources.limits                      → C-0270 CPU limits, C-0271 memory limits

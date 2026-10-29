@@ -1,0 +1,5 @@
+# Nothing is written here any more: a build writes into the repository it reports on, under
+# `.chamnan/statistic/`. Kept so a checkout that still holds output from a build older than that
+# cannot commit one machine's activity by accident.
+data/
+report/data.js

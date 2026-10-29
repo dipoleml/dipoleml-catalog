@@ -1,0 +1,499 @@
+{
+  "schema": 2,
+  "freeze_id": "sha256:59f9b492ba72dd3f838f53eb7737983c91b859064f4d6cad8ab248090eb78f4d",
+  "frozen_at": "2026-08-01T03:44:03.017Z",
+  "method_digest": "sha256:bc9fe7b474120caa3e4337c988f0ad7e5aecbf7f929d463abcc4bb4b694eb0e9",
+  "scenario_set_digest": "sha256:5c751430a4381eb3a24bd934a62f94f1ca3b559993115ee0595d2c0275f2f24e",
+  "source_digests": {
+    "benchmarks/sentient-readiness-v2/METHOD.md": "sha256:bc9fe7b474120caa3e4337c988f0ad7e5aecbf7f929d463abcc4bb4b694eb0e9",
+    "benchmarks/sentient-readiness-v2/scenarios.json": "sha256:60bb3a98794f9614e675f2a729168b5cd03c0835f98e0725ef9698749aa15837",
+    "core/application-readiness/capability-profile.js": "sha256:df38d58bf1356985739437a8235f136d3a11c705a91ccd7bcc1e3eae10a867c8",
+    "scripts/capability-profile-benchmark.js": "sha256:26a7e46ac18c7529172eb52215eae965c04e7e43dfda339e767ea393c25fab34",
+    "scripts/test-capability-profile-benchmark.js": "sha256:9e0b97b6b6fc64eee05dddeb0459b26bb2eaaa0e349dc27e3966c49dfc4105e9"
+  },
+  "seed": "citadel-capability-profile-v2-2026-08-01",
+  "repetitions": 3,
+  "policies": [
+    "always-strong-local",
+    "citadel-capability-profile-local"
+  ],
+  "models": {
+    "tiny": {
+      "provider": "ollama",
+      "model": "qwen2.5-coder:1.5b",
+      "model_digest": "sha256:d7372fd828518a4d38b1eb196c673c31a85f2ed302b3d1e406c4c2d1b64a0668",
+      "parameter_size": "1.5B",
+      "quantization": "Q4_K_M"
+    },
+    "lexical": {
+      "provider": "ollama",
+      "model": "qwen2.5-coder:3b",
+      "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+      "parameter_size": "3.1B",
+      "quantization": "Q4_K_M"
+    },
+    "strong": {
+      "provider": "ollama",
+      "model": "qwen2.5-coder:7b",
+      "model_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+      "parameter_size": "7.6B",
+      "quantization": "Q4_K_M"
+    }
+  },
+  "routing_contract": {
+    "lexical_pattern": "\\b(?:letters?|vowels?|characters?)\\b",
+    "strong_pattern": "\\b(?:derive|critical path|constraints?|untrusted|ledger|valid paths?|select two distinct)\\b",
+    "fallback": "tiny",
+    "failed_small_model_escalation": "strong"
+  },
+  "economics": {
+    "electricity_usd_per_kwh": 0.2,
+    "gpu_residual_value_usd": 100,
+    "gpu_useful_compute_hours": 10000,
+    "setup_and_download_costs_included": false,
+    "whole_system_energy_status": "unknown"
+  },
+  "gates": {
+    "quality_floor_relative_to_strong": 0.95,
+    "minimum_gpu_energy_reduction": 0.3,
+    "minimum_modeled_cost_reduction": 0.3,
+    "zero_false_passes_required": true,
+    "zero_integrity_failures_required": true
+  },
+  "schedule": [
+    {
+      "order": 0,
+      "scenario_id": "weighted-path-v2",
+      "policy_id": "always-strong-local",
+      "repetition": 2
+    },
+    {
+      "order": 1,
+      "scenario_id": "numeric-percent-v2",
+      "policy_id": "always-strong-local",
+      "repetition": 1
+    },
+    {
+      "order": 2,
+      "scenario_id": "lexical-vowels-v2",
+      "policy_id": "always-strong-local",
+      "repetition": 3
+    },
+    {
+      "order": 3,
+      "scenario_id": "numeric-array-sum-v2",
+      "policy_id": "citadel-capability-profile-local",
+      "repetition": 2
+    },
+    {
+      "order": 4,
+      "scenario_id": "numeric-hex-v2",
+      "policy_id": "always-strong-local",
+      "repetition": 1
+    },
+    {
+      "order": 5,
+      "scenario_id": "numeric-addition-v2",
+      "policy_id": "always-strong-local",
+      "repetition": 3
+    },
+    {
+      "order": 6,
+      "scenario_id": "numeric-hex-v2",
+      "policy_id": "always-strong-local",
+      "repetition": 3
+    },
+    {
+      "order": 7,
+      "scenario_id": "numeric-expression-v2",
+      "policy_id": "always-strong-local",
+      "repetition": 3
+    },
+    {
+      "order": 8,
+      "scenario_id": "numeric-expression-v2",
+      "policy_id": "always-strong-local",
+      "repetition": 2
+    },
+    {
+      "order": 9,
+      "scenario_id": "numeric-addition-v2",
+      "policy_id": "always-strong-local",
+      "repetition": 2
+    },
+    {
+      "order": 10,
+      "scenario_id": "numeric-array-sum-v2",
+      "policy_id": "always-strong-local",
+      "repetition": 2
+    },
+    {
+      "order": 11,
+      "scenario_id": "lexical-vowels-v2",
+      "policy_id": "citadel-capability-profile-local",
+      "repetition": 2
+    },
+    {
+      "order": 12,
+      "scenario_id": "lexical-vowels-v2",
+      "policy_id": "citadel-capability-profile-local",
+      "repetition": 1
+    },
+    {
+      "order": 13,
+      "scenario_id": "critical-schedule-v2",
+      "policy_id": "always-strong-local",
+      "repetition": 3
+    },
+    {
+      "order": 14,
+      "scenario_id": "lexical-length-v2",
+      "policy_id": "citadel-capability-profile-local",
+      "repetition": 1
+    },
+    {
+      "order": 15,
+      "scenario_id": "constraint-pair-v2",
+      "policy_id": "citadel-capability-profile-local",
+      "repetition": 2
+    },
+    {
+      "order": 16,
+      "scenario_id": "numeric-hex-v2",
+      "policy_id": "always-strong-local",
+      "repetition": 2
+    },
+    {
+      "order": 17,
+      "scenario_id": "numeric-addition-v2",
+      "policy_id": "citadel-capability-profile-local",
+      "repetition": 3
+    },
+    {
+      "order": 18,
+      "scenario_id": "lexical-length-v2",
+      "policy_id": "always-strong-local",
+      "repetition": 1
+    },
+    {
+      "order": 19,
+      "scenario_id": "numeric-expression-v2",
+      "policy_id": "citadel-capability-profile-local",
+      "repetition": 2
+    },
+    {
+      "order": 20,
+      "scenario_id": "numeric-maximum-v2",
+      "policy_id": "always-strong-local",
+      "repetition": 2
+    },
+    {
+      "order": 21,
+      "scenario_id": "numeric-array-sum-v2",
+      "policy_id": "citadel-capability-profile-local",
+      "repetition": 3
+    },
+    {
+      "order": 22,
+      "scenario_id": "weighted-path-v2",
+      "policy_id": "citadel-capability-profile-local",
+      "repetition": 2
+    },
+    {
+      "order": 23,
+      "scenario_id": "weighted-path-v2",
+      "policy_id": "citadel-capability-profile-local",
+      "repetition": 3
+    },
+    {
+      "order": 24,
+      "scenario_id": "numeric-percent-v2",
+      "policy_id": "always-strong-local",
+      "repetition": 2
+    },
+    {
+      "order": 25,
+      "scenario_id": "numeric-expression-v2",
+      "policy_id": "always-strong-local",
+      "repetition": 1
+    },
+    {
+      "order": 26,
+      "scenario_id": "lexical-length-v2",
+      "policy_id": "always-strong-local",
+      "repetition": 2
+    },
+    {
+      "order": 27,
+      "scenario_id": "numeric-addition-v2",
+      "policy_id": "citadel-capability-profile-local",
+      "repetition": 1
+    },
+    {
+      "order": 28,
+      "scenario_id": "numeric-maximum-v2",
+      "policy_id": "always-strong-local",
+      "repetition": 1
+    },
+    {
+      "order": 29,
+      "scenario_id": "critical-schedule-v2",
+      "policy_id": "citadel-capability-profile-local",
+      "repetition": 1
+    },
+    {
+      "order": 30,
+      "scenario_id": "lexical-length-v2",
+      "policy_id": "citadel-capability-profile-local",
+      "repetition": 3
+    },
+    {
+      "order": 31,
+      "scenario_id": "constraint-pair-v2",
+      "policy_id": "always-strong-local",
+      "repetition": 3
+    },
+    {
+      "order": 32,
+      "scenario_id": "lexical-length-v2",
+      "policy_id": "citadel-capability-profile-local",
+      "repetition": 2
+    },
+    {
+      "order": 33,
+      "scenario_id": "numeric-maximum-v2",
+      "policy_id": "citadel-capability-profile-local",
+      "repetition": 1
+    },
+    {
+      "order": 34,
+      "scenario_id": "numeric-array-sum-v2",
+      "policy_id": "always-strong-local",
+      "repetition": 3
+    },
+    {
+      "order": 35,
+      "scenario_id": "critical-schedule-v2",
+      "policy_id": "citadel-capability-profile-local",
+      "repetition": 2
+    },
+    {
+      "order": 36,
+      "scenario_id": "numeric-percent-v2",
+      "policy_id": "citadel-capability-profile-local",
+      "repetition": 2
+    },
+    {
+      "order": 37,
+      "scenario_id": "weighted-path-v2",
+      "policy_id": "always-strong-local",
+      "repetition": 1
+    },
+    {
+      "order": 38,
+      "scenario_id": "lexical-length-v2",
+      "policy_id": "always-strong-local",
+      "repetition": 3
+    },
+    {
+      "order": 39,
+      "scenario_id": "constraint-pair-v2",
+      "policy_id": "citadel-capability-profile-local",
+      "repetition": 3
+    },
+    {
+      "order": 40,
+      "scenario_id": "adversarial-ledger-v3",
+      "policy_id": "always-strong-local",
+      "repetition": 2
+    },
+    {
+      "order": 41,
+      "scenario_id": "constraint-pair-v2",
+      "policy_id": "always-strong-local",
+      "repetition": 1
+    },
+    {
+      "order": 42,
+      "scenario_id": "numeric-expression-v2",
+      "policy_id": "citadel-capability-profile-local",
+      "repetition": 3
+    },
+    {
+      "order": 43,
+      "scenario_id": "numeric-maximum-v2",
+      "policy_id": "always-strong-local",
+      "repetition": 3
+    },
+    {
+      "order": 44,
+      "scenario_id": "adversarial-ledger-v3",
+      "policy_id": "always-strong-local",
+      "repetition": 3
+    },
+    {
+      "order": 45,
+      "scenario_id": "adversarial-ledger-v3",
+      "policy_id": "always-strong-local",
+      "repetition": 1
+    },
+    {
+      "order": 46,
+      "scenario_id": "critical-schedule-v2",
+      "policy_id": "citadel-capability-profile-local",
+      "repetition": 3
+    },
+    {
+      "order": 47,
+      "scenario_id": "numeric-hex-v2",
+      "policy_id": "citadel-capability-profile-local",
+      "repetition": 3
+    },
+    {
+      "order": 48,
+      "scenario_id": "numeric-addition-v2",
+      "policy_id": "always-strong-local",
+      "repetition": 1
+    },
+    {
+      "order": 49,
+      "scenario_id": "numeric-hex-v2",
+      "policy_id": "citadel-capability-profile-local",
+      "repetition": 2
+    },
+    {
+      "order": 50,
+      "scenario_id": "constraint-pair-v2",
+      "policy_id": "citadel-capability-profile-local",
+      "repetition": 1
+    },
+    {
+      "order": 51,
+      "scenario_id": "numeric-addition-v2",
+      "policy_id": "citadel-capability-profile-local",
+      "repetition": 2
+    },
+    {
+      "order": 52,
+      "scenario_id": "adversarial-ledger-v3",
+      "policy_id": "citadel-capability-profile-local",
+      "repetition": 1
+    },
+    {
+      "order": 53,
+      "scenario_id": "adversarial-ledger-v3",
+      "policy_id": "citadel-capability-profile-local",
+      "repetition": 2
+    },
+    {
+      "order": 54,
+      "scenario_id": "numeric-expression-v2",
+      "policy_id": "citadel-capability-profile-local",
+      "repetition": 1
+    },
+    {
+      "order": 55,
+      "scenario_id": "numeric-array-sum-v2",
+      "policy_id": "citadel-capability-profile-local",
+      "repetition": 1
+    },
+    {
+      "order": 56,
+      "scenario_id": "lexical-vowels-v2",
+      "policy_id": "citadel-capability-profile-local",
+      "repetition": 3
+    },
+    {
+      "order": 57,
+      "scenario_id": "numeric-hex-v2",
+      "policy_id": "citadel-capability-profile-local",
+      "repetition": 1
+    },
+    {
+      "order": 58,
+      "scenario_id": "adversarial-ledger-v3",
+      "policy_id": "citadel-capability-profile-local",
+      "repetition": 3
+    },
+    {
+      "order": 59,
+      "scenario_id": "numeric-percent-v2",
+      "policy_id": "citadel-capability-profile-local",
+      "repetition": 3
+    },
+    {
+      "order": 60,
+      "scenario_id": "numeric-maximum-v2",
+      "policy_id": "citadel-capability-profile-local",
+      "repetition": 3
+    },
+    {
+      "order": 61,
+      "scenario_id": "numeric-array-sum-v2",
+      "policy_id": "always-strong-local",
+      "repetition": 1
+    },
+    {
+      "order": 62,
+      "scenario_id": "lexical-vowels-v2",
+      "policy_id": "always-strong-local",
+      "repetition": 2
+    },
+    {
+      "order": 63,
+      "scenario_id": "lexical-vowels-v2",
+      "policy_id": "always-strong-local",
+      "repetition": 1
+    },
+    {
+      "order": 64,
+      "scenario_id": "numeric-maximum-v2",
+      "policy_id": "citadel-capability-profile-local",
+      "repetition": 2
+    },
+    {
+      "order": 65,
+      "scenario_id": "weighted-path-v2",
+      "policy_id": "always-strong-local",
+      "repetition": 3
+    },
+    {
+      "order": 66,
+      "scenario_id": "constraint-pair-v2",
+      "policy_id": "always-strong-local",
+      "repetition": 2
+    },
+    {
+      "order": 67,
+      "scenario_id": "critical-schedule-v2",
+      "policy_id": "always-strong-local",
+      "repetition": 2
+    },
+    {
+      "order": 68,
+      "scenario_id": "critical-schedule-v2",
+      "policy_id": "always-strong-local",
+      "repetition": 1
+    },
+    {
+      "order": 69,
+      "scenario_id": "numeric-percent-v2",
+      "policy_id": "citadel-capability-profile-local",
+      "repetition": 1
+    },
+    {
+      "order": 70,
+      "scenario_id": "weighted-path-v2",
+      "policy_id": "citadel-capability-profile-local",
+      "repetition": 1
+    },
+    {
+      "order": 71,
+      "scenario_id": "numeric-percent-v2",
+      "policy_id": "always-strong-local",
+      "repetition": 3
+    }
+  ],
+  "ollama_endpoint": "http://127.0.0.1:11434",
+  "attestation_public_key": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAMxmLeuDbg5rOJMvifBSPNC9S/bUVs13/n6jJCE3oc78=\n-----END PUBLIC KEY-----\n"
+}

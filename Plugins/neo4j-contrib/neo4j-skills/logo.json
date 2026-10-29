@@ -1,0 +1,9 @@
+{
+  "brand": "neo4j-contrib",
+  "brandName": "neo4j-contrib",
+  "file": "logo.png",
+  "source": "https://github.com/neo4j-contrib.png",
+  "license": "GitHub owner avatar; trademark of respective owner",
+  "resolver": "github-avatar",
+  "retrievedAt": "2026-10-29T00:14:14Z"
+}

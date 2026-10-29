@@ -1,0 +1,373 @@
+#!/usr/bin/env bash
+# ops-post-update-migrate — auto-fire idempotent migrations after plugin install/update.
+#
+# Runs ONCE per plugin version (sentinel: $DATA_DIR/.migrated/v<VERSION>).
+# Wired from hooks/hooks.json (SessionStart) and scripts/ops-daemon-manager.sh.
+#
+# Add new migrations to the run_migrations() function below — they MUST be
+# idempotent so a re-run is a no-op.
+
+set -euo pipefail
+
+PLUGIN_ROOT="${CLAUDE_PLUGIN_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+PLUGINS_DIR="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/plugins"
+DATA_DIR="${CLAUDE_PLUGIN_DATA_DIR:-$PLUGINS_DIR/data/ops-ops-marketplace}"
+PLUGIN_JSON="$PLUGIN_ROOT/.claude-plugin/plugin.json"
+
+[[ -f "$PLUGIN_JSON" ]] || exit 0
+
+VERSION=$(python3 -c "import json,sys; print(json.load(open('$PLUGIN_JSON'))['version'])" 2>/dev/null || echo "unknown")
+SENTINEL_DIR="$DATA_DIR/.migrated"
+SENTINEL="$SENTINEL_DIR/v${VERSION}"
+# Set by a migration (inside the backgrounded subshell, so a file not a variable)
+# when it skipped work that a later session could still complete. Suppresses the
+# sentinel stamp so the next SessionStart retries instead of skipping forever.
+SENTINEL_DEFER_FLAG="$SENTINEL_DIR/.defer-v${VERSION}"
+
+mkdir -p "$SENTINEL_DIR" 2>/dev/null || true
+rm -f "$SENTINEL_DEFER_FLAG" 2>/dev/null || true
+LOG="$DATA_DIR/post-update-migrate.log"
+mkdir -p "$DATA_DIR" 2>/dev/null || true
+# Tests can isolate the generated plist from ~/Library/LaunchAgents. The launchd
+# safety check remains based on HOME, so this cannot make a sandboxed HOME able
+# to mutate the real GUI domain.
+LAUNCH_AGENTS_DIR="${OPS_MIGRATE_LAUNCHAGENTS_DIR:-$HOME/Library/LaunchAgents}"
+
+log() { printf "[%s] %s\n" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$*" >> "$LOG"; }
+
+# launchd is a per-USER global namespace. It does NOT honour $HOME, so a test that
+# sandboxes HOME (mktemp -d) still writes plists into a fake home but then loads
+# and unloads them in the REAL gui/<uid> domain, under the real ${USER} label.
+#
+# That is not theoretical. On 2026-08-20 tests/test-post-update-migrate-sentinel.sh
+# ran against a temp HOME, and its `launchctl unload/load` re-pointed the live
+# com.<user>.whatsapp-bridge job at a 12-byte `#!/bin/bash` stub in /var/folders.
+# The production WhatsApp bridge was SIGTERMed and stayed dead, with launchd
+# reporting a temp-dir Program, until it was manually re-bootstrapped.
+#
+# Guard the whole class: any launchctl mutation is skipped unless $HOME is the
+# invoking user's real home. A sandboxed run still exercises every path that
+# writes files, which is what the tests actually assert on.
+#
+# FAIL CLOSED. Do not default REAL_HOME to "$HOME" when the lookup fails: that
+# makes the comparison below compare $HOME to itself, which is trivially true
+# for a sandboxed HOME too, and re-enables the exact hazard this guard exists to
+# prevent. An unresolvable real home means we cannot prove we are safe, so we
+# skip the mutation.
+REAL_HOME="$(python3 -c 'import os,pwd; print(pwd.getpwuid(os.getuid()).pw_dir)' 2>/dev/null || true)"
+
+launchctl_guarded() {
+  if [[ "${OPS_MIGRATE_NO_LAUNCHCTL:-0}" == "1" ]]; then
+    log "  skip: launchctl $* (OPS_MIGRATE_NO_LAUNCHCTL=1)"
+    return 0
+  fi
+  if [[ -z "$REAL_HOME" ]]; then
+    log "  skip: launchctl $* (could not resolve real home — failing closed)"
+    return 0
+  fi
+  if [[ "$HOME" != "$REAL_HOME" ]]; then
+    log "  skip: launchctl $* (sandboxed HOME=$HOME, real=$REAL_HOME)"
+    return 0
+  fi
+  launchctl "$@" 2>/dev/null || true
+}
+
+LOCK_DIR="$DATA_DIR/.post-update-migrate.lock"
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+  if [[ -n "$(find "$LOCK_DIR" -maxdepth 0 -mmin +10 -print 2>/dev/null)" ]]; then
+    rmdir "$LOCK_DIR" 2>/dev/null && mkdir "$LOCK_DIR" 2>/dev/null || exit 0
+  else
+    exit 0
+  fi
+fi
+trap 'rmdir "$LOCK_DIR" 2>/dev/null' EXIT
+
+# Always refresh current/ + installPath — must run on every cache materialization,
+# including same-version force-reinstalls where the per-version sentinel already exists.
+refresh_current_directory() {
+  local cache_parent current_dir installed_json root_real current_real current_version
+  local refuse_refresh=0 plugins_real canonical_current recorded_path
+  cache_parent="$(dirname "$PLUGIN_ROOT")"
+  current_dir="$cache_parent/current"
+  installed_json="$PLUGINS_DIR/installed_plugins.json"
+  plugins_real="$(cd "$PLUGINS_DIR" 2>/dev/null && pwd -P || echo "$PLUGINS_DIR")"
+  canonical_current="$plugins_real/cache/ops-marketplace/ops/current"
+
+  # PLUGIN_ROOT is not always inside the plugins cache. ops-update stages a new
+  # version in a `mktemp -d` tree and fires SessionStart hooks from there, and a
+  # developer checkout runs them from ~/Developer. Deriving current/ from
+  # dirname(PLUGIN_ROOT) then yields e.g. /var/folders/../T/tmp.XXXX/current and
+  # writes THAT into installed_plugins.json. macOS reaps /var/folders, so days
+  # later the recorded installPath is gone and Claude Code loads the plugin as
+  # nothing at all: no skills, no commands, no error — the plugin still reads as
+  # enabled, so the failure is invisible. Observed live 2026-09-12, with all 66
+  # ops skills missing from a session whose config looked perfectly healthy.
+  #
+  # So: never rsync a tree from outside the cache over the live current/, and
+  # never record an installPath outside the cache. Out there we only REPAIR —
+  # and only when the recorded path is already broken.
+  root_real="$(cd "$PLUGIN_ROOT" 2>/dev/null && pwd -P || echo "$PLUGIN_ROOT")"
+  if [[ "$root_real/" != "$plugins_real"/* ]]; then
+    refuse_refresh=1
+    current_dir="$canonical_current"
+    recorded_path="$(python3 - "$installed_json" <<'PYEOF' 2>/dev/null || true
+import json, sys
+try:
+    d = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(0)
+for e in d.get("plugins", {}).get("ops@ops-marketplace", []):
+    if e.get("scope") == "user":
+        print(e.get("installPath", ""))
+        break
+PYEOF
+)"
+    if [[ -n "$recorded_path" && -d "$recorded_path" ]]; then
+      log "  skip: PLUGIN_ROOT ($PLUGIN_ROOT) is outside $plugins_real and the recorded installPath still resolves — leaving it alone"
+      return 0
+    fi
+    if [[ ! -d "$canonical_current" ]]; then
+      log "  warn: recorded installPath is broken (${recorded_path:-<unset>}) and $canonical_current does not exist — cannot repair"
+      return 0
+    fi
+    log "  info: repairing broken installPath (${recorded_path:-<unset>}) → $canonical_current"
+  fi
+
+  # current/ must be a real rsynced directory, not a symlink. A legacy or
+  # dangling symlink (e.g. left pointing at a version pruned by ops-update
+  # step 5 before this migration runs) makes rsync's directory-destination
+  # write fail silently, leaving current/ broken for every consumer that
+  # resolves the plugin through it. Clear it so rsync always (re)creates a
+  # real directory below.
+  if [[ -L "$current_dir" ]]; then
+    rm -f "$current_dir"
+    log "  info: removed symlink at $current_dir (current/ must be a real directory)"
+  fi
+
+  current_real="$(cd "$current_dir" 2>/dev/null && pwd -P || echo "$current_dir")"
+
+  # SessionStart also fires in long-lived sessions whose PLUGIN_ROOT still
+  # points at an older version directory. Never let such a session rsync its
+  # stale tree over a newer current/ with --delete. Keep running the metadata
+  # repair below, because installed_plugins.json must still resolve current/.
+  if [[ "$root_real" != "$current_real" && -f "$current_dir/.claude-plugin/plugin.json" ]]; then
+    current_version=$(python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['version'])" \
+      "$current_dir/.claude-plugin/plugin.json" 2>/dev/null || true)
+    if [[ -n "$current_version" && "$VERSION" != "unknown" ]] && \
+      python3 - "$current_version" "$VERSION" <<'PYEOF' 2>/dev/null
+import re, sys
+
+def numeric_version(value):
+    match = re.fullmatch(r"[vV]?(\d+(?:\.\d+)*)", value)
+    return tuple(map(int, match.group(1).split("."))) if match else None
+
+current = numeric_version(sys.argv[1])
+source = numeric_version(sys.argv[2])
+sys.exit(0 if current is not None and source is not None and current > source else 1)
+PYEOF
+    then
+      refuse_refresh=1
+      log "  skip: refuse to downgrade current/ from $current_version to $VERSION"
+    fi
+  fi
+
+  if [[ "$root_real" == "$current_real" ]]; then
+    log "  skip: PLUGIN_ROOT already == current/ ($current_real) — no self-rsync"
+  elif [[ "$refuse_refresh" == "1" ]]; then
+    :
+  elif command -v rsync >/dev/null 2>&1; then
+    if rsync -a --delete \
+      --exclude '.orphaned_at' --exclude '.in_use' \
+      "$PLUGIN_ROOT/" "$current_dir/" 2>/dev/null; then
+      log "  ok: refreshed $current_dir via rsync"
+    else
+      log "  warn: rsync to current/ failed (non-fatal)"
+    fi
+  else
+    mkdir -p "$current_dir"
+    if cp -rp "$PLUGIN_ROOT/." "$current_dir/" 2>/dev/null; then
+      log "  ok: refreshed $current_dir via cp"
+    else
+      log "  warn: cp to current/ failed (non-fatal)"
+    fi
+  fi
+
+  # Never let a version dir's orphan marker ride into current/.
+  # Claude Code marks a version dir it no longer recognises with .orphaned_at
+  # and deletes it once that marker ages past the grace period, skipping only
+  # dirs still listed as an installPath. A copied marker is already aged, so
+  # if installPath later moves off current/ — a plugin reinstall, or the
+  # marketplace remove+add that ops-update performs — the grace period is
+  # already spent and current/ is deleted on the next sweep while live
+  # sessions still resolve CLAUDE_PLUGIN_ROOT through it. cp -rp has no
+  # exclude, so clear it here too, and clear any earlier leak.
+  rm -f "$current_dir/.orphaned_at" 2>/dev/null || true
+
+  # current/.in_use is deliberately left alone. Every session that resolves
+  # current/ as its plugin root registers its own live PID there, and that
+  # registry is what stops the sweeper deleting current/ out from under them
+  # if installPath ever moves off it. Removing it would drop exactly the
+  # protection this function exists to preserve. Excluding it from the rsync
+  # above already stops the version dir's PIDs from replacing the live ones;
+  # under the cp fallback they merely get added, and the sweeper prunes dead
+  # entries itself.
+
+  if [[ -f "$installed_json" ]]; then
+    if python3 - "$installed_json" "$current_dir" "$plugins_real" <<'PYEOF' 2>/dev/null
+import json, os, stat, sys, tempfile
+
+path, current, plugins_dir = sys.argv[1], sys.argv[2], sys.argv[3]
+
+# Belt to the caller's braces: an installPath outside the plugins directory is
+# never correct. A temp staging tree (/var/folders/..., /tmp/...) is reaped by
+# the OS and the plugin then loads as nothing, silently. Refuse rather than
+# record a path that is going to evaporate.
+if os.path.commonpath([os.path.realpath(current), os.path.realpath(plugins_dir)]) != os.path.realpath(plugins_dir):
+    sys.exit("refusing installPath outside %s: %s" % (plugins_dir, current))
+
+with open(path) as f:
+    d = json.load(f)
+changed = False
+for e in d.get("plugins", {}).get("ops@ops-marketplace", []):
+    if e.get("scope") == "user" and e.get("installPath", "") != current:
+        e["installPath"] = current
+        changed = True
+if changed:
+    # Write via temp + atomic rename. Every installed plugin resolves through
+    # this file, so a truncated write breaks all of them, not just ops. An
+    # in-place open(path, "w") is a visible truncation window for any Claude
+    # process reading concurrently, and leaves the file corrupt if we die
+    # mid-dump. Preserve the original mode — it holds install metadata and
+    # ships 0600, which a default-umask temp file would widen.
+    mode = stat.S_IMODE(os.stat(path).st_mode)
+    d_dir = os.path.dirname(path) or "."
+    fd, tmp = tempfile.mkstemp(dir=d_dir, prefix=".installed_plugins.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(d, f, indent=2)
+            f.flush()
+            os.fsync(f.fileno())
+        os.chmod(tmp, mode)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+PYEOF
+    then
+      log "  ok: patched installed_plugins.json → current"
+    else
+      log "  warn: installed_plugins.json patch failed (non-fatal)"
+    fi
+  fi
+}
+
+refresh_current_directory
+
+# Already migrated this version → skip one-time migrations (SessionStart fires every session)
+[[ -f "$SENTINEL" ]] && exit 0
+
+run_migrations() {
+  log "post-update-migrate START version=$VERSION plugin_root=$PLUGIN_ROOT"
+
+  # 1. WhatsApp bridge: FTS5 + contacts table (idempotent — script self-checks)
+  local wa_migrate="$PLUGIN_ROOT/scripts/whatsapp-bridge-migrate.sh"
+  if [[ -x "$wa_migrate" ]]; then
+    if bash "$wa_migrate" >> "$LOG" 2>&1; then
+      log "  ok: whatsapp-bridge-migrate"
+    else
+      log "  warn: whatsapp-bridge-migrate exit=$? (non-fatal)"
+    fi
+  fi
+
+  # 2. Refresh whatsapp-bridge LaunchAgent (idempotent — only writes if template changed)
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    local plist_dst="$LAUNCH_AGENTS_DIR/com.${USER}.whatsapp-bridge.plist"
+    local legacy_wa_plist="$LAUNCH_AGENTS_DIR/com.claude-ops.whatsapp-bridge.plist"
+    local legacy_user_plist="$LAUNCH_AGENTS_DIR/com.<user>.whatsapp-bridge.plist"
+    if [[ -f "$legacy_wa_plist" && "$legacy_wa_plist" != "$plist_dst" ]]; then
+      launchctl_guarded unload "$legacy_wa_plist"
+      rm -f "$legacy_wa_plist" 2>/dev/null || true
+      log "  ok: removed legacy com.claude-ops whatsapp-bridge LaunchAgent"
+    fi
+    if [[ -f "$legacy_user_plist" && "$legacy_user_plist" != "$plist_dst" ]]; then
+      launchctl_guarded unload "$legacy_user_plist"
+      rm -f "$legacy_user_plist" 2>/dev/null || true
+      log "  ok: removed legacy com.<user> whatsapp-bridge LaunchAgent"
+    fi
+    local plist_src="$PLUGIN_ROOT/assets/launchagents/com.claude-ops.whatsapp-bridge.plist"
+    if [[ -f "$plist_src" ]] && [[ ! -f "$plist_dst" || "$plist_src" -nt "$plist_dst" ]]; then
+      mkdir -p "$LAUNCH_AGENTS_DIR" 2>/dev/null || true
+      local bridge_dir="${WHATSAPP_BRIDGE_HOME:-$HOME/.local/share/whatsapp-mcp/whatsapp-bridge}"
+      # The template supervises via run-bridge.sh, which strips --pair so a
+      # logged-out bridge can never re-pair itself unattended (that is what gets
+      # a WhatsApp account banned). If the wrapper is missing, installing the
+      # LaunchAgent would give launchd nothing safe to exec, so skip instead:
+      # better no autostart than an unsupervised pair loop.
+      #
+      # The skip must NOT be sticky. The per-version sentinel is stamped even on
+      # partial failure, and SessionStart exits early once it exists, so a bridge
+      # dir that gains run-bridge.sh later would otherwise never get its
+      # LaunchAgent for this version. Defer the sentinel so the next session
+      # retries.
+      if [[ ! -x "$bridge_dir/run-bridge.sh" ]]; then
+        log "  skip: whatsapp-bridge LaunchAgent (missing $bridge_dir/run-bridge.sh) — will retry next session"
+        : > "$SENTINEL_DEFER_FLAG"
+      else
+        sed -e "s#__BRIDGE_BINARY_PATH__#$bridge_dir/whatsapp-bridge#g" \
+            -e "s#__BRIDGE_WORKING_DIR__#$bridge_dir#g" \
+            -e "s#__HOME__#$HOME#g" \
+            -e "s#__USER__#$USER#g" \
+            "$plist_src" > "$plist_dst" 2>/dev/null && {
+          launchctl_guarded unload "$plist_dst"
+          launchctl_guarded load "$plist_dst"
+          log "  ok: whatsapp-bridge LaunchAgent refreshed"
+        }
+      fi
+    fi
+  fi
+
+  # 3. Decommission deprecated wacli-keepalive plist (idempotent)
+  if [[ "$(uname -s)" == "Darwin" ]]; then
+    local stale_plist="$LAUNCH_AGENTS_DIR/com.claude-ops.wacli-keepalive.plist"
+    if [[ -f "$stale_plist" ]]; then
+      launchctl_guarded unload "$stale_plist"
+      rm -f "$stale_plist" 2>/dev/null || true
+      log "  ok: removed deprecated wacli-keepalive LaunchAgent"
+    fi
+  fi
+
+  # 4. Add future migrations here. Pattern:
+  #    if needs_migration; then
+  #      run_idempotent_migration && log "  ok: <name>"
+  #    fi
+
+  log "post-update-migrate DONE version=$VERSION"
+}
+
+# Run with a 60s wall-clock budget so a SessionStart hook never blocks Claude.
+( run_migrations ) &
+MIGRATE_PID=$!
+for ((waited = 0; waited < 60; waited++)); do
+  kill -0 "$MIGRATE_PID" 2>/dev/null || break
+  sleep 1
+done
+kill -0 "$MIGRATE_PID" 2>/dev/null && kill "$MIGRATE_PID" 2>/dev/null || true
+wait "$MIGRATE_PID" 2>/dev/null || true
+
+# Stamp sentinel even on partial failure — individual migrations log their own state.
+# Re-run forced by deleting the sentinel or bumping plugin.json version.
+#
+# Exception: a migration that deliberately skipped recoverable work sets the defer
+# flag. Stamping then would make the skip permanent for this version, since the
+# early-exit above never re-enters run_migrations. Leave the sentinel unwritten so
+# the next SessionStart retries.
+if [[ -f "$SENTINEL_DEFER_FLAG" ]]; then
+  rm -f "$SENTINEL_DEFER_FLAG" 2>/dev/null || true
+  log "post-update-migrate DEFERRED sentinel version=$VERSION (a migration will retry next session)"
+  exit 0
+fi
+touch "$SENTINEL"
+exit 0

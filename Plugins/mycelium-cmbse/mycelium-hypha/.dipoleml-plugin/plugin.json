@@ -1,0 +1,16 @@
+{
+  "name": "mycelium-hypha",
+  "displayName": "Mycelium Hypha",
+  "version": "2.2.0",
+  "description": "Hypha is the AI agent of the Mycelium ecosystem: a connecting filament between engineers and the SysML v2 specification. Provides skills and subagents for KerML/SysML v2 metamodel lookup, standard model library lookup, normative spec citation, and SysML v2 textual-notation validation.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Mycelium Cmbse"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://github.com/mycelium-cmbse/mycelium-hypha",
+  "repository": "https://github.com/mycelium-cmbse/mycelium-hypha",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

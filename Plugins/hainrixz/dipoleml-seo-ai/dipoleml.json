@@ -1,0 +1,142 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.hainrixz.dipoleml-seo-ai",
+  "type": "plugin",
+  "name": "DipoleML Seo Ai",
+  "slug": "dipoleml-seo-ai",
+  "vendor": "hainrixz",
+  "description": "The SEO + AI-search (GEO/AEO) optimization toolkit for DipoleML — two-score audit + opt-in fixer. Built for 2026-2027.",
+  "version": "0.2.0",
+  "homepage": "https://github.com/Hainrixz/claude-seo-ai",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "aeo",
+    "ai-search",
+    "answer-engine-optimization",
+    "claude-plugin",
+    "claude-skills",
+    "core-web-vitals",
+    "generative-engine-optimization",
+    "geo",
+    "llms-txt"
+  ],
+  "tags": [
+    "aeo",
+    "ai-search",
+    "answer-engine-optimization",
+    "claude-code",
+    "claude-plugin",
+    "claude-skills",
+    "core-web-vitals",
+    "generative-engine-optimization",
+    "geo",
+    "llms-txt",
+    "seo",
+    "structured-data"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "hainrixz",
+    "brandName": "hainrixz",
+    "source": "https://github.com/Hainrixz.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:13:11Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "Hainrixz/claude-seo-ai",
+    "url": "https://github.com/Hainrixz/claude-seo-ai",
+    "commit": "0a7ef08986eabfa6452f7055cddb6582d074b9d7",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 79,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:05:06Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Claude Seo Ai | The SEO + AI-search (GEO/AEO) optimization toolkit for Claude Code — two-score audit + opt-in fixer. Built for 2026-2027.",
+        "after": "DipoleML Seo Ai | The SEO + AI-search (GEO/AEO) optimization toolkit for DipoleML — two-score audit + opt-in fixer. Built for 2026-2027.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "claude-seo-ai",
+        "after": "dipoleml-seo-ai",
+        "reason": "provider token neutralized in slug/id"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [
+      "SHOPIFY_THEME_TOKEN",
+      "SHOPIFY_ADMIN_TOKEN",
+      "WP_URL",
+      "WEBFLOW_TOKEN",
+      "HUBSPOT_TOKEN",
+      "GHOST_URL",
+      "GHOST_ADMIN_KEY",
+      "WIX_API_KEY",
+      "BIGCOMMERCE_TOKEN",
+      "PSI_API_KEY"
+    ],
+    "credentials": [
+      "SHOPIFY_THEME_TOKEN",
+      "SHOPIFY_ADMIN_TOKEN",
+      "WEBFLOW_TOKEN",
+      "HUBSPOT_TOKEN",
+      "GHOST_ADMIN_KEY",
+      "WIX_API_KEY",
+      "BIGCOMMERCE_TOKEN",
+      "PSI_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

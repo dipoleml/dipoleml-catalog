@@ -1,0 +1,117 @@
+{
+  "schema": 1,
+  "run_id": "sha256:daa2e179a7ed7347c532732e791862d36230a679b3eaad2f2732f627643562a4",
+  "freeze_id": "sha256:f1ecf932261ceac604978952c42cdb8ec14032b795bffd1848fae90e9572ded5",
+  "scenario_id": "critical-path",
+  "policy_id": "prompt-router",
+  "route": {
+    "target": "frontier",
+    "features": {
+      "word_count": 80,
+      "constraint_count": 7,
+      "reasoning_count": 1,
+      "structure_count": 0,
+      "difficulty_score": 0.34125
+    },
+    "reason_code": "PROMPT_SCORE_FRONTIER"
+  },
+  "attempts": [
+    {
+      "receipt": {
+        "schema": 1,
+        "receipt_id": "sha256:b2cec91b0b46235ee6797c26a9567230a65833588edc5922d43ded15d0ba2f28",
+        "scenario_id": "critical-path",
+        "policy_id": "prompt-router",
+        "attempt": 1,
+        "plan_id": null,
+        "observation_digest": null,
+        "output_digest": "sha256:2533eaeb2a1f18bdbab37f56af0f6f4c9f689dcf13e86db916d65c8d1d4f919e",
+        "started_at": "2026-07-31T19:40:19.334Z",
+        "duration_ms": 7362,
+        "completion": {
+          "status": "passed",
+          "verifier_id": "json-answer-v1",
+          "answer_digest": "sha256:6b51d431df5d7f141cbececcf79edf3dd861c3b4069f0b11661a3eefacbba918",
+          "failure_code": null
+        },
+        "control": {
+          "status": "verified",
+          "mismatch_codes": [],
+          "module_exercise": []
+        },
+        "execution_evidence": {
+          "status": "verified",
+          "runtime": "codex-cli",
+          "requested_model": "gpt-5.6-sol",
+          "observed_model": "gpt-5.6-sol",
+          "source": "codex-jsonl",
+          "session_receipt": {
+            "thread_id": "019fb9b1-1c3f-7c13-897e-f726bd9563ba",
+            "model": "gpt-5.6-sol",
+            "cwd_digest": "sha256:da9955ae6225a5a43ad1a1fc42446daf21b88c2af304d18b909672c7ac49e7a5",
+            "turn_context_digest": "sha256:17abfab7ab77cbc236ee62aa620abf392e69b349eb78f1a614a3dee3b53e0915",
+            "session_file_digest": "sha256:f2fb148dbab1b8d7d011e8a07a05d6b890e214c0f78a8952df6f226c0112b2fe",
+            "session_bytes": 66758
+          },
+          "process": {
+            "exit_code": 0,
+            "timed_out": false,
+            "stdout_digest": "sha256:42505fb382d37ff7cf8735976c5b4a36fdb775aa38867e21df8ee5e29adff025",
+            "stdout_excerpt": "{\"type\":\"thread.started\",\"thread_id\":\"019fb9b1-1c3f-7c13-897e-f726bd9563ba\"}\n{\"type\":\"turn.started\"}\n{\"type\":\"item.completed\",\"item\":{\"id\":\"item_0\",\"type\":\"agent_message\",\"text\":\"{\\\"answer\\\":12}\"}}\n{\"type\":\"turn.completed\",\"usage\":{\"input_tokens\":17000,\"cached_input_tokens\":11008,\"cache_write_input_tokens\":0,\"output_tokens\":62,\"reasoning_output_tokens\":45}}\n",
+            "stderr_digest": "sha256:bff21d5b16d2f2125651523ed47ca697bca61cf02298c2a46c5b6fd1b04240b8",
+            "stderr_excerpt": "2026-07-31T19:40:19.922058Z  WARN codex_core::shell_snapshot: Failed to create shell snapshot for powershell: Shell snapshot not supported yet for PowerShell\n"
+          }
+        },
+        "cost": {
+          "status": "unknown",
+          "total_usd": null,
+          "reason": "subscription_allocation_and_provider_cost_unreported",
+          "components": [
+            {
+              "kind": "provider_invoice",
+              "status": "unknown",
+              "amount_usd": null,
+              "source": "subscription_no_per_request_invoice"
+            },
+            {
+              "kind": "gpu_energy",
+              "status": "unknown",
+              "amount_usd": null,
+              "energy_kwh": null,
+              "samples": 0,
+              "source": "telemetry_unavailable"
+            },
+            {
+              "kind": "cpu_and_system_energy",
+              "status": "unknown",
+              "amount_usd": null,
+              "source": "not_measured"
+            },
+            {
+              "kind": "hardware_amortization",
+              "status": "unknown",
+              "amount_usd": null,
+              "source": "not_allocated"
+            }
+          ],
+          "duration_ms": 7362,
+          "usage": {
+            "prompt_tokens": 17000,
+            "completion_tokens": 62,
+            "total_tokens": 17062,
+            "cached_input_tokens": 11008
+          },
+          "setup_costs_included": false
+        },
+        "adversarial_result": null
+      },
+      "plan": null,
+      "observation": null,
+      "output_text": "{\"answer\":12}",
+      "raw_execution": {
+        "stdout_digest": "sha256:42505fb382d37ff7cf8735976c5b4a36fdb775aa38867e21df8ee5e29adff025",
+        "stderr_digest": "sha256:bff21d5b16d2f2125651523ed47ca697bca61cf02298c2a46c5b6fd1b04240b8"
+      }
+    }
+  ]
+}

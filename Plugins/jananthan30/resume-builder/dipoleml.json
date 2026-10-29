@@ -1,0 +1,154 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.jananthan30.resume-builder",
+  "type": "plugin",
+  "name": "Resume Builder",
+  "slug": "resume-builder",
+  "vendor": "jananthan30",
+  "description": "AI-powered resume & cover letter generator with dual ATS + HR scoring. Works for any profession. DipoleML plugin.",
+  "version": "1.2.0",
+  "homepage": "https://github.com/jananthan30/Resume-Builder",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "ats",
+    "career",
+    "claude-code-plugin",
+    "cover-letter",
+    "job-application",
+    "resume",
+    "resume-builder"
+  ],
+  "tags": [
+    "ai",
+    "ats",
+    "career",
+    "claude-code",
+    "claude-code-plugin",
+    "cover-letter",
+    "job-application",
+    "python",
+    "resume",
+    "resume-builder"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "jananthan30",
+    "brandName": "jananthan30",
+    "source": "https://github.com/jananthan30.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:13:25Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "jananthan30/Resume-Builder",
+    "url": "https://github.com/jananthan30/Resume-Builder",
+    "commit": "5f288fe1d5b931b17d2d24746f9598574f79d3ef",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 92,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:10:22Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Resume Builder | AI-powered resume & cover letter generator with dual ATS + HR scoring. Works for any profession. Claude Code plugin.",
+        "after": "Resume Builder | AI-powered resume & cover letter generator with dual ATS + HR scoring. Works for any profession. DipoleML plugin.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "python",
+      "args": [
+        "${DIPOLEML_PLUGIN_ROOT}/mcp_scorer.py"
+      ]
+    },
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3",
+      "python3"
+    ],
+    "packages": [
+      "resumehq"
+    ],
+    "env": [
+      "ANTHROPIC_API_KEY",
+      "ADZUNA_APP_KEY",
+      "EVIDENCE_LOCAL_BASE_URL",
+      "DEEPSEEK_API_KEY",
+      "XAI_API_KEY",
+      "DASHSCOPE_API_KEY",
+      "SCORER_CLOUD_URL",
+      "SCORER_CLOUD_API_KEY",
+      "RAPIDAPI_KEY"
+    ],
+    "credentials": [
+      "ANTHROPIC_API_KEY",
+      "ADZUNA_APP_KEY",
+      "DEEPSEEK_API_KEY",
+      "XAI_API_KEY",
+      "DASHSCOPE_API_KEY",
+      "SCORER_CLOUD_API_KEY",
+      "RAPIDAPI_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative. Upstream plugin scripts may reference CLAUDE_PLUGIN_ROOT; the DipoleML loader must set it as an alias for DIPOLEML_PLUGIN_ROOT.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

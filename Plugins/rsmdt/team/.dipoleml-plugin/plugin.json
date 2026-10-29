@@ -1,0 +1,16 @@
+{
+  "name": "team",
+  "displayName": "Team",
+  "version": "4.0.0",
+  "description": "Engineering team consisting of specialized agents for software development",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Rsmdt"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/rsmdt/the-startup",
+  "repository": "https://github.com/rsmdt/the-startup",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

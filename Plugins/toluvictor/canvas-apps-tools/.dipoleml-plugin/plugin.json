@@ -1,0 +1,16 @@
+{
+  "name": "canvas-apps-tools",
+  "displayName": "Canvas Apps Tools",
+  "version": "1.0.2",
+  "description": "AI skills for Power Apps Canvas Apps - generate, modify, and integrate.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Toluvictor"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/ToluVictor/canvas-apps-tools",
+  "repository": "https://github.com/ToluVictor/canvas-apps-tools",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

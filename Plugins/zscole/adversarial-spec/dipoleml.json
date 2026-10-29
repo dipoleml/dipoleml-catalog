@@ -1,0 +1,145 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.zscole.adversarial-spec",
+  "type": "plugin",
+  "name": "Adversarial Spec",
+  "slug": "adversarial-spec",
+  "vendor": "zscole",
+  "description": "A DipoleML plugin that iteratively refines product specifications by debating between multiple LLMs until all models reach consensus.",
+  "version": "1.0.0",
+  "homepage": "https://github.com/zscole/adversarial-spec",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "anthropic",
+    "claude-ai",
+    "claude-code-plugin",
+    "claude-skills",
+    "orchestration"
+  ],
+  "tags": [
+    "anthropic",
+    "claude-ai",
+    "claude-code",
+    "claude-code-plugin",
+    "claude-skills",
+    "llm",
+    "orchestration"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "zscole",
+    "brandName": "zscole",
+    "source": "https://github.com/zscole.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:15:34Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "zscole/adversarial-spec",
+    "url": "https://github.com/zscole/adversarial-spec",
+    "commit": "f90cf0c36c3999b8dc272c9c06dee9846076f369",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 557,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:48:41Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Adversarial Spec | A Claude Code plugin that iteratively refines product specifications by debating between multiple LLMs until all models reach consensus.",
+        "after": "Adversarial Spec | A DipoleML plugin that iteratively refines product specifications by debating between multiple LLMs until all models reach consensus.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Iteratively refine product specs through multi-model debate until consensus. Claude actively participates alongside GPT, Gemini, Grok, and other models. Includes interview mode, early agreement verification, and optional Telegram integration.",
+        "after": "Iteratively refine product specs through multi-model debate until consensus. DipoleML actively participates alongside GPT, Gemini, Grok, and other models. Includes interview mode, early agreement verification, and optional Telegram integration.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3",
+      "python3"
+    ],
+    "packages": [
+      "adversarial-spec"
+    ],
+    "env": [
+      "OPENAI_API_KEY",
+      "OPENROUTER_API_KEY",
+      "ANTHROPIC_API_KEY",
+      "GEMINI_API_KEY",
+      "XAI_API_KEY",
+      "MISTRAL_API_KEY",
+      "GROQ_API_KEY",
+      "DEEPSEEK_API_KEY",
+      "ZHIPUAI_API_KEY",
+      "OPENAI_API_BASE",
+      "TELEGRAM_BOT_TOKEN"
+    ],
+    "credentials": [
+      "OPENAI_API_KEY",
+      "OPENROUTER_API_KEY",
+      "ANTHROPIC_API_KEY",
+      "GEMINI_API_KEY",
+      "XAI_API_KEY",
+      "MISTRAL_API_KEY",
+      "GROQ_API_KEY",
+      "DEEPSEEK_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

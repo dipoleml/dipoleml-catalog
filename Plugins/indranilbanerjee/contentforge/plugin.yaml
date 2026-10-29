@@ -1,0 +1,42 @@
+# Hermes Agent native plugin manifest.
+#
+# This file is read ONLY by Hermes Agent (Nous Research). Claude Code, Cowork,
+# OpenAI Codex, Cursor, GitHub Copilot CLI, Google Antigravity, and OpenClaw
+# all read their own manifest paths and ignore this file. See README.md
+# "Supported surfaces" for per-platform install commands.
+#
+# Spec source: https://hermes-agent.nousresearch.com/docs/guides/build-a-hermes-plugin
+# Tested against: Hermes Desktop v0.15.2 (June 2026 public preview)
+#
+# Install for Hermes users:
+#   hermes plugins install indranilbanerjee/contentforge
+
+name: contentforge
+version: 4.6.0
+description: >-
+  Open-source enterprise content production plugin. 22 skills, 13 specialist
+  agents, 10 quality gates, 41-pattern AI humanizer, fact-checker, real .docx
+  output with C2PA signing (EU AI Act Article 50 ready). Now native on Hermes.
+author: Indranil Banerjee
+license: MIT
+homepage: https://github.com/indranilbanerjee/contentforge
+
+provides_tools: []
+provides_hooks: []
+requires_env: []
+# Every credential below is OPTIONAL: nothing is required to install, and a script that needs one
+# says so and stops. They are listed (not in requires_env) so the catalog and `hermes plugins` can show
+# which environment variables the scripts read.
+optional_env:
+  - name: AIRTABLE_TOKEN
+    description: Airtable personal access token, only if you choose Airtable as the tracking or publish backend
+    secret: true
+  - name: ANTHROPIC_API_KEY
+    description: Only for scripts/refresh_models.py (model-registry refresh); a provider without a key is skipped
+    secret: true
+  - name: OPENAI_API_KEY
+    description: Only for scripts/refresh_models.py (model-registry refresh); a provider without a key is skipped
+    secret: true
+  - name: GEMINI_API_KEY
+    description: Only for scripts/refresh_models.py (model-registry refresh); a provider without a key is skipped
+    secret: true

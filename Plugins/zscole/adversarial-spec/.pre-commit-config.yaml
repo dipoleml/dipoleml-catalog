@@ -1,0 +1,29 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.14.0
+    hooks:
+      - id: ruff
+        args: [--fix]
+        files: ^skills/adversarial-spec/scripts/
+      - id: ruff-format
+        files: ^skills/adversarial-spec/scripts/
+
+  - repo: https://github.com/pre-commit/mirrors-mypy
+    rev: v1.19.0
+    hooks:
+      - id: mypy
+        files: ^skills/adversarial-spec/scripts/.*\.py$
+        exclude: ^skills/adversarial-spec/scripts/tests/
+        args: [--explicit-package-bases, --ignore-missing-imports, --no-error-summary]
+        additional_dependencies:
+          - litellm
+          - types-requests
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-added-large-files

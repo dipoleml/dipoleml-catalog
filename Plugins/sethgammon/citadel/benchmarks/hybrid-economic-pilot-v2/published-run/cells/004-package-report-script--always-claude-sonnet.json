@@ -1,0 +1,111 @@
+{
+  "schema": 1,
+  "cell_id": "004-package-report-script--always-claude-sonnet",
+  "order": 4,
+  "scenario_id": "package-report-script",
+  "task_class": "package-metadata",
+  "risk": "low",
+  "policy_id": "always-claude-sonnet",
+  "repetition": 1,
+  "route": {
+    "initial_tier": "cloud",
+    "escalation_tier": null,
+    "reason_code": "BASELINE_ALWAYS_CLAUDE"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "cloud",
+      "started_at": "2026-08-02T01:10:00.855Z",
+      "duration_ms": 4151,
+      "output_text": "{\"files\":{\"package.json\":\"{\\\"name\\\":\\\"report-fixture\\\",\\\"version\\\":\\\"1.0.0\\\",\\\"scripts\\\":{\\\"build\\\":\\\"node build.js\\\",\\\"check\\\":\\\"node check.js\\\",\\\"report\\\":\\\"node scripts/report.js --format json\\\"}}\"}}",
+      "output_digest": "sha256:ed1eda9ed9c50aa7c04c22947bec47ea59e7ecf51faa2fb576037492647bc0ce",
+      "verification": {
+        "status": "passed",
+        "code": null,
+        "changed_paths": [
+          "package.json"
+        ],
+        "applied_file_digests": {
+          "package.json": "sha256:04f28d0eb5e08f1313f33f5c5816b346ac28688139eda9897fa466546e035272"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 0,
+          "signal": null,
+          "stdout": "",
+          "stderr": "",
+          "error": null
+        },
+        "patch_digest": "sha256:6c255c9ec0010782d4dbe8adda221ee77d32c7c9e114863157a0a05bd2d581c7"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "claude-code-print",
+        "requested_model": "sonnet",
+        "canonical_model": "claude-sonnet-5",
+        "cli_version": "2.1.219",
+        "response_digest": "sha256:861c6c425697377f3d1507a10120a592ef04cd3ab788a9490f7233eda519d65f",
+        "exit_status": 0,
+        "terminal_reason": "completed",
+        "error": null
+      },
+      "usage": {
+        "input_tokens": 402,
+        "output_tokens": 101,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0
+      },
+      "economics": {
+        "comparison_cost": {
+          "status": "provider-reported-equivalent",
+          "total_usd": 0.003464,
+          "source": "claude_code_total_cost_usd"
+        },
+        "provider_reported_equivalent_cost": {
+          "status": "provider-reported-equivalent",
+          "amount_usd": 0.003464,
+          "source": "claude_code_total_cost_usd"
+        },
+        "local_gpu_energy": {
+          "status": "not-applicable",
+          "energy_kwh": 0,
+          "samples": 0,
+          "average_watts": null
+        },
+        "actual_subscription_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "pro_subscription_cost_not_allocated_per_request"
+        }
+      }
+    }
+  ],
+  "status": "passed",
+  "final_verification": {
+    "status": "passed",
+    "code": null,
+    "changed_paths": [
+      "package.json"
+    ],
+    "applied_file_digests": {
+      "package.json": "sha256:04f28d0eb5e08f1313f33f5c5816b346ac28688139eda9897fa466546e035272"
+    },
+    "verifier": {
+      "command": "node verifier.js",
+      "status": 0,
+      "signal": null,
+      "stdout": "",
+      "stderr": "",
+      "error": null
+    },
+    "patch_digest": "sha256:6c255c9ec0010782d4dbe8adda221ee77d32c7c9e114863157a0a05bd2d581c7"
+  },
+  "previous_cell_digest": "sha256:a57325f2e9bd950e79bb89d76f37e409cca49df3b09985cb5a1bfa3af7051fb4",
+  "receipt_digest": "sha256:90da3eebf8995c73191debf79464f912c516b1c3094d8c923852201e55a08658",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:3d3dc6a61501290f3f7fd820a637fda2d10e467195619038c7f485c8c13a6278",
+    "signature": "IfMUhasqF4ufTXdmKNJCZVNsWMSzBPc1kdY43QMN2/DECLxWHXmt/BzmT3cj84TudLOa7e5faDVcHdS63Dn7CA=="
+  }
+}

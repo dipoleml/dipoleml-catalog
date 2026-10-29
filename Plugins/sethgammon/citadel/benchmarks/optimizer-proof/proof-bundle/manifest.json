@@ -1,0 +1,242 @@
+{
+  "schema": 1,
+  "kind": "citadel_optimizer_proof_bundle",
+  "bundle_id": "sha256:1822a5a8c73e570884ca8e0e38c28bdaf2d1934f8fafdb647f60ad5d337e13db",
+  "claim_status": "engineering-contract-only",
+  "scenario_set_id": "optimizer-scenarios-sha256:602e496906f3a293203750602234ba88a55a86b9e4f54f32239264098dcebe5b",
+  "executor_set_id": "optimizer-executors-sha256:8eb2367e150c75864573e8369a481e4a13be331b8544291563ab9cf9b457d4cb",
+  "metric_set_id": "optimizer-metrics-sha256:bedffbda2b18d725610b0f294a8273ef908237fd957bf9e51a5af4885b123e4f",
+  "created_at": "2026-07-31T06:40:27.314Z",
+  "files": [
+    {
+      "path": "README.md",
+      "digest": "sha256:5f2b21b4d99ef1866a1f42721b30aec5538517e5cd2e313dd90fee1e17569e76",
+      "bytes": 636
+    },
+    {
+      "path": "inputs/freeze.json",
+      "digest": "sha256:e2acccb3d8313f60b501c15ef68cff7d02337ef1e8fa1ebc27dad4884df01116",
+      "bytes": 1980
+    },
+    {
+      "path": "inputs/executors.json",
+      "digest": "sha256:2bc65ddbabdf9182604a34917ad39ec8c7574e3e7c2a3a5c612d440e4945b48c",
+      "bytes": 3591
+    },
+    {
+      "path": "inputs/calibration-plan.json",
+      "digest": "sha256:2ace6fca7d5213a99ddfdf8349ebd3bd32740d99e436ea764a67de084b09b39a",
+      "bytes": 652
+    },
+    {
+      "path": "inputs/calibration-record.json",
+      "digest": "sha256:df5ad240cba347c9706091833389b62c73fbf48669d63688b4f05d6039ac6f07",
+      "bytes": 4716
+    },
+    {
+      "path": "inputs/calibration-forensics.json",
+      "digest": "sha256:355aa25e41a70d98bbbd75be09ac0fc3f534619493b75a10669e30700328d513",
+      "bytes": 1676
+    },
+    {
+      "path": "inputs/attestation-key-rotation.json",
+      "digest": "sha256:145f050cb9aaad8e7a04bf329c3d55a96c8ec3098a7c0d26d7a1bceab1259ede",
+      "bytes": 569
+    },
+    {
+      "path": "inputs/matrix-authorization.json",
+      "digest": "sha256:318e2956f4bf5ece779aafff2fcc91a23610f5f1003255462fd2e3c65f4d7c56",
+      "bytes": 843
+    },
+    {
+      "path": "inputs/external-selection-request.json",
+      "digest": "sha256:41a7f9b5f5b3fcd4cc26ce99b1f5a3070549f81b7fa46823237d0234fa79074d",
+      "bytes": 1106
+    },
+    {
+      "path": "inputs/external-selection.json",
+      "digest": "sha256:5ddfcd69614559b152dd29c77ff694126a0e5293a2c33e31b425cd21b57fbce6",
+      "bytes": 1246
+    },
+    {
+      "path": "inputs/diagnostic-pilot-plan.json",
+      "digest": "sha256:e470f28c07e8a58077c8e2dab89d8fb403689bb918d51232fd7fd1240ef533c9",
+      "bytes": 771
+    },
+    {
+      "path": "inputs/diagnostic-pilot-record.json",
+      "digest": "sha256:e233c966695f780fc5d4976f248acaf4239c72df5742c6f248fd8bea1dd15cf9",
+      "bytes": 7289
+    },
+    {
+      "path": "inputs/diagnostic-pilot-forensics.json",
+      "digest": "sha256:0bfb7d8f50c901a963a60822b88b617ec836ad96725de5d8352cce2df8b3ed65",
+      "bytes": 2821
+    },
+    {
+      "path": "inputs/pricing.json",
+      "digest": "sha256:288b65d9f5ed249ce6634f6cf868b161fda233f886af967507ebfd541966475b",
+      "bytes": 821
+    },
+    {
+      "path": "inputs/calibration-scenarios/01-citadel-short-executor-proof.json",
+      "digest": "sha256:1d98361e147499d3508824d653af12b222825e0ddb8a300195fcfd1a7097a58f",
+      "bytes": 939
+    },
+    {
+      "path": "inputs/calibration-scenarios/02-p-limit-short-clear-queue.json",
+      "digest": "sha256:f3ea8be7f1bcb2a332579225fcd0149090b2b6e86295fa2eb0ccebd0f892914a",
+      "bytes": 910
+    },
+    {
+      "path": "inputs/calibration-scenarios/03-nanoid-size-consistency.json",
+      "digest": "sha256:5ea9f2f3e5fb286e87a64e9f52323699a803576f1c81a54910212b9968b2158a",
+      "bytes": 1026
+    },
+    {
+      "path": "inputs/calibration-scenarios/04-citadel-long-cost-provenance.json",
+      "digest": "sha256:444df857d9551f9f1b4a9db4ad5a1e7ff172970a2630df8c00781364bddace2d",
+      "bytes": 1040
+    },
+    {
+      "path": "inputs/calibration-scenarios/05-p-limit-context-cancel.json",
+      "digest": "sha256:26732c910b39375ca137922637641775750e60b431edb64b3af5db78bcdc1e06",
+      "bytes": 960
+    },
+    {
+      "path": "inputs/calibration-scenarios/06-citadel-context-receipt-recovery.json",
+      "digest": "sha256:cd8bfb1f6b90b8be19379a166d62640df87ea3f5358f01ab5ba54ba406e80c48",
+      "bytes": 1023
+    },
+    {
+      "path": "inputs/calibration-scenarios/07-nanoid-parallel-runtime-audit.json",
+      "digest": "sha256:d0b7edfd8abd5ac78e8d7bf49577a65dc647396c10efe8ba05fddd65a6f7cbe3",
+      "bytes": 1031
+    },
+    {
+      "path": "inputs/calibration-scenarios/08-citadel-safety-model-proof.json",
+      "digest": "sha256:297053e17291e9b7704fc688e68ab1e78c6f3caa24cdefaa12aa262124d6a24e",
+      "bytes": 978
+    },
+    {
+      "path": "inputs/calibration-scenarios/09-nanoid-safety-random-boundary.json",
+      "digest": "sha256:bdc6471331f240692b3e1f3e176b4cf7e956016aac074a4657b5045bd561acd3",
+      "bytes": 963
+    },
+    {
+      "path": "inputs/calibration-scenarios/10-p-limit-cleanup-pending.json",
+      "digest": "sha256:b592b472720a5e337ae712b1dcf01ace1a9075fba1f77db09335f66f4dfbe8b9",
+      "bytes": 923
+    },
+    {
+      "path": "inputs/diagnostic-pilot-scenarios/01-citadel-short-executor-proof.json",
+      "digest": "sha256:1d98361e147499d3508824d653af12b222825e0ddb8a300195fcfd1a7097a58f",
+      "bytes": 939
+    },
+    {
+      "path": "inputs/diagnostic-pilot-scenarios/02-p-limit-short-clear-queue.json",
+      "digest": "sha256:f3ea8be7f1bcb2a332579225fcd0149090b2b6e86295fa2eb0ccebd0f892914a",
+      "bytes": 910
+    },
+    {
+      "path": "inputs/diagnostic-pilot-scenarios/03-nanoid-size-consistency.json",
+      "digest": "sha256:5ea9f2f3e5fb286e87a64e9f52323699a803576f1c81a54910212b9968b2158a",
+      "bytes": 1026
+    },
+    {
+      "path": "inputs/diagnostic-pilot-scenarios/04-citadel-long-cost-provenance.json",
+      "digest": "sha256:444df857d9551f9f1b4a9db4ad5a1e7ff172970a2630df8c00781364bddace2d",
+      "bytes": 1040
+    },
+    {
+      "path": "inputs/diagnostic-pilot-scenarios/05-p-limit-context-cancel.json",
+      "digest": "sha256:26732c910b39375ca137922637641775750e60b431edb64b3af5db78bcdc1e06",
+      "bytes": 960
+    },
+    {
+      "path": "inputs/diagnostic-pilot-scenarios/06-citadel-context-receipt-recovery.json",
+      "digest": "sha256:cd8bfb1f6b90b8be19379a166d62640df87ea3f5358f01ab5ba54ba406e80c48",
+      "bytes": 1023
+    },
+    {
+      "path": "inputs/diagnostic-pilot-scenarios/07-nanoid-parallel-runtime-audit.json",
+      "digest": "sha256:d0b7edfd8abd5ac78e8d7bf49577a65dc647396c10efe8ba05fddd65a6f7cbe3",
+      "bytes": 1031
+    },
+    {
+      "path": "inputs/diagnostic-pilot-scenarios/08-citadel-safety-model-proof.json",
+      "digest": "sha256:297053e17291e9b7704fc688e68ab1e78c6f3caa24cdefaa12aa262124d6a24e",
+      "bytes": 978
+    },
+    {
+      "path": "inputs/diagnostic-pilot-scenarios/09-nanoid-safety-random-boundary.json",
+      "digest": "sha256:bdc6471331f240692b3e1f3e176b4cf7e956016aac074a4657b5045bd561acd3",
+      "bytes": 963
+    },
+    {
+      "path": "inputs/diagnostic-pilot-scenarios/10-p-limit-cleanup-pending.json",
+      "digest": "sha256:fc9f88522cc887b72ddaa3f62612f252403e25ca285b89d460275b12ae516399",
+      "bytes": 949
+    },
+    {
+      "path": "inputs/scenarios/01-citadel-short-executor-proof.json",
+      "digest": "sha256:1d98361e147499d3508824d653af12b222825e0ddb8a300195fcfd1a7097a58f",
+      "bytes": 939
+    },
+    {
+      "path": "inputs/scenarios/02-p-limit-short-clear-queue.json",
+      "digest": "sha256:f3ea8be7f1bcb2a332579225fcd0149090b2b6e86295fa2eb0ccebd0f892914a",
+      "bytes": 910
+    },
+    {
+      "path": "inputs/scenarios/03-nanoid-size-consistency.json",
+      "digest": "sha256:5ea9f2f3e5fb286e87a64e9f52323699a803576f1c81a54910212b9968b2158a",
+      "bytes": 1026
+    },
+    {
+      "path": "inputs/scenarios/04-citadel-long-cost-provenance.json",
+      "digest": "sha256:444df857d9551f9f1b4a9db4ad5a1e7ff172970a2630df8c00781364bddace2d",
+      "bytes": 1040
+    },
+    {
+      "path": "inputs/scenarios/05-p-limit-context-cancel.json",
+      "digest": "sha256:26732c910b39375ca137922637641775750e60b431edb64b3af5db78bcdc1e06",
+      "bytes": 960
+    },
+    {
+      "path": "inputs/scenarios/06-citadel-context-receipt-recovery.json",
+      "digest": "sha256:cd8bfb1f6b90b8be19379a166d62640df87ea3f5358f01ab5ba54ba406e80c48",
+      "bytes": 1023
+    },
+    {
+      "path": "inputs/scenarios/07-nanoid-parallel-runtime-audit.json",
+      "digest": "sha256:d0b7edfd8abd5ac78e8d7bf49577a65dc647396c10efe8ba05fddd65a6f7cbe3",
+      "bytes": 1031
+    },
+    {
+      "path": "inputs/scenarios/08-citadel-safety-model-proof.json",
+      "digest": "sha256:297053e17291e9b7704fc688e68ab1e78c6f3caa24cdefaa12aa262124d6a24e",
+      "bytes": 978
+    },
+    {
+      "path": "inputs/scenarios/09-nanoid-safety-random-boundary.json",
+      "digest": "sha256:bdc6471331f240692b3e1f3e176b4cf7e956016aac074a4657b5045bd561acd3",
+      "bytes": 963
+    },
+    {
+      "path": "inputs/scenarios/10-p-limit-cleanup-pending.json",
+      "digest": "sha256:dc356bee6e619d4c738ef4a7f3c4041dd3e9e72e6d44ebd96e2ed9a4d9da5b8b",
+      "bytes": 938
+    },
+    {
+      "path": "evidence/raw.jsonl",
+      "digest": "sha256:ef97fe5d49ea33f130d5a8728859f99453e3139c8ca145a1dc675eabcd7465b2",
+      "bytes": 503141
+    },
+    {
+      "path": "evidence/report.json",
+      "digest": "sha256:f389354c1d7b8fca49634a6823134e63314c304ff326f8c993b3dc1d8be53daf",
+      "bytes": 6910
+    }
+  ]
+}

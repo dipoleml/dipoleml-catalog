@@ -1,0 +1,131 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.activeloopai.hivemind",
+  "type": "plugin",
+  "name": "Hivemind",
+  "slug": "hivemind",
+  "vendor": "activeloopai",
+  "description": "Hivemind turns your traces into reusable skills across agents",
+  "version": "0.7.165",
+  "homepage": "https://github.com/activeloopai/hivemind",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "ai-memory",
+    "anthropic",
+    "artificial-intelligence",
+    "claude-agent-sdk",
+    "claude-agents",
+    "claude-code-plugin",
+    "claude-skills",
+    "codex",
+    "embeddings"
+  ],
+  "tags": [
+    "ai",
+    "ai-agents",
+    "ai-memory",
+    "anthropic",
+    "artificial-intelligence",
+    "claude",
+    "claude-agent-sdk",
+    "claude-agents",
+    "claude-code-plugin",
+    "claude-skills",
+    "codex",
+    "embeddings",
+    "long-term-memory",
+    "memory-engine",
+    "openclaw",
+    "openclaw-skills",
+    "postgres",
+    "rag"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "activeloopai",
+    "brandName": "activeloopai",
+    "source": "https://github.com/activeloopai.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:11:59Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "activeloopai/hivemind",
+    "url": "https://github.com/activeloopai/hivemind",
+    "commit": "6f4568344c781f802076d27b4a21e4a3e1adcbc8",
+    "path": "",
+    "license": "Apache-2.0",
+    "licenseClass": "green",
+    "stars": 1641,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:58:43Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Cloud-backed persistent memory powered by Deeplake — read, write, and share memory across Claude Code sessions and agents",
+        "after": "Cloud-backed persistent memory powered by Deeplake — read, write, and share memory across DipoleML sessions and agents",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "node >=22.0.0"
+    ],
+    "packages": [
+      "@deeplake/hivemind"
+    ],
+    "env": [
+      "HIVEMIND_TOKEN",
+      "HIVEMIND_API_URL"
+    ],
+    "credentials": [
+      "HIVEMIND_TOKEN"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:Apache-2.0",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

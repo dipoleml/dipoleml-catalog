@@ -1,0 +1,279 @@
+package store
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"testing"
+
+	pb "buf.build/gen/go/tldiagramcom/diagram/protocolbuffers/go/codeindex/v1"
+	"github.com/mertcikla/codeindex/config"
+	"github.com/mertcikla/codeindex/graph"
+	"github.com/mertcikla/codeindex/indexer"
+	assets "github.com/mertcikla/tld/v2"
+	"github.com/mertcikla/tld/v2/pkg/dbrepo"
+)
+
+const testSource = `package sample
+
+type Item struct {
+	Name string
+}
+
+func Run() {
+	helper()
+}
+
+func helper() {}
+`
+
+func openTestStore(t *testing.T) (*Store, *dbrepo.Handle) {
+	t.Helper()
+	handle, err := dbrepo.OpenSQLite(context.Background(), dbrepo.DBOptions{
+		SQLitePath: filepath.Join(t.TempDir(), "tld.db"),
+		Migrations: assets.FS,
+	})
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+	return NewStoreFromHandle(handle), handle
+}
+
+func TestPublishRoundTrip(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "sample.go"), []byte(testSource), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	pipeline := indexer.Pipeline{Config: config.Default()}
+	snap, g, err := pipeline.Build(ctx, &pb.IndexRequest{Directory: dir}, nil)
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if len(g.Facts) == 0 {
+		t.Fatalf("indexer produced no graph: facts=%d", len(g.Facts))
+	}
+
+	st, handle := openTestStore(t)
+	defer func() { _ = handle.Close() }()
+
+	if err := st.Publish(ctx, dir, snap, g); err != nil {
+		t.Fatalf("publish: %v", err)
+	}
+
+	latest, err := st.Latest(ctx, snap.RepositoryId)
+	if err != nil || latest != snap.Id {
+		t.Fatalf("latest = %q (err %v), want %q", latest, err, snap.Id)
+	}
+
+	loadedSnap, err := st.Snapshot(ctx, snap.Id)
+	if err != nil {
+		t.Fatalf("snapshot: %v", err)
+	}
+	if len(loadedSnap.Sources) != len(snap.Sources) {
+		t.Fatalf("sources = %d, want %d", len(loadedSnap.Sources), len(snap.Sources))
+	}
+
+	facts, err := st.Facts(ctx, snap.Id, pb.FactKind_FACT_KIND_UNSPECIFIED, "", "", 1000)
+	if err != nil {
+		t.Fatalf("facts: %v", err)
+	}
+	if len(facts) != len(g.Facts) {
+		t.Fatalf("facts = %d, want %d", len(facts), len(g.Facts))
+	}
+
+	edges, err := st.EdgeFacts(ctx, snap.Id, pb.EdgeKind_EDGE_KIND_UNSPECIFIED, "", "", 1000)
+	if err != nil {
+		t.Fatalf("edges: %v", err)
+	}
+	if len(edges) != len(g.EdgeFacts) {
+		t.Fatalf("edges = %d, want %d", len(edges), len(g.EdgeFacts))
+	}
+
+	// A fact round-trips with its anchor and evidence intact.
+	var factID string
+	for id := range g.Facts {
+		factID = id
+		break
+	}
+	fact, err := st.Fact(ctx, factID)
+	if err != nil {
+		t.Fatalf("fact: %v", err)
+	}
+	if fact.Anchor == nil || fact.Anchor.Path != "sample.go" {
+		t.Fatalf("fact anchor = %+v", fact.Anchor)
+	}
+	if len(fact.Evidence) == 0 {
+		t.Fatal("fact evidence lost")
+	}
+
+	// Source content is retrievable by hash.
+	var hash string
+	for _, src := range snap.Sources {
+		hash = src.Hash
+	}
+	content, err := st.Source(ctx, hash)
+	if err != nil {
+		t.Fatalf("source: %v", err)
+	}
+	if string(content) != testSource {
+		t.Fatalf("source content mismatch")
+	}
+
+	// LoadGraph reconstructs the same counts.
+	lg, err := st.LoadGraph(ctx, snap.Id)
+	if err != nil {
+		t.Fatalf("load graph: %v", err)
+	}
+	if len(lg.Facts) != len(g.Facts) || len(lg.EdgeFacts) != len(g.EdgeFacts) {
+		t.Fatalf("load graph mismatch: %d/%d", len(lg.Facts), len(lg.EdgeFacts))
+	}
+
+	// Diffing a snapshot against itself yields no changes.
+	diff, err := st.Diff(ctx, snap.Id, snap.Id, false)
+	if err != nil {
+		t.Fatalf("diff: %v", err)
+	}
+	if len(diff.Sources) != 0 || len(diff.Facts.Added) != 0 || len(diff.Facts.Removed) != 0 || len(diff.Facts.Modified) != 0 {
+		t.Fatalf("self diff not empty: %+v", diff)
+	}
+
+	// Re-publishing the same snapshot is idempotent.
+	if err := st.Publish(ctx, dir, snap, g); err != nil {
+		t.Fatalf("republish: %v", err)
+	}
+	again, err := st.Facts(ctx, snap.Id, pb.FactKind_FACT_KIND_UNSPECIFIED, "", "", 1000)
+	if err != nil {
+		t.Fatalf("facts after republish: %v", err)
+	}
+	if len(again) != len(g.Facts) {
+		t.Fatalf("republish duplicated facts: %d want %d", len(again), len(g.Facts))
+	}
+
+	// ListRepositories summarizes the indexed repository and latest snapshot.
+	repos, err := st.ListRepositories(ctx)
+	if err != nil {
+		t.Fatalf("list repositories: %v", err)
+	}
+	if len(repos) != 1 || repos[0].Id != snap.RepositoryId {
+		t.Fatalf("repositories = %+v", repos)
+	}
+	if repos[0].LatestSnapshotId != snap.Id || repos[0].Facts != uint32(len(g.Facts)) || repos[0].Sources != uint32(len(snap.Sources)) {
+		t.Fatalf("repository summary = %+v", repos[0])
+	}
+
+}
+
+func TestSnapshotRefsSkipsStatistics(t *testing.T) {
+	ctx := context.Background()
+	st, handle := openTestStore(t)
+	defer func() { _ = handle.Close() }()
+	for i, id := range []string{"ref-a", "ref-b"} {
+		snap := &pb.Snapshot{Id: id, RepositoryId: "repo", GitRevision: "rev-" + id, CreatedUnix: int64(i)}
+		g := graph.NewGraph(snap.RepositoryId, snap.Id)
+		text := "package sample\n\nfunc F" + id + "() {}\n"
+		src := &graph.Source{Path: "file.go", Text: []byte(text), Hash: graph.Hash([]byte(text))}
+		g.Sources[src.Path] = src
+		snap.Sources = []*pb.SourceFile{{Path: src.Path, Hash: src.Hash}}
+		if err := st.Publish(ctx, "/repo", snap, g); err != nil {
+			t.Fatal(err)
+		}
+	}
+	refs, err := st.SnapshotRefs(ctx, "repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	full, err := st.Snapshots(ctx, "repo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(refs) != len(full) {
+		t.Fatalf("refs = %d, want %d", len(refs), len(full))
+	}
+	for i := range refs {
+		if refs[i].Id != full[i].Id || refs[i].GitRevision != full[i].GitRevision || refs[i].Provenance != full[i].Provenance {
+			t.Fatalf("refs[%d] = %+v, full = %+v", i, refs[i], full[i])
+		}
+		if refs[i].Statistics != nil {
+			t.Fatalf("refs[%d] computed statistics: %+v", i, refs[i].Statistics)
+		}
+		if full[i].Statistics == nil {
+			t.Fatalf("full[%d] lost statistics", i)
+		}
+	}
+}
+
+func TestPublishDeduplicatesContentAndArtifacts(t *testing.T) {
+	ctx := context.Background()
+	st, handle := openTestStore(t)
+	defer func() { _ = handle.Close() }()
+
+	text := "package dedupe\nfunc A() {}\n"
+	artifact := []byte("scip-index-bytes")
+	publish := func(id string) {
+		snap := &pb.Snapshot{Id: id, RepositoryId: "dedupe"}
+		g := graph.NewGraph(snap.RepositoryId, snap.Id)
+		src := &graph.Source{Path: "a.go", Text: []byte(text), Hash: graph.Hash([]byte(text)), Language: "go", SyntaxCache: `{"v":1}`, FileCache: "cache", InputBlob: "blob-" + id}
+		g.Sources[src.Path] = src
+		snap.Sources = []*pb.SourceFile{{Path: src.Path, Hash: src.Hash, Size: uint64(len(text))}}
+		g.ProjectArtifacts["go|."] = graph.ProjectArtifact{Fingerprint: "fp-1", Data: artifact}
+		if err := st.Publish(ctx, "/dedupe", snap, g); err != nil {
+			t.Fatal(err)
+		}
+	}
+	publish("dedupe-a")
+	publish("dedupe-b")
+
+	count := func(table string) int {
+		t.Helper()
+		var n int
+		if err := st.bun.NewRaw(`SELECT COUNT(*) FROM `+table+` WHERE org_id = ?`, scope(ctx).value()).Scan(ctx, &n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+	if n := count("codeindex_blobs"); n != 1 {
+		t.Fatalf("blobs = %d, want one shared row", n)
+	}
+	if n := count("codeindex_artifacts"); n != 1 {
+		t.Fatalf("artifacts = %d, want one shared row", n)
+	}
+
+	for _, id := range []string{"dedupe-a", "dedupe-b"} {
+		g, err := st.LoadGraph(ctx, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		src := g.Sources["a.go"]
+		if src == nil || string(src.Text) != text || src.SyntaxCache != `{"v":1}` || src.FileCache != "cache" || src.Language != "go" {
+			t.Fatalf("%s source = %+v", id, src)
+		}
+		if a := g.ProjectArtifacts["go|."]; string(a.Data) != string(artifact) || a.Fingerprint != "fp-1" {
+			t.Fatalf("%s artifact = %+v", id, a)
+		}
+	}
+	if content, err := st.Source(ctx, graph.Hash([]byte(text))); err != nil || string(content) != text {
+		t.Fatalf("source lookup = %q, %v", content, err)
+	}
+
+	// Deleting one snapshot keeps the shared rows; the last deletion collects
+	// them.
+	if err := st.DeleteSnapshot(ctx, "dedupe-a"); err != nil {
+		t.Fatal(err)
+	}
+	if n := count("codeindex_blobs"); n != 1 {
+		t.Fatalf("blobs after first delete = %d, want 1", n)
+	}
+	if n := count("codeindex_artifacts"); n != 1 {
+		t.Fatalf("artifacts after first delete = %d, want 1", n)
+	}
+	if err := st.DeleteSnapshot(ctx, "dedupe-b"); err != nil {
+		t.Fatal(err)
+	}
+	if n := count("codeindex_blobs"); n != 0 {
+		t.Fatalf("blobs after final delete = %d, want 0", n)
+	}
+	if n := count("codeindex_artifacts"); n != 0 {
+		t.Fatalf("artifacts after final delete = %d, want 0", n)
+	}
+}

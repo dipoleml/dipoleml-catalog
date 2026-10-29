@@ -1,0 +1,16 @@
+{
+  "name": "lessloc",
+  "displayName": "Lessloc",
+  "version": "0.10.1",
+  "description": "Keeps AI coding agents such as DipoleML, Codex, GitHub Copilot, Gemini CLI and Cursor to the least code that does the job and still works: reuse hints and an edit gate while it writes, a review of exactly what it changed, a handoff record for the next agent, gates for commits and CI.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Rextail Ai"
+  },
+  "license": "Apache-2.0",
+  "homepage": "https://lessloc.org",
+  "repository": "https://github.com/rextail-ai/lessloc",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

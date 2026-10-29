@@ -1,0 +1,45 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "anthropic/claude-sonnet-4-5",
+  "fallback_model": "anthropic/claude-sonnet-4-5",
+  "small_model": "anthropic/claude-haiku-4-5",
+  "default_agent": "planner",
+  "instructions": [
+    "AGENTS.md",
+    "README.md",
+    "CONTRIBUTING.md",
+    "skills/tdd-workflow/SKILL.md",
+    "skills/code-review/SKILL.md",
+    "skills/security-review/SKILL.md",
+    "skills/verification-loop/SKILL.md",
+    "skills/frontend-patterns/SKILL.md",
+    "skills/backend-patterns/SKILL.md"
+  ],
+  "plugin": ["./plugins"],
+  "agent": {
+    "planner": {
+      "description": "Implementation planning specialist.",
+      "mode": "subagent",
+      "model": "anthropic/claude-opus-4-5",
+      "prompt": "{file:prompts/agents/planner.txt}",
+      "tools": {
+        "read": true,
+        "bash": true,
+        "write": false,
+        "edit": false
+      }
+    },
+    "code-reviewer": {
+      "description": "Code quality reviewer.",
+      "mode": "subagent",
+      "model": "anthropic/claude-sonnet-4-5",
+      "prompt": "{file:prompts/agents/code-reviewer.txt}",
+      "tools": {
+        "read": true,
+        "bash": true,
+        "write": false,
+        "edit": false
+      }
+    }
+  }
+}

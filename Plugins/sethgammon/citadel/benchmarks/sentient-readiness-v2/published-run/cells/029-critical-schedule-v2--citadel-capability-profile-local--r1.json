@@ -1,0 +1,113 @@
+{
+  "schema": 2,
+  "cell_id": "029-critical-schedule-v2--citadel-capability-profile-local--r1",
+  "order": 29,
+  "scenario_id": "critical-schedule-v2",
+  "policy_id": "citadel-capability-profile-local",
+  "repetition": 1,
+  "route": {
+    "capability_class": "strong",
+    "initial_tier": "strong",
+    "escalation_tier": null,
+    "reason_code": "CAPABILITY_STRONG"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "strong",
+      "started_at": "2026-08-01T03:48:26.236Z",
+      "duration_ms": 7031,
+      "output_text": "{\n  \"answer\": 10\n}",
+      "output_digest": "sha256:26431c4328d673dcba475a92f6d059ff5dfa6d738550f07b0da272eea71ee745",
+      "answer": 10,
+      "verification": {
+        "status": "failed",
+        "verifier_id": "exact-answer-v1",
+        "answer_digest": "sha256:4a44dc15364204a80fe80e9039455cc1608281820fe2b24f1e5233ade6af1dd5",
+        "failure_code": "ANSWER_DIGEST_MISMATCH"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "ollama-chat",
+        "requested_model": "qwen2.5-coder:7b",
+        "observed_model": "qwen2.5-coder:7b",
+        "model_digest": "sha256:dae161e27b0e90dd1856c8bb3209201fd6736d8eb66298e75ed87571486f4364",
+        "done_reason": "stop",
+        "response_digest": "sha256:63b1a9f20cc4a52bb60e64468a0abf04208e78f2981522f886d55125c869446f",
+        "error": null
+      },
+      "usage": {
+        "prompt_tokens": 106,
+        "completion_tokens": 11,
+        "total_tokens": 117,
+        "provider_total_duration_ns": 7029387200
+      },
+      "economics": {
+        "provider_invoice": {
+          "status": "known",
+          "amount_usd": 0,
+          "source": "self_hosted_ollama_no_per_request_invoice"
+        },
+        "gpu_energy": {
+          "status": "measured",
+          "energy_kwh": 0.000101683,
+          "samples": 14,
+          "average_watts": 52.063571
+        },
+        "comparison_cost": {
+          "status": "derived-comparison",
+          "total_usd": 0.000039867,
+          "components": [
+            {
+              "kind": "gpu_electricity",
+              "status": "derived-comparison",
+              "amount_usd": 0.000020337,
+              "energy_kwh": 0.000101683,
+              "rate_usd_per_kwh": 0.2,
+              "source": "nvidia_smi_energy_times_frozen_scenario_rate"
+            },
+            {
+              "kind": "gpu_amortization",
+              "status": "derived-comparison",
+              "amount_usd": 0.000019531,
+              "residual_value_usd": 100,
+              "useful_compute_hours": 10000,
+              "source": "duration_times_frozen_residual_value_scenario"
+            },
+            {
+              "kind": "provider_invoice",
+              "status": "known",
+              "amount_usd": 0,
+              "source": "self_hosted_ollama_no_per_request_invoice"
+            },
+            {
+              "kind": "cpu_memory_storage_display_energy",
+              "status": "unknown",
+              "amount_usd": null,
+              "source": "not_measured"
+            }
+          ]
+        },
+        "actual_end_to_end_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "whole_system_energy_and_actual_utility_rate_not_observed"
+        }
+      }
+    }
+  ],
+  "status": "failed",
+  "final_verification": {
+    "status": "failed",
+    "verifier_id": "exact-answer-v1",
+    "answer_digest": "sha256:4a44dc15364204a80fe80e9039455cc1608281820fe2b24f1e5233ade6af1dd5",
+    "failure_code": "ANSWER_DIGEST_MISMATCH"
+  },
+  "previous_cell_digest": "sha256:adc0d9414b35954b1e548ecc346e8c561e665f574f974dfed48d6c4d10e43718",
+  "receipt_digest": "sha256:63068b9de933f97732a87ab89350db0f1ec76535bbd2922e80182963a84fb5fe",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:3d134f5e518b92817f50b534a91f1537a896529c7bd809dd9ff93124d2f76566",
+    "signature": "XmiybMNxX/3fLm/jCZzhv3LMQ0Qj7vRasg9PTOyKls07S2e9GkZRRejEVQy/hCCI/92S1lrigFrdc+iJp/ElBQ=="
+  }
+}

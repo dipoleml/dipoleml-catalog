@@ -1,0 +1,17 @@
+# keys
+.env
+# Python
+.venv/
+__pycache__/
+*.pyc
+# everything the pipeline writes: datasets, readers, clips, renders, fal log
+runs/
+# meshes and built rigs (meshes come from tools/fetch_examples.sh or your own generator; rigs from tools/rig.sh)
+assets/*/model.glb
+assets/*/prep/
+assets/*/rigged/*.blend
+assets/*/rigged/*.blend1
+assets/*/rigged/testpose*.png
+*.part
+# Patch's brand kit (Patch Pixel is Patch's own typeface): link or copy it here to rebuild the README art
+brand-kit

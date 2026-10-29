@@ -1,0 +1,18 @@
+{
+  "name": "mnemonic",
+  "version": "0.7.0",
+  "description": "Pure filesystem-based memory system for Claude Code with custom ontology support",
+  "author": {
+    "name": "zircote",
+    "email": "zircote@gmail.com",
+    "url": "https://github.com/zircote"
+  },
+  "license": "MIT",
+  "keywords": [
+    "memory",
+    "mnemonic",
+    "knowledge-management",
+    "persistent-memory",
+    "ontology"
+  ]
+}

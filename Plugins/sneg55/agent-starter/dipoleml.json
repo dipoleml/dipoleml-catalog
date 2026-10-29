@@ -1,0 +1,107 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.sneg55.agent-starter",
+  "type": "plugin",
+  "name": "Agent Starter",
+  "slug": "agent-starter",
+  "vendor": "sneg55",
+  "description": "A toolkit of skills, templates, and guides for bootstrapping AI-agent-friendly projects. Started from Anthropic's DipoleML engineering patterns, extended with a per-project self-improvement loop and more.",
+  "version": "0.4.10",
+  "homepage": "https://github.com/sneg55/agent-starter",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agent-skills",
+    "claude-code-marketplace",
+    "claude-code-plugin",
+    "claude-plugin",
+    "claude-skills"
+  ],
+  "tags": [
+    "agent-skills",
+    "ai-agents",
+    "claude-code",
+    "claude-code-marketplace",
+    "claude-code-plugin",
+    "claude-plugin",
+    "claude-skills"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "sneg55",
+    "brandName": "sneg55",
+    "source": "https://github.com/sneg55.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:14:53Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "sneg55/agent-starter",
+    "url": "https://github.com/sneg55/agent-starter",
+    "commit": "b5c5abe01cf75ec5c1328d5b971e28adbb412315",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 74,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:05:15Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Agent Starter | A toolkit of skills, templates, and guides for bootstrapping AI-agent-friendly projects. Started from Anthropic's Claude Code engineering patterns, extended with a per-project self-improvement loop and more.",
+        "after": "Agent Starter | A toolkit of skills, templates, and guides for bootstrapping AI-agent-friendly projects. Started from Anthropic's DipoleML engineering patterns, extended with a per-project self-improvement loop and more.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

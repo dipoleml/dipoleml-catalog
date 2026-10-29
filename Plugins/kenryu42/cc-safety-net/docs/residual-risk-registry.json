@@ -1,0 +1,208 @@
+{
+  "version": 1,
+  "automated_from": 11,
+  "families": [
+    {
+      "id": "RR-1",
+      "title": "Dynamic Executables and Computed Command Names",
+      "boundary": "dynamic-executables",
+      "affected_modes": ["standard"],
+      "strict_fixture": null,
+      "adjudication": {
+        "kind": "legacy",
+        "date": "2026-07-22",
+        "sources": [
+          "SECURITY.md safety-preset contract",
+          "behavioral-contract case: allows an executable assembled by command substitution at standard safety"
+        ]
+      }
+    },
+    {
+      "id": "RR-2",
+      "title": "Command Structure Assembled Through Substitution",
+      "boundary": "substitution-assembled-structure",
+      "affected_modes": ["standard"],
+      "strict_fixture": null,
+      "adjudication": {
+        "kind": "legacy",
+        "date": "2026-07-22",
+        "sources": ["SECURITY.md safety-preset contract", "tests/gate/behavioral-contract-cases.ts"]
+      }
+    },
+    {
+      "id": "RR-3",
+      "title": "Unverifiable Recursive-Delete Targets",
+      "boundary": "unverifiable-recursive-delete-targets",
+      "affected_modes": ["standard"],
+      "strict_fixture": null,
+      "adjudication": {
+        "kind": "legacy",
+        "date": "2026-07-22",
+        "sources": [
+          "SECURITY.md safety-preset and allow-path contracts",
+          "docs/rm-temp-target-security-findings.md section 2",
+          "tests/gate/behavioral-contract-cases.ts"
+        ]
+      }
+    },
+    {
+      "id": "RR-4",
+      "title": "Runtime-Reconstructed Strings Inside Interpreter Code",
+      "boundary": "runtime-reconstructed-interpreter-strings",
+      "affected_modes": ["standard"],
+      "strict_fixture": null,
+      "adjudication": {
+        "kind": "legacy",
+        "date": "2026-07-22",
+        "sources": [
+          "docs/secret-protection-known-limitations.md",
+          "docs/secret-protection-bypass-findings.md"
+        ]
+      }
+    },
+    {
+      "id": "RR-5",
+      "title": "Script and Interpreter File Bodies",
+      "boundary": "script-and-interpreter-file-bodies",
+      "affected_modes": ["standard", "strict", "paranoid"],
+      "strict_fixture": null,
+      "adjudication": {
+        "kind": "legacy",
+        "date": "2026-07-22",
+        "sources": ["SECURITY.md policy-file protection non-goals"]
+      }
+    },
+    {
+      "id": "RR-6",
+      "title": "Exact Shell-Expansion Emulation",
+      "boundary": "exact-shell-expansion-emulation",
+      "affected_modes": ["standard"],
+      "strict_fixture": null,
+      "adjudication": {
+        "kind": "legacy",
+        "date": "2026-07-22",
+        "sources": [
+          "SECURITY.md shell-expansion non-goals",
+          "docs/rm-temp-target-security-findings.md section 2"
+        ]
+      }
+    },
+    {
+      "id": "RR-7",
+      "title": "Runtime Shell-State Mutation",
+      "boundary": "runtime-shell-state-mutation",
+      "affected_modes": ["standard"],
+      "strict_fixture": null,
+      "adjudication": {
+        "kind": "legacy",
+        "date": "2026-07-22",
+        "sources": ["REVIEW.md threat model", "SECURITY.md policy-file protection scope"]
+      }
+    },
+    {
+      "id": "RR-8",
+      "title": "Quoting-Concatenation and Analyzer-Marker Attacks",
+      "boundary": "quoting-concatenation-analyzer-marker-attacks",
+      "affected_modes": ["standard"],
+      "strict_fixture": null,
+      "adjudication": {
+        "kind": "legacy",
+        "date": "2026-07-22",
+        "sources": ["docs/rm-temp-target-security-findings.md section 1"]
+      }
+    },
+    {
+      "id": "RR-9",
+      "title": "Exact Tool-Language Emulation",
+      "boundary": "exact-tool-language-emulation",
+      "affected_modes": ["standard"],
+      "strict_fixture": null,
+      "adjudication": {
+        "kind": "legacy",
+        "date": "2026-07-22",
+        "sources": ["REVIEW.md threat model", "SECURITY.md policy-file protection non-goals"]
+      }
+    },
+    {
+      "id": "RR-10",
+      "title": "Standalone Metadata-Only Sensitive-Path Checks",
+      "boundary": "standalone-metadata-only-sensitive-path-checks",
+      "affected_modes": ["standard"],
+      "strict_fixture": null,
+      "adjudication": {
+        "kind": "legacy",
+        "date": "2026-07-22",
+        "sources": ["SECURITY.md safety-preset contract"]
+      }
+    },
+    {
+      "id": "RR-11",
+      "title": "Adversarial Repo-Delivered Configuration",
+      "boundary": "adversarial-repo-delivered-configuration",
+      "affected_modes": ["standard", "strict", "paranoid"],
+      "strict_fixture": null,
+      "adjudication": {
+        "kind": "design",
+        "date": "2026-08-28",
+        "sources": [
+          "TEAM-POLICY-DESIGN.md threat model adjudication",
+          "TEAM-POLICY-DESIGN.md rejected alternatives: trust-gated weakening"
+        ]
+      }
+    },
+    {
+      "id": "RR-12",
+      "title": "Project Policy Guard Best-Effort Gaps",
+      "boundary": "project-policy-guard-best-effort-gaps",
+      "affected_modes": ["standard", "strict", "paranoid"],
+      "strict_fixture": null,
+      "adjudication": {
+        "kind": "design",
+        "date": "2026-08-28",
+        "sources": [
+          "TEAM-POLICY-DESIGN.md guard extension",
+          "SECURITY.md policy-file protection non-goals"
+        ]
+      }
+    },
+    {
+      "id": "RR-13",
+      "title": "Live Rulebook Files Lose Edit-Pending Enforcement",
+      "boundary": "live-rulebook-edit-pending-loss",
+      "affected_modes": ["standard", "strict", "paranoid"],
+      "strict_fixture": null,
+      "adjudication": {
+        "kind": "design",
+        "date": "2026-08-28",
+        "sources": [
+          "TEAM-POLICY-DESIGN.md live-loading",
+          "TEAM-POLICY-DESIGN.md accepted residuals"
+        ]
+      }
+    },
+    {
+      "id": "RR-14",
+      "title": "Vendored Rulebook Drift Until Update",
+      "boundary": "vendored-rulebook-drift",
+      "affected_modes": ["standard", "strict", "paranoid"],
+      "strict_fixture": null,
+      "adjudication": {
+        "kind": "design",
+        "date": "2026-08-28",
+        "sources": ["TEAM-POLICY-DESIGN.md vendoring remote sources"]
+      }
+    },
+    {
+      "id": "RR-15",
+      "title": "GUI Session Token Readable by the Agent That Launches It",
+      "boundary": "gui-session-token-visible-to-launcher",
+      "affected_modes": ["standard", "strict", "paranoid"],
+      "strict_fixture": null,
+      "adjudication": {
+        "kind": "design",
+        "date": "2026-08-29",
+        "sources": ["REVIEW.md threat model", "SECURITY.md policy-file protection non-goals"]
+      }
+    }
+  ]
+}

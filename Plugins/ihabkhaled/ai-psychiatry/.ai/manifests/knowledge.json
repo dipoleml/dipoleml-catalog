@@ -1,0 +1,136 @@
+{
+  "durable_memory": [
+    {
+      "path": ".ai/memory/README.md",
+      "load_when": "on_demand"
+    },
+    {
+      "path": ".ai/memory/index.md",
+      "load_when": "on_demand"
+    },
+    {
+      "path": ".ai/memory/preferences.md",
+      "load_when": "on_demand"
+    },
+    {
+      "path": ".ai/memory/architecture.md",
+      "load_when": "on_demand"
+    },
+    {
+      "path": ".ai/memory/decisions.md",
+      "load_when": "on_demand"
+    },
+    {
+      "path": ".ai/memory/recurring-problems.md",
+      "load_when": "on_demand"
+    },
+    {
+      "path": ".ai/memory/lessons.md",
+      "load_when": "on_demand"
+    },
+    {
+      "path": ".ai/memory/failure-patterns.md",
+      "load_when": "on_demand"
+    }
+  ],
+  "guides": [
+    {
+      "path": ".ai/guides/attention-drift.md",
+      "load_when": "on-loop"
+    },
+    {
+      "path": ".ai/guides/compulsive-verification.md",
+      "load_when": "on-finalization"
+    },
+    {
+      "path": ".ai/guides/overthinking-analysis-paralysis.md",
+      "load_when": "on-loop"
+    },
+    {
+      "path": ".ai/guides/recursive-investigation.md",
+      "load_when": "on-loop"
+    },
+    {
+      "path": ".ai/guides/nested-job-control.md",
+      "load_when": "on-multi-agent"
+    },
+    {
+      "path": ".ai/guides/hallucination-evidence.md",
+      "load_when": "on-uncertainty"
+    },
+    {
+      "path": ".ai/guides/perfectionism-completion.md",
+      "load_when": "on-finalization"
+    },
+    {
+      "path": ".ai/guides/rabbit-holes-scope-drift.md",
+      "load_when": "on-loop"
+    },
+    {
+      "path": ".ai/guides/deadlock-livelock.md",
+      "load_when": "on-deadlock"
+    },
+    {
+      "path": ".ai/guides/failure-mode-catalog.md",
+      "load_when": "on-diagnosis"
+    },
+    {
+      "path": ".ai/guides/semantic-compliance.md",
+      "load_when": "on-semantic-risk"
+    },
+    {
+      "path": ".ai/guides/loophole-catalog.md",
+      "load_when": "on-semantic-risk"
+    },
+    {
+      "path": ".ai/guides/underthinking.md",
+      "load_when": "on-semantic-risk"
+    },
+    {
+      "path": ".ai/guides/reasoning-balance.md",
+      "load_when": "on-semantic-risk"
+    },
+    {
+      "path": ".ai/guides/context-starvation.md",
+      "load_when": "on-semantic-risk"
+    },
+    {
+      "path": ".ai/guides/sufficient-reasoning.md",
+      "load_when": "on-semantic-risk"
+    },
+    {
+      "path": ".ai/guides/executive-override-conflicts.md",
+      "load_when": "on-semantic-risk"
+    },
+    {
+      "path": ".ai/guides/relentless-execution.md",
+      "load_when": "on-explicit-invocation"
+    },
+    {
+      "path": ".ai/guides/all-the-medicine.md",
+      "load_when": "on-explicit-invocation"
+    }
+  ],
+  "context": [
+    {
+      "path": ".ai/bootstrap/boot.md",
+      "load": "always",
+      "purpose": "bootstrap"
+    },
+    {
+      "path": ".ai/context/current-task.md",
+      "load": "task",
+      "purpose": "temporary task"
+    },
+    {
+      "path": ".ai/context/domains/",
+      "load": "domain",
+      "purpose": "domain knowledge"
+    },
+    {
+      "path": ".ai/memory/index.md",
+      "load": "on_demand",
+      "purpose": "durable memory"
+    }
+  ]
+}

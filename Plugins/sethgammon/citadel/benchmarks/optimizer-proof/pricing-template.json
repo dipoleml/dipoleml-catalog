@@ -1,0 +1,19 @@
+{
+  "schema": 1,
+  "currency": "USD",
+  "observed_at": "YYYY-MM-DD",
+  "source_url": "https://official-provider-pricing-page.example/",
+  "billing_basis": "official_api_list_price",
+  "models": [
+    {
+      "provider": "openai",
+      "model": "replace-with-exact-frozen-model",
+      "input_per_million_usd": 0,
+      "cached_input_per_million_usd": 0,
+      "output_per_million_usd": 0,
+      "standard_input_limit_tokens": null,
+      "over_limit_input_multiplier": null,
+      "over_limit_output_multiplier": null
+    }
+  ]
+}

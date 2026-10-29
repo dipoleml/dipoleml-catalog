@@ -1,0 +1,248 @@
+import { createOpenAI } from '@ai-sdk/openai';
+import { createAnthropic } from '@ai-sdk/anthropic';
+import { generateObject, generateText, LanguageModel } from 'ai';
+import { ProjectConfig, FilterResult, KnowledgeAtom, KnowledgeItem } from '../core/types.js';
+import { AIProviderError } from '../core/errors.js';
+import { aiProvider } from '../core/ai-providers/index.js';
+import {
+  FilterResultSchema,
+  filterSchemaWith,
+  ExtractionResultSchema,
+  CompareResultSchema,
+  DerivedTruthSchema
+} from './schemas.js';
+import { COMPARE_SYSTEM_PROMPT } from './prompts.js';
+import { codeProfile } from './profiles/code.js';
+import type { DomainProfile } from './profiles/types.js';
+
+let currentModel: LanguageModel | null = null;
+type AIConfig = NonNullable<ProjectConfig['ai']>;
+
+let currentConfig: AIConfig | null = null;
+
+/**
+ * Initializes the AI provider model based on project configuration.
+ */
+export function initAI(config: AIConfig): LanguageModel {
+  // If config hasn't changed and model is initialized, reuse it
+  if (currentModel && JSON.stringify(currentConfig) === JSON.stringify(config)) {
+    return currentModel;
+  }
+
+  const { provider, model, apiKey, baseUrl } = config;
+
+  try {
+    const descriptor = aiProvider(provider);
+    const settings = descriptor.settings({ apiKey, baseUrl });
+    const sdk = descriptor.resolveSdk ? descriptor.resolveSdk(model) : descriptor.sdk;
+    currentModel = sdk === 'anthropic' ? createAnthropic(settings)(model) : createOpenAI(settings)(model);
+
+    currentConfig = config;
+    return currentModel;
+  } catch (error: any) {
+    throw new AIProviderError(`Failed to initialize AI provider: ${error.message}`);
+  }
+}
+
+/**
+ * Gets the initialized LanguageModel or throws if not configured.
+ */
+function getModel(): LanguageModel {
+  if (!currentModel) {
+    throw new AIProviderError('AI provider has not been initialized. Call initAI() first.');
+  }
+  return currentModel;
+}
+
+/**
+ * Stages the raw input against a filter to detect noise, sensitive secrets, or valid knowledge.
+ */
+export async function filterInput(
+  input: string,
+  config: ProjectConfig,
+  profile: DomainProfile = codeProfile
+): Promise<FilterResult> {
+  const model = getModel();
+
+  // Pre-filter for basic secrets if rejectSecrets is enabled
+  if (config.security?.rejectSecrets) {
+    const lowerInput = input.toLowerCase();
+    for (const pattern of config.security.secretPatterns || []) {
+      if (lowerInput.includes(pattern.toLowerCase())) {
+        const words = input.split(/[\s:="']+/);
+        // Look for any word that seems to be a token/key (at least 16 chars, alphanumeric/dashes)
+        const hasLongHash = words.some(w => /^[a-zA-Z0-9_-]{16,}$/.test(w));
+        if (hasLongHash) {
+          return {
+            pass: false,
+            reason: `Rejected: Detected potential sensitive information matching pattern "${pattern}".`,
+          };
+        }
+      }
+    }
+  }
+
+  try {
+    const { object } = await generateObject({
+      model,
+      schema: profile.passDescription ? filterSchemaWith(profile.passDescription) : FilterResultSchema,
+      system: profile.filter,
+      prompt: `Analyze the following input:\n\n${input}`,
+      temperature: 0.1,
+    });
+
+    return {
+      pass: object.pass,
+      ...(object.reason ? { reason: object.reason } : {}),
+    };
+  } catch (error: any) {
+    throw new AIProviderError(`Filter classification failed: ${error.message}`);
+  }
+}
+
+/**
+ * Extracts structured knowledge atoms from unstructured text.
+ */
+export async function extractKnowledge(input: string, profile: DomainProfile = codeProfile): Promise<KnowledgeAtom[]> {
+  const model = getModel();
+  try {
+    const { object } = await generateObject({
+      model,
+      schema: ExtractionResultSchema,
+      system: profile.extract,
+      prompt: `Extract knowledge atoms from the following input:\n\n${input}`,
+      temperature: 0.1,
+    });
+
+    return object.atoms.map(atom => ({
+      ...atom,
+      reasoning: atom.reasoning ?? undefined,
+      alternatives: atom.alternatives ?? undefined,
+      tags: atom.tags ?? undefined,
+      steps: atom.steps ?? undefined,
+    }));
+  } catch (error: any) {
+    throw new AIProviderError(`Knowledge extraction failed: ${error.message}`);
+  }
+}
+
+/**
+ * Compares a new knowledge atom against an existing stored item to identify updates, duplicates, or conflicts.
+ */
+export async function compareKnowledge(
+  atom: KnowledgeAtom,
+  existingItem: KnowledgeItem
+): Promise<{
+  relationship: 'duplicate' | 'update' | 'contradiction' | 'unrelated';
+  reason: string;
+  updatedContent?: string;
+  updatedTitle?: string;
+  updatedReasoning?: string;
+  updatedAlternatives?: string[];
+  updatedTags?: string[];
+  updatedSteps?: string[];
+}> {
+  const model = getModel();
+  try {
+    const promptContent = `
+NEW ATOM:
+Category: ${atom.category}
+Title: ${atom.title}
+Content: ${atom.content}
+Reasoning: ${atom.reasoning || 'N/A'}
+Alternatives: ${JSON.stringify(atom.alternatives || [])}
+Tags: ${JSON.stringify(atom.tags || [])}
+Steps: ${JSON.stringify(atom.steps || [])}
+
+EXISTING ITEM:
+Category: ${existingItem.category}
+Title: ${existingItem.title}
+Content: ${existingItem.content}
+Reasoning: ${existingItem.reasoning || 'N/A'}
+Alternatives: ${JSON.stringify(existingItem.alternatives || [])}
+Tags: ${JSON.stringify(existingItem.tags || [])}
+`;
+
+    const { object } = await generateObject({
+      model,
+      schema: CompareResultSchema,
+      system: COMPARE_SYSTEM_PROMPT,
+      prompt: promptContent,
+      temperature: 0.1,
+    });
+
+    return {
+      relationship: object.relationship,
+      reason: object.reason,
+      ...(object.updatedContent ? { updatedContent: object.updatedContent } : {}),
+      ...(object.updatedTitle ? { updatedTitle: object.updatedTitle } : {}),
+      ...(object.updatedReasoning ? { updatedReasoning: object.updatedReasoning } : {}),
+      ...(object.updatedAlternatives ? { updatedAlternatives: object.updatedAlternatives } : {}),
+      ...(object.updatedTags ? { updatedTags: object.updatedTags } : {}),
+      ...(object.updatedSteps ? { updatedSteps: object.updatedSteps } : {}),
+    };
+  } catch (error: any) {
+    throw new AIProviderError(`Knowledge comparison failed: ${error.message}`);
+  }
+}
+
+/**
+ * Answers a user's question using hierarchical active project context.
+ */
+export async function askQuestion(
+  question: string,
+  contextMarkdown: string,
+  profile: DomainProfile = codeProfile
+): Promise<string> {
+  const model = getModel();
+  try {
+    const { text } = await generateText({
+      model,
+      system: profile.ask,
+      prompt: `
+CONTEXT:
+${contextMarkdown}
+
+QUESTION:
+${question}
+`,
+      temperature: 0.2,
+    });
+
+    return text;
+  } catch (error: any) {
+     throw new AIProviderError(`Failed to answer question: ${error.message}`);
+  }
+}
+
+/**
+ * Derives key=value active state truths from a given KnowledgeItem.
+ */
+export async function deriveTruth(
+  item: KnowledgeItem,
+  profile: DomainProfile = codeProfile
+): Promise<{ key: string; value: string }[]> {
+  if (profile.deriveTruth === null) return [];
+  const model = getModel();
+  try {
+    const { object } = await generateObject({
+      model,
+      schema: DerivedTruthSchema,
+      system: profile.deriveTruth,
+      prompt: `
+Analyze this knowledge item and extract any derived truths:
+Category: ${item.category}
+Title: ${item.title}
+Content: ${item.content}
+Reasoning: ${item.reasoning || 'N/A'}
+Alternatives: ${item.alternatives ? item.alternatives.join(', ') : 'N/A'}
+Tags: ${item.tags ? item.tags.join(', ') : 'N/A'}
+`,
+      temperature: 0.1,
+    });
+
+    return object.truths;
+  } catch (error: any) {
+    throw new AIProviderError(`Truth derivation failed: ${error.message}`);
+  }
+}

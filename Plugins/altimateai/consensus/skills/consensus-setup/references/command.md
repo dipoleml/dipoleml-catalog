@@ -1,0 +1,157 @@
+# Codex Consensus Setup
+
+This is the Codex-native setup flow for the Consensus plugin. It configures the external model panel used by `consensus-code-review`, `consensus-plan-review`, and `consensus-review`.
+
+## Files
+
+- User config: `~/.codex/consensus.json`
+- Codex default config: `plugins/consensus/consensus.codex.config.json`
+- OpenRouter key lookup: `~/.codex/.env` first, then `~/.claude/.env` as a read-only fallback
+
+Never write `~/.claude/consensus.json` from this setup command.
+
+## Rules
+
+1. Codex is the lead reviewer in Codex sessions.
+2. Do not include GPT/Codex as an external panelist.
+3. For now, do not add Claude as an external panelist.
+4. Use pi/OpenRouter for OpenRouter-hosted models and native non-Codex CLIs only.
+5. Preserve user model preferences unless the user explicitly asks to replace them, but migrate legacy `command: "gemini"` entries to `command: "agy"` whenever rewriting the config.
+6. Do not smoke-test live model calls unless the user asks, because that consumes credits.
+
+## Step 1: Inspect Current State
+
+Check:
+
+```bash
+test -f ~/.codex/consensus.json && jq . ~/.codex/consensus.json
+command -v pi
+command -v agy
+command -v qwen
+test -f ~/.codex/.env && grep -q '^OPENROUTER_API_KEY=.\+' ~/.codex/.env
+test -f ~/.claude/.env && grep -q '^OPENROUTER_API_KEY=.\+' ~/.claude/.env
+```
+
+Report:
+
+- whether `~/.codex/consensus.json` exists and parses
+- enabled external models
+- configured quorum
+- pi, Antigravity (`agy`), and Qwen availability
+- whether an OpenRouter key exists in `~/.codex/.env` or fallback `~/.claude/.env`
+
+If the existing config is valid and the user only asked to inspect, stop after the summary.
+
+## Step 2: Provider Defaults
+
+Use these model mappings:
+
+| ID | Name | Default command | Native alternative |
+|----|------|-----------------|--------------------|
+| `gemini` | Gemini via Antigravity | `pi --provider openrouter --model google/gemini-3.1-pro-preview -p` | `agy` |
+| `kimi` | Kimi K2.6 | `pi --provider openrouter --model moonshotai/kimi-k2.6 -p` | none |
+| `grok` | Grok 4.3 | `pi --provider openrouter --model x-ai/grok-4.3 -p` | none |
+| `minimax` | MiniMax M2.7 | `pi --provider openrouter --model minimax/minimax-m2.7 -p` | none |
+| `glm5` | GLM-5.2 | `pi --provider openrouter --model z-ai/glm-5.2 -p` | none |
+| `qwen` | Qwen 3.6 Plus | `pi --provider openrouter --model qwen/qwen3.6-plus -p` | optional `qwen`, disabled by default unless user asks |
+| `mimo` | MiMo V2.5 Pro | `pi --provider openrouter --model xiaomi/mimo-v2.5-pro -p` | none |
+| `deepseek` | DeepSeek V4 Pro | `pi --provider openrouter --model deepseek/deepseek-v4-pro -p` | none |
+
+Codex setup intentionally omits the Claude plugin's `gpt` model because Codex/GPT is the lead in Codex sessions.
+
+Recommended defaults:
+
+- enable the current stable non-Codex panel: Gemini via Antigravity, Kimi, MiniMax, GLM-5.2, Qwen, MiMo V2.5 Pro, and DeepSeek
+- leave Grok disabled by default unless the user explicitly enables it
+- use Antigravity CLI when `agy` is installed; review workflows call it with `--sandbox -p` for both initial and convergence prompts
+- use pi/OpenRouter for the rest
+- set quorum to 8 for the default panel, meaning all 7 enabled externals plus Codex must respond
+
+For custom panels, keep quorum within these bounds:
+
+```text
+recommended = floor((enabled_external_models + 1) / 2) + 1
+minimum = 2
+maximum = enabled_external_models + 1
+```
+
+## Step 3: Key Handling
+
+If pi/OpenRouter models are selected and no OpenRouter key is found, ask the user for the key or tell them to set it later.
+
+When saving a key, write only to `~/.codex/.env`:
+
+1. create the file if needed
+2. replace an existing `OPENROUTER_API_KEY=` line if present
+3. otherwise append it
+4. preserve all other lines unchanged
+
+Never copy the key into repo files or print it back to the user.
+
+## Step 4: Write Config
+
+Write `~/.codex/consensus.json` with this shape:
+
+```json
+{
+  "version": "1.7.0",
+  "lead": {
+    "id": "codex",
+    "name": "Codex",
+    "excluded_model_ids": ["gpt", "codex"],
+    "note": "Codex is the lead reviewer in Codex sessions, so do not invoke Codex/GPT as an external panelist."
+  },
+  "models": [
+    {
+      "id": "gemini",
+      "name": "Gemini via Antigravity",
+      "command": "agy",
+      "resume_flag": "",
+      "enabled": true
+    }
+  ],
+  "min_quorum": 2,
+  "performance_tracking": false
+}
+```
+
+Include all 8 non-Codex external models, with `enabled` reflecting the user's selected panel.
+
+Use the selected quorum. The default Codex panel uses `min_quorum: 8`.
+
+For enabled pi models, use `resume_flag: "-c"`.
+
+For native Google/Gemini execution, use `command: "agy"` and `resume_flag: ""`.
+
+For native Qwen, only use `command: "qwen"` if the user explicitly selects native Qwen; otherwise prefer pi/OpenRouter.
+
+## Step 5: Optional Smoke Test
+
+Only run this if the user explicitly asks for live validation:
+
+```bash
+if [ -f ~/.codex/.env ] && grep -q '^OPENROUTER_API_KEY=.\+' ~/.codex/.env; then
+  export OPENROUTER_API_KEY="$(grep '^OPENROUTER_API_KEY=' ~/.codex/.env | cut -d= -f2- | tr -d '"')"
+elif [ -f ~/.claude/.env ] && grep -q '^OPENROUTER_API_KEY=.\+' ~/.claude/.env; then
+  export OPENROUTER_API_KEY="$(grep '^OPENROUTER_API_KEY=' ~/.claude/.env | cut -d= -f2- | tr -d '"')"
+fi
+```
+
+For each enabled model, run a tiny prompt asking it to reply `PONG`, using the command pattern for that CLI:
+
+- `agy`: `agy --sandbox -p "Reply with exactly: PONG"`
+- `qwen`: `qwen --approval-mode plan -p "Reply with exactly: PONG" -o text`
+- pi/OpenRouter: `{model.command} "Reply with exactly: PONG"`
+
+If a model fails, disable it only after reporting the failure and confirming that quorum still holds. If quorum would fail, leave the prior valid config in place and tell the user what needs to be fixed.
+
+## Final Output
+
+Summarize:
+
+- config path
+- enabled external models
+- lead model: Codex
+- quorum
+- skipped or unavailable models
+- whether live smoke tests were skipped or run

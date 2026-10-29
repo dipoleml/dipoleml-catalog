@@ -1,0 +1,204 @@
+#!/usr/bin/env bash
+# release/install.sh — install a PRE-BUILT cc-fleet from a release archive.
+#
+# Shipped INSIDE each cc-fleet-<os>-<arch>.tar.gz. It copies the prebuilt binary
+# sitting next to it onto your PATH (no Go toolchain, no download), creates the
+# `ccf` alias, and installs the cc-fleet skill — by default via the Claude Code
+# plugin. For a from-source build, clone the repo and run `make install`.
+
+set -euo pipefail
+
+REPO="ethanhq/cc-fleet"      # GitHub owner/repo (plugin marketplace source)
+MARKETPLACE="ethanhq"        # claude plugin marketplace name
+PLUGIN="cc-fleet"            # claude plugin name
+SKILL_NAME="cc-fleet"        # skill dir under ~/.claude/skills/ (for --skill global)
+
+DEFAULT_PREFIX="${HOME}/.local/bin"
+PREFIX="${DEFAULT_PREFIX}"
+SKILL_MODE="plugin"          # plugin | global | none
+SCOPE="user"                 # user | project | local (only for --skill plugin)
+SKILL_DIR="${HOME}/.claude/skills/${SKILL_NAME}"
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+usage() {
+    cat <<EOF
+install.sh — install prebuilt cc-fleet from this release archive.
+
+Usage:
+    ./install.sh [options]
+
+Options:
+    --skill plugin|global|none  How to install the skill. Default: plugin.
+                                  plugin = via Claude Code plugin (also adds the
+                                           SessionStart hook).
+                                  global = copy the bundled per-lane skills into ~/.claude/skills/.
+                                  none   = binary only.
+    --scope user|project|local  Plugin install scope (--skill plugin). Default: user.
+    --prefix DIR                Install the binary into DIR. Default: ${DEFAULT_PREFIX}.
+    --skill-dir DIR             Skill dir for --skill global. Default: ${SKILL_DIR}.
+    -h, --help                  Show this help and exit.
+EOF
+}
+
+# --- Parse args ---------------------------------------------------------------
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --skill)     SKILL_MODE="${2:?--skill requires a value}"; shift 2 ;;
+        --skill=*)   SKILL_MODE="${1#--skill=}"; shift ;;
+        --scope)     SCOPE="${2:?--scope requires a value}"; shift 2 ;;
+        --scope=*)   SCOPE="${1#--scope=}"; shift ;;
+        --prefix)    PREFIX="${2:?--prefix requires a value}"; shift 2 ;;
+        --prefix=*)  PREFIX="${1#--prefix=}"; shift ;;
+        --skill-dir) SKILL_DIR="${2:?--skill-dir requires a value}"; shift 2 ;;
+        --skill-dir=*) SKILL_DIR="${1#--skill-dir=}"; shift ;;
+        -h|--help)   usage; exit 0 ;;
+        *)
+            echo "install.sh: unknown argument: $1" >&2
+            echo "Run './install.sh --help' for usage." >&2
+            exit 2
+            ;;
+    esac
+done
+
+case "$SKILL_MODE" in plugin|global|none) ;; *) echo "install.sh: --skill must be plugin|global|none" >&2; exit 2 ;; esac
+case "$SCOPE" in user|project|local) ;; *) echo "install.sh: --scope must be user|project|local" >&2; exit 2 ;; esac
+
+# --- Sanity check -------------------------------------------------------------
+
+if [[ ! -x "${SCRIPT_DIR}/cc-fleet" ]]; then
+    echo "install.sh: prebuilt 'cc-fleet' binary not found next to this script" >&2
+    echo "  (expected ${SCRIPT_DIR}/cc-fleet — is this the extracted release archive?)" >&2
+    exit 1
+fi
+
+# --- Binary + ccf alias -------------------------------------------------------
+
+mkdir -p "${PREFIX}"
+# Temp file + rename, as in the top-level installer: a new inode, so a running
+# cc-fleet is untouched and macOS never kills the new binary over a stale code
+# signature.
+tmpbin="${PREFIX}/.cc-fleet.tmp.$$"
+cp "${SCRIPT_DIR}/cc-fleet" "$tmpbin" && chmod 0755 "$tmpbin" && mv -f "$tmpbin" "${PREFIX}/cc-fleet" \
+  || { rm -f "$tmpbin"; echo "install.sh: could not install ${PREFIX}/cc-fleet" >&2; exit 1; }
+# Relative symlink (same as `make install-bin` / the top-level installer).
+# os.Executable() resolves it, so a provider teammate's apiKeyHelper still
+# points at the real cc-fleet path.
+ln -sf cc-fleet "${PREFIX}/ccf"
+echo "==> Installed: ${PREFIX}/cc-fleet (+ ccf alias)"
+
+# Install manifest (co-located with the binary) so `cc-fleet update` self-updates
+# in place without guessing the method, preserves the plugin scope, and leaves
+# the plugin alone for a --skill none/global install.
+cat > "${PREFIX}/.cc-fleet-install.json" <<EOF
+{"method":"tarball","plugin_scope":"${SCOPE}","skill":"${SKILL_MODE}"}
+EOF
+
+# --- Skill --------------------------------------------------------------------
+
+case "$SKILL_MODE" in
+    plugin)
+        if command -v claude >/dev/null 2>&1; then
+            claude plugin marketplace add "${REPO}" --scope "${SCOPE}" >/dev/null 2>&1 || true
+            if claude plugin install "${PLUGIN}@${MARKETPLACE}" --scope "${SCOPE}"; then
+                echo "==> Installed the cc-fleet skill via plugin (scope: ${SCOPE})"
+                echo "    uninstall: claude plugin uninstall ${PLUGIN}@${MARKETPLACE}"
+            else
+                echo "==> Could not install the plugin automatically. To add the skill, run:" >&2
+                echo "    claude plugin marketplace add ${REPO} --scope ${SCOPE}" >&2
+                echo "    claude plugin install ${PLUGIN}@${MARKETPLACE} --scope ${SCOPE}" >&2
+            fi
+        else
+            echo "==> 'claude' not on PATH — skipped plugin install. To add the skill later:"
+            echo "    claude plugin marketplace add ${REPO} --scope ${SCOPE}"
+            echo "    claude plugin install ${PLUGIN}@${MARKETPLACE} --scope ${SCOPE}"
+            echo "    (or re-run with --skill global to copy the bundled skill instead)"
+        fi
+        ;;
+    global)
+        if [[ -d "${SCRIPT_DIR}/skills" ]]; then
+            root="$(dirname "${SKILL_DIR}")"   # ~/.claude/skills
+            rm -rf "${root}/cc-fleet"          # drop the legacy single skill
+            for lane in subagent team workflow; do
+                mkdir -p "${root}/cc-fleet-${lane}"
+                cp "${SCRIPT_DIR}/skills/${lane}/SKILL.md" "${root}/cc-fleet-${lane}/SKILL.md"
+            done
+            rm -rf "${root}/cc-fleet-shared"
+            mkdir -p "${root}/cc-fleet-shared"
+            cp "${SCRIPT_DIR}/skills/cc-fleet-shared/"*.md "${root}/cc-fleet-shared/"
+            # Migrate the legacy un-namespaced shared dir, but only when every file is
+            # a known cc-fleet doc BY NAME AND CONTENT — never delete another tool's
+            # dir, even one that happens to use the same generic filenames.
+            if [[ -d "${root}/shared" ]]; then
+                owned=yes
+                for f in "${root}/shared"/* "${root}/shared"/.[!.]* "${root}/shared"/..?*; do
+                    [[ -e "$f" ]] || continue
+                    case "$(basename "$f")" in
+                        cli-reference.md|providers.md|routing.md|troubleshooting.md)
+                            grep -q cc-fleet "$f" 2>/dev/null || owned=no ;;
+                        *) owned=no ;;
+                    esac
+                done
+                if [[ "$owned" == yes ]]; then
+                    rm -rf "${root}/shared"
+                    echo "==> Migrated: removed the legacy ${root}/shared (cc-fleet docs only)"
+                else
+                    echo "==> Note: ${root}/shared contains non-cc-fleet files — left in place"
+                fi
+            fi
+            echo "==> Installed the per-lane cc-fleet skills (global) to ${root}/"
+        else
+            echo "install.sh: skills/ not found next to this script — cannot --skill global" >&2
+            exit 1
+        fi
+        ;;
+    none)
+        echo "==> Skipped skill install (--skill none)"
+        ;;
+esac
+
+# --- Claude Code precondition note --------------------------------------------
+
+if ! command -v claude >/dev/null 2>&1; then
+    cat <<EOF
+
+==> Note: Claude Code ('claude') was not found on PATH.
+    cc-fleet drives Claude Code — install it to run teammates / subagents / workflows:
+    https://docs.anthropic.com/claude-code
+EOF
+fi
+
+# --- PATH check ---------------------------------------------------------------
+
+case ":${PATH}:" in
+    *":${PREFIX}:"*)
+        echo "==> ${PREFIX} is already on PATH."
+        ;;
+    *)
+        cat <<EOF
+
+  ${PREFIX} is not on your PATH. Add this line to your shell rc
+   (~/.zshrc, ~/.bashrc, ~/.profile, depending on your shell):
+
+      export PATH="${PREFIX}:\$PATH"
+EOF
+        ;;
+esac
+
+# --- Next steps ---------------------------------------------------------------
+
+cat <<EOF
+
+==> Next steps
+
+   cc-fleet             # launch the interactive TUI — register a provider and get started
+                        #   (config is auto-created on first save; no init needed)
+   cc-fleet doctor      # optional: run the health checks
+   cc-fleet update      # later: update cc-fleet + the plugin to the latest release
+
+   tmux is needed only for live teammates; subagent / workflow / run work without it.
+   Provider teammates: run 'cc-fleet teammate setup --yes --teammate-mode tmux' once (terminal claude inside tmux or iTerm2, Claude Code ≥ 2.1.278).
+
+   See README.md in this archive for the full quick-start.
+EOF

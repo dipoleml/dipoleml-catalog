@@ -1,0 +1,8 @@
+{
+  "name": "spp",
+  "description": "Maintain programming skills by ensuring humans write a minimum percentage of code",
+  "version": "0.1.0",
+  "author": {
+    "name": "SPP"
+  }
+}

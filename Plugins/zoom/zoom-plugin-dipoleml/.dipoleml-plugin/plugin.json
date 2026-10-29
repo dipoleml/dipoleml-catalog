@@ -1,0 +1,16 @@
+{
+  "name": "zoom-plugin-dipoleml",
+  "displayName": "Zoom Plugin DipoleML",
+  "version": "1.2.0",
+  "description": "DipoleML plugin for planning, registering, building, and debugging Zoom integrations across Marketplace apps, REST APIs, SDKs, webhooks, bots, and MCP workflows",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Zoom"
+  },
+  "license": "MIT",
+  "homepage": "https://developers.zoom.us/",
+  "repository": "https://github.com/zoom/zoom-plugin-claude",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

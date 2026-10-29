@@ -1,0 +1,123 @@
+{
+  "schema": 1,
+  "cell_id": "018-bug-status-normalization--citadel-frozen-risk-route",
+  "order": 18,
+  "scenario_id": "bug-status-normalization",
+  "task_class": "bug-fix",
+  "risk": "moderate",
+  "policy_id": "citadel-frozen-risk-route",
+  "repetition": 1,
+  "route": {
+    "initial_tier": "cheap",
+    "escalation_tier": "strong",
+    "reason_code": "FROZEN_BOUNDED_CHEAP_THEN_VERIFY"
+  },
+  "attempts": [
+    {
+      "attempt": 1,
+      "tier": "cheap",
+      "started_at": "2026-08-02T00:37:16.192Z",
+      "duration_ms": 6975,
+      "output_text": "{\n  \"files\": {\n    \"src/status.js\": \"'use strict';\\nfunction normalizeStatus(value) {\\n  if (typeof value !== 'string') return 'unknown';\\n  return value.trim().toLowerCase();\\n}\\nmodule.exports = { normalizeStatus };\"\n  }\n}",
+      "output_digest": "sha256:fefde9bde3ea26db896964ba6988c2f86e5e83629a5c7a9264cd4e375dc84539",
+      "verification": {
+        "status": "passed",
+        "code": null,
+        "changed_paths": [
+          "src/status.js"
+        ],
+        "applied_file_digests": {
+          "src/status.js": "sha256:da436ece9c2d3b44c868ba40835a2a6b8b3b594a0fd2f49ee2bb6c7c4f24787e"
+        },
+        "verifier": {
+          "command": "node verifier.js",
+          "status": 0,
+          "signal": null,
+          "stdout": "",
+          "stderr": "",
+          "error": null
+        },
+        "patch_digest": "sha256:7931ed7cf21f827ac5f56d13f7bfc5277b7e683b0b49d7e4cc66a4e57fd19eaf"
+      },
+      "execution_evidence": {
+        "status": "verified",
+        "runtime": "ollama-chat",
+        "requested_model": "qwen2.5-coder:3b",
+        "observed_model": "qwen2.5-coder:3b",
+        "model_digest": "sha256:f72c60cabf6237b07f6e632b2c48d533cef25eda2efbd34bed21c5e9c01e6225",
+        "done_reason": "stop",
+        "response_digest": "sha256:76477fbd4be247ba7e7d0938eb5880e39ec97260c6616ecd8a04eb65e3cf8bb3",
+        "error": null
+      },
+      "usage": {
+        "prompt_tokens": 181,
+        "completion_tokens": 63,
+        "total_tokens": 244,
+        "provider_total_duration_ns": 6972066900
+      },
+      "economics": {
+        "provider_invoice": {
+          "status": "known",
+          "amount_usd": 0,
+          "source": "self_hosted_ollama_no_per_request_invoice"
+        },
+        "gpu_energy": {
+          "status": "measured",
+          "energy_kwh": 0.000121544,
+          "samples": 14,
+          "average_watts": 62.732143
+        },
+        "comparison_cost": {
+          "status": "derived-comparison",
+          "total_usd": 0.000043684,
+          "components": [
+            {
+              "kind": "gpu_electricity",
+              "status": "derived-comparison",
+              "amount_usd": 0.000024309,
+              "source": "average_gpu_power_times_request_wall_duration_times_frozen_rate"
+            },
+            {
+              "kind": "gpu_amortization",
+              "status": "derived-comparison",
+              "amount_usd": 0.000019375,
+              "source": "request_wall_duration_times_frozen_residual_value"
+            }
+          ]
+        },
+        "actual_end_to_end_cash": {
+          "status": "unknown",
+          "amount_usd": null,
+          "source": "whole_system_energy_setup_and_observed_utility_rate_not_measured"
+        }
+      }
+    }
+  ],
+  "status": "passed",
+  "final_verification": {
+    "status": "passed",
+    "code": null,
+    "changed_paths": [
+      "src/status.js"
+    ],
+    "applied_file_digests": {
+      "src/status.js": "sha256:da436ece9c2d3b44c868ba40835a2a6b8b3b594a0fd2f49ee2bb6c7c4f24787e"
+    },
+    "verifier": {
+      "command": "node verifier.js",
+      "status": 0,
+      "signal": null,
+      "stdout": "",
+      "stderr": "",
+      "error": null
+    },
+    "patch_digest": "sha256:7931ed7cf21f827ac5f56d13f7bfc5277b7e683b0b49d7e4cc66a4e57fd19eaf"
+  },
+  "previous_cell_digest": "sha256:919c20d56ab1a8ef6441715c8bb308e3d766be68c3ecbad78ea10f4b6c859117",
+  "receipt_digest": "sha256:55b57876d1ca99e0547f50bb0bdb1e5e78da28f70e333660d627884a1742edac",
+  "attestation": {
+    "algorithm": "Ed25519",
+    "payload_digest": "sha256:b77cf3831ee580bdd95957f7b133d4db6ded7fc65b0273a95057c42c4a4d7337",
+    "signature": "1a0+DJqPsJtBzhqyFvp9Ybx4FeAVbdPSqkVavxIfG8zbLkkvgVHOwRYhPQNEiqwRsMa4erspUCXuCaFFD6pRAw=="
+  }
+}

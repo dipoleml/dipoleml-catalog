@@ -1,0 +1,50 @@
+---
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: cert-manager
+  namespace: cert-manager
+spec:
+  interval: 30m
+  # cert-manager only watches Gateways if the Gateway API CRDs exist when it
+  # starts. The infrastructure Kustomization dependsOn gateway-api-crds, so the
+  # CRDs are always applied before this release is installed.
+  chart:
+    spec:
+      chart: cert-manager
+      version: 'v1.21.2'
+      sourceRef:
+        kind: HelmRepository
+        name: jetstack
+        namespace: cert-manager
+      interval: 12h
+  maxHistory: 3
+  install:
+    strategy:
+      name: RetryOnFailure
+      retryInterval: 3m
+  upgrade:
+    cleanupOnFail: true
+    strategy:
+      name: RetryOnFailure
+      retryInterval: 3m
+  uninstall:
+    keepHistory: false
+  values:
+    crds:
+      enabled: true
+      keep: true  # Uninstalling the release must not delete every Certificate
+    replicaCount: 2
+    config:
+      apiVersion: controller.config.cert-manager.io/v1alpha1
+      kind: ControllerConfiguration
+      gatewayAPI:
+        enabled: true  # Issue certificates for annotated Gateway listeners
+    resources:
+      requests:
+        cpu: 10m
+        memory: 64Mi
+      limits:
+        memory: 128Mi
+    prometheus:
+      enabled: false  # Enable if Prometheus is installed

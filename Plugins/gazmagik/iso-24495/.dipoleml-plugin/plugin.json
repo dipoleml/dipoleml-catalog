@@ -1,0 +1,16 @@
+{
+  "name": "iso-24495",
+  "displayName": "Iso 24495",
+  "version": "0.7.0",
+  "description": "Seven skills that apply plain language principles inspired by the ISO 24495 series, covering prose, code, and a user-invoked text audit.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Gazmagik"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/GaZmagik/iso-24495",
+  "repository": "https://github.com/GaZmagik/iso-24495",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

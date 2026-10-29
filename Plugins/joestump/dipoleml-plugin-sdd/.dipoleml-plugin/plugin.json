@@ -1,0 +1,16 @@
+{
+  "name": "dipoleml-plugin-sdd",
+  "displayName": "DipoleML Plugin Sdd",
+  "version": "5.5.0",
+  "description": "Spec-Driven Development: ADRs, specifications, sprint planning, parallel implementation, code review, and documentation generation.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Joestump"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/joestump/claude-plugin-sdd",
+  "repository": "https://github.com/joestump/claude-plugin-sdd",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

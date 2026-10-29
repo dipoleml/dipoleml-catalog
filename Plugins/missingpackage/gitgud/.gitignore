@@ -1,0 +1,7 @@
+# User data (created at runtime)
+data/
+
+# OS files
+.DS_Store
+Thumbs.db
+.cursorrules

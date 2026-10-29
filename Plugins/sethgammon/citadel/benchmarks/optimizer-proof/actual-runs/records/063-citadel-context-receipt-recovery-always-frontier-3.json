@@ -1,0 +1,68 @@
+{
+  "schema": 1,
+  "evidence_kind": "actual-run",
+  "scenario_set_id": "optimizer-scenarios-sha256:602e496906f3a293203750602234ba88a55a86b9e4f54f32239264098dcebe5b",
+  "metric_set_id": "optimizer-metrics-sha256:bedffbda2b18d725610b0f294a8273ef908237fd957bf9e51a5af4885b123e4f",
+  "scenario_id": "citadel-context-receipt-recovery",
+  "category": "context_reset",
+  "holdout": false,
+  "policy_id": "always-frontier",
+  "repetition": 3,
+  "decision_id": "sha256:e780e35809080a6f4f99aec8bd39640ef34053fb2f37f0af9992fdec51bd1bf2",
+  "selected_profile_id": "claude-frontier",
+  "observed_profile_id": "claude-frontier",
+  "requested_model": "claude-opus-5",
+  "observed_model": "claude-opus-5",
+  "model_proof_status": "passed",
+  "started_at": "2026-07-31T02:21:44.781Z",
+  "duration_ms": 1757930,
+  "outcome": "failed",
+  "verified": false,
+  "attempts": 1,
+  "human_interventions": 0,
+  "topology": "sequential-recovery",
+  "cost": {
+    "status": "known",
+    "amount_usd": 5.074983,
+    "provenance": "tool_reported",
+    "source": "citadel_optimizer_runner",
+    "source_ref": "summed_attempts:1",
+    "pricing_snapshot_digest": null,
+    "components": [
+      {
+        "kind": "model",
+        "amount_usd": 5.074983100000001,
+        "source": "attempt_1:claude total_cost_usd"
+      }
+    ]
+  },
+  "artifact_paths": [],
+  "verification_receipts": [
+    {
+      "attempt": 1,
+      "profile_id": "claude-frontier",
+      "status": "passed",
+      "exit_code": 0,
+      "timed_out": false,
+      "output_digest": "sha256:0676e1fef8b2b217ca748f6431dd436838a5a380516c810d6d34829cd3f3cb53",
+      "output_excerpt": "[stdout]\nOperation Fork executors passed: schema 2 bindings, same-runtime isolation, honest model proof, tamper rejection, legacy compatibility, and shell-free Windows launch.\n\n[stderr]\n",
+      "output_truncated": false,
+      "patch_exit_code": 0,
+      "patch_digest": "sha256:f0701f1cc66205fa609720a5dc14671180cb61b4c5c4411d1747f66e83b90335",
+      "patch_excerpt": "diff --git a/core/forks/compare.js b/core/forks/compare.js\nindex a5e09b3..8fedc27 100644\n--- a/core/forks/compare.js\n+++ b/core/forks/compare.js\n@@ -3,6 +3,20 @@\n const { assertValidFork, EXECUTOR_FORK_SCHEMA_VERSION } = require('./contracts');\n const { missionControlExecutorState } = require('./executor-profiles');\n \n+/**\n+ * Reason codes that mean the stored receipt contradicts the branch record it\n+ * claims to cover -- a receipt left by an interrupted attempt, or one bound to\n+ * another attempt, branch, or issuer. These disqualify a branch under every\n+ * schema: the branch record's own `receipt_verified` flag is written before the\n+ * outcome is durable and can never override fresh verification.\n+ */\n+const RECEIPT_CONTRADICTIONS = Object.freeze([\n+  'EXECUTION_RECEIPT_DIGEST_MISMATCH',\n+  'EXECUTION_RECEIPT_BINDING_MISMATCH',\n+  'EXECUTION_RECEIPT_BRANCH_MISMATCH',\n+  'FORK_RECEIPT_BINDING_MISMATCH',\n+]);\n+\n /**\n  * `verification` is the result of freshly verifying the stored fork receipt\n  * wrapper and execution receipt for this branch. Schema 2 fails closed when\n@@ -22,6 +36,8 @@ function comparableBranch(branch, fork, verification) {\n   if (fork.schema_version === EXECUTOR_FORK_SCHEMA_VERSION\n     && (!verification || verification.status !== 'verified')) {\n     reasons.push('fork-receipt-unverified');\n+  } else if (verification && RECEIPT_CONTRADICTIONS.includes(verification.reason_code)) {\n+    reasons.push('receipt-mismatched');\n   }\n   return { comparable: reasons.length === 0, reasons };\n }\ndiff --git a/core/forks/evidence.js b/core/forks/evidence.js\nindex 080547e..d25c12e 100644\n--- a/core/forks/evidence.js\n+++ b/core/forks/evidence.js\n@@ -110,13 +110,16 @@ function verifyBranchEvidence(projectRoot, fork, branch, options = {}) {\n   const wrapper = readForkReceiptWrapper(projectRoot, fork.fork_id, branch.branch_id);\n   const anchor = options.anchor || trustedPublicKey(projectRoot, fork);\n   const executionEnvelope = readReceipt(projectRoot, fork.fork_id, branch.branch_id);\n+  // Staleness is a digest comparison, not a signature check. A receipt left behind by\n+  // an interrupted attempt is rejected even when no signer anchor can be loaded, so a\n+  // resumed run can never fall back past it.\n+  const staleReceipt = Boolean(executionEnvelope)\n+    && executionEnvelope.receipt_digest !== branch.receipt_digest;\n   let executionVerification = verification('invalid', 'EXECUTION_RECEIPT_MISSING');\n-  if (anchor.key && executionEnvelope) {\n+  if (staleReceipt) {\n+    executionVerification = verification('invalid', 'EXECUTION_RECEIPT_DIGEST_MISMATCH');\n+  } else if (anchor.key && executionEnvelope) {\n     executionVerification = operations.verifyExecutionReceipt(executionEnvelope, { publicKey: anchor.key });\n-    if (executionVerification.status === 'verified'\n-      && executionEnvelope.receipt_digest !== branch.receipt_digest) {\n-      executionVerification = verification('invalid', 'EXECUTION_RECEIPT_DIGEST_MISMATCH');\n-    }\n     if (executionVerification.status === 'verified' && fork.schema_version === EXECUTOR_FORK_SCHEMA_VERSION\n       && (executionEnvelope.receipt.issuer_id !== fork.shared.issuer_id\n         || executionEnvelope.receipt.issued_at !== branch.completed_at)) {\n@@ -155,7 +158,8 @@ function verifyBranchEvidence(projectRoot, fork, branch, options = {}) {\n     });\n   }\n   let combined = wrapperVerification;\n-  if (anchor.result.status !== 'verified') combined = anchor.result;\n+  if (staleReceipt) combined = executionVerification;\n+  else if (anchor.result.status !== 'verified') combined = anchor.result;\n   else if (executionVerification.status !== 'verified') combined = executionVerification;\n   else if (branchResultVerification.status !== 'verified') combined = branchResultVerification;\n   const observation = storedObservation\ndiff --git a/scripts/test-operation-fork.js b/scripts/test-operation-fork.js\nindex 9c367c7..f172df8 100644\n--- a/scripts/test-operation-fork.js\n+++ b/scripts/test-operation-fork.js\n@@ -119,6 +119,35 @@ assert.equal(resumed.fork.branches.find((branch) => branch.runtime === 'claude')\n assert.equal(resumed.fork.branches.find((branch) => branch.runtime === 'claude').failure_code, 'RUNTIME_EFFECT_AMBIGUOUS');\n assert.deepEqual(calls, ['codex'], 'ambiguous Claude effect must not run again');\n \n+// A resumed fork must re-derive receipt trust from disk. Swap in the sibling\n+// branch's receipt: correctly signed, but bound to another attempt. Staleness is\n+// a digest comparison, so it must be caught without consulting the branch\n+// record's own receipt_verified flag and without any signer anchor.\n+const receiptsDir = path.join(project, '.planning', 'operation-forks', 'fork-auth-race', 'receipts');\n+fs.copyFileSync(path.join(receiptsDir, 'branch-codex.json'), path.join(receiptsDir, 'branch-claude.json'));\n+const stale = forks.loadFork(project, 'fork-auth-race');\n+const staleBranch = stale.branches.find((branch) => branch.branch_id === 'branch-claude');\n+assert.equal(forks.verifyBranchEvidence(project, stale, staleBranch).verification.reason_code,\n+  'EXECUTION_RECEIPT_DIGEST_MISMATCH');\n+const staleComparison = forks.compareFork(stale, { evidence: forks.forkEvidence(project, stale) });\n+const staleEntry = staleComparison.branches.find((branch) => branch.branch_id === 'branch-claude');\n+assert.equal(staleEntry.comparable, false, 'a mismatched receipt must not stay comparable');\n+assert(staleEntry.reasons.includes('receipt-mismatched'), staleEntry.reasons.join(','));\n+assert.throws(() => forks.applySelection({ projectRoot: project, forkId: 'fork-auth-race',\n+  branchId: 'branch-claude', expectedRevision: stale.revision, actorId: 'actor-operator',\n+  idempotencyKey: 'select-stale-001', reason: '' }), { code: 'FORK_BRANCH_INCOMPARABLE' });\n+// Landing is the irreversible effect, so it must refuse the same contradiction even\n+// after a branch was legitimately selected while its receipt still matched.\n+const landingFork = forks.selectBranch(stale, { branchId: 'branch-codex', expectedRevision: stale.revision,\n+  actorId: 'actor-operator', idempotencyKey: 'select-codex-001', reason: '',\n+  receiptVerification: { status: 'verified', reason_code: 'FORK_RECEIPT_VERIFIED' },\n+  selectedAt: '2026-07-13T14:00:00.000Z' });\n+assert.throws(() => forks.prepareLanding(landingFork, { expectedRevision: landingFork.revision,\n+  targetRevision: baseRevision, confirmation: forks.landingConfirmation(landingFork, baseRevision),\n+  idempotencyKey: 'land-stale-001', confirmedAt: '2026-07-13T14:00:01.000Z',\n+  receiptVerification: { status: 'invalid', reason_code: 'EXECUTION_RECEIPT_DIGEST_MISMATCH' },\n+}), { code: 'FORK_BRANCH_INCOMPARABLE' });\n+\n for (const branch of [...result.fork.branches, ...recovery.branches]) {\n   const target = provider.resolve(project, worktrees, branch.run_id.includes('recovery') ? 'fork-recovery' : 'fork-auth-race', branch.branch_id);\n   if (fs.existsSync(target)) git(project, ['worktree', 'remove', '--force', target]);\n",
+      "patch_truncated": false,
+      "changed_paths": [
+        "core/forks/compare.js",
+        "core/forks/evidence.js",
+        "scripts/test-operation-fork.js"
+      ]
+    }
+  ],
+  "receipt_status": "verified",
+  "adversarial_result": "unknown",
+  "failure_code": "EXPECTED_ARTIFACTS_NOT_CHANGED",
+  "attestation": {
+    "algorithm": "ed25519",
+    "signature_base64": "Zt1mON9J4qgl9zXcF3Z9pbfECZDemlyEEOzpLNG+vHYYbaGpY2GGkdEYXV2qFbWr0AezYhGsg35QjAKXYwQUCg=="
+  }
+}

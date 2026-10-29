@@ -1,0 +1,16 @@
+{
+  "name": "job-searcher",
+  "displayName": "Job Searcher",
+  "version": "0.2.0",
+  "description": "잡써쳐 — 22개 채용 플랫폼의 공개 공고를 수집해 하나의 정규화 JSON으로. 읽기 전용: 로그인·저장·지원 없음. Collect public job postings from 22 job platforms into one normalized JSON. Read-only: no login, no save, no apply.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Itssosunny"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/itssosunny/job-searcher",
+  "repository": "https://github.com/itssosunny/job-searcher",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

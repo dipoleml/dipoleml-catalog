@@ -1,0 +1,16 @@
+{
+  "name": "socialforge",
+  "displayName": "Socialforge",
+  "version": "1.30.2",
+  "description": "Open-source social media engine — 21 skills, asset-first compositing, AI image+video, 9-platform copy adaptation. Runs on DipoleML, Codex, Cursor, Antigravity.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Indranilbanerjee"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/indranilbanerjee/socialforge",
+  "repository": "https://github.com/indranilbanerjee/socialforge",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

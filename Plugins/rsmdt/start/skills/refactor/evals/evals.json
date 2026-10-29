@@ -1,0 +1,39 @@
+{
+  "skill_name": "refactor",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Refactor src/utils/parser.js — it has nested ternaries and magic numbers. The project has a passing test suite.",
+      "expected_output": "Baseline established, one change at a time with tests between, behavior preserved",
+      "expectations": [
+        "Ran existing tests to establish a baseline before any changes",
+        "Delegated analysis to specialist agents",
+        "Presented an analysis summary and asked the user how to proceed before changing code",
+        "Applied one refactoring at a time, running tests after every individual change",
+        "Did not change external behavior, public API contracts, or business logic results",
+        "Ran the complete test suite as final validation"
+      ],
+      "files": [
+        "evals/files/parser-nested-ternaries/package.json",
+        "evals/files/parser-nested-ternaries/src/utils/parser.js",
+        "evals/files/parser-nested-ternaries/test/parser.test.js"
+      ]
+    },
+    {
+      "id": 2,
+      "prompt": "Refactor the OrderService class. Note: the existing test suite has 3 failing tests, and OrderService itself has no test coverage.",
+      "expected_output": "Failing baseline stops the workflow; untested code requires user approval",
+      "expectations": [
+        "Stopped and reported to the user when the baseline test run had failures",
+        "Asked the user to choose between adding tests first, proceeding without coverage, or cancelling",
+        "Did not begin refactoring untested code without explicit user approval"
+      ],
+      "files": [
+        "evals/files/order-service-failing-baseline/package.json",
+        "evals/files/order-service-failing-baseline/src/services/OrderService.js",
+        "evals/files/order-service-failing-baseline/src/utils/currency.js",
+        "evals/files/order-service-failing-baseline/test/currency.test.js"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,1032 @@
+"""Read the SHAPE of a file that is too large or too binary to read whole.
+
+The index says a directory holds 12,400 PDFs so nobody goes looking. This is the other half: when
+a task genuinely needs one of them, opening it whole is the wrong move and skipping it is also the
+wrong move. A 40 MB CSV is 11 million tokens; its column list, row count and three sample rows are
+about two hundred, and for almost every question that is asked of a CSV the two hundred is the
+answer. Same for a spreadsheet's sheet names, an archive's member list, a database's schema, a
+log's error lines.
+
+So each format gets a handler that returns structure first and content only on request. Nothing
+here loads a whole file into memory when the format allows seeking, and every handler is bounded.
+
+Standard library only, which shapes what is possible and is worth stating rather than hiding:
+zipfile opens .xlsx, .docx and .apk because those ARE zips; sqlite3 reads a database's schema;
+zlib decompresses PDF streams well enough to pull text out; struct reads image headers. Parquet and
+Avro are identified and measured but not decoded — that needs a real reader, and adding one would
+cost the plugin its only deployment advantage. Where a format cannot be understood, the handler
+says so instead of guessing.
+"""
+import binascii
+import codecs
+import csv
+import json
+import re
+import struct
+import zipfile
+from collections import Counter
+from pathlib import Path
+
+import mapper
+import redact
+import workspace as ws
+import tokens
+import tree
+DEFAULT_BUDGET = 400           # tokens of output; the whole point is to stay small
+SAMPLE_ROWS = 3
+MAX_MEMBERS = 25
+MAX_KEYS = 40
+ROW_CAP = 2_000_000      # stop counting rows; the count is then reported as a floor, not a fact
+HIT_CAP = 8
+TEXT_LIKE = {".txt", ".log", ".md", ".rst", ".ini", ".cfg", ".conf", ".properties", ".env",
+             ".sql", ".yaml", ".yml", ".toml", ".html", ".htm", ".xml", ".svg", ".eml"}
+ZIP_LIKE = {".zip", ".xlsx", ".docx", ".pptx", ".jar", ".apk", ".whl", ".ipa", ".odt", ".epub"}
+IMAGE_LIKE = {".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".tiff", ".tif"}
+OPAQUE = {".parquet": "columnar (Parquet)", ".avro": "row-oriented (Avro)",
+          ".orc": "columnar (ORC)", ".pb": "protobuf wire format",
+          ".mp4": "video container", ".wav": "audio", ".mp3": "audio",
+          ".iso": "disc image", ".bin": "opaque binary", ".dat": "opaque binary"}
+MAGIC = [
+    (b"%PDF-", "PDF document"), (b"PK\x03\x04", "ZIP-based container"),
+    (b"\x89PNG", "PNG image"), (b"\xff\xd8\xff", "JPEG image"), (b"GIF8", "GIF image"),
+    (b"SQLite format 3", "SQLite database"), (b"\x1f\x8b", "gzip stream"),
+    (b"PAR1", "Parquet"), (b"Obj\x01", "Avro"), (b"\x7fELF", "ELF binary"),
+    (b"BZh", "bzip2"), (b"\xfd7zXZ", "xz"), (b"Rar!", "RAR archive"),
+]
+
+
+def _looks_binary(path):
+    """True when a file claiming to be text is not. A NUL byte settles it; otherwise judge by how
+    much of the first block is outside the printable range, which mojibake fails and real text --
+    including Thai, Japanese and Cyrillic, whose UTF-8 bytes decode cleanly -- passes."""
+    try:
+        with path.open("rb") as fh:
+            head = fh.read(4096)
+    except OSError:
+        return False
+    if not head:
+        return False
+    if b"\x00" in head:
+        return True
+    # 🐛 A 4096-byte read cuts wherever it lands, and a multi-byte character straddling that
+    # boundary raised UnicodeDecodeError — which this treated as proof of binary content. The
+    # docstring names the exact case it was failing: "real text — including Thai, Japanese and
+    # Cyrillic, whose UTF-8 bytes decode cleanly — passes." Measured on one Thai CSV at three byte
+    # offsets: two of the three were declared binary, on every file over 4KB, which is the only
+    # size peek exists for. The tool then asserted "of bin that a plain read cannot open" about a
+    # plain UTF-8 CSV and reported 0 tokens spent.
+    #
+    # Trimmed back to the last complete sequence rather than decoded with errors="ignore": ignoring
+    # would also swallow genuine mojibake, which is what this function is for.
+    for _cut in range(4):
+        try:
+            text = head[:len(head) - _cut].decode("utf-8")
+            break
+        except UnicodeDecodeError:
+            continue
+    else:
+        return True
+    odd = sum(1 for ch in text if ord(ch) < 32 and ch not in "\t\n\r")
+    return odd > len(text) * 0.05
+
+
+def _text_encoding(path):
+    """The encoding this file is text in, or None when it is not text at all.
+
+    🐛 Two failures, opposite directions, and they had to be fixed together because fixing the
+    second alone turns a garbage dump into a WRONG refusal on a wider set of files.
+
+    peek called UTF-16 and latin-1 text "binary". A UTF-16 file is full of NUL bytes, and the NUL
+    test above settles the question before anything looks at the BOM — so `Export-Csv -Encoding
+    Unicode`, SQL Server `bcp` and Excel's "Unicode Text (*.txt)", which is a large share of the
+    Windows-origin CSVs peek exists for, came back as "unrecognised; 48% printable in the first
+    4KB" instead of two columns and two rows. It also said "the file itself is 52B of bin that a
+    plain read cannot open", about a file Read opens perfectly — the exact dishonesty _cost_note's
+    own docstring says it exists to prevent.
+
+    And the other way: an extensionless file skipped the binary sniff entirely, so a compiled
+    executable copied to `./mytool` was printed as 536 lines of `����  @ ��` and priced at
+    "248x smaller than reading the whole file". Extensionless executables in bin/, scripts/ and
+    tools/ are the commonest extensionless file there is.
+
+    errors="ignore" is deliberately not used as a fallback — the docstring above says why: it would
+    swallow genuine mojibake, which is the case the sniff was written for. A BOM is a positive
+    statement about the encoding, and cp1252 is only accepted when what it produces reads as text
+    by the same printable-ratio test everything else passes.
+    """
+    try:
+        with path.open("rb") as fh:
+            head = fh.read(4096)
+    except OSError:
+        return "utf-8-sig"
+    if not head:
+        return "utf-8-sig"
+    # Before the NUL test, not after: UTF-16 is half NUL bytes by construction.
+    for bom, enc in ((codecs.BOM_UTF32_LE, "utf-32"), (codecs.BOM_UTF32_BE, "utf-32"),
+                     (codecs.BOM_UTF16_LE, "utf-16"), (codecs.BOM_UTF16_BE, "utf-16")):
+        if head.startswith(bom):
+            return enc
+    if not _looks_binary(path):
+        return "utf-8-sig"
+    if b"\x00" in head:
+        return None                     # a NUL with no BOM in front of it is a real binary
+    # Not UTF-8, no NULs: the Windows single-byte pages. cp1252 decodes any byte, so it can never
+    # fail — the printable ratio is what decides, exactly as it does for UTF-8 above.
+    try:
+        text = head.decode("cp1252")
+    except UnicodeDecodeError:
+        return None
+    odd = sum(1 for ch in text if ord(ch) < 32 and ch not in "\t\n\r")
+    return "cp1252" if odd <= len(text) * 0.05 else None
+
+
+# One definition, in assets. This module's own copy stopped at GB, so a terabyte member rendered
+# as a four-digit GB figure -- the drift a duplicated formatter produces without anyone editing it.
+from assets import human_bytes as _human
+import mdblock
+
+
+def _identify(head):
+    for sig, name in MAGIC:
+        if head.startswith(sig):
+            return name
+    return None
+
+
+# ------------------------------------------------------------------ tabular
+def _delimiter_for(path, default):
+    """The default, unless the header line says plainly that it is something else.
+
+    🐛 The comma was hard-coded, so `name;age;city` came back as **"1 columns"** with the whole
+    header line printed as the single column name. Stated as a fact, which is worse than declining:
+    `--find` against a column name can never match, and the two hundred tokens this function
+    produces are supposed to substitute for opening the file. Semicolon is what Excel writes in
+    every locale that uses the comma as a decimal separator — de, fr, es, it, pt, nl, pl, br — so
+    this is not an exotic shape.
+    #
+    A FALLBACK, never a replacement, and csv.Sniffer is deliberately not used. Sniffer raises on
+    plenty of legitimate files (a genuine single-column CSV among them) and, worse, GUESSES on
+    ambiguous ones: a comma-delimited file with semicolons inside quoted free text can sniff as
+    semicolon-delimited, turning a correct column list into a wrong one. That trades a visible
+    failure for an invisible one.
+
+    So the default is tried first and kept unless it yields exactly one column AND the header
+    itself contains a candidate. Reading only the header line matters: a real one-column file whose
+    VALUES contain semicolons keeps its single column, because the header does not.
+    """
+    try:
+        with path.open("r", encoding=_text_encoding(path) or "utf-8-sig", errors="replace", newline="") as fh:
+            header = fh.readline()
+    except OSError:
+        return default
+    if not header or len(next(csv.reader([header], delimiter=default), [])) > 1:
+        return default
+    best, best_n = default, 1
+    for cand in (";", "\t", "|"):
+        if cand == default or cand not in header:
+            continue
+        n = len(next(csv.reader([header], delimiter=cand), []))
+        if n > best_n:
+            best, best_n = cand, n
+    return best
+
+
+def peek_csv(path, find=None):
+    default = "\t" if path.suffix.lower() in (".tsv", ".tab") else ","
+    delim = _delimiter_for(path, default)
+    rows, total, widths = [], 0, Counter()
+    hits, capped = [], False
+    # 🐛 utf-8-SIG, matching mapper. A UTF-8 BOM is what Excel writes on "Save As CSV UTF-8" and
+    # what a good many Windows editors add to source, and read as plain utf-8 it arrives as a
+    # U+FEFF character at the front of the file. The damage is not cosmetic:
+    #
+    #   bom.py   the index row reads `(3L, 1fn) — Module docstring here.` and peek showed
+    #            `1: ﻿"""Module docstring here."""` with NO summary and NO symbol list,
+    #            because the extractor did not recognise the docstring and peek fell through to
+    #            its plain-text branch. peek_source's own docstring says "same extractor as the
+    #            index, so a file peeked and a file indexed agree with each other". They did not.
+    #   bom.csv  the first column came back named `﻿name`, so `--find name` never matched it
+    #            and neither would anything downstream.
+    #
+    # Changed at all six decode points in one pass rather than at the branch that was noticed.
+    # _whole_file_tokens below prices the file by decoding it too, and if only some of them learn
+    # about the BOM then peek's shape and peek's own cost note stop being computed from the same
+    # string — which is the shape of the bug being fixed here, one level down.
+    with path.open("r", encoding=_text_encoding(path) or "utf-8-sig", errors="replace", newline="") as fh:
+        reader = csv.reader(fh, delimiter=delim)
+        try:
+            header = next(reader)
+        except StopIteration:
+            return ["empty file"]
+        for i, row in enumerate(reader):
+            total += 1
+            widths[len(row)] += 1
+            if len(rows) < SAMPLE_ROWS:
+                rows.append(row)
+            if find and len(hits) < HIT_CAP and any(find.lower() in c.lower() for c in row):
+                hits.append((i + 2, row))
+            if total >= ROW_CAP:
+                capped = True
+                break
+    # Both caps used to be silent, and this whole module exists so a number here can be trusted
+    # instead of the file being read. "2,000,000 data rows" for a file with three million of them
+    # is a stated fact that is wrong, and a 60-column CSV listed 40 columns and never said the
+    # other 20 existed. `_shape` below has always written `…+N`; say it here too.
+    # Named when it is not the one the extension implies, because a WRONG split looks exactly like
+    # a right one from the column list alone — and this function's whole claim is that its two
+    # hundred tokens stand in for opening the file.
+    _named = {";": "semicolon", "\t": "tab", "|": "pipe"}.get(delim) if delim != default else None
+    out = [f"{len(header)} columns, "
+           + (f"more than {total:,} data rows (stopped counting at the {ROW_CAP:,} cap)"
+              if capped else f"{total:,} data rows")
+           + (f" — {_named}-delimited" if _named else "")]
+    shown = header[:MAX_KEYS]
+    more = f", …+{len(header)-len(shown)} more" if len(header) > len(shown) else ""
+    out.append("columns: " + ", ".join(f"`{c.strip()}`" for c in shown) + more)
+    if len(widths) > 1:
+        out.append(f"ragged: {len(widths)} different row widths seen — {dict(widths.most_common(3))}")
+    if find:
+        tail = "" if len(hits) < HIT_CAP else f" — the first {HIT_CAP}; there may be more"
+        out.append(f"\nrows matching {find!r} ({len(hits)} shown{tail}):")
+        out += [f"  line {n}: " + " | ".join(mdblock.whole_graphemes(c[:28]) for c in r[:8])
+                for n, r in hits]
+    else:
+        # 🐛 [2026-09-09] The sample rows were printed with no header line above them, and the
+        # column names appeared far higher in a different shape — `columns: \`name\`, \`email\``,
+        # comma-separated and backticked, against pipe-separated data. So the two never formed a
+        # TABLE, `redact._redact_delimited_columns` had no header row to mark columns from, and the
+        # choke point at the end of `peek()` scrubbed a document in which nothing looked like a
+        # credential. A CSV whose header says `password` printed the password.
+        #
+        # Reproduced end to end: `name,email,password` returned `Tr0ub4dor-2026` in full, while
+        # `redact.scrub()` on the same file's TEXT redacted it correctly — the rule was there and
+        # the shape it needed was not. Repeating the header in the sample's own delimiter costs one
+        # line, tells the reader which column is which, and hands the redactor the table it already
+        # knows how to read. Raised by a reader on the published write-up as a header-vocabulary
+        # gap; the vocabulary was the smaller half.
+        out.append("\nfirst rows:")
+        out.append("  " + " | ".join(mdblock.whole_graphemes(str(c)[:28]) for c in header[:8]))
+        out += ["  " + " | ".join(mdblock.whole_graphemes(c[:28]) for c in r[:8]) for r in rows]
+    return out
+
+
+# ------------------------------------------------------------------ json
+def _shape(value, depth=0):
+    if depth > 4:
+        return "…"
+    if isinstance(value, dict):
+        items = list(value.items())[:MAX_KEYS]
+        inner = ", ".join(f"{k}: {_shape(v, depth + 1)}" for k, v in items)
+        more = f", …+{len(value)-len(items)}" if len(value) > len(items) else ""
+        return "{" + inner + more + "}"
+    if isinstance(value, list):
+        return f"[{len(value)} × {_shape(value[0], depth + 1) if value else 'empty'}]"
+    return type(value).__name__
+
+
+def peek_json(path, find=None):
+    try:
+        data = ws.loads_repository_json(path.read_text(encoding=_text_encoding(path) or "utf-8-sig", errors="replace"))
+    # RecursionError belongs beside MemoryError here: both mean the document is too much for the
+    # parser rather than malformed, and both should degrade to the text view instead of raising out
+    # of a tool whose entire purpose is reading files that are too big to read.
+    except (json.JSONDecodeError, MemoryError, RecursionError) as err:
+        return [f"not valid JSON as a whole ({type(err).__name__}); may be JSON Lines",
+                *peek_text(path, find)]
+    out = ["structure (keys and types only, no values):", "  " + _shape(data)]
+    if find:
+        blob = json.dumps(data)
+        hits = [m.start() for m in re.finditer(re.escape(find), blob, re.I)][:6]
+        out.append(f"\n{len(hits)} occurrence(s) of {find!r}:")
+        out += ["  …" + blob[max(0, h - 60):h + 80].replace("\n", " ") + "…" for h in hits]
+    return out
+
+
+def peek_jsonl(path, find=None, sample=SAMPLE_ROWS):
+    """JSON Lines: how many records, and the shape of one.
+
+    🐛 `.jsonl` and `.ndjson` reached no branch at all and fell through to `peek_binary`, which
+    described a plain text file as "unrecognised; 100% printable", gave a crc32 and five string
+    fragments, and claimed a compression ratio — the worst answer this module can give, and the one
+    `peek_source`'s docstring was written to close for source files. `peek_json` already names JSON
+    Lines in its own fallback and `_cost_note` already whitelists `.jsonl` as comparable, so the
+    handler was intended and simply absent.
+    """
+    rows, total, bad = [], 0, 0
+    hits = []
+    try:
+        with path.open("r", encoding=_text_encoding(path) or "utf-8-sig", errors="replace") as fh:
+            for i, line in enumerate(fh):
+                line = line.strip()
+                if not line:
+                    continue
+                total += 1
+                if len(rows) < sample:
+                    try:
+                        rows.append(ws.loads_repository_json(line))
+                    except (json.JSONDecodeError, RecursionError):
+                        bad += 1
+                if find and len(hits) < HIT_CAP and find.lower() in line.lower():
+                    hits.append((i + 1, line))
+    except OSError as err:
+        return [f"could not be read ({type(err).__name__})"]
+    if not total:
+        return ["empty file"]
+    out = [f"{total:,} JSON Lines record(s)"]
+    if rows:
+        out.append("shape of the first record (keys and types only, no values):")
+        out.append("  " + _shape(rows[0]))
+        shapes = {tuple(sorted(r)) for r in rows if isinstance(r, dict)}
+        if len(shapes) > 1:
+            out.append(f"ragged: {len(shapes)} different key sets in the first {len(rows)} records")
+    if bad:
+        out.append(f"{bad} of the first {len(rows) + bad} record(s) did not parse as JSON")
+    if find:
+        tail = "" if len(hits) < HIT_CAP else f" — the first {HIT_CAP}; there may be more"
+        out.append(f"\nrecords matching {find!r} ({len(hits)} shown{tail}):")
+        out += [f"  line {n}: " + mdblock.whole_graphemes(r[:110]) for n, r in hits]
+    return out
+
+
+# ------------------------------------------------------------------ archives
+# ------------------------------------------------------------------ OOXML bodies
+# A .docx and a .xlsx are zips, and listing their members says nothing a reader wants: the
+# clause and the column are inside one XML part. Both are read here rather than left to the
+# archive listing, because a contract and a price table are the two attachments most likely
+# to be the actual reason someone opened the file.
+_CELL = re.compile(r"<c\b([^>]*)>(.*?)</c>|<c\b([^>]*)/>", re.S)
+_VAL = re.compile(r"<v>(.*?)</v>", re.S)
+_INLINE = re.compile(r"<t[^>]*>(.*?)</t>", re.S)
+_ROW = re.compile(r"<row\b[^>]*>(.*?)</row>", re.S)
+# One shared string is one <si>. A rich-text <si> — a header cell with one word bolded, the most
+# common formatting in a real spreadsheet — holds one <t> PER RUN, so collecting <t> elements
+# flatly produced more entries than the table has and shifted every index after it. Measured on a
+# three-row sheet with a partially bold header: not one printed value was the value in that cell,
+# `Gadget` never appeared at all, and `Widget` appeared twice in cells that never held it. The
+# whole claim of this module is that its two hundred tokens substitute for reading the file.
+_SI = re.compile(r"<si\b[^>]*>(.*?)</si>|<si\b[^>]*/>", re.S)
+_PARA = re.compile(r"<w:p\b[^>]*>(.*?)</w:p>", re.S)
+_RUN = re.compile(r"<w:t[^>]*>(.*?)</w:t>", re.S)
+
+
+def _unxml(s):
+    return (s.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", '"')
+             .replace("&apos;", "'").replace("&amp;", "&"))
+
+
+
+# A zip member reports its uncompressed size in a header the archive itself writes, so the number
+# cannot be trusted and reading "just this one member" can be arbitrarily large.
+#
+# 🐛 Every `zf.read(name)` here read a whole member with no bound. Rendered: a 59 KB crafted .xlsx
+# drove ~200 MB of resident memory and 4.4 seconds through one call — a decompression bomb, and
+# `chamnan-peek` is a command an agent runs on a file it was asked about, so the file is often one
+# somebody else chose.
+#
+# Two million bytes, matching `mapper.MAX_FILE_BYTES`: past that this command is not previewing a
+# document any more. Read through `open()` rather than `read()` so the bound applies to the
+# DECOMPRESSED stream, not to a size the archive claims.
+# 🐛 The comment above says "matching mapper.MAX_FILE_BYTES", which is a promise a comment
+# cannot keep -- the two were independent literals. Same constant now, so they cannot drift.
+ZIP_MEMBER_CEILING = tree.MAX_FILE_BYTES
+
+
+def _zread(zf, name, limit=ZIP_MEMBER_CEILING):
+    """At most `limit` decompressed bytes of one zip member."""
+    with zf.open(name) as member:
+        return member.read(limit)
+
+
+def _sheet_rows(zf, names, limit):
+    """Rows of the first worksheet, resolving both shared and inline strings."""
+    sheet = next((n for n in names if re.fullmatch(r"xl/worksheets/sheet1?\.xml", n)), None)
+    if not sheet:
+        return []
+    shared = []
+    if "xl/sharedStrings.xml" in names:
+        _sxml = _zread(zf, "xl/sharedStrings.xml").decode("utf-8", "replace")
+        # Per <si>, joining that entry's runs — never per <t>.
+        shared = ["".join(_unxml(t) for t in _INLINE.findall(m.group(1) or ""))
+                  for m in _SI.finditer(_sxml)]
+    xml = _zread(zf, sheet).decode("utf-8", "replace")
+    rows = []
+    for body in _ROW.findall(xml):
+        cells = []
+        for attrs, inner, _empty in _CELL.findall(body):
+            if not attrs and not inner:
+                cells.append("")
+                continue
+            if 't="s"' in attrs:                       # index into the shared string table
+                v = _VAL.search(inner)
+                idx = int(v.group(1)) if v and v.group(1).isdigit() else -1
+                cells.append(shared[idx] if 0 <= idx < len(shared) else "")
+            elif 't="inlineStr"' in attrs:
+                cells.append(_unxml("".join(_INLINE.findall(inner))))
+            else:
+                v = _VAL.search(inner)
+                cells.append(_unxml(v.group(1)) if v else "")
+        rows.append(cells)
+        if len(rows) >= limit:
+            break
+    return rows
+
+
+def _docx_paragraphs(zf):
+    xml = _zread(zf, "word/document.xml").decode("utf-8", "replace")
+    paras = [_unxml("".join(_RUN.findall(body))).strip() for body in _PARA.findall(xml)]
+    return [p for p in paras if p]
+
+
+def peek_zip(path, find=None):
+    with zipfile.ZipFile(path) as zf:
+        names = zf.namelist()
+        out = [f"{len(names)} member(s), {_human(sum(i.file_size for i in zf.infolist()))} uncompressed"]
+        # .xlsx and .docx are zips with their meaning in known members, so read those directly.
+        if "xl/workbook.xml" in names:
+            book = _zread(zf, "xl/workbook.xml").decode("utf-8", "replace")
+            sheets = re.findall(r'<sheet[^>]*name="([^"]+)"', book)
+            out.append("spreadsheet sheets: " + ", ".join(f"`{s}`" for s in sheets))
+            # Bounded on purpose: reading past a few hundred rows to sample three of them
+            # would spend the memory this module exists to avoid.
+            rows = _sheet_rows(zf, names, 400 if find else SAMPLE_ROWS + 1)
+            if rows:
+                head = rows[0]
+                out.append(f"{len(head)} columns on `{sheets[0] if sheets else 'sheet1'}`")
+                out.append("columns: " + ", ".join(f"`{c}`" for c in head[:MAX_KEYS] if c))
+                if find:
+                    hits = [r for r in rows[1:] if any(find.lower() in c.lower() for c in r)]
+                    out.append(f"\nrows matching {find!r} ({len(hits[:8])} of {len(hits)} shown):")
+                    out += ["  " + " | ".join(c[:28] for c in r[:8]) for r in hits[:8]]
+                else:
+                    out.append("\nfirst rows:")
+                    out += ["  " + " | ".join(c[:28] for c in r[:8])
+                            for r in rows[1:SAMPLE_ROWS + 1]]
+        if "word/document.xml" in names:
+            paras = _docx_paragraphs(zf)
+            out.append(f"{len(paras):,} paragraph(s) of text")
+            if find:
+                hits = [(i, p) for i, p in enumerate(paras, 1) if find.lower() in p.lower()]
+                out.append(f"\nparagraphs matching {find!r} ({len(hits[:6])} of {len(hits)} shown):")
+                out += [f"  ¶{i}: {p[:220]}" for i, p in hits[:6]]
+            else:
+                out.append("\nopening text:")
+                out += [f"  {p[:220]}" for p in paras[:4]]
+        if "docProps/core.xml" in names:
+            core = _zread(zf, "docProps/core.xml").decode("utf-8", "replace")
+            for tag in ("dc:title", "dc:creator", "dcterms:created"):
+                m = re.search(rf"<{tag}[^>]*>([^<]+)<", core)
+                if m:
+                    out.append(f"{tag.split(':')[1]}: {m.group(1)}")
+        if "AndroidManifest.xml" in names:
+            out.append("android package — manifest present")
+        listed = [n for n in names if find.lower() in n.lower()] if find else names
+        out.append(f"\nmembers{' matching ' + repr(find) if find else ''}:")
+        out += [f"  {n}" for n in listed[:MAX_MEMBERS]]
+        if len(listed) > MAX_MEMBERS:
+            out.append(f"  …+{len(listed)-MAX_MEMBERS} more")
+    return out
+
+
+def peek_tar(path, find=None):
+    import tarfile
+    with tarfile.open(path) as tf:
+        members = tf.getmembers()
+        out = [f"{len(members)} member(s), {_human(sum(m.size for m in members))} uncompressed"]
+        listed = [m for m in members if not find or find.lower() in m.name.lower()]
+        out += [f"  {m.name}  {_human(m.size)}" for m in listed[:MAX_MEMBERS]]
+        if len(listed) > MAX_MEMBERS:
+            out.append(f"  …+{len(listed)-MAX_MEMBERS} more")
+    return out
+
+
+# ------------------------------------------------------------------ sqlite
+def peek_sqlite(path, find=None):
+    import sqlite3
+    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    try:
+        tables = [r[0] for r in con.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")]
+        out = [f"{len(tables)} table(s)"]
+        for name in tables[:MAX_MEMBERS]:
+            cols = [r[1] for r in con.execute(f"PRAGMA table_info('{name}')")]
+            try:
+                n = con.execute(f"SELECT count(*) FROM '{name}'").fetchone()[0]
+            except sqlite3.Error:
+                n = "?"
+            # 🐛 [2026-09-08] Cut at twelve with no sign the list ended early, in the one
+            # command whose whole claim is that its answer substitutes for opening the file. A
+            # 30-column table read as a 12-column one.
+            _cmore = len(cols) - 12
+            _cols = ", ".join(cols[:12]) + (f" +{_cmore} more" if _cmore > 0 else "")
+            out.append(f"  `{name}` ({n:,} rows) — " + _cols if isinstance(n, int)
+                       else f"  `{name}` — " + _cols)
+        if find:
+            out.append(f"\ntables or columns matching {find!r}: " +
+                       ", ".join(t for t in tables if find.lower() in t.lower()))
+    finally:
+        con.close()
+    return out
+
+
+# ------------------------------------------------------------------ pdf
+# 🐛 [2026-09-27] (R188 acc2, 2026-09-27) A macOS-produced PDF can write its text with a *simple*
+# font encoding and no ToUnicode map: each `Tj` string is a run of raw glyph codes, not characters,
+# and only a ToUnicode CMap can translate that back to readable text -- which this module (stdlib
+# zlib, no PDF library) does not have. `chamnan-peek` on that file printed the glyph codes anyway,
+# decoded as UTF-8, as if they were the document's text: 270-odd tokens of noise such as
+# `4 � ! ! .chamnan/state/comparison/ ! ...`, and the honest "no extractable text" fallback
+# below never fired because `joined` was non-empty.
+# The obvious guard -- the share of letters/digits/whitespace/punctuation (Unicode categories L, N,
+# Zs, and ordinary punctuation) in the joined text -- does NOT catch this sample: measured 96.3% on
+# the garbage (glyph codes that happen to land in the printable ASCII range look exactly like
+# letters) against 100% on real sentences, no usable margin. The actual tell is structural: this
+# generator emits one `Tj` call per GLYPH, so almost every extracted string is one character.
+# Measured on the same sample: 87.7% of its 780 non-blank `Tj` strings are a single character.
+# Real generators do not do this even in the sparsest realistic case -- one `Tj` call per WORD
+# (measured 11.1% single-character strings, only "a" qualifying) or one call per sentence
+# (measured 0%). 11.1% vs 87.7% is a wide gap, so the cut sits at the midpoint (50%) with headroom
+# either side. U+FFFD / C0 control characters are kept as a second, independent trigger (measured
+# 0.9% on the garbage sample, 0% on real text) for a glyph scheme whose codes are NOT printable
+# ASCII and so would not trip the single-character check.
+def _pdf_text_looks_like_text(entries):
+    """False when `entries` (the decoded `Tj` strings) look like raw font glyph codes rather than
+    readable text -- see the measurement above. `entries` may include blank/whitespace-only strings
+    (real inter-word spacing); those are dropped before judging."""
+    stripped = [e.strip() for e in entries if e.strip()]
+    if not stripped:
+        return True  # nothing to judge; the caller already handles the fully-empty case
+    single = sum(1 for e in stripped if len(e) == 1)
+    if single / len(stripped) > 0.5:
+        return False
+    joined = "".join(stripped)
+    bad = sum(1 for ch in joined if ch == "\ufffd" or (ord(ch) < 0x20 and ch not in "\t\n\r"))
+    return bad / len(joined) < 0.05
+
+
+def peek_pdf(path, find=None):
+    import zlib
+    # 🐛 [2026-09-09] The one structured handler in this file with no ceiling. Every sibling has
+    # one — `peek_zip`/`peek_tar` through `_zread`, `peek_source` through `tree.read_capped` — and
+    # the note on `tree.MAX_FILE_BYTES` says the constant was collected into "the two places that
+    # most needed it" and names `peek_source`, not this. So a cloned repository holding a large
+    # `.pdf` had it read whole into memory (R1 agent 2, 2026-09-09).
+    # `tree.read_capped` decodes, and a PDF is bytes; the ceiling is the shared constant either
+    # way. Bounded on the way IN, for the reason `read_capped`'s own docstring gives: reading whole
+    # and slicing afterwards has already spent the memory the limit exists to refuse.
+    with path.open("rb") as _fh:
+        raw = _fh.read(tree.MAX_FILE_BYTES)
+    out = []
+    pages = len(re.findall(rb"/Type\s*/Page[^s]", raw))
+    out.append(f"{pages or '?'} page(s)")
+    for key in (b"Title", b"Author", b"Subject", b"Producer", b"CreationDate"):
+        m = re.search(rb"/" + key + rb"\s*\(([^)]{1,120})\)", raw)
+        if m:
+            out.append(f"{key.decode()}: " + m.group(1).decode("utf-8", "replace"))
+    # Text lives in FlateDecode streams; zlib is in the standard library, so a rough extraction is
+    # available without a PDF library. Rough is the right word — enough to answer "what is this
+    # document about", not enough to reproduce it.
+    # 🐛 [2026-09-09] This paired the delimiters with `stream\r?\n(.*?)endstream`, which is
+    # quadratic when the opens have no matching close: every `stream\n` makes the lazy `.` scan
+    # forward to end-of-file before failing, so doubling the input roughly quadruples the work.
+    # Nothing stops a file named `.pdf` in a cloned repository from being shaped that way. Measured
+    # on a 1.2 MB fixture of 25,000 unclosed opens: over two minutes, killed rather than finished.
+    #
+    # The first repair was worse than the defect — `(?:(?!endstream).){0,4000000}` runs a negative
+    # lookahead per character from every start position, and the same fixture still did not finish.
+    # Recorded because it is the obvious fix and the next person will reach for it too.
+    #
+    # Pairing delimiters is not a job for a regex. `bytes.find` is a C-level substring search, so
+    # locating each open and its close is linear in the file and stops at the 40 streams this loop
+    # already wanted. The 40-stream limit was always there and never helped, because the cost was
+    # in FINDING a match rather than in handling one (R1 agent 2, 2026-09-09).
+    text = []
+    _at = 0
+    while len(text) <= 40:
+        _open = raw.find(b"stream", _at)
+        if _open < 0:
+            break
+        _body_at = _open + len(b"stream")
+        if raw[_body_at:_body_at + 2] == b"\r\n":
+            _body_at += 2
+        elif raw[_body_at:_body_at + 1] == b"\n":
+            _body_at += 1
+        else:
+            _at = _open + 1          # `endstream` itself, or a word that merely ends in `stream`
+            continue
+        _close = raw.find(b"endstream", _body_at)
+        if _close < 0:
+            break                    # nothing after this can be a complete stream
+        _at = _close + len(b"endstream")
+        try:
+            body = zlib.decompress(raw[_body_at:_close])
+        except zlib.error:
+            continue
+        text += [t.decode("utf-8", "replace") for t in re.findall(rb"\((.{1,200}?)\)\s*Tj", body)]
+    joined = " ".join(text)
+    if joined and not _pdf_text_looks_like_text(text):
+        # Same judgement for both the default preview and `find` -- a hit inside glyph-code noise
+        # is not a real match either.
+        out.append("page text is font-encoded (glyph codes without a readable text layer this "
+                    "reader can decode) — a PDF text tool is needed")
+    elif find and joined:
+        hits = [m.start() for m in re.finditer(re.escape(find), joined, re.I)][:5]
+        out.append(f"\n{len(hits)} match(es) for {find!r}:")
+        out += ["  …" + joined[max(0, h-70):h+90] + "…" for h in hits]
+    elif joined:
+        out.append("\nextracted text (first 400 chars):")
+        out.append("  " + joined[:400])
+    else:
+        out.append("no extractable text — likely a scan; an OCR step would be needed")
+    return out
+
+
+# ------------------------------------------------------------------ images
+def peek_image(path):
+    head = path.read_bytes()[:64]
+    if head.startswith(b"\x89PNG"):
+        w, h = struct.unpack(">II", head[16:24])
+        depth, colour = head[24], head[25]
+        kinds = {0: "greyscale", 2: "RGB", 3: "palette", 4: "greyscale+alpha", 6: "RGBA"}
+        return [f"PNG {w}×{h}, {depth}-bit {kinds.get(colour, colour)}"]
+    if head.startswith(b"\xff\xd8"):
+        # 🐛 This used to scan the raw bytes for an SOF marker with a regex, and the FIRST one it
+        # found belonged to the EXIF THUMBNAIL — every phone photo carries one — so a 4032×3024
+        # photograph was reported as 160×120. Walking the segment chain skips APP1 by its declared
+        # length, which is how the thumbnail stops being reachable at all rather than being
+        # filtered out afterwards.
+        raw = path.read_bytes()
+        i, SOF = 2, set(range(0xC0, 0xD0)) - {0xC4, 0xC8, 0xCC}
+        while i + 3 < len(raw):
+            if raw[i] != 0xFF:
+                i += 1
+                continue
+            marker = raw[i + 1]
+            if marker in (0xD8, 0x01) or 0xD0 <= marker <= 0xD7:
+                i += 2
+                continue
+            if marker == 0xDA or marker == 0xD9:      # start of scan / end of image
+                break
+            seg = struct.unpack(">H", raw[i + 2:i + 4])[0]
+            if marker in SOF and i + 9 <= len(raw):
+                h, w = struct.unpack(">HH", raw[i + 5:i + 9])
+                return [f"JPEG {w}×{h}"]
+            i += 2 + max(seg, 2)
+        return ["JPEG, dimensions not found in the frame headers"]
+    if head.startswith(b"GIF8"):
+        w, h = struct.unpack("<HH", head[6:10])
+        return [f"GIF {w}×{h}"]
+    return ["image, header not recognised"]
+
+
+# ------------------------------------------------------------------ text and fallback
+def peek_text(path, find=None):
+    lines, total = [], 0
+    with path.open("r", encoding=_text_encoding(path) or "utf-8-sig", errors="replace") as fh:
+        for i, line in enumerate(fh):
+            total += 1
+            if find:
+                if find.lower() in line.lower() and len(lines) < 12:
+                    lines.append((i + 1, line.rstrip()[:160]))
+            elif i < 8:
+                lines.append((i + 1, line.rstrip()[:160]))
+    out = [f"{total:,} lines"]
+    if find:
+        out.append(f"lines matching {find!r} ({len(lines)} shown):")
+    else:
+        out.append("first lines:")
+    out += [f"  {n}: {t}" for n, t in lines]
+    return out
+
+
+def peek_binary(path):
+    """The last-resort description of a file: what it looks like, and nothing decoded.
+
+    🐛 [2026-09-08] This raised, and one of its three callers is the `except Exception` that exists
+    so "a malformed file must not crash the caller" -- so a file that disappeared between the
+    dispatch and the recovery produced an uncaught `FileNotFoundError` and a raw traceback, out of
+    the branch whose whole job is to stop that. Reproduced by the round that found it, which had
+    deleted its own fixture during cleanup while the command was still running (R7 agent 2, 2026-09-08).
+    Guarded HERE rather than at the recovery site, because all three callers need it and guarding
+    the one that was seen failing is how this codebase produces its commonest defect.
+
+    The handle is closed explicitly too: `path.open("rb").read(...)` leaves it to the collector,
+    and on Windows an open handle is what stops the next caller deleting the file.
+    """
+    try:
+        with path.open("rb") as handle:
+            raw = handle.read(4096)
+    except OSError as err:
+        return [f"could not read this file at all: {type(err).__name__}: {err}"]
+    kind = _identify(raw) or "unrecognised"
+    printable = sum(32 <= b < 127 or b in (9, 10, 13) for b in raw)
+    # Not capped here: the line below reports how many were FOUND and how many it shows, and a cap
+    # at the find step would have made that count a description of the cap instead of the file.
+    strings = re.findall(rb"[ -~]{6,}", raw)
+    return [f"{kind}; {printable * 100 // max(len(raw), 1)}% printable in the first 4KB",
+            "crc32 of first 4KB: " + format(binascii.crc32(raw) & 0xFFFFFFFF, "08x"),
+            (f"readable strings ({len(strings)} of at least 6 characters found in the first "
+             f"4KB, {min(5, len(strings))} shown): "
+             + ", ".join(s.decode("ascii")[:40] for s in strings[:5]))]
+
+
+def _first_bytes(path, count):
+    """The first `count` bytes, with the handle closed. `b""` when the file cannot be read.
+
+    The dispatch below sniffs for a SQLite header this way, and wrote it as
+    `path.open("rb").read(15)` -- a handle left to the collector, inside the condition of an `elif`
+    chain, on a path that may not be readable at all. On Windows an open handle is also what stops
+    the next caller deleting the file.
+    """
+    try:
+        with path.open("rb") as handle:
+            return handle.read(count)
+    except OSError:
+        return b""
+
+
+# ------------------------------------------------------------------ dispatch
+# Formats with a real handler above, as opposed to the two fallbacks. The distinction matters to
+# anything deciding whether a shape is worth showing UNASKED: for a CSV, a spreadsheet or a database
+# the shape genuinely substitutes for the read, while for 674KB of JavaScript `peek_binary` offers a
+# crc32 and five string fragments, which is not an answer to anything. Measured on a real file
+# before this existed — the .js output was 135 tokens of nothing.
+#
+# Derived from peek()'s own dispatch rather than listed twice, so a new handler joins both at once.
+STRUCTURED = set((".csv", ".tsv", ".tab", ".json", ".jsonl", ".ndjson", ".tar", ".tgz", ".pdf",
+                  ".db", ".sqlite", ".sqlite3")) | ZIP_LIKE | IMAGE_LIKE
+
+
+def has_structure(path):
+    """True if peek() would reach a real handler for this path, not peek_text or peek_binary."""
+    path = Path(path)
+    if path.suffix.lower() in STRUCTURED:
+        return True
+    return path.name.endswith((".tar.gz", ".tar.bz2", ".tar.xz"))
+
+
+def peek_source(path, find=None):
+    """A source file's shape: what it opens with, and what it defines.
+
+    Source code used to reach peek_binary -- there was no branch for `.py`, `.js`, `.go` or any
+    other language, and no source extension in TEXT_LIKE either, so the single most common kind of
+    file in every repository chamnan targets got the worst answer the tool can give: "unrecognised;
+    100% printable in the first 4KB", a CRC32 and a strings dump. Two commands earlier, chamnan-map
+    had read the same file and listed its functions by name.
+
+    Same extractor as the index, so a file peeked and a file indexed agree with each other.
+    """
+    lang = mapper.EXT_LANG.get(path.suffix.lower())
+    # 🐛 [2026-09-08] Read whole, with no bound, while `mapper` refuses anything over the same
+    # ceiling and every other reader in this file has one: a 150 MB file hung `chamnan-peek` for
+    # over 150 seconds. A preview TRUNCATES rather than skipping -- unlike the index, it never
+    # claimed to be complete, and the caller already prints a truncation notice (R7 agent 2, 2026-09-08).
+    source = tree.read_capped(path, encoding=_text_encoding(path) or "utf-8-sig")
+    out = []
+    try:
+        summary, functions, classes, _rest = mapper._extract_one(source, str(path), lang)
+    except Exception:
+        return peek_text(path, find)
+    if summary:
+        out.append(summary)
+        out.append("")
+    # The extractor returns tuples, and the shape differs per kind: (signature, comment) for a
+    # function, (name, comment, [methods]) for a type. Read positionally, the way render() does.
+    for name, note, methods in (classes or []):
+        members = ", ".join(methods[:MAX_MEMBERS]) if methods else ""
+        line = f"type `{name}`" + (f" — {note}" if note else "")
+        out.append(line + (f"\n  members: {members}" if members else ""))
+    funcs = [sig for sig, _note in (functions or [])]
+    if funcs:
+        out.append(f"{len(funcs)} function(s):")
+        out.extend(f"  {sig}" for sig in funcs[:MAX_MEMBERS])
+        if len(funcs) > MAX_MEMBERS:
+            out.append(f"  …and {len(funcs) - MAX_MEMBERS} more")
+    if find:
+        hits = [f"{i}: {ln.strip()[:120]}" for i, ln in enumerate(source.splitlines(), 1)
+                if find.lower() in ln.lower()][:SAMPLE_ROWS * 4]
+        out.append("")
+        out.append(f"lines matching {find!r}: {len(hits)}" if hits else f"no line matches {find!r}")
+        out.extend(f"  {h}" for h in hits)
+    if not out:
+        # A file this extractor finds nothing in is still text, and showing its opening lines beats
+        # describing it as an unrecognised blob.
+        return peek_text(path, find)
+    return out
+
+
+def _is_env_file(name):
+    """`.env`, `.env.production`, `local.env` — the shapes people actually use."""
+    low = name.lower()
+    return low == ".env" or low.startswith(".env.") or low.endswith(".env")
+
+
+def _env_names(path):
+    """The variable names an env file declares, and nothing to the right of the `=`."""
+    names = []
+    try:
+        for line in path.read_text(encoding="utf-8-sig", errors="replace").splitlines():
+            line = line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key = line.split("=", 1)[0].strip()
+            if key.lower().startswith("export "):
+                key = key[7:].strip()
+            if key:
+                names.append(key)
+    except OSError:
+        return "unreadable"
+    if not names:
+        return "no variables declared"
+    shown = ", ".join(f"`{n}`" for n in names[:24])
+    more = f" _+{len(names) - 24} more_" if len(names) > 24 else ""
+    return (f"{len(names)} variable(s), names only — values are never printed for an env file:\n"
+            f"  {shown}{more}")
+
+
+def peek(path, find=None, budget=DEFAULT_BUDGET):
+    """A preview of one file, scrubbed. Every way out of here goes through the redactor.
+
+    🐛 [2026-09-09] The docstring said "one choke point" and three return paths went around it. The
+    one that carried real content was the binary sniff: handed a file with a text extension whose
+    bytes are not text, it returns `peek_binary`'s output — which includes readable strings pulled
+    straight out of those bytes. Reproduced: a `.csv` holding an AWS access key ID between null
+    bytes printed the key in full. It was masked because both real callers scrub again on their own,
+    so the module's own guarantee was untrue while the product happened to be safe — and a second
+    caller written without that habit would have shipped the leak (R1 agent 2, 2026-09-09).
+    """
+    return _scrub_everything_out(_peek(path, find, budget))
+
+
+def _scrub_everything_out(text):
+    """The single exit. `_peek` returns; nothing in this module returns to a caller but this."""
+    return redact.scrub(text)
+
+
+def _peek(path, find=None, budget=DEFAULT_BUDGET):
+    path = Path(path)
+    if not path.is_file():
+        return f"chamnan-peek: not a file: {path}"
+    size = path.stat().st_size
+    if redact.is_never_opened(path):
+        # A key file's shape IS its content. Naming it and refusing is the whole useful answer;
+        # peek is the one command that opens an arbitrary path on request, which makes it the
+        # one that most needs a deny-list, and it did not have one.
+        return (f"# {mdblock.one_line(path.name)}\n{_human(size)} · {mdblock.one_line(path.suffix.lower() or 'no extension')}\n\n"
+                f"Refused: chamnan does not open this kind of file. Its contents are credentials "
+                f"or a key, and there is no summary of them that is safe to put in a session.\n\n"
+                f"_[nothing read]_")
+    ext = path.suffix.lower()
+    header = [f"# {mdblock.one_line(path.name)}", f"{_human(size)} · {mdblock.one_line(ext or 'no extension')}"]
+
+    # 🐛 An env file was printed like any other text file, values and all — an internal
+    # hostname, an admin address, a live DSN. `catalogs.scan_env` publishes NAMES only for this
+    # exact file class and says so; peek is a different path and did not share the rule.
+    #
+    # Matched by NAME, not extension: `Path('.env').suffix` is `''`, so the commonest env file
+    # in existence never matched an extension test in the first place.
+    if _is_env_file(path.name):
+        return "\n".join(header + ["", _env_names(path)])
+
+    # 🐛 [2026-10-07] (R66 acc4, 2026-10-07) A file in Git LFS is checked out without `git lfs pull`
+    # as a three-line pointer. The map already says so; peek read the pointer as the file -- a
+    # one-column CSV of pointer metadata. Same detector as the map, so the two cannot disagree.
+    # Check 457.
+    if size <= 1024:
+        try:
+            with open(path, "rb") as fh:
+                head = fh.read(1024)
+        except OSError:
+            head = b""
+        if head.startswith(b"version https://git-lfs.github.com/spec/v1"):
+            real = mapper.lfs_pointer_size(head.decode("utf-8", "replace"))
+            if real is not None:
+                return "\n".join(header + ["", f"Not checked out: a git-lfs pointer to {_human(real)} "
+                                                 f"of content. `git lfs pull` fetches the real file.",
+                                            "", "_[the pointer is all that is on disk]_"])
+
+    # An extension is a claim, not a fact. Handed binary data named .csv, the csv reader parses it
+    # perfectly happily -- errors="replace" guarantees it never raises -- and the result was a
+    # column list of raw control characters going straight into the session. Sniff the bytes first
+    # and let the binary handler describe it instead; that handler exists precisely to say "this is
+    # not text" without pretending to read it.
+    if (ext in (".csv", ".tsv", ".tab", ".json", ".jsonl", ".ndjson")
+            # `""` was the one case missing, and it is the case where the extension carries no
+            # information at all — so the sniff mattered most exactly where it was not run.
+            or ext in TEXT_LIKE or ext == "") and _text_encoding(path) is None:
+        return "\n".join(header + ["", *[str(x) for x in peek_binary(path)]]) + \
+               "\n\n" + _cost_note(path, ".bin", size, "")
+
+    try:
+        if ext in (".csv", ".tsv", ".tab"):
+            body = peek_csv(path, find)
+        elif ext == ".json":
+            body = peek_json(path, find)
+        elif ext in (".jsonl", ".ndjson"):
+            body = peek_jsonl(path, find)
+        elif ext in ZIP_LIKE and zipfile.is_zipfile(path):
+            body = peek_zip(path, find)
+        elif ext in (".tar", ".tgz") or path.name.endswith((".tar.gz", ".tar.bz2", ".tar.xz")):
+            body = peek_tar(path, find)
+        elif ext in (".db", ".sqlite", ".sqlite3") or _first_bytes(path, 15) == b"SQLite format 3":
+            body = peek_sqlite(path, find)
+        elif ext == ".pdf":
+            body = peek_pdf(path, find)
+        elif ext in IMAGE_LIKE:
+            body = peek_image(path)
+        elif ext in OPAQUE:
+            body = [f"{OPAQUE[ext]} — no standard-library reader for this format.",
+                    "Identified and measured only; decoding it needs a dedicated library.",
+                    *peek_binary(path)]
+        elif ext in TEXT_LIKE or ext == "":
+            body = peek_text(path, find)
+        elif ext in mapper.EXT_LANG:
+            body = peek_source(path, find)
+        # 🐛 [2026-10-09] (R177 acc4, 2026-10-09) A byte-order mark is a positive statement that the
+        # file is text, and only the extensions above ever asked: a `.reg` export or a `.ps1` from
+        # Windows PowerShell 5.1 went to the binary describer as "unrecognised; 48% printable".
+        # Check 493.
+        elif _text_encoding(path) in ("utf-16", "utf-32"):
+            body = peek_text(path, find)
+        else:
+            body = peek_binary(path)
+    except Exception as err:                     # a malformed file must not crash the caller
+        body = [f"could not read as {ext or 'unknown type'}: {type(err).__name__}: {err}",
+                *peek_binary(path)]
+
+    out = "\n".join(header + [""] + [str(x) for x in body])
+    cut = mdblock.cut_outside_a_fence(out, tokens.cut_at(out, budget))
+    if cut < len(out):
+        out = out[:cut] + f"\n\n_[truncated at {budget} tokens — narrow it with --find]_"
+    # Scrubbed here as well as at the exit, and that is not redundant: `_cost_note` is computed
+    # FROM `out`, so it has to see the scrubbed text or it reports a length that counts bytes the
+    # reader never receives. The exit wrapper is what makes the guarantee true for every path;
+    # this is what makes the note true for this one.
+    #
+    # peek reads .env, .ini, .yaml and source on demand, and printed AWS, Stripe, Slack and GitHub
+    # credentials verbatim into the session until this line existed.
+    out = redact.scrub(out)
+    return out + "\n\n" + _cost_note(path, ext, size, out)
+
+
+# 🐛 [2026-08-30] The comparison figure read the WHOLE file. Measured on a 4.8MB CSV: peek_csv did
+# its work in 0.14s and the whole call took 7.5s, all of it spent tokenizing five megabytes to
+# print one decorative ratio. On a 40MB export that is a minute of waiting for a number nobody
+# asked for — and it is what stopped the bulk-read hook from being able to show a shape at all.
+#
+# Sampled above SAMPLE_BYTES and labelled "about", exact below it, so a small file's figure and
+# every existing test are unchanged. An estimate is what this line always was; it just used to buy
+# its precision at a price out of all proportion to the claim.
+# 16KB, not more: measured on a 4.8MB CSV, a 16,000-byte sample gives exactly the same estimate as
+# a 512,000-byte one (2.43% off the exact figure either way -- the error is the header row, not the
+# sample size) and costs 25ms against 759ms.
+SAMPLE_BYTES = 16_000
+
+
+def _whole_file_tokens(path, size):
+    """(tokens, sampled) for reading this file whole. `size` is BYTES on disk.
+
+    Both conversions are measured on the sample rather than assumed, and the byte one is not
+    optional: this plugin's own corpus is Thai, where one character is three bytes, so scaling a
+    per-CHARACTER token rate by a BYTE count would have reported every Thai file as three times its
+    real cost.
+    """
+    if size <= SAMPLE_BYTES:
+        return tokens.estimate(path.read_text(encoding=_text_encoding(path) or "utf-8-sig", errors="replace")), False
+    with path.open("rb") as fh:
+        raw = fh.read(SAMPLE_BYTES)
+    # Drop a trailing partial character rather than letting errors="replace" invent one.
+    head = raw.decode("utf-8", errors="ignore")
+    if not head:
+        return 0, False
+    chars_per_byte = len(head) / len(raw)
+    per_char = tokens.estimate(head) / len(head)
+    return int(per_char * chars_per_byte * size), True
+
+
+def _cost_note(path, ext, size, out):
+    """Say what the peek cost, and only claim a saving where the alternative actually exists.
+
+    The first version of this line divided the file's size on disk by a characters-per-token
+    constant and reported the result as what reading it whole would have cost -- for every file,
+    including a SQLite database, where it announced a 9,962x saving over a number that could never
+    have been spent, because Read cannot open a database at all. Nor can it open a PNG. And for a
+    .xlsx or a .docx the bytes on disk are deflate-compressed, so even where a comparison exists
+    the size is the wrong basis for it. A tool whose whole subject is token honesty cannot round
+    its own headline up.
+    """
+    spent = tokens.estimate(out)
+    # Source code belongs on the comparable side. A plain read CAN open a .py, so claiming
+    # otherwise would be the same dishonesty in the other direction that this function exists to
+    # avoid -- and the comparison is real: the outline of a 3.4KB module is genuinely smaller.
+    if (ext in TEXT_LIKE or ext in mapper.EXT_LANG
+            or ext in (".csv", ".tsv", ".tab", ".json", ".jsonl", ".ndjson", "")):
+        try:
+            whole, sampled = _whole_file_tokens(path, size)
+        except OSError:
+            return f"_[{spent:,.0f} tokens]_"
+        ratio = f" — {whole/max(spent, 1):,.0f}× smaller" if whole > spent * 2 else ""
+        about = "about " if sampled else ""
+        return f"_[{spent:,.0f} tokens instead of {about}{whole:,.0f} for the whole file{ratio}]_"
+    return (f"_[{spent:,.0f} tokens. The file itself is {_human(size)} of {ext.lstrip('.') or 'binary'} "
+            f"that a plain read cannot open, so this is not a saving over reading it — "
+            f"it is the only way to see inside it without leaving the session.]_")

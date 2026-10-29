@@ -1,0 +1,68 @@
+{
+  "schema": 1,
+  "evidence_kind": "actual-run",
+  "scenario_set_id": "optimizer-scenarios-sha256:602e496906f3a293203750602234ba88a55a86b9e4f54f32239264098dcebe5b",
+  "metric_set_id": "optimizer-metrics-sha256:bedffbda2b18d725610b0f294a8273ef908237fd957bf9e51a5af4885b123e4f",
+  "scenario_id": "p-limit-short-clear-queue",
+  "category": "short_control",
+  "holdout": true,
+  "policy_id": "prompt-only",
+  "repetition": 2,
+  "decision_id": "sha256:b67aeba4f2054225a6619324d6b72194bbc58f68676c98f578946322b2be5df7",
+  "selected_profile_id": "claude-workhorse",
+  "observed_profile_id": "claude-workhorse",
+  "requested_model": "claude-sonnet-5",
+  "observed_model": "claude-sonnet-5",
+  "model_proof_status": "passed",
+  "started_at": "2026-07-30T21:54:00.290Z",
+  "duration_ms": 99039,
+  "outcome": "failed",
+  "verified": false,
+  "attempts": 1,
+  "human_interventions": 0,
+  "topology": "single",
+  "cost": {
+    "status": "known",
+    "amount_usd": 0.433754,
+    "provenance": "tool_reported",
+    "source": "citadel_optimizer_runner",
+    "source_ref": "summed_attempts:1",
+    "pricing_snapshot_digest": null,
+    "components": [
+      {
+        "kind": "model",
+        "amount_usd": 0.4337539,
+        "source": "attempt_1:claude total_cost_usd"
+      }
+    ]
+  },
+  "artifact_paths": [
+    "test.js"
+  ],
+  "verification_receipts": [
+    {
+      "attempt": 1,
+      "profile_id": "claude-workhorse",
+      "status": "failed",
+      "exit_code": 1,
+      "timed_out": false,
+      "output_digest": "sha256:e9f65d6ea0b1253db8c3d63a6105457446cdff4207ad4b9249e6e3004c5a461a",
+      "output_excerpt": "[stdout]\n\n> p-limit@7.3.1 test\n> xo && ava && tsd\n\n\n[stderr]\n",
+      "output_truncated": false,
+      "patch_exit_code": 0,
+      "patch_digest": "sha256:5e58ca441edd3f569f1b5349b2312882234059589ea95aa2af6ec3c28b4f6f2c",
+      "patch_excerpt": "diff --git a/test.js b/test.js\nindex e303a46..d6cfec3 100644\n--- a/test.js\n+++ b/test.js\n@@ -193,6 +193,23 @@ test('clearQueue', async t => {\n \tt.is(limit.pendingCount, 0);\n });\n \n+test('clearQueue with default options leaves the active promise untouched and clears the rest', async t => {\n+\tconst limit = pLimit(1);\n+\n+\tconst activePromise = limit(() => delay(50, 'active result'));\n+\tconst pendingPromises = Array.from({length: 3}, () => limit(() => delay(1000)));\n+\n+\tawait Promise.resolve();\n+\tt.is(limit.activeCount, 1);\n+\tt.is(limit.pendingCount, 3);\n+\n+\tlimit.clearQueue();\n+\n+\tt.is(limit.activeCount, 1);\n+\tt.is(limit.pendingCount, 0);\n+\tt.is(await activePromise, 'active result');\n+});\n+\n // Node.js 20 has a bug where DOMException is not properly handled by AVA's `throwsAsync`.\n const testClearQueueRejects = process.versions.node.startsWith('20.') ? test.skip : test;\n \n",
+      "patch_truncated": false,
+      "changed_paths": [
+        "test.js"
+      ]
+    }
+  ],
+  "receipt_status": "verified",
+  "adversarial_result": null,
+  "failure_code": "VERIFICATION_FAILED",
+  "attestation": {
+    "algorithm": "ed25519",
+    "signature_base64": "1vPij7z4P21AJMhlfFNQB3z9FZnjhnVxjXcf6DDsEDpojfkypg74A3BN7A+60EE2MbFqO9uOK5ox5etT+ODPAA=="
+  }
+}

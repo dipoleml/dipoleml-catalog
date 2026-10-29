@@ -1,0 +1,20 @@
+{
+  "mcpServers": {
+    "codebase-memory-mcp": {
+      "command": "codebase-memory-mcp",
+      "args": []
+    },
+    "serena": {
+      "command": "serena",
+      "args": ["start-mcp-server", "--context=gemini", "--project-from-cwd"]
+    },
+    "supergraph-team": {
+      "command": "node",
+      "args": ["bin/sg-team-mcp.js"]
+    },
+    "supergraph-browser": {
+      "command": "node",
+      "args": ["bin/sg-browser-mcp.js"]
+    }
+  }
+}

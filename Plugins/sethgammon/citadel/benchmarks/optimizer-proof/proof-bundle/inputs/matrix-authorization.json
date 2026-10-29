@@ -1,0 +1,25 @@
+{
+  "schema": 1,
+  "kind": "citadel_optimizer_matrix_authorization",
+  "scenario_set_id": "optimizer-scenarios-sha256:602e496906f3a293203750602234ba88a55a86b9e4f54f32239264098dcebe5b",
+  "executor_set_id": "optimizer-executors-sha256:8eb2367e150c75864573e8369a481e4a13be331b8544291563ab9cf9b457d4cb",
+  "metric_set_id": "optimizer-metrics-sha256:bedffbda2b18d725610b0f294a8273ef908237fd957bf9e51a5af4885b123e4f",
+  "policies": [
+    "always-frontier",
+    "always-cheap",
+    "prompt-only",
+    "adaptive"
+  ],
+  "repetitions": 3,
+  "total_runs": 120,
+  "access_basis": "subscription",
+  "quota_budget": {
+    "max_cli_runs": 120,
+    "max_model_calls": 162,
+    "max_model_runtime_minutes": 7230
+  },
+  "approval_status": "approved",
+  "quota_acknowledged": true,
+  "approved_by": "Seth Gammon",
+  "approved_at": "2026-07-30T20:44:02.628Z"
+}

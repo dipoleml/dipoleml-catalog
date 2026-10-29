@@ -1,0 +1,141 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.totigm.dipoleml-sound-notification",
+  "type": "plugin",
+  "name": "DipoleML Sound Notification",
+  "slug": "dipoleml-sound-notification",
+  "vendor": "totigm",
+  "description": "🔊 Cross-platform DipoleML plugin that plays distinct sounds when DipoleML finishes a task vs. when it needs your input — so you know whether to check results or go respond. Works on macOS, Linux & Windows. Non-destructive install, no config files touched.",
+  "version": "1.0.0",
+  "homepage": "https://github.com/totigm/claude-sound-notification",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "anthropic",
+    "audio",
+    "bash",
+    "claude-code-hooks",
+    "claude-code-plugin",
+    "claude-hook",
+    "claude-plugin",
+    "cli",
+    "cross-platform"
+  ],
+  "tags": [
+    "anthropic",
+    "audio",
+    "bash",
+    "claude",
+    "claude-code",
+    "claude-code-hooks",
+    "claude-code-plugin",
+    "claude-hook",
+    "claude-plugin",
+    "cli",
+    "cross-platform",
+    "developer-tools",
+    "linux",
+    "macos",
+    "notifications",
+    "plugin",
+    "productivity",
+    "sound",
+    "windows"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "totigm",
+    "brandName": "totigm",
+    "source": "https://github.com/totigm.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:15:10Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "totigm/claude-sound-notification",
+    "url": "https://github.com/totigm/claude-sound-notification",
+    "commit": "e741fe2c3c25efeb28cd504ba00d8b2c6e34d395",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 9,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:52:08Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".claude/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Claude Sound Notification | 🔊 Cross-platform Claude Code plugin that plays distinct sounds when Claude finishes a task vs. when it needs your input — so you know whether to check results or go respond. Works on macOS, Linux & Windows. Non-destructive install, no config files touched.",
+        "after": "DipoleML Sound Notification | 🔊 Cross-platform DipoleML plugin that plays distinct sounds when DipoleML finishes a task vs. when it needs your input — so you know whether to check results or go respond. Works on macOS, Linux & Windows. Non-destructive install, no config files touched.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "Plays different sounds when Claude Code finishes a task vs needs your input. Cross-platform.",
+        "after": "Plays different sounds when DipoleML finishes a task vs needs your input. Cross-platform.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "claude-sound-notification",
+        "after": "dipoleml-sound-notification",
+        "reason": "provider token neutralized in slug/id"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

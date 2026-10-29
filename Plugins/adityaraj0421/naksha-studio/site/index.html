@@ -1,0 +1,799 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>naksha-studio — a virtual design agency in your terminal</title>
+<meta name="description" content="A virtual design agency in your terminal. 30 specialist roles, 70 commands, inside Claude Code, Cursor, Windsurf, Gemini CLI, Copilot, and Autohand Code CLI. New in v6: Naksha Live.">
+<meta property="og:title" content="naksha-studio — a virtual design agency in your terminal">
+<meta property="og:description" content="30 specialist roles. 70 commands. One command and the whole design agency shows up.">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://adityaraj0421.github.io/naksha-studio/">
+<meta property="og:image" content="https://adityaraj0421.github.io/naksha-studio/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="naksha-studio — a virtual design agency in your terminal">
+<meta name="twitter:description" content="30 specialist roles. 70 commands. One command and the whole design agency shows up.">
+<meta name="twitter:image" content="https://adityaraj0421.github.io/naksha-studio/og.png">
+<meta name="theme-color" content="#070810">
+<link rel="canonical" href="https://adityaraj0421.github.io/naksha-studio/">
+<link rel="icon" href="favicon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400..600;1,6..72,400..600&family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<style>
+  /* ===== naksha-studio brand: iris-blue on near-black, blueprint/draftsman ===== */
+  :root{
+    --bg:#070810; --bg2:#0C0E18; --panel:#10131F; --card:#11141E; --term:#0A0B12;
+    --line:rgba(243,244,250,.10); --line-2:rgba(243,244,250,.17);
+    --ink:#F3F4FA; --ink-soft:#9094A6; --ink-dim:#777E9C;
+    --accent:#5C50E8; --accent-soft:#8E86F4; --accent-deep:#3A30B8;
+    --grid:rgba(150,160,220,.05); --tick:rgba(150,160,220,.16);
+    --ease:cubic-bezier(.16,1,.3,1);
+    --edge:inset 0 1px 0 rgba(255,255,255,.06);                 /* glass top highlight */
+    --lift:0 28px 64px -38px rgba(20,16,58,.92);                /* elevation, tinted to iris-navy not pure black */
+    --serif:"Newsreader",Georgia,serif; --mono:"JetBrains Mono",ui-monospace,monospace; --sans:"Inter",system-ui,sans-serif;
+    --max:1120px;
+  }
+  /* light theme (toggle) — keeps the iris accent, paper base */
+  html[data-theme="light"]{
+    --bg:#ECEEF5; --bg2:#F5F6FB; --panel:#FFFFFF; --card:#FFFFFF; --term:#0A0B12;
+    --line:rgba(20,22,44,.10); --line-2:rgba(20,22,44,.17);
+    --ink:#14162A; --ink-soft:#585C72; --ink-dim:#5F6380;   /* ink-dim ≥4.5:1 on #ECEEF5 */
+    --grid:rgba(60,70,150,.06); --tick:rgba(60,70,150,.20); --accent-soft:#5247DE;
+  }
+  *{box-sizing:border-box;margin:0}
+  html{scroll-behavior:smooth}
+  /* sticky-nav clearance so anchor jumps don't bury headings under the 66px bar */
+  section[id],#install{scroll-margin-top:84px}
+  /* one visible focus ring for every control (none existed before) */
+  a:focus-visible,button:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--accent-soft);outline-offset:3px;border-radius:5px}
+  /* a11y: screen-reader-only utility + skip link */
+  .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+  .skip{position:fixed;top:10px;left:10px;z-index:200;transform:translateY(-180%);background:var(--accent);color:#fff;font-family:var(--mono);font-size:13px;padding:11px 16px;border-radius:8px;text-decoration:none;transition:transform .18s}
+  .skip:focus{transform:translateY(0)}
+  /* touch: guarantee ≥44px hit areas on touch devices (skill §2) */
+  @media(pointer:coarse){
+    .nav-links .theme button{min-height:44px;min-width:44px}
+    .tabs button{min-height:44px}
+    .copy{min-height:44px}
+    .nav-cta{min-height:44px;display:inline-flex;align-items:center}
+    .foot-inner a{display:inline-flex;align-items:center;min-height:44px;padding:0 4px}
+  }
+  body{font-family:var(--sans);color:var(--ink);background:var(--bg);line-height:1.5;-webkit-font-smoothing:antialiased;transition:background .4s,color .4s}
+  body::before{content:"";position:fixed;inset:0;z-index:-2;
+    background-image:
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='36' height='36'%3E%3Cpath d='M18 14v8M14 18h8' stroke='%239aa6dc' stroke-opacity='0.18' stroke-width='1'/%3E%3C/svg%3E"),
+      linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);
+    background-size:36px 36px,36px 36px,36px 36px;background-position:18px 18px,0 0,0 0}
+  body::after{content:"";position:fixed;top:-28%;left:50%;width:1040px;height:760px;transform:translateX(-50%);z-index:-1;
+    background:radial-gradient(closest-side,rgba(92,80,232,.13),transparent 72%);filter:blur(42px);pointer-events:none}
+  /* film grain: fixed, painted once, never on a scrolling container (perf) */
+  .grain{position:fixed;inset:0;z-index:60;pointer-events:none;opacity:.035;
+    background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+  html[data-theme="light"] .grain{opacity:.02;mix-blend-mode:multiply}
+  a{color:inherit}
+  .wrap{max-width:var(--max);margin:0 auto;padding:0 24px}
+  ::selection{background:var(--accent);color:#fff}
+
+  /* tilt layer for the "crooked mode" gag */
+  .tilt-layer{transition:transform 1s cubic-bezier(.6,0,.2,1);transform-origin:50% 32%}
+  body.crooked .tilt-layer{transform:rotate(-1.4deg) skewY(-.5deg) scale(.985)}
+
+  /* ---------- logo mark ---------- */
+  .mark{display:inline-block;line-height:0}
+  .mark svg{display:block}
+  .mk-frame{stroke:var(--line-2);stroke-width:1;fill:none}
+  .mk-tick{stroke:var(--tick);stroke-width:1}
+  .mk-guide{stroke:rgba(150,160,220,.30);stroke-width:1;stroke-dasharray:3 3}
+  .mk-fill{fill:var(--accent)}
+  .mk-stroke{stroke:var(--accent);stroke-width:9;fill:none;stroke-linecap:square;stroke-linejoin:miter}
+  .mk-arc{stroke:var(--accent-soft);stroke-width:3.5;fill:none}
+  .mk-draw{stroke-dasharray:170;stroke-dashoffset:170;animation:draw 1.1s .15s forwards cubic-bezier(.6,0,.2,1)}
+  .mk-pop{opacity:0;animation:pop .4s .75s forwards}
+  @keyframes draw{to{stroke-dashoffset:0}}
+  @keyframes pop{from{opacity:0;transform:scale(.4)}to{opacity:1;transform:none}}
+  .mark--replay{cursor:pointer}
+
+  /* ---------- wordmark ---------- */
+  .wordmark{font-family:var(--mono);font-weight:500;letter-spacing:.01em;text-transform:lowercase;color:var(--ink);display:inline-flex;align-items:baseline}
+  .wordmark .hy{color:var(--accent-soft)}
+
+  /* ---------- nav ---------- */
+  nav{position:sticky;top:0;z-index:50;backdrop-filter:blur(10px);background:color-mix(in srgb,var(--bg) 76%,transparent);border-bottom:1px solid var(--line)}
+  .nav-inner{display:flex;align-items:center;justify-content:space-between;height:66px}
+  .brand{display:flex;align-items:center;gap:11px}
+  .brand .wordmark{font-size:15px}
+  .nav-links{display:flex;gap:24px;font-size:13px;font-weight:500;letter-spacing:.02em;align-items:center}
+  .nav-links a{color:var(--ink-soft);text-decoration:none;transition:color .15s}
+  .nav-links a:hover{color:var(--ink)}
+  .nav-cta{font-family:var(--mono);font-size:12px;font-weight:600;border:1px solid var(--line-2);border-radius:8px;padding:8px 14px;color:var(--ink)!important;box-shadow:var(--edge);transition:border-color .25s var(--ease),color .25s var(--ease),background .25s var(--ease)}
+  .nav-cta:hover{border-color:var(--accent);color:var(--accent-soft)!important;background:color-mix(in srgb,var(--accent) 9%,transparent)}
+  .nav-cta:active{transform:translateY(1px)}
+  .theme{display:inline-flex;border:1px solid var(--line-2);border-radius:8px;overflow:hidden}
+  .theme button{font-family:var(--mono);font-size:11px;border:0;background:transparent;color:var(--ink-soft);padding:7px 9px;min-width:32px;cursor:pointer;transition:.15s}
+  .theme button.on{background:var(--accent);color:#fff}
+  @media(max-width:820px){.nav-links a:not(.nav-cta){display:none}}
+  /* phones: drop the nav wordmark (the hero lockup carries it) so the theme switcher and CTA fit */
+  @media(max-width:460px){.brand .wordmark{display:none}.nav-links{gap:12px}}
+
+  /* ---------- hero ---------- */
+  header.hero{text-align:center;padding:62px 0 36px}
+  .lockup{display:flex;flex-direction:column;align-items:center;gap:16px;margin-bottom:30px}
+  .lockup #heromark svg{width:clamp(96px,11vw,120px);height:clamp(96px,11vw,120px)}  /* enlarge the hero mark (base render is 76px) */
+  .lockup .wordmark{font-size:clamp(26px,5vw,38px);font-weight:500}
+  .wm-rule{width:26px;height:3px;background:var(--accent);border-radius:2px}
+  .eyebrow{font-family:var(--mono);font-size:13px;letter-spacing:.13em;color:var(--ink-soft)}
+  h1{font-family:var(--serif);font-style:italic;font-weight:500;font-size:clamp(34px,6vw,62px);line-height:1.03;letter-spacing:-.02em;margin-top:30px}
+  h1 .pop{color:var(--accent-soft);font-style:italic}
+  .v6-pill{display:inline-flex;align-items:center;gap:9px;margin-top:22px;font-family:var(--mono);font-size:12px;color:var(--ink-soft);text-decoration:none;border:1px solid var(--line-2);border-radius:999px;padding:6px 14px 6px 6px;background:color-mix(in srgb,var(--accent) 8%,transparent);transition:border-color .25s var(--ease),color .25s var(--ease)}
+  .v6-pill b{font-weight:600;color:#fff;background:var(--accent);border-radius:999px;padding:2px 9px;font-size:11px;letter-spacing:.06em;text-transform:uppercase}
+  .v6-pill:hover{border-color:var(--accent);color:var(--ink)}
+  .lede{font-family:var(--serif);font-size:clamp(17px,2.4vw,21px);color:var(--ink);max-width:610px;margin:24px auto 0;line-height:1.5}
+  .lede .muted{color:var(--ink-soft)}
+
+  /* ---------- install widget ---------- */
+  .install{max-width:770px;margin:42px auto 0;border:1px solid var(--line-2);border-radius:14px;background:linear-gradient(180deg,var(--panel),var(--bg2));overflow:hidden;box-shadow:var(--edge),var(--lift)}
+  /* tabs wrap instead of scrolling sideways: a hidden-scrollbar row pushed Gemini/Copilot off-screen on phones */
+  .tabs{display:flex;flex-wrap:wrap;gap:2px;border-bottom:1px solid var(--line);background:rgba(0,0,0,.18)}
+  .tabs button{font-family:var(--mono);font-size:12px;letter-spacing:.04em;text-transform:uppercase;font-weight:500;border:0;background:transparent;color:var(--ink-soft);padding:13px 17px;cursor:pointer;white-space:nowrap;border-bottom:2px solid transparent;margin-bottom:-1px;transition:color .15s}
+  .tabs button.on{color:var(--ink);border-bottom-color:var(--accent)}
+  .tabs button:hover{color:var(--ink)}
+  .cmd{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:19px 20px;font-family:var(--mono);font-size:14px}
+  .cmd+.cmd{border-top:1px dashed var(--line)}
+  .cmd .step{flex:none;font-size:11px;letter-spacing:.1em;color:var(--ink-soft);width:16px}
+  .cmd code{flex:1;min-width:0;color:var(--ink);overflow-wrap:anywhere;text-align:left}
+  .cmd code .dim{color:var(--accent-soft)}
+  .cmd-note{padding:0 20px 16px;font-family:var(--mono);font-size:12px;color:var(--ink-soft);text-align:left}
+  .cmd-note:empty{display:none}
+  @media(max-width:560px){
+    .tabs{display:grid;grid-template-columns:repeat(3,1fr)}
+    .tabs button{padding:12px 6px;font-size:11px;letter-spacing:.02em}
+    .cmd{padding:16px 14px;font-size:13px;gap:10px}
+    .cmd-note{padding:0 14px 14px}
+  }
+  .copy{flex:none;font-family:var(--mono);font-size:11px;letter-spacing:.08em;font-weight:600;border:1px solid var(--line-2);background:rgba(0,0,0,.12);color:var(--ink-soft);border-radius:7px;padding:8px 13px;cursor:pointer;transition:.15s}
+  .copy:hover{color:var(--accent-soft);border-color:var(--accent)}
+  .copy:active{transform:scale(.96)}
+  .copy.copied{color:#5FD08A;border-color:#5FD08A}
+  .stat-row{display:flex;gap:34px;justify-content:center;margin:38px 0 0;flex-wrap:wrap}
+  .stat{font-family:var(--mono);font-size:12px;letter-spacing:.03em;color:var(--ink-soft)}
+  .stat b{font-family:var(--sans);font-weight:800;font-size:22px;color:var(--ink);display:block;letter-spacing:-.01em}
+
+  /* ---------- pi.dev stage: big pinned demo panel (left) + scrolling copy (right) ---------- */
+  .stage-wrap{position:relative;margin:80px 0 40px}
+  .stage-grid{display:grid;grid-template-columns:1.6fr 1fr;gap:56px;align-items:start}
+  .stage{position:sticky;top:92px;border:1px solid var(--line-2);border-radius:13px;background:var(--term);overflow:hidden;box-shadow:inset 0 1px 0 rgba(255,255,255,.05),0 34px 90px -44px rgba(16,12,46,.95)}
+  .stage-bar{display:flex;align-items:center;gap:10px;padding:13px 18px;border-bottom:1px solid rgba(255,255,255,.08);font-family:var(--mono);font-size:11.5px;letter-spacing:.15em;text-transform:uppercase;color:#9aa0b4}
+  .live{width:8px;height:8px;border-radius:50%;background:var(--accent);animation:pulse 1.8s infinite}
+  @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(92,80,232,.7)}70%{box-shadow:0 0 0 8px transparent}100%{box-shadow:0 0 0 0 transparent}}
+  .stage-body{font-family:var(--mono);font-size:14px;line-height:2;padding:24px 22px;min-height:320px;color:#D7DAE6}
+  .stage-body>div{opacity:0;animation:fadein .32s forwards}
+  .stage-body .role{color:#8E86F4}
+  .stage-body .ok{color:#5FD08A}
+  .stage-body .you{color:#6FA0F0}
+  .stage-body .dim{color:#7E8399}   /* 5.2:1 on --term */
+  .cur{color:#8E86F4;animation:blink 1s steps(2,jump-none) infinite}
+  @keyframes fadein{to{opacity:1}}
+  @keyframes blink{50%{opacity:0}}
+  .stage-foot{border-top:1px solid rgba(255,255,255,.08);padding:14px 20px;font-family:var(--mono);font-size:12.5px;color:#8B90A6;min-height:46px;display:flex;align-items:center}
+  /* right column: tall editorial blocks that scroll past and drive the panel */
+  .stage-copy{display:flex;flex-direction:column}
+  .stage-block{min-height:84vh;display:flex;flex-direction:column;justify-content:center;opacity:.32;transition:opacity .45s}
+  .stage-block.active{opacity:1}
+  .stage-block:first-child{min-height:56vh;justify-content:flex-end;padding-bottom:7vh}
+  .stage-block:last-child{min-height:62vh;justify-content:flex-start;padding-top:7vh}
+  .stage-block .ix{font-family:var(--mono);font-size:12px;letter-spacing:.14em;color:var(--accent-soft);margin-bottom:12px}
+  .stage-block h3{font-family:var(--serif);font-style:italic;font-weight:500;font-size:clamp(25px,2.9vw,35px);line-height:1.08;margin-bottom:12px}
+  .stage-block p{color:var(--ink-soft);font-size:16px;line-height:1.55}
+  .stage-block code{font-family:var(--mono);font-size:.85em;color:var(--accent-soft)}
+  /* mobile: the big panel can't pin on a phone — hide it, give each block its own inline terminal */
+  .stage-mini{display:none}
+  @media(max-width:860px){.stage-grid{grid-template-columns:1fr;gap:0}.stage{display:none}
+    .stage-block,.stage-block:first-child,.stage-block:last-child{min-height:auto;padding:30px 0;opacity:1;justify-content:flex-start}
+    .stage-mini{display:block;margin-top:18px;border:1px solid var(--line-2);border-radius:12px;background:var(--term);overflow:hidden}
+    .sm-bar{display:flex;align-items:center;gap:8px;padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.08);font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:#9aa0b4}
+    .sm-body{font-family:var(--mono);font-size:12.5px;line-height:1.85;padding:14px;color:#D7DAE6}
+    .sm-body .role{color:#8E86F4}.sm-body .ok{color:#5FD08A}.sm-body .you{color:#6FA0F0}.sm-body .dim{color:#7E8399}
+    .sm-foot{border-top:1px solid rgba(255,255,255,.08);padding:11px 14px;font-family:var(--mono);font-size:11.5px;color:#8B90A6}}
+
+  /* ---------- section heads ---------- */
+  .section-head{text-align:center;margin:104px 0 8px}
+  .section-head .eyebrow{display:block;margin-bottom:14px}
+  .section-head h2{font-family:var(--serif);font-style:italic;font-weight:500;font-size:clamp(28px,4.2vw,46px)}
+  .section-head p.sub{color:var(--ink-soft);max-width:540px;margin:14px auto 0}
+
+  /* ---------- figure panels ---------- */
+  .figures{display:grid;grid-template-columns:1fr 1fr;gap:22px;margin-top:44px}
+  @media(max-width:760px){.figures{grid-template-columns:1fr}}
+  .fig{position:relative;border:1px solid var(--line);border-radius:14px;background:linear-gradient(180deg,var(--card),var(--bg2));padding:32px 28px 28px;overflow:hidden;box-shadow:var(--edge);transition:border-color .3s var(--ease),transform .3s var(--ease);animation:rise both;animation-timeline:view();animation-range:entry 0% cover 24%}
+  .fig:hover{border-color:var(--line-2);transform:translateY(-2px)}
+  /* cursor spotlight: top-center glow at rest, follows the pointer on hover */
+  .fig::after{content:"";position:absolute;inset:0;pointer-events:none;transition:background .25s var(--ease);background:radial-gradient(240px circle at var(--mx,50%) var(--my,0%),rgba(142,134,244,.13),transparent 55%)}
+  @keyframes rise{from{opacity:0;transform:translateY(24px)}to{opacity:1;transform:none}}
+  .fig .corner{position:absolute;width:13px;height:13px;border:1.5px solid var(--accent);opacity:.6}
+  .fig .tl{top:11px;left:11px;border-right:0;border-bottom:0}.fig .tr{top:11px;right:11px;border-left:0;border-bottom:0}
+  .fig .bl{bottom:11px;left:11px;border-right:0;border-top:0}.fig .br{bottom:11px;right:11px;border-left:0;border-top:0}
+  .fig .cap{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft);margin-bottom:14px}
+  .fig h3{font-family:var(--serif);font-style:italic;font-weight:500;font-size:25px;margin-bottom:10px}
+  .fig p{font-size:14.5px;color:var(--ink-soft)}
+  .fig .tag{display:inline-block;font-family:var(--mono);font-size:11px;color:var(--accent-soft);border:1px solid color-mix(in srgb,var(--accent) 40%,transparent);background:color-mix(in srgb,var(--accent) 12%,transparent);border-radius:999px;padding:3px 10px;margin-top:16px}
+  .fig.span{grid-column:1/-1}
+  .toy{width:100%;height:150px;border:1px solid var(--line);border-radius:8px;margin-top:16px;background:var(--term);display:block;cursor:crosshair}
+
+  /* ---------- manipulate / crooked trigger ---------- */
+  .manip{text-align:center;margin:110px 0 0;padding:70px 24px;border:1px solid var(--line);border-radius:18px;background:linear-gradient(180deg,var(--card),var(--bg2));position:relative;overflow:hidden;box-shadow:var(--edge),var(--lift)}
+  .manip .eyebrow{display:block;margin-bottom:14px}
+  .manip h2{font-family:var(--serif);font-style:italic;font-weight:500;font-size:clamp(26px,4vw,42px)}
+  .manip p{color:var(--ink-soft);max-width:500px;margin:14px auto 0}
+  .manip .hint{font-family:var(--mono);font-size:12px;color:var(--accent-soft);margin-top:18px}
+
+  /* ---------- team / closing / footer ---------- */
+  .roster{display:flex;flex-wrap:wrap;gap:9px;justify-content:center;max-width:920px;margin:40px auto 0}
+  .roster span{font-family:var(--mono);font-size:12.5px;color:var(--ink-soft);border:1px solid var(--line);border-radius:7px;padding:7px 12px;background:var(--bg2);transition:.15s}
+  .roster span:hover{color:var(--ink);border-color:var(--accent);transform:translateY(-2px)}
+  .platforms{margin-top:42px;border:1px solid var(--line);border-radius:14px;background:var(--bg2);padding:28px;display:flex;gap:20px;justify-content:center;flex-wrap:wrap;align-items:center}
+  .platforms span{font-family:var(--mono);font-size:13px;color:var(--ink-soft);display:flex;align-items:center;gap:9px}
+  .platforms span::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--accent)}
+  .closing{text-align:center;margin:112px 0 0;padding:74px 0;border-top:1px solid var(--line);position:relative;overflow-x:clip}   /* the 700px glow below must not widen the page on phones */
+  .closing::before{content:"";position:absolute;top:-30%;left:50%;width:700px;height:540px;transform:translateX(-50%);z-index:-1;background:radial-gradient(closest-side,rgba(92,80,232,.18),transparent 70%);filter:blur(24px)}
+  .closing h2{font-family:var(--serif);font-style:italic;font-weight:500;font-size:clamp(32px,5.4vw,56px)}
+  .closing p{color:var(--ink-soft);margin:16px auto 0;max-width:520px}
+  .cta{display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-size:15px;font-weight:600;background:linear-gradient(180deg,var(--accent-soft),var(--accent) 52%,var(--accent-deep));color:#fff;border-radius:12px;padding:16px 28px;margin-top:28px;text-decoration:none;box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 14px 34px -16px rgba(58,48,184,.8);transition:transform .3s var(--ease),box-shadow .3s var(--ease);will-change:transform}
+  .cta:hover{transform:translateY(-2px);box-shadow:inset 0 1px 0 rgba(255,255,255,.34),0 20px 46px -18px rgba(58,48,184,.92)}
+  .cta:active{transform:translateY(0) scale(.985)}
+  .cta-note{font-family:var(--mono);font-size:12px;color:var(--ink-soft);margin-top:16px}
+  footer{border-top:1px solid var(--line);padding:30px 0;font-size:13px;color:var(--ink-soft)}
+  .foot-inner{display:flex;justify-content:space-between;flex-wrap:wrap;gap:12px;align-items:center}
+  .foot-inner a{text-decoration:none;color:var(--ink-soft)}.foot-inner a:hover{color:var(--ink)}
+
+  /* ---------- crooked callout (outside tilt-layer) ---------- */
+  .crooked-callout{position:fixed;left:18px;bottom:18px;z-index:80;display:none;align-items:center;gap:12px;font-family:var(--mono);font-size:12px;color:var(--ink);background:var(--panel);border:1px solid var(--line-2);border-radius:10px;padding:11px 13px;box-shadow:0 18px 50px -22px #000}
+  body.crooked .crooked-callout{display:flex}
+  .crooked-callout b{color:var(--accent-soft)}
+  .crooked-callout .dot{width:7px;height:7px;border-radius:50%;background:var(--accent);animation:pulse 1.8s infinite}
+  .crooked-callout button{font:inherit;font-weight:600;color:var(--ink);background:transparent;border:1px solid var(--line-2);border-radius:7px;padding:5px 11px;cursor:pointer}
+  .crooked-callout button:hover{border-color:var(--accent);color:var(--accent-soft)}
+
+  .section-head code{font-family:var(--mono);color:var(--accent-soft);font-size:.9em}
+
+  /* ---------- before/after showcase ---------- */
+  .showcase{margin:34px auto 0;max-width:430px}
+  .ba{position:relative;width:100%;border:1px solid var(--line-2);border-radius:16px;overflow:hidden;aspect-ratio:900/1340;box-shadow:0 34px 90px -50px rgba(0,0,0,.95);touch-action:pan-y;background:var(--term)}
+  .ba img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:top;display:block;user-select:none;-webkit-user-drag:none}
+  .ba .after{clip-path:inset(0 0 0 var(--x,52%))}
+  .ba-div{position:absolute;top:0;bottom:0;left:var(--x,52%);width:2px;background:var(--accent-soft);transform:translateX(-1px);pointer-events:none;box-shadow:0 0 16px var(--accent)}
+  .ba-grip{position:absolute;top:50%;left:var(--x,52%);width:34px;height:34px;border-radius:50%;background:var(--accent);color:#fff;font-size:14px;transform:translate(-50%,-50%);pointer-events:none;display:flex;align-items:center;justify-content:center;box-shadow:0 6px 20px rgba(0,0,0,.55)}
+  .ba-tag{position:absolute;top:12px;font-family:var(--mono);font-size:11px;font-weight:700;letter-spacing:.08em;padding:5px 10px;border-radius:6px;pointer-events:none}
+  .ba-tag.bl{left:12px;background:#fff;color:#111}
+  .ba-tag.ar{right:12px;background:var(--accent);color:#fff}
+  .ba-range{position:absolute;inset:0;width:100%;height:100%;margin:0;opacity:0;cursor:ew-resize}
+  .ba-range:focus-visible+.ba-grip,.ba-range:focus-visible~.ba-grip{outline:2px solid var(--accent-soft);outline-offset:3px}
+  .ba-cap{text-align:center;font-family:var(--mono);font-size:12px;color:var(--ink-soft);margin-top:16px}
+
+  /* ---------- command index ---------- */
+  .cmd-index{margin-top:46px}
+  .cmd-group{margin-top:26px}
+  .cmd-group h3{font-family:var(--mono);font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent-soft);margin-bottom:13px;display:flex;align-items:center;gap:12px}
+  .cmd-group h3 .n{color:var(--ink-soft);font-weight:400}
+  .cmd-group h3::after{content:"";flex:1;height:1px;background:var(--line)}
+  .cmd-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(248px,1fr));gap:9px}
+  .cmd-item{border:1px solid var(--line);border-radius:9px;padding:11px 13px;background:var(--bg2);transition:border-color .25s var(--ease),transform .25s var(--ease),background .25s var(--ease)}
+  .cmd-item:hover{border-color:color-mix(in srgb,var(--accent) 55%,var(--line));background:color-mix(in srgb,var(--accent) 6%,var(--bg2));transform:translateY(-2px)}
+  .cmd-item .cn{font-family:var(--mono);font-size:13px;color:var(--ink);font-weight:500}
+  .cmd-item .cd{font-size:12px;color:var(--ink-soft);margin-top:3px;line-height:1.42}
+
+  /* ---------- team roster (grouped + explained) ---------- */
+  .team-groups{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:26px 30px;margin-top:40px;text-align:left}
+  .team-col h3{font-family:var(--mono);font-size:11.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent-soft);margin-bottom:8px;display:flex;align-items:center;gap:10px}
+  .team-col h3::after{content:"";flex:1;height:1px;background:var(--line)}
+  .role{padding:9px 0;border-bottom:1px dashed var(--line)}
+  .role:last-child{border-bottom:0}
+  .role .rn{font-family:var(--mono);font-size:13px;color:var(--ink)}
+  .role .rd{font-size:12.5px;color:var(--ink-soft);margin-top:2px;line-height:1.4}
+
+  /* ---------- FAQ ---------- */
+  .faq{max-width:760px;margin:40px auto 0}
+  .faq details{border:1px solid var(--line);border-radius:11px;background:var(--bg2);margin-top:10px}
+  .faq summary{cursor:pointer;padding:16px 20px;font-weight:600;font-size:15.5px;list-style:none;display:flex;justify-content:space-between;align-items:center;gap:14px}
+  .faq summary::-webkit-details-marker{display:none}
+  .faq summary::after{content:"+";font-family:var(--mono);color:var(--accent-soft);font-size:19px;line-height:1}
+  .faq details[open] summary::after{content:"\2013"}
+  .faq details p{padding:0 20px 18px;color:var(--ink-soft);font-size:14.5px;line-height:1.6}
+  .faq a,.section-head .sub a{color:var(--accent-soft)}
+  .fig code{font-family:var(--mono);font-size:.9em;color:var(--accent-soft)}
+  .faq code{font-family:var(--mono);font-size:.88em;color:var(--accent-soft)}
+
+  @media(prefers-reduced-motion:reduce){*{animation:none!important}.tilt-layer{transition:none}body.crooked .tilt-layer{transform:none}}
+</style>
+</head>
+<body>
+<a class="skip" href="#install">Skip to install</a>
+<div class="grain" aria-hidden="true"></div>
+<div class="tilt-layer">
+
+<nav><div class="wrap nav-inner">
+  <div class="brand"><span class="mark" data-mark="sm"></span> <span class="wordmark">naksha<span class="hy">-</span>studio</span></div>
+  <div class="nav-links">
+    <a href="#stage">How it works</a>
+    <a href="#v6">New in v6</a>
+    <a href="#commands">Commands</a>
+    <a href="#team">The team</a>
+    <div class="theme" id="theme" role="group" aria-label="Color theme">
+      <button data-t="light" title="Light" aria-label="Light theme">☀</button>
+      <button data-t="auto" title="Auto" aria-label="Auto theme">A</button>
+      <button data-t="dark" class="on" title="Dark" aria-label="Dark theme" aria-pressed="true">☾</button>
+    </div>
+    <a href="#install" class="nav-cta">Get naksha</a>
+  </div>
+</div></nav>
+
+<main id="main">
+<header class="hero"><div class="wrap">
+  <div class="lockup">
+    <span class="mark mark--replay" id="heromark" data-mark="lg" title="click to replay"></span>
+    <span class="wordmark">naksha<span class="hy">-</span>studio</span>
+    <span class="wm-rule"></span>
+    <p class="eyebrow">A virtual design agency in your terminal.</p>
+  </div>
+  <a class="v6-pill" href="#v6"><b>New</b> v6 · Naksha Live, free lint, costs →</a>
+  <h1>There are many AI design tools<br>but this one is a <span class="pop">studio</span></h1>
+  <p class="lede">naksha assembles 30 specialist roles — a creative director, UX designer, UI designer, content designer, and more — to take a screen from brief to built. <span class="muted">You run one command. The whole agency shows up.</span></p>
+
+  <div class="install" id="install">
+    <div class="tabs" id="tabs" role="group" aria-label="Install for">
+      <button class="on" aria-pressed="true" data-cmd="claude">Claude Code</button>
+      <button aria-pressed="false" data-cmd="cursor">Cursor</button>
+      <button aria-pressed="false" data-cmd="windsurf">Windsurf</button>
+      <button aria-pressed="false" data-cmd="gemini">Gemini CLI</button>
+      <button aria-pressed="false" data-cmd="copilot">Copilot</button>
+      <button aria-pressed="false" data-cmd="autohand">Autohand</button>
+    </div>
+    <div id="cmdrows">
+      <div class="cmd"><span class="step">1</span><code><span class="dim">/plugin marketplace add</span> Adityaraj0421/naksha-studio</code><button class="copy" aria-label="Copy step 1">[ COPY ]</button></div>
+      <div class="cmd"><span class="step">2</span><code><span class="dim">/plugin install</span> naksha@naksha</code><button class="copy" aria-label="Copy step 2">[ COPY ]</button></div>
+    </div>
+    <p class="cmd-note" id="cmdnote">Run each line inside Claude Code (2.1.72+). Update later with <code>claude plugin update naksha</code>.</p>
+    <span class="sr-only" id="copystatus" aria-live="polite"></span>
+  </div>
+
+  <div class="stat-row">
+    <span class="stat"><b>30</b> specialist roles</span>
+    <span class="stat"><b>70</b> commands</span>
+    <span class="stat"><b>16,000+</b> lines of design knowledge</span>
+    <span class="stat"><b>6</b> platforms</span>
+  </div>
+</div></header>
+
+<!-- pi.dev stage: pinned demo panel (left) + scrolling editorial copy (right) -->
+<section class="stage-wrap" id="stage"><h2 class="sr-only">How it works — naksha runs the team</h2><div class="wrap stage-grid">
+  <div class="stage">
+    <div class="stage-bar"><span class="live"></span> <span id="stagecap">NAKSHA — RUN THE TEAM</span></div>
+    <div class="stage-body" id="stagebody"></div>
+    <div class="stage-foot" id="stagefoot"></div>
+  </div>
+  <div class="stage-copy" id="stagecopy">
+    <div class="stage-block" data-step="0">
+      <div class="ix">01 — /design</div>
+      <h3>One command, a whole studio</h3>
+      <p>Type <code>/design</code> and naksha assembles the right specialists for the job — no prompt-engineering one persona into doing everyone's work.</p>
+    </div>
+    <div class="stage-block" data-step="1">
+      <div class="ix">02 — the team</div>
+      <h3>Each role makes one real call</h3>
+      <p>The content designer owns the words, the system lead owns the tokens, accessibility owns the contrast. You see who decided what, and why.</p>
+    </div>
+    <div class="stage-block" data-step="2">
+      <div class="ix">03 — /design-reel</div>
+      <h3>Then it films itself</h3>
+      <p><code>/design-reel</code> renders the run into a share-able 9:16 + 16:9 video — the team redesigning your screen, captioned, live.</p>
+    </div>
+    <div class="stage-block" data-step="3">
+      <div class="ix">04 — memory</div>
+      <h3>It keeps your project in mind</h3>
+      <p>Constraints, tokens, brand voice, and browser research persist and seed every command you run next.</p>
+    </div>
+  </div>
+</div></section>
+
+<!-- before/after showcase -->
+<section class="brief" id="showcase"><div class="wrap">
+  <div class="section-head">
+    <span class="eyebrow">Brief in. Built out.</span>
+    <h2>From a raw form to a shipped screen</h2>
+    <p class="sub">A real <code>/design</code> pass — drag to compare the unstyled brief with the production HTML the team handed back.</p>
+  </div>
+  <div class="showcase">
+    <div class="ba" id="ba" style="--x:52%">
+      <img class="before" src="before.png" alt="Raw, unstyled Account Settings form — the starting brief" draggable="false" loading="lazy" decoding="async">
+      <img class="after" src="after.png" alt="naksha's redesigned dark Account Settings screen — the built result" draggable="false" loading="lazy" decoding="async">
+      <div class="ba-div"></div>
+      <div class="ba-grip">⇆</div>
+      <span class="ba-tag bl">BEFORE</span>
+      <span class="ba-tag ar">AFTER</span>
+      <input class="ba-range" id="baRange" type="range" min="2" max="98" value="52" aria-label="Drag to compare the before and after design">
+    </div>
+    <p class="ba-cap">drag the handle ↔ · or use arrow keys</p>
+  </div>
+</div></section>
+
+<!-- v6 story (source: CHANGELOG.md v6.0.0) -->
+<section id="v6"><div class="wrap">
+  <div class="section-head">
+    <span class="eyebrow">New in v6</span>
+    <h2>Watch the team work. Know what it costs.</h2>
+    <p class="sub">v6 makes the design team observable, measurable and cheaper to trust. Everything runs locally, with no telemetry. It's a pre-release, so please <a href="https://github.com/Adityaraj0421/naksha-studio/issues">report what breaks</a>.</p>
+  </div>
+  <div class="figures">
+    <div class="fig">
+      <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+      <div class="cap">v6 · 01 — Naksha Live</div><h3>Your design team, live</h3>
+      <p>An optional local dashboard: a live org chart of the 30 roles, an activity stream, project memory, review findings and cost. Bound to 127.0.0.1, token-protected, and off until you set it up.</p>
+      <span class="tag">/naksha-dashboard setup</span>
+    </div>
+    <div class="fig">
+      <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+      <div class="cap">v6 · 02 — Free lint</div><h3>Design lint with no AI bill</h3>
+      <p>22 deterministic rules: WCAG AA contrast, spacing grid, type scale, focus-visible, reduced motion, alt text and common AI-design clichés. It runs after every UI edit at no token cost, with <code>--json</code> and CI exit codes.</p>
+      <span class="tag">/design-detect</span>
+    </div>
+    <div class="fig">
+      <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+      <div class="cap">v6 · 03 — Cost</div><h3>See what each command costs</h3>
+      <p>Tokens and estimated cost per naksha command, read from your local Claude Code transcripts, against optional monthly and per-command budgets. Budgets warn; they never block.</p>
+      <span class="tag">/naksha-stats --since 2026-10-01</span>
+    </div>
+    <div class="fig">
+      <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+      <div class="cap">v6 · 04 — DESIGN.md</div><h3>Your design system, in the open</h3>
+      <p>Lint, import and export DESIGN.md files: contrast checks, import from DTCG JSON or CSS variables, export to DTCG, CSS or Tailwind. <code>/design</code> reads your project's design system before it builds.</p>
+      <span class="tag">/design-md lint · import · export</span>
+    </div>
+    <div class="fig">
+      <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+      <div class="cap">v6 · 05 — Votes</div><h3>Teach it with a vote</h3>
+      <p>Mark a design, variant, finding or run Helpful or Needs work. Votes stay in <code>.naksha/votes.jsonl</code>, consolidate into your taste profile, and flag evals where the judge passed something you didn't.</p>
+      <span class="tag">/naksha-vote needs-work … because …</span>
+    </div>
+    <div class="fig">
+      <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+      <div class="cap">v6 · 06 — Verified review</div><h3>Findings, checked first</h3>
+      <p>Design review findings follow a schema and pass a verifier step before you see them, so the critique you read is one the team has already checked.</p>
+      <span class="tag">/design-review</span>
+    </div>
+  </div>
+</div></section>
+
+<!-- figure panels -->
+<section id="commands"><div class="wrap">
+  <div class="section-head">
+    <span class="eyebrow">What's in the box</span>
+    <h2>Primitives, not prompts</h2>
+    <p class="sub">70 commands across the whole design surface — each a real workflow, not a canned reply.</p>
+  </div>
+  <div class="figures">
+    <div class="fig">
+      <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+      <div class="cap">Fig. 01 — /design</div><h3>Brief to built</h3>
+      <p>The full workflow: the right roles assemble, design the screen, and hand you production HTML you can ship.</p>
+      <span class="tag">/design Build a pricing page</span>
+    </div>
+    <div class="fig">
+      <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+      <div class="cap">Fig. 02 — /design-reel</div><h3>Watch the team work</h3>
+      <p>Renders a <code>/design</code> run into a vertical + landscape video. Post-ready, captioned, with an honest end-card.</p>
+      <span class="tag">/design-reel · 9:16 + 16:9</span>
+    </div>
+    <div class="fig">
+      <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+      <div class="cap">Fig. 03 — Project memory</div><h3>It remembers your project</h3>
+      <p>Constraints, tokens, brand, and browser research persist and seed every future command automatically.</p>
+      <span class="tag">/naksha-remember · /naksha-browse</span>
+    </div>
+    <div class="fig">
+      <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+      <div class="cap">Fig. 04 — Figma &amp; handoff</div><h3>Out to the tools you use</h3>
+      <p>Figma to code, code to Figma, responsive variants, design systems, and developer handoff docs.</p>
+      <span class="tag">/figma · /design-system · /design-handoff</span>
+    </div>
+    <div class="fig span">
+      <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+      <div class="cap">Fig. 05 — Review &amp; audit</div><h3>And it critiques its own work</h3>
+      <p>Design review, UX audits against a brief, accessibility scoring, and brand-kit generation — the same agency that builds it also grades it.</p>
+      <span class="tag">/design-review · /ux-audit · /accessibility-audit · /brand-kit</span>
+    </div>
+    <div class="fig span">
+      <span class="corner tl"></span><span class="corner tr"></span><span class="corner bl"></span><span class="corner br"></span>
+      <div class="cap">Fig. 06 — Live</div><h3>Move your cursor. It's a blueprint.</h3>
+      <p>Everything here is drawn, not pasted — including this. naksha thinks in grids, ticks, and guides.</p>
+      <canvas class="toy" id="toy" aria-hidden="true"></canvas>
+    </div>
+  </div>
+
+  <div class="section-head" style="margin-top:92px">
+    <span class="eyebrow">The full surface</span>
+    <h2>All 70 commands</h2>
+    <p class="sub">Every command is a real workflow with its own specialists — grouped by what you're making.</p>
+  </div>
+  <div class="cmd-index" id="cmdindex"></div>
+</div></section>
+
+<!-- manipulate / crooked trigger -->
+<section class="manip" id="manip"><div class="wrap">
+  <span class="eyebrow">Live demo</span>
+  <h2>It can even redesign this page</h2>
+  <p>naksha rewrites interfaces in place. Scroll here and watch it take a crooked pass at its own site.</p>
+  <div class="hint">▎ crooked mode engaging…</div>
+</div></section>
+
+<!-- the team -->
+<section id="team"><div class="wrap">
+  <div class="section-head">
+    <span class="eyebrow">30 specialists on call</span>
+    <h2>The whole agency, assembled per task</h2>
+    <p class="sub">naksha staffs every role you'd hire a design agency for — and pulls in exactly the ones your task needs.</p>
+  </div>
+  <div class="team-groups" id="teamroster"></div>
+  <div class="platforms">
+    <span>Claude Code</span><span>Cursor</span><span>Windsurf</span><span>Gemini CLI</span><span>Copilot</span><span>Autohand Code CLI</span>
+  </div>
+</div></section>
+
+<!-- faq -->
+<section id="faq"><div class="wrap">
+  <div class="section-head">
+    <span class="eyebrow">Before you install</span>
+    <h2>Questions, answered</h2>
+  </div>
+  <div class="faq">
+    <details><summary>Is it really free?</summary><p>Yes — naksha-studio is MIT-licensed and free. There's no naksha account and no separate API key; it runs on whatever AI coding tool you already use.</p></details>
+    <details><summary>Which tools does it work in?</summary><p>Claude Code gets the full plugin: all 70 slash commands, the v6 hooks and the Naksha Live dashboard. Cursor, Windsurf, Gemini CLI and Copilot load the same design-team rules, so the agency activates automatically on your design files. Autohand Code CLI reads <code>AGENTS.md</code> and loads the naksha design skill. The install box up top gives the exact command for each.</p></details>
+    <details><summary>What's the difference between the Claude Code install and the others?</summary><p>Claude Code installs as a marketplace plugin (<code>/plugin marketplace add …</code>) with every command available. The others drop a rules file (<code>.cursor/rules</code>, <code>.windsurfrules</code>, <code>GEMINI.md</code> or <code>copilot-instructions.md</code>), or for Autohand Code CLI <code>AGENTS.md</code> plus the design skill, so the same 30-role team guides design work inline.</p></details>
+    <details><summary>Does it send my code anywhere?</summary><p>naksha has no server and collects no telemetry; its hooks, scripts and prompts never send anything about you or your project. Your AI tool still sends your conversation to its model provider, as it would without naksha (naksha adds only a short project index). Beyond that, the network is reached only through tools you choose: MCP servers you connect, such as Figma, Playwright or image generation, talk to their own services, and <code>/design-reel</code>'s Remotion renderer may download a headless browser and Google Fonts the first time it renders. Project memory stays in <code>.naksha/</code> in your repo. Full details: <a href="https://github.com/Adityaraj0421/naksha-studio/blob/main/docs/privacy.md">docs/privacy.md</a>.</p></details>
+    <details><summary>What does it cost to run?</summary><p>naksha itself is free; it spends the tokens of the AI tool you're already paying for. No extra subscription. In Claude Code, <code>/naksha-stats</code> shows tokens and estimated cost per naksha command from your local transcripts and can warn against a monthly or per-command budget. <code>/design-detect</code> lint makes no AI calls at all.</p></details>
+    <details><summary>How do I update it?</summary><p>Marketplace install (the one in the box above): run <code>claude plugin update naksha</code> in your terminal, then restart Claude Code. Local clone: <code>git pull</code> alone doesn't reach Claude Code, because it runs a cached copy of the plugin that refreshes only when the version changes or you reinstall; after pulling a new release, re-run <code>bash install.sh</code>. Cursor, Windsurf, Gemini CLI, Copilot and Autohand: re-run the command from the install box.</p></details>
+  </div>
+</div></section>
+
+<section class="closing"><div class="wrap">
+  <span class="mark mark--replay" data-mark="lg" style="margin-bottom:26px"></span>
+  <h2>Your turn to run the agency</h2>
+  <p>30 roles design your screen, live. One command, in the terminal you already have open.</p>
+  <a class="cta" href="https://github.com/Adityaraj0421/naksha-studio">Get naksha →</a>
+  <div class="cta-note">MIT licensed · free · works where you already code</div>
+</div></section>
+</main>
+
+<footer><div class="wrap foot-inner">
+  <span class="wordmark" style="font-size:13px">naksha<span class="hy">-</span>studio</span>
+  <span><a href="https://github.com/Adityaraj0421/naksha-studio#readme">Docs</a> · <a href="https://github.com/Adityaraj0421/naksha-studio">GitHub</a> · <a href="https://github.com/Adityaraj0421/naksha-studio/blob/main/CHANGELOG.md">Changelog</a> · <a href="#commands">Commands</a> · <a href="https://github.com/Adityaraj0421/naksha-studio/blob/main/LICENSE">MIT</a></span>
+</div></footer>
+
+</div><!-- /tilt-layer -->
+
+<aside class="crooked-callout">
+  <span class="dot"></span> <b>Crooked mode: ON</b>
+  <button id="revert">Revert</button>
+</aside>
+
+<script>
+  // ---- blueprint logo mark ----
+  function markSVG(size,animate){
+    const c = animate ? 'mk-draw' : '';
+    return `<svg width="${size}" height="${size}" viewBox="0 0 96 96" fill="none">
+      <path class="mk-tick" d="M20 12v8M12 20h8 M76 12v8M84 20h-8 M20 84v-8M12 76h8 M76 84v-8M84 76h-8"/>
+      <rect class="mk-frame" x="20" y="20" width="56" height="56" rx="1"/>
+      <path class="mk-guide" d="M48 20v56 M20 48h56"/>
+      <polyline class="mk-stroke ${c}" points="33,32 49,48 33,64"/>
+      <path class="mk-arc ${c}" d="M55 29 A16 16 0 0 1 71 45"/>
+      <rect class="mk-fill ${animate?'mk-pop':''}" x="58" y="58" width="12" height="12" rx="1"/>
+    </svg>`;
+  }
+  document.querySelectorAll('.mark').forEach(m=>{
+    const big = m.dataset.mark==='lg';
+    m.innerHTML = markSVG(big?76:28, big);
+    m.setAttribute('aria-hidden','true');           // decorative; wordmark beside it carries the brand
+    if(m.classList.contains('mark--replay')){
+      const replay=()=>{ m.innerHTML=markSVG(76,true); };
+      m.setAttribute('role','button');
+      m.setAttribute('tabindex','0');
+      m.setAttribute('aria-label','Replay logo animation');
+      m.removeAttribute('aria-hidden');             // now it's an interactive control, keep it in the a11y tree
+      m.addEventListener('click',replay);
+      m.addEventListener('keydown',e=>{ if(e.key==='Enter'||e.key===' '){ e.preventDefault(); replay(); } });
+    }
+  });
+
+  // ---- theme toggle (light / auto / dark) ----
+  const themeBox=document.getElementById('theme'), mq=matchMedia('(prefers-color-scheme: light)');
+  let themePref='dark';
+  function applyTheme(t){
+    themePref=t;
+    document.documentElement.dataset.theme = (t==='auto') ? (mq.matches?'light':'dark') : t;
+    [...themeBox.children].forEach(b=>{const on=b.dataset.t===t; b.classList.toggle('on',on); b.setAttribute('aria-pressed',on);});
+  }
+  themeBox.addEventListener('click',e=>{const b=e.target.closest('button'); if(b) applyTheme(b.dataset.t);});
+  mq.addEventListener('change',()=>{ if(themePref==='auto') applyTheme('auto'); });  // live-follow OS theme on Auto
+
+  // ---- install command per platform ----
+  // Real per-platform installs. Claude = marketplace plugin; the rest drop naksha's
+  // rules file into the project from the repo (matches README's documented setup).
+  const RAW='https://raw.githubusercontent.com/Adityaraj0421/naksha-studio/main';
+  // Each entry is the list of commands to run in order (one row + copy button each) plus a note.
+  const REPO='https://github.com/Adityaraj0421/naksha-studio.git';
+  const RULES_NOTE='Run in your project root. Re-run to update.';
+  const CMDS={
+    claude:{rows:['<span class="dim">/plugin marketplace add</span> Adityaraj0421/naksha-studio','<span class="dim">/plugin install</span> naksha@naksha'],
+      note:'Run each line inside Claude Code (2.1.72+). Update later with <code>claude plugin update naksha</code>.'},
+    cursor:{rows:[`<span class="dim">mkdir -p .cursor/rules &amp;&amp; curl -sL</span> ${RAW}/.cursor/rules/naksha.mdc <span class="dim">-o</span> .cursor/rules/naksha.mdc`],note:RULES_NOTE},
+    windsurf:{rows:[`<span class="dim">curl -sL</span> ${RAW}/.windsurfrules <span class="dim">-o</span> .windsurfrules`],note:RULES_NOTE},
+    gemini:{rows:[`<span class="dim">curl -sL</span> ${RAW}/GEMINI.md <span class="dim">-o</span> GEMINI.md`],note:RULES_NOTE},
+    copilot:{rows:[`<span class="dim">mkdir -p .github &amp;&amp; curl -sL</span> ${RAW}/.github/copilot-instructions.md <span class="dim">-o</span> .github/copilot-instructions.md`],note:RULES_NOTE},
+    autohand:{rows:[`<span class="dim">git clone --depth 1</span> ${REPO} <span class="dim">/tmp/naksha</span>`,
+      '<span class="dim">cp</span> /tmp/naksha/AGENTS.md . <span class="dim">&amp;&amp; mkdir -p</span> .autohand/skills <span class="dim">&amp;&amp; cp -r</span> /tmp/naksha/skills/design .autohand/skills/naksha-design'],
+      note:'Run in your project root. Autohand Code CLI reads AGENTS.md and loads the naksha-design skill.'},
+  };
+  const tabs=document.getElementById('tabs'), rowsEl=document.getElementById('cmdrows'),
+        noteEl=document.getElementById('cmdnote'), copyStatus=document.getElementById('copystatus');
+  function renderCmd(key){
+    const c=CMDS[key], multi=c.rows.length>1;
+    rowsEl.innerHTML=c.rows.map((r,i)=>`<div class="cmd">${multi?`<span class="step">${i+1}</span>`:''}<code>${r}</code><button class="copy" aria-label="Copy ${multi?'step '+(i+1):'install command'}">[ COPY ]</button></div>`).join('');
+    noteEl.innerHTML=c.note;
+  }
+  tabs.addEventListener('click',e=>{const b=e.target.closest('button'); if(!b)return;
+    [...tabs.children].forEach(x=>{const on=x===b; x.classList.toggle('on',on); x.setAttribute('aria-pressed',on);}); renderCmd(b.dataset.cmd);});
+  function selectCode(code){ const r=document.createRange(); r.selectNodeContents(code); const s=getSelection(); s.removeAllRanges(); s.addRange(r); }
+  rowsEl.addEventListener('click',async e=>{
+    const btn=e.target.closest('.copy'); if(!btn) return;
+    const code=btn.parentElement.querySelector('code');
+    try{
+      if(!navigator.clipboard) throw 0;
+      await navigator.clipboard.writeText(code.textContent);
+      btn.textContent='[ COPIED ]'; btn.classList.add('copied'); copyStatus.textContent='Copied to clipboard';
+      setTimeout(()=>{ btn.textContent='[ COPY ]'; btn.classList.remove('copied'); copyStatus.textContent=''; },1400);
+    }catch{ selectCode(code); btn.textContent='[ SELECTED ]'; copyStatus.textContent='Command selected, press Ctrl+C or Command+C to copy'; setTimeout(()=>btn.textContent='[ COPY ]',2200); }
+  });
+
+  // ---- command index + team roster (data-driven; data pulled from commands/*.md + SKILL.md) ----
+  const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const COMMANDS = [{"cat":"Design & build","items":[{"n":"/design","d":"Design anything"},{"n":"/design-template","d":"Generate a production-ready web page from a curated template…"},{"n":"/design-framework","d":"Convert HTML/CSS design output to framework-specific component…"},{"n":"/design-system","d":"Generate design tokens, theme configuration, or extract a…"},{"n":"/design-md","d":"Lint, import and export DESIGN.md design systems"},{"n":"/design-sprint","d":"Guided design sprint methodology"},{"n":"/design-tutorial","d":"Interactive guided tour of Naksha"},{"n":"/design-variants","d":"Compare 2–5 distinct directions side by side, then pick"}]},{"cat":"Figma & handoff","items":[{"n":"/figma","d":"Convert a Figma design to production code"},{"n":"/figma-create","d":"Create designs directly in Figma"},{"n":"/figma-component-library","d":"Generate a complete component library in Figma from a design…"},{"n":"/figma-prototype","d":"Create interactive prototype connections between Figma frames"},{"n":"/figma-responsive","d":"Generate mobile and tablet variants from a desktop Figma wireframe"},{"n":"/figma-sync","d":"Detect drift between Figma designs and code implementation"},{"n":"/site-to-figma","d":"Capture a live website and recreate its layout in Figma as…"},{"n":"/design-handoff","d":"Generate a developer handoff document from a Figma file"},{"n":"/design-present","d":"Generate an interactive HTML presentation from Figma screens"},{"n":"/component-docs","d":"Auto-generate component documentation from Figma"}]},{"cat":"Review & audit","items":[{"n":"/design-review","d":"Review an existing design for quality"},{"n":"/design-detect","d":"Free, instant design lint — contrast, spacing, type scale, clichés"},{"n":"/design-critique","d":"UX heuristic review of Figma screens"},{"n":"/design-qa","d":"Visual QA on an HTML/CSS implementation"},{"n":"/design-score","d":"Quantitative 0–100 design quality score across Accessibility,…"},{"n":"/ux-audit","d":"Audit a Figma file against a design brief"},{"n":"/accessibility-audit","d":"Full WCAG AA accessibility audit on an HTML file"},{"n":"/lint-design","d":"Scan a Figma file for design quality issues"},{"n":"/design-compare","d":"Capture two websites with Playwright and produce a structured…"},{"n":"/competitive-audit","d":"Capture a competitor website with Playwright and extract its…"},{"n":"/ab-variants","d":"Generate A/B test design variants from an existing Figma screen"}]},{"cat":"Brand","items":[{"n":"/brand-strategy","d":"Define or audit a brand"},{"n":"/brand-kit","d":"Generate a complete brand kit from a logo and 1-2 brand colors"}]},{"cat":"Social","items":[{"n":"/social-content","d":"Design social media visual content"},{"n":"/social-campaign","d":"Plan a social media campaign"},{"n":"/social-analytics","d":"Design a social media analytics dashboard, generate a…"}]},{"cat":"Email","items":[{"n":"/email-template","d":"Generate a production-ready HTML email template"},{"n":"/email-campaign","d":"Plan and write a complete multi-email campaign sequence"},{"n":"/email-audit","d":"Full-spectrum email audit"}]},{"cat":"Data viz","items":[{"n":"/chart-design","d":"Design a chart or data visualization"},{"n":"/dashboard-layout","d":"Design and build a complete dashboard layout"},{"n":"/data-viz-audit","d":"Audit a data visualization for chart type selection,…"}]},{"cat":"Motion, video & decks","items":[{"n":"/motion-design","d":"Design micro-interactions, transitions, and animation systems…"},{"n":"/illustration-system","d":"Design an illustration style guide, icon system, or SVG asset…"},{"n":"/presentation-design","d":"Design a complete presentation deck"},{"n":"/video-script","d":"Write a video script, storyboard, or content series plan for…"},{"n":"/design-reel","d":"Record naksha's design team working"}]},{"cat":"AI generation","items":[{"n":"/gen-image","d":"Generate a brand-aligned AI image"},{"n":"/gen-video","d":"Generate video output in one of three modes: Remotion…"},{"n":"/gen-audio","d":"Generate an AI audio brief"},{"n":"/gen-moodboard","d":"Generate 3 AI moodboard directions for a concept or campaign"},{"n":"/prompt-refine","d":"Diagnose and optimize any AI gen prompt"}]},{"cat":"Print","items":[{"n":"/print-layout","d":"Design a single print artifact (business card, flyer,…"},{"n":"/pdf-report","d":"Generate a multi-page print-ready report or document layout…"},{"n":"/print-audit","d":"Audit a print layout for bleed, safe zone, color mode, font…"}]},{"cat":"Conversational & spatial","items":[{"n":"/design-chatbot","d":"Design a complete chatbot or conversational assistant UI"},{"n":"/design-voice-ui","d":"Design a voice interface"},{"n":"/design-spatial","d":"Design a spatial computing interface for visionOS, Vision Pro,…"},{"n":"/design-ar-overlay","d":"Design an AR overlay interface"}]},{"cat":"Compliance","items":[{"n":"/design-compliance","d":"Audit or generate regulation-specific UI patterns for HIPAA,…"},{"n":"/design-gdpr","d":"Design GDPR/CCPA-compliant consent flows"}]},{"cat":"Project & memory","items":[{"n":"/naksha-init","d":"Initialize Naksha project memory"},{"n":"/naksha-remember","d":"Record a design constraint, component pattern, or decision to…"},{"n":"/naksha-taste","d":"Teach naksha your taste: the directions you like and don't"},{"n":"/naksha-vote","d":"Vote Helpful or Needs work — teaches taste, keeps judges honest"},{"n":"/naksha-dashboard","d":"Watch your design team work live, in a local dashboard"},{"n":"/naksha-stats","d":"See tokens and estimated cost per command, against your budget"},{"n":"/naksha-status","d":"Show current Naksha project memory"},{"n":"/naksha-browse","d":"Browse any URL with browser vision"},{"n":"/naksha-doctor","d":"Run all naksha quality checks and report the plugin's health…"},{"n":"/naksha-help","d":"Quick-reference for any Naksha command"},{"n":"/pipeline","d":"Run multi-command design pipelines"}]}];
+  const ci=document.getElementById('cmdindex');
+  if(ci) ci.innerHTML=COMMANDS.map(g=>`<div class="cmd-group"><h3>${esc(g.cat)} <span class="n">${g.items.length}</span></h3><div class="cmd-grid">${g.items.map(c=>`<div class="cmd-item"><div class="cn">${esc(c.n)}</div><div class="cd">${esc(c.d)}</div></div>`).join('')}</div></div>`).join('');
+
+  const ROLES=[
+    {group:'Leadership',items:[{r:'Creative Director',d:'Sets the visual vision, mood, and creative direction'},{r:'Design Manager',d:'Reads the brief, assembles the team, ensures delivery'}]},
+    {group:'Core craft',items:[{r:'Product Designer',d:'End-to-end UX, feature scoping, business outcomes'},{r:'UX Designer',d:'User journeys, wireframes, information architecture'},{r:'UI Designer',d:'Typography, color, layout — the polished surface'},{r:'UX Researcher',d:'Usability heuristics, user validation, a11y audit'},{r:'Content Designer',d:'Microcopy, labels, error states, tone of voice'},{r:'Design System Lead',d:'Tokens, components, theming, dark-mode consistency'},{r:'Motion Designer',d:'Transitions, micro-interactions, state changes'},{r:'Framework Specialist',d:'Ships React, Vue, Svelte, Next.js, Astro code'}]},
+    {group:'Social',items:[{r:'Social Media Designer',d:'Stories, reels, carousels, ad creative, safe zones'},{r:'Social Media Strategist',d:'Campaigns, content calendars, platform strategy'},{r:'Social Media Copywriter',d:'Captions, hooks, CTAs, platform voice'},{r:'Growth/Analytics Specialist',d:'KPIs, funnels, A/B tests, conversion tracking'}]},
+    {group:'Email & data',items:[{r:'Email Designer',d:'Cross-client HTML email, responsive, dark mode'},{r:'Email Copywriter',d:'Subject lines, sequences, deliverability-safe copy'},{r:'Data Viz Designer',d:'Chart type, accessible palettes, chart ARIA'},{r:'Dashboard Architect',d:'KPI cards, information hierarchy, filter bars'}]},
+    {group:'Brand & production',items:[{r:'Brand Strategist',d:'Positioning, identity systems, voice and tone'},{r:'Illustration Director',d:'Icon systems, spot illustration, SVG style'},{r:'Presentation Designer',d:'Decks, slide systems, visual hierarchy'},{r:'Print Designer',d:'Bleed, CMYK, preflight-ready print layouts'},{r:'Video/Content Producer',d:'Scripts, storyboards, short-form pacing'}]},
+    {group:'AI & frontier',items:[{r:'AI Image Director',d:'Brand-aligned image-gen prompts and seeds'},{r:'AI Video Director',d:'Shot prompts for Runway, Kling, Sora, Pika'},{r:'AI Audio & Voice Producer',d:'Voiceover and music briefs, timing to video'},{r:'AI Prompt Engineer',d:'Reusable brand prompt libraries across tools'},{r:'Conversational Designer',d:'Chatbot UI, dialog flows, voice interfaces'},{r:'Spatial Designer',d:'visionOS, WebXR, AR overlays, depth UI'},{r:'Compliance Designer',d:'GDPR, HIPAA, PCI, ADA-compliant flows'}]},
+  ];
+  const tr=document.getElementById('teamroster');
+  if(tr) tr.innerHTML=ROLES.map(g=>`<div class="team-col"><h3>${esc(g.group)}</h3>${g.items.map(r=>`<div class="role"><div class="rn">${esc(r.r)}</div><div class="rd">${esc(r.d)}</div></div>`).join('')}</div>`).join('');
+
+  // ---- before/after compare slider ----
+  (()=>{ const ba=document.getElementById('ba'), range=document.getElementById('baRange');
+    if(ba&&range) range.addEventListener('input',()=>ba.style.setProperty('--x',range.value+'%')); })();
+
+  // ---- pinned demo panel (left) driven by the scrolling copy blocks (right) ----
+  const STEPS=[
+    {cap:'NAKSHA — RUN THE TEAM', foot:'naksha designs the screen, role by role.',
+     lines:['<span class="you">you ›</span> /design a pricing page',
+            '<span class="dim">spinning up the agency…</span>',
+            '<span class="role">Creative Director</span> anchors on the Pro tier.',
+            '<span class="role">UX Designer</span> lays out 3 tiers + annual toggle.',
+            '<span class="role">UI Designer</span> applies tokens, type scale, spacing.',
+            '<span class="ok">✓</span> design-output.html ready']},
+    {cap:'NAKSHA — EVERY ROLE WEIGHS IN', foot:'every specialist makes one real decision.',
+     lines:['<span class="dim">› the rest of the team weighs in</span>',
+            '<span class="role">Content Designer</span> "Save 20%" beats "−20%".',
+            '<span class="role">Design System Lead</span> one accent, 8px grid.',
+            '<span class="role">Accessibility</span> contrast AA, 44px targets.',
+            '<span class="ok">✓</span> 5 roles · 1 screen · agreed']},
+    {cap:'NAKSHA — WATCH IT BACK', foot:'/design-reel turns the run into a video.',
+     lines:['<span class="you">you ›</span> /design-reel',
+            '<span class="dim">extracting role beats…</span>',
+            '<span class="role">naksha</span> 5 beats · after-only mode',
+            '<span class="dim">rendering 9:16 + 16:9…</span>',
+            '<span class="ok">✓</span> reel-9x16.mp4 · reel-16x9.mp4']},
+    {cap:'NAKSHA — IT REMEMBERS', foot:'project memory seeds your next command.',
+     lines:['<span class="you">you ›</span> /naksha-remember grid 8px, brand #5C50E8',
+            '<span class="ok">✓</span> saved to project memory',
+            '<span class="dim">next /design uses it automatically</span>',
+            '<span class="role">naksha</span> remembers, so you don\'t repeat yourself.']},
+  ];
+  const stageBody=document.getElementById('stagebody'), cap=document.getElementById('stagecap'),
+        stageFoot=document.getElementById('stagefoot'), blocks=[...document.querySelectorAll('.stage-block')];
+  let curStep=-1;
+  function renderStage(i){
+    if(i===curStep) return; curStep=i;
+    const s=STEPS[i];
+    cap.textContent=s.cap;
+    stageFoot.textContent=s.foot;
+    stageBody.innerHTML=s.lines.map((l,k)=>`<div style="animation-delay:${k*0.1}s">${l}</div>`).join('')
+      + `<div style="animation-delay:${s.lines.length*0.1}s"><span class="cur">▋</span></div>`;
+    blocks.forEach((b,k)=>b.classList.toggle('active',k===i));
+  }
+  if(matchMedia('(max-width:860px)').matches){
+    // phone: the shared panel can't pin, so render each step's terminal inline under its own block
+    blocks.forEach((b,i)=>{ const s=STEPS[i]; if(!s) return;
+      const t=document.createElement('div'); t.className='stage-mini';
+      t.innerHTML=`<div class="sm-bar"><span class="live"></span> ${s.cap}</div>`+
+        `<div class="sm-body">${s.lines.map(l=>`<div>${l}</div>`).join('')}</div>`+
+        `<div class="sm-foot">${s.foot}</div>`;
+      b.appendChild(t);
+    });
+  } else {
+    renderStage(0);
+    // each copy block is ~one viewport tall; whichever crosses center is active and drives the panel
+    const sio=new IntersectionObserver(es=>{es.forEach(en=>{ if(en.isIntersecting) renderStage(+en.target.dataset.step); });},
+      {rootMargin:'-45% 0px -45% 0px'});
+    blocks.forEach(b=>sio.observe(b));
+  }
+
+  // ---- crooked mode: naksha tilts its own page ----
+  const reduceMotion=matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if(localStorage.getItem('naksha-reverted')) document.body.classList.add('reverted');
+  if(!reduceMotion){                                  // motion-sensitive users never get the tilt
+    const cio=new IntersectionObserver(es=>{es.forEach(en=>{
+      if(en.isIntersecting && !document.body.classList.contains('reverted')) document.body.classList.add('crooked');
+    });},{threshold:.5});
+    cio.observe(document.getElementById('manip'));
+  }
+  document.getElementById('revert').addEventListener('click',()=>{
+    document.body.classList.remove('crooked'); document.body.classList.add('reverted');
+    try{ localStorage.setItem('naksha-reverted','1'); }catch{}   // stay reverted on return visits
+  });
+
+  // ---- Fig.06: interactive blueprint canvas (cursor-reactive grid) ----
+  const cv=document.getElementById('toy'), ctx=cv.getContext('2d');
+  let mx=-999,my=-999;
+  function size(){const r=cv.getBoundingClientRect();cv.width=r.width*devicePixelRatio;cv.height=r.height*devicePixelRatio;ctx.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);}
+  size(); addEventListener('resize',size);
+  cv.addEventListener('pointermove',e=>{const r=cv.getBoundingClientRect();mx=e.clientX-r.left;my=e.clientY-r.top;});
+  cv.addEventListener('pointerleave',()=>{mx=my=-999;});
+  function draw(){
+    const w=cv.width/devicePixelRatio,h=cv.height/devicePixelRatio,g=22;
+    ctx.clearRect(0,0,w,h);
+    for(let x=g;x<w;x+=g)for(let y=g;y<h;y+=g){
+      const d=Math.hypot(x-mx,y-my),k=Math.max(0,1-d/120);
+      ctx.fillStyle=`rgba(142,134,244,${.10+.85*k})`;
+      const s=1+2.4*k; ctx.fillRect(x-s/2,y-s/2,s,s);
+    }
+    if(mx>0){ctx.strokeStyle='rgba(142,134,244,.5)';ctx.lineWidth=1;
+      ctx.beginPath();ctx.moveTo(mx-9,my);ctx.lineTo(mx+9,my);ctx.moveTo(mx,my-9);ctx.lineTo(mx,my+9);ctx.stroke();}
+  }
+  let raf=0;
+  function tick(){ draw(); raf=requestAnimationFrame(tick); }
+  // loop only while the canvas is visible and motion is allowed; else hold a single static frame
+  new IntersectionObserver(es=>{
+    const vis=es[0].isIntersecting;
+    if(vis && !reduceMotion && !raf) raf=requestAnimationFrame(tick);
+    else if((!vis||reduceMotion) && raf){ cancelAnimationFrame(raf); raf=0; }
+  }).observe(cv);
+  draw();
+
+  // ---- premium pointer FX ----
+  const fxReduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  // cursor spotlight: track local coords on each figure card (CSS reads --mx/--my)
+  document.querySelectorAll('.fig').forEach(card=>{
+    let rf=0;
+    card.addEventListener('pointermove',e=>{ if(rf) return; rf=requestAnimationFrame(()=>{ rf=0;
+      const r=card.getBoundingClientRect();
+      card.style.setProperty('--mx',(e.clientX-r.left)+'px');
+      card.style.setProperty('--my',(e.clientY-r.top)+'px'); }); });
+    card.addEventListener('pointerleave',()=>{ card.style.setProperty('--mx','50%'); card.style.setProperty('--my','0%'); });
+  });
+  // magnetic pull on the closing CTA (skip under reduced-motion)
+  if(!fxReduce) document.querySelectorAll('.cta').forEach(btn=>{
+    let rf=0;
+    btn.addEventListener('pointermove',e=>{ if(rf) return; rf=requestAnimationFrame(()=>{ rf=0;
+      const r=btn.getBoundingClientRect();
+      const dx=(e.clientX-(r.left+r.width/2))*0.22, dy=(e.clientY-(r.top+r.height/2))*0.30;
+      btn.style.transform=`translate(${dx.toFixed(1)}px,${(dy-2).toFixed(1)}px)`; }); });
+    btn.addEventListener('pointerleave',()=>{ btn.style.transform=''; });
+  });
+</script>
+</body>
+</html>

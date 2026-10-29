@@ -1,0 +1,120 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.kirilxd.swe-interview-coach",
+  "type": "plugin",
+  "name": "Swe Interview Coach",
+  "slug": "swe-interview-coach",
+  "vendor": "kirilxd",
+  "description": "Turn DipoleML into your SWE interview coach — behavioral, system design & coding training/mocks, all local.",
+  "version": "1.0.0",
+  "homepage": "https://github.com/kirilxd/swe-interview-coach",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "algorithms",
+    "behavioral-interview",
+    "claude-code-plugin",
+    "coding-interview",
+    "dsa",
+    "interview-prep",
+    "leetcode",
+    "mock-interview",
+    "system-design"
+  ],
+  "tags": [
+    "algorithms",
+    "behavioral-interview",
+    "claude-code",
+    "claude-code-plugin",
+    "coding-interview",
+    "dsa",
+    "interview-prep",
+    "leetcode",
+    "mock-interview",
+    "system-design"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "kirilxd",
+    "brandName": "kirilxd",
+    "source": "https://github.com/kirilxd.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:13:44Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "kirilxd/swe-interview-coach",
+    "url": "https://github.com/kirilxd/swe-interview-coach",
+    "commit": "97e4265abd4b559f47776378a1316765e332129e",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 91,
+    "archived": false,
+    "vendoredAt": "2026-10-29T00:04:53Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "CLAUDE.md",
+        "before": "provider-specific agent instructions",
+        "after": "_upstream/provider-manifests/claude/CLAUDE.md",
+        "reason": "archive provider instructions; DIPOLEML.md is authoritative"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Swe Interview Coach | Turn Claude Code into your SWE interview coach — behavioral, system design & coding training/mocks, all local.",
+        "after": "Swe Interview Coach | Turn DipoleML into your SWE interview coach — behavioral, system design & coding training/mocks, all local.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

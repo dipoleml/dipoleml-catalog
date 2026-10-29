@@ -1,0 +1,130 @@
+{
+  "schemaVersion": "1.0",
+  "id": "plugin.michael-denyer.pstack",
+  "type": "plugin",
+  "name": "Pstack",
+  "slug": "pstack",
+  "vendor": "michael-denyer",
+  "description": "DipoleML, Codex, Copilot, Pi, OpenCode, Muse, Gemini, and Prime Agent versions of Poteto's pstack. Rigorous agent workflows with Cursor primitives translated for other harnesses.",
+  "version": "0.9.111",
+  "homepage": "https://github.com/michael-denyer/pstack-claude",
+  "provider": "DipoleML",
+  "categories": [
+    "plugin",
+    "agent-plugin",
+    "agent-skills",
+    "agentic-ai",
+    "anthropic",
+    "chatgpt",
+    "claude-code-skills",
+    "claude-plugin",
+    "claude-skills",
+    "code-review"
+  ],
+  "tags": [
+    "agent-plugin",
+    "agent-skills",
+    "agentic-ai",
+    "anthropic",
+    "chatgpt",
+    "claude",
+    "claude-code",
+    "claude-code-skills",
+    "claude-plugin",
+    "claude-skills",
+    "code-review",
+    "codex",
+    "codex-cli",
+    "codex-plugin",
+    "codex-skills",
+    "coding-agent",
+    "gemini-cli",
+    "muse-plugin",
+    "opencode",
+    "pstack"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.png",
+    "brand": "michael-denyer",
+    "brandName": "michael-denyer",
+    "source": "https://github.com/michael-denyer.png",
+    "license": "GitHub owner avatar; trademark of respective owner",
+    "retrievedAt": "2026-10-29T00:14:01Z",
+    "resolver": "github-avatar"
+  },
+  "source": {
+    "repo": "michael-denyer/pstack-claude",
+    "url": "https://github.com/michael-denyer/pstack-claude",
+    "commit": "190fc9a009491cbcfc04e25ef5b3c2d1fcf5ca8a",
+    "path": "plugins/pstack",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 3578,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:58:29Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "claude",
+    "changes": [
+      {
+        "file": ".claude-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/claude/.claude-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": "dipoleml.json",
+        "before": "Pstack | Claude Code, Codex, Copilot, Pi, OpenCode, Muse, Gemini, and Prime Agent versions of Poteto's pstack. Rigorous agent workflows with Cursor primitives translated for other harnesses.",
+        "after": "Pstack | DipoleML, Codex, Copilot, Pi, OpenCode, Muse, Gemini, and Prime Agent versions of Poteto's pstack. Rigorous agent workflows with Cursor primitives translated for other harnesses.",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "If you want to go fast, go deep first. pstack helps you write less, but higher quality code. rigorous agent workflows you can parallelize with confidence. Ported from cursor/plugins/pstack to Claude Code. Original pstack by Lauren Tan (poteto).",
+        "after": "If you want to go fast, go deep first. pstack helps you write less, but higher quality code. rigorous agent workflows you can parallelize with confidence. Ported from cursor/plugins/pstack to DipoleML. Original pstack by Lauren Tan (poteto).",
+        "reason": "provider branding rewritten to DipoleML in generated metadata"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "plugin",
+      "manifest": ".dipoleml-plugin/plugin.json"
+    }
+  ],
+  "requirements": {
+    "runtimes": [],
+    "packages": [],
+    "env": [],
+    "credentials": []
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "claude"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.png"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

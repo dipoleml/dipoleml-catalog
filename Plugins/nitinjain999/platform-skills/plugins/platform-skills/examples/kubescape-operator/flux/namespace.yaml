@@ -1,0 +1,11 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kubescape   # must match values.ksNamespace; the chart's RBAC and webhooks assume it
+  labels:
+    toolkit.fluxcd.io/tenant: platform
+    # node-agent is a privileged eBPF DaemonSet (hostPID, host mounts). On a
+    # cluster that enforces Pod Security Admission this namespace, and only
+    # this one, needs the privileged level.
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/warn: privileged

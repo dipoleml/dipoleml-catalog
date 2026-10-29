@@ -1,0 +1,19 @@
+{
+  "name": "understanding-ladder",
+  "owner": {
+    "name": "ChangWenC",
+    "url": "https://github.com/ChangWenC"
+  },
+  "metadata": {
+    "description": "Karpathy's understanding ladder as agent skills (English + Chinese).",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "understanding-ladder",
+      "source": "./",
+      "description": "Karpathy's understanding ladder as agent skills: pick text, diagram, interactive HTML, or video storyboard by content type. English + Chinese (plain-chinese).",
+      "version": "0.1.0"
+    }
+  ]
+}

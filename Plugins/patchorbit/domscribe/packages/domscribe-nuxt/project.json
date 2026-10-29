@@ -1,0 +1,56 @@
+{
+  "name": "domscribe-nuxt",
+  "$schema": "../../node_modules/nx/schemas/project-schema.json",
+  "projectType": "library",
+  "sourceRoot": "packages/domscribe-nuxt/src",
+  "tags": ["scope:adapter", "type:adapter-lib", "type:test"],
+  "targets": {
+    "build": {
+      "executor": "@nx/js:tsc",
+      "outputs": ["{workspaceRoot}/dist/packages/domscribe-nuxt"],
+      "options": {
+        "rootDir": "packages/domscribe-nuxt/src",
+        "outputPath": "dist/packages/domscribe-nuxt",
+        "main": "packages/domscribe-nuxt/src/index.ts",
+        "tsConfig": "packages/domscribe-nuxt/tsconfig.lib.json",
+        "generatePackageJson": true,
+        "generateExportsField": true,
+        "assets": [
+          "packages/domscribe-nuxt/*.md",
+          {
+            "input": "packages/domscribe-nuxt/src/runtime",
+            "glob": "**/*.ts",
+            "output": "runtime"
+          }
+        ]
+      }
+    },
+    "lint": {
+      "executor": "@nx/eslint:lint",
+      "outputs": ["{options.outputFile}"],
+      "options": {
+        "eslintConfig": "eslint.config.mjs",
+        "lintFilePatterns": [
+          "packages/domscribe-nuxt/**/*.ts",
+          "packages/domscribe-nuxt/**/*.tsx"
+        ]
+      }
+    },
+    "test": {
+      "executor": "@nx/vitest:test",
+      "outputs": ["{projectRoot}/test-output"],
+      "options": {
+        "config": "packages/domscribe-nuxt/vite.config.ts"
+      }
+    },
+    "typecheck": {
+      "executor": "nx:noop"
+    },
+    "watch-deps": {
+      "executor": "nx:noop"
+    },
+    "build-deps": {
+      "executor": "nx:noop"
+    }
+  }
+}

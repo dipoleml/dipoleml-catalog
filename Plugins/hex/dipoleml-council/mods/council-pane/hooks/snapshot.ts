@@ -1,0 +1,55 @@
+// ABOUTME: Reads one snapshot of a run's watch dir: statuses, answers, errors, colors, and whether it is done
+// ABOUTME: Takes the engine's file access as a parameter so a scripted one can stand in
+
+import { lastEvent, parseStatus } from './status'
+import { parseColors, type RunView } from './view'
+
+export type Files = {
+  exists: (path: string) => Promise<boolean>
+  read: (path: string) => Promise<string>
+  list: (dir: string) => Promise<{ kind: string; name: string }[]>
+}
+
+export async function readText(fs: Files, path: string): Promise<string> {
+  return (await fs.exists(path)) ? await fs.read(path) : ''
+}
+
+async function readFolder(fs: Files, dir: string, suffix: string): Promise<Record<string, string>> {
+  const texts: Record<string, string> = {}
+  if (!(await fs.exists(dir))) return texts
+  for (const entry of await fs.list(dir)) {
+    if (entry.kind !== 'file' || entry.name.startsWith('.') || !entry.name.endsWith(suffix)) continue
+    texts[entry.name.slice(0, -suffix.length)] = await fs.read(`${dir}/${entry.name}`)
+  }
+  return texts
+}
+
+// The names of a folder's plain files; a marker is its name, with nothing to read.
+async function fileNames(fs: Files, dir: string): Promise<string[]> {
+  if (!(await fs.exists(dir))) return []
+  return (await fs.list(dir)).filter(entry => entry.kind === 'file' && !entry.name.startsWith('.')).map(entry => entry.name)
+}
+
+export async function readView(fs: Files, runDir: string): Promise<RunView> {
+  // .done is the run's last write, so it is looked for first: files read
+  // after it was seen are final, where a run ending mid-read would otherwise
+  // be called done over a snapshot taken before its last answer.
+  const isDone = await fs.exists(`${runDir}/.done`)
+  const status = await readText(fs, `${runDir}/status`)
+  const latest = lastEvent(status)
+  // The three marker folders depend on nothing else, so they are read together.
+  const [cancels, retries, retriable] = await Promise.all(['cancel', 'retry', 'retriable'].map(folder => fileNames(fs, `${runDir}/${folder}`)))
+  return {
+    providers: parseStatus(status),
+    responses: await readFolder(fs, `${runDir}/responses`, '.md'),
+    errors: await readFolder(fs, `${runDir}/errors`, '.txt'),
+    // The seats the pane pressed for cancel; a marker stays until the run logs the seat as cancelled.
+    cancels: cancels ?? [],
+    // The seats pressed for retry on their error row, and the seats the run says such a press can re-query.
+    retries: retries ?? [],
+    retriable: retriable ?? [],
+    colors: parseColors(await readText(fs, `${runDir}/colors`)),
+    isDone,
+    ...(latest ? { latest } : {}),
+  }
+}
