@@ -21,9 +21,9 @@ projects. Those projects remain the property of their respective copyright
 holders. Their license terms govern their use, modification, and
 redistribution. See:
 
-- `Catalog/attribution.csv` — item, repository, commit, license, and path.
+- `Catalog/attribution.csv`: item, repository, commit, license, and path.
 - Each item's `LICENSE`, `NOTICE`, and `dipoleml.json` `source` fields.
-- `docs/LICENSING.md` — the catalog's license policy.
+- `docs/LICENSING.md`: the catalog's license policy.
 
 Repositories that did not pass the license policy are not included in the
 marketplace folders. They are listed for review in

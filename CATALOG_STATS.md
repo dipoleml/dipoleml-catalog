@@ -1,4 +1,4 @@
-# DipoleML Catalog — Statistics
+# DipoleML Catalog Statistics
 
 Generated: 2026-10-29T01:02:26Z
 

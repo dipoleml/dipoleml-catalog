@@ -16,9 +16,9 @@
   <img src="https://img.shields.io/badge/license-CC_BY_4.0-lightgrey?style=flat-square" alt="CC BY 4.0">
 </p>
 
-![DipoleML Catalog — MCP servers, plugins, and skills](assets/dipoleml-og.png)
+![DipoleML Catalog: MCP servers, plugins, and skills](assets/dipoleml-og.png)
 
-**Quick answer:** The **DipoleML Catalog** is a curated, machine-readable collection of **259 Model Context Protocol (MCP) servers, 500 plugins, and 1,000 AI skills** — 1,759 validated integrations in total. It is maintained by **Dipole ML Inc.** in Toronto, Canada, and powers the MCP, skill, and plugin marketplaces inside the **Raven Chat App** and **DCode Agentic Harness**.
+**Quick answer:** The **DipoleML Catalog** is a curated, machine-readable collection of **259 Model Context Protocol (MCP) servers, 500 plugins, and 1,000 AI skills** (1,759 validated integrations in total). It is maintained by **Dipole ML Inc.** in Toronto, Canada, and powers the MCP, skill, and plugin marketplaces inside the **Raven Chat App** and **DCode Agentic Harness**.
 
 ---
 
@@ -39,7 +39,7 @@
 
 ## What is the DipoleML Catalog?
 
-The DipoleML Catalog is the integration layer for Dipole ML's agent products. Each entry describes one capability an AI agent can use — a database connector, a browser tool, a document workflow, a coding skill, a design plugin — in a format the Raven Chat App and DCode Agentic Harness can load consistently.
+The DipoleML Catalog is the integration layer for Dipole ML's agent products. Each entry describes one capability an AI agent can use, such as a database connector, a browser tool, a document workflow, a coding skill, or a design plugin, in a format the Raven Chat App and DCode Agentic Harness can load consistently.
 
 Every entry ships with:
 
@@ -220,7 +220,7 @@ An MCP server implements the Model Context Protocol, an open standard that lets 
 
 ### What is an AI skill?
 
-A skill is a focused, reusable instruction package — usually a `SKILL.md` file plus supporting references — that teaches an agent how to perform a specific task, such as editing prose, reviewing code, analyzing a spreadsheet, or preparing a presentation.
+A skill is a focused, reusable instruction package, usually a `SKILL.md` file plus supporting references, that teaches an agent how to perform a specific task, such as editing prose, reviewing code, analyzing a spreadsheet, or preparing a presentation.
 
 ### What is an AI plugin?
 
@@ -232,7 +232,7 @@ The **Raven Chat App** and **DCode Agentic Harness** use it as the source of tru
 
 ### How many integrations are included?
 
-259 MCP servers, 500 plugins, and 1,000 skills — 1,759 items in total.
+259 MCP servers, 500 plugins, and 1,000 skills (1,759 items in total).
 
 ### How are integrations selected?
 
@@ -256,15 +256,15 @@ The catalog itself contains no credentials or user data. Runtime data handling i
 
 ## About Dipole ML Inc.
 
-**Dipole ML Inc.** is a Toronto-based Canadian sovereign frontier AI lab. It builds and serves frontier intelligence from Canada — models, an agentic development environment, and an independent API — under three engineering pillars: **access, autonomy, and trust**. Data is handled under Canadian jurisdiction with PIPEDA and GDPR alignment; customer data is never sold.
+**Dipole ML Inc.** is a Toronto-based Canadian sovereign frontier AI lab. It builds and serves frontier intelligence from Canada: models, an agentic development environment, and an independent API, under three engineering pillars: **access, autonomy, and trust**. Data is handled under Canadian jurisdiction with PIPEDA and GDPR alignment; customer data is never sold.
 
 The company began in 2022 as a self-funded research effort by founder and president **Saurabh Sharma**, without outside venture capital. After four years building the full stack, Dipole ML launched globally on **October 1, 2026** with the Raven model family, DCode 1.0, and the DipoleML API.
 
-- **Raven Max** — the flagship model for complex engineering, long-horizon planning, and auditable reasoning.
-- **Raven Flash** — the low-latency, high-throughput default engine in DCode and the Raven app.
-- **Raven Chat App** — the cross-device assistant experience.
-- **DCode Agentic Harness** — the Agentic Development Environment (ADE) and CLI for repository-aware software work.
-- **DipoleML API** — OpenAI- and Anthropic-compatible endpoints at `api.dipoleml.com`.
+- **Raven Max**: the flagship model for complex engineering, long-horizon planning, and auditable reasoning.
+- **Raven Flash**: the low-latency, high-throughput default engine in DCode and the Raven app.
+- **Raven Chat App**: the cross-device assistant experience.
+- **DCode Agentic Harness**: the Agentic Development Environment (ADE) and CLI for repository-aware software work.
+- **DipoleML API**: OpenAI- and Anthropic-compatible endpoints at `api.dipoleml.com`.
 
 > **Canada's Sovereign Intelligence.** Private by design. Defended by default. Made in Canada.
 >

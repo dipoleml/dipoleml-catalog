@@ -2,9 +2,9 @@
 
 The DipoleML Catalog uses three layers:
 
-1. `marketplace.json` — the marketplace entrypoint.
-2. `Catalog/catalog.json` — the full item index.
-3. Each item's `dipoleml.json` — the authoritative item manifest.
+1. `marketplace.json`: the marketplace entrypoint.
+2. `Catalog/catalog.json`: the full item index.
+3. Each item's `dipoleml.json`: the authoritative item manifest.
 
 ## Marketplace entrypoint
 

@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.0 — 2026-10-29
+## 1.0.0 (2026-10-29)
 
 Initial curated release for the **Raven Chat App** and **DCode Agentic Harness**
 marketplaces.

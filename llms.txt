@@ -7,8 +7,8 @@
 ## Canonical description
 
 The DipoleML Catalog is Dipole ML Inc.'s curated, machine-readable integration
-layer for AI agents. It contains 1,759 validated entries — 259 Model Context
-Protocol (MCP) servers, 500 plugins, and 1,000 skills — used by the Raven Chat
+layer for AI agents. It contains 1,759 validated entries: 259 Model Context
+Protocol (MCP) servers, 500 plugins, and 1,000 skills, used by the Raven Chat
 App and DCode Agentic Harness to populate their MCP, skill, and plugin
 marketplaces. Each entry includes a `dipoleml.json` manifest, a `DIPOLEML.md`
 page, a logo with provenance, an upstream license, and a concrete entrypoint.
@@ -27,17 +27,17 @@ page, a logo with provenance, an upstream license, and a concrete entrypoint.
 
 ## Repository map
 
-- `marketplace.json` — marketplace entrypoint and counts.
-- `Catalog/catalog.json` — full machine-readable catalog.
-- `Catalog/schema.json` — JSON Schema for item manifests.
-- `Catalog/INDEX.md` — compact human-readable summary.
-- `Catalog/indexes/` — small per-type index files.
-- `Catalog/attribution.csv` — item, repository, commit, license, path.
-- `MCP/` — MCP servers.
-- `Plugins/` — plugins.
-- `Skills/` — skills.
-- `docs/CATALOG_FORMAT.md` — manifest and entrypoint reference.
-- `docs/LICENSING.md` — license policy.
+- `marketplace.json`: marketplace entrypoint and counts.
+- `Catalog/catalog.json`: full machine-readable catalog.
+- `Catalog/schema.json`: JSON Schema for item manifests.
+- `Catalog/INDEX.md`: compact human-readable summary.
+- `Catalog/indexes/`: small per-type index files.
+- `Catalog/attribution.csv`: item, repository, commit, license, path.
+- `MCP/`: MCP servers.
+- `Plugins/`: plugins.
+- `Skills/`: skills.
+- `docs/CATALOG_FORMAT.md`: manifest and entrypoint reference.
+- `docs/LICENSING.md`: license policy.
 
 ## FAQ
 

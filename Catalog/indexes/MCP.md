@@ -1,4 +1,4 @@
-# MCP Servers — DipoleML Catalog
+# DipoleML Catalog: MCP Servers
 
 Generated: `2026-10-29T00:44:43Z`
 
