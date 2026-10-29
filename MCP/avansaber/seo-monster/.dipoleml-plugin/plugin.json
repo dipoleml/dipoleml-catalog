@@ -1,0 +1,16 @@
+{
+  "name": "seo-monster",
+  "displayName": "Seo Monster",
+  "version": "0.5.0",
+  "description": "User-credential-driven MCP server for SEO workflows over Google Search Console, GA4, PageSpeed Insights, Cloudflare, IndexNow, Chrome UX Report, and a stdlib HTTP client for technical-SEO checks.",
+  "provider": "DipoleML",
+  "author": {
+    "name": "Avansaber"
+  },
+  "license": "MIT",
+  "homepage": "https://seomonster.avansaber.com",
+  "repository": "https://github.com/avansaber/seo-monster",
+  "skills": [],
+  "commands": [],
+  "agents": []
+}

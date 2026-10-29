@@ -1,0 +1,140 @@
+{
+  "schemaVersion": "1.0",
+  "id": "mcp.avansaber.seo-monster",
+  "type": "mcp",
+  "name": "Seo Monster",
+  "slug": "seo-monster",
+  "vendor": "avansaber",
+  "description": "SEOMonster: a local, user-credential-driven MCP server for SEO workflows over Google Search Console, GA4, PageSpeed Insights, and Cloudflare. Read-first, open source.",
+  "version": "0.5.0",
+  "homepage": "https://github.com/avansaber/seo-monster",
+  "provider": "DipoleML",
+  "categories": [
+    "mcp-server",
+    "integration",
+    "anthropic",
+    "cloudflare",
+    "core-web-vitals",
+    "crux",
+    "ga4",
+    "indexnow",
+    "model-context-protocol",
+    "pagespeed"
+  ],
+  "tags": [
+    "ai",
+    "anthropic",
+    "claude",
+    "cloudflare",
+    "core-web-vitals",
+    "crux",
+    "ga4",
+    "indexnow",
+    "mcp",
+    "model-context-protocol",
+    "pagespeed",
+    "search-console",
+    "seo",
+    "technical-seo"
+  ],
+  "capabilities": [],
+  "logo": {
+    "file": "logo.svg",
+    "brand": "google",
+    "brandName": "google",
+    "source": "https://cdn.simpleicons.org/google",
+    "license": "CC0-1.0 (Simple Icons); trademark of brand owner",
+    "retrievedAt": "2026-10-29T00:10:42Z",
+    "resolver": "simple-icons:slug"
+  },
+  "source": {
+    "repo": "avansaber/seo-monster",
+    "url": "https://github.com/avansaber/seo-monster",
+    "commit": "6b727c12bc22db04602164a1a97685f8a084e1e9",
+    "path": "",
+    "license": "MIT",
+    "licenseClass": "green",
+    "stars": 556,
+    "archived": false,
+    "vendoredAt": "2026-10-28T23:47:46Z"
+  },
+  "neutralization": {
+    "applied": true,
+    "originalProvider": "cursor",
+    "changes": [
+      {
+        "file": ".cursor-plugin/",
+        "before": "active provider manifest",
+        "after": "_upstream/provider-manifests/cursor/.cursor-plugin",
+        "reason": "archive provider manifest; DipoleML manifest generated"
+      },
+      {
+        "file": ".dipoleml-plugin/plugin.json",
+        "before": "",
+        "after": "generated",
+        "reason": "DipoleML-native plugin manifest"
+      }
+    ]
+  },
+  "entrypoints": [
+    {
+      "kind": "mcp-stdio",
+      "command": "uvx",
+      "args": [
+        "seo-monster"
+      ]
+    }
+  ],
+  "requirements": {
+    "runtimes": [
+      "python3"
+    ],
+    "packages": [
+      "seo-monster"
+    ],
+    "env": [
+      "SEO_MCP_INDEXNOW_KEY",
+      "SEO_MCP_INDEXNOW_KEY_LOCATION",
+      "PSI_API_KEY",
+      "SEO_MCP_GOOGLE_TOKEN",
+      "CF_API_TOKEN",
+      "OPENPAGERANK_API_KEY",
+      "PERPLEXITY_API_KEY",
+      "OPENAI_API_KEY",
+      "ANTHROPIC_API_KEY",
+      "GEMINI_API_KEY",
+      "GOOGLE_ADS_DEVELOPER_TOKEN"
+    ],
+    "credentials": [
+      "SEO_MCP_INDEXNOW_KEY",
+      "SEO_MCP_INDEXNOW_KEY_LOCATION",
+      "PSI_API_KEY",
+      "SEO_MCP_GOOGLE_TOKEN",
+      "CF_API_TOKEN",
+      "OPENPAGERANK_API_KEY",
+      "PERPLEXITY_API_KEY",
+      "OPENAI_API_KEY"
+    ]
+  },
+  "compatibility": {
+    "upstreamProviders": [
+      "cursor"
+    ],
+    "notes": "Upstream executable code is unmodified. Provider manifests are archived under _upstream/ and DipoleML metadata is authoritative.",
+    "dipoleml": ">=1.0"
+  },
+  "files": {
+    "manifest": "dipoleml.json",
+    "readme": "DIPOLEML.md",
+    "license": "LICENSE",
+    "logo": "logo.svg"
+  },
+  "quality": {
+    "validated": false,
+    "checks": [
+      "license:MIT",
+      "provider-archived",
+      "manifest-generated"
+    ]
+  }
+}

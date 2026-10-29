@@ -1,0 +1,52 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Verdaccio Server",
+      "type": "shell",
+      "command": "npx verdaccio --config .verdaccio/config.yml --listen 4873",
+      "isBackground": true,
+      "presentation": {
+        "group": "server",
+        "reveal": "silent"
+      },
+      "problemMatcher": {
+        "pattern": {
+          "regexp": "^$"
+        },
+        "background": {
+          "activeOnStart": true,
+          "beginsPattern": "^.*verdaccio.*$",
+          "endsPattern": "http://localhost:4873"
+        }
+      },
+      "runOptions": {
+        "runOn": "folderOpen"
+      }
+    },
+    {
+      "label": "Test, Lint & Build All",
+      "type": "shell",
+      "command": "pnpm build-all",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "reveal": "silent",
+        "close": true
+      },
+      "problemMatcher": []
+    },
+    {
+      "label": "Release Local",
+      "type": "shell",
+      "command": "pnpm release:local",
+      "presentation": {
+        "reveal": "silent",
+        "close": true
+      },
+      "problemMatcher": []
+    }
+  ]
+}

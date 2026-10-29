@@ -1,0 +1,90 @@
+{
+  // Use IntelliSense to learn about possible attributes.
+  // Hover to view descriptions of existing attributes.
+  // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Attach by Process ID",
+      "processId": "${command:PickProcess}",
+      "request": "attach",
+      "skipFiles": ["<node_internals>/**"],
+      "type": "node"
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Debug Tests",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["test"],
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env"
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Debug Server",
+      "skipFiles": ["<node_internals>/**"],
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["start"],
+      "preLaunchTask": "tsc: build - tsconfig.build.json",
+      "outFiles": ["${workspaceFolder}/dist/**/*.js"]
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Debug generate-arguments",
+      "skipFiles": ["<node_internals>/**"],
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": [
+        "exec",
+        "tsx",
+        "--tsconfig",
+        "scripts/generate/tsconfig.json",
+        "scripts/generate/index.ts"
+      ],
+      "cwd": "${workspaceFolder}"
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Debug generate-release-notes",
+      "skipFiles": ["<node_internals>/**"],
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["--inspect-brk"],
+      "program": "${workspaceFolder}/packages/scripts/src/generate-release-notes.ts",
+      "args": [
+        "--newVersion",
+        "${input:releaseVersion}",
+        "--commitSha",
+        "${input:commitSha}"
+      ],
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env"
+    },
+    {
+      "type": "node",
+      "request": "launch",
+      "name": "Debug Eval",
+      "skipFiles": ["<node_internals>/**"],
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["run", "eval:debug"],
+      "cwd": "${workspaceFolder}",
+      "envFile": "${workspaceFolder}/.env"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "releaseVersion",
+      "type": "promptString",
+      "description": "Git tag version to generate release notes for",
+      "default": "vNext"
+    },
+    {
+      "id": "commitSha",
+      "type": "promptString",
+      "description": "Commit SHA or branch (leave empty to use HEAD)",
+      "default": ""
+    }
+  ]
+}

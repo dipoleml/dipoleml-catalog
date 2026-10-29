@@ -1,0 +1,28 @@
+services:
+  mcp-bridge:
+    build:
+      context: .
+    develop:
+      watch:
+        - path: mcp_bridge
+          action: rebuild
+    container_name: mcp-bridge
+    ports:
+      - "8000:8000"
+    environment:
+      - MCP_BRIDGE__CONFIG__FILE=config.json # mount the config file for this to work
+      # - MCP_BRIDGE__CONFIG__HTTP_URL=http://10.88.100.170:8888/config.json
+      # - MCP_BRIDGE__CONFIG__JSON=
+    # volumes:
+    #   - ./config.json:/mcp_bridge/config.json
+    restart: unless-stopped
+
+  jaeger:
+    image: jaegertracing/jaeger:latest
+    ports:
+      - "16686:16686"   # Web UI
+      # - "4317:4317"     # OTLP gRPC
+      - "4318:4318"     # OTLP HTTP
+      # - "5778:5778"     # Config server
+      # - "9411:9411"     # Zipkin compatible
+    restart: unless-stopped

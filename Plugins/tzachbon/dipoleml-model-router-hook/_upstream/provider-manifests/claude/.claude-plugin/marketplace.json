@@ -1,0 +1,23 @@
+{
+  "$schema": "https://anthropic.com/claude-code/marketplace.schema.json",
+  "name": "claude-model-router-hook",
+  "owner": {
+    "name": "tzachbon"
+  },
+  "metadata": {
+    "description": "Automatic model switching for Claude Code based on prompt complexity"
+  },
+  "plugins": [
+    {
+      "name": "claude-model-router-hook",
+      "description": "Automatic model switching for Claude Code based on prompt complexity. No API key required.",
+      "version": "2.1.0",
+      "author": {
+        "name": "tzachbon"
+      },
+      "source": "./plugins/claude-model-router-hook",
+      "category": "automation",
+      "tags": ["model", "routing", "hooks", "automation", "cost-optimization"]
+    }
+  ]
+}
